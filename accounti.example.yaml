@@ -1,0 +1,44 @@
+# accounti Konfiguration
+# Kopiere diese Datei nach config/accounti.yaml und passe sie an.
+
+# Datenbank
+database:
+  url: "postgresql://accounti:accounti@localhost:5432/accounti"
+
+# Mandant
+mandant:
+  name: "Meine Firma GmbH"
+  kontenrahmen: SKR03          # SKR03 oder SKR04
+  sachkonten_laenge: 4         # 4 oder 6
+
+# DATEV-Export
+datev:
+  berater_nummer: "12345"
+  mandanten_nummer: "00001"
+  wirtschaftsjahr_beginn: "2026-01-01"
+
+# KI-Klassifikation
+llm:
+  # Provider: anthropic, openai, ollama
+  provider: "anthropic"
+  model: "claude-sonnet-4-20250514"
+  api_key: "${ANTHROPIC_API_KEY}"    # Umgebungsvariable
+
+  # Ab welcher Confidence automatisch buchen (0.0-1.0)?
+  auto_buchen_schwelle: 0.95
+
+  # Ab welcher Confidence zur Prüfung vorlegen (darunter = manuell)?
+  pruefung_schwelle: 0.70
+
+# Import-Einstellungen
+import:
+  # Standard-Bankformat (wenn --format=auto)
+  standard_bank: "sparkasse"
+
+  # Duplikaterkennung
+  duplikat_check: true
+
+# Server
+server:
+  host: "127.0.0.1"
+  port: 8400
