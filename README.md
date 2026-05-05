@@ -82,7 +82,7 @@ Bankdaten / ERP / Marktplätze
 ### Installation
 
 ```bash
-git clone https://github.com/DEIN-USER/accounti.git
+git clone https://github.com/GalieJJ/accounti.git
 cd accounti
 python -m venv .venv
 source .venv/bin/activate
