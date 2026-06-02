@@ -9,8 +9,6 @@ https://developer.datev.de/datev/platform/de/dtvf
 
 from __future__ import annotations
 
-import csv
-import io
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -96,7 +94,7 @@ class DATEVExporter:
         return {
             "Umsatz (ohne Soll/Haben-Kz)": betrag_str,
             "Soll/Haben-Kennzeichen": soll_haben,
-            "WKZ Umsatz": self.config.waehrung,
+            "WKZ Umsatz": "",  # Währung steht im Header, nicht pro Zeile
             "Kurs": "",
             "Basis-Umsatz": "",
             "WKZ Basis-Umsatz": "",
@@ -173,21 +171,24 @@ class DATEVExporter:
             "Kostenstelle",
         ]
 
-        # DATEV erwartet CRLF als Zeilenende. csv.writer schreibt bereits "\r\n";
-        # die Header-Zeile bekommt es explizit. Beim Schreiben newline="" setzen,
-        # damit "\n" nicht erneut zu "\r\n" übersetzt wird (sonst Leerzeilen).
-        output = io.StringIO()
-        # Zeile 1: Header
-        output.write(header + "\r\n")
-        # Zeile 2: Spaltenüberschriften
-        writer = csv.DictWriter(
-            output, fieldnames=spalten, delimiter=";", quoting=csv.QUOTE_ALL
-        )
-        writer.writeheader()
-        # Datenzeilen
-        for buchung in buchungen:
-            zeile = self._buchung_zu_zeile(buchung)
-            writer.writerow(zeile)
+        # DATEV-Konformität: nur Textfelder werden gequotet, Beträge und
+        # Kontonummern bleiben ohne Anführungszeichen. CRLF als Zeilenende,
+        # newline="" beim Schreiben verhindert doppelte Umbrüche.
+        text_spalten = {
+            "Soll/Haben-Kennzeichen", "WKZ Umsatz", "WKZ Basis-Umsatz",
+            "Buchungstext", "Diverse Adressnummer", "Geschäftspartnerbank",
+            "Beleglink", "Beleginfo - Art 1", "Beleginfo - Inhalt 1",
+        }
 
-        datei.write_text(output.getvalue(), encoding="cp1252", newline="")
+        def quote_text(spalte: str, wert: str) -> str:
+            return f'"{wert}"' if (spalte in text_spalten and wert != "") else wert
+
+        zeilen: list[str] = [header]
+        zeilen.append(";".join(spalten))  # Spaltenüberschriften unquoted
+        for buchung in buchungen:
+            roh = self._buchung_zu_zeile(buchung)
+            zeilen.append(";".join(quote_text(s, roh[s]) for s in spalten))
+
+        inhalt = "\r\n".join(zeilen) + "\r\n"
+        datei.write_text(inhalt, encoding="cp1252", newline="")
         return datei
