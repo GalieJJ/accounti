@@ -16,7 +16,9 @@ class BankImporter:
         raise NotImplementedError
 
 
-BANK_IMPORTERS: dict[str, type[BankImporter]] = {}
+# Registry: Bankname -> einsatzbereiter Importer.
+BANK_IMPORTERS: dict[str, BankImporter] = {}
 
-# Konkrete Importer importieren, damit sie sich in BANK_IMPORTERS registrieren.
-from accounti.importers import sparkasse  # noqa: E402,F401
+# Profile registrieren (füllt BANK_IMPORTERS mit den eingebauten Banken);
+# sparkasse-Modul für den Rückwärtskompatibilitäts-Import bereitstellen.
+from accounti.importers import profil, sparkasse  # noqa: E402, F401

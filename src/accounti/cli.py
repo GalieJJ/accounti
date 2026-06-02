@@ -37,7 +37,7 @@ def import_bank(
     from accounti.db.repository import speichere_transaktion
     from accounti.importers import BANK_IMPORTERS
 
-    importer = BANK_IMPORTERS[format]()
+    importer = BANK_IMPORTERS[format]
     transaktionen = importer.importiere(datei)
     engine, make_session = session_factory(db)
     init_db(engine)

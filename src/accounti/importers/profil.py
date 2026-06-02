@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from accounti.importers import BankImporter
+from accounti.importers import BANK_IMPORTERS, BankImporter
 from accounti.models import Transaktion, TransaktionQuelle
 
 
@@ -112,3 +112,70 @@ class ProfilImporter(BankImporter):
                 )
             )
         return transaktionen
+
+
+# ---------------------------------------------------------------------------
+# Eingebaute Bank-Profile (Startwerte — ggf. an echte Exporte anpassen via
+# config/banken.yaml). encoding="auto" deckt utf-8 und cp1252 ab.
+# ---------------------------------------------------------------------------
+
+EINGEBAUTE_PROFILE: dict[str, BankProfil] = {
+    "sparkasse": BankProfil(
+        name="sparkasse",
+        datum_spalte="Buchungstag",
+        datum_format="%d.%m.%y",
+        betrag_spalte="Betrag",
+        verwendungszweck_spalte="Verwendungszweck",
+        gegenkonto_spalte="Begünstigter/Zahlungspflichtiger",
+        gegenkonto_iban_spalte="Kontonummer",
+        waehrung_spalte="Währung",
+        erkennungs_spalten=("Auftragskonto", "Begünstigter/Zahlungspflichtiger"),
+    ),
+    "ing": BankProfil(
+        name="ing",
+        datum_spalte="Buchung",
+        datum_format="%d.%m.%Y",
+        betrag_spalte="Betrag",
+        verwendungszweck_spalte="Verwendungszweck",
+        gegenkonto_spalte="Auftraggeber/Empfänger",
+        waehrung_spalte="Währung",
+        erkennungs_spalten=("Buchung", "Auftraggeber/Empfänger"),
+    ),
+    "dkb": BankProfil(
+        name="dkb",
+        datum_spalte="Buchungstag",
+        datum_format="%d.%m.%Y",
+        betrag_spalte="Betrag (EUR)",
+        verwendungszweck_spalte="Verwendungszweck",
+        gegenkonto_spalte="Auftraggeber / Begünstigter",
+        erkennungs_spalten=("Auftraggeber / Begünstigter", "Betrag (EUR)"),
+    ),
+    "volksbank": BankProfil(
+        name="volksbank",
+        datum_spalte="Buchungstag",
+        datum_format="%d.%m.%Y",
+        betrag_spalte="Betrag",
+        verwendungszweck_spalte="Verwendungszweck",
+        gegenkonto_spalte="Name Zahlungsbeteiligter",
+        waehrung_spalte="Waehrung",
+        erkennungs_spalten=("Buchungstag", "Name Zahlungsbeteiligter"),
+    ),
+    "commerzbank": BankProfil(
+        name="commerzbank",
+        datum_spalte="Buchungstag",
+        datum_format="%d.%m.%Y",
+        betrag_spalte="Betrag",
+        verwendungszweck_spalte="Buchungstext",
+        waehrung_spalte="Währung",
+        erkennungs_spalten=("Buchungstag", "Umsatzart", "Buchungstext"),
+    ),
+}
+
+
+def registriere_profile(profile: dict[str, BankProfil]) -> None:
+    """Registriert Profile als einsatzbereite Importer in BANK_IMPORTERS."""
+    for name, profil in profile.items():
+        BANK_IMPORTERS[name] = ProfilImporter(profil)
+
+
+registriere_profile(EINGEBAUTE_PROFILE)
