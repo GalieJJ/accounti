@@ -28,12 +28,24 @@ app.add_typer(import_app, name="import")
 
 @import_app.command("bank")
 def import_bank(
-    datei: str = typer.Argument(help="Pfad zur Bank-CSV/MT940/CAMT-Datei"),
-    format: str = typer.Option("auto", help="Bankformat: sparkasse, volksbank, commerzbank, auto"),
+    datei: str = typer.Argument(help="Pfad zur Bank-CSV-Datei"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    format: str = typer.Option("sparkasse", help="Bankformat"),
 ) -> None:
     """Banktransaktionen importieren."""
-    console.print(f"[bold]Import:[/bold] {datei} (Format: {format})")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 1[/yellow]")
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_transaktion
+    from accounti.importers import BANK_IMPORTERS
+
+    importer = BANK_IMPORTERS[format]()
+    transaktionen = importer.importiere(datei)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        for tx in transaktionen:
+            speichere_transaktion(s, tx)
+        s.commit()
+    console.print(f"[green]{len(transaktionen)}[/green] Transaktionen importiert.")
 
 
 # ---------------------------------------------------------------------------
@@ -107,10 +119,13 @@ app.add_typer(db_app, name="db")
 
 
 @db_app.command("init")
-def db_init() -> None:
+def db_init(db: str = typer.Option("sqlite:///accounti.db", help="DB-URL")) -> None:
     """Datenbank initialisieren."""
-    console.print("[bold]Datenbank-Initialisierung[/bold]")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 1[/yellow]")
+    from accounti.db import init_db, session_factory
+
+    engine, _ = session_factory(db)
+    init_db(engine)
+    console.print(f"[green]Datenbank initialisiert:[/green] {db}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """Importer — wandeln Rohdaten einer Quelle in Transaktion-Objekte um."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -16,3 +17,6 @@ class BankImporter:
 
 
 BANK_IMPORTERS: dict[str, type[BankImporter]] = {}
+
+# Konkrete Importer importieren, damit sie sich in BANK_IMPORTERS registrieren.
+from accounti.importers import sparkasse  # noqa: E402,F401
