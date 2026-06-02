@@ -157,29 +157,43 @@ def export_datev(
     berater: str = typer.Option(..., help="DATEV Beraternummer"),
     mandant: str = typer.Option(..., help="DATEV Mandantennummer"),
     output: str = typer.Option("./export", help="Ausgabeverzeichnis"),
+    alle: bool = typer.Option(
+        False, "--alle", help="Auch ungeprüfte Buchungen exportieren"
+    ),
 ) -> None:
-    """DATEV-konformen Buchungsstapel exportieren."""
+    """DATEV-konformen Buchungsstapel exportieren (nur freigegebene Buchungen)."""
     from accounti.db import session_factory
     from accounti.db.repository import lade_buchungen
     from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.models import BuchungStatus
 
+    freigegeben = (
+        None
+        if alle
+        else {
+            BuchungStatus.AUTO_GEBUCHT,
+            BuchungStatus.GEPRUEFT,
+            BuchungStatus.KORRIGIERT,
+            BuchungStatus.EXPORTIERT,
+        }
+    )
     _, make_session = session_factory(db)
     with make_session() as s:
-        buchungen = lade_buchungen(s)
+        buchungen = lade_buchungen(s, status=freigegeben)
     cfg = DATEVConfig(berater_nummer=berater, mandanten_nummer=mandant)
     datei = DATEVExporter(cfg).exportiere(buchungen, output)
     console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
 
 
-@app.command()
-def lerne(
-    muster: str = typer.Option(..., help="Text-Muster (Regex)"),
-    soll: str = typer.Option(..., help="Soll-Konto"),
-    haben: str = typer.Option(..., help="Haben-Konto"),
-    name: str = typer.Option(..., help="Regel-Name"),
-    steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
+def _regel_speichern(
+    name: str,
+    muster: str,
+    soll: str,
+    haben: str,
+    steuer: int | None,
+    feld: str = "beide",
 ) -> None:
-    """Korrektur als neue Regel speichern (Lernschleife)."""
+    """Hängt eine Regel an config/regeln.yaml an."""
     from pathlib import Path
 
     import yaml
@@ -193,7 +207,7 @@ def lerne(
         {
             "name": name,
             "muster": muster,
-            "feld": "verwendungszweck",
+            "feld": feld,
             "soll_konto": soll,
             "haben_konto": haben,
             "steuer_schluessel": steuer,
@@ -203,7 +217,162 @@ def lerne(
     pfad.write_text(
         yaml.safe_dump(regeln, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
+
+
+@app.command()
+def lerne(
+    muster: str = typer.Option(..., help="Text-Muster (Regex)"),
+    soll: str = typer.Option(..., help="Soll-Konto"),
+    haben: str = typer.Option(..., help="Haben-Konto"),
+    name: str = typer.Option(..., help="Regel-Name"),
+    steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
+) -> None:
+    """Korrektur als neue Regel speichern (Lernschleife)."""
+    _regel_speichern(name, muster, soll, haben, steuer)
     console.print(f"[green]Regel '{name}' gespeichert.[/green]")
+
+
+# ---------------------------------------------------------------------------
+# Supervisor-Loop: prüfen, bestätigen, korrigieren
+# ---------------------------------------------------------------------------
+@app.command()
+def review(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Buchungen zur Prüfung anzeigen (Supervisor-Übersicht)."""
+    from rich.table import Table
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen, lade_pruefliste
+    from accounti.models import BuchungStatus
+
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        alle = lade_buchungen(s)
+        pruefliste = lade_pruefliste(s)
+
+    zaehler: dict[BuchungStatus, int] = {}
+    for b in alle:
+        zaehler[b.status] = zaehler.get(b.status, 0) + 1
+    console.print("[bold]Status-Übersicht:[/bold]")
+    for status, anzahl in zaehler.items():
+        console.print(f"  {status.value:12} {anzahl}")
+
+    if not pruefliste:
+        console.print("[green]Nichts zu prüfen — alles freigegeben.[/green]")
+        return
+
+    tabelle = Table(title="Zur Prüfung")
+    tabelle.add_column("ID")
+    tabelle.add_column("Verwendungszweck")
+    tabelle.add_column("Soll")
+    tabelle.add_column("Haben")
+    tabelle.add_column("St")
+    tabelle.add_column("Conf", justify="right")
+    for buchung, tx in pruefliste:
+        tabelle.add_row(
+            str(buchung.id)[:8],
+            (tx.verwendungszweck[:35] if tx else buchung.buchungstext),
+            buchung.soll_konto,
+            buchung.haben_konto,
+            str(buchung.steuer_schluessel or "—"),
+            f"{buchung.confidence:.2f}",
+        )
+    console.print(tabelle)
+    console.print(
+        "[dim]Freigeben: accounti bestaetige <ID> · "
+        "Korrigieren: accounti korrigiere <ID> --soll .. --haben ..[/dim]"
+    )
+
+
+@app.command()
+def bestaetige(
+    buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    von: str = typer.Option("supervisor", help="Wer hat geprüft"),
+) -> None:
+    """Eine Buchung als geprüft freigeben."""
+    from accounti.db import session_factory
+    from accounti.db.repository import setze_status
+    from accounti.models import BuchungStatus
+
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        try:
+            b = setze_status(s, buchung_id, BuchungStatus.GEPRUEFT, geprueft_von=von)
+        except ValueError as fehler:
+            console.print(f"[red]{fehler}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+    console.print(f"[green]Freigegeben:[/green] {str(b.id)[:8]} → geprüft")
+
+
+@app.command()
+def korrigiere(
+    buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
+    soll: str = typer.Option(..., help="Korrigiertes Soll-Konto"),
+    haben: str = typer.Option(..., help="Korrigiertes Haben-Konto"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
+    von: str = typer.Option("supervisor", help="Wer hat korrigiert"),
+    lernen: bool = typer.Option(False, "--lernen", help="Korrektur als Regel merken"),
+) -> None:
+    """Eine Buchung korrigieren (optional als Regel lernen)."""
+    from accounti.buchung.mapper import zu_buchungssatz
+    from accounti.db import session_factory
+    from accounti.db.repository import (
+        aktualisiere_buchung,
+        finde_buchung,
+        lade_transaktion,
+    )
+    from accounti.models import BuchungStatus, Klassifikationsergebnis
+
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        try:
+            original = finde_buchung(s, buchung_id)
+        except ValueError as fehler:
+            console.print(f"[red]{fehler}[/red]")
+            raise typer.Exit(1) from fehler
+        tx = lade_transaktion(s, original.transaktion_id)
+        if tx is None:
+            console.print("[red]Zugehörige Transaktion nicht gefunden.[/red]")
+            raise typer.Exit(1)
+
+        ergebnis = Klassifikationsergebnis(
+            transaktion_id=tx.id,
+            soll_konto=soll,
+            haben_konto=haben,
+            steuer_schluessel=steuer,
+            buchungstext=original.buchungstext,
+            confidence=1.0,
+            begruendung="manuelle Korrektur",
+            quelle="supervisor",
+        )
+        neu = zu_buchungssatz(tx, ergebnis).model_copy(
+            update={
+                "id": original.id,
+                "status": BuchungStatus.KORRIGIERT,
+                "geprueft_von": von,
+            }
+        )
+        aktualisiere_buchung(s, buchung_id, neu)
+        s.commit()
+        gegenkonto = tx.gegenkonto_name
+        zweck = tx.verwendungszweck
+
+    console.print(
+        f"[green]Korrigiert:[/green] {str(original.id)[:8]} → "
+        f"Soll {soll} / Haben {haben}"
+    )
+    if lernen:
+        import re
+
+        basis = (gegenkonto or zweck or "").strip()
+        muster = re.escape(basis.split()[0]) if basis else ""
+        if muster:
+            _regel_speichern(f"gelernt_{muster}".lower(), muster, soll, haben, steuer)
+            console.print(f"[green]Regel gelernt:[/green] Muster '{muster}'")
 
 
 # ---------------------------------------------------------------------------

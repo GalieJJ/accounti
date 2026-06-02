@@ -78,6 +78,11 @@ def lade_transaktionen(session: Session) -> list[Transaktion]:
     return [_row_zu_transaktion(r) for r in session.query(TransaktionRow).all()]
 
 
+def lade_transaktion(session: Session, tx_id: str | UUID) -> Transaktion | None:
+    row = session.get(TransaktionRow, str(tx_id))
+    return _row_zu_transaktion(row) if row is not None else None
+
+
 # ---------------------------------------------------------------------------
 # Buchungssätze
 # ---------------------------------------------------------------------------
