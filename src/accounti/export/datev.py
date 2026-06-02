@@ -13,7 +13,6 @@ import csv
 import io
 from dataclasses import dataclass
 from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 
 from accounti.models import Buchungssatz
@@ -174,16 +173,21 @@ class DATEVExporter:
             "Kostenstelle",
         ]
 
+        # DATEV erwartet CRLF als Zeilenende. csv.writer schreibt bereits "\r\n";
+        # die Header-Zeile bekommt es explizit. Beim Schreiben newline="" setzen,
+        # damit "\n" nicht erneut zu "\r\n" übersetzt wird (sonst Leerzeilen).
         output = io.StringIO()
         # Zeile 1: Header
-        output.write(header + "\n")
+        output.write(header + "\r\n")
         # Zeile 2: Spaltenüberschriften
-        writer = csv.DictWriter(output, fieldnames=spalten, delimiter=";", quoting=csv.QUOTE_ALL)
+        writer = csv.DictWriter(
+            output, fieldnames=spalten, delimiter=";", quoting=csv.QUOTE_ALL
+        )
         writer.writeheader()
         # Datenzeilen
         for buchung in buchungen:
             zeile = self._buchung_zu_zeile(buchung)
             writer.writerow(zeile)
 
-        datei.write_text(output.getvalue(), encoding="cp1252")
+        datei.write_text(output.getvalue(), encoding="cp1252", newline="")
         return datei
