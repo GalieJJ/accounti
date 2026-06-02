@@ -8,13 +8,12 @@ Stufe 3: Supervisor-Feedback (menschliche Korrektur → neue Regel)
 from __future__ import annotations
 
 import re
-from decimal import Decimal
 
+from accounti.klassifikation.llm import LLMEngine
 from accounti.models import (
     Klassifikationsergebnis,
     Transaktion,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stufe 1: Regelwerk
@@ -115,7 +114,8 @@ class RegelwerkEngine:
                     soll_konto=regel.soll_konto,
                     haben_konto=regel.haben_konto,
                     steuer_schluessel=regel.steuer_schluessel,
-                    buchungstext=regel.buchungstext or transaktion.verwendungszweck[:60],
+                    buchungstext=regel.buchungstext
+                    or transaktion.verwendungszweck[:60],
                     confidence=1.0,  # Regelwerk = volle Confidence
                     begruendung=f"Regel '{regel.name}' greift auf Feld '{regel.feld}'",
                     quelle="regelwerk",
@@ -128,10 +128,8 @@ class RegelwerkEngine:
 
 
 # ---------------------------------------------------------------------------
-# Stufe 2: LLM-Klassifikation — siehe accounti.klassifikation.llm
+# Stufe 2: LLM-Klassifikation — siehe accounti.klassifikation.llm (LLMEngine)
 # ---------------------------------------------------------------------------
-
-from accounti.klassifikation.llm import LLMEngine  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
