@@ -197,4 +197,32 @@ def lade_banken_profile(pfad: str | Path) -> dict[str, BankProfil]:
     return profile
 
 
+def erkenne_profil(
+    header_zeile: str,
+    profile: dict[str, BankProfil],
+) -> BankProfil | None:
+    """Erkennt das Bankformat anhand der Spaltenüberschriften."""
+    for profil in profile.values():
+        if not profil.erkennungs_spalten:
+            continue
+        spalten = [s.strip() for s in header_zeile.split(profil.delimiter)]
+        if all(sig in spalten for sig in profil.erkennungs_spalten):
+            return profil
+    return None
+
+
+def importer_fuer_datei(
+    pfad: str | Path,
+    profile: dict[str, BankProfil],
+) -> BankImporter:
+    """Wählt automatisch den passenden Importer für eine CSV-Datei."""
+    text = _lies_text(Path(pfad), "auto")
+    zeilen = text.splitlines()
+    profil = erkenne_profil(zeilen[0], profile) if zeilen else None
+    if profil is None:
+        msg = "Bankformat nicht erkannt — bitte --format explizit angeben."
+        raise ValueError(msg)
+    return ProfilImporter(profil)
+
+
 registriere_profile(EINGEBAUTE_PROFILE)
