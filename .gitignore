@@ -20,7 +20,8 @@ env/
 
 # accounti
 config/accounti.yaml
-export/
+/export/          # generierter DATEV-Ausgabeordner (nur im Repo-Root)
+accounti.db       # lokale SQLite-Datenbank
 *.log
 
 # Environment
