@@ -13,6 +13,8 @@ from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
+import yaml
+
 from accounti.importers import BANK_IMPORTERS, BankImporter
 from accounti.models import Transaktion, TransaktionQuelle
 
@@ -176,6 +178,23 @@ def registriere_profile(profile: dict[str, BankProfil]) -> None:
     """Registriert Profile als einsatzbereite Importer in BANK_IMPORTERS."""
     for name, profil in profile.items():
         BANK_IMPORTERS[name] = ProfilImporter(profil)
+
+
+def lade_banken_profile(pfad: str | Path) -> dict[str, BankProfil]:
+    """Lädt eigene Bank-Profile aus einer YAML-Datei (Liste von Profilen)."""
+    pfad = Path(pfad)
+    if not pfad.exists():
+        return {}
+    daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
+    profile: dict[str, BankProfil] = {}
+    for eintrag in daten:
+        if "erkennungs_spalten" in eintrag:
+            eintrag = {
+                **eintrag,
+                "erkennungs_spalten": tuple(eintrag["erkennungs_spalten"]),
+            }
+        profile[eintrag["name"]] = BankProfil(**eintrag)
+    return profile
 
 
 registriere_profile(EINGEBAUTE_PROFILE)
