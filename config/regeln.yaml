@@ -1,24 +1,219 @@
-# Kontierungsregeln (SKR03). Reihenfolge = Priorität (erste passende gewinnt).
-- name: telekom
-  muster: 'TELEKOM|VODAFONE|O2|1UND1|1&1'
+# accounti — Kontierungsregeln (SKR03)
+#
+# Reihenfolge = Priorität: die ERSTE passende Regel gewinnt.
+# Felder:
+#   muster            Regex (case-insensitive)
+#   feld              verwendungszweck | gegenkonto_name | beide
+#   soll_konto/haben_konto, steuer_schluessel (3=USt19, 2=USt7, 9=VSt19,
+#                     8=VSt8, null=ohne Steuerautomatik)
+#
+# Konvention:
+#   Ausgabe  -> Soll = Aufwandskonto, Haben = 1200 (Bank)
+#   Einnahme -> Soll = 1200 (Bank),   Haben = Erlöskonto
+#
+# HINWEISE (bewusst konservativ — im Zweifel prüfen):
+#   * Miete: Vorsteuer nur, wenn der Vermieter zur USt optiert hat.
+#   * EU-Digitalleistungen (AWS, Google, Meta ...): Reverse-Charge §13b —
+#     bewusst OHNE Steuerautomatik, separat prüfen.
+#   * Marktplatz-Auszahlungen sind Netto-Beträge nach Gebühren; für saubere
+#     Buchung ggf. über ein Verrechnungskonto statt direkt auf Erlöse.
+
+# --- Personal -----------------------------------------------------------
+- name: gehalt
+  muster: '\b(lohn|gehalt|entgeltabrechnung|nettolohn)\b'
   feld: verwendungszweck
-  soll_konto: '4920'      # Telefon
+  soll_konto: '4120'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Gehalt/Lohn'
+
+- name: sozialversicherung
+  muster: '(krankenkasse|\bAOK\b|barmer|\bDAK\b|\bTK\b|techniker krankenkasse|\bIKK\b|knappschaft|minijob-zentrale|rentenversicherung|sozialversicherung)'
+  feld: beide
+  soll_konto: '4130'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Sozialversicherung'
+
+# --- EU-Digitalleistungen (Reverse-Charge §13b) -------------------------
+- name: reverse_charge_eu_digital
+  muster: '(amazon web services|\bAWS\b|google|\bmeta\b|facebook|microsoft|adobe|atlassian|\bslack\b|zoom|dropbox|openai|anthropic|github|linkedin|notion|figma|cloudflare)'
+  feld: beide
+  soll_konto: '4900'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'EU-Digitalleistung (Reverse-Charge §13b prüfen)'
+
+# --- IT / Software / Hosting (inländisch, mit USt) ----------------------
+- name: software_hosting
+  muster: '(ionos|1und1|1&1|strato|hetzner|\bovh\b|jimdo|shopify|lexware|sevdesk|lexoffice|\bjtl\b|wix|mailchimp|sendinblue|brevo)'
+  feld: beide
+  soll_konto: '4900'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Software/IT'
+
+# --- Telekommunikation --------------------------------------------------
+- name: telekommunikation
+  muster: '(telekom|t-mobile|vodafone|\bo2\b|telefonica|telefónica|congstar|sipgate|easybell|drillisch|freenet)'
+  feld: beide
+  soll_konto: '4920'
   haben_konto: '1200'
   steuer_schluessel: 9
   buchungstext: 'Telefon/Internet'
 
-- name: bueromaterial
-  muster: 'BUEROMATERIAL|BÜROMATERIAL|STAPLES'
-  feld: verwendungszweck
-  soll_konto: '4930'      # Bürobedarf
+# --- Versand / Porto ----------------------------------------------------
+- name: paketdienst
+  muster: '(\bDHL\b|\bDPD\b|\bGLS\b|\bUPS\b|hermes|fedex|\bTNT\b|paketdienst|go ?express)'
+  feld: beide
+  soll_konto: '4910'
   haben_konto: '1200'
   steuer_schluessel: 9
-  buchungstext: 'Büromaterial'
+  buchungstext: 'Versandkosten'
 
-- name: ebay_erloes
-  muster: 'EBAY'
+- name: briefporto
+  muster: '(deutsche post|briefporto|\bporto\b|frankier)'
+  feld: beide
+  soll_konto: '4910'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Porto'
+
+# --- Bürobedarf ---------------------------------------------------------
+- name: bueromaterial
+  muster: '(buero ?material|büro ?material|burom|bürobedarf|schreibwaren|staples|viking|\bsoennecken\b|office ?discount|printus)'
+  feld: beide
+  soll_konto: '4930'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Bürobedarf'
+
+# --- Fachliteratur (7%) -------------------------------------------------
+- name: fachliteratur
+  muster: '(fachzeitschrift|fachverlag|\bverlag\b|fachbuch|zeitschriften-?abo)'
+  feld: beide
+  soll_konto: '4940'
+  haben_konto: '1200'
+  steuer_schluessel: 8
+  buchungstext: 'Fachliteratur'
+
+# --- Kfz / Tankstellen --------------------------------------------------
+- name: tankstelle
+  muster: '(\baral\b|\bshell\b|\besso\b|\bjet\b|\btotal\b|\bagip\b|\bhem\b|star tankstelle|tankstelle|\btanken\b|\bwestfalen\b)'
+  feld: beide
+  soll_konto: '4500'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Kfz/Tankstelle'
+
+# --- Reisekosten --------------------------------------------------------
+- name: reisekosten
+  muster: '(deutsche bahn|\bDB\b vertrieb|bahn\.de|flixbus|lufthansa|eurowings|ryanair|booking\.com|sixt|europcar|hertz|\bavis\b)'
+  feld: beide
+  soll_konto: '4600'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Reisekosten'
+
+# --- Versicherungen -----------------------------------------------------
+- name: versicherung
+  muster: '(versicherung|haftpflicht|\ballianz\b|\baxa\b|\bhuk\b|\bergo\b|gothaer|provinzial|signal iduna|\bvhv\b|\bgvv\b|berufsgenossenschaft)'
+  feld: beide
+  soll_konto: '4360'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Versicherung'
+
+# --- Energie / Nebenkosten ----------------------------------------------
+- name: energie
+  muster: '(stadtwerke|\be\.?on\b|vattenfall|\benbw\b|\brwe\b|lichtblick|naturstrom|\bgasag\b|yello|eprimo|\bewe\b)'
+  feld: beide
+  soll_konto: '4900'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Energie/Strom/Gas'
+
+# --- Miete (Vorsteuer nur bei Option zur USt) ---------------------------
+- name: miete
+  muster: '(miete|mietvertrag|pacht|gewerbemiete|nebenkostenvorauszahlung)'
+  feld: beide
+  soll_konto: '4210'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Miete Geschäftsräume'
+
+# --- Recht / Beratung ---------------------------------------------------
+- name: rechtsberatung
+  muster: '(rechtsanwalt|rechtsanwälte|kanzlei|\bnotar\b|\banwalt\b)'
+  feld: beide
+  soll_konto: '4950'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Rechts-/Beratungskosten'
+
+- name: buchfuehrung_steuerberatung
+  muster: '(steuerberat|\bStB\b|buchführung|buchhaltungsservice|wirtschaftsprüf)'
+  feld: beide
+  soll_konto: '4955'
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Buchführungs-/Steuerberatungskosten'
+
+# --- Bankgebühren -------------------------------------------------------
+- name: bankgebuehren
+  muster: '(kontoführ|kontofuehr|kontogebühr|buchungsposten|entgeltabschluss|entgeltabrechnung|bankgebühr|grundpreis konto|kartengebühr|rechnungsabschluss)'
   feld: verwendungszweck
+  soll_konto: '4970'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Nebenkosten des Geldverkehrs'
+
+# --- Beiträge / Rundfunk / Kammer ---------------------------------------
+- name: rundfunkbeitrag
+  muster: '(rundfunk|rundfunkbeitrag|beitragsservice|\bARD\b ?ZDF|\bGEZ\b)'
+  feld: beide
+  soll_konto: '4900'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Rundfunkbeitrag'
+
+- name: kammer_verband
+  muster: '(\bIHK\b|industrie- und handelskammer|handwerkskammer|\bHWK\b|berufsverband|mitgliedsbeitrag|innung)'
+  feld: beide
+  soll_konto: '4900'
+  haben_konto: '1200'
+  steuer_schluessel: null
+  buchungstext: 'Beiträge'
+
+# --- Einnahmen: Marktplatz-/Zahlungsdienstleister-Auszahlungen ----------
+- name: amazon_auszahlung
+  muster: '(amazon payments|amazon\.?de marketplace|amazon eu)'
+  feld: beide
   soll_konto: '1200'
   haben_konto: '8400'
   steuer_schluessel: 3
-  buchungstext: 'eBay Erlöse'
+  buchungstext: 'Amazon-Auszahlung'
+
+- name: paypal_eingang
+  muster: 'paypal'
+  feld: beide
+  soll_konto: '1200'
+  haben_konto: '8400'
+  steuer_schluessel: 3
+  buchungstext: 'PayPal-Eingang'
+
+- name: ebay_auszahlung
+  muster: '(\bebay\b|ebay managed payments|ebay commerce)'
+  feld: beide
+  soll_konto: '1200'
+  haben_konto: '8400'
+  steuer_schluessel: 3
+  buchungstext: 'eBay-Auszahlung'
+
+- name: zahlungsdienstleister_eingang
+  muster: '(\bstripe\b|klarna|\bmollie\b|\bsumup\b|\bizettle\b|\bwallee\b|\bnexi\b|\bunzer\b|\bvr ?pay\b)'
+  feld: beide
+  soll_konto: '1200'
+  haben_konto: '8400'
+  steuer_schluessel: 3
+  buchungstext: 'Zahlungsdienstleister-Auszahlung'
