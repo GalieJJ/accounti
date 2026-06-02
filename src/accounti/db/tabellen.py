@@ -39,3 +39,4 @@ class BuchungssatzRow(Base):
     buchungstext: Mapped[str] = mapped_column(String(60))
     status: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[float] = mapped_column(Float)
+    geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
