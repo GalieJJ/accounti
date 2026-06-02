@@ -26,16 +26,15 @@ Import → Klassifikation → Buchung → Export/BWA
 
 ### `importers/`
 
-Jede Datenquelle hat einen eigenen Importer, der Rohdaten in `Transaktion`-Objekte umwandelt. Ein Importer kennt nur sein Format — keine Buchhaltungslogik.
+Importer wandeln Rohdaten einer Quelle in `Transaktion`-Objekte um — sie kennen nur ihr Format, keine Buchhaltungslogik.
 
-Geplante Importer:
-- `bank.py` — Bank-CSV (Sparkasse, Volksbank, ING, N26, ...)
-- `mt940.py` — SWIFT MT940 (universelles Bankformat)
-- `camt.py` — CAMT.053 (XML, moderneres Bankformat)
-- `jtl.py` — JTL-Wawi Export (Rechnungen, Zahlungen)
-- `amazon.py` — Amazon Settlement Reports
-- `ebay.py` — eBay Managed Payments
-- `paypal.py` — PayPal-Transaktionsberichte
+Bank-CSVs laufen **konfigurationsgetrieben** über `profil.py`: Ein `BankProfil` beschreibt Trennzeichen, Encoding, Datums-/Betragsformat und die Spalten-Zuordnung; der generische `ProfilImporter` parst damit jede unterstützte Bank — ohne bankspezifischen Code.
+
+- `profil.py` — `BankProfil` + `ProfilImporter`, eingebaute Profile (sparkasse, ing, dkb, volksbank, commerzbank), Auto-Erkennung (`erkenne_profil`) und Laden eigener Profile aus `config/banken.yaml`.
+- `sparkasse.py` — dünner Wrapper um das Sparkasse-Profil (Rückwärtskompatibilität).
+- Registry `BANK_IMPORTERS` (Bankname → einsatzbereiter Importer); `import bank --format auto` erkennt die Bank an den Spaltenüberschriften.
+
+Geplant (eigene Importer, kein Bank-CSV): `mt940.py`, `camt.py` (XML), `jtl.py`, `amazon.py`, `ebay.py`, `paypal.py`.
 
 ### `klassifikation/`
 
@@ -165,21 +164,25 @@ Web-UI: Minimalistisch mit HTMX + Jinja2 (kein SPA-Build-Step).
 
 ### Neues Bankformat hinzufügen
 
-```python
-# src/accounti/importers/bank.py
+Kein Code nötig — ein Profil in `config/banken.yaml` genügt:
 
-class MeineBankImporter(BankImporter):
-    name = "meinebank"
-    encoding = "utf-8"
-    delimiter = ";"
-
-    def parse_zeile(self, zeile, raw):
-        # Implementierung hier
-        ...
-
-# In BANK_IMPORTERS registrieren:
-BANK_IMPORTERS["meinebank"] = MeineBankImporter
+```yaml
+# config/banken.yaml
+- name: meinebank
+  delimiter: ";"
+  encoding: auto
+  datum_spalte: Buchungstag
+  datum_format: "%d.%m.%Y"
+  betrag_spalte: Betrag
+  dezimal: ","
+  verwendungszweck_spalte: Verwendungszweck
+  gegenkonto_spalte: Empfänger
+  erkennungs_spalten: [Buchungstag, Empfänger]   # für --format auto
 ```
+
+Danach: `accounti import bank auszug.csv --format meinebank` (oder `--format auto`).
+Für Betragsspalten mit getrennten Soll/Haben-Feldern: `betrag_modus: soll_haben`
+plus `soll_spalte`/`haben_spalte`.
 
 ### Neue Kontierungsregel hinzufügen
 

@@ -30,14 +30,37 @@ app.add_typer(import_app, name="import")
 def import_bank(
     datei: str = typer.Argument(help="Pfad zur Bank-CSV-Datei"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
-    format: str = typer.Option("sparkasse", help="Bankformat"),
+    format: str = typer.Option("auto", help="Bankformat (auto = erkennen)"),
 ) -> None:
     """Banktransaktionen importieren."""
     from accounti.db import init_db, session_factory
     from accounti.db.repository import speichere_transaktion
     from accounti.importers import BANK_IMPORTERS
+    from accounti.importers.profil import (
+        EINGEBAUTE_PROFILE,
+        importer_fuer_datei,
+        lade_banken_profile,
+        registriere_profile,
+    )
 
-    importer = BANK_IMPORTERS[format]()
+    eigene = lade_banken_profile("config/banken.yaml")
+    registriere_profile(eigene)
+
+    if format == "auto":
+        try:
+            importer = importer_fuer_datei(datei, {**EINGEBAUTE_PROFILE, **eigene})
+        except ValueError as fehler:
+            console.print(f"[red]{fehler}[/red]")
+            raise typer.Exit(1) from fehler
+    elif format in BANK_IMPORTERS:
+        importer = BANK_IMPORTERS[format]
+    else:
+        verfuegbar = ", ".join(sorted(BANK_IMPORTERS))
+        console.print(
+            f"[red]Unbekanntes Format '{format}'. Verfügbar: {verfuegbar}[/red]"
+        )
+        raise typer.Exit(1)
+
     transaktionen = importer.importiere(datei)
     engine, make_session = session_factory(db)
     init_db(engine)
@@ -46,6 +69,19 @@ def import_bank(
             speichere_transaktion(s, tx)
         s.commit()
     console.print(f"[green]{len(transaktionen)}[/green] Transaktionen importiert.")
+
+
+@import_app.command("banken")
+def import_banken() -> None:
+    """Verfügbare Bankformate auflisten."""
+    from accounti.importers import BANK_IMPORTERS
+    from accounti.importers.profil import lade_banken_profile, registriere_profile
+
+    registriere_profile(lade_banken_profile("config/banken.yaml"))
+    console.print("[bold]Verfügbare Bankformate:[/bold]")
+    for name in sorted(BANK_IMPORTERS):
+        console.print(f"  • {name}")
+    console.print("  • [dim]auto (automatische Erkennung)[/dim]")
 
 
 # ---------------------------------------------------------------------------
