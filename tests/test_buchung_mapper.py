@@ -2,22 +2,33 @@ from decimal import Decimal
 
 from accounti.buchung.mapper import zu_buchungssatz
 from accounti.models import (
-    BuchungStatus, Klassifikationsergebnis, Transaktion, TransaktionQuelle,
+    BuchungStatus,
+    Klassifikationsergebnis,
+    Transaktion,
+    TransaktionQuelle,
 )
 
 
 def _tx(betrag: str) -> Transaktion:
     return Transaktion(
-        datum="2026-04-15", betrag=betrag, verwendungszweck="TEST",
-        quelle=TransaktionQuelle.BANK, rohtext="TEST",
+        datum="2026-04-15",
+        betrag=betrag,
+        verwendungszweck="TEST",
+        quelle=TransaktionQuelle.BANK,
+        rohtext="TEST",
     )
 
 
 def _erg(soll: str, haben: str, schluessel, conf: float) -> Klassifikationsergebnis:
     return Klassifikationsergebnis(
         transaktion_id="00000000-0000-0000-0000-000000000000",
-        soll_konto=soll, haben_konto=haben, steuer_schluessel=schluessel,
-        buchungstext="TEST", confidence=conf, begruendung="x", quelle="regelwerk",
+        soll_konto=soll,
+        haben_konto=haben,
+        steuer_schluessel=schluessel,
+        buchungstext="TEST",
+        confidence=conf,
+        begruendung="x",
+        quelle="regelwerk",
     )
 
 

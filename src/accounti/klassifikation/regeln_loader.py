@@ -1,4 +1,5 @@
 """Lädt Kontierungsregeln aus config/regeln.yaml."""
+
 from __future__ import annotations
 
 from pathlib import Path

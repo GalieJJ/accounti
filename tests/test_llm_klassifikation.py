@@ -6,10 +6,12 @@ from accounti.models import Transaktion, TransaktionQuelle
 
 def _tx() -> Transaktion:
     return Transaktion(
-        datum="2026-04-10", betrag="-39.99",
+        datum="2026-04-10",
+        betrag="-39.99",
         verwendungszweck="TELEKOM DE12345678901234567890 Kundennr 4711",
         gegenkonto_name="Deutsche Telekom AG",
-        quelle=TransaktionQuelle.BANK, rohtext="x",
+        quelle=TransaktionQuelle.BANK,
+        rohtext="x",
     )
 
 

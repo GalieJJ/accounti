@@ -15,8 +15,8 @@ def test_importiert_alle_zeilen():
 def test_parst_betrag_und_datum_deutsch():
     txs = SparkasseImporter().importiere(BEISPIEL)
     erste = txs[0]
-    assert erste.betrag == Decimal("1250.00")        # "1.250,00"
-    assert erste.datum.isoformat() == "2026-04-15"    # "15.04.26"
+    assert erste.betrag == Decimal("1250.00")  # "1.250,00"
+    assert erste.datum.isoformat() == "2026-04-15"  # "15.04.26"
     assert erste.quelle is TransaktionQuelle.BANK
 
 

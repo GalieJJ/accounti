@@ -6,8 +6,11 @@ from accounti.models import Transaktion, TransaktionQuelle
 
 def _tx(zweck: str) -> Transaktion:
     return Transaktion(
-        datum="2026-04-10", betrag="-39.99", verwendungszweck=zweck,
-        quelle=TransaktionQuelle.BANK, rohtext=zweck,
+        datum="2026-04-10",
+        betrag="-39.99",
+        verwendungszweck=zweck,
+        quelle=TransaktionQuelle.BANK,
+        rohtext=zweck,
     )
 
 

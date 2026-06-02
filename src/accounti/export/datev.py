@@ -20,8 +20,8 @@ from accounti.models import Buchungssatz
 class DATEVConfig:
     """Konfiguration für den DATEV-Export."""
 
-    berater_nummer: str        # z.B. "23426"
-    mandanten_nummer: str      # z.B. "40005"
+    berater_nummer: str  # z.B. "23426"
+    mandanten_nummer: str  # z.B. "40005"
     wirtschaftsjahr_beginn: date = date(2026, 1, 1)
     sachkonten_laenge: int = 4  # 4-stellig Standard, auch 6 möglich
     datum_von: date = date(2026, 1, 1)
@@ -46,36 +46,36 @@ class DATEVExporter:
         """DATEV EXTF Header-Zeile generieren."""
         now = datetime.now()
         felder = [
-            '"EXTF"',                          # Kennzeichen
-            self.HEADER_VERSION,               # Versionsnummer
-            self.FORMAT_KATEGORIE,             # Kategorie (21 = Buchungsstapel)
-            f'"{self.FORMAT_NAME}"',           # Format-Name
-            self.FORMAT_VERSION,               # Format-Version
-            f"{now:%Y%m%d%H%M%S}000",         # Erzeugt am
-            "",                                # Importiert (leer)
-            '"accounti"',                      # Herkunft
-            '""',                              # Exportiert von
-            '""',                              # Importiert von
-            self.config.berater_nummer,        # Berater-Nr.
-            self.config.mandanten_nummer,      # Mandanten-Nr.
+            '"EXTF"',  # Kennzeichen
+            self.HEADER_VERSION,  # Versionsnummer
+            self.FORMAT_KATEGORIE,  # Kategorie (21 = Buchungsstapel)
+            f'"{self.FORMAT_NAME}"',  # Format-Name
+            self.FORMAT_VERSION,  # Format-Version
+            f"{now:%Y%m%d%H%M%S}000",  # Erzeugt am
+            "",  # Importiert (leer)
+            '"accounti"',  # Herkunft
+            '""',  # Exportiert von
+            '""',  # Importiert von
+            self.config.berater_nummer,  # Berater-Nr.
+            self.config.mandanten_nummer,  # Mandanten-Nr.
             f"{self.config.wirtschaftsjahr_beginn:%Y%m%d}",  # WJ-Beginn
-            str(self.config.sachkonten_laenge), # Sachkontenlänge
-            f"{self.config.datum_von:%Y%m%d}", # Datum von
-            f"{self.config.datum_bis:%Y%m%d}", # Datum bis
-            f'"{self.config.bezeichnung}"',    # Bezeichnung
-            '""',                              # Diktatkürzel
-            "0",                               # Buchungstyp (0 = Finanzbuchführung)
-            "0",                               # Rechnungslegungszweck
-            "0",                               # Festschreibung
-            f'"{self.config.waehrung}"',       # WKZ
-            "",                                # Reservefeld
-            "",                                # Derivatskennzeichen
-            "",                                # Reservefeld
-            "",                                # Reservefeld
-            '""',                              # SKR (leer = automatisch)
-            "",                                # Branchen-ID
-            "",                                # Reservefeld
-            '""',                              # Anwendungsinfo
+            str(self.config.sachkonten_laenge),  # Sachkontenlänge
+            f"{self.config.datum_von:%Y%m%d}",  # Datum von
+            f"{self.config.datum_bis:%Y%m%d}",  # Datum bis
+            f'"{self.config.bezeichnung}"',  # Bezeichnung
+            '""',  # Diktatkürzel
+            "0",  # Buchungstyp (0 = Finanzbuchführung)
+            "0",  # Rechnungslegungszweck
+            "0",  # Festschreibung
+            f'"{self.config.waehrung}"',  # WKZ
+            "",  # Reservefeld
+            "",  # Derivatskennzeichen
+            "",  # Reservefeld
+            "",  # Reservefeld
+            '""',  # SKR (leer = automatisch)
+            "",  # Branchen-ID
+            "",  # Reservefeld
+            '""',  # Anwendungsinfo
         ]
         return ";".join(felder)
 
@@ -175,9 +175,15 @@ class DATEVExporter:
         # Kontonummern bleiben ohne Anführungszeichen. CRLF als Zeilenende,
         # newline="" beim Schreiben verhindert doppelte Umbrüche.
         text_spalten = {
-            "Soll/Haben-Kennzeichen", "WKZ Umsatz", "WKZ Basis-Umsatz",
-            "Buchungstext", "Diverse Adressnummer", "Geschäftspartnerbank",
-            "Beleglink", "Beleginfo - Art 1", "Beleginfo - Inhalt 1",
+            "Soll/Haben-Kennzeichen",
+            "WKZ Umsatz",
+            "WKZ Basis-Umsatz",
+            "Buchungstext",
+            "Diverse Adressnummer",
+            "Geschäftspartnerbank",
+            "Beleglink",
+            "Beleginfo - Art 1",
+            "Beleginfo - Inhalt 1",
         }
 
         def quote_text(spalte: str, wert: str) -> str:

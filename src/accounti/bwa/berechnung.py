@@ -5,17 +5,16 @@ Berechnet die BWA aus Buchungssätzen, gruppiert nach BWA-Zeilen.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
-from accounti.models import BWA, BWAZeile, Buchungssatz, Kontenrahmen
-
+from accounti.models import BWA, Buchungssatz, BWAZeile, Kontenrahmen
 
 # ---------------------------------------------------------------------------
 # BWA-Schema (Form 01) — Zuordnung Konten → BWA-Zeilen für SKR03
 # ---------------------------------------------------------------------------
 
-BWA_SCHEMA_SKR03: dict[int, dict] = {
+BWA_SCHEMA_SKR03: dict[int, dict[str, Any]] = {
     1: {
         "bezeichnung": "Umsatzerlöse",
         "konten_von": ["8000", "8100", "8200", "8300", "8400"],
@@ -134,7 +133,7 @@ class BWABerechner:
 
     def _summe_fuer_zeile(
         self,
-        zeilen_def: dict,
+        zeilen_def: dict[str, Any],
         konten_summen: dict[str, Decimal],
     ) -> Decimal:
         """Berechnet die Summe für eine BWA-Zeile aus den Kontensalden."""

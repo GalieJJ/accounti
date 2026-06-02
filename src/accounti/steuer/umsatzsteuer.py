@@ -12,27 +12,25 @@ Steuer-Gegenbuchungen und unterstützt alle gängigen Szenarien:
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_HALF_UP
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 
 from accounti.steuer.eu_steuersaetze import (
     EU_STEUERSAETZE,
-    SteuersatzInfo,
     ist_eu_land,
-    ist_oss_land,
 )
 
 
 class Geschaeftsvorfall(str, enum.Enum):
     """Umsatzsteuerlicher Geschäftsvorfall."""
 
-    INLAND = "inland"                           # B2C/B2B Inland
-    EU_B2C_OSS = "eu_b2c_oss"                   # B2C EU → OSS-Verfahren
-    EU_B2B_REVERSE_CHARGE = "eu_b2b_rc"          # B2B EU → Reverse Charge (steuerfrei)
+    INLAND = "inland"  # B2C/B2B Inland
+    EU_B2C_OSS = "eu_b2c_oss"  # B2C EU → OSS-Verfahren
+    EU_B2B_REVERSE_CHARGE = "eu_b2b_rc"  # B2B EU → Reverse Charge (steuerfrei)
     EU_INNERGEMEINSCHAFTLICH = "eu_ig_lieferung"  # ig. Lieferung § 4 Nr. 1b UStG
-    DRITTLAND_AUSFUHR = "drittland"              # Ausfuhr § 4 Nr. 1a UStG
-    VORSTEUER = "vorsteuer"                      # Eingangsrechnung mit VSt
-    STEUERFREI_INLAND = "steuerfrei"             # Steuerbefreit § 4 UStG
+    DRITTLAND_AUSFUHR = "drittland"  # Ausfuhr § 4 Nr. 1a UStG
+    VORSTEUER = "vorsteuer"  # Eingangsrechnung mit VSt
+    STEUERFREI_INLAND = "steuerfrei"  # Steuerbefreit § 4 UStG
 
 
 @dataclass
@@ -40,12 +38,12 @@ class UStPosition:
     """Eine berechnete Umsatzsteuer-Position."""
 
     netto: Decimal
-    steuersatz: Decimal          # in Prozent (z.B. 19, 7, 22)
+    steuersatz: Decimal  # in Prozent (z.B. 19, 7, 22)
     steuerbetrag: Decimal
     brutto: Decimal
     geschaeftsvorfall: Geschaeftsvorfall
     bestimmungsland: str = "DE"  # ISO-Code
-    steuer_konto: str = ""       # Konto für USt/VSt-Buchung (z.B. "1776")
+    steuer_konto: str = ""  # Konto für USt/VSt-Buchung (z.B. "1776")
     datev_schluessel: int | None = None  # DATEV BU-Schlüssel
     kennziffer_ust_va: int | None = None  # ELSTER-Kennziffer für USt-VA
 
@@ -60,15 +58,15 @@ class UStPosition:
 
 # Umsatzsteuer (Ausgangsrechnungen)
 UST_KONTEN_SKR03: dict[str, str] = {
-    "19":   "1776",   # Umsatzsteuer 19%
-    "7":    "1771",   # Umsatzsteuer 7%
-    "0":    "",       # Steuerfrei → kein Steuerkonto
+    "19": "1776",  # Umsatzsteuer 19%
+    "7": "1771",  # Umsatzsteuer 7%
+    "0": "",  # Steuerfrei → kein Steuerkonto
 }
 
 # Vorsteuer (Eingangsrechnungen)
 VST_KONTEN_SKR03: dict[str, str] = {
-    "19":   "1576",   # Vorsteuer 19%
-    "7":    "1571",   # Vorsteuer 7%
+    "19": "1576",  # Vorsteuer 19%
+    "7": "1571",  # Vorsteuer 7%
 }
 
 # OSS-Umsatzsteuerkonten (für EU-B2C)
@@ -88,14 +86,14 @@ OSS_UST_KONTEN_SKR03: dict[str, str] = {
 
 # Erlöskonten für OSS (SKR03)
 OSS_ERLOES_KONTEN_SKR03: dict[str, str] = {
-    "FR": "8320",   # Erlöse OSS Frankreich
-    "IT": "8321",   # Erlöse OSS Italien
-    "ES": "8322",   # Erlöse OSS Spanien
-    "NL": "8323",   # Erlöse OSS Niederlande
-    "SE": "8324",   # Erlöse OSS Schweden
-    "PL": "8325",   # Erlöse OSS Polen
-    "AT": "8326",   # Erlöse OSS Österreich
-    "BE": "8327",   # Erlöse OSS Belgien
+    "FR": "8320",  # Erlöse OSS Frankreich
+    "IT": "8321",  # Erlöse OSS Italien
+    "ES": "8322",  # Erlöse OSS Spanien
+    "NL": "8323",  # Erlöse OSS Niederlande
+    "SE": "8324",  # Erlöse OSS Schweden
+    "PL": "8325",  # Erlöse OSS Polen
+    "AT": "8326",  # Erlöse OSS Österreich
+    "BE": "8327",  # Erlöse OSS Belgien
     # Alternativ: Ein Sammelkonto 8320 "Erlöse OSS EU"
     # mit Aufschlüsselung per Kostenstelle/Dimension
 }
@@ -106,25 +104,25 @@ DATEV_BU_SCHLUESSEL = {
     "ust_7": 2,
     "vst_19": 9,
     "vst_7": 8,
-    "ig_lieferung": 40,         # Innergemeinschaftliche Lieferung
-    "ig_erwerb_19": 10,         # ig. Erwerb 19% VSt + USt
-    "ig_erwerb_7": 11,          # ig. Erwerb 7% VSt + USt
-    "reverse_charge": 19,       # Reverse Charge § 13b
-    "ausfuhr": 1,               # Steuerfreie Ausfuhr
-    "oss": None,                # OSS hat keinen Standard-BU-Schlüssel
+    "ig_lieferung": 40,  # Innergemeinschaftliche Lieferung
+    "ig_erwerb_19": 10,  # ig. Erwerb 19% VSt + USt
+    "ig_erwerb_7": 11,  # ig. Erwerb 7% VSt + USt
+    "reverse_charge": 19,  # Reverse Charge § 13b
+    "ausfuhr": 1,  # Steuerfreie Ausfuhr
+    "oss": None,  # OSS hat keinen Standard-BU-Schlüssel
 }
 
 # ELSTER USt-VA Kennziffern
 ELSTER_KENNZIFFERN = {
-    "umsaetze_19": 81,          # Steuerpflichtige Umsätze 19%
-    "steuer_19": None,          # Wird automatisch berechnet
-    "umsaetze_7": 86,           # Steuerpflichtige Umsätze 7%
+    "umsaetze_19": 81,  # Steuerpflichtige Umsätze 19%
+    "steuer_19": None,  # Wird automatisch berechnet
+    "umsaetze_7": 86,  # Steuerpflichtige Umsätze 7%
     "steuer_7": None,
-    "ig_lieferung": 41,         # Innergemeinschaftliche Lieferungen
-    "ausfuhr": 43,              # Ausfuhrlieferungen
-    "ig_erwerb": 89,            # Innergemeinschaftliche Erwerbe
-    "abziehbare_vst": 66,       # Vorsteuerbeträge
-    "oss_nicht_de": None,       # OSS wird separat gemeldet (nicht in USt-VA)
+    "ig_lieferung": 41,  # Innergemeinschaftliche Lieferungen
+    "ausfuhr": 43,  # Ausfuhrlieferungen
+    "ig_erwerb": 89,  # Innergemeinschaftliche Erwerbe
+    "abziehbare_vst": 66,  # Vorsteuerbeträge
+    "oss_nicht_de": None,  # OSS wird separat gemeldet (nicht in USt-VA)
 }
 
 
@@ -223,18 +221,15 @@ class UStBerechner:
             steuersatz = info.ermaessigt if ermaessigt else info.normal
             schluessel = str(int(steuersatz))
             steuer_konto = UST_KONTEN_SKR03.get(schluessel, "1776")
-            datev_schluessel = DATEV_BU_SCHLUESSEL.get(
-                f"ust_{int(steuersatz)}", 3
-            )
-            kennziffer = ELSTER_KENNZIFFERN.get(
-                f"umsaetze_{int(steuersatz)}", 81
-            )
+            datev_schluessel = DATEV_BU_SCHLUESSEL.get(f"ust_{int(steuersatz)}", 3)
+            kennziffer = ELSTER_KENNZIFFERN.get(f"umsaetze_{int(steuersatz)}", 81)
 
         elif vorfall == Geschaeftsvorfall.EU_B2C_OSS:
-            info = EU_STEUERSAETZE.get(land)
-            if info is None:
+            info_opt = EU_STEUERSAETZE.get(land)
+            if info_opt is None:
                 msg = f"Kein Steuersatz für Land '{land}' hinterlegt"
                 raise ValueError(msg)
+            info = info_opt
             steuersatz = info.ermaessigt if ermaessigt else info.normal
             steuer_konto = OSS_UST_KONTEN_SKR03.get(land, "1779")
             datev_schluessel = DATEV_BU_SCHLUESSEL.get("oss")

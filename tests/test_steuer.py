@@ -10,12 +10,11 @@ from accounti.steuer.eu_steuersaetze import (
     ist_oss_land,
     steuersatz_fuer_land,
 )
+from accounti.steuer.oss import OSS_SCHWELLE_EUR, OSSEngine
 from accounti.steuer.umsatzsteuer import (
     Geschaeftsvorfall,
     UStBerechner,
 )
-from accounti.steuer.oss import OSSEngine, OSS_SCHWELLE_EUR
-
 
 # ===================================================================
 # EU-Steuersätze
@@ -261,7 +260,7 @@ class TestMultiMarketplace:
 
 class TestOSSEngine:
     def test_schwelle_wert(self) -> None:
-        assert OSS_SCHWELLE_EUR == Decimal("10000.00")
+        assert Decimal("10000.00") == OSS_SCHWELLE_EUR
 
     def test_quartal_berechnung(self) -> None:
         from datetime import date
