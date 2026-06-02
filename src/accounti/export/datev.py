@@ -120,7 +120,7 @@ class DATEVExporter:
     def exportiere(
         self,
         buchungen: list[Buchungssatz],
-        ausgabe_pfad: Path,
+        ausgabe_pfad: str | Path,
     ) -> Path:
         """Buchungsstapel als DATEV-ASCII-Datei exportieren.
 

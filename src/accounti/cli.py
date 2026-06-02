@@ -53,14 +53,44 @@ def import_bank(
 # ---------------------------------------------------------------------------
 @app.command()
 def classify(
-    period: str = typer.Option(..., help="Zeitraum im Format YYYY-MM"),
-    dry_run: bool = typer.Option(False, help="Nur anzeigen, nicht speichern"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    llm: bool = typer.Option(True, "--llm/--no-llm", help="LLM-Stufe nutzen"),
 ) -> None:
     """Transaktionen automatisch kontieren."""
-    console.print(f"[bold]Klassifikation:[/bold] Zeitraum {period}")
-    if dry_run:
-        console.print("[dim]Trockenlauf — keine Änderungen werden gespeichert[/dim]")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 2[/yellow]")
+    from accounti.buchung.mapper import zu_buchungssatz
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_transaktionen, speichere_buchung
+    from accounti.klassifikation.engine import (
+        STANDARD_REGELN,
+        KlassifikationsEngine,
+        RegelwerkEngine,
+    )
+    from accounti.klassifikation.llm import LLMEngine
+    from accounti.klassifikation.regeln_loader import lade_regeln
+
+    # Eigene Regeln (config/regeln.yaml) haben Vorrang, dann das Standard-Regelwerk.
+    regeln = lade_regeln("config/regeln.yaml")
+    if regeln:
+        regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
+    else:
+        regelwerk = RegelwerkEngine()
+    engine = KlassifikationsEngine(
+        regelwerk=regelwerk,
+        llm=LLMEngine() if llm else None,
+    )
+
+    _, make_session = session_factory(db)
+    auto = offen = 0
+    with make_session() as s:
+        for tx in lade_transaktionen(s):
+            erg = engine.klassifiziere(tx)
+            if erg is None:
+                offen += 1
+                continue
+            speichere_buchung(s, zu_buchungssatz(tx, erg))
+            auto += 1
+        s.commit()
+    console.print(f"[green]{auto}[/green] kontiert, [yellow]{offen}[/yellow] offen.")
 
 
 # ---------------------------------------------------------------------------
@@ -87,15 +117,57 @@ app.add_typer(export_app, name="export")
 
 @export_app.command("datev")
 def export_datev(
-    period: str = typer.Option(..., help="Zeitraum im Format YYYY-MM"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     berater: str = typer.Option(..., help="DATEV Beraternummer"),
     mandant: str = typer.Option(..., help="DATEV Mandantennummer"),
     output: str = typer.Option("./export", help="Ausgabeverzeichnis"),
 ) -> None:
     """DATEV-konformen Buchungsstapel exportieren."""
-    console.print(f"[bold]DATEV-Export:[/bold] {period} → {output}")
-    console.print(f"  Berater: {berater}, Mandant: {mandant}")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 1[/yellow]")
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+    from accounti.export.datev import DATEVConfig, DATEVExporter
+
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        buchungen = lade_buchungen(s)
+    cfg = DATEVConfig(berater_nummer=berater, mandanten_nummer=mandant)
+    datei = DATEVExporter(cfg).exportiere(buchungen, output)
+    console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
+
+
+@app.command()
+def lerne(
+    muster: str = typer.Option(..., help="Text-Muster (Regex)"),
+    soll: str = typer.Option(..., help="Soll-Konto"),
+    haben: str = typer.Option(..., help="Haben-Konto"),
+    name: str = typer.Option(..., help="Regel-Name"),
+    steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
+) -> None:
+    """Korrektur als neue Regel speichern (Lernschleife)."""
+    from pathlib import Path
+
+    import yaml
+
+    pfad = Path("config/regeln.yaml")
+    if pfad.exists():
+        regeln = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
+    else:
+        regeln = []
+    regeln.append(
+        {
+            "name": name,
+            "muster": muster,
+            "feld": "verwendungszweck",
+            "soll_konto": soll,
+            "haben_konto": haben,
+            "steuer_schluessel": steuer,
+            "buchungstext": name,
+        }
+    )
+    pfad.write_text(
+        yaml.safe_dump(regeln, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    console.print(f"[green]Regel '{name}' gespeichert.[/green]")
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 """Sparkasse-CSV-Importer (CSV-CAMT-Format)."""
+
 from __future__ import annotations
 
 import csv
@@ -32,7 +33,7 @@ def parse_datum(roh: str) -> date:
 class SparkasseImporter(BankImporter):
     name = "sparkasse"
 
-    def importiere(self, pfad: Path) -> list[Transaktion]:
+    def importiere(self, pfad: str | Path) -> list[Transaktion]:
         text = _lies_text(Path(pfad))
         reader = csv.DictReader(text.splitlines(), delimiter=";")
         transaktionen: list[Transaktion] = []
@@ -45,7 +46,9 @@ class SparkasseImporter(BankImporter):
                     betrag=parse_betrag(row["Betrag"]),
                     waehrung=(row.get("Währung") or "EUR").strip(),
                     verwendungszweck=(row.get("Verwendungszweck") or "").strip(),
-                    gegenkonto_name=(row.get("Begünstigter/Zahlungspflichtiger") or "").strip()
+                    gegenkonto_name=(
+                        row.get("Begünstigter/Zahlungspflichtiger") or ""
+                    ).strip()
                     or None,
                     gegenkonto_iban=(row.get("Kontonummer") or "").strip() or None,
                     quelle=TransaktionQuelle.BANK,

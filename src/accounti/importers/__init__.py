@@ -12,7 +12,7 @@ class BankImporter:
 
     name: str = "base"
 
-    def importiere(self, pfad: Path) -> list[Transaktion]:
+    def importiere(self, pfad: str | Path) -> list[Transaktion]:
         raise NotImplementedError
 
 

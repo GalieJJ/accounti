@@ -1,4 +1,5 @@
 """LLM-Klassifikationsstufe über LiteLLM (Claude default / Ollama)."""
+
 from __future__ import annotations
 
 import json

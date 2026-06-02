@@ -8,7 +8,7 @@ import yaml
 from accounti.klassifikation.engine import Regel
 
 
-def lade_regeln(pfad: Path) -> list[Regel]:
+def lade_regeln(pfad: str | Path) -> list[Regel]:
     pfad = Path(pfad)
     if not pfad.exists():
         return []

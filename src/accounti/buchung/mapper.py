@@ -1,19 +1,23 @@
 """Mappt ein Klassifikationsergebnis auf einen vollständigen Buchungssatz."""
+
 from __future__ import annotations
 
 from decimal import Decimal
 
 from accounti.models import (
-    BuchungStatus, Buchungssatz, Klassifikationsergebnis, Transaktion,
+    Buchungssatz,
+    BuchungStatus,
+    Klassifikationsergebnis,
+    Transaktion,
 )
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 # DATEV BU-Schlüssel -> (Steuersatz, ist_vorsteuer)
 _SCHLUESSEL_SATZ: dict[int, tuple[Decimal, bool]] = {
-    3: (Decimal("19"), False),   # USt 19%
-    2: (Decimal("7"), False),    # USt 7%
-    9: (Decimal("19"), True),    # VSt 19%
-    8: (Decimal("7"), True),     # VSt 7%
+    3: (Decimal("19"), False),  # USt 19%
+    2: (Decimal("7"), False),  # USt 7%
+    9: (Decimal("19"), True),  # VSt 19%
+    8: (Decimal("7"), True),  # VSt 7%
 }
 
 

@@ -7,8 +7,13 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from accounti.db.tabellen import TransaktionRow
-from accounti.models import Transaktion, TransaktionQuelle
+from accounti.db.tabellen import BuchungssatzRow, TransaktionRow
+from accounti.models import (
+    Buchungssatz,
+    BuchungStatus,
+    Transaktion,
+    TransaktionQuelle,
+)
 
 
 def speichere_transaktion(session: Session, tx: Transaktion) -> None:
@@ -40,6 +45,46 @@ def lade_transaktionen(session: Session) -> list[Transaktion]:
             gegenkonto_iban=r.gegenkonto_iban,
             quelle=TransaktionQuelle(r.quelle),
             rohtext=r.rohtext,
+        )
+        for r in rows
+    ]
+
+
+def speichere_buchung(session: Session, b: Buchungssatz) -> None:
+    session.add(
+        BuchungssatzRow(
+            id=str(b.id),
+            transaktion_id=str(b.transaktion_id),
+            datum=b.datum,
+            soll_konto=b.soll_konto,
+            haben_konto=b.haben_konto,
+            betrag_netto=b.betrag_netto,
+            steuer_schluessel=b.steuer_schluessel,
+            steuer_betrag=b.steuer_betrag,
+            buchungstext=b.buchungstext,
+            status=b.status.value,
+            confidence=b.confidence,
+        )
+    )
+
+
+def lade_buchungen(session: Session) -> list[Buchungssatz]:
+    rows = session.query(BuchungssatzRow).all()
+    return [
+        Buchungssatz(
+            id=UUID(r.id),
+            transaktion_id=UUID(r.transaktion_id),
+            datum=r.datum,
+            soll_konto=r.soll_konto,
+            haben_konto=r.haben_konto,
+            betrag_netto=Decimal(str(r.betrag_netto)),
+            steuer_schluessel=r.steuer_schluessel,
+            steuer_betrag=(
+                Decimal(str(r.steuer_betrag)) if r.steuer_betrag is not None else None
+            ),
+            buchungstext=r.buchungstext,
+            status=BuchungStatus(r.status),
+            confidence=r.confidence,
         )
         for r in rows
     ]
