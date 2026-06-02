@@ -42,8 +42,15 @@ class Regel:
         self.feld = feld
 
     def passt(self, transaktion: Transaktion) -> bool:
-        """Prüft ob die Regel auf die Transaktion zutrifft."""
-        text = getattr(transaktion, self.feld, "") or ""
+        """Prüft ob die Regel auf die Transaktion zutrifft.
+
+        feld="beide" durchsucht Verwendungszweck UND Gegenkonto-Name —
+        nützlich, weil Banken den Händlernamen mal hier, mal dort führen.
+        """
+        if self.feld == "beide":
+            text = f"{transaktion.verwendungszweck} {transaktion.gegenkonto_name or ''}"
+        else:
+            text = getattr(transaktion, self.feld, "") or ""
         return bool(self.muster.search(text))
 
 
