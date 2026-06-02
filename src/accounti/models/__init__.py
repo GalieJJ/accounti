@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
 
-
 # ---------------------------------------------------------------------------
 # Enums
 # ---------------------------------------------------------------------------
@@ -37,12 +36,12 @@ class TransaktionQuelle(str, enum.Enum):
 class BuchungStatus(str, enum.Enum):
     """Status eines Buchungssatzes in der Pipeline."""
 
-    ENTWURF = "entwurf"          # Vom System vorgeschlagen
-    AUTO_GEBUCHT = "auto"        # Automatisch gebucht (hohe Confidence)
-    ZUR_PRUEFUNG = "pruefung"    # Muss vom Supervisor geprüft werden
-    GEPRUEFT = "geprueft"        # Vom Supervisor bestätigt
-    KORRIGIERT = "korrigiert"    # Vom Supervisor korrigiert
-    EXPORTIERT = "exportiert"    # In DATEV exportiert
+    ENTWURF = "entwurf"  # Vom System vorgeschlagen
+    AUTO_GEBUCHT = "auto"  # Automatisch gebucht (hohe Confidence)
+    ZUR_PRUEFUNG = "pruefung"  # Muss vom Supervisor geprüft werden
+    GEPRUEFT = "geprueft"  # Vom Supervisor bestätigt
+    KORRIGIERT = "korrigiert"  # Vom Supervisor korrigiert
+    EXPORTIERT = "exportiert"  # In DATEV exportiert
 
 
 # ---------------------------------------------------------------------------
@@ -58,10 +57,14 @@ class Transaktion(BaseModel):
     betrag: Decimal = Field(description="Positiv = Einnahme, Negativ = Ausgabe")
     waehrung: str = Field(default="EUR", max_length=3)
     verwendungszweck: str
-    gegenkonto_name: str | None = Field(default=None, description="Name des Kontoinhabers")
+    gegenkonto_name: str | None = Field(
+        default=None, description="Name des Kontoinhabers"
+    )
     gegenkonto_iban: str | None = None
     quelle: TransaktionQuelle
-    quelle_referenz: str | None = Field(default=None, description="z.B. JTL-Rechnungsnummer")
+    quelle_referenz: str | None = Field(
+        default=None, description="z.B. JTL-Rechnungsnummer"
+    )
     rohtext: str = Field(description="Originalzeile aus Import, für Debugging")
     importiert_am: datetime = Field(default_factory=datetime.now)
 
@@ -79,7 +82,9 @@ class Konto(BaseModel):
     typ: str = Field(description="aktiv, passiv, erloes, aufwand")
     kontenrahmen: Kontenrahmen
     bwa_zeile: int | None = Field(default=None, description="Zuordnung zur BWA-Zeile")
-    steuer_schluessel: int | None = Field(default=None, description="DATEV-Steuerschlüssel")
+    steuer_schluessel: int | None = Field(
+        default=None, description="DATEV-Steuerschlüssel"
+    )
     steuer_automatik: bool = Field(default=False)
 
 
@@ -128,7 +133,9 @@ class Klassifikationsergebnis(BaseModel):
     steuer_schluessel: int | None = None
     buchungstext: str
     confidence: float = Field(ge=0.0, le=1.0)
-    begruendung: str = Field(description="Erklärung der KI warum dieses Konto gewählt wurde")
+    begruendung: str = Field(
+        description="Erklärung der KI warum dieses Konto gewählt wurde"
+    )
     quelle: str = Field(description="'regelwerk' oder 'llm'")
 
 

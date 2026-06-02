@@ -16,16 +16,13 @@ Unter der Schwelle → Wahlrecht (DE-Steuersatz oder OSS).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 
 from accounti.models import Buchungssatz
 from accounti.steuer.eu_steuersaetze import (
     EU_STEUERSAETZE,
-    SteuersatzInfo,
-    ist_oss_land,
 )
-
 
 # ---------------------------------------------------------------------------
 # OSS-Schwellenwert
@@ -79,9 +76,9 @@ class OSSLand:
 class OSSMeldung:
     """Vollständige OSS-Meldung für ein Quartal."""
 
-    quartal: str                   # z.B. "2026-Q2"
+    quartal: str  # z.B. "2026-Q2"
     jahr: int
-    quartal_nr: int                # 1-4
+    quartal_nr: int  # 1-4
     firmen_land: str = "DE"
     firmen_ust_id: str = ""
 
@@ -95,22 +92,25 @@ class OSSMeldung:
 
     @property
     def bemessungsgrundlage_gesamt(self) -> Decimal:
-        return sum((l.bemessungsgrundlage_gesamt for l in self.laender), Decimal("0.00"))
+        return sum(
+            (land.bemessungsgrundlage_gesamt for land in self.laender),
+            Decimal("0.00"),
+        )
 
     @property
     def steuer_gesamt(self) -> Decimal:
-        return sum((l.steuer_gesamt for l in self.laender), Decimal("0.00"))
+        return sum((land.steuer_gesamt for land in self.laender), Decimal("0.00"))
 
     @property
     def anzahl_transaktionen(self) -> int:
-        return sum(l.anzahl_gesamt for l in self.laender)
+        return sum(land.anzahl_gesamt for land in self.laender)
 
     def als_csv_zeilen(self) -> list[str]:
         """Exportiert die Meldung als CSV-Zeilen für Prüfzwecke."""
         zeilen = [
             "Land;Steuersatz;Bemessungsgrundlage;Steuer;Anzahl",
         ]
-        for land in sorted(self.laender, key=lambda l: l.land_code):
+        for land in sorted(self.laender, key=lambda eintrag: eintrag.land_code):
             if land.bemessungsgrundlage_normal > 0:
                 zeilen.append(
                     f"{land.land_code};{land.steuersatz_normal}%;"
@@ -158,9 +158,9 @@ class OSSEngine:
             letzter_tag = date(jahr, 12, 31)
         else:
             letzter_tag = date(jahr, monat_ende + 1, 1).replace(day=1)
-            letzter_tag = date(
-                letzter_tag.year, letzter_tag.month, 1
-            ) - __import__("datetime").timedelta(days=1)
+            letzter_tag = date(letzter_tag.year, letzter_tag.month, 1) - __import__(
+                "datetime"
+            ).timedelta(days=1)
         return date(jahr, monat_start, 1), letzter_tag
 
     def _abgabefrist(self, jahr: int, quartal_nr: int) -> date:
@@ -173,7 +173,7 @@ class OSSEngine:
         # Letzter Tag des Folgemonats
         if folgemonat == 12:
             return date(folgejahr, 12, 31)
-        return date(folgejahr, folgemonat + 1, 1) - __import__("datetime").timedelta(days=1)
+        return date(folgejahr, folgemonat + 1, 1) - timedelta(days=1)
 
     def pruefe_schwelle(
         self,
@@ -198,9 +198,10 @@ class OSSEngine:
         summe = Decimal("0.00")
 
         for b in buchungen:
-            if b.datum.year == jahr:
-                if b.haben_konto in oss_konten or b.soll_konto in oss_konten:
-                    summe += abs(b.betrag_netto)
+            if b.datum.year == jahr and (
+                b.haben_konto in oss_konten or b.soll_konto in oss_konten
+            ):
+                summe += abs(b.betrag_netto)
 
         return summe > OSS_SCHWELLE_EUR, summe
 
@@ -227,10 +228,7 @@ class OSSEngine:
         frist = self._abgabefrist(jahr, quartal_nr)
 
         # Buchungen des Quartals filtern
-        quartal_buchungen = [
-            b for b in buchungen
-            if von <= b.datum <= bis
-        ]
+        quartal_buchungen = [b for b in buchungen if von <= b.datum <= bis]
 
         # Nach Land gruppieren
         # TODO: Bestimmungsland muss als Metadatum auf dem Buchungssatz sein.

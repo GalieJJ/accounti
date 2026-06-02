@@ -8,13 +8,12 @@ Stufe 3: Supervisor-Feedback (menschliche Korrektur → neue Regel)
 from __future__ import annotations
 
 import re
-from decimal import Decimal
 
+from accounti.klassifikation.llm import LLMEngine
 from accounti.models import (
     Klassifikationsergebnis,
     Transaktion,
 )
-
 
 # ---------------------------------------------------------------------------
 # Stufe 1: Regelwerk
@@ -115,7 +114,8 @@ class RegelwerkEngine:
                     soll_konto=regel.soll_konto,
                     haben_konto=regel.haben_konto,
                     steuer_schluessel=regel.steuer_schluessel,
-                    buchungstext=regel.buchungstext or transaktion.verwendungszweck[:60],
+                    buchungstext=regel.buchungstext
+                    or transaktion.verwendungszweck[:60],
                     confidence=1.0,  # Regelwerk = volle Confidence
                     begruendung=f"Regel '{regel.name}' greift auf Feld '{regel.feld}'",
                     quelle="regelwerk",
@@ -128,41 +128,8 @@ class RegelwerkEngine:
 
 
 # ---------------------------------------------------------------------------
-# Stufe 2: LLM-Klassifikation (Stub)
+# Stufe 2: LLM-Klassifikation — siehe accounti.klassifikation.llm (LLMEngine)
 # ---------------------------------------------------------------------------
-
-
-class LLMEngine:
-    """Stufe 2 — LLM-basierte Kontierung für unbekannte Transaktionen.
-
-    Nutzt LiteLLM um verschiedene Modelle anzusprechen
-    (Anthropic Claude, OpenAI, Ollama).
-    """
-
-    def __init__(
-        self,
-        model: str = "anthropic/claude-sonnet-4-20250514",
-        confidence_schwelle: float = 0.85,
-    ) -> None:
-        self.model = model
-        self.confidence_schwelle = confidence_schwelle
-
-    async def klassifiziere(
-        self,
-        transaktion: Transaktion,
-        kontenrahmen: str = "SKR03",
-    ) -> Klassifikationsergebnis:
-        """Transaktion per LLM kontieren.
-
-        TODO: Implementation mit LiteLLM
-        - Kontenrahmen als Kontext
-        - Structured Output für Konto + Steuerschlüssel
-        - Confidence aus Log-Probabilities oder Self-Assessment
-        """
-        raise NotImplementedError(
-            "LLM-Engine ist noch nicht implementiert. "
-            "Siehe Roadmap Phase 2 und docs/llm-integration.md"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +160,8 @@ class KlassifikationsEngine:
         if ergebnis is not None:
             return ergebnis
 
-        # Stufe 2: LLM (TODO)
-        # if self.llm is not None:
-        #     ergebnis = await self.llm.klassifiziere(transaktion)
-        #     return ergebnis
+        # Stufe 2: LLM (nur wenn konfiguriert)
+        if self.llm is not None:
+            return self.llm.klassifiziere(transaktion)
 
         return None

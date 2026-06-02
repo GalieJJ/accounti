@@ -11,15 +11,14 @@ nur informativ auf.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 
 
 @dataclass
 class UStKennziffer:
     """Eine Kennziffer der Umsatzsteuer-Voranmeldung."""
 
-    kz: int                    # ELSTER-Kennziffer (z.B. 81, 86, 66)
+    kz: int  # ELSTER-Kennziffer (z.B. 81, 86, 66)
     bezeichnung: str
     bemessungsgrundlage: Decimal = Decimal("0.00")
     steuerbetrag: Decimal = Decimal("0.00")
@@ -33,10 +32,10 @@ class UStKennziffer:
 class UStVoranmeldung:
     """Vollständige Umsatzsteuer-Voranmeldung für einen Meldezeitraum."""
 
-    zeitraum: str              # z.B. "2026-04" oder "2026-Q1"
+    zeitraum: str  # z.B. "2026-04" oder "2026-Q1"
     firmen_name: str = ""
     steuernummer: str = ""
-    ust_id: str = ""           # z.B. "DE123456789"
+    ust_id: str = ""  # z.B. "DE123456789"
 
     # --- Abschnitt: Steuerpflichtige Umsätze ---
     # Kz 81: Umsätze zum Steuersatz von 19%
@@ -71,9 +70,7 @@ class UStVoranmeldung:
     # --- Abschnitt: Ergänzende Angaben ---
     # Kz 46: § 13b UStG (Reverse Charge, Leistungsempfänger)
     kz_46: UStKennziffer = field(
-        default_factory=lambda: UStKennziffer(
-            46, "Leistungen Reverse Charge § 13b"
-        )
+        default_factory=lambda: UStKennziffer(46, "Leistungen Reverse Charge § 13b")
     )
 
     # --- Abschnitt: Abziehbare Vorsteuerbeträge ---
@@ -108,9 +105,7 @@ class UStVoranmeldung:
     def vorsteuer_gesamt(self) -> Decimal:
         """Summe aller Vorsteuer (Kz 66 + 61 + 67)."""
         return (
-            self.kz_66.steuerbetrag
-            + self.kz_61.steuerbetrag
-            + self.kz_67.steuerbetrag
+            self.kz_66.steuerbetrag + self.kz_61.steuerbetrag + self.kz_67.steuerbetrag
         )
 
     @property
@@ -121,11 +116,16 @@ class UStVoranmeldung:
     def alle_kennziffern(self) -> list[UStKennziffer]:
         """Gibt alle Kennziffern als Liste zurück."""
         return [
-            self.kz_81, self.kz_86, self.kz_35,
-            self.kz_41, self.kz_43,
+            self.kz_81,
+            self.kz_86,
+            self.kz_35,
+            self.kz_41,
+            self.kz_43,
             self.kz_89,
             self.kz_46,
-            self.kz_66, self.kz_61, self.kz_67,
+            self.kz_66,
+            self.kz_61,
+            self.kz_67,
         ]
 
     def zusammenfassung(self) -> str:
@@ -160,19 +160,24 @@ class UStVoranmeldung:
                     f"VSt: {kz.steuerbetrag:>10.2f} €"
                 )
 
-        zeilen.extend([
-            "",
-            "-" * 50,
-            f"  Umsatzsteuer gesamt:  {self.umsatzsteuer_gesamt:>10.2f} €",
-            f"  Vorsteuer gesamt:     {self.vorsteuer_gesamt:>10.2f} €",
-            f"  {'Zahllast' if self.zahllast >= 0 else 'Erstattung'}:"
-            f"           {abs(self.zahllast):>10.2f} €",
-        ])
+        zeilen.extend(
+            [
+                "",
+                "-" * 50,
+                f"  Umsatzsteuer gesamt:  {self.umsatzsteuer_gesamt:>10.2f} €",
+                f"  Vorsteuer gesamt:     {self.vorsteuer_gesamt:>10.2f} €",
+                f"  {'Zahllast' if self.zahllast >= 0 else 'Erstattung'}:"
+                f"           {abs(self.zahllast):>10.2f} €",
+            ]
+        )
 
         if self.oss_hinweis > 0:
-            zeilen.extend([
-                "",
-                f"  [Info] OSS-Umsätze (separat zu melden): {self.oss_hinweis:>10.2f} €",
-            ])
+            zeilen.extend(
+                [
+                    "",
+                    f"  [Info] OSS-Umsätze (separat zu melden): "
+                    f"{self.oss_hinweis:>10.2f} €",
+                ]
+            )
 
         return "\n".join(zeilen)

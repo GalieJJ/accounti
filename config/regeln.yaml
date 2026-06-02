@@ -1,0 +1,24 @@
+# Kontierungsregeln (SKR03). Reihenfolge = Priorität (erste passende gewinnt).
+- name: telekom
+  muster: 'TELEKOM|VODAFONE|O2|1UND1|1&1'
+  feld: verwendungszweck
+  soll_konto: '4920'      # Telefon
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Telefon/Internet'
+
+- name: bueromaterial
+  muster: 'BUEROMATERIAL|BÜROMATERIAL|STAPLES'
+  feld: verwendungszweck
+  soll_konto: '4930'      # Bürobedarf
+  haben_konto: '1200'
+  steuer_schluessel: 9
+  buchungstext: 'Büromaterial'
+
+- name: ebay_erloes
+  muster: 'EBAY'
+  feld: verwendungszweck
+  soll_konto: '1200'
+  haben_konto: '8400'
+  steuer_schluessel: 3
+  buchungstext: 'eBay Erlöse'

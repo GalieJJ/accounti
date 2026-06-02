@@ -1,14 +1,14 @@
 """Tests für die Klassifikations-Engine."""
 
-from decimal import Decimal
 from datetime import date
+from decimal import Decimal
 
-from accounti.models import Transaktion, TransaktionQuelle
 from accounti.klassifikation.engine import (
     KlassifikationsEngine,
     Regel,
     RegelwerkEngine,
 )
+from accounti.models import Transaktion, TransaktionQuelle
 
 
 def _beispiel_transaktion(**kwargs) -> Transaktion:

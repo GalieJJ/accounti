@@ -47,6 +47,7 @@ dev = [
     "ruff>=0.3",
     "mypy>=1.8",
     "pre-commit>=3.6",
+    "types-PyYAML>=6.0",
 ]
 
 [project.scripts]
@@ -67,6 +68,9 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "T20"]
+# UP042: (str, enum.Enum) bewusst beibehalten — StrEnum ändert das
+# str()-Verhalten der Member und damit Text-/CSV-Ausgaben.
+ignore = ["UP042"]
 
 [tool.mypy]
 python_version = "3.11"
