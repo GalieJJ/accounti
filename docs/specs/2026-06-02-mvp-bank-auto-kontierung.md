@@ -1,7 +1,7 @@
 # Spec: MVP „Bank-Auto-Kontierung"
 
-- **Status:** Entwurf, vom Maintainer genehmigt (2026-06-02)
-- **Baustein:** 1 von 5 der Produktvision (siehe unten)
+- **Status:** Umgesetzt (2026-06-02 genehmigt, Baustein abgeschlossen)
+- **Baustein:** 1 von 12 der Produktvision (siehe unten)
 - **Ziel-Branch:** `mvp/bank-auto-kontierung`
 
 ## 1. Kontext & Produktvision
@@ -10,17 +10,29 @@ accounti ist eine **Open-Source-Software für deutsche KMU**, die die Buchhaltun
 reduziert und damit den Steuerberater-Aufwand senkt. Es ersetzt nicht den Steuerberater, sondern
 die manuelle Arbeit *zwischen Belegeingang und Steuerberater*.
 
-Die Gesamtvision zerfällt in eigenständige Bausteine (je eigenes Spec → Plan → Build):
+Die Gesamtvision zerfällt in eigenständige Bausteine (je eigenes Spec → Plan → Build). Die
+Übersicht mit Abhängigkeiten und Phasen steht im [Bauplan](../bauplan.md):
 
 | # | Baustein | Dieses Spec |
 |---|----------|-------------|
 | **1** | **Bankauszug → Auto-Kontierung (Regeln + KI) → DATEV/CSV** | ✅ |
-| 2 | Beleg-OCR → Kontierung → Abgleich mit Bank | — |
-| 3 | USt/OSS-Auswertung & Meldungen | — |
-| 4 | Supervision-Web-UI | — |
-| 5 | Integrationen (Bank, Marktplätze, DATEV) | — |
+| 2 | Belegerfassung & Dokumentenmanagement | — |
+| 3 | E-Rechnung — Eingang & Ausgang | — |
+| 4 | Kreditoren, Debitoren & offene Posten | — |
+| 5 | Live-Bankanbindung & Belegabgleich | — |
+| 6 | Zahlungsverkehr & Mahnwesen | — |
+| 7 | Belegvollständigkeit & Ordnungsmäßigkeit | — |
+| 8 | Aufgaben & Rückfragen | — |
+| 9 | Steuermeldungen & elektronische Übermittlung | — |
+| 10 | Supervision-Web-UI, Auth & Betrieb | — |
+| 11 | Integrationen & Export | — |
+| 12 | Anlagenbuchhaltung & Jahresabschluss | — |
 
 Dieses Spec beschreibt **ausschließlich Baustein 1**.
+
+> **Hinweis (2026-08-10):** Dieses Spec ist umgesetzt und bleibt als Historie unverändert. Die
+> ursprüngliche Fünferliste der Bausteine wurde durch die Zwölferliste oben ersetzt; §8
+> („Ausdrücklich NICHT im MVP") verweist damit auf die heutigen Bausteine 2 bis 12.
 
 ## 2. Ziel des MVP
 
