@@ -13,6 +13,7 @@
   <a href="#features">Features</a> ·
   <a href="#quickstart">Quickstart</a> ·
   <a href="#architektur">Architektur</a> ·
+  <a href="docs/bauplan.md">Bauplan</a> ·
   <a href="#roadmap">Roadmap</a> ·
   <a href="CONTRIBUTING.md">Mitmachen</a> ·
   <a href="LICENSE">Lizenz</a>
@@ -22,9 +23,9 @@
 
 ## Was ist accounti?
 
-**accounti** automatisiert die laufende Buchhaltung für kleine und mittlere Unternehmen in Deutschland. Es ersetzt nicht den Steuerberater — es ersetzt die manuelle Arbeit *zwischen* Belegeingang und Steuerberater.
+**accounti** macht die laufende Buchhaltung kleiner und mittlerer Unternehmen in Deutschland im eigenen Haus möglich — von der Belegerfassung über die Kontierung und den Zahlungsverkehr bis zur Steuermeldung und zum Jahresabschluss.
 
-Du importierst Transaktionsdaten (Bankkonto, ERP, Marktplätze), accounti klassifiziert und kontiert automatisch nach SKR03/SKR04, erzeugt Buchungssätze, erstellt eine BWA und exportiert alles DATEV-konform. Du supervisierst nur noch.
+Belege kommen über E-Mail, Ordner oder als E-Rechnung herein, Kontoumsätze holt accounti selbst von der Bank. Beides wird zusammengeführt, nach SKR03/SKR04 kontiert, zu Buchungssätzen verarbeitet und als BWA ausgewertet. Was unsicher ist, legt dir accounti zur Prüfung vor — den Rest erledigt es.
 
 ### Das Problem
 
@@ -36,36 +37,90 @@ Du importierst Transaktionsdaten (Bankkonto, ERP, Marktplätze), accounti klassi
 ### Die Lösung
 
 ```
-Bankdaten / ERP / Marktplätze
-        │
-        ▼
-   ┌─────────┐
-   │ accounti │  ← KI-gestützte Kontierung
-   └─────────┘
-        │
-   ┌────┼────┐
-   ▼    ▼    ▼
- DATEV  BWA  Dashboard
+  Belege                          Kontoumsätze
+  E-Mail · Ordner · Upload        Bank (FinTS/PSD2) · Kreditkarte
+  E-Rechnung · Connector          ERP · Marktplätze
+        │                                │
+        └──────────────┬─────────────────┘
+                       ▼
+                 ┌──────────┐
+                 │ accounti │  ← Abgleich, KI-Kontierung, Prüfung
+                 └──────────┘
+                       │
+      ┌────────┬───────┼────────┬─────────┐
+      ▼        ▼       ▼        ▼         ▼
+   Zahlung   OPOS     BWA    Steuer-   DATEV
+   Mahnung          Abschluss meldung
 ```
 
 ---
 
 ## Features
 
+Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder mit eigenem Spec.
+
+**Belege & Rechnungen**
+
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
-| 🔲 | **Multi-Import** | CSV/MT940/CAMT von Banken, JTL-Wawi, Shopify, Amazon, eBay |
-| 🔲 | **KI-Kontierung** | Automatische SKR03/SKR04-Zuordnung per LLM + Regelwerk |
-| 🔲 | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
-| 🔲 | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |
-| 🔲 | **DATEV-Export** | ASCII-konformer Export (Buchungsstapel + Stammdaten) |
-| 🔲 | **Supervisionsansicht** | Web-UI zum Prüfen, Korrigieren, Freigeben |
-| 🔲 | **Lernschleife** | Korrekturen fließen als Training zurück |
-| 🔲 | **Multi-Mandant** | Mehrere Firmen, Wirtschaftsjahre, Kontenrahmen |
-| 🔲 | **Umsatzsteuer** | Automatische USt/VSt-Berechnung, Steuerautomatik, ELSTER-Kennziffern |
-| 🔲 | **OSS-Verfahren** | EU-weite MwSt (27 Länder), Schwellenwertprüfung, Quartalsmeldung |
-| 🔲 | **USt-Voranmeldung** | Kennziffern für ELSTER, Zahllast-Berechnung |
-| 🔲 | **Multi-Marketplace** | Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, PayPal — korrekte Steuersätze je Land |
+| 🔲 | **Belegeingang** | E-Mail-Weiterleitung, überwachter Ordner, Upload, Webhook, Beleg-Connectoren |
+| 🔲 | **Belegerkennung** | OCR mit lokaler Engine als Default, automatische Belegsortierung, Dublettenerkennung |
+| 🔲 | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
+| 🔲 | **E-Rechnung Eingang** | XRechnung, ZUGFeRD/Factur-X lesen und validieren — ohne OCR |
+| 🔲 | **E-Rechnung Ausgang** | Rechnungen schreiben und als konforme E-Rechnung versenden |
+
+**Buchen & Zahlen**
+
+| Status | Feature | Beschreibung |
+|--------|---------|-------------|
+| ✅ | **Bank-Import** | CSV mehrerer Banken, konfigurationsgetriebene Profile mit Auto-Erkennung |
+| 🔲 | **Live-Bankanbindung** | FinTS/HBCI direkt, PSD2-Aggregator optional, Kreditkarten |
+| 🔲 | **Belegabgleich** | Beleg ↔ Kontoumsatz automatisch zusammenführen, bevor kontiert wird |
+| ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
+| ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
+| 🔲 | **Kreditoren & Debitoren** | Personenkonten, Stammdaten, USt-IdNr.-Prüfung mit Protokoll |
+| 🔲 | **Offene Posten** | OPOS-Liste, Fälligkeitsstaffel, automatische Zahlungszuordnung, Teilzahlung, Skonto |
+| 🔲 | **Zahlungsverkehr** | Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe-Workflow |
+| 🔲 | **Mahnwesen** | Mehrstufig, mit Verzugszinsen und Mahngebühren |
+| ✅ | **Lernschleife** | Korrekturen werden zu Regeln — das System fragt mit der Zeit seltener |
+
+**Prüfen & Zusammenarbeiten**
+
+| Status | Feature | Beschreibung |
+|--------|---------|-------------|
+| 🔲 | **Belegvollständigkeit** | Umsatz ohne Beleg, Beleg ohne Umsatz, Lücken in Nummernkreisen |
+| 🔲 | **Ordnungsmäßigkeit** | § 14 UStG-Pflichtangaben, Rechenprobe, Steuerschlüssel ./. Konto, Adressat |
+| 🔲 | **Belegnachforderung** | Fehlende Belege werden selbstständig angefordert und erinnert |
+| 🔲 | **Unveränderbares Journal** | Hashverkettet, Storno statt Änderung, Verfahrensdokumentation generiert |
+| 🔲 | **Aufgaben & Rückfragen** | Kommentare am Beleg statt E-Mail, Zuständigkeiten, Fristen, Erinnerungen |
+| 🔲 | **Supervisionsansicht** | Web-UI: Beleg links, Vorschlag rechts, Korrektur in einem Schritt |
+
+**Steuer & Abschluss**
+
+| Status | Feature | Beschreibung |
+|--------|---------|-------------|
+| ✅ | **Umsatzsteuer** | USt/VSt-Berechnung, Steuerautomatik, Geschäftsvorfall-Bestimmung |
+| ✅ | **OSS-Verfahren** | EU-weite MwSt (27 Länder), Schwellenwertprüfung, Quartalsmeldung |
+| ✅ | **USt-Voranmeldung** | ELSTER-Kennziffern, Zahllast-Berechnung |
+| 🔲 | **Elektronische Übermittlung** | Voranmeldung, Dauerfristverlängerung, Zusammenfassende Meldung — mit Protokoll |
+| 🔲 | **Fristenkalender** | Abgabefristen berechnet, inkl. Wochenend- und Feiertagsverschiebung |
+| ✅ | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |
+| 🔲 | **Anlagenbuchhaltung** | AfA linear, GWG, Sammelposten, Anlagenspiegel, Abgänge |
+| 🔲 | **Jahresabschluss** | Abgrenzungen, Rückstellungen, Kassenbuch, EÜR oder Bilanz mit GuV, Saldovortrag |
+
+**Anbinden & Übergeben**
+
+| Status | Feature | Beschreibung |
+|--------|---------|-------------|
+| ✅ | **DATEV-Buchungsstapel** | ASCII-konformer EXTF-Export, gegen echte Dateien geprüft |
+| 🔲 | **DATEV vollständig** | Debitoren/Kreditoren-Stammdaten, Belegbilder, Kontoauszüge |
+| 🔲 | **Marktplätze & ERP** | JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal — mit Bestimmungsland |
+| 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
+| 🔲 | **REST-API** | Belege einliefern, Buchungen und OPOS abfragen, Läufe anstoßen |
+| 🔲 | **Mehrere Gesellschaften** | Eigene Firmen mit eigenem Wirtschaftsjahr und Kontenrahmen |
+| 🔲 | **Benutzer & Rollen** | Anmeldung mit 2FA, Rollen, Vier-Augen-Freigabe, DE/EN |
+
+Legende: ✅ vorhanden · 🔲 geplant
 
 ---
 
@@ -123,32 +178,63 @@ accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 accounti/
 ├── src/
 │   ├── importers/        # Datenquellen: Bank-CSV, MT940, CAMT, JTL, Amazon...
+│   ├── belege/           # Belegeingang, OCR, Positionen, Dubletten, Archiv
+│   ├── erechnung/        # XRechnung/ZUGFeRD lesen und erzeugen
+│   ├── bank/             # Live-Anbindung (FinTS/PSD2), Belegabgleich
 │   ├── klassifikation/   # KI-Engine: LLM + Regelwerk + Lernschleife
 │   ├── buchung/          # Buchungssatz-Erzeugung (Soll/Haben/Steuer)
+│   ├── kontakte/         # Debitoren/Kreditoren, USt-IdNr.-Prüfung
+│   ├── opos/             # Offene Posten, Zahlungszuordnung, Ausgleich
+│   ├── zahlung/          # Zahlungsvorschlag, SEPA, Freigabe
+│   ├── mahnwesen/        # Mahnstufen, Verzugszinsen
+│   ├── pruefung/         # Vollständigkeit, Ordnungsmäßigkeit, Journal
+│   ├── aufgaben/         # Aufgaben, Rückfragen, Erinnerungen
 │   ├── steuer/           # USt-Berechnung, OSS-Verfahren, EU-Steuersätze
-│   ├── export/           # DATEV-ASCII, CSV, JSON
+│   ├── elster/           # Elektronische Übermittlung + Protokoll
+│   ├── anlagen/          # Anlagegüter, AfA, Anlagenspiegel
+│   ├── abschluss/        # Abgrenzung, Kassenbuch, EÜR/Bilanz, Vortrag
+│   ├── export/           # DATEV-ASCII, Stammdaten, Belege, CSV, JSON
 │   ├── bwa/              # BWA-Berechnung nach DATEV-Schema
+│   ├── auth/             # Benutzer, Rollen, 2FA
 │   └── api/              # REST-API + Web-UI für Supervision
 ├── config/               # Kontenrahmen (SKR03/04), Steuerschlüssel, Regeln
 ├── tests/
-├── docs/
+├── docs/                 # Bauplan, Architektur, Specs, Pläne
 └── examples/             # Beispiel-Imports und Konfigurationen
 ```
+
+Module ohne Häkchen in der [Feature-Übersicht](#features) sind geplant — der
+[Bauplan](docs/bauplan.md) sagt, in welcher Reihenfolge sie entstehen.
 
 ### Pipeline
 
 ```
-┌──────────┐    ┌───────────────┐    ┌──────────┐    ┌────────┐    ┌────────┐
-│  Import  │───▶│ Klassifikation│───▶│ Buchung  │───▶│ Export │───▶│  BWA   │
-│          │    │               │    │          │    │        │    │        │
-│ Bank-CSV │    │ 1. Regelwerk  │    │ Soll/Hab │    │ DATEV  │    │ Schema │
-│ MT940    │    │ 2. LLM-Match  │    │ MwSt     │    │ CSV    │    │ GuV    │
-│ JTL-Wawi │    │ 3. Supervisor │    │ KSt      │    │ JSON   │    │ Bilanz │
-│ Amazon   │    │    Feedback   │    │ BelegNr  │    │        │    │        │
-└──────────┘    └───────────────┘    └──────────┘    └────────┘    └────────┘
-                       ▲                                               │
-                       └──── Lernschleife (Korrekturen → Regeln) ──────┘
+┌──────────┐
+│  Belege  │──┐
+│          │  │   ┌──────────┐    ┌───────────────┐    ┌──────────┐    ┌────────┐
+│ E-Mail   │  ├──▶│ Abgleich │───▶│ Klassifikation│───▶│ Buchung  │───▶│ Export │
+│ Ordner   │  │   │          │    │               │    │          │    │        │
+│ E-Rechn. │  │   │ Beleg ↔  │    │ 1. Regelwerk  │    │ Soll/Hab │    │ DATEV  │
+└──────────┘  │   │  Umsatz  │    │ 2. LLM-Match  │    │ MwSt     │    │ CSV    │
+              │   └──────────┘    │ 3. Supervisor │    │ KSt      │    │ JSON   │
+┌──────────┐  │                   │    Feedback   │    │ BelegNr  │    └────────┘
+│  Umsätze │  │                   └───────────────┘    └──────────┘
+│          │──┘                          ▲                   │
+│ Bank live│                             │                   ▼
+│ Bank-CSV │                             │        ┌──────────────────────┐
+│ JTL/Amaz.│                             │        │  OPOS · Zahlung      │
+└──────────┘                             │        │  Mahnwesen · Prüfung │
+                                         │        │  BWA · Steuermeldung │
+                                         │        │  Abschluss           │
+                                         │        └──────────┬───────────┘
+                                         │                   │
+                                         └── Lernschleife ───┘
+                                            (Korrekturen → Regeln)
 ```
+
+Der **Abgleich vor der Klassifikation** ist Absicht: Eine Transaktion, deren Beleg bekannt ist,
+kennt Positionen, Steuersätze und Lieferant — die Kontierung muss dann nichts mehr aus einem
+Verwendungszweck erraten.
 
 ### Klassifikations-Strategie
 
@@ -300,44 +386,60 @@ Die BWA wird aus den Buchungssätzen berechnet, nicht aus Rohdaten. Das Standard
 
 ## Roadmap
 
-### Phase 1 — Fundament (v0.1)
-- [ ] Datenmodell + PostgreSQL-Schema
-- [ ] SKR03/SKR04 als YAML-Konfiguration
-- [ ] CSV-Import (Sparkasse, Volksbank, Commerzbank)
-- [ ] Regelwerk-Engine für bekannte Buchungen
-- [ ] Umsatzsteuer-Berechnung (Inland 19%/7%)
-- [ ] DATEV-ASCII-Export (Buchungsstapel)
-- [ ] CLI-Interface
+Die Roadmap folgt den zwölf Bausteinen aus dem [Bauplan](docs/bauplan.md). Jeder Baustein hat ein
+eigenes Spec unter [`docs/specs/`](docs/specs/) und ist für sich nützlich — wer nur Bankauszüge
+kontieren will, braucht nur v0.1.
 
-### Phase 2 — KI-Kontierung + Steuer (v0.2)
-- [ ] LLM-Integration (Anthropic Claude, OpenAI, Ollama)
-- [ ] Confidence-Scoring und Schwellenwerte
-- [ ] Lernschleife: Korrekturen → neue Regeln
+### v0.1 — Fundament ✅
+- [x] Datenmodell + Persistenz (SQLite, Postgres-ready)
+- [x] SKR03 als YAML-Konfiguration
+- [x] Bank-CSV-Import über konfigurierbare Profile mit Auto-Erkennung
+- [x] Regelwerk-Engine + LLM-Kontierung mit Confidence
+- [x] Supervisor-Loop: prüfen, korrigieren, freigeben — Korrektur wird zur Regel
+- [x] Umsatzsteuer, OSS-Verfahren, USt-Voranmeldung (Kennziffern)
+- [x] DATEV-ASCII-Export (Buchungsstapel), BWA-Berechnung
+- [x] CLI-Interface
+- [ ] SKR04 als YAML-Konfiguration
+
+### v0.2 — Beleg & E-Rechnung *(Bausteine 2, 3)*
+- [ ] Belegeingang: Ordner, E-Mail, Upload, Webhook, Connector
+- [ ] OCR und Belegartklassifikation, Positionssplit, Dublettenerkennung
+- [ ] Belegarchiv mit Aufbewahrungsfrist
+- [ ] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit Validierung
+- [ ] E-Rechnung schreiben und versenden
+
+### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*
+- [ ] Debitoren/Kreditoren-Stammdaten, USt-IdNr.-Prüfung mit Protokoll
+- [ ] Offene Posten, Fälligkeitsstaffel, Zahlungszuordnung, Skonto, Teilzahlung
+- [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
+- [ ] Belegabgleich vor der Kontierung, geplanter Abruf
+
+### v0.4 — Zahlung & Prüfung *(Bausteine 6, 7)*
+- [ ] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe
+- [ ] Mehrstufiges Mahnwesen mit Verzugszinsen
+- [ ] Prüfregeln für Vollständigkeit, Richtigkeit, Zeitgerechtheit, Ordnung
+- [ ] Belegnachforderung, unveränderbares Journal, Periodenabschluss
+- [ ] Generierte Verfahrensdokumentation
+
+### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
+- [ ] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
+- [ ] Web-UI: Supervisions-Queue mit Belegansicht, BWA mit Vorjahresvergleich
+- [ ] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, DE/EN
+- [ ] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
+
+### v0.6 — Integrationen *(Baustein 11)*
+- [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal
+- [ ] Bestimmungsland-Erkennung für OSS
+- [ ] DATEV vollständig: Stammdaten, Belegbilder, Kontoauszüge
+- [ ] REST-API, Prüfungsdatenüberlassung
 - [ ] MT940/CAMT-Import
-- [ ] BWA-Berechnung
-- [ ] OSS-Verfahren: EU-Steuersätze, Schwellenwertprüfung
-- [ ] OSS-Quartalsmeldung mit Aufschlüsselung nach Land
-- [ ] USt-Voranmeldung (ELSTER-Kennziffern)
 
-### Phase 3 — ERP- & Marketplace-Integration (v0.3)
-- [ ] JTL-Wawi Import (Rechnungen, Zahlungen, Stornos)
-- [ ] Amazon Settlement Reports (DE/FR/IT/ES/NL/UK/SE/PL)
-- [ ] eBay Managed Payments Import
-- [ ] Bestimmungsland-Erkennung aus Marketplace-Daten
-- [ ] Multi-Mandanten-Fähigkeit
-- [ ] DATEV Debitoren/Kreditoren-Export
-
-### Phase 4 — Supervision-UI (v0.4)
-- [ ] Web-Dashboard (FastAPI + React/HTMX)
-- [ ] Buchungsvorschau mit Korrekturmöglichkeit
-- [ ] BWA-Ansicht mit Vorjahresvergleich
-- [ ] Beleg-Upload und Zuordnung
-
-### Phase 5 — Produktion (v1.0)
-- [ ] Automatischer Monatsabschluss-Workflow
-- [ ] E-Mail-Import für Belege
-- [ ] API für Drittsysteme
-- [ ] Docker-Setup für einfaches Deployment
+### v1.0 — Meldungen & Abschluss *(Bausteine 9, 12)*
+- [ ] Elektronische Übermittlung: Voranmeldung, Dauerfristverlängerung, ZM
+- [ ] Plausibilisierung vor Abgabe, Übermittlungsprotokolle, Fristenkalender
+- [ ] Anlagenbuchhaltung: AfA, GWG, Sammelposten, Anlagenspiegel
+- [ ] Abgrenzungen, Rückstellungen, Kassenbuch
+- [ ] Jahresabschluss: EÜR oder Bilanz mit GuV, Saldovortrag
 - [ ] Umfassende Dokumentation + Tutorials
 
 ---
@@ -363,7 +465,8 @@ Wir freuen uns über Beiträge! Lies [CONTRIBUTING.md](CONTRIBUTING.md) für Det
 
 Besonders gesucht:
 - 🏦 **Bank-Formate**: Wer kennt das CSV-Format seiner Bank und kann einen Parser schreiben?
-- 📊 **Steuerberater/Buchhalter**: Fachliche Validierung der Kontierungslogik
+- 📊 **Steuerberater/Buchhalter**: Fachliche Validierung der Kontierungslogik und der Prüfregeln
+- 🧾 **E-Rechnung**: Anonymisierte XRechnungen und ZUGFeRD-Dateien für die Format-Fixtures
 - 🔌 **ERP-Nutzer**: JTL-Wawi, Shopify, WooCommerce — wer kann Importdaten bereitstellen?
 - 🤖 **LLM-Prompt-Engineering**: Kontierungsprompts optimieren
 
@@ -377,7 +480,9 @@ Besonders gesucht:
 
 ## Disclaimer
 
-accounti ist ein Werkzeug zur Automatisierung der Vorkontierung und Datenaufbereitung. Es ersetzt **keine steuerliche Beratung** und ist **kein zertifiziertes Buchhaltungsprogramm**. Die erzeugten DATEV-Exporte sollten immer von einem Steuerberater geprüft werden. Verwendung auf eigenes Risiko.
+accounti ist ein Werkzeug zur Buchführung und Datenaufbereitung, kein Berater. Es leistet **keine steuerliche Beratung** und ist **kein zertifiziertes Buchhaltungsprogramm**. Wer es einsetzt, trägt die fachliche Verantwortung für die eigene Buchführung und für alles, was daraus an Meldungen entsteht — accounti rechnet und meldet, die Erklärung gibt ein Mensch ab.
+
+accounti ist für die **eigene** Buchhaltung gebaut. Die geschäftsmäßige Hilfeleistung in Steuersachen für Dritte ist in Deutschland reglementiert; wer accounti für fremde Unternehmen einsetzen will, muss selbst klären, ob er das darf. Verwendung auf eigenes Risiko.
 
 ---
 

@@ -39,11 +39,20 @@ mypy src/
 
 ## Wo Hilfe gebraucht wird
 
+Was gebaut wird und in welcher Reihenfolge, steht im [Bauplan](docs/bauplan.md). Jeder Baustein hat
+ein Spec unter [`docs/specs/`](docs/specs/) — wer an einem größeren Thema arbeiten will, fängt am
+besten dort an und meldet sich vorher per Issue.
+
 ### 🏦 Bank-Formate
 Jede Bank hat ein eigenes CSV-Format. Wenn du einen Importer für deine Bank schreibst, hilft das allen. Bitte anonymisierte Beispieldaten mitliefern.
 
+Dasselbe gilt für Live-Zugänge: Wer eine Bank per FinTS anbindet und die Eigenheiten kennt, spart allen anderen die Fehlersuche.
+
+### 🧾 E-Rechnung
+XRechnung und ZUGFeRD haben Profile und Eigenheiten, die man nur an echten Dateien lernt. Anonymisierte Beispiele für die Format-Fixtures sind besonders wertvoll — je ungewöhnlicher, desto besser.
+
 ### 📊 Fachliche Validierung
-Buchhalter und Steuerberater: Sind die Kontierungsregeln korrekt? Stimmt die BWA-Zuordnung? Fehlen Steuerschlüssel? Issues und PRs willkommen.
+Buchhalter und Steuerberater: Sind die Kontierungsregeln korrekt? Stimmt die BWA-Zuordnung? Fehlen Steuerschlüssel? Und, für die geplanten Prüfregeln: Welcher Befund gehört in eine ordentliche Vollständigkeitsprüfung, und welcher erzeugt nur Rauschen? Fehlalarme sind hier so schädlich wie übersehene Fehler.
 
 ### 🤖 KI-Prompts
 Die Qualität der automatischen Kontierung steht und fällt mit den Prompts. Wer Erfahrung mit LLM-Prompt-Engineering hat, kann hier viel bewirken.
