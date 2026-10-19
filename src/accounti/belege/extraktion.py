@@ -180,17 +180,34 @@ def _betrag_nach_label(zeilen: list[str], muster: re.Pattern[str]) -> Decimal | 
             continue
         werte = _betraege(zeile[treffer.end() :])
         if werte:
-            wert = werte[-1]  # die letzte Fundstelle gewinnt (Summen stehen unten)
+            # erster Betrag hinter dem Label; die letzte Fundzeile gewinnt
+            wert = werte[0]
     return wert
 
 
 def _brutto(zeilen: list[str]) -> Decimal | None:
+    """Gesamtbetrag: erster Betrag hinter einem Brutto-Label, die letzte Zeile gewinnt.
+
+    Steht zwischen Label und Betrag „netto" oder ein Steuersatz (ohne „inkl."),
+    ist es keine Bruttosumme — z.B. „Summe netto 150,00" oder „Gesamt 19 % USt".
+    """
     for muster in _BRUTTO:
-        kandidaten = [
-            z for z in zeilen if not (_STEUERWORT.search(z) and _PROZENT.search(z))
-        ]
-        kandidaten = [z for z in kandidaten if not _NETTO.search(z)]
-        wert = _betrag_nach_label(kandidaten, muster)
+        wert = None
+        for zeile in zeilen:
+            for label in muster.finditer(zeile):
+                rest = zeile[label.end() :]
+                betrag = _BETRAG.search(rest)
+                if betrag is None:
+                    continue
+                zwischen = rest[: betrag.start()]
+                if _NETTO.search(zwischen):
+                    continue
+                steuerhinweis = "%" in zwischen or _STEUERWORT.search(zwischen)
+                if steuerhinweis and not re.search(r"inkl", zwischen, _I):
+                    continue
+                if (w := parse_betrag(betrag.group())) is not None:
+                    wert = w
+                    break
         if wert is not None:
             return wert
     return None
