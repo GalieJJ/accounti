@@ -120,6 +120,7 @@ ELSTER_KENNZIFFERN = {
     "steuer_7": None,
     "ig_lieferung": 41,  # Innergemeinschaftliche Lieferungen
     "ausfuhr": 43,  # Ausfuhrlieferungen
+    "eu_sonstige_leistung": 21,  # Nicht steuerbare sonstige Leistungen (§ 18b)
     "ig_erwerb": 89,  # Innergemeinschaftliche Erwerbe
     "abziehbare_vst": 66,  # Vorsteuerbeträge
     "oss_nicht_de": None,  # OSS wird separat gemeldet (nicht in USt-VA)
@@ -154,6 +155,7 @@ class UStBerechner:
         bestimmungsland: str,
         ist_b2b: bool = False,
         kaeufer_hat_ust_id: bool = False,
+        ist_sonstige_leistung: bool = False,
     ) -> Geschaeftsvorfall:
         """Bestimmt den umsatzsteuerlichen Geschäftsvorfall.
 
@@ -161,6 +163,8 @@ class UStBerechner:
             bestimmungsland: ISO-Code des Käufer-/Bestimmungslandes
             ist_b2b: Ist es ein B2B-Geschäft?
             kaeufer_hat_ust_id: Hat der Käufer eine gültige USt-ID?
+            ist_sonstige_leistung: Dienstleistung statt Lieferung? Bei EU-B2B
+                schuldet dann der Empfänger die Steuer (§ 3a Abs. 2, Reverse Charge).
 
         Returns:
             Der zutreffende Geschäftsvorfall
@@ -173,8 +177,10 @@ class UStBerechner:
 
         # EU-Land
         if ist_eu_land(land):
-            # B2B mit USt-ID → Reverse Charge / ig. Lieferung
+            # B2B mit USt-ID → Reverse Charge (Leistung) / ig. Lieferung (Ware)
             if ist_b2b and kaeufer_hat_ust_id:
+                if ist_sonstige_leistung:
+                    return Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE
                 return Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH
 
             # B2C → OSS (wenn registriert und Schwelle überschritten)
@@ -194,6 +200,7 @@ class UStBerechner:
         ist_b2b: bool = False,
         kaeufer_hat_ust_id: bool = False,
         ermaessigt: bool = False,
+        ist_sonstige_leistung: bool = False,
     ) -> UStPosition:
         """Berechnet Umsatzsteuer für einen Verkauf.
 
@@ -203,11 +210,14 @@ class UStBerechner:
             ist_b2b: B2B-Geschäft?
             kaeufer_hat_ust_id: Käufer hat gültige USt-ID?
             ermaessigt: Ermäßigter Steuersatz?
+            ist_sonstige_leistung: Dienstleistung statt Lieferung?
 
         Returns:
             Vollständige UStPosition mit allen Buchungsinfos
         """
-        vorfall = self.bestimme_vorfall(bestimmungsland, ist_b2b, kaeufer_hat_ust_id)
+        vorfall = self.bestimme_vorfall(
+            bestimmungsland, ist_b2b, kaeufer_hat_ust_id, ist_sonstige_leistung
+        )
         land = bestimmungsland.upper().strip()
 
         # Steuersatz bestimmen
@@ -235,14 +245,16 @@ class UStBerechner:
             datev_schluessel = DATEV_BU_SCHLUESSEL.get("oss")
             kennziffer = None  # OSS wird separat gemeldet
 
-        elif vorfall in (
-            Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH,
-            Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE,
-        ):
+        elif vorfall == Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH:
             steuersatz = Decimal("0")
             steuer_konto = ""
             datev_schluessel = DATEV_BU_SCHLUESSEL["ig_lieferung"]
             kennziffer = ELSTER_KENNZIFFERN["ig_lieferung"]
+
+        elif vorfall == Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE:
+            steuersatz = Decimal("0")
+            steuer_konto = ""
+            kennziffer = ELSTER_KENNZIFFERN["eu_sonstige_leistung"]
 
         elif vorfall == Geschaeftsvorfall.DRITTLAND_AUSFUHR:
             steuersatz = Decimal("0")

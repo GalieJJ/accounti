@@ -5,7 +5,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Numeric, String
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from accounti.db import Base
@@ -102,3 +111,56 @@ class BelegEingangRow(Base):
     ergebnis: Mapped[str] = mapped_column(String(10))
     beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     hinweis: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class AusgangsrechnungRow(Base):
+    __tablename__ = "ausgangsrechnungen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    status: Mapped[str] = mapped_column(String(20))
+    nummer: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    kunde_name: Mapped[str] = mapped_column(String(200))
+    kunde_strasse: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    kunde_plz: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    kunde_ort: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    kunde_land: Mapped[str] = mapped_column(String(2))
+    kunde_ust_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    kunde_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    kunde_leitweg_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    kunde_privat: Mapped[bool] = mapped_column(Boolean, default=False)
+    leistungsdatum: Mapped[date | None] = mapped_column(Date, nullable=True)
+    bestellnummer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notiz: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    skonto_prozent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    skonto_tage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rechnungsdatum: Mapped[date | None] = mapped_column(Date, nullable=True)
+    zahlungsziel: Mapped[date | None] = mapped_column(Date, nullable=True)
+    beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    datei_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class AusgangspositionRow(Base):
+    __tablename__ = "ausgangspositionen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    rechnung_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("ausgangsrechnungen.id"), index=True
+    )
+    nr: Mapped[int] = mapped_column(Integer)
+    bezeichnung: Mapped[str] = mapped_column(String(500))
+    menge: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    einheit: Mapped[str] = mapped_column(String(10))
+    einzelpreis: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    ermaessigt: Mapped[bool] = mapped_column(Boolean, default=False)
+    sonstige_leistung: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class NummernkreisRow(Base):
+    """Fortlaufende Rechnungsnummern je Kreis (Gesellschaft) und Jahr."""
+
+    __tablename__ = "nummernkreise"
+
+    kreis: Mapped[str] = mapped_column(String(50), primary_key=True)
+    jahr: Mapped[int] = mapped_column(Integer, primary_key=True)
+    letzte: Mapped[int] = mapped_column(Integer)

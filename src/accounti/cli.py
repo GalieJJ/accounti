@@ -6,8 +6,13 @@ import typer
 from rich.console import Console
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
+    from accounti.erechnung.kosit import KositErgebnis
+    from accounti.erechnung.validierung import Befund
+    from accounti.konfiguration import Firma
     from accounti.models import Beleg
 
 app = typer.Typer(
@@ -348,23 +353,364 @@ def belege_liste(
 # ---------------------------------------------------------------------------
 # E-Rechnung
 # ---------------------------------------------------------------------------
-rechnung_app = typer.Typer(help="E-Rechnungen prüfen (später: schreiben, senden).")
+rechnung_app = typer.Typer(help="E-Rechnungen schreiben, ausstellen und prüfen.")
 app.add_typer(rechnung_app, name="rechnung")
+
+KONFIG_OPTION = typer.Option("config/accounti.yaml", "--config", help="Firmendaten")
+
+
+def _datum_option(wert: str | None, name: str) -> "date | None":
+    from datetime import date
+
+    if wert is None:
+        return None
+    try:
+        return date.fromisoformat(wert)
+    except ValueError as fehler:
+        console.print(f"[red]{name}: Datum im Format JJJJ-MM-TT erwartet[/red]")
+        raise typer.Exit(1) from fehler
+
+
+def _lade_firma_oder_ende(pfad: str) -> "Firma":
+    from rich.markup import escape
+
+    from accounti.konfiguration import KonfigurationError, lade_firma
+
+    try:
+        return lade_firma(pfad)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
+
+def _befunde_tabelle(befunde: "list[Befund]") -> None:
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.erechnung.validierung import Schwere
+
+    tabelle = Table(title="Befunde")
+    tabelle.add_column("Schwere", no_wrap=True)
+    tabelle.add_column("Regel", no_wrap=True)
+    tabelle.add_column("Befund", overflow="fold")
+    for b in befunde:
+        farbe = "red" if b.schwere is Schwere.FEHLER else "yellow"
+        tabelle.add_row(
+            f"[{farbe}]{b.schwere.value}[/{farbe}]", b.regel, escape(b.text)
+        )
+    console.print(tabelle)
+
+
+def _kosit_ausgabe(ergebnis: "KositErgebnis") -> None:
+    from rich.markup import escape
+
+    if ergebnis.akzeptiert:
+        console.print("[green]KoSIT-Prüftool: ACCEPT[/green]")
+    else:
+        console.print("[red]KoSIT-Prüftool: REJECT[/red]")
+    for m in ergebnis.meldungen:
+        farbe = "red" if m.stufe in ("error", "fatal") else "yellow"
+        console.print(f"  [{farbe}]{m.stufe}[/{farbe}] {escape(str(m))}")
+
+
+@rechnung_app.command("neu")
+def rechnung_neu(
+    name: str = typer.Option(..., help="Name des Kunden"),
+    strasse: str | None = typer.Option(None, help="Straße und Hausnummer"),
+    plz: str | None = typer.Option(None, help="Postleitzahl"),
+    ort: str | None = typer.Option(None, help="Ort"),
+    land: str = typer.Option("DE", help="Ländercode (ISO 3166-1)"),
+    ust_id: str | None = typer.Option(None, help="USt-IdNr. des Kunden"),
+    email: str | None = typer.Option(None, help="E-Mail für die E-Rechnung (BT-49)"),
+    leitweg_id: str | None = typer.Option(None, help="Leitweg-ID/Käuferreferenz"),
+    privat: bool = typer.Option(False, "--privat", help="Kunde ist Verbraucher"),
+    leistungsdatum: str | None = typer.Option(None, help="JJJJ-MM-TT"),
+    bestellnummer: str | None = typer.Option(None, help="Bestellnummer des Kunden"),
+    notiz: str | None = typer.Option(None, help="Freitext auf der Rechnung"),
+    skonto_prozent: float | None = typer.Option(None, help="Skonto in Prozent"),
+    skonto_tage: int | None = typer.Option(None, help="Skontofrist in Tagen"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Rechnungsentwurf anlegen."""
+    from decimal import Decimal
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_ausgangsrechnung
+    from accounti.models import Ausgangsrechnung, Rechnungsempfaenger
+
+    entwurf = Ausgangsrechnung(
+        kunde=Rechnungsempfaenger(
+            name=name,
+            strasse=strasse,
+            plz=plz,
+            ort=ort,
+            land=land.upper(),
+            ust_id=ust_id,
+            email=email,
+            leitweg_id=leitweg_id,
+            privat=privat,
+        ),
+        leistungsdatum=_datum_option(leistungsdatum, "--leistungsdatum"),
+        bestellnummer=bestellnummer,
+        notiz=notiz,
+        skonto_prozent=Decimal(str(skonto_prozent)) if skonto_prozent else None,
+        skonto_tage=skonto_tage,
+    )
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        speichere_ausgangsrechnung(s, entwurf)
+        s.commit()
+    console.print(f"[green]Entwurf {str(entwurf.id)[:8]} angelegt[/green] für {name}")
+    console.print(
+        f"[dim]Positionen: accounti rechnung position {str(entwurf.id)[:8]} "
+        "--text .. --preis ..[/dim]"
+    )
+
+
+@rechnung_app.command("position")
+def rechnung_position(
+    schluessel: str = typer.Argument(help="Entwurfs-ID (Anfang genügt)"),
+    text: str = typer.Option(..., help="Bezeichnung"),
+    preis: float = typer.Option(..., help="Einzelpreis netto"),
+    menge: float = typer.Option(1.0, help="Menge"),
+    einheit: str = typer.Option("C62", help="Einheit (C62 Stück, HUR Stunde, …)"),
+    ermaessigt: bool = typer.Option(False, "--ermaessigt", help="Ermäßigter Satz"),
+    leistung: bool = typer.Option(
+        False, "--leistung", help="Dienstleistung (Reverse Charge bei EU-Unternehmen)"
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Position zu einem Entwurf hinzufügen. Der Steuersatz kommt aus steuer/."""
+    from decimal import Decimal
+
+    from rich.markup import escape
+
+    from accounti.db import session_factory
+    from accounti.db.repository import fuege_position_hinzu
+    from accounti.models import AusgangsPosition
+
+    position = AusgangsPosition(
+        bezeichnung=text,
+        einzelpreis=Decimal(str(preis)),
+        menge=Decimal(str(menge)),
+        einheit=einheit,
+        ermaessigt=ermaessigt,
+        sonstige_leistung=leistung,
+    )
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        try:
+            r = fuege_position_hinzu(s, schluessel, position)
+        except ValueError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+    console.print(
+        f"Position {len(r.positionen)}: {escape(text)} — {position.netto:.2f} EUR netto"
+    )
+
+
+@rechnung_app.command("zeigen")
+def rechnung_zeigen(
+    schluessel: str = typer.Argument(help="Entwurfs-ID oder Rechnungsnummer"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Vorschau mit Steuer und Summen (für Entwürfe) bzw. Daten der Rechnung."""
+    from datetime import date
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_ausgangsrechnung
+    from accounti.erechnung.erzeuger.aufbau import baue_rechnung
+    from accounti.erechnung.validierung import pruefe
+
+    firma = _lade_firma_oder_ende(config)
+    _, make_session = session_factory(db)
+    with make_session() as s:
+        try:
+            entwurf = lade_ausgangsrechnung(s, schluessel)
+        except ValueError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+    try:
+        r = baue_rechnung(
+            entwurf,
+            firma,
+            entwurf.nummer or "ENTWURF",
+            entwurf.rechnungsdatum or date.today(),
+        )
+    except ValueError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
+    console.print(
+        f"[bold]{escape(r.nummer or '')}[/bold] an {escape(r.kaeufer.name or '')} "
+        f"({entwurf.status.value})"
+    )
+    tabelle = Table()
+    tabelle.add_column("Pos")
+    tabelle.add_column("Bezeichnung", overflow="fold")
+    tabelle.add_column("Menge", justify="right")
+    tabelle.add_column("Netto", justify="right")
+    tabelle.add_column("Steuer")
+    for z in r.zeilen:
+        tabelle.add_row(
+            z.id or "",
+            escape(z.bezeichnung or ""),
+            f"{z.menge} {z.einheit}",
+            f"{z.netto:.2f}",
+            f"{z.steuerkategorie} {z.steuersatz} %",
+        )
+    console.print(tabelle)
+    for st in r.steuern:
+        console.print(
+            f"  {st.kategorie} {st.satz} %: "
+            f"Basis {st.basis:.2f}, Steuer {st.betrag:.2f}"
+        )
+    for notiz in r.notizen:
+        console.print(f"  [dim]{escape(notiz)}[/dim]")
+    s_ = r.summen
+    console.print(
+        f"  Netto {s_.netto:.2f} · Steuer {s_.steuer:.2f} · "
+        f"[bold]Brutto {s_.brutto:.2f} EUR[/bold]"
+    )
+    befunde = pruefe(r)
+    if befunde:
+        _befunde_tabelle(befunde)
+
+
+@rechnung_app.command("liste")
+def rechnung_liste(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Entwürfe und ausgestellte Rechnungen anzeigen."""
+    from decimal import Decimal
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_ausgangsrechnungen
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        rechnungen = lade_ausgangsrechnungen(s)
+    if not rechnungen:
+        console.print("[dim]Keine Rechnungen.[/dim]")
+        return
+    tabelle = Table(title="Ausgangsrechnungen")
+    tabelle.add_column("ID", no_wrap=True)
+    tabelle.add_column("Nummer", no_wrap=True)
+    tabelle.add_column("Kunde", overflow="fold")
+    tabelle.add_column("Netto", justify="right", no_wrap=True)
+    tabelle.add_column("Status", no_wrap=True)
+    for r in rechnungen:
+        netto = sum((p.netto for p in r.positionen), start=Decimal(0))
+        tabelle.add_row(
+            str(r.id)[:8],
+            r.nummer or "—",
+            escape(r.kunde.name),
+            f"{netto:.2f}",
+            r.status.value,
+        )
+    console.print(tabelle)
+
+
+@rechnung_app.command("ausstellen")
+def rechnung_ausstellen(
+    schluessel: str = typer.Argument(help="Entwurfs-ID (Anfang genügt)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = KONFIG_OPTION,
+    ausgabe: str = typer.Option("rechnungen", help="Verzeichnis für die XRechnung"),
+    datum: str | None = typer.Option(None, help="Rechnungsdatum JJJJ-MM-TT (heute)"),
+    ohne_kosit: bool = typer.Option(
+        False, "--ohne-kosit", help="Ohne formale Prüfung ausstellen (nicht empfohlen)"
+    ),
+) -> None:
+    """Nummer vergeben, XRechnung erzeugen, prüfen, archivieren — unveränderlich."""
+    from datetime import date
+    from pathlib import Path
+
+    from rich.markup import escape
+
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
+    from accounti.erechnung.kosit import KositPruefer
+
+    firma = _lade_firma_oder_ende(config)
+    pruefer = None
+    if not ohne_kosit:
+        pruefer = KositPruefer()
+        if not pruefer.verfuegbar():
+            console.print(
+                "[red]KoSIT-Prüftool nicht installiert — die XRechnung kann nicht "
+                "formal geprüft werden.[/red]\n"
+                "Installation: scripts/kosit_installieren.sh · ausdrücklich ohne "
+                "Prüfung: --ohne-kosit"
+            )
+            raise typer.Exit(1)
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            ergebnis = stelle_aus(
+                s,
+                BelegArchiv(archiv),
+                schluessel,
+                firma,
+                _datum_option(datum, "--datum") or date.today(),
+                kosit=pruefer,
+            )
+        except (AusstellungError, ValueError) as fehler:
+            s.rollback()  # Nummer bleibt frei, der Kreis lückenlos
+            console.print(f"[red]Nicht ausgestellt: {escape(str(fehler))}[/red]")
+            if isinstance(fehler, AusstellungError) and fehler.kosit is not None:
+                _kosit_ausgabe(fehler.kosit)
+            raise typer.Exit(1) from fehler
+        s.commit()
+
+    ziel = Path(ausgabe)
+    ziel.mkdir(parents=True, exist_ok=True)
+    datei = ziel / f"{ergebnis.rechnung.nummer}.xml"
+    datei.write_bytes(ergebnis.xml)
+    console.print(
+        f"[green]Rechnung {ergebnis.rechnung.nummer} ausgestellt[/green] — "
+        f"{ergebnis.beleg.brutto:.2f} EUR brutto → {datei}"
+    )
+    if ergebnis.kosit is not None:
+        _kosit_ausgabe(ergebnis.kosit)
+    else:
+        console.print(
+            "[yellow]Ohne formale Prüfung (--ohne-kosit) ausgestellt.[/yellow]"
+        )
+    for b in ergebnis.befunde:
+        console.print(f"  [yellow]Hinweis {escape(str(b))}[/yellow]")
 
 
 @rechnung_app.command("pruefen")
 def rechnung_pruefen(
     datei: str = typer.Argument(help="XRechnung (XML) oder ZUGFeRD/Factur-X (PDF)"),
+    kosit: bool = typer.Option(
+        False, "--kosit", help="Zusätzlich formal mit dem KoSIT-Prüftool prüfen"
+    ),
 ) -> None:
     """E-Rechnung lesen und validieren, ohne sie zu importieren."""
     from pathlib import Path
 
     from rich.markup import escape
-    from rich.table import Table
 
     from accounti.belege.erkennung import erkenne_format
     from accounti.belege.kanaele import RohBeleg
     from accounti.erechnung import ERechnungError, lies
+    from accounti.erechnung.kosit import KositNichtVerfuegbarError, KositPruefer
     from accounti.erechnung.validierung import Schwere, pruefe
 
     pfad = Path(datei)
@@ -399,20 +745,20 @@ def rechnung_pruefen(
     zeile("Zahlbetrag", r.summen.zahlbetrag)
 
     befunde = pruefe(r)
-    if not befunde:
+    if befunde:
+        _befunde_tabelle(befunde)
+    else:
         console.print("[green]Keine Befunde.[/green]")
-        return
-    tabelle = Table(title="Befunde")
-    tabelle.add_column("Schwere", no_wrap=True)
-    tabelle.add_column("Regel", no_wrap=True)
-    tabelle.add_column("Befund", overflow="fold")
-    for b in befunde:
-        farbe = "red" if b.schwere is Schwere.FEHLER else "yellow"
-        tabelle.add_row(
-            f"[{farbe}]{b.schwere.value}[/{farbe}]", b.regel, escape(b.text)
-        )
-    console.print(tabelle)
-    if any(b.schwere is Schwere.FEHLER for b in befunde):
+    abgelehnt = False
+    if kosit:
+        try:
+            ergebnis = KositPruefer().pruefe(xml, pfad.with_suffix(".xml").name)
+        except KositNichtVerfuegbarError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        _kosit_ausgabe(ergebnis)
+        abgelehnt = not ergebnis.akzeptiert
+    if abgelehnt or any(b.schwere is Schwere.FEHLER for b in befunde):
         raise typer.Exit(1)
 
 

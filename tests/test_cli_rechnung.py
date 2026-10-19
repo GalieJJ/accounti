@@ -43,3 +43,246 @@ def test_pdf_ohne_erechnung(tmp_path):
     r = runner.invoke(app, ["rechnung", "pruefen", str(pdf)])
     assert r.exit_code == 1
     assert "keine E-Rechnung" in r.output
+
+
+# ---------------------------------------------------------------------------
+# Ausgangsrechnungen
+# ---------------------------------------------------------------------------
+
+FIRMA_YAML = """
+mandant:
+  name: "Galerie Muster GmbH"
+  kuerzel: GM
+  anschrift: {strasse: "Beispielweg 3", plz: "24103", ort: Kiel, land: DE}
+  ust_id: DE999999999
+  email: rechnung@galerie-muster.example
+  kontakt: {name: Jan Muster, telefon: "0431 123456", email: jan@galerie-muster.example}
+  bank: {iban: "DE89 3704 0044 0532 0130 00"}
+"""
+
+
+def _basis(tmp_path):
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(FIRMA_YAML, encoding="utf-8")
+    url = f"sqlite:///{(tmp_path / 'a.db').as_posix()}"
+    return url, str(konfig)
+
+
+def _neu(url, *extra):
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "neu",
+            "--db",
+            url,
+            "--name",
+            "Atelier Kundin GmbH",
+            "--strasse",
+            "Kundenstraße 8",
+            "--plz",
+            "10115",
+            "--ort",
+            "Berlin",
+            "--ust-id",
+            "DE888888888",
+            "--email",
+            "rechnung@atelier-kundin.example",
+            "--leistungsdatum",
+            "2026-03-09",
+            *extra,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    return r.output.split("Entwurf ")[1].split()[0]
+
+
+def _position(url, rid, *args):
+    r = runner.invoke(app, ["rechnung", "position", rid, "--db", url, *args])
+    assert r.exit_code == 0, r.output
+    return r
+
+
+def test_rechnung_schreiben_und_ausstellen(tmp_path):
+    from accounti.erechnung.kosit import KositPruefer
+
+    url, konfig = _basis(tmp_path)
+    rid = _neu(url, "--bestellnummer", "PO-77")
+    _position(
+        url, rid, "--text", "Bilderrahmen Eiche", "--preis", "250", "--menge", "4"
+    )
+    _position(url, rid, "--text", "Katalog", "--preis", "25", "--ermaessigt")
+
+    vorschau = runner.invoke(
+        app, ["rechnung", "zeigen", rid, "--db", url, "--config", konfig]
+    )
+    assert vorschau.exit_code == 0, vorschau.output
+    assert "1216.75" in vorschau.output
+    assert "S 19 %" in vorschau.output and "S 7 %" in vorschau.output
+
+    ausgabe = tmp_path / "rechnungen"
+    argumente = [
+        "rechnung",
+        "ausstellen",
+        rid,
+        "--db",
+        url,
+        "--config",
+        konfig,
+        "--archiv",
+        str(tmp_path / "archiv"),
+        "--ausgabe",
+        str(ausgabe),
+        "--datum",
+        "2026-03-10",
+    ]
+    if not KositPruefer().verfuegbar():
+        argumente.append("--ohne-kosit")
+    r = runner.invoke(app, argumente)
+    assert r.exit_code == 0, r.output
+    assert "2026-0001" in r.output
+    xml = (ausgabe / "2026-0001.xml").read_bytes()
+    assert b"<ram:ID>2026-0001</ram:ID>" in xml
+
+    liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
+    assert "2026-0001" in liste.output and "ausgestellt" in liste.output
+    belege = runner.invoke(app, ["belege", "liste", "--db", url])
+    assert "ausgangsrechnung" in belege.output
+
+    nochmal = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "position",
+            "2026-0001",
+            "--db",
+            url,
+            "--text",
+            "x",
+            "--preis",
+            "1",
+        ],
+    )
+    assert nochmal.exit_code == 1
+    assert "unveränderlich" in nochmal.output
+
+    pruefen = runner.invoke(
+        app, ["rechnung", "pruefen", str(ausgabe / "2026-0001.xml")]
+    )
+    assert pruefen.exit_code == 0, pruefen.output
+
+
+def test_reverse_charge_vorschau(tmp_path):
+    url, konfig = _basis(tmp_path)
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "neu",
+            "--db",
+            url,
+            "--name",
+            "Rahmenwerk Wien GmbH",
+            "--plz",
+            "1010",
+            "--ort",
+            "Wien",
+            "--land",
+            "AT",
+            "--ust-id",
+            "ATU12345678",
+            "--email",
+            "office@rahmenwerk.example",
+        ],
+    )
+    rid = r.output.split("Entwurf ")[1].split()[0]
+    _position(
+        url,
+        rid,
+        "--text",
+        "Hängung",
+        "--preis",
+        "90",
+        "--menge",
+        "8",
+        "--einheit",
+        "HUR",
+        "--leistung",
+    )
+    vorschau = runner.invoke(
+        app, ["rechnung", "zeigen", rid, "--db", url, "--config", konfig]
+    )
+    assert vorschau.exit_code == 0, vorschau.output
+    assert "AE 0 %" in vorschau.output
+    assert "Reverse Charge" in vorschau.output
+    assert "720.00" in vorschau.output
+
+
+def test_ausstellen_ohne_pruefwerkzeug_braucht_ausdrueckliche_zustimmung(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("ACCOUNTI_KOSIT_DIR", str(tmp_path / "nirgends"))
+    url, konfig = _basis(tmp_path)
+    rid = _neu(url)
+    _position(url, rid, "--text", "Rahmen", "--preis", "100")
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "ausstellen",
+            rid,
+            "--db",
+            url,
+            "--config",
+            konfig,
+            "--archiv",
+            str(tmp_path / "archiv"),
+            "--ausgabe",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert r.exit_code == 1
+    assert "--ohne-kosit" in r.output
+    liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
+    assert "entwurf" in liste.output
+
+
+def test_ausstellen_ohne_firmendaten(tmp_path):
+    url, _ = _basis(tmp_path)
+    rid = _neu(url)
+    _position(url, rid, "--text", "Rahmen", "--preis", "100")
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "ausstellen",
+            rid,
+            "--db",
+            url,
+            "--config",
+            str(tmp_path / "fehlt.yaml"),
+            "--ohne-kosit",
+        ],
+    )
+    assert r.exit_code == 1
+    assert "accounti.example.yaml" in r.output
+
+
+def test_pruefen_mit_kosit(tmp_path):
+    from accounti.erechnung.kosit import KositPruefer
+
+    if not KositPruefer().verfuegbar():
+        import pytest
+
+        pytest.skip("KoSIT-Prüftool fehlt")
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "pruefen",
+            str(FIXTURES / "fehler_rechenprobe_cii.xml"),
+            "--kosit",
+        ],
+    )
+    assert r.exit_code == 1
+    assert "KoSIT" in r.output and "REJECT" in r.output.upper()

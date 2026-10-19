@@ -11,6 +11,28 @@ mandant:
   kontenrahmen: SKR03          # SKR03 oder SKR04
   sachkonten_laenge: 4         # 4 oder 6
 
+  # Für Ausgangsrechnungen (XRechnung verlangt Anschrift, Kontakt, E-Mail und Bank)
+  kuerzel: "MF"                # Schlüssel des Nummernkreises (je Gesellschaft)
+  anschrift:
+    strasse: "Musterstraße 1"
+    plz: "12345"
+    ort: "Musterstadt"
+    land: DE
+  ust_id: "DE123456789"        # USt-IdNr. und/oder Steuernummer
+  steuernummer: "12/345/67890"
+  email: "rechnung@meine-firma.example"   # elektronische Adresse (BT-34)
+  kontakt:
+    name: "Erika Muster"
+    telefon: "0123 456789"
+    email: "buchhaltung@meine-firma.example"
+  bank:
+    iban: "DE89 3704 0044 0532 0130 00"
+    bic: "COBADEFFXXX"
+  oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz
+  rechnung:
+    nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr
+    zahlungsziel_tage: 14
+
 # DATEV-Export
 datev:
   berater_nummer: "12345"

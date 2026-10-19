@@ -173,6 +173,64 @@ class BelegEingang(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Ausgangsrechnung — in accounti geschrieben, als E-Rechnung ausgestellt
+# ---------------------------------------------------------------------------
+
+
+class AusgangsrechnungStatus(str, enum.Enum):
+    ENTWURF = "entwurf"  # frei änderbar, noch ohne Nummer
+    AUSGESTELLT = "ausgestellt"  # Nummer vergeben, E-Rechnung erzeugt, unveränderlich
+
+
+class Rechnungsempfaenger(BaseModel):
+    """Kunde einer Ausgangsrechnung (bis Debitoren aus Baustein 4 existieren)."""
+
+    name: str
+    strasse: str | None = None
+    plz: str | None = None
+    ort: str | None = None
+    land: str = Field(default="DE", min_length=2, max_length=2)
+    ust_id: str | None = None
+    email: str | None = Field(default=None, description="Elektronische Adresse (BT-49)")
+    leitweg_id: str | None = Field(default=None, description="Käuferreferenz (BT-10)")
+    privat: bool = Field(default=False, description="Verbraucher statt Unternehmen")
+
+
+class AusgangsPosition(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    bezeichnung: str
+    menge: Decimal = Field(default=Decimal("1"))
+    einheit: str = Field(default="C62", description="UN/ECE Rec. 20, z.B. C62, HUR")
+    einzelpreis: Decimal
+    ermaessigt: bool = False
+    sonstige_leistung: bool = Field(
+        default=False, description="Dienstleistung statt Lieferung (Reverse Charge)"
+    )
+
+    @property
+    def netto(self) -> Decimal:
+        return (self.menge * self.einzelpreis).quantize(Decimal("0.01"))
+
+
+class Ausgangsrechnung(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    status: AusgangsrechnungStatus = AusgangsrechnungStatus.ENTWURF
+    nummer: str | None = None
+    kunde: Rechnungsempfaenger
+    positionen: list[AusgangsPosition] = Field(default_factory=list)
+    leistungsdatum: date | None = None
+    bestellnummer: str | None = None
+    notiz: str | None = None
+    skonto_prozent: Decimal | None = None
+    skonto_tage: int | None = None
+    rechnungsdatum: date | None = None
+    zahlungsziel: date | None = None
+    beleg_id: UUID | None = None
+    datei_hash: str | None = None
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
 # Konto — aus Kontenrahmen (SKR03/SKR04)
 # ---------------------------------------------------------------------------
 

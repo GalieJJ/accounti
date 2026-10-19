@@ -26,6 +26,17 @@ NS = {
 _DATUM = "udt:DateTimeString"
 
 
+def _anschrift(adresse: Leser) -> Anschrift | None:
+    if not adresse:
+        return None
+    return Anschrift(
+        strasse=adresse.text("ram:LineOne"),
+        plz=adresse.text("ram:PostcodeCode"),
+        ort=adresse.text("ram:CityName"),
+        land=adresse.text("ram:CountryID"),
+    )
+
+
 def _partei(p: Leser) -> Partei:
     adresse = p.knoten("ram:PostalTradeAddress")
     kontakt = p.knoten("ram:DefinedTradeContact")
@@ -105,6 +116,9 @@ def lies_cii(wurzel: ET.Element) -> Rechnung:
         ],
         leistungsdatum=lieferung.datum(
             f"ram:ActualDeliverySupplyChainEvent/ram:OccurrenceDateTime/{_DATUM}"
+        ),
+        lieferanschrift=_anschrift(
+            lieferung.knoten("ram:ShipToTradeParty/ram:PostalTradeAddress")
         ),
         leistungszeitraum_von=zeitraum.datum(f"ram:StartDateTime/{_DATUM}"),
         leistungszeitraum_bis=zeitraum.datum(f"ram:EndDateTime/{_DATUM}"),

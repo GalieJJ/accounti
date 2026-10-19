@@ -50,10 +50,11 @@ Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen ·
 Eingangsprotokoll ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)) sowie Erkennung, OCR und
 Positionssplit ([Paket 2](plans/2026-10-19-belegerfassung-paket-2.md)) stehen — was fehlt, sind der
 E-Mail-Kanal, Webhook und Connectoren.
-**Baustein 3 ist teilweise fertig,** weil der Eingang steht: XRechnung und ZUGFeRD werden ohne
-OCR übernommen und fachlich validiert ([Paket 1](plans/2026-10-19-erechnung-paket-1-eingang.md)) —
-was fehlt, sind der Ausgang (Rechnungen schreiben, Nummernkreise, Versand) und die formale
-Prüfung gegen XSD/Schematron.
+**Baustein 3 ist teilweise fertig,** weil Eingang und Ausstellen stehen: XRechnung und ZUGFeRD
+werden ohne OCR übernommen und fachlich validiert ([Paket 1](plans/2026-10-19-erechnung-paket-1-eingang.md)),
+Ausgangsrechnungen werden mit lückenloser Nummer als XRechnung ausgestellt und vom KoSIT-Prüftool
+formal geprüft ([Paket 2](plans/2026-10-19-erechnung-paket-2-ausgang.md)) — was fehlt, sind das
+ZUGFeRD-PDF (PDF/A-3) und der Versand.
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

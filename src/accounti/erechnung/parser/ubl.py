@@ -21,6 +21,17 @@ NS = {
 }
 
 
+def _anschrift(adresse: Leser) -> Anschrift | None:
+    if not adresse:
+        return None
+    return Anschrift(
+        strasse=adresse.text("cbc:StreetName"),
+        plz=adresse.text("cbc:PostalZone"),
+        ort=adresse.text("cbc:CityName"),
+        land=adresse.text("cac:Country/cbc:IdentificationCode"),
+    )
+
+
 def _partei(p: Leser) -> Partei:
     ust_id = steuernummer = None
     for schema in p.alle("cac:PartyTaxScheme"):
@@ -95,6 +106,9 @@ def lies_ubl(wurzel: ET.Element) -> Rechnung:
         bestellnummer=doc.text("cac:OrderReference/cbc:ID"),
         notizen=[t for n in doc.alle("cbc:Note") if (t := n.text())],
         leistungsdatum=doc.datum("cac:Delivery/cbc:ActualDeliveryDate"),
+        lieferanschrift=_anschrift(
+            doc.knoten("cac:Delivery/cac:DeliveryLocation/cac:Address")
+        ),
         leistungszeitraum_von=zeitraum.datum("cbc:StartDate"),
         leistungszeitraum_bis=zeitraum.datum("cbc:EndDate"),
         verkaeufer=_partei(doc.knoten("cac:AccountingSupplierParty/cac:Party")),

@@ -67,7 +67,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Belegerkennung** | PDF-Textebene, OCR mit lokaler Engine (Tesseract), Belegart per Regelwerk + optionalem LLM, Dublettenerkennung, Rechenprobe |
 | ✅ | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
 | ✅ | **E-Rechnung Eingang** | XRechnung (UBL/CII) und ZUGFeRD/Factur-X ohne OCR übernehmen, fachlich validieren (EN-16931-Regeln, § 14 UStG), `accounti rechnung pruefen` |
-| 🔲 | **E-Rechnung Ausgang** | Rechnungen schreiben und als konforme E-Rechnung versenden |
+| 🟨 | **E-Rechnung Ausgang** | Rechnungen schreiben und als XRechnung ausstellen: lückenlose Nummernkreise, Steuer aus `steuer/` (Inland, Reverse-Charge, ig. Lieferung, Ausfuhr, OSS), Prüfung mit dem KoSIT-Prüftool; ZUGFeRD-PDF und Versand folgen |
 
 **Buchen & Zahlen**
 
@@ -133,6 +133,9 @@ Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
 - Python 3.11+
 - PostgreSQL 15+
 - Ein LLM-Zugang (Anthropic API, OpenAI, oder lokales Modell via Ollama)
+- Optional für die formale XRechnung-Prüfung: Java 21 und das KoSIT-Prüftool
+  (`scripts/kosit_installieren.sh`, feste Version mit Prüfsumme). Ohne Prüftool stellt
+  `accounti rechnung ausstellen` nur mit ausdrücklichem `--ohne-kosit` aus.
 - Optional für gescannte Belege und Fotos: Tesseract mit deutschen Sprachdaten
   (`apt install tesseract-ocr tesseract-ocr-deu`). Ohne Tesseract landen Scans mit Hinweis in der Prüfung.
 
@@ -170,6 +173,25 @@ accounti bwa --period 2026-04
 
 # DATEV-Export
 accounti export datev --period 2026-04 --berater 23426 --mandant 40005
+```
+
+### Belege und E-Rechnungen
+
+```bash
+# Belege aus dem Watch-Ordner holen und lesen (PDF, Scan, XRechnung, ZUGFeRD)
+accounti belege abholen --kanal ordner --ordner ./eingang/belege
+accounti belege liste --status pruefung
+
+# Eingehende E-Rechnung prüfen, ohne zu importieren — fachlich und mit dem KoSIT-Prüftool
+accounti rechnung pruefen ./eingang/rechnung.xml --kosit
+
+# Ausgangsrechnung schreiben und als XRechnung ausstellen (Firmendaten: config/accounti.yaml)
+scripts/kosit_installieren.sh
+accounti rechnung neu --name "Kunde GmbH" --plz 10115 --ort Berlin \
+  --ust-id DE123456789 --email rechnung@kunde.example
+accounti rechnung position <ID> --text "Beratung" --preis 120 --menge 8 --einheit HUR --leistung
+accounti rechnung zeigen <ID>
+accounti rechnung ausstellen <ID>     # vergibt die Nummer, prüft, archiviert → rechnungen/
 ```
 
 ---
@@ -410,8 +432,9 @@ kontieren will, braucht nur v0.1.
 - [x] OCR und Belegartklassifikation, Positionssplit
 - [x] Belegarchiv mit Aufbewahrungsfrist
 - [x] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit fachlicher Validierung
-- [ ] E-Rechnung: formale Prüfung gegen XSD/Schematron (KoSIT-Prüftool)
-- [ ] E-Rechnung schreiben und versenden
+- [x] E-Rechnung: formale Prüfung gegen XSD/Schematron (KoSIT-Prüftool)
+- [x] E-Rechnung schreiben: XRechnung mit lückenlosen Nummernkreisen
+- [ ] E-Rechnung: ZUGFeRD-PDF (PDF/A-3) und Versand
 
 ### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*
 - [ ] Debitoren/Kreditoren-Stammdaten, USt-IdNr.-Prüfung mit Protokoll
