@@ -66,7 +66,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🟨 | **Belegeingang** | Überwachter Ordner und Upload vorhanden; E-Mail-Weiterleitung, Webhook, Beleg-Connectoren folgen |
 | ✅ | **Belegerkennung** | PDF-Textebene, OCR mit lokaler Engine (Tesseract), Belegart per Regelwerk + optionalem LLM, Dublettenerkennung, Rechenprobe |
 | ✅ | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
-| 🟨 | **E-Rechnung Eingang** | XRechnung und ZUGFeRD/Factur-X werden erkannt; Lesen und Validieren folgen mit Baustein 3 |
+| ✅ | **E-Rechnung Eingang** | XRechnung (UBL/CII) und ZUGFeRD/Factur-X ohne OCR übernehmen, fachlich validieren (EN-16931-Regeln, § 14 UStG), `accounti rechnung pruefen` |
 | 🔲 | **E-Rechnung Ausgang** | Rechnungen schreiben und als konforme E-Rechnung versenden |
 
 **Buchen & Zahlen**
@@ -409,7 +409,8 @@ kontieren will, braucht nur v0.1.
 - [x] Dublettenerkennung, Eingangsprotokoll
 - [x] OCR und Belegartklassifikation, Positionssplit
 - [x] Belegarchiv mit Aufbewahrungsfrist
-- [ ] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit Validierung
+- [x] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit fachlicher Validierung
+- [ ] E-Rechnung: formale Prüfung gegen XSD/Schematron (KoSIT-Prüftool)
 - [ ] E-Rechnung schreiben und versenden
 
 ### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*

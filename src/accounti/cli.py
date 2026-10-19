@@ -346,6 +346,77 @@ def belege_liste(
 
 
 # ---------------------------------------------------------------------------
+# E-Rechnung
+# ---------------------------------------------------------------------------
+rechnung_app = typer.Typer(help="E-Rechnungen prüfen (später: schreiben, senden).")
+app.add_typer(rechnung_app, name="rechnung")
+
+
+@rechnung_app.command("pruefen")
+def rechnung_pruefen(
+    datei: str = typer.Argument(help="XRechnung (XML) oder ZUGFeRD/Factur-X (PDF)"),
+) -> None:
+    """E-Rechnung lesen und validieren, ohne sie zu importieren."""
+    from pathlib import Path
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.belege.erkennung import erkenne_format
+    from accounti.belege.kanaele import RohBeleg
+    from accounti.erechnung import ERechnungError, lies
+    from accounti.erechnung.validierung import Schwere, pruefe
+
+    pfad = Path(datei)
+    if not pfad.is_file():
+        console.print(f"[red]Datei nicht gefunden: {escape(datei)}[/red]")
+        raise typer.Exit(1)
+    roh = RohBeleg(
+        dateiname=pfad.name, inhalt=pfad.read_bytes(), kanal="cli", herkunft=datei
+    )
+    xml = erkenne_format(roh).xml
+    if xml is None:
+        console.print("[red]keine E-Rechnung (weder XRechnung noch ZUGFeRD)[/red]")
+        raise typer.Exit(1)
+    try:
+        r = lies(xml)
+    except ERechnungError as fehler:
+        console.print(f"[red]E-Rechnung nicht lesbar: {escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
+    def zeile(label: str, wert: object) -> None:
+        console.print(f"  {label:14} {escape(str(wert)) if wert is not None else '—'}")
+
+    console.print(f"[bold]E-Rechnung[/bold] ({r.syntax}, Profil {r.profil.value})")
+    zeile("Nummer", r.nummer)
+    zeile("Datum", r.datum)
+    zeile("Verkäufer", f"{r.verkaeufer.name} ({r.verkaeufer.ust_id or '—'})")
+    zeile("Käufer", r.kaeufer.name)
+    zeile("Positionen", len(r.zeilen))
+    zeile("Netto", r.summen.netto)
+    zeile("Steuer", r.summen.steuer)
+    zeile("Brutto", r.summen.brutto)
+    zeile("Zahlbetrag", r.summen.zahlbetrag)
+
+    befunde = pruefe(r)
+    if not befunde:
+        console.print("[green]Keine Befunde.[/green]")
+        return
+    tabelle = Table(title="Befunde")
+    tabelle.add_column("Schwere", no_wrap=True)
+    tabelle.add_column("Regel", no_wrap=True)
+    tabelle.add_column("Befund", overflow="fold")
+    for b in befunde:
+        farbe = "red" if b.schwere is Schwere.FEHLER else "yellow"
+        tabelle.add_row(
+            f"[{farbe}]{b.schwere.value}[/{farbe}]", b.regel, escape(b.text)
+        )
+    console.print(tabelle)
+    if any(b.schwere is Schwere.FEHLER for b in befunde):
+        raise typer.Exit(1)
+
+
+# ---------------------------------------------------------------------------
 # Klassifikation
 # ---------------------------------------------------------------------------
 @app.command()

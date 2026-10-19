@@ -20,7 +20,7 @@ from pypdf.errors import PdfReadError
 from accounti.belege.extraktion import Extrakt, extrahiere
 from accounti.belege.kanaele import RohBeleg
 from accounti.belege.llm import LLMBelegEngine
-from accounti.belege.ocr import OCREngine, OCRError
+from accounti.belege.ocr import OCREngine
 from accounti.belege.ocr.tesseract import TesseractEngine
 from accounti.belege.positionen import (
     ist_kreditkartenabrechnung,
@@ -28,6 +28,10 @@ from accounti.belege.positionen import (
     positionen_aus_umsaetzen,
     zerlege_kreditkartenabrechnung,
 )
+from accounti.erechnung import ERechnungError
+from accounti.erechnung import lies as lies_erechnung
+from accounti.erechnung.abbildung import zu_beleg
+from accounti.erechnung.validierung import pruefe
 from accounti.models import Beleg, Belegart, Belegposition, Belegrichtung, BelegStatus
 
 
@@ -296,31 +300,35 @@ class BelegErkenner:
 
     def __call__(self, roh: RohBeleg, beleg: Beleg) -> Beleg:
         befund = erkenne_format(roh)
-        nur_erechnung = beleg.model_copy(
-            update={
-                "belegart": Belegart.EINGANGSRECHNUNG,
-                "status": BelegStatus.ZUR_PRUEFUNG,
-                "pruef_grund": _erechnung_hinweis(befund),
-            }
-        )
-        if befund.format is Format.ERECHNUNG_XML:
-            return nur_erechnung
+        unlesbar: str | None = None
+        if befund.xml is not None:
+            # Strukturierte Daten schlagen immer die Ansicht.
+            try:
+                rechnung = lies_erechnung(befund.xml)
+            except ERechnungError as fehler:
+                unlesbar = f"E-Rechnung ({befund.syntax}) nicht lesbar: {fehler}"
+            else:
+                return zu_beleg(rechnung, pruefe(rechnung), beleg, self.eigene_ust_ids)
+            if befund.format is Format.ERECHNUNG_XML:
+                return beleg.model_copy(
+                    update={
+                        "belegart": Belegart.EINGANGSRECHNUNG,
+                        "status": BelegStatus.ZUR_PRUEFUNG,
+                        "pruef_grund": unlesbar,
+                    }
+                )
 
-        try:
-            text, quelle = hole_text(roh, befund, self.ocr)
-        except (ErkennungError, OCRError):
-            if befund.format is Format.ZUGFERD_PDF:
-                return nur_erechnung  # die strukturierten Daten zählen ohnehin
-            raise
+        # ZUGFeRD mit kaputtem XML: die PDF-Ansicht füllt vor, der Mensch prüft.
+        text, quelle = hole_text(roh, befund, self.ocr)
         if quelle == "ocr":
             text = normalisiere_ocr(text)
         erkannt = self._lies(text, beleg)
-        if befund.format is Format.ZUGFERD_PDF:
+        if unlesbar:
             erkannt = erkannt.model_copy(
                 update={
                     "status": BelegStatus.ZUR_PRUEFUNG,
                     "pruef_grund": "; ".join(
-                        filter(None, [_erechnung_hinweis(befund), erkannt.pruef_grund])
+                        filter(None, [unlesbar, erkannt.pruef_grund])
                     ),
                 }
             )
@@ -427,10 +435,3 @@ class BelegErkenner:
                 "confidence": round(confidence, 2),
             }
         )
-
-
-def _erechnung_hinweis(befund: FormatBefund) -> str:
-    return (
-        f"E-Rechnung ({befund.syntax}) erkannt — strukturierte Übernahme folgt "
-        "mit Baustein 3"
-    )

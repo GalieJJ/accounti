@@ -62,12 +62,14 @@ Bringt Belege ins System und macht Daten daraus. Kanäle folgen demselben Regist
 - `kanaele/` — `BELEG_KANAELE`-Registry; vorhanden sind `ordner` und `upload`. *(vorhanden)*
 - `pipeline.py` — `nimm_auf`: archivieren, Dubletten prüfen, optionalen Erkenner aufrufen, `Beleg` und Eingangsprotokoll speichern. Ein Fehler im Erkenner schickt den Beleg in die Prüfung, statt die Pipeline abzubrechen. *(vorhanden)*
 
-### `erechnung/` *(geplant — [Baustein 3](specs/2026-08-10-erechnung.md))*
+### `erechnung/` *(teilweise — [Baustein 3](specs/2026-08-10-erechnung.md))*
 
 Liest und schreibt strukturierte Rechnungen. Alle Formate werden auf ein gemeinsames Zwischenmodell nach EN 16931 abgebildet; die restliche Anwendung kennt nur dieses Modell, nie ein konkretes Format.
 
-- `parser/` — XRechnung (UBL, CII), ZUGFeRD/Factur-X (XML aus PDF/A-3).
-- `validierung.py` — Schema, Schematron, fachliche Prüfungen. Befunde mit Schweregrad statt „gültig/ungültig".
+- `modell.py` — Zwischenmodell `Rechnung` mit BT-Nummern als Kommentar; Profilerkennung aus BT-24 (MINIMUM, BASIC WL, BASIC, EN 16931, EXTENDED, XRechnung). *(vorhanden)*
+- `parser/` — XRechnung (UBL Invoice/CreditNote, CII), ZUGFeRD/Factur-X (das XML holt `belege/erkennung.py` aus dem PDF). DTDs und Entities werden abgelehnt. *(vorhanden)*
+- `validierung.py` — fachliche Prüfungen mit Befunden nach Schweregrad statt „gültig/ungültig": Auswahl der EN-16931-Geschäftsregeln (Pflichtangaben, Rechenregeln BR-CO-10…16, Steuerkategorien S/AE/E/Z/K/G/O), XRechnung BR-DE-3/4/15, § 14 UStG, Steuersatz zum Land über `steuer/`. Bewusst strenger als XRechnung: Ohne USt-IdNr. oder Steuernummer des Verkäufers gibt es keinen Vorsteuerabzug, also einen Fehler. Die formale Prüfung gegen XSD und Schematron folgt. *(vorhanden)*
+- `abbildung.py` — Zwischenmodell → `Beleg`: jede Zeile und jeder Nachlass/Zuschlag eine Position; die Steuer je Satz entspricht exakt der Aufschlüsselung der Rechnung. Gutschriften (Typ 381) mit negativen Beträgen. *(vorhanden)*
 - `erzeuger/` — Ausgangsrechnungen. Die Steuer kommt vollständig aus `steuer/`; es gibt keine zweite Steuerlogik im Rechnungsschreiber.
 
 ### `bank/` *(geplant — [Baustein 5](specs/2026-08-10-bankanbindung-live.md))*
