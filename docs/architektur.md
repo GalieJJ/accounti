@@ -52,9 +52,11 @@ Geplant (eigene Importer, kein Bank-CSV): `mt940.py`, `camt.py` (XML), `jtl.py`,
 
 Bringt Belege ins System und macht Daten daraus. Kanäle folgen demselben Registry-Muster wie die Bank-Importer: `ordner`, `email`, `upload`, `webhook`, `connector` — jeder liefert nur Rohdatei plus Herkunft, keiner kennt Buchhaltungslogik.
 
-- `erkennung.py` — E-Rechnung, PDF mit Textebene oder Scan? Strukturierte Daten schlagen immer OCR. Klassifiziert die Belegart (Eingangs-/Ausgangsrechnung, Quittung, Kontoauszug, …).
-- `ocr/` — steckbar; lokale Engine als Default, damit die Zusage „Daten bleiben auf deinem Server" hält.
-- `positionen.py` — Positionssplit. Eine Rechnung kann mehrere Konten betreffen; eine Kreditkartenabrechnung ist eine Datei mit vielen Umsätzen.
+- `erkennung.py` — E-Rechnung, PDF mit Textebene oder Scan? Strukturierte Daten schlagen immer OCR. Klassifiziert die Belegart (Eingangs-/Ausgangsrechnung, Quittung, Kontoauszug, …). `BelegErkenner` verbindet Format, Text, Regelwerk und LLM und ist der `erkenner` der Pipeline. *(vorhanden; E-Rechnungen werden bis Baustein 3 nur erkannt)*
+- `extraktion.py` — Regelwerk: Belegnummer, Daten, Lieferant, USt-IdNr., IBAN (mit Prüfziffer), Zahlungsziel, Skonto, Steuerzeilen, Summen, Rechenprobe. *(vorhanden)*
+- `ocr/` — steckbar über `OCR_ENGINES`; `tesseract` lokal als Default, damit die Zusage „Daten bleiben auf deinem Server" hält. Fehlt Tesseract, geht der Beleg mit Hinweis in die Prüfung. *(vorhanden)*
+- `llm.py` — zweite Stufe, nur mit `--llm`. Der Belegtext geht maskiert hinaus (IBAN, USt-IdNr., E-Mail, Telefon, Lieferant, Belegnummer); das LLM füllt nur Lücken, das Regelwerk gewinnt. *(vorhanden)*
+- `positionen.py` — Positionssplit. Eine Rechnung kann mehrere Konten betreffen; eine Kreditkartenabrechnung ist eine Datei mit vielen Umsätzen. *(vorhanden: eine Position je Steuersatz, Kreditkartenumsätze einzeln)*
 - `dubletten.py` — Datei-Hash, dann Lieferant + Rechnungsnummer, dann Betrag + Datum im engen Fenster. *(vorhanden)*
 - `archiv.py` — Originaldatei unverändert, content-adressiert, mit Aufbewahrungsfrist. Kein Löschpfad. *(vorhanden)*
 - `kanaele/` — `BELEG_KANAELE`-Registry; vorhanden sind `ordner` und `upload`. *(vorhanden)*

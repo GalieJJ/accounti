@@ -1,0 +1,23 @@
+Musterbank AG
+Kreditkartenabrechnung
+Karteninhaber: Galerie Muster GmbH
+Kartennummer: 4111 XXXX XXXX 1234
+Abrechnungsdatum: 31.03.2026
+
+Belegdatum  Buchungsdatum  Umsatzbeschreibung              Betrag EUR
+Saldo Vormonat                                                   0,00
+02.03.  03.03.  AMAZON MKTPLACE LUXEMBOURG                      23,99-
+03.03.  04.03.  AWS EMEA                                         89,50-
+05.03.  05.03.  DB VERTRIEB GMBH ONLINE-TICKET                 129,90-
+07.03.  08.03.  ADOBE SYSTEMS SOFTWARE                           71,39-
+09.03.  10.03.  HOTEL AM HAFEN KIEL                             184,00-
+11.03.  11.03.  GOOGLE WORKSPACE                                 34,56-
+12.03.  13.03.  AMAZON MKTPLACE LUXEMBOURG GUTSCHRIFT            23,99+
+15.03.  16.03.  SHELL STATION 0815                               68,12-
+18.03.  19.03.  DEUTSCHE POST PORTO                              12,40-
+21.03.  22.03.  CANVA PTY LTD                                    11,99-
+25.03.  26.03.  RESTAURANT ZUR MOEWE                             56,80-
+28.03.  29.03.  LINKEDIN PREMIUM                                 39,99-
+Summe der Umsätze                                               698,65-
+Neuer Saldo                                                     698,65-
+Der Betrag wird am 05.04.2026 von Ihrem Konto eingezogen.

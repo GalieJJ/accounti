@@ -290,6 +290,10 @@ def speichere_beleg(session: Session, b: Beleg) -> None:
             confidence=b.confidence,
         )
     )
+    _speichere_positionen(session, b)
+
+
+def _speichere_positionen(session: Session, b: Beleg) -> None:
     for nr, p in enumerate(b.positionen, start=1):
         session.add(
             BelegpositionRow(
@@ -305,6 +309,42 @@ def speichere_beleg(session: Session, b: Beleg) -> None:
                 confidence=p.confidence,
             )
         )
+
+
+# Herkunft und Archivbezug bleiben fest; alles Erkannte darf neu geschrieben werden.
+_ERKANNTE_FELDER = (
+    "belegnummer",
+    "belegdatum",
+    "leistungsdatum",
+    "lieferant_name",
+    "lieferant_ust_id",
+    "netto",
+    "steuer",
+    "brutto",
+    "waehrung",
+    "zahlungsziel",
+    "skonto_prozent",
+    "skonto_tage",
+    "pruef_grund",
+    "confidence",
+)
+
+
+def aktualisiere_beleg(session: Session, b: Beleg) -> Beleg:
+    """Schreibt die erkannten Felder und Positionen eines Belegs neu."""
+    row = session.get(BelegRow, str(b.id))
+    if row is None:
+        msg = f"Beleg {b.id} nicht gefunden."
+        raise ValueError(msg)
+    for feld in _ERKANNTE_FELDER:
+        setattr(row, feld, getattr(b, feld))
+    row.belegart = b.belegart.value
+    row.richtung = b.richtung.value
+    row.kontakt_id = _str(b.kontakt_id)
+    row.status = b.status.value
+    session.query(BelegpositionRow).filter(BelegpositionRow.beleg_id == row.id).delete()
+    _speichere_positionen(session, b)
+    return b
 
 
 def lade_belege(
@@ -326,6 +366,19 @@ def lade_belege(
         for p in pos_rows:
             positionen[p.beleg_id].append(_row_zu_position(p))
     return [_row_zu_beleg(r, positionen[r.id]) for r in rows]
+
+
+def lade_beleg(session: Session, beleg_id: str | UUID) -> Beleg | None:
+    row = session.get(BelegRow, str(beleg_id))
+    if row is None:
+        return None
+    pos_rows = (
+        session.query(BelegpositionRow)
+        .filter(BelegpositionRow.beleg_id == row.id)
+        .order_by(BelegpositionRow.nr)
+        .all()
+    )
+    return _row_zu_beleg(row, [_row_zu_position(p) for p in pos_rows])
 
 
 def speichere_eingang(session: Session, e: BelegEingang) -> None:

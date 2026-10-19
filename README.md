@@ -64,9 +64,9 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
 | 🟨 | **Belegeingang** | Überwachter Ordner und Upload vorhanden; E-Mail-Weiterleitung, Webhook, Beleg-Connectoren folgen |
-| 🟨 | **Belegerkennung** | Dublettenerkennung (Hash, Lieferant + Nummer, Betrag + Datum) vorhanden; OCR mit lokaler Engine, automatische Belegsortierung folgen |
-| 🔲 | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
-| 🔲 | **E-Rechnung Eingang** | XRechnung, ZUGFeRD/Factur-X lesen und validieren — ohne OCR |
+| ✅ | **Belegerkennung** | PDF-Textebene, OCR mit lokaler Engine (Tesseract), Belegart per Regelwerk + optionalem LLM, Dublettenerkennung, Rechenprobe |
+| ✅ | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
+| 🟨 | **E-Rechnung Eingang** | XRechnung und ZUGFeRD/Factur-X werden erkannt; Lesen und Validieren folgen mit Baustein 3 |
 | 🔲 | **E-Rechnung Ausgang** | Rechnungen schreiben und als konforme E-Rechnung versenden |
 
 **Buchen & Zahlen**
@@ -133,6 +133,8 @@ Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
 - Python 3.11+
 - PostgreSQL 15+
 - Ein LLM-Zugang (Anthropic API, OpenAI, oder lokales Modell via Ollama)
+- Optional für gescannte Belege und Fotos: Tesseract mit deutschen Sprachdaten
+  (`apt install tesseract-ocr tesseract-ocr-deu`). Ohne Tesseract landen Scans mit Hinweis in der Prüfung.
 
 ### Installation
 
@@ -405,7 +407,7 @@ kontieren will, braucht nur v0.1.
 - [x] Belegeingang: Ordner, Upload
 - [ ] Belegeingang: E-Mail, Webhook, Connector
 - [x] Dublettenerkennung, Eingangsprotokoll
-- [ ] OCR und Belegartklassifikation, Positionssplit
+- [x] OCR und Belegartklassifikation, Positionssplit
 - [x] Belegarchiv mit Aufbewahrungsfrist
 - [ ] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit Validierung
 - [ ] E-Rechnung schreiben und versenden

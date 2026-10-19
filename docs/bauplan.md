@@ -46,9 +46,10 @@ Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen ·
 
 **Baustein 9 ist teilweise fertig,** weil `steuer/umsatzsteuer.py`, `steuer/oss.py` und
 `steuer/voranmeldung.py` die Kennziffern bereits berechnen — was fehlt, ist die Übermittlung.
-**Baustein 2 ist teilweise fertig,** weil Ordner- und Upload-Kanal, Archiv, Dublettenprüfung und
-Eingangsprotokoll stehen ([Plan Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)) — was fehlt,
-sind Erkennung, OCR, Positionssplit und der E-Mail-Kanal.
+**Baustein 2 ist teilweise fertig,** weil Ordner- und Upload-Kanal, Archiv, Dublettenprüfung,
+Eingangsprotokoll ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)) sowie Erkennung, OCR und
+Positionssplit ([Paket 2](plans/2026-10-19-belegerfassung-paket-2.md)) stehen — was fehlt, sind der
+E-Mail-Kanal, Webhook und Connectoren.
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

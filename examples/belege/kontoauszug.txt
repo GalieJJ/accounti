@@ -1,0 +1,7 @@
+Musterbank AG
+Kontoauszug Nr. 3/2026
+Galerie Muster GmbH · IBAN DE89 3704 0044 0532 0130 00
+Alter Kontostand vom 28.02.2026               12.345,67 H
+02.03.2026  Lastschrift AWS EMEA                   89,50 S
+05.03.2026  Gutschrift Kunde 4711                1.190,00 H
+Neuer Kontostand vom 31.03.2026               13.446,17 H

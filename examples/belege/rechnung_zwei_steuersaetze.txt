@@ -1,0 +1,29 @@
+Bürobedarf Müller GmbH
+Hauptstraße 12 · 20095 Hamburg
+Tel. 040 1234567 · info@buero-mueller.example
+USt-IdNr.: DE123456789
+
+Galerie Muster GmbH
+Beispielweg 3
+24103 Kiel
+
+RECHNUNG
+
+Rechnungsnummer: RE-2026-0042
+Rechnungsdatum: 05.03.2026
+Leistungsdatum: 03.03.2026
+Kundennummer: 100234
+
+Pos. Bezeichnung                 Menge  Einzelpreis   Gesamt
+1    Kopierpapier A4, 500 Blatt     10         8,50    85,00
+2    Ordner breit                   10         1,50    15,00
+3    Fachbuch Steuerrecht            1        50,00    50,00
+
+Summe netto                                        150,00 €
+zzgl. 19 % USt auf 100,00 €                         19,00 €
+zzgl. 7 % USt auf 50,00 €                            3,50 €
+Rechnungsbetrag                                    172,50 €
+
+Zahlbar innerhalb von 14 Tagen ohne Abzug.
+Bei Zahlung innerhalb von 7 Tagen 2 % Skonto.
+Musterbank · IBAN DE89 3704 0044 0532 0130 00 · BIC COBADEFFXXX
