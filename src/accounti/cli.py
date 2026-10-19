@@ -7,6 +7,8 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from accounti.belege.kanaele import BelegKanal
+    from accounti.belege.pipeline import Erkenner
+    from accounti.models import Beleg
 
 app = typer.Typer(
     name="accounti",
@@ -98,11 +100,45 @@ app.add_typer(belege_app, name="belege")
 ARCHIV_STANDARD = "archiv/belege"
 
 
-def _belege_aufnehmen(kanal: "BelegKanal", db: str, archiv: str) -> None:
+def _beleg_zeile(b: "Beleg") -> str:
+    """Kurzbeschreibung eines erkannten Belegs für die Konsole."""
+    from rich.markup import escape
+
+    teile = [b.belegart.value]
+    if b.brutto is not None:
+        teile.append(f"{b.brutto:.2f} {b.waehrung}")
+    if b.status.value == "pruefung":
+        teile.append(f"[yellow]zur Prüfung: {escape(b.pruef_grund or '')}[/yellow]")
+    else:
+        teile.append(b.status.value)
+    return " · ".join(teile)
+
+
+def _beleg_erkenner(
+    llm: bool, eigene_ust_id: list[str], eigene_firma: str | None, sprache: str
+) -> "Erkenner":
+    from accounti.belege.erkennung import BelegErkenner
+    from accounti.belege.llm import LLMBelegEngine
+    from accounti.belege.ocr.tesseract import TesseractEngine
+
+    return BelegErkenner(
+        ocr=TesseractEngine(sprache=sprache),
+        llm=LLMBelegEngine() if llm else None,
+        eigene_ust_ids=set(eigene_ust_id),
+        eigene_firma=eigene_firma,
+    )
+
+
+def _belege_aufnehmen(
+    kanal: "BelegKanal", db: str, archiv: str, erkenner: "Erkenner | None"
+) -> None:
     """Holt alle Rohbelege eines Kanals ab und nimmt sie einzeln auf."""
+    from rich.markup import escape
+
     from accounti.belege.archiv import BelegArchiv
     from accounti.belege.pipeline import nimm_auf
     from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_beleg
     from accounti.models import Eingangsergebnis
 
     engine, make_session = session_factory(db)
@@ -111,25 +147,43 @@ def _belege_aufnehmen(kanal: "BelegKanal", db: str, archiv: str) -> None:
     zaehler = dict.fromkeys(Eingangsergebnis, 0)
     with make_session() as s:
         for roh in kanal.abholen():
-            eingang = nimm_auf(s, belegarchiv, roh)
+            eingang = nimm_auf(s, belegarchiv, roh, erkenner=erkenner)
             s.commit()
             kanal.bestaetige(roh)
             zaehler[eingang.ergebnis] += 1
-            if eingang.ergebnis is Eingangsergebnis.NEU:
-                console.print(f"[green]neu[/green]       {roh.dateiname}")
-            elif eingang.ergebnis is Eingangsergebnis.DUBLETTE:
+            if eingang.ergebnis is Eingangsergebnis.DUBLETTE:
                 console.print(
-                    f"[dim]Dublette[/dim]  {roh.dateiname} — {eingang.hinweis}"
+                    f"[dim]Dublette[/dim]  {escape(roh.dateiname)} — "
+                    f"{escape(eingang.hinweis or '')}"
                 )
+                continue
+            beleg = lade_beleg(s, eingang.beleg_id) if eingang.beleg_id else None
+            info = f" — {_beleg_zeile(beleg)}" if beleg else ""
+            if eingang.ergebnis is Eingangsergebnis.NEU:
+                console.print(f"[green]neu[/green]       {escape(roh.dateiname)}{info}")
             else:
                 console.print(
-                    f"[yellow]Verdacht[/yellow]  {roh.dateiname} — {eingang.hinweis}"
+                    f"[yellow]Verdacht[/yellow]  {escape(roh.dateiname)}{info}"
                 )
     console.print(
         f"[green]{zaehler[Eingangsergebnis.NEU]} neu[/green], "
         f"{zaehler[Eingangsergebnis.DUBLETTE]} Dubletten, "
         f"[yellow]{zaehler[Eingangsergebnis.VERDACHT]} Verdacht[/yellow]."
     )
+
+
+# Gemeinsame Optionen der Befehle, die Belege lesen
+ERKENNEN_OPTION = typer.Option(
+    True, "--erkennen/--ohne-erkennung", help="Belege direkt lesen"
+)
+LLM_OPTION = typer.Option(
+    False, "--llm/--no-llm", help="LLM-Stufe für Lücken (maskiert, Standard: aus)"
+)
+EIGENE_UST_ID_OPTION = typer.Option(
+    [], "--eigene-ust-id", help="Eigene USt-IdNr. (erkennt Ausgangsrechnungen)"
+)
+EIGENE_FIRMA_OPTION = typer.Option(None, help="Eigener Firmenname")
+OCR_SPRACHE_OPTION = typer.Option("deu", help="Tesseract-Sprache(n), z.B. deu+eng")
 
 
 @belege_app.command("kanaele")
@@ -147,6 +201,11 @@ def belege_import(
     dateien: Annotated[list[str], typer.Argument(help="Belegdatei(en)")],
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    erkennen: bool = ERKENNEN_OPTION,
+    llm: bool = LLM_OPTION,
+    eigene_ust_id: list[str] = EIGENE_UST_ID_OPTION,
+    eigene_firma: str | None = EIGENE_FIRMA_OPTION,
+    ocr_sprache: str = OCR_SPRACHE_OPTION,
 ) -> None:
     """Einzelne Belege importieren."""
     from pathlib import Path
@@ -157,7 +216,12 @@ def belege_import(
     if fehlend:
         console.print(f"[red]Datei nicht gefunden: {', '.join(fehlend)}[/red]")
         raise typer.Exit(1)
-    _belege_aufnehmen(UploadKanal(dateien), db, archiv)
+    erkenner = (
+        _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
+        if erkennen
+        else None
+    )
+    _belege_aufnehmen(UploadKanal(dateien), db, archiv, erkenner)
 
 
 @belege_app.command("abholen")
@@ -166,6 +230,11 @@ def belege_abholen(
     ordner: str = typer.Option("eingang/belege", help="Ordner für den Kanal 'ordner'"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    erkennen: bool = ERKENNEN_OPTION,
+    llm: bool = LLM_OPTION,
+    eigene_ust_id: list[str] = EIGENE_UST_ID_OPTION,
+    eigene_firma: str | None = EIGENE_FIRMA_OPTION,
+    ocr_sprache: str = OCR_SPRACHE_OPTION,
 ) -> None:
     """Einen Kanal einmal leeren."""
     from pathlib import Path
@@ -182,7 +251,48 @@ def belege_abholen(
     if not Path(ordner).is_dir():
         console.print(f"[red]Ordner nicht gefunden: {ordner}[/red]")
         raise typer.Exit(1)
-    _belege_aufnehmen(OrdnerKanal(ordner), db, archiv)
+    erkenner = (
+        _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
+        if erkennen
+        else None
+    )
+    _belege_aufnehmen(OrdnerKanal(ordner), db, archiv, erkenner)
+
+
+@belege_app.command("erkennen")
+def belege_erkennen(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    llm: bool = LLM_OPTION,
+    eigene_ust_id: list[str] = EIGENE_UST_ID_OPTION,
+    eigene_firma: str | None = EIGENE_FIRMA_OPTION,
+    ocr_sprache: str = OCR_SPRACHE_OPTION,
+) -> None:
+    """Ungelesene und zur Prüfung liegende Belege erneut aus dem Archiv lesen."""
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.belege.pipeline import erkenne_erneut
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_belege
+    from accounti.models import BelegStatus
+
+    erkenner = _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    belegarchiv = BelegArchiv(archiv)
+    erfasst = 0
+    with make_session() as s:
+        offen = lade_belege(
+            s, status={BelegStatus.EINGEGANGEN, BelegStatus.ZUR_PRUEFUNG}
+        )
+        for alt in offen:
+            neu = erkenne_erneut(s, belegarchiv, alt, erkenner)
+            s.commit()
+            erfasst += neu.status is BelegStatus.ERFASST
+            console.print(f"{str(neu.id)[:8]}  {neu.dateiname} — {_beleg_zeile(neu)}")
+    console.print(
+        f"{len(offen)} Belege gelesen, [green]{erfasst} erfasst[/green], "
+        f"[yellow]{len(offen) - erfasst} zur Prüfung[/yellow]."
+    )
 
 
 @belege_app.command("liste")
@@ -191,6 +301,7 @@ def belege_liste(
     status: str | None = typer.Option(None, help="eingegangen, pruefung oder erfasst"),
 ) -> None:
     """Belege anzeigen."""
+    from rich.markup import escape
     from rich.table import Table
 
     from accounti.db import init_db, session_factory
@@ -213,24 +324,25 @@ def belege_liste(
         return
 
     tabelle = Table(title="Belege")
-    tabelle.add_column("ID")
-    tabelle.add_column("Eingang")
-    tabelle.add_column("Kanal")
-    tabelle.add_column("Datei")
-    tabelle.add_column("Art")
-    tabelle.add_column("Brutto", justify="right")
-    tabelle.add_column("Status")
+    tabelle.add_column("ID", no_wrap=True)
+    tabelle.add_column("Datei", overflow="fold")
+    tabelle.add_column("Art", no_wrap=True)
+    tabelle.add_column("Brutto", justify="right", no_wrap=True)
+    tabelle.add_column("Status", no_wrap=True)
     for b in belege:
         tabelle.add_row(
             str(b.id)[:8],
-            f"{b.eingegangen_am:%d.%m.%Y}",
-            b.kanal,
             b.dateiname,
             b.belegart.value,
             f"{b.brutto:.2f}" if b.brutto is not None else "—",
-            b.status.value + (f" ({b.pruef_grund})" if b.pruef_grund else ""),
+            b.status.value,
         )
     console.print(tabelle)
+    hinweise = [b for b in belege if b.pruef_grund]
+    if hinweise:
+        console.print("[bold]Prüfhinweise:[/bold]")
+        for b in hinweise:
+            console.print(f"  {str(b.id)[:8]}  {escape(b.pruef_grund or '')}")
 
 
 # ---------------------------------------------------------------------------

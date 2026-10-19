@@ -10,11 +10,34 @@ from sqlalchemy.orm import Session
 from accounti.belege.archiv import BelegArchiv, aufbewahrungsende
 from accounti.belege.dubletten import pruefe_dublette
 from accounti.belege.kanaele import RohBeleg
-from accounti.db.repository import lade_belege, speichere_beleg, speichere_eingang
+from accounti.db.repository import (
+    aktualisiere_beleg,
+    lade_belege,
+    speichere_beleg,
+    speichere_eingang,
+)
 from accounti.models import Beleg, BelegEingang, BelegStatus, Eingangsergebnis
 
 # Erkenner reichert einen Beleg aus der Rohdatei an (Belegart, Beträge, Positionen …).
 Erkenner = Callable[[RohBeleg, Beleg], Beleg]
+
+
+def _erkenne_sicher(
+    erkenner: Erkenner, roh: RohBeleg, beleg: Beleg
+) -> tuple[Beleg, bool]:
+    """Ruft den Erkenner auf; ein Fehler schickt den Beleg in die Prüfung."""
+    try:
+        return erkenner(roh, beleg), True
+    except Exception as fehler:  # jeder Fehler wird zur Prüfung, kein Abbruch
+        return (
+            beleg.model_copy(
+                update={
+                    "status": BelegStatus.ZUR_PRUEFUNG,
+                    "pruef_grund": f"Erkennung fehlgeschlagen: {fehler}",
+                }
+            ),
+            False,
+        )
 
 
 def nimm_auf(
@@ -42,16 +65,8 @@ def nimm_auf(
     # Stufe 1 vor der Erkennung: eine identische Datei muss niemand erneut lesen.
     befund = pruefe_dublette(beleg, bestand)
     if befund.ergebnis is Eingangsergebnis.NEU and erkenner is not None:
-        try:
-            beleg = erkenner(roh, beleg)
-        except Exception as fehler:  # jeder Fehler wird zur Prüfung, kein Abbruch
-            beleg = beleg.model_copy(
-                update={
-                    "status": BelegStatus.ZUR_PRUEFUNG,
-                    "pruef_grund": f"Erkennung fehlgeschlagen: {fehler}",
-                }
-            )
-        else:
+        beleg, gelesen = _erkenne_sicher(erkenner, roh, beleg)
+        if gelesen:
             befund = pruefe_dublette(beleg, bestand)
 
     if befund.ergebnis is Eingangsergebnis.DUBLETTE:
@@ -82,3 +97,37 @@ def nimm_auf(
     )
     speichere_eingang(session, eingang)
     return eingang
+
+
+def erkenne_erneut(
+    session: Session,
+    archiv: BelegArchiv,
+    beleg: Beleg,
+    erkenner: Erkenner,
+) -> Beleg:
+    """Liest einen archivierten Beleg erneut — z.B. nachdem OCR installiert wurde."""
+    roh = RohBeleg(
+        dateiname=beleg.dateiname,
+        inhalt=archiv.lese(beleg.datei_hash),
+        kanal=beleg.kanal,
+        herkunft=beleg.herkunft,
+        eingegangen_am=beleg.eingegangen_am,
+    )
+    neu, gelesen = _erkenne_sicher(erkenner, roh, beleg)
+    if gelesen:
+        befund = pruefe_dublette(neu, lade_belege(session))
+        if befund.ergebnis is not Eingangsergebnis.NEU:
+            art = (
+                "Dublette"
+                if befund.ergebnis is Eingangsergebnis.DUBLETTE
+                else "Dublettenverdacht"
+            )
+            neu = neu.model_copy(
+                update={
+                    "status": BelegStatus.ZUR_PRUEFUNG,
+                    "pruef_grund": (
+                        f"{art} zu Beleg {str(befund.beleg_id)[:8]}: {befund.grund}"
+                    ),
+                }
+            )
+    return aktualisiere_beleg(session, neu)
