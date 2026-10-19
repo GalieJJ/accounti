@@ -30,7 +30,7 @@ Tatsachen.
 | # | Baustein | Zielmodule | Status | Spec |
 |---|----------|------------|--------|------|
 | 1 | Bankauszug → Auto-Kontierung (Regeln + KI) → DATEV/CSV | `importers/` `klassifikation/` `buchung/` `export/` `db/` | ✅ fertig | [Spec](specs/2026-06-02-mvp-bank-auto-kontierung.md) |
-| 2 | Belegerfassung & Dokumentenmanagement | `belege/` | 🔲 geplant | [Spec](specs/2026-08-10-belegerfassung.md) |
+| 2 | Belegerfassung & Dokumentenmanagement | `belege/` | 🟨 teilweise | [Spec](specs/2026-08-10-belegerfassung.md) |
 | 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | 🔲 geplant | [Spec](specs/2026-08-10-erechnung.md) |
 | 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | 🔲 geplant | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🔲 geplant | [Spec](specs/2026-08-10-bankanbindung-live.md) |
@@ -46,6 +46,9 @@ Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen ·
 
 **Baustein 9 ist teilweise fertig,** weil `steuer/umsatzsteuer.py`, `steuer/oss.py` und
 `steuer/voranmeldung.py` die Kennziffern bereits berechnen — was fehlt, ist die Übermittlung.
+**Baustein 2 ist teilweise fertig,** weil Ordner- und Upload-Kanal, Archiv, Dublettenprüfung und
+Eingangsprotokoll stehen ([Plan Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)) — was fehlt,
+sind Erkennung, OCR, Positionssplit und der E-Mail-Kanal.
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

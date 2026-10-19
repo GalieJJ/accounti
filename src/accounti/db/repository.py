@@ -7,10 +7,23 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from accounti.db.tabellen import BuchungssatzRow, TransaktionRow
+from accounti.db.tabellen import (
+    BelegEingangRow,
+    BelegpositionRow,
+    BelegRow,
+    BuchungssatzRow,
+    TransaktionRow,
+)
 from accounti.models import (
+    Beleg,
+    Belegart,
+    BelegEingang,
+    Belegposition,
+    Belegrichtung,
+    BelegStatus,
     Buchungssatz,
     BuchungStatus,
+    Eingangsergebnis,
     Transaktion,
     TransaktionQuelle,
 )
@@ -18,6 +31,18 @@ from accounti.models import (
 # ---------------------------------------------------------------------------
 # Row <-> Domänenobjekt
 # ---------------------------------------------------------------------------
+
+
+def _dec(wert: Decimal | None) -> Decimal | None:
+    return Decimal(str(wert)) if wert is not None else None
+
+
+def _uuid(wert: str | None) -> UUID | None:
+    return UUID(wert) if wert is not None else None
+
+
+def _str(wert: UUID | None) -> str | None:
+    return str(wert) if wert is not None else None
 
 
 def _row_zu_transaktion(r: TransaktionRow) -> Transaktion:
@@ -43,10 +68,9 @@ def _row_zu_buchung(r: BuchungssatzRow) -> Buchungssatz:
         haben_konto=r.haben_konto,
         betrag_netto=Decimal(str(r.betrag_netto)),
         steuer_schluessel=r.steuer_schluessel,
-        steuer_betrag=(
-            Decimal(str(r.steuer_betrag)) if r.steuer_betrag is not None else None
-        ),
+        steuer_betrag=_dec(r.steuer_betrag),
         buchungstext=r.buchungstext,
+        beleg_position_id=_uuid(r.beleg_position_id),
         status=BuchungStatus(r.status),
         confidence=r.confidence,
         geprueft_von=r.geprueft_von,
@@ -100,6 +124,7 @@ def speichere_buchung(session: Session, b: Buchungssatz) -> None:
             steuer_schluessel=b.steuer_schluessel,
             steuer_betrag=b.steuer_betrag,
             buchungstext=b.buchungstext,
+            beleg_position_id=_str(b.beleg_position_id),
             status=b.status.value,
             confidence=b.confidence,
             geprueft_von=b.geprueft_von,
@@ -183,3 +208,155 @@ def aktualisiere_buchung(
     row.confidence = neu.confidence
     row.geprueft_von = neu.geprueft_von
     return _row_zu_buchung(row)
+
+
+# ---------------------------------------------------------------------------
+# Belege
+# ---------------------------------------------------------------------------
+
+
+def _row_zu_position(r: BelegpositionRow) -> Belegposition:
+    return Belegposition(
+        id=UUID(r.id),
+        beleg_id=UUID(r.beleg_id),
+        bezeichnung=r.bezeichnung,
+        menge=Decimal(str(r.menge)),
+        netto=Decimal(str(r.netto)),
+        steuersatz=_dec(r.steuersatz),
+        steuer_betrag=_dec(r.steuer_betrag),
+        konto_vorschlag=r.konto_vorschlag,
+        confidence=r.confidence,
+    )
+
+
+def _row_zu_beleg(r: BelegRow, positionen: list[Belegposition]) -> Beleg:
+    return Beleg(
+        id=UUID(r.id),
+        belegart=Belegart(r.belegart),
+        richtung=Belegrichtung(r.richtung),
+        belegnummer=r.belegnummer,
+        belegdatum=r.belegdatum,
+        leistungsdatum=r.leistungsdatum,
+        kontakt_id=_uuid(r.kontakt_id),
+        lieferant_name=r.lieferant_name,
+        lieferant_ust_id=r.lieferant_ust_id,
+        netto=_dec(r.netto),
+        steuer=_dec(r.steuer),
+        brutto=_dec(r.brutto),
+        waehrung=r.waehrung,
+        zahlungsziel=r.zahlungsziel,
+        skonto_prozent=_dec(r.skonto_prozent),
+        skonto_tage=r.skonto_tage,
+        datei_hash=r.datei_hash,
+        dateiname=r.dateiname,
+        kanal=r.kanal,
+        herkunft=r.herkunft,
+        eingegangen_am=r.eingegangen_am,
+        aufbewahren_bis=r.aufbewahren_bis,
+        status=BelegStatus(r.status),
+        pruef_grund=r.pruef_grund,
+        confidence=r.confidence,
+        positionen=positionen,
+    )
+
+
+def speichere_beleg(session: Session, b: Beleg) -> None:
+    session.add(
+        BelegRow(
+            id=str(b.id),
+            belegart=b.belegart.value,
+            richtung=b.richtung.value,
+            belegnummer=b.belegnummer,
+            belegdatum=b.belegdatum,
+            leistungsdatum=b.leistungsdatum,
+            kontakt_id=_str(b.kontakt_id),
+            lieferant_name=b.lieferant_name,
+            lieferant_ust_id=b.lieferant_ust_id,
+            netto=b.netto,
+            steuer=b.steuer,
+            brutto=b.brutto,
+            waehrung=b.waehrung,
+            zahlungsziel=b.zahlungsziel,
+            skonto_prozent=b.skonto_prozent,
+            skonto_tage=b.skonto_tage,
+            datei_hash=b.datei_hash,
+            dateiname=b.dateiname,
+            kanal=b.kanal,
+            herkunft=b.herkunft,
+            eingegangen_am=b.eingegangen_am,
+            aufbewahren_bis=b.aufbewahren_bis,
+            status=b.status.value,
+            pruef_grund=b.pruef_grund,
+            confidence=b.confidence,
+        )
+    )
+    for nr, p in enumerate(b.positionen, start=1):
+        session.add(
+            BelegpositionRow(
+                id=str(p.id),
+                beleg_id=str(b.id),
+                nr=nr,
+                bezeichnung=p.bezeichnung,
+                menge=p.menge,
+                netto=p.netto,
+                steuersatz=p.steuersatz,
+                steuer_betrag=p.steuer_betrag,
+                konto_vorschlag=p.konto_vorschlag,
+                confidence=p.confidence,
+            )
+        )
+
+
+def lade_belege(
+    session: Session,
+    status: set[BelegStatus] | None = None,
+) -> list[Beleg]:
+    query = session.query(BelegRow).order_by(BelegRow.eingegangen_am)
+    if status is not None:
+        query = query.filter(BelegRow.status.in_([s.value for s in status]))
+    rows = query.all()
+    positionen: dict[str, list[Belegposition]] = {r.id: [] for r in rows}
+    if rows:
+        pos_rows = (
+            session.query(BelegpositionRow)
+            .filter(BelegpositionRow.beleg_id.in_(list(positionen)))
+            .order_by(BelegpositionRow.nr)
+            .all()
+        )
+        for p in pos_rows:
+            positionen[p.beleg_id].append(_row_zu_position(p))
+    return [_row_zu_beleg(r, positionen[r.id]) for r in rows]
+
+
+def speichere_eingang(session: Session, e: BelegEingang) -> None:
+    session.add(
+        BelegEingangRow(
+            id=str(e.id),
+            kanal=e.kanal,
+            dateiname=e.dateiname,
+            herkunft=e.herkunft,
+            datei_hash=e.datei_hash,
+            eingegangen_am=e.eingegangen_am,
+            ergebnis=e.ergebnis.value,
+            beleg_id=_str(e.beleg_id),
+            hinweis=e.hinweis,
+        )
+    )
+
+
+def lade_eingaenge(session: Session) -> list[BelegEingang]:
+    rows = session.query(BelegEingangRow).order_by(BelegEingangRow.eingegangen_am)
+    return [
+        BelegEingang(
+            id=UUID(r.id),
+            kanal=r.kanal,
+            dateiname=r.dateiname,
+            herkunft=r.herkunft,
+            datei_hash=r.datei_hash,
+            eingegangen_am=r.eingegangen_am,
+            ergebnis=Eingangsergebnis(r.ergebnis),
+            beleg_id=_uuid(r.beleg_id),
+            hinweis=r.hinweis,
+        )
+        for r in rows.all()
+    ]
