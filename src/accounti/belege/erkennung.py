@@ -106,6 +106,15 @@ def erkenne_format(roh: RohBeleg) -> FormatBefund:
     return FormatBefund(Format.UNBEKANNT)
 
 
+# Typische OCR-Verwechslungen beim Prozentzeichen: 19 $ · 7°/o · 19%o
+_OCR_PROZENT = re.compile(r"(?<=\d)\s?(?:\$|°/o|o/o|%o|%)(?=\s|$)", re.MULTILINE)
+
+
+def normalisiere_ocr(text: str) -> str:
+    """Korrigiert OCR-Fehler, die das Regelwerk sonst aus dem Tritt bringen."""
+    return _OCR_PROZENT.sub(" %", text)
+
+
 def _scanbilder(reader: PdfReader) -> list[bytes]:
     """JPEG-Seitenbilder unverändert aus dem PDF holen (DCT/JPX: kein Dekodieren)."""
     bilder = []
@@ -298,11 +307,13 @@ class BelegErkenner:
             return nur_erechnung
 
         try:
-            text, _quelle = hole_text(roh, befund, self.ocr)
+            text, quelle = hole_text(roh, befund, self.ocr)
         except (ErkennungError, OCRError):
             if befund.format is Format.ZUGFERD_PDF:
                 return nur_erechnung  # die strukturierten Daten zählen ohnehin
             raise
+        if quelle == "ocr":
+            text = normalisiere_ocr(text)
         erkannt = self._lies(text, beleg)
         if befund.format is Format.ZUGFERD_PDF:
             erkannt = erkannt.model_copy(

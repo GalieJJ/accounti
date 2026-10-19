@@ -86,3 +86,17 @@ def test_ungueltige_iban_wird_ignoriert():
 def test_kundennummer_ist_keine_rechnungsnummer():
     e = extrahiere("Firma GmbH\nKundennummer: 100234\nRechnung\n")
     assert e.belegnummer is None
+
+
+def test_label_nimmt_den_ersten_betrag_dahinter():
+    e = extrahiere("Firma GmbH\nNetto 63,72   MwSt 12,11   Brutto 75,83\n")
+    assert e.netto == Decimal("63.72")
+    assert e.brutto == Decimal("75.83")
+
+
+def test_brutto_inklusive_steuer_und_nicht_aus_nettosumme():
+    e = extrahiere(
+        "Firma GmbH\nSumme netto 150,00\nGesamtbetrag inkl. 19 % MwSt 178,50\n"
+    )
+    assert e.brutto == Decimal("178.50")
+    assert e.netto == Decimal("150.00")
