@@ -7,6 +7,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Belegerfassung, Paket 1** (Baustein 2): Datenmodell `Beleg`, `Belegposition` und
+  Eingangsprotokoll `BelegEingang`; Kanäle `ordner` und `upload` über die Registry
+  `BELEG_KANAELE`; content-adressiertes, schreibgeschütztes Belegarchiv mit Aufbewahrungsfrist;
+  dreistufige Dublettenerkennung; CLI `accounti belege kanaele|import|abholen|liste`;
+  `Buchungssatz.beleg_position_id`; Alembic-Migration `add belege`
 - Projektstruktur und Datenmodell
 - CLI-Grundgerüst (Import, Classify, BWA, Export, Serve)
 - Sparkasse CSV-Importer

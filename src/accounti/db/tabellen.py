@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
-from sqlalchemy import Date, Float, Integer, Numeric, String
+from sqlalchemy import Date, DateTime, Float, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from accounti.db import Base
@@ -40,3 +40,65 @@ class BuchungssatzRow(Base):
     status: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[float] = mapped_column(Float)
     geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    beleg_position_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+
+
+class BelegRow(Base):
+    __tablename__ = "belege"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    belegart: Mapped[str] = mapped_column(String(20))
+    richtung: Mapped[str] = mapped_column(String(10))
+    belegnummer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    belegdatum: Mapped[date | None] = mapped_column(Date, nullable=True)
+    leistungsdatum: Mapped[date | None] = mapped_column(Date, nullable=True)
+    kontakt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    lieferant_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    lieferant_ust_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    netto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    steuer: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    brutto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    waehrung: Mapped[str] = mapped_column(String(3), default="EUR")
+    zahlungsziel: Mapped[date | None] = mapped_column(Date, nullable=True)
+    skonto_prozent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    skonto_tage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    datei_hash: Mapped[str] = mapped_column(String(64), index=True)
+    dateiname: Mapped[str] = mapped_column(String(255))
+    kanal: Mapped[str] = mapped_column(String(20))
+    herkunft: Mapped[str] = mapped_column(String(500))
+    eingegangen_am: Mapped[datetime] = mapped_column(DateTime)
+    aufbewahren_bis: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(20))
+    pruef_grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float)
+
+
+class BelegpositionRow(Base):
+    __tablename__ = "belegpositionen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    beleg_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("belege.id"), index=True
+    )
+    nr: Mapped[int] = mapped_column(Integer)
+    bezeichnung: Mapped[str] = mapped_column(String(500))
+    menge: Mapped[Decimal] = mapped_column(Numeric(14, 4))
+    netto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    steuersatz: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    steuer_betrag: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    konto_vorschlag: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float)
+
+
+class BelegEingangRow(Base):
+    __tablename__ = "beleg_eingaenge"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kanal: Mapped[str] = mapped_column(String(20))
+    dateiname: Mapped[str] = mapped_column(String(255))
+    herkunft: Mapped[str] = mapped_column(String(500))
+    datei_hash: Mapped[str] = mapped_column(String(64))
+    eingegangen_am: Mapped[datetime] = mapped_column(DateTime)
+    ergebnis: Mapped[str] = mapped_column(String(10))
+    beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    hinweis: Mapped[str | None] = mapped_column(String(500), nullable=True)

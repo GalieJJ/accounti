@@ -48,15 +48,17 @@ Bank-CSVs laufen **konfigurationsgetrieben** über `profil.py`: Ein `BankProfil`
 
 Geplant (eigene Importer, kein Bank-CSV): `mt940.py`, `camt.py` (XML), `jtl.py`, `amazon.py`, `ebay.py`, `paypal.py`.
 
-### `belege/` *(geplant — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
+### `belege/` *(teilweise — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
 
 Bringt Belege ins System und macht Daten daraus. Kanäle folgen demselben Registry-Muster wie die Bank-Importer: `ordner`, `email`, `upload`, `webhook`, `connector` — jeder liefert nur Rohdatei plus Herkunft, keiner kennt Buchhaltungslogik.
 
 - `erkennung.py` — E-Rechnung, PDF mit Textebene oder Scan? Strukturierte Daten schlagen immer OCR. Klassifiziert die Belegart (Eingangs-/Ausgangsrechnung, Quittung, Kontoauszug, …).
 - `ocr/` — steckbar; lokale Engine als Default, damit die Zusage „Daten bleiben auf deinem Server" hält.
 - `positionen.py` — Positionssplit. Eine Rechnung kann mehrere Konten betreffen; eine Kreditkartenabrechnung ist eine Datei mit vielen Umsätzen.
-- `dubletten.py` — Datei-Hash, dann Lieferant + Rechnungsnummer, dann Betrag + Datum im engen Fenster.
-- `archiv.py` — Originaldatei unverändert, content-adressiert, mit Aufbewahrungsfrist. Kein Löschpfad.
+- `dubletten.py` — Datei-Hash, dann Lieferant + Rechnungsnummer, dann Betrag + Datum im engen Fenster. *(vorhanden)*
+- `archiv.py` — Originaldatei unverändert, content-adressiert, mit Aufbewahrungsfrist. Kein Löschpfad. *(vorhanden)*
+- `kanaele/` — `BELEG_KANAELE`-Registry; vorhanden sind `ordner` und `upload`. *(vorhanden)*
+- `pipeline.py` — `nimm_auf`: archivieren, Dubletten prüfen, optionalen Erkenner aufrufen, `Beleg` und Eingangsprotokoll speichern. Ein Fehler im Erkenner schickt den Beleg in die Prüfung, statt die Pipeline abzubrechen. *(vorhanden)*
 
 ### `erechnung/` *(geplant — [Baustein 3](specs/2026-08-10-erechnung.md))*
 

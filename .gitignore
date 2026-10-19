@@ -24,6 +24,9 @@ config/accounti.yaml
 /export/
 # lokale SQLite-Datenbank
 accounti.db
+# Belegarchiv und Watch-Ordner (Standardpfade, enthalten echte Belege)
+/archiv/
+/eingang/
 *.log
 
 # Environment

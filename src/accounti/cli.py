@@ -1,7 +1,12 @@
 """accounti CLI — Kommandozeilenschnittstelle."""
 
+from typing import TYPE_CHECKING, Annotated
+
 import typer
 from rich.console import Console
+
+if TYPE_CHECKING:
+    from accounti.belege.kanaele import BelegKanal
 
 app = typer.Typer(
     name="accounti",
@@ -82,6 +87,150 @@ def import_banken() -> None:
     for name in sorted(BANK_IMPORTERS):
         console.print(f"  • {name}")
     console.print("  • [dim]auto (automatische Erkennung)[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# Belege
+# ---------------------------------------------------------------------------
+belege_app = typer.Typer(help="Belege erfassen und verwalten.")
+app.add_typer(belege_app, name="belege")
+
+ARCHIV_STANDARD = "archiv/belege"
+
+
+def _belege_aufnehmen(kanal: "BelegKanal", db: str, archiv: str) -> None:
+    """Holt alle Rohbelege eines Kanals ab und nimmt sie einzeln auf."""
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.belege.pipeline import nimm_auf
+    from accounti.db import init_db, session_factory
+    from accounti.models import Eingangsergebnis
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    belegarchiv = BelegArchiv(archiv)
+    zaehler = dict.fromkeys(Eingangsergebnis, 0)
+    with make_session() as s:
+        for roh in kanal.abholen():
+            eingang = nimm_auf(s, belegarchiv, roh)
+            s.commit()
+            kanal.bestaetige(roh)
+            zaehler[eingang.ergebnis] += 1
+            if eingang.ergebnis is Eingangsergebnis.NEU:
+                console.print(f"[green]neu[/green]       {roh.dateiname}")
+            elif eingang.ergebnis is Eingangsergebnis.DUBLETTE:
+                console.print(
+                    f"[dim]Dublette[/dim]  {roh.dateiname} — {eingang.hinweis}"
+                )
+            else:
+                console.print(
+                    f"[yellow]Verdacht[/yellow]  {roh.dateiname} — {eingang.hinweis}"
+                )
+    console.print(
+        f"[green]{zaehler[Eingangsergebnis.NEU]} neu[/green], "
+        f"{zaehler[Eingangsergebnis.DUBLETTE]} Dubletten, "
+        f"[yellow]{zaehler[Eingangsergebnis.VERDACHT]} Verdacht[/yellow]."
+    )
+
+
+@belege_app.command("kanaele")
+def belege_kanaele() -> None:
+    """Verfügbare Beleg-Kanäle auflisten."""
+    from accounti.belege.kanaele import BELEG_KANAELE
+
+    console.print("[bold]Verfügbare Beleg-Kanäle:[/bold]")
+    for name, kanal in sorted(BELEG_KANAELE.items()):
+        console.print(f"  • {name:8} [dim]{kanal.beschreibung}[/dim]")
+
+
+@belege_app.command("import")
+def belege_import(
+    dateien: Annotated[list[str], typer.Argument(help="Belegdatei(en)")],
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+) -> None:
+    """Einzelne Belege importieren."""
+    from pathlib import Path
+
+    from accounti.belege.kanaele.upload import UploadKanal
+
+    fehlend = [d for d in dateien if not Path(d).is_file()]
+    if fehlend:
+        console.print(f"[red]Datei nicht gefunden: {', '.join(fehlend)}[/red]")
+        raise typer.Exit(1)
+    _belege_aufnehmen(UploadKanal(dateien), db, archiv)
+
+
+@belege_app.command("abholen")
+def belege_abholen(
+    kanal: str = typer.Option(..., help="Kanal, z.B. 'ordner'"),
+    ordner: str = typer.Option("eingang/belege", help="Ordner für den Kanal 'ordner'"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+) -> None:
+    """Einen Kanal einmal leeren."""
+    from pathlib import Path
+
+    from accounti.belege.kanaele.ordner import OrdnerKanal
+
+    if kanal != OrdnerKanal.name:
+        console.print(
+            f"[red]Kanal '{kanal}' kann nicht abgeholt werden. "
+            f"Verfügbar: {OrdnerKanal.name} "
+            "(Einzeldateien: accounti belege import)[/red]"
+        )
+        raise typer.Exit(1)
+    if not Path(ordner).is_dir():
+        console.print(f"[red]Ordner nicht gefunden: {ordner}[/red]")
+        raise typer.Exit(1)
+    _belege_aufnehmen(OrdnerKanal(ordner), db, archiv)
+
+
+@belege_app.command("liste")
+def belege_liste(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    status: str | None = typer.Option(None, help="eingegangen, pruefung oder erfasst"),
+) -> None:
+    """Belege anzeigen."""
+    from rich.table import Table
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_belege
+    from accounti.models import BelegStatus
+
+    try:
+        filter_ = {BelegStatus(status)} if status else None
+    except ValueError as fehler:
+        erlaubt = ", ".join(s.value for s in BelegStatus)
+        console.print(f"[red]Unbekannter Status '{status}'. Erlaubt: {erlaubt}[/red]")
+        raise typer.Exit(1) from fehler
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        belege = lade_belege(s, status=filter_)
+    if not belege:
+        console.print("[dim]Keine Belege.[/dim]")
+        return
+
+    tabelle = Table(title="Belege")
+    tabelle.add_column("ID")
+    tabelle.add_column("Eingang")
+    tabelle.add_column("Kanal")
+    tabelle.add_column("Datei")
+    tabelle.add_column("Art")
+    tabelle.add_column("Brutto", justify="right")
+    tabelle.add_column("Status")
+    for b in belege:
+        tabelle.add_row(
+            str(b.id)[:8],
+            f"{b.eingegangen_am:%d.%m.%Y}",
+            b.kanal,
+            b.dateiname,
+            b.belegart.value,
+            f"{b.brutto:.2f}" if b.brutto is not None else "—",
+            b.status.value + (f" ({b.pruef_grund})" if b.pruef_grund else ""),
+        )
+    console.print(tabelle)
 
 
 # ---------------------------------------------------------------------------

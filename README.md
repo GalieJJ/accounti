@@ -63,8 +63,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
-| 🔲 | **Belegeingang** | E-Mail-Weiterleitung, überwachter Ordner, Upload, Webhook, Beleg-Connectoren |
-| 🔲 | **Belegerkennung** | OCR mit lokaler Engine als Default, automatische Belegsortierung, Dublettenerkennung |
+| 🟨 | **Belegeingang** | Überwachter Ordner und Upload vorhanden; E-Mail-Weiterleitung, Webhook, Beleg-Connectoren folgen |
+| 🟨 | **Belegerkennung** | Dublettenerkennung (Hash, Lieferant + Nummer, Betrag + Datum) vorhanden; OCR mit lokaler Engine, automatische Belegsortierung folgen |
 | 🔲 | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
 | 🔲 | **E-Rechnung Eingang** | XRechnung, ZUGFeRD/Factur-X lesen und validieren — ohne OCR |
 | 🔲 | **E-Rechnung Ausgang** | Rechnungen schreiben und als konforme E-Rechnung versenden |
@@ -120,7 +120,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Mehrere Gesellschaften** | Eigene Firmen mit eigenem Wirtschaftsjahr und Kontenrahmen |
 | 🔲 | **Benutzer & Rollen** | Anmeldung mit 2FA, Rollen, Vier-Augen-Freigabe, DE/EN |
 
-Legende: ✅ vorhanden · 🔲 geplant
+Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
 
 ---
 
@@ -402,9 +402,11 @@ kontieren will, braucht nur v0.1.
 - [ ] SKR04 als YAML-Konfiguration
 
 ### v0.2 — Beleg & E-Rechnung *(Bausteine 2, 3)*
-- [ ] Belegeingang: Ordner, E-Mail, Upload, Webhook, Connector
-- [ ] OCR und Belegartklassifikation, Positionssplit, Dublettenerkennung
-- [ ] Belegarchiv mit Aufbewahrungsfrist
+- [x] Belegeingang: Ordner, Upload
+- [ ] Belegeingang: E-Mail, Webhook, Connector
+- [x] Dublettenerkennung, Eingangsprotokoll
+- [ ] OCR und Belegartklassifikation, Positionssplit
+- [x] Belegarchiv mit Aufbewahrungsfrist
 - [ ] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit Validierung
 - [ ] E-Rechnung schreiben und versenden
 

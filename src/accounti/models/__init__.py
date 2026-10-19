@@ -44,6 +44,41 @@ class BuchungStatus(str, enum.Enum):
     EXPORTIERT = "exportiert"  # In DATEV exportiert
 
 
+class Belegart(str, enum.Enum):
+    """Art eines Belegs."""
+
+    EINGANGSRECHNUNG = "eingangsrechnung"
+    AUSGANGSRECHNUNG = "ausgangsrechnung"
+    QUITTUNG = "quittung"
+    KONTOAUSZUG = "kontoauszug"
+    VERTRAG = "vertrag"
+    SONSTIGES = "sonstiges"
+    UNBEKANNT = "unbekannt"  # Noch nicht erkannt
+
+
+class Belegrichtung(str, enum.Enum):
+    """Richtung eines Belegs aus Sicht des eigenen Unternehmens."""
+
+    EINGANG = "eingang"
+    AUSGANG = "ausgang"
+
+
+class BelegStatus(str, enum.Enum):
+    """Status eines Belegs in der Erfassung."""
+
+    EINGEGANGEN = "eingegangen"  # Archiviert, noch nicht gelesen
+    ZUR_PRUEFUNG = "pruefung"  # Mensch muss ran, Grund steht in pruef_grund
+    ERFASST = "erfasst"  # Strukturiert erfasst
+
+
+class Eingangsergebnis(str, enum.Enum):
+    """Ergebnis der Dublettenprüfung für einen Eingang."""
+
+    NEU = "neu"
+    DUBLETTE = "dublette"  # Verworfen, verweist auf den vorhandenen Beleg
+    VERDACHT = "verdacht"  # Gespeichert, aber zur Prüfung vorgelegt
+
+
 # ---------------------------------------------------------------------------
 # Transaktion — Rohdaten aus Import
 # ---------------------------------------------------------------------------
@@ -67,6 +102,74 @@ class Transaktion(BaseModel):
     )
     rohtext: str = Field(description="Originalzeile aus Import, für Debugging")
     importiert_am: datetime = Field(default_factory=datetime.now)
+
+
+# ---------------------------------------------------------------------------
+# Beleg — Rechnung, Quittung & Co. mit ihren Positionen
+# ---------------------------------------------------------------------------
+
+
+class Belegposition(BaseModel):
+    """Eine Position eines Belegs; kontiert wird auf Positionen, nicht auf Belegen."""
+
+    id: UUID = Field(default_factory=uuid4)
+    beleg_id: UUID
+    bezeichnung: str
+    menge: Decimal = Field(default=Decimal("1"))
+    netto: Decimal
+    steuersatz: Decimal | None = Field(default=None, description="in Prozent")
+    steuer_betrag: Decimal | None = None
+    konto_vorschlag: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+
+
+class Beleg(BaseModel):
+    """Ein erfasster Beleg. Die Originaldatei liegt über datei_hash im Archiv."""
+
+    id: UUID = Field(default_factory=uuid4)
+    belegart: Belegart = Field(default=Belegart.UNBEKANNT)
+    richtung: Belegrichtung = Field(default=Belegrichtung.EINGANG)
+    belegnummer: str | None = Field(default=None, description="z.B. Rechnungsnummer")
+    belegdatum: date | None = None
+    leistungsdatum: date | None = None
+    kontakt_id: UUID | None = Field(default=None, description="Kontakt (Baustein 4)")
+    lieferant_name: str | None = Field(
+        default=None, description="Freitext, bis Kontakte existieren"
+    )
+    lieferant_ust_id: str | None = None
+    netto: Decimal | None = None
+    steuer: Decimal | None = None
+    brutto: Decimal | None = None
+    waehrung: str = Field(default="EUR", max_length=3)
+    zahlungsziel: date | None = None
+    skonto_prozent: Decimal | None = None
+    skonto_tage: int | None = None
+    datei_hash: str = Field(description="SHA-256 der Originaldatei")
+    dateiname: str
+    kanal: str = Field(description="Eingangskanal, z.B. 'ordner'")
+    herkunft: str = Field(description="Pfad, Absender o.ä. — Hinweis, keine Logik")
+    eingegangen_am: datetime = Field(default_factory=datetime.now)
+    aufbewahren_bis: date
+    status: BelegStatus = Field(default=BelegStatus.EINGEGANGEN)
+    pruef_grund: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    positionen: list[Belegposition] = Field(default_factory=list)
+
+
+class BelegEingang(BaseModel):
+    """Protokolleintrag für jeden Eingang — auch für verworfene Dubletten."""
+
+    id: UUID = Field(default_factory=uuid4)
+    kanal: str
+    dateiname: str
+    herkunft: str
+    datei_hash: str
+    eingegangen_am: datetime = Field(default_factory=datetime.now)
+    ergebnis: Eingangsergebnis
+    beleg_id: UUID | None = Field(
+        default=None, description="Neuer Beleg bzw. der vorhandene bei einer Dublette"
+    )
+    hinweis: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +209,9 @@ class Buchungssatz(BaseModel):
     steuer_betrag: Decimal | None = None
     buchungstext: str = Field(description="Kurztext für den Buchungssatz")
     beleg_nummer: str | None = None
+    beleg_position_id: UUID | None = Field(
+        default=None, description="Belegposition, auf die diese Buchung zeigt"
+    )
     kostenstelle: str | None = None
     status: BuchungStatus = Field(default=BuchungStatus.ENTWURF)
     confidence: float = Field(
