@@ -117,20 +117,67 @@ def test_ausgangsrechnung_mit_eigener_ust_id():
     assert b.richtung is Belegrichtung.AUSGANG
 
 
-def test_erechnung_wird_erkannt_aber_nicht_aus_dem_bild_gelesen():
+ERECHNUNG = FIXTURES.parent / "erechnung"
+
+
+def test_leere_erechnung_geht_mit_befunden_zur_pruefung():
     xml = b'<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"/>'
     b = _erkenne(BelegErkenner(), xml, "r.xml")
     assert b.belegart is Belegart.EINGANGSRECHNUNG
     assert b.status is BelegStatus.ZUR_PRUEFUNG
-    assert "E-Rechnung (UBL)" in b.pruef_grund
-    assert "Baustein 3" in b.pruef_grund
+    assert "BR-02" in b.pruef_grund
 
 
-def test_zugferd_pdf_geht_zur_pruefung():
-    cii = b'<rsm:CrossIndustryInvoice xmlns:rsm="urn:x"/>'
-    b = _erkenne(BelegErkenner(), pdf_mit_anhang("factur-x.xml", cii))
+def test_xrechnung_wird_ohne_ocr_und_ohne_text_erfasst():
+    """Akzeptanz 1 — über den Erkenner."""
+    xml = (ERECHNUNG / "xrechnung_ubl.xml").read_bytes()
+    b = _erkenne(BelegErkenner(ocr=KeineOCR()), xml, "rechnung.xml")
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert b.brutto == Decimal("172.50")
+    assert len(b.positionen) == 3
+
+
+def test_zugferd_ergibt_denselben_beleg_wie_das_xml():
+    """Akzeptanz 2."""
+    xml = (ERECHNUNG / "xrechnung_cii.xml").read_bytes()
+    aus_xml = _erkenne(BelegErkenner(), xml, "r.xml")
+    aus_pdf = _erkenne(BelegErkenner(), pdf_mit_anhang("factur-x.xml", xml))
+    ohne = {"id", "dateiname", "herkunft", "eingegangen_am", "positionen"}
+    assert aus_pdf.model_dump(exclude=ohne) == aus_xml.model_dump(exclude=ohne)
+    assert [p.model_dump(exclude={"id", "beleg_id"}) for p in aus_pdf.positionen] == [
+        p.model_dump(exclude={"id", "beleg_id"}) for p in aus_xml.positionen
+    ]
+
+
+def test_kaputte_erechnung_im_xml_geht_zur_pruefung():
+    cbc = "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+    xml = (
+        '<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" '
+        f'xmlns:cbc="{cbc}"><cbc:IssueDate>gestern</cbc:IssueDate></Invoice>'
+    ).encode()
+    b = _erkenne(BelegErkenner(), xml, "r.xml")
     assert b.status is BelegStatus.ZUR_PRUEFUNG
-    assert "E-Rechnung (CII)" in b.pruef_grund
+    assert "E-Rechnung (UBL) nicht lesbar" in b.pruef_grund
+
+
+def test_zugferd_mit_kaputtem_xml_nutzt_die_pdf_ansicht():
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    text_pdf = pdf_mit_text(_text("rechnung_zwei_steuersaetze.txt"))
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(text_pdf)))
+    writer.add_attachment(
+        "factur-x.xml",
+        b'<rsm:CrossIndustryInvoice xmlns:rsm="urn:un:unece:uncefact:data:standard:'
+        b'CrossIndustryInvoice:100"><!DOCTYPE x></rsm:CrossIndustryInvoice>',
+    )
+    out = io.BytesIO()
+    writer.write(out)
+    b = _erkenne(BelegErkenner(), out.getvalue())
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "nicht lesbar" in b.pruef_grund
+    assert b.brutto == Decimal("172.50")  # aus der PDF-Ansicht vorbefüllt
 
 
 def test_scan_ohne_ocr_wirft_damit_die_pipeline_pruefung_setzt():
