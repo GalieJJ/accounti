@@ -81,12 +81,14 @@ def test_akzeptanz_1_abrechnungszeitraum_vollstaendig_gebucht(amazon, tmp_path):
     assert len(erstattungen) == 1
     assert erstattungen[0].betrag_netto == D("50.00")
     assert "Erstattung" in erstattungen[0].buchungstext
-    # Gebühren je Art, rückvergütete Provision als eigene Buchung
+    # Gebühren je Art (brutto mit Vorsteuer), rückvergütete Provision eigens gebucht
     assert saldo(b, "4760") == D("58.55") + D("9.00") - D("9.00") + D("39.00")
     assert saldo(b, "4780") == D("23.55") + D("12.34")
     assert saldo(b, "4610") == D("25.00")
     rueck = [x for x in b if x.haben_konto == "4760"]
-    assert [x.betrag_netto for x in rueck] == [D("9.00")]
+    assert [(x.betrag_netto, x.steuer_betrag) for x in rueck] == [
+        (D("7.56"), D("1.44"))
+    ]
     # Einbehalte und Ersatzleistung
     assert saldo(b, "1500") == D("25.00")
     (ersatz,) = [x for x in b if x.haben_konto == "2700"]
@@ -204,3 +206,103 @@ def test_fremdwaehrung_mit_kurs(tmp_path):
     (auszahlung,) = [p for p in a.posten if p.art is Postenart.AUSZAHLUNG]
     assert auszahlung.betrag_eur is not None
     assert saldo(ergebnis.buchungen, "1361") == -auszahlung.betrag_eur
+
+
+# --- Umsatzsteuer auf Gebühren ----------------------------------------------------
+
+
+def gebuehr(buchungen, konto, text):
+    (b,) = [
+        x
+        for x in buchungen
+        if konto in (x.soll_konto, x.haben_konto) and text in x.buchungstext
+    ]
+    return b
+
+
+def test_amazon_gebuehren_mit_deutscher_vorsteuer(amazon, tmp_path):
+    """Seit 01.08.2024 berechnet Amazon EU S.à r.l. (Niederlassung Deutschland) die
+    Verkaufs- und Versandgebühren mit 19 % deutscher USt — Vorsteuer, kein § 13b."""
+    ergebnis = buche_abrechnung(amazon, kontext(tmp_path))
+    b = ergebnis.buchungen
+    verkauf = gebuehr(b, "4760", "Gebühren verkauf")
+    # 67,55 brutto (Provisionen inkl. Rückerstattungsgebühr) = 56,76 + 10,79 VSt
+    assert (verkauf.soll_konto, verkauf.haben_konto) == ("4760", "1361")
+    assert (verkauf.betrag_netto, verkauf.steuer_betrag) == (D("56.76"), D("10.79"))
+    assert verkauf.steuer_schluessel == 9
+    assert verkauf.status is BuchungStatus.AUTO_GEBUCHT
+    # zurückerstattete Provision mindert die Vorsteuer
+    rueck = gebuehr(b, "4760", "Gebührenerstattung")
+    assert (rueck.soll_konto, rueck.haben_konto) == ("1361", "4760")
+    assert (rueck.betrag_netto, rueck.steuer_betrag, rueck.steuer_schluessel) == (
+        D("7.56"),
+        D("1.44"),
+        9,
+    )
+    # Lager und Abo ebenfalls mit Vorsteuer
+    lager = gebuehr(b, "4780", "Gebühren lager")
+    assert (lager.betrag_netto, lager.steuer_betrag) == (D("10.37"), D("1.97"))
+    # das Verrechnungskonto bewegt sich weiter um den Bruttobetrag
+    assert saldo(b, "1361") == D("209.85")
+
+
+def test_werbung_ohne_eingestellte_steuer_zur_pruefung(amazon, tmp_path):
+    ergebnis = buche_abrechnung(amazon, kontext(tmp_path))
+    werbung = gebuehr(ergebnis.buchungen, "4610", "Werbung")
+    assert werbung.steuer_schluessel is None
+    assert werbung.status is BuchungStatus.ZUR_PRUEFUNG
+    (befund,) = [f for f in ergebnis.befunde if f.code == "ust_gebuehren_offen"]
+    assert "Werbung" in befund.text and "ust_werbung" in befund.text
+
+
+def test_ebay_gebuehren_ohne_einstellung_befund_je_abrechnung(tmp_path):
+    erste, _ = lies("ebay", "ebay_transaktionsbericht.csv")
+    ergaenze_auszahlung(erste)
+    ergebnis = buche_abrechnung(erste, kontext(tmp_path))
+    befunde = [f for f in ergebnis.befunde if f.code == "ust_gebuehren_offen"]
+    assert len(befunde) == 1
+    assert "ust_gebuehren" in befunde[0].text
+    gebuehren = [x for x in ergebnis.buchungen if "Gebühr" in x.buchungstext]
+    assert gebuehren
+    assert {x.status for x in gebuehren} == {BuchungStatus.ZUR_PRUEFUNG}
+    assert {x.steuer_schluessel for x in gebuehren} == {None}
+
+
+def test_paypal_gebuehren_steuerfrei_ohne_befund(tmp_path):
+    (a,) = lies("paypal", "paypal_aktivitaeten.csv")
+    ergebnis = buche_abrechnung(a, kontext(tmp_path))
+    assert not [f for f in ergebnis.befunde if f.code == "ust_gebuehren_offen"]
+    gebuehren = [x for x in ergebnis.buchungen if x.soll_konto == "4970"]
+    assert {(x.steuer_schluessel, x.status) for x in gebuehren} == {
+        (None, BuchungStatus.AUTO_GEBUCHT)
+    }
+
+
+def test_gebuehren_13b_mit_eingestelltem_schluessel(amazon, tmp_path):
+    pfad = tmp_path / "c.yaml"
+    pfad.write_text(
+        "integrationen:\n  marktplaetze:\n    amazon:\n      ust_gebuehren: 13b\n"
+        "      bu_gebuehren: 94\n      ust_werbung: ohne\n",
+        encoding="utf-8",
+    )
+    k = Buchungskontext(einstellungen=lade_integrationen(pfad), oss_registriert=True)
+    ergebnis = buche_abrechnung(amazon, k)
+    verkauf = gebuehr(ergebnis.buchungen, "4760", "Gebühren verkauf")
+    assert (verkauf.betrag_netto, verkauf.steuer_schluessel) == (D("67.55"), 94)
+    assert verkauf.steuer_betrag is None
+    werbung = gebuehr(ergebnis.buchungen, "4610", "Werbung")
+    assert werbung.status is BuchungStatus.AUTO_GEBUCHT
+    assert not [f for f in ergebnis.befunde if f.code == "ust_gebuehren_offen"]
+
+
+def test_gebuehren_13b_ohne_schluessel_zur_pruefung(amazon, tmp_path):
+    pfad = tmp_path / "c.yaml"
+    pfad.write_text(
+        "integrationen:\n  marktplaetze:\n    amazon:\n      ust_gebuehren: 13b\n",
+        encoding="utf-8",
+    )
+    k = Buchungskontext(einstellungen=lade_integrationen(pfad), oss_registriert=True)
+    ergebnis = buche_abrechnung(amazon, k)
+    verkauf = gebuehr(ergebnis.buchungen, "4760", "Gebühren verkauf")
+    assert verkauf.status is BuchungStatus.ZUR_PRUEFUNG
+    assert any(f.code == "ust_gebuehren_offen" for f in ergebnis.befunde)

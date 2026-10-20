@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -22,6 +22,8 @@ from accounti.konfiguration import (
     KonfigurationError,
     lade_buchhaltung,
 )
+
+UStModus = Literal["vorsteuer", "13b", "ohne"]
 
 
 class Marktplatzkonten(BaseModel):
@@ -43,8 +45,23 @@ class Marktplatzkonten(BaseModel):
     klaerung: str = Field(
         default="1590", description="unbekannte Posten bis zur Klärung (Prüfung)"
     )
+    ust_gebuehren: UStModus | None = Field(
+        default=None,
+        description=(
+            "Umsatzsteuer in den Gebühren: vorsteuer (Bericht brutto mit deutscher USt "
+            "— Amazon seit 01.08.2024), 13b (Leistung aus dem Ausland, BU-Schlüssel "
+            "bu_gebuehren), ohne (steuerfrei, z.B. PayPal); nicht eingestellt: "
+            "ohne Vorsteuer zur Prüfung"
+        ),
+    )
+    ust_werbung: UStModus | None = Field(
+        default=None, description="wie ust_gebuehren, für Werbekosten"
+    )
     bu_gebuehren: int | None = Field(
-        default=None, description="BU-Schlüssel für Gebühren, z.B. bei § 13b UStG"
+        default=None, description="BU-Schlüssel der Gebühren bei ust_gebuehren: 13b"
+    )
+    bu_werbung: int | None = Field(
+        default=None, description="BU-Schlüssel der Werbung bei ust_werbung: 13b"
     )
     bank_stichworte: list[str] = Field(
         default_factory=list, description="Merkmale des Bankeingangs der Auszahlung"
@@ -60,17 +77,26 @@ class Marktplatzkonten(BaseModel):
 
 
 _STANDARD_MARKTPLAETZE: dict[str, dict[str, Any]] = {
-    "amazon": {"verrechnungskonto": "1361", "bank_stichworte": ["AMAZON"]},
+    # Amazon EU S.à r.l. berechnet deutschen Händlern seit 01.08.2024 deutsche USt
+    # auf Verkaufs-, Versand-, Lager- und Abogebühren; Werbung rechnet sie nicht ab
+    "amazon": {
+        "verrechnungskonto": "1361",
+        "bank_stichworte": ["AMAZON"],
+        "ust_gebuehren": "vorsteuer",
+    },
     "ebay": {"verrechnungskonto": "1362", "bank_stichworte": ["EBAY"]},
     "shopify": {
         "verrechnungskonto": "1363",
         "verkaufsgebuehr": "4970",
         "bank_stichworte": ["SHOPIFY"],
     },
+    # PayPal-Gebühren: Finanzdienstleistung, steuerfrei (§ 4 Nr. 8 UStG)
     "paypal": {
         "verrechnungskonto": "1210",
         "verkaufsgebuehr": "4970",
         "bank_stichworte": ["PAYPAL"],
+        "ust_gebuehren": "ohne",
+        "ust_werbung": "ohne",
     },
 }
 

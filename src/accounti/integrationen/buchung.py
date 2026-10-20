@@ -34,6 +34,7 @@ from accounti.models.integrationen import (
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
 from accounti.steuer.oss import OSS_SCHWELLE_EUR
 from accounti.steuer.umsatzsteuer import (
+    DATEV_BU_SCHLUESSEL,
     OSS_ERLOES_KONTEN_SKR03,
     Geschaeftsvorfall,
     UStBerechner,
@@ -340,6 +341,53 @@ def _erloes(
     bucht(brutto, e.erloes_ausfuhr, p.datum, text, p.bestellnummer, p.referenz, True)
 
 
+def _kosten(
+    lauf: _Lauf,
+    betrag: Decimal,
+    konto: str,
+    datum: date,
+    text: str,
+    belegnummer: str | None,
+    referenz: str | None,
+    modus: str | None,
+    bu_13b: int | None,
+    was: str,
+) -> None:
+    """Gebühr oder Werbung (Vorzeichen aus Sicht des Guthabens) mit ihrer Steuer.
+
+    ``vorsteuer``: der Betrag im Bericht ist brutto mit der USt des Firmensitzlands —
+    Vorsteuer über den BU-Schlüssel (Beleg: die monatliche Gebührenrechnung);
+    ``13b``: Nettobetrag mit dem eingestellten BU-Schlüssel; ``ohne``: steuerfrei.
+    Ohne Einstellung wird ohne Vorsteuer gebucht, aber zur Prüfung, mit Befund.
+    """
+    k = lauf.kontext
+    if modus == "vorsteuer":
+        satz = EU_STEUERSAETZE[k.firmen_land].normal
+        netto = UStBerechner(firmen_land=k.firmen_land).brutto_zu_netto(
+            abs(betrag), satz
+        )
+        schluessel = DATEV_BU_SCHLUESSEL.get(f"vst_{int(satz)}")
+        if schluessel is None:
+            lauf.sammle("ust_gebuehren_offen", was)
+        lauf.bucht(
+            netto if betrag > 0 else -netto,
+            konto,
+            datum,
+            text,
+            belegnummer,
+            referenz,
+            schluessel is None,
+            schluessel=schluessel,
+            steuer=abs(betrag) - netto,
+        )
+        return
+    if modus == "ohne" or (modus == "13b" and bu_13b is not None):
+        lauf.bucht(betrag, konto, datum, text, belegnummer, referenz, schluessel=bu_13b)
+        return
+    lauf.sammle("ust_gebuehren_offen", was)
+    lauf.bucht(betrag, konto, datum, text, belegnummer, referenz, True)
+
+
 _BEFUNDTEXTE: dict[str, tuple[Schweregrad, str]] = {
     "land_fehlt": (
         Schweregrad.WARNUNG,
@@ -418,27 +466,34 @@ def buche_abrechnung(
     for (art, referenz, erstattet), (p, summe) in gebuehren.items():
         datum = p.datum if referenz else abrechnung.bis
         text = f"{lauf.markt} {'Gebührenerstattung' if erstattet else 'Gebühren'} {art}"
-        lauf.bucht(
+        _kosten(
+            lauf,
             summe,
             konten.konto_fuer_gebuehr(art),
             datum,
             f"{text} {abrechnung.nummer if not referenz else p.bestellnummer or ''}",
             p.bestellnummer if referenz else None,
             referenz,
-            schluessel=konten.bu_gebuehren,
+            konten.ust_gebuehren,
+            konten.bu_gebuehren,
+            "Gebühren",
         )
 
     transit = e.geldtransit_konto
     for p in abrechnung.posten:
         betrag = lauf.eur(p.betrag)
         if p.art is Postenart.WERBUNG:
-            lauf.bucht(
+            _kosten(
+                lauf,
                 betrag,
                 konten.werbung,
                 p.datum,
                 f"{lauf.markt} Werbung",
                 None,
                 p.referenz,
+                konten.ust_werbung,
+                konten.bu_werbung,
+                "Werbung",
             )
         elif p.art is Postenart.EINBEHALT:
             text = f"{lauf.markt} {'Einbehalt' if betrag < 0 else 'Einbehalt frei'}"
@@ -491,6 +546,22 @@ def buche_abrechnung(
         "Ersatzleistung des Marktplatzes — steuerliche Behandlung prüfen",
     )
     for code, faelle in lauf.gesammelt.items():
+        if code == "ust_gebuehren_offen":
+            arten = " und ".join(dict.fromkeys(faelle))
+            name = abrechnung.marktplatz
+            lauf.ergebnis.befunde.append(
+                Befund(
+                    code=code,
+                    schweregrad=Schweregrad.WARNUNG,
+                    text=(
+                        f"Umsatzsteuer der {arten} ist nicht eingestellt "
+                        f"(integrationen.marktplaetze.{name}.ust_gebuehren bzw. "
+                        "ust_werbung: vorsteuer, 13b mit bu_gebuehren/bu_werbung "
+                        "oder ohne) — ohne Vorsteuer gebucht, zur Prüfung"
+                    ),
+                )
+            )
+            continue
         schwere, text = texte[code]
         beispiele = ", ".join(faelle[:5]) + (" …" if len(faelle) > 5 else "")
         lauf.ergebnis.befunde.append(
