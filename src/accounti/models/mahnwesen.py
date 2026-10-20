@@ -42,6 +42,9 @@ class Mahnung(BaseModel):
     rechnungsbetrag: Decimal
     restbetrag: Decimal
     verzug_ab: date | None = Field(default=None, description="erster Zinstag")
+    verzug_grund: str | None = Field(
+        default=None, description="warum ab da Verzug (§ 286 BGB)"
+    )
     zinsen: Decimal = Decimal("0.00")
     zinsabschnitte: list[Zinsabschnitt] = Field(default_factory=list)
     gebuehren_kumuliert: Decimal = Field(

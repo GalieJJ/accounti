@@ -73,6 +73,17 @@ def test_stufenabstand_seit_der_letzten_mahnung():
     ]
 
 
+def test_naechste_stufe_erst_nach_ablauf_der_frist():
+    """Stufenabstand erreicht, aber die Frist der letzten Mahnung läuft noch."""
+    p = _forderung(mahnstufe=1)
+    letzte = {p.id: date(2026, 9, 6)}
+    frist = {p.id: date(2026, 9, 16)}
+    kw = {"letzte_mahnung": letzte, "frist_bis": frist}
+    assert _stufe(p, date(2026, 9, 15), **kw) == ([], [])
+    assert _stufe(p, date(2026, 9, 16), **kw) == ([], [])
+    assert _stufe(p, date(2026, 9, 17), **kw)[0] == [(2, "1. Mahnung", 16)]
+
+
 def test_karenz_gilt_auch_fuer_fruehe_stufen():
     e = MahnEinstellungen(karenztage=10)
     faellig, _ = ermittle([_forderung()], {KUNDE.id: KUNDE}, date(2026, 9, 8), e)

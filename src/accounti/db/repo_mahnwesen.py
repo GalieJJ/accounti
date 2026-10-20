@@ -38,6 +38,7 @@ _FELDER = (
     "belegdatum",
     "faellig_am",
     "verzug_ab",
+    "verzug_grund",
     "zahlungsfrist",
     "unternehmer",
     "einstufung",

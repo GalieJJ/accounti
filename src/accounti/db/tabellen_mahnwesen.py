@@ -49,6 +49,7 @@ class MahnungRow(Base):
     rechnungsbetrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     restbetrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     verzug_ab: Mapped[date | None] = mapped_column(Date, nullable=True)
+    verzug_grund: Mapped[str | None] = mapped_column(String(300), nullable=True)
     zinsen: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     zinsabschnitte: Mapped[str] = mapped_column(Text)  # JSON
     gebuehren_kumuliert: Mapped[Decimal] = mapped_column(Numeric(14, 2))

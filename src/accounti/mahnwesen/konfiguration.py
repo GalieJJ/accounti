@@ -85,9 +85,27 @@ def _standard_stufen() -> list[MahnStufe]:
 class MahnEinstellungen(BaseModel):
     karenztage: int = Field(default=3, ge=0)
     mindestbetrag: Decimal = Field(default=Decimal("10.00"), ge=0)
-    stufenabstand_tage: int = Field(default=7, ge=0)
+    stufenabstand_tage: int = Field(
+        default=7, ge=0, description="Mindestabstand zum Versand der letzten Mahnung"
+    )
     zahlungsfrist_tage: int = Field(default=10, ge=1)
-    verzug_nach_tagen: int = Field(default=0, ge=0)
+    entwurf_gueltig_tage: int = Field(
+        default=3,
+        ge=0,
+        description="so viele Tage nach dem Mahndatum darf ein Entwurf noch raus",
+    )
+    zahlungsziel_vereinbart: bool = Field(
+        default=False,
+        description="Zahlungsziele vertraglich vereinbart: Verzug ab Fälligkeit "
+        "(§ 286 Abs. 2 Nr. 1 BGB) — ein Ziel nur auf der Rechnung reicht nicht",
+    )
+    zugang_tage: int = Field(
+        default=3, ge=0, description="vom Versand einer Mahnung bis zum Zugang"
+    )
+    hinweis_30_tage: bool = Field(
+        default=False,
+        description="Rechnungen an Verbraucher weisen auf § 286 Abs. 3 BGB hin",
+    )
     unbekannt_als: Literal["verbraucher", "unternehmer"] = "verbraucher"
     pauschale_b2b: Decimal = Field(default=Decimal("40.00"), ge=0)
     pauschale_anrechnen: bool = True
@@ -102,6 +120,9 @@ class MahnEinstellungen(BaseModel):
         tage = [s.ab_tagen for s in self.stufen]
         if any(b <= a for a, b in zip(tage, tage[1:], strict=False)):
             msg = "ab_tagen muss von Stufe zu Stufe steigen"
+            raise ValueError(msg)
+        if self.entwurf_gueltig_tage >= self.zahlungsfrist_tage:
+            msg = "entwurf_gueltig_tage muss kleiner als zahlungsfrist_tage sein"
             raise ValueError(msg)
         self.basiszinstabelle()  # Überschneidungen früh melden
         return self

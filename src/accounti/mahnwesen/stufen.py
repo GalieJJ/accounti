@@ -2,8 +2,9 @@
 
 Eine Forderung ist mahnfähig, wenn sie mehr als ``karenztage`` überfällig ist. Ihre
 nächste Stufe ist die nach der aktuellen Mahnstufe am Posten — keine wird
-übersprungen. Sie greift, wenn die Tage seit Fälligkeit ihr ``ab_tagen`` erreichen und
-seit der letzten versendeten Mahnung mindestens ``stufenabstand_tage`` vergangen sind.
+übersprungen. Sie greift, wenn die Tage seit Fälligkeit ihr ``ab_tagen`` erreichen,
+seit dem Versand der letzten Mahnung mindestens ``stufenabstand_tage`` vergangen sind
+und die Zahlungsfrist, die diese Mahnung gesetzt hat, abgelaufen ist.
 """
 
 from __future__ import annotations
@@ -71,6 +72,7 @@ def ermittle(
     e: MahnEinstellungen,
     *,
     letzte_mahnung: Mapping[UUID, date] | None = None,
+    frist_bis: Mapping[UUID, date] | None = None,
     offene_entwuerfe: Mapping[UUID, int] | None = None,
     zahlung_vorgeschlagen: set[UUID] | None = None,
     mahnkontakte: Mapping[UUID, MahnKontakt] | None = None,
@@ -105,6 +107,9 @@ def ermittle(
             continue
         if letzte is not None and (stichtag - letzte).days < e.stufenabstand_tage:
             continue
+        frist = (frist_bis or {}).get(p.id)
+        if frist is not None and stichtag <= frist:
+            continue  # die Frist der letzten Mahnung läuft noch
         faellig.append(FaelligeStufe(p, k, nr, stufe, tage))
     faellig.sort(key=lambda f: (f.posten.faellig_am, f.posten.belegnummer or ""))
     return faellig, ausnahmen

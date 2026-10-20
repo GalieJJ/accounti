@@ -35,6 +35,10 @@ TEXT_MAHNUNG = (
     "Gesamtbetrag von {summe} € einschließlich der unten berechneten Verzugszinsen "
     "und Kosten bis zum {frist}."
 )
+TEXT_OHNE_VERZUG = (
+    "unsere Rechnung {nummer} vom {datum} ist trotz Fälligkeit am {faellig} noch "
+    "offen. Bitte überweisen Sie den Gesamtbetrag von {summe} € bis zum {frist}."
+)
 TEXT_LETZTE = (
     "trotz unserer bisherigen Mahnungen ist unsere Rechnung {nummer} vom {datum} "
     "noch offen; Sie befinden sich mit der Zahlung in Verzug. Dies ist unsere letzte "
@@ -48,12 +52,18 @@ def _prozent(wert: Decimal) -> str:
     return f"{wert:.2f}".replace(".", ",")
 
 
+def im_verzug(m: Mahnung) -> bool:
+    return m.verzug_ab is not None and m.verzug_ab <= m.datum
+
+
 def brieftext(m: Mahnung, kontakt: Kontakt, firma: Firma, e: MahnEinstellungen) -> str:
     stufe = e.stufen[m.stufe - 1]
     if stufe.text:
         vorlage = stufe.text
     elif not stufe.verzugszinsen:
         vorlage = TEXT_ERINNERUNG
+    elif not im_verzug(m):
+        vorlage = TEXT_OHNE_VERZUG  # nichts behaupten, was (noch) nicht gilt
     elif m.stufe == len(e.stufen):
         vorlage = TEXT_LETZTE
     else:
@@ -100,6 +110,10 @@ def aufstellung(m: Mahnung) -> list[tuple[str, str | None]]:
             )
         )
     zeilen.append(("Offener Rechnungsbetrag", f"{betrag_de(m.restbetrag)} €"))
+    if im_verzug(m) and m.verzug_ab is not None and m.verzug_grund:
+        zeilen.append(
+            (f"In Verzug seit {datum_de(m.verzug_ab)}: {m.verzug_grund}", None)
+        )
     for a in m.zinsabschnitte:
         text, hinweis = _zinszeilen(a, m.unternehmer)
         zeilen += [(text, f"{betrag_de(a.zinsen)} €"), (hinweis, None)]

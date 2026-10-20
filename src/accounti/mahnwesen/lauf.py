@@ -5,10 +5,20 @@ nach § 288 BGB, der 40-€-Pauschale bei Unternehmern (§ 288 Abs. 5, mit Anrec
 der Mahngebühren nach Satz 3) und den Gebühren der Stufen. Erst das Versenden zählt
 die Mahnstufe am offenen Posten hoch; versendete Mahnungen sind die Historie.
 
+Verzug (§ 286 BGB) beginnt am frühesten dieser Tage — Zinsen und Pauschale gibt es
+erst ab da: am Tag nach Fälligkeit nur bei vertraglich vereinbartem Zahlungsziel
+(Abs. 2 Nr. 1, ``mahnwesen.zahlungsziel_vereinbart``); durch die erste versendete
+Mahnung (Abs. 1) ab dem Tag nach ihrem Zugang (Versand + ``zugang_tage``), bei einer
+darin gesetzten Zahlungsfrist erst nach deren Ablauf; 30 Tage nach Fälligkeit und
+Zugang der Rechnung (Abs. 3), bei Verbrauchern nur mit Hinweis auf der Rechnung
+(``hinweis_30_tage``).
+
 B2B oder B2C entscheidet in dieser Reihenfolge: Einstufung am Kontakt
-(``accounti mahnwesen kunde``) → Ausgangsrechnung aus accounti → USt-IdNr. im
-Stammsatz → ``mahnwesen.unbekannt_als`` (Standard: Verbraucher — lieber zu wenig
-Zinsen verlangen als eine unberechtigte Forderung stellen).
+(``accounti mahnwesen kunde``) → Ausgangsrechnung aus accounti (Privatkunde,
+USt-IdNr. oder Leitweg-ID des Empfängers) → USt-IdNr. im Stammsatz →
+``mahnwesen.unbekannt_als`` (Standard: Verbraucher — lieber zu wenig Zinsen verlangen
+als eine unberechtigte Forderung stellen). Dass eine Rechnung *nicht* als privat
+markiert ist, beweist nichts: Das ist ihr Standard.
 """
 
 from __future__ import annotations
@@ -21,6 +31,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from accounti.anzeige import datum_de
 from accounti.db.repo_mahnwesen import (
     lade_mahnkontakte,
     lade_mahnung,
@@ -80,8 +91,16 @@ def einstufung(
             f"als {art} eingestuft (accounti mahnwesen kunde)",
         )
     if rechnung is not None:
-        art = "Privatkunde" if rechnung.kunde.privat else "Unternehmer"
-        return not rechnung.kunde.privat, f"Ausgangsrechnung {rechnung.nummer}: {art}"
+        kunde, nummer = rechnung.kunde, rechnung.nummer
+        if kunde.privat:
+            return False, f"Ausgangsrechnung {nummer}: Privatkunde"
+        if kunde.ust_id:
+            return True, f"Ausgangsrechnung {nummer}: USt-IdNr. {kunde.ust_id}"
+        if kunde.leitweg_id:
+            return (
+                True,
+                f"Ausgangsrechnung {nummer}: öffentlicher Auftraggeber (Leitweg-ID)",
+            )
     if kontakt.ust_id:
         return True, f"USt-IdNr. {kontakt.ust_id} im Stammsatz"
     if e.unbekannt_als == "unternehmer":
@@ -90,6 +109,60 @@ def einstufung(
             "keine Angabe — als Unternehmer behandelt (mahnwesen.unbekannt_als)",
         )
     return False, "keine Angabe — als Verbraucher behandelt (mahnwesen.unbekannt_als)"
+
+
+@dataclass(frozen=True)
+class ErsteMahnung:
+    """Die erste versendete Mahnung eines Postens — sie begründet den Verzug."""
+
+    stufe_name: str
+    versendet: date
+    zahlungsfrist: date
+
+
+def verzugsbeginn(
+    p: OffenerPosten,
+    e: MahnEinstellungen,
+    unternehmer: bool,
+    erste_mahnung: ErsteMahnung | None,
+) -> tuple[date | None, str]:
+    """(Erster Zinstag, Grund) nach § 286 BGB — oder ``None``, wenn kein Verzug."""
+    kandidaten: list[tuple[date, str]] = []
+    if e.zahlungsziel_vereinbart:
+        kandidaten.append(
+            (
+                p.faellig_am + timedelta(days=1),
+                f"Zahlungsziel {datum_de(p.faellig_am)} vereinbart "
+                "(§ 286 Abs. 2 Nr. 1 BGB)",
+            )
+        )
+    if erste_mahnung is not None and erste_mahnung.versendet > p.faellig_am:
+        zugang = erste_mahnung.versendet + timedelta(days=e.zugang_tage)
+        name = erste_mahnung.stufe_name
+        vom = datum_de(erste_mahnung.versendet)
+        if erste_mahnung.zahlungsfrist >= zugang:
+            ende = erste_mahnung.zahlungsfrist
+            grund = f"{name} vom {vom}, Frist bis {datum_de(ende)} (§ 286 Abs. 1 BGB)"
+        else:
+            ende = zugang
+            grund = (
+                f"{name} vom {vom}, Zugang angenommen {datum_de(zugang)} "
+                "(§ 286 Abs. 1 BGB)"
+            )
+        kandidaten.append((ende + timedelta(days=1), grund))
+    if unternehmer or e.hinweis_30_tage:
+        rechnung_da = p.belegdatum + timedelta(days=e.zugang_tage)
+        kandidaten.append(
+            (
+                max(p.faellig_am, rechnung_da) + timedelta(days=31),
+                "30 Tage nach Fälligkeit und Zugang der Rechnung (§ 286 Abs. 3 BGB)",
+            )
+        )
+    if not kandidaten:
+        return None, (
+            "kein Verzug: weder Zahlungsziel vereinbart noch Mahnung zugegangen"
+        )
+    return min(kandidaten)
 
 
 def berechne(
@@ -101,17 +174,20 @@ def berechne(
     grund: str,
     zahlungen: Sequence[tuple[date, Decimal]] = (),
     saetze: Sequence[Basiszins] | None = None,
+    erste_mahnung: ErsteMahnung | None = None,
 ) -> Mahnung:
     """Beträge einer Mahnung — ohne Datenbank."""
     stufe = e.stufen[stufe_nr - 1]
     abschnitte = []
-    verzug_ab = None
+    verzug_ab: date | None = None
+    verzug_grund: str | None = None
     if stufe.verzugszinsen:
-        verzug_ab = p.faellig_am + timedelta(days=1 + e.verzug_nach_tagen)
+        verzug_ab, verzug_grund = verzugsbeginn(p, e, unternehmer, erste_mahnung)
+    im_verzug = verzug_ab is not None and verzug_ab <= stichtag
+    if im_verzug and verzug_ab is not None:
         abschnitte = verzugszinsen(
             p.restbetrag, zahlungen, verzug_ab, stichtag, unternehmer, saetze
         )
-    im_verzug = verzug_ab is not None and verzug_ab <= stichtag
     pauschale = e.pauschale_b2b if unternehmer and im_verzug else NULL
     kumuliert = sum((s.gebuehr for s in e.stufen[:stufe_nr]), NULL)
     gebuehren = kumuliert
@@ -130,6 +206,7 @@ def berechne(
         rechnungsbetrag=p.betrag,
         restbetrag=p.restbetrag,
         verzug_ab=verzug_ab,
+        verzug_grund=verzug_grund,
         zinsen=zinsen,
         zinsabschnitte=abschnitte,
         gebuehren_kumuliert=kumuliert,
@@ -154,6 +231,17 @@ def zahlungen_auf(session: Session, posten_id: UUID) -> list[tuple[date, Decimal
     return ergebnis
 
 
+def _versandtag(m: Mahnung) -> date:
+    return (m.versendet_am or datetime.combine(m.datum, datetime.min.time())).date()
+
+
+def _zahlung_vorgeschlagen(session: Session) -> set[UUID]:
+    return {
+        z.posten_id
+        for z in lade_zuordnungen(session, status={ZuordnungStatus.VORGESCHLAGEN})
+    }
+
+
 def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf:
     """Legt für jede fällige Stufe eine Mahnung als Entwurf an."""
     lauf = Mahnlauf(stichtag)
@@ -164,23 +252,31 @@ def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf
     )
     kontakte = {k.id: k for k in lade_kontakte(session)}
     mahnkontakte = lade_mahnkontakte(session)
-    letzte: dict[UUID, date] = {}
+    versendet: dict[UUID, list[Mahnung]] = {}
     entwuerfe: dict[UUID, int] = {}
     for m in lade_mahnungen(session):
-        if m.status is MahnungStatus.VERSENDET:
-            letzte[m.posten_id] = max(m.datum, letzte.get(m.posten_id, m.datum))
+        if m.status is MahnungStatus.VERSENDET and m.versendet_am is not None:
+            versendet.setdefault(m.posten_id, []).append(m)
         elif m.status is MahnungStatus.ENTWURF:
             entwuerfe[m.posten_id] = m.nr
-    vorgeschlagen = {
-        z.posten_id
-        for z in lade_zuordnungen(session, status={ZuordnungStatus.VORGESCHLAGEN})
-    }
+    letzte: dict[UUID, date] = {}  # Versandtag der letzten Mahnung
+    frist: dict[UUID, date] = {}  # die Frist, die sie gesetzt hat
+    erste: dict[UUID, ErsteMahnung] = {}
+    for posten_id, liste in versendet.items():
+        liste.sort(key=lambda m: (_versandtag(m), m.stufe))
+        letzte[posten_id] = _versandtag(liste[-1])
+        frist[posten_id] = max(m.zahlungsfrist for m in liste)
+        erste[posten_id] = ErsteMahnung(
+            liste[0].stufe_name, _versandtag(liste[0]), liste[0].zahlungsfrist
+        )
+    vorgeschlagen = _zahlung_vorgeschlagen(session)
     faellig, lauf.ausnahmen = ermittle(
         posten,
         kontakte,
         stichtag,
         e,
         letzte_mahnung=letzte,
+        frist_bis=frist,
         offene_entwuerfe=entwuerfe,
         zahlung_vorgeschlagen=vorgeschlagen,
         mahnkontakte=mahnkontakte,
@@ -204,6 +300,7 @@ def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf
                 grund,
                 zahlungen_auf(session, f.posten.id),
                 saetze,
+                erste.get(f.posten.id),
             )
         except BasiszinsUnbekanntError as fehler:
             lauf.ausnahmen.append(Ausnahme(f.posten, f.kontakt, str(fehler)))
@@ -228,8 +325,14 @@ def _entwurf(session: Session, nr: int) -> Mahnung:
     return m
 
 
-def pruefe_versendbar(session: Session, nr: int) -> Mahnung:
-    """Der Entwurf, wenn er so noch stimmt — sonst ``MahnError`` mit Grund."""
+def pruefe_versendbar(
+    session: Session, nr: int, e: MahnEinstellungen, am: date
+) -> Mahnung:
+    """Der Entwurf, wenn er am Versandtag ``am`` so noch stimmt — sonst ``MahnError``.
+
+    Seit dem Lauf kann der Kunde gezahlt haben, eine Mahnsperre bekommen haben oder
+    der Entwurf so alt sein, dass Datum, Zinsen und Frist im Brief nicht mehr passen.
+    """
     m = _entwurf(session, nr)
     p = lade_einen_posten(session, m.posten_id)
     if p.status is PostenStatus.AUSGEGLICHEN or p.restbetrag <= 0:
@@ -244,6 +347,29 @@ def pruefe_versendbar(session: Session, nr: int) -> Mahnung:
     if p.mahnstufe >= m.stufe:
         msg = f"Posten {p.belegnummer} hat schon Mahnstufe {p.mahnstufe}"
         raise MahnError(msg)
+    mahnkontakt = lade_mahnkontakte(session).get(m.kontakt_id)
+    if mahnkontakt is not None and mahnkontakt.mahnsperre:
+        msg = (
+            f"Mahnsperre: {mahnkontakt.sperrgrund or 'ohne Grund'} — Mahnung "
+            f"{nr} nicht versenden (verwerfen oder Sperre aufheben)"
+        )
+        raise MahnError(msg)
+    if m.posten_id in _zahlung_vorgeschlagen(session):
+        msg = (
+            f"Zahlung vorgeschlagen für {p.belegnummer} — erst 'accounti opos "
+            "bestaetigen' oder 'accounti opos ablehnen'"
+        )
+        raise MahnError(msg)
+    if am < m.datum:
+        msg = f"Mahnung {nr} ist auf den {datum_de(m.datum)} datiert — frühestens dann"
+        raise MahnError(msg)
+    if (am - m.datum).days > e.entwurf_gueltig_tage or m.zahlungsfrist <= am:
+        msg = (
+            f"Mahnung {nr} vom {datum_de(m.datum)} ist veraltet (mehr als "
+            f"{e.entwurf_gueltig_tage} Tage alt, mahnwesen.entwurf_gueltig_tage) — "
+            "verwerfen und den Mahnlauf wiederholen"
+        )
+        raise MahnError(msg)
     return m
 
 
@@ -251,16 +377,18 @@ def versende(
     session: Session,
     nr: int,
     weg: str,
+    e: MahnEinstellungen,
     datei_hash: str | None = None,
     zeitpunkt: datetime | None = None,
 ) -> Mahnung:
     """Markiert die Mahnung als versendet und zählt die Mahnstufe am Posten hoch."""
-    pruefe_versendbar(session, nr)
+    zeitpunkt = zeitpunkt or datetime.now().replace(microsecond=0)
+    pruefe_versendbar(session, nr, e, zeitpunkt.date())
     m = setze_mahnung_status(
         session,
         nr,
         MahnungStatus.VERSENDET,
-        versendet_am=zeitpunkt or datetime.now().replace(microsecond=0),
+        versendet_am=zeitpunkt,
         versand_weg=weg,
         datei_hash=datei_hash,
     )

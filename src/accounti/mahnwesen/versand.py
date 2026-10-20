@@ -1,10 +1,11 @@
 """Mahnungen versenden: als PDF- und/oder Textdatei und per E-Mail.
 
 Das PDF entsteht einmal, geht unverändert in alle Kanäle und ins Belegarchiv
-(Handelsbrief, § 257 HGB). Erst wenn alles geklappt hat, gilt die Mahnung als
-versendet und die Mahnstufe am Posten zählt hoch — eine gescheiterte E-Mail ändert
-nichts. Für E-Mails wird der SMTP-Versandweg der E-Rechnung genutzt (Abschnitt
-``versand``).
+(Handelsbrief, § 257 HGB). Reihenfolge: erst alles Lokale (Dateien, Archiv), dann
+die E-Mail als einziger Schritt, der sich nicht zurückholen lässt, direkt danach der
+Status. Scheitert etwas Lokales, ist keine E-Mail hinausgegangen; scheitert die
+E-Mail, bleibt die Mahnung ein Entwurf und die Mahnstufe unverändert. Für E-Mails
+wird der SMTP-Versandweg der E-Rechnung genutzt (Abschnitt ``versand``).
 """
 
 from __future__ import annotations
@@ -73,28 +74,33 @@ def versende_mahnung(
         msg = "Wohin? Mindestens --pdf, --text oder --email angeben."
         raise MahnError(msg)
     jetzt = jetzt or datetime.now().replace(microsecond=0)
-    m = pruefe_versendbar(session, nr)
+    m = pruefe_versendbar(session, nr, e, jetzt.date())
     kontakt = lade_kontakt(session, str(m.kontakt_id))
     text = mahntext(m, kontakt, firma, e)
     pdf = mahn_pdf(m, kontakt, firma, e, jetzt)
-    wege = []
+    an = None
     if auftrag.weg is not None:
         an = auftrag.an or kontakt.email
         if not an:
             msg = f"{kontakt.name} hat keine E-Mail-Adresse — mit --an angeben"
             raise MahnError(msg)
+    wege = []
+    try:
+        if auftrag.pdf is not None:
+            auftrag.pdf.write_bytes(pdf)
+            wege.append("pdf")
+        if auftrag.text is not None:
+            auftrag.text.write_text(text, encoding="utf-8")
+            wege.append("text")
+        datei_hash = archiv.ablegen(pdf, ".pdf") if archiv is not None else None
+    except OSError as fehler:
+        msg = f"Mahnschreiben {nr} nicht geschrieben: {fehler} — nichts versendet"
+        raise MahnError(msg) from fehler
+    if auftrag.weg is not None and an is not None:
         try:
             auftrag.weg.sende(_nachricht(m, text, pdf, auftrag, an, jetzt))
         except (smtplib.SMTPException, OSError) as fehler:
             msg = f"E-Mail an {an} gescheitert: {fehler}"
             raise MahnError(msg) from fehler
-    if auftrag.pdf is not None:
-        auftrag.pdf.write_bytes(pdf)
-        wege.append("pdf")
-    if auftrag.text is not None:
-        auftrag.text.write_text(text, encoding="utf-8")
-        wege.append("text")
-    if auftrag.weg is not None:
         wege.append(auftrag.weg.name)
-    datei_hash = archiv.ablegen(pdf, ".pdf") if archiv is not None else None
-    return versende(session, nr, ", ".join(wege), datei_hash, jetzt)
+    return versende(session, nr, ", ".join(wege), e, datei_hash, jetzt)

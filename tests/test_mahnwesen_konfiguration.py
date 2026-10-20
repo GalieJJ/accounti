@@ -17,7 +17,9 @@ def test_standards_wie_im_spec_beispiel(tmp_path):
     ]
     assert e.mindestbetrag == Decimal("10.00") and e.karenztage == 3
     assert e.stufenabstand_tage == 7 and e.zahlungsfrist_tage == 10
-    assert e.verzug_nach_tagen == 0 and e.unbekannt_als == "verbraucher"
+    assert e.zahlungsziel_vereinbart is False and e.hinweis_30_tage is False
+    assert e.zugang_tage == 3 and e.entwurf_gueltig_tage == 3
+    assert e.unbekannt_als == "verbraucher"
     assert e.pauschale_b2b == Decimal("40.00") and e.pauschale_anrechnen is True
     assert basiszins_am(date(2026, 7, 1), e.basiszinstabelle()).satz == Decimal("1.52")
 
@@ -55,10 +57,19 @@ def test_eigene_stufen_und_basiszinssaetze(tmp_path):
         ("stufen: [{name: A, ab_tagen: 5, text: 'Hallo {kunde_xy}'}]", "kunde_xy"),
         ("basiszinssaetze: [{ab: 2027-02-01, satz: 1}]", "1. Januar und 1. Juli"),
         ("unbekannt_als: jemand", "unbekannt_als"),
+        (
+            "{zahlungsfrist_tage: 3, entwurf_gueltig_tage: 3}",
+            "entwurf_gueltig_tage muss kleiner als zahlungsfrist_tage sein",
+        ),
     ],
 )
 def test_fehler_mit_klarer_meldung(tmp_path, abschnitt, meldung):
     pfad = tmp_path / "a.yaml"
-    pfad.write_text(f"mahnwesen:\n  {abschnitt}\n", encoding="utf-8")
+    inhalt = (
+        f"mahnwesen: {abschnitt}\n"
+        if abschnitt.startswith("{")
+        else (f"mahnwesen:\n  {abschnitt}\n")
+    )
+    pfad.write_text(inhalt, encoding="utf-8")
     with pytest.raises(KonfigurationError, match=meldung):
         lade_mahnwesen(pfad)

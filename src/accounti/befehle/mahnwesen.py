@@ -132,6 +132,9 @@ def lauf(
         _zeile(_kurz(m, namen.get(m.kontakt_id, "?")))
         art = "Unternehmer" if m.unternehmer else "Verbraucher"
         _zeile(f"     [dim]{art}: {escape(m.einstufung)}[/dim]")
+        if m.verzug_grund:
+            ab = f" ab {datum_de(m.verzug_ab)}" if m.verzug_ab else ""
+            _zeile(f"     [dim]Verzug{ab}: {escape(m.verzug_grund)}[/dim]")
     if ergebnis.ausnahmen:
         _zeile("[yellow]Nicht gemahnt:[/yellow]")
         for a in ergebnis.ausnahmen:
@@ -214,11 +217,18 @@ def versenden(
     an: str | None = typer.Option(
         None, "--an", help="E-Mail-Empfänger (sonst Kontakt)"
     ),
+    am: str | None = typer.Option(
+        None,
+        "--am",
+        help="Versandtag JJJJ-MM-TT (heute), z.B. wenn der Brief gestern zur Post ging",
+    ),
     archiv: str = ARCHIV_OPTION,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Mahnung versenden — erst dann zählt die Mahnstufe am Posten hoch."""
+    from datetime import datetime
+
     from accounti.belege.archiv import BelegArchiv
     from accounti.erechnung.versand import SmtpVersand, lade_versand
     from accounti.konfiguration import KonfigurationError
@@ -226,6 +236,17 @@ def versenden(
     from accounti.mahnwesen.versand import Versandauftrag, versende_mahnung
 
     e = _einstellungen(config)
+    jetzt = datetime.now().replace(microsecond=0)
+    if am is not None:
+        try:
+            tag = date.fromisoformat(am)
+        except ValueError as fehler:
+            raise _fehler("--am: Datum im Format JJJJ-MM-TT erwartet") from fehler
+        if tag > jetzt.date():
+            raise _fehler(f"--am: {am} liegt in der Zukunft")
+        if email and tag != jetzt.date():
+            raise _fehler("--am: E-Mails gehen heute hinaus — --am nur für Briefe")
+        jetzt = datetime.combine(tag, jetzt.time())
     auftrag = Versandauftrag(pdf=pdf, text=text, an=an)
     if email:
         try:
@@ -241,7 +262,9 @@ def versenden(
     with _sitzung(db) as s:
         _mahnung(s, nr)
         try:
-            m = versende_mahnung(s, nr, firma, e, auftrag, BelegArchiv(archiv))
+            m = versende_mahnung(
+                s, nr, firma, e, auftrag, BelegArchiv(archiv), jetzt=jetzt
+            )
         except MahnError as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()
