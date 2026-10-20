@@ -64,6 +64,7 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 | § 288 Abs. 1 BGB | Verzugszinssatz für das Jahr **5 Prozentpunkte** über dem Basiszinssatz |
 | § 288 Abs. 2 BGB | Rechtsgeschäfte ohne Verbraucher, Entgeltforderungen: **9 Prozentpunkte** |
 | § 288 Abs. 5 BGB | Schuldner kein Verbraucher: **Pauschale 40 €**; sie ist auf einen Schadensersatz für Kosten der Rechtsverfolgung **anzurechnen** (Satz 3) — Mahngebühren werden also nur verlangt, soweit sie 40 € übersteigen |
+| §§ 280 Abs. 1, 2, 286 BGB | Mahnkosten ersetzt der Schuldner nur als **Verzugsschaden** — also nur für Mahnungen, die hinausgehen, wenn er schon in Verzug ist. Die Mahnung, die den Verzug erst begründet (§ 286 Abs. 1), liegt davor und ist nicht erstattungsfähig |
 | § 286 BGB | Verzug durch Mahnung nach Fälligkeit (eine Mahnung vor Fälligkeit ist unwirksam), ohne Mahnung bei kalendermäßig bestimmter Zeit (Abs. 2 Nr. 1 — die Zeit muss vereinbart sein; ein einseitig auf der Rechnung gesetztes Zahlungsziel genügt nicht, BGH III ZR 91/07), spätestens 30 Tage nach Fälligkeit und Zugang der Rechnung (Abs. 3; bei Verbrauchern nur mit Hinweis in der Rechnung). IHK-Merkblätter („Mahnung und Verzug“, z.B. IHK Bonn): eine Frist in der Mahnung ist nicht nötig; ob eine gesetzte Frist den Verzug hinausschiebt, ließ sich nicht verbindlich klären |
 | § 247 BGB | Basiszinssatz ändert sich zum 1. Januar und 1. Juli; die Bundesbank gibt ihn im Bundesanzeiger bekannt |
 | Quelle Gesetzestexte | [gesetze-im-internet.de §§ 247, 286, 288 BGB](https://www.gesetze-im-internet.de/bgb/__288.html), abgerufen 20.10.2026 |
@@ -99,11 +100,11 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 | Konfiguration | Abschnitte `zahlung` und `mahnwesen` in `config/accounti.yaml` mit eigenen Ladern (`accounti.zahlung.konfiguration.lade_zahlung`, `accounti.mahnwesen.konfiguration.lade_mahnwesen`); ohne Abschnitt gelten Standards | Projektregel; die Spec nannte `config/mahnwesen.yaml` |
 | Befehlsgruppen | `accounti zahlung …` und `accounti mahnwesen …` | Bereichsname; die Spec schrieb `accounti mahnen …` |
 | Basiszinssatz | Tabelle mit **ab/bis** je Halbjahr in `mahnwesen/basiszins.py` (Bundesbank, Stand 20.10.2026), letzter Zeitraum bis 31.12.2026; neue Sätze per `mahnwesen.basiszinssaetze` (`ab`, `satz`, optional `bis`) ergänzbar, sie gehen vor. Zinstage ohne bekannten Satz → `BasiszinsUnbekanntError` mit Hinweis, statt still mit dem alten Satz zu rechnen | halbjährliche Änderung; alte Zeiträume bleiben rechenbar |
-| Verzugsbeginn | erster Zinstag = frühester von: (a) Tag nach Fälligkeit, nur mit `mahnwesen.zahlungsziel_vereinbart: true` (§ 286 Abs. 2 Nr. 1 — ein Zahlungsziel nur auf der Rechnung reicht nicht, BGH III ZR 91/07); (b) erste **versendete** Mahnung nach Fälligkeit (§ 286 Abs. 1): Tag nach dem Zugang (Versand + `zugang_tage`, Standard 3), setzt sie eine Zahlungsfrist, erst Tag nach deren Ablauf; (c) 31. Tag nach Fälligkeit bzw. Zugang der Rechnung (Belegdatum + `zugang_tage`) (§ 286 Abs. 3) — bei Verbrauchern nur mit `hinweis_30_tage: true`. Kein Kandidat → kein Verzug: keine Zinsen, keine Pauschale, und der Brief behauptet keinen Verzug. Der Grund steht in der Mahnung („In Verzug seit …: …“) | Runde 1, Befund 2. Ob eine in der Mahnung gesetzte Frist den Verzug hinausschiebt, ist nicht eindeutig (IHK-Merkblätter: Frist nicht nötig) — accounti rechnet konservativ erst ab Fristablauf |
+| Verzugsbeginn | erster Zinstag = frühester von: (a) Tag nach Fälligkeit, nur mit `mahnwesen.zahlungsziel_vereinbart: true` (§ 286 Abs. 2 Nr. 1 — ein Zahlungsziel nur auf der Rechnung reicht nicht, BGH III ZR 91/07); (b) erste **versendete** Mahnung nach Fälligkeit (§ 286 Abs. 1): Tag nach dem Zugang (Versand + `zugang_tage`, Standard 3), setzt sie eine Zahlungsfrist, erst Tag nach deren Ablauf; (c) 31. Tag nach Fälligkeit bzw. Zugang der Rechnung (Belegdatum + `zugang_tage`) (§ 286 Abs. 3) — bei Verbrauchern nur mit `hinweis_30_tage: true`. Kein Kandidat → kein Verzug: keine Zinsen, keine Pauschale, keine Gebühren, und der Brief behauptet keinen Verzug. Der Grund steht in der Mahnung („In Verzug seit …: …“) | Runde 1, Befund 2. Ob eine in der Mahnung gesetzte Frist den Verzug hinausschiebt, ist nicht eindeutig (IHK-Merkblätter: Frist nicht nötig) — accounti rechnet konservativ erst ab Fristablauf |
 | Zinsen | ab dem Verzugsbeginn bis einschließlich Mahndatum; Abschnitte an jedem Basiszinswechsel und jeder Zahlung (Kapital = heutiger Rest + später gezahlte Beträge laut Zahlungszuordnung); je Abschnitt `Kapital × Satz × Tage / 365`, kaufmännisch auf Cent gerundet, Summe der Abschnitte | handrechenbar, Teilzahlungen werden zeitanteilig berücksichtigt; act/365 ist die verbreitete Praxis |
 | B2B/B2C | Reihenfolge: Einstufung am Kontakt (`mahnwesen kunde --unternehmer/--verbraucher`) → Ausgangsrechnung aus accounti: `kunde.privat` → Verbraucher, USt-IdNr. oder Leitweg-ID des Empfängers → Unternehmer bzw. öffentlicher Auftraggeber; eine Rechnung **ohne** `privat` sagt nichts (das ist ihr Standard) → USt-IdNr. im Stammsatz → sonst `mahnwesen.unbekannt_als` (Standard `verbraucher`); der Grund steht in der Mahnung | zu hohe Zinsen gegenüber Verbrauchern wären eine unberechtigte Forderung; zu niedrige schaden nicht (Runde 1, Befund 3) |
 | Pauschale | 40 € (`pauschale_b2b`) bei Unternehmern ab der ersten Stufe mit `verzugszinsen: true`, je Posten einmal; Mahngebühren werden nach § 288 Abs. 5 S. 3 angerechnet (`pauschale_anrechnen: true`): verlangt wird `max(0, Gebühren − 40)` zusätzlich | Gesetzeswortlaut |
-| Gebühren | `gebuehr` je Stufe; eine Mahnung verlangt die Summe der Gebühren aller Stufen bis zu ihrer | bisherige Mahngebühren bleiben geschuldet |
+| Gebühren | `gebuehr` je Stufe, **nur im Verzug** (`lauf.gebuehren_im_verzug`): die eigene, wenn am Mahndatum Verzug besteht, plus die der früheren Mahnungen des Postens, deren Versandtag nicht vor dem Verzugsbeginn liegt — die verzugsbegründende Mahnung kostet nichts. Eine Stufe ohne `verzugszinsen`, aber mit Gebühr ermittelt dafür den Verzug (Grund im Schreiben), verlangt aber weder Zinsen noch Pauschale; ihr Standardtext nennt dann den Gesamtbetrag statt nur den Rest | Mahnkosten sind Verzugsschaden (§§ 280 Abs. 2, 286 BGB); im Verzug versendete Mahnungen bleiben geschuldet (Runde 2, Befund 2) |
 | Stufen | eine Stufe je Lauf, keine wird übersprungen: Stufe *n+1* greift, wenn Tage seit Fälligkeit ≥ `ab_tagen` der Stufe **und** > `karenztage` **und** seit dem **Versand** der letzten Mahnung ≥ `stufenabstand_tage` (Standard 7) **und** die Zahlungsfrist dieser Mahnung abgelaufen ist. Rest < `mindestbetrag` → keine Mahnung (Grund). Nach der letzten Stufe: Hinweis, keine weitere | Spec 4.5; „durchläuft die Stufen“; keine 1. Mahnung, solange die Frist der Erinnerung läuft (Runde 1, Befunde 4/11) |
 | Mahnung | je Posten eine Mahnung (Entwurf → versendet / verworfen); beim Versenden: Mahnstufe am Posten hochgezählt (`repo_mahnwesen.setze_mahnstufe`), PDF ins Belegarchiv, Hash und Weg an der Mahnung — die versendeten Mahnungen sind die Historie. Versendet wird nur am Mahndatum oder bis `entwurf_gueltig_tage` (Standard 3, < `zahlungsfrist_tage`) danach, sonst „veraltet — verwerfen und Lauf wiederholen“; `mahnwesen versenden --am` hält den tatsächlichen Versandtag fest (nicht in der Zukunft, bei `--email` nur heute). Reihenfolge: Dateien und Archiv, dann die E-Mail, direkt danach der Status | Spec 4.5 [4]; Entwurf zählt nicht; ein spät versendeter Brief wäre rückdatiert; eine E-Mail lässt sich nicht zurückholen (Runde 1, Befunde 4, 10) |
 | Ausnahmen | Mahnsperre am Kontakt, offener Mahnentwurf, Zahlung vorgeschlagen (`opos vorschlaege`), letzte Stufe erreicht, Mindestbetrag — jeweils mit Grund; Mahnsperre und vorgeschlagene Zahlung werden **beim Versand erneut** geprüft | nicht mahnen, was gerade bezahlt wurde oder inzwischen gesperrt ist (Runde 1, Befund 13) |
@@ -163,6 +164,12 @@ Jede Behebung testgetrieben (Test zeigt den Fehler, dann der Fix).
 - [ ] Befund 16 (Dateiname des Plans) **nicht umgesetzt**: Die Pläne sind fortlaufend je Tag nummeriert (`2026-10-21-…` bis `2026-10-24-…` wurden ebenfalls am 20.10. angelegt); `2026-10-25` setzt diese Reihe fort.
 - [x] `pytest` (775 bestanden, 1 übersprungen), `ruff check`, `ruff format --check`, `mypy` grün.
 
+### Runde 2 — Befunde der Prüfung (20.10.2026)
+
+- [x] **Mahngebühren ohne Verzug** (Befund 2): Gebühren nur für Mahnungen im Verzug, frühere Stufen nur, wenn sie nicht vor dem Verzugsbeginn versendet wurden; Stufen mit Gebühr ermitteln den Verzug auch ohne `verzugszinsen`; der Erinnerungstext nennt bei einer Gebühr den Gesamtbetrag (`test_mahnwesen_lauf.py::test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug` — vorher Gebühr 5,00 als Soll —, `::test_gebuehren_nur_fuer_mahnungen_im_verzug`, `::test_gebuehr_einer_stufe_ohne_zinsen_nur_im_verzug`, `test_mahnwesen_schreiben.py::test_mahnung_ohne_verzug_behauptet_keinen_verzug`, `::test_erinnerung_mit_gebuehr_nennt_den_gesamtbetrag`).
+- [ ] **Annahme der pain.001-Datei durch die Bank** (Befund 1): **nicht vom Reparierer schließbar** — dafür müsste eine Datei mit echten Daten bei einer echten Bank eingereicht werden, was accounti und seinen Agenten untersagt ist. Offen beim Nutzer, siehe „Vor dem Merge“; **bis dahin blockiert das den Merge**.
+- [x] `pytest` (778 bestanden, 1 übersprungen), `ruff check`, `ruff format --check`, `mypy` grün.
+
 ### Akzeptanzkriterien → Tests
 
 | # | Kriterium | Beleg |
@@ -172,7 +179,7 @@ Jede Behebung testgetrieben (Test zeigt den Fehler, dann der Fix).
 | 3 | Posten nie zweimal in einem eingereichten Lauf | `test_zahlung_freigabe.py::test_posten_nie_zweimal_in_einem_aktiven_lauf`, `test_zahlung_pruefung.py::test_doppelter_posten_wird_auch_an_der_sperre_vorbei_erkannt`, `test_zahlung_datei.py::test_datei_macht_den_lauf_eingereicht_und_bleibt_byte_gleich` |
 | 4 | Abweichende IBAN blockiert mit klarer Meldung | `test_zahlung_pruefung.py::test_abweichende_iban_auf_der_rechnung_blockiert_mit_klarer_meldung`, `::test_stammsatz_nach_anlage_geaendert_blockiert`, `test_cli_zahlung.py::test_abweichende_iban_blockiert_mit_klarer_meldung` |
 | 5 | Freigegebener Lauf nur stornierbar, mit Protokoll | `test_zahlung_freigabe.py::test_freigegebener_lauf_nur_stornierbar_mit_protokoll`, `::test_uebergaenge_in_falscher_reihenfolge_werden_abgelehnt`, `test_zahlung_datei.py::test_aenderung_nach_der_freigabe_wird_erkannt` |
-| 6 | Stufen mit korrekten Verzugszinsen und Gebühren | `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_die_stufen_mit_zinsen_pauschale_und_gebuehren`, `::test_b2c_ohne_pauschale_mit_gebuehren`, `::test_verzug_beginnt_mit_dem_zugang_der_erinnerung`, `::test_vereinbartes_zahlungsziel_verzug_ab_faelligkeit`, `::test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug`, `test_mahnwesen_zinsen.py::test_ueber_den_wechsel_des_basiszinssatzes_am_1_juli_2026` — „korrekt“ unter den Annahmen zum Verzugsbeginn (Entscheidungen, Grenzen) |
+| 6 | Stufen mit korrekten Verzugszinsen und Gebühren | `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_die_stufen_mit_zinsen_pauschale_und_gebuehren`, `::test_b2c_ohne_pauschale_mit_gebuehren`, `::test_verzug_beginnt_mit_dem_zugang_der_erinnerung`, `::test_vereinbartes_zahlungsziel_verzug_ab_faelligkeit`, `::test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug`, `::test_gebuehren_nur_fuer_mahnungen_im_verzug`, `::test_gebuehr_einer_stufe_ohne_zinsen_nur_im_verzug`, `test_mahnwesen_zinsen.py::test_ueber_den_wechsel_des_basiszinssatzes_am_1_juli_2026` — „korrekt“ unter den Annahmen zum Verzugsbeginn (Entscheidungen, Grenzen) |
 | 7 | Ohne Live-Bankanbindung bis zur Datei | `test_cli_zahlung.py::test_von_vorschlag_bis_zur_sepa_datei`, `test_cli_mahnwesen.py::test_mahnstufen_bis_zum_versendeten_schreiben` |
 
 ## Vor dem Merge — vom Nutzer zu prüfen (Akzeptanzkriterium 2b)
@@ -191,7 +198,10 @@ nur der Nutzer prüfen:
    ja/nein, Meldungen der Vorprüfung.
 
 Ergebnis: _noch offen_. Ohne diesen Schritt ist Akzeptanzkriterium 2 nur **teilweise erfüllt**
-(schemakonform, Annahme unbelegt) und so abzunehmen.
+(schemakonform, Annahme unbelegt). **Der Merge wartet** auf eines von beiden: das hier
+eingetragene Ergebnis der Bankprobe **oder** die ausdrückliche Abnahme durch den Nutzer, dass
+Akzeptanzkriterium 2 für diesen Baustein auf „schemakonform“ abgeschwächt wird (Runde 2,
+Befund 1 — durch Code nicht zu schließen).
 
 ## Grenzen
 
@@ -277,9 +287,12 @@ Ergebnis: _noch offen_. Ohne diesen Schritt ist Akzeptanzkriterium 2 nur **teilw
   SMTP-Server (Auftrag); er nutzt den bereits erprobten SMTP-Weg der E-Rechnung. Scheitert nach
   einer erfolgreichen E-Mail noch der Commit der Datenbank, bleibt die Mahnung ein Entwurf
   (sehr kleines Fenster, da vorher alles geprüft und geschrieben ist).
-- **Gebühren kumuliert:** Eine Mahnung verlangt die Gebühren aller Stufen bis zu ihrer (Annahme:
-  frühere Mahngebühren bleiben geschuldet). Wer das anders will, setzt die Gebühren je Stufe
-  entsprechend.
+- **Gebühren kumuliert, nur im Verzug:** Eine Mahnung verlangt ihre eigene Gebühr und die der
+  früheren Mahnungen, die im Verzug versendet wurden (Annahme: diese bleiben geschuldet). Der
+  Verzugsbeginn ist dabei der heute ermittelte (Annahmen siehe „Verzugsbeginn“); frühere
+  Gebühren zählen mit dem **heute konfigurierten** Betrag ihrer Stufe, nicht mit dem damals
+  verlangten. Ob die Gebühr der Höhe nach als Schaden durchsetzbar ist (tatsächliche Kosten),
+  prüft accounti nicht — Gebühren sind Konfiguration.
 - **Postgres:** Eindeutiger Index und ORM-Sperren gelten; die Trigger für das Protokoll gibt es wie
   beim USt-IdNr.-Protokoll nur unter SQLite.
 - **Keine Alembic-Migration** (entsteht beim Zusammenführen); neue Tabellen: `zahlungslaeufe`,
@@ -355,7 +368,8 @@ accounti mahnwesen historie 10001                      # versendete Mahnungen ei
   § 288 BGB ab dem Verzugsbeginn nach § 286 BGB (Mahnung, vereinbartes Zahlungsziel oder
   30-Tage-Regel, mit Grund im Schreiben) (Basiszinssatz-Tabelle
   der Bundesbank mit Gültigkeitszeiträumen, Teilzahlungen zeitanteilig), 40-€-Pauschale bei
-  Unternehmern mit Anrechnung der Mahngebühren; Mahnschreiben als PDF, Text oder E-Mail
+  Unternehmern mit Anrechnung der Mahngebühren, Mahngebühren nur für Mahnungen im Verzug;
+  Mahnschreiben als PDF, Text oder E-Mail
   (`mahnwesen versenden`), Mahnstufe am offenen Posten, Historie (`mahnwesen historie`),
   B2B/B2C-Einstufung (`mahnwesen kunde`). Neue, optionale Abschnitte `zahlung` und `mahnwesen`
 
@@ -409,7 +423,7 @@ den Verzugsbeginn nach § 286 BGB (erste versendete Mahnung, vereinbartes Zahlun
 30-Tage-Regel) und rechnet ab da Verzugszinsen nach § 288 BGB taggenau (act/365)
 mit der Basiszinssatz-Tabelle aus `mahnwesen/basiszins.py` — jeder Satz mit Gültigkeitszeitraum,
 Teilzahlungen aus den Zahlungszuordnungen zeitanteilig, die 40-€-Pauschale mit Anrechnung der
-Mahngebühren. Mahnungen sind Entwürfe, bis sie versendet werden (PDF mit fpdf2, Text oder E-Mail
+Mahngebühren; Gebühren verlangt eine Mahnung nur für Mahnungen im Verzug. Mahnungen sind Entwürfe, bis sie versendet werden (PDF mit fpdf2, Text oder E-Mail
 über den Versandweg aus `erechnung/versand.py`); dann zählt die Mahnstufe am offenen Posten hoch,
 das PDF liegt im Belegarchiv, und die versendeten Mahnungen sind die Historie.
 ```
@@ -460,7 +474,7 @@ mahnwesen:
       verzugszinsen: false
     - name: 1. Mahnung
       ab_tagen: 14
-      gebuehr: 5.00
+      gebuehr: 5.00              # nur verlangt, wenn die Mahnung im Verzug hinausgeht
       verzugszinsen: true
     - name: 2. Mahnung
       ab_tagen: 28
