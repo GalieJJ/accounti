@@ -22,10 +22,10 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
+from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.db.repository import lade_ausgangsrechnung, speichere_versandprotokoll
 from accounti.erechnung import lies
-from accounti.erechnung.erzeuger.zugferd import betrag_de
 from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError
 from accounti.models import Ausgangsrechnung, AusgangsrechnungStatus, Versandprotokoll
 

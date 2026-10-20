@@ -78,8 +78,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Belegabgleich** | Beleg ↔ Kontoumsatz automatisch zusammenführen, bevor kontiert wird |
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
-| 🔲 | **Kreditoren & Debitoren** | Personenkonten, Stammdaten, USt-IdNr.-Prüfung mit Protokoll |
-| 🔲 | **Offene Posten** | OPOS-Liste, Fälligkeitsstaffel, automatische Zahlungszuordnung, Teilzahlung, Skonto |
+| 🟨 | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung; USt-IdNr.-Prüfung mit Protokoll folgt |
+| 🟨 | **Offene Posten** | Beleg → Buchung auf Personenkonto + offener Posten mit Fälligkeit und Skontofrist, OPOS-Liste, Fälligkeitsstaffel; Zahlungszuordnung, Teilzahlung, Skonto folgen |
 | 🔲 | **Zahlungsverkehr** | Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe-Workflow |
 | 🔲 | **Mahnwesen** | Mehrstufig, mit Verzugszinsen und Mahngebühren |
 | ✅ | **Lernschleife** | Korrekturen werden zu Regeln — das System fragt mit der Zeit seltener |
@@ -195,6 +195,21 @@ accounti rechnung zeigen <ID>
 accounti rechnung ausstellen <ID>     # Nummer, XRechnung + ZUGFeRD-PDF, Prüfung → rechnungen/
 accounti rechnung senden RE-2026-0001 # per E-Mail (Abschnitt 'versand'), mit Versandprotokoll
 ```
+
+### Offene Posten
+
+```bash
+# Erfasste Rechnungen auf Kreditor/Debitor buchen und offene Posten anlegen
+accounti opos verbuchen
+accounti kontakte liste --status pruefung     # automatisch angelegte Lieferanten prüfen
+accounti kontakte bestaetigen 70000
+accounti kontakte bearbeiten 70000 --sachkonto 4930 --zahlungsziel 30
+accounti opos liste --richtung eingang --faellig
+accounti opos staffel
+```
+
+> Bis die Zahlungszuordnung (Baustein 4, Paket 2) steht: Bankzahlungen zu verbuchten Rechnungen
+> nicht zusätzlich mit `accounti classify` kontieren — sonst entsteht der Aufwand doppelt.
 
 ---
 
@@ -439,8 +454,10 @@ kontieren will, braucht nur v0.1.
 - [x] E-Rechnung: ZUGFeRD-PDF (PDF/A-3b) und Versand per E-Mail
 
 ### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*
-- [ ] Debitoren/Kreditoren-Stammdaten, USt-IdNr.-Prüfung mit Protokoll
-- [ ] Offene Posten, Fälligkeitsstaffel, Zahlungszuordnung, Skonto, Teilzahlung
+- [x] Debitoren/Kreditoren-Stammdaten mit Personenkonten und Kontakterkennung
+- [ ] USt-IdNr.-Prüfung mit Protokoll
+- [x] Offene Posten aus Belegen, OPOS-Liste, Fälligkeitsstaffel
+- [ ] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
 - [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
 - [ ] Belegabgleich vor der Kontierung, geplanter Abruf
 

@@ -38,7 +38,8 @@ class BuchungssatzRow(Base):
     __tablename__ = "buchungssaetze"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    transaktion_id: Mapped[str] = mapped_column(String(36))
+    transaktion_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
     datum: Mapped[date] = mapped_column(Date)
     soll_konto: Mapped[str] = mapped_column(String(10))
     haben_konto: Mapped[str] = mapped_column(String(10))
@@ -46,6 +47,7 @@ class BuchungssatzRow(Base):
     steuer_schluessel: Mapped[int | None] = mapped_column(Integer, nullable=True)
     steuer_betrag: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     buchungstext: Mapped[str] = mapped_column(String(60))
+    beleg_nummer: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[float] = mapped_column(Float)
     geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -64,6 +66,7 @@ class BelegRow(Base):
     kontakt_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     lieferant_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     lieferant_ust_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
     netto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     steuer: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     brutto: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
@@ -183,3 +186,54 @@ class NummernkreisRow(Base):
     kreis: Mapped[str] = mapped_column(String(50), primary_key=True)
     jahr: Mapped[int] = mapped_column(Integer, primary_key=True)
     letzte: Mapped[int] = mapped_column(Integer)
+
+
+class KontaktRow(Base):
+    __tablename__ = "kontakte"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    strasse: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    plz: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ort: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    land: Mapped[str] = mapped_column(String(2))
+    ust_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    steuernummer: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    kreditor_konto: Mapped[str | None] = mapped_column(
+        String(10), nullable=True, unique=True
+    )
+    debitor_konto: Mapped[str | None] = mapped_column(
+        String(10), nullable=True, unique=True
+    )
+    zahlungsziel_tage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    skonto_prozent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    skonto_tage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sachkonto: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    status: Mapped[str] = mapped_column(String(20))
+    pruef_grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class OffenerPostenRow(Base):
+    __tablename__ = "offene_posten"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kontakt_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kontakte.id"), index=True
+    )
+    # Ein Beleg wird genau einmal verbucht.
+    beleg_id: Mapped[str] = mapped_column(String(36), unique=True)
+    richtung: Mapped[str] = mapped_column(String(20))
+    belegnummer: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    belegdatum: Mapped[date] = mapped_column(Date)
+    betrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    restbetrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    faellig_am: Mapped[date] = mapped_column(Date, index=True)
+    skonto_bis: Mapped[date | None] = mapped_column(Date, nullable=True)
+    skonto_prozent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    skonto_betrag: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
+    status: Mapped[str] = mapped_column(String(20))
+    mahnstufe: Mapped[int] = mapped_column(Integer, default=0)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)

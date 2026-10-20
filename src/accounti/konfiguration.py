@@ -7,12 +7,15 @@ elektronische Adresse und Zahlungsdaten des Verkäufers.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.belege.extraktion import iban_gueltig
+
+if TYPE_CHECKING:
+    from accounti.kontakte.dienst import Partnerdaten
 
 STANDARD_PFAD = Path("config/accounti.yaml")
 
@@ -127,3 +130,55 @@ def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
     except ValidationError as fehler:
         msg = f"{pfad}: {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler
+
+
+class Buchhaltung(BaseModel):
+    """Abschnitt ``buchhaltung`` — optional, ohne ihn gelten die Standards."""
+
+    kontenrahmen: str = "SKR03"
+    debitoren_von: int = 10000
+    debitoren_bis: int = 69999
+    kreditoren_von: int = 70000
+    kreditoren_bis: int = 99999
+    bank_konto: str = "1200"
+    standard_aufwand: str = Field(
+        default="4900", description="Sachkonto, wenn nichts Besseres bekannt ist"
+    )
+    standard_zahlungsziel_tage: int = 14
+
+
+def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
+    pfad = Path(pfad)
+    if not pfad.is_file():
+        return Buchhaltung()
+    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
+    try:
+        return Buchhaltung.model_validate(abschnitt or {})
+    except ValidationError as fehler:
+        msg = f"{pfad}: Abschnitt 'buchhaltung': {_fehlertext(fehler)}"
+        raise KonfigurationError(msg) from fehler
+
+
+def lade_eigene_firma(pfad: str | Path = STANDARD_PFAD) -> Partnerdaten | None:
+    """Name, USt-IdNr. und IBAN der eigenen Firma — nachsichtig gelesen.
+
+    Anders als `lade_firma` verlangt das keine vollständigen Firmendaten: Es reicht,
+    die eigene Firma wiederzuerkennen (z.B. damit sie nie als Kreditor angelegt wird).
+    """
+    from accounti.kontakte.dienst import Partnerdaten
+
+    pfad = Path(pfad)
+    if not pfad.is_file():
+        return None
+    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    mandant = daten.get("mandant") if isinstance(daten, dict) else None
+    if not isinstance(mandant, dict) or not mandant.get("name"):
+        return None
+    bank_roh = mandant.get("bank")
+    bank: dict[str, Any] = bank_roh if isinstance(bank_roh, dict) else {}
+    return Partnerdaten(
+        name=str(mandant["name"]),
+        ust_id=mandant.get("ust_id"),
+        iban=str(bank.get("iban", "")).replace(" ", "") or None,
+    )

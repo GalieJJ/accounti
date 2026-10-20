@@ -60,6 +60,16 @@ import:
   # Duplikaterkennung
   duplikat_check: true
 
+# Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
+buchhaltung:
+  debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)
+  debitoren_bis: 69999
+  kreditoren_von: 70000
+  kreditoren_bis: 99999
+  bank_konto: "1200"
+  standard_aufwand: "4900"     # wenn weder Kontakt noch Regelwerk ein Sachkonto kennt (→ Prüfung)
+  standard_zahlungsziel_tage: 14
+
 # Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
 versand:
   absender: "Meine Firma GmbH <rechnung@meine-firma.example>"

@@ -5,9 +5,10 @@ from __future__ import annotations
 import enum
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -137,6 +138,7 @@ class Beleg(BaseModel):
         default=None, description="Freitext, bis Kontakte existieren"
     )
     lieferant_ust_id: str | None = None
+    iban: str | None = Field(default=None, description="Bankverbindung des Ausstellers")
     netto: Decimal | None = None
     steuer: Decimal | None = None
     brutto: Decimal | None = None
@@ -248,6 +250,86 @@ class Versandprotokoll(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Kontakte (Debitoren/Kreditoren) und offene Posten
+# ---------------------------------------------------------------------------
+
+
+class KontaktStatus(str, enum.Enum):
+    GEPRUEFT = "geprueft"
+    ZUR_PRUEFUNG = "pruefung"  # automatisch angelegt, Mensch bestätigt
+
+
+class Kontakt(BaseModel):
+    """Lieferant, Kunde oder beides — mit Personenkonto je Rolle."""
+
+    id: UUID = Field(default_factory=uuid4)
+    name: str
+    strasse: str | None = None
+    plz: str | None = None
+    ort: str | None = None
+    land: str = Field(default="DE", min_length=2, max_length=2)
+    ust_id: str | None = None
+    steuernummer: str | None = None
+    iban: str | None = None
+    email: str | None = None
+    kreditor_konto: str | None = Field(default=None, description="z.B. 70001")
+    debitor_konto: str | None = Field(default=None, description="z.B. 10001")
+    zahlungsziel_tage: int | None = None
+    skonto_prozent: Decimal | None = None
+    skonto_tage: int | None = None
+    sachkonto: str | None = Field(
+        default=None, description="Vorschlag für wiederkehrende Buchungen"
+    )
+    status: KontaktStatus = KontaktStatus.GEPRUEFT
+    pruef_grund: str | None = None
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+    @property
+    def ist_kreditor(self) -> bool:
+        return self.kreditor_konto is not None
+
+    @property
+    def ist_debitor(self) -> bool:
+        return self.debitor_konto is not None
+
+
+class PostenRichtung(str, enum.Enum):
+    VERBINDLICHKEIT = "verbindlichkeit"  # Eingangsrechnung, Kreditor
+    FORDERUNG = "forderung"  # Ausgangsrechnung, Debitor
+
+
+class PostenStatus(str, enum.Enum):
+    OFFEN = "offen"
+    TEILBEZAHLT = "teilbezahlt"
+    AUSGEGLICHEN = "ausgeglichen"
+
+
+class OffenerPosten(BaseModel):
+    id: UUID = Field(default_factory=uuid4)
+    kontakt_id: UUID
+    beleg_id: UUID
+    richtung: PostenRichtung
+    belegnummer: str | None = None
+    belegdatum: date
+    betrag: Decimal = Field(description="Brutto; Gutschriften negativ")
+    restbetrag: Decimal
+    faellig_am: date
+    skonto_bis: date | None = None
+    skonto_prozent: Decimal | None = None
+    skonto_betrag: Decimal | None = None
+    status: PostenStatus = PostenStatus.OFFEN
+    mahnstufe: int = 0
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _restbetrag(cls, daten: Any) -> Any:
+        if isinstance(daten, dict) and daten.get("restbetrag") is None:
+            daten = {**daten, "restbetrag": daten.get("betrag")}
+        return daten
+
+
+# ---------------------------------------------------------------------------
 # Konto — aus Kontenrahmen (SKR03/SKR04)
 # ---------------------------------------------------------------------------
 
@@ -275,7 +357,12 @@ class Buchungssatz(BaseModel):
     """Ein vollständiger Buchungssatz (Soll an Haben)."""
 
     id: UUID = Field(default_factory=uuid4)
-    transaktion_id: UUID
+    transaktion_id: UUID | None = Field(
+        default=None, description="Banktransaktion (bei Bankbuchungen)"
+    )
+    beleg_id: UUID | None = Field(
+        default=None, description="Beleg (bei Belegbuchungen)"
+    )
     datum: date
     soll_konto: str = Field(description="Kontonummer Soll-Seite")
     haben_konto: str = Field(description="Kontonummer Haben-Seite")
