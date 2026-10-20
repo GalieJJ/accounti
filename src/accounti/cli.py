@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         Buchungssatz,
         Kontakt,
         PostenRichtung,
+        Transaktion,
         UstIdPruefung,
     )
     from accounti.opos.zuordnung import Zuordnungsvorschlag
@@ -1735,17 +1736,207 @@ def opos_ablehnen(
 
 
 # ---------------------------------------------------------------------------
+# Bank — Belegabgleich (Baustein 5)
+# ---------------------------------------------------------------------------
+bank_app = typer.Typer(help="Bankumsätze mit Belegen abgleichen.")
+app.add_typer(bank_app, name="bank")
+
+
+def _umsatz_text(tx: "Transaktion") -> str:
+    from accounti.anzeige import betrag_de, datum_de
+
+    wer = " · ".join(filter(None, [tx.gegenkonto_name, tx.verwendungszweck[:40]]))
+    return f"{datum_de(tx.datum)} {betrag_de(tx.betrag)} € {wer}"
+
+
+def _beleg_text(b: "Beleg") -> str:
+    from accounti.anzeige import betrag_de, datum_de
+
+    was = " ".join(filter(None, [b.lieferant_name, b.belegnummer])) or b.dateiname
+    return f"{was} ({datum_de(b.belegdatum)}, {betrag_de(b.brutto)} €)"
+
+
+@bank_app.command("abgleich")
+def bank_abgleich(
+    period: str | None = typer.Option(None, help="Nur Umsätze dieses Monats (JJJJ-MM)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Umsätze mit Quittungen und sonstigen Belegen abgleichen — vor 'classify'."""
+    from rich.markup import escape
+
+    from accounti.bank.abgleichslauf import gleiche_belege_ab
+    from accounti.db import init_db, session_factory
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        ergebnis = gleiche_belege_ab(s, zeitraum=period)
+        s.commit()
+    for k in ergebnis.automatisch:
+        console.print(
+            f"[green]✓[/green] {escape(_umsatz_text(k.transaktion))} ↔ "
+            f"{escape(_beleg_text(k.beleg))} [dim]({k.stufe.value})[/dim]"
+        )
+    gesehen = set()
+    for k in ergebnis.vorschlaege:
+        if k.transaktion.id not in gesehen:
+            gesehen.add(k.transaktion.id)
+            console.print(f"[yellow]?[/yellow] {escape(_umsatz_text(k.transaktion))}")
+        console.print(
+            f"    ↔ {escape(_beleg_text(k.beleg))} [dim]{k.confidence:.0%} — "
+            f"{escape(k.begruendung)}[/dim]"
+        )
+    for tx in ergebnis.ruecklastschriften:
+        console.print(
+            f"[yellow]Rücklastschrift, nicht abgeglichen:[/yellow] "
+            f"{escape(_umsatz_text(tx))}"
+        )
+    anzahl = len(ergebnis.vorschlaege)
+    console.print(
+        f"[green]{len(ergebnis.automatisch)} abgeglichen[/green], "
+        f"[yellow]{anzahl} {'Vorschlag' if anzahl == 1 else 'Vorschläge'}[/yellow], "
+        f"{ergebnis.ohne_treffer} ohne passenden Beleg."
+    )
+    if ergebnis.vorschlaege:
+        console.print("[dim]Vorschläge prüfen: accounti bank vorschlaege[/dim]")
+    console.print(
+        "[dim]Nächster Schritt: accounti classify (kontiert aus dem Beleg)[/dim]"
+    )
+
+
+@bank_app.command("vorschlaege")
+def bank_vorschlaege(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Offene Abgleich-Vorschläge mit ID zum Bestätigen oder Ablehnen."""
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_abgleiche, lade_belege, lade_transaktionen
+    from accounti.models import AbgleichStatus
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        vorschlaege = lade_abgleiche(s, status={AbgleichStatus.VORGESCHLAGEN})
+        transaktionen = {t.id: t for t in lade_transaktionen(s)}
+        belege = {b.id: b for b in lade_belege(s)}
+    if not vorschlaege:
+        console.print("[dim]Keine offenen Vorschläge.[/dim]")
+        return
+    tabelle = Table(title="Abgleich-Vorschläge")
+    for spalte in ("ID", "Umsatz", "Beleg", "Sicherheit", "Begründung"):
+        tabelle.add_column(spalte, overflow="fold")
+    for a in vorschlaege:
+        tabelle.add_row(
+            str(a.id)[:8],
+            escape(_umsatz_text(transaktionen[a.transaktion_id])),
+            escape(_beleg_text(belege[a.beleg_id])),
+            f"{a.confidence:.0%}",
+            escape(a.begruendung),
+        )
+    console.print(tabelle)
+    console.print(
+        "[dim]accounti bank bestaetigen <ID> · accounti bank ablehnen <ID>[/dim]"
+    )
+
+
+def _abgleich_entscheiden(praefix: str, db: str, bestaetigen: bool) -> None:
+    from rich.markup import escape
+
+    from accounti.bank.abgleichslauf import (
+        AbgleichError,
+        bestaetige_abgleich,
+        lehne_abgleich_ab,
+    )
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_belege, lade_transaktion
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            a = (bestaetige_abgleich if bestaetigen else lehne_abgleich_ab)(s, praefix)
+        except AbgleichError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+        tx = lade_transaktion(s, a.transaktion_id)
+        beleg = next(b for b in lade_belege(s) if b.id == a.beleg_id)
+    paar = f"{_beleg_text(beleg)} ↔ {_umsatz_text(tx) if tx else a.transaktion_id}"
+    if bestaetigen:
+        console.print(f"[green]Bestätigt:[/green] {escape(paar)}")
+        console.print(
+            "[dim]Konkurrierende Vorschläge sind verworfen. "
+            "Nächster Schritt: accounti classify[/dim]"
+        )
+    else:
+        console.print(f"[yellow]Abgelehnt:[/yellow] {escape(paar)}")
+
+
+@bank_app.command("bestaetigen")
+def bank_bestaetigen(
+    vorschlag: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Abgleich-Vorschlag bestätigen."""
+    _abgleich_entscheiden(vorschlag, db, bestaetigen=True)
+
+
+@bank_app.command("ablehnen")
+def bank_ablehnen(
+    vorschlag: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Abgleich-Vorschlag ablehnen — das Paar wird nicht wieder vorgeschlagen."""
+    _abgleich_entscheiden(vorschlag, db, bestaetigen=False)
+
+
+@bank_app.command("offen")
+def bank_offen(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Umsätze ohne Beleg und Quittungen/sonstige Belege ohne Umsatz."""
+    from rich.markup import escape
+
+    from accounti.bank.abgleichslauf import offen_in_der_bank
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import gebuchte_transaktion_ids
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        bericht = offen_in_der_bank(s)
+        kontiert = gebuchte_transaktion_ids(s)
+    console.print(
+        f"[bold]Umsätze ohne Beleg[/bold] ({len(bericht.umsaetze_ohne_beleg)})"
+    )
+    for tx in bericht.umsaetze_ohne_beleg:
+        stand = "kontiert" if tx.id in kontiert else "offen"
+        console.print(f"  {escape(_umsatz_text(tx))} [dim]{stand}[/dim]")
+    console.print(
+        f"[bold]Belege ohne Umsatz[/bold] ({len(bericht.belege_ohne_umsatz)})"
+    )
+    for b in bericht.belege_ohne_umsatz:
+        console.print(f"  {escape(_beleg_text(b))}")
+    console.print("[dim]Rechnungen ohne Zahlung stehen in 'accounti opos liste'.[/dim]")
+
+
+# ---------------------------------------------------------------------------
 # Klassifikation
 # ---------------------------------------------------------------------------
 @app.command()
 def classify(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     llm: bool = typer.Option(True, "--llm/--no-llm", help="LLM-Stufe nutzen"),
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """Transaktionen automatisch kontieren."""
-    from accounti.buchung.mapper import zu_buchungssatz
-    from accounti.db import session_factory
-    from accounti.db.repository import speichere_buchung
+    """Transaktionen automatisch kontieren — mit Beleg aus dem Beleg."""
+    from rich.markup import escape
+
+    from accounti.buchung.kontierung import kontiere_umsaetze
+    from accounti.db import init_db, session_factory
     from accounti.klassifikation.engine import (
         STANDARD_REGELN,
         KlassifikationsEngine,
@@ -1753,8 +1944,13 @@ def classify(
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
-    from accounti.opos.zahlungslauf import offene_transaktionen
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
+    try:
+        einstellungen = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     # Eigene Regeln (config/regeln.yaml) haben Vorrang, dann das Standard-Regelwerk.
     regeln = lade_regeln("config/regeln.yaml")
     if regeln:
@@ -1766,20 +1962,17 @@ def classify(
         llm=LLMEngine() if llm else None,
     )
 
-    _, make_session = session_factory(db)
-    auto = offen = 0
+    db_engine, make_session = session_factory(db)
+    init_db(db_engine)
     with make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        for tx in offene_transaktionen(s, fuer_kontierung=True):
-            erg = engine.klassifiziere(tx)
-            if erg is None:
-                offen += 1
-                continue
-            speichere_buchung(s, zu_buchungssatz(tx, erg))
-            auto += 1
+        lauf = kontiere_umsaetze(s, engine, einstellungen)
         s.commit()
-    console.print(f"[green]{auto}[/green] kontiert, [yellow]{offen}[/yellow] offen.")
+    console.print(
+        f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "
+        f"[yellow]{lauf.offen}[/yellow] offen."
+    )
 
 
 # ---------------------------------------------------------------------------

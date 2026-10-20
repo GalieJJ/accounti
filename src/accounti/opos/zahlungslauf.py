@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from accounti.db.repository import (
     gebuchte_transaktion_ids,
+    lade_abgleiche,
     lade_einen_posten,
     lade_kontakte,
     lade_posten,
@@ -26,6 +27,7 @@ from accounti.db.repository import (
 )
 from accounti.konfiguration import Buchhaltung
 from accounti.models import (
+    AbgleichStatus,
     Buchungssatz,
     BuchungStatus,
     PostenStatus,
@@ -53,7 +55,7 @@ class Zahlungslauf:
 def offene_transaktionen(
     session: Session, fuer_kontierung: bool = False
 ) -> list[Transaktion]:
-    """Transaktionen ohne Buchung und ohne (aktive) Zuordnung.
+    """Transaktionen ohne Buchung, ohne (aktive) Zuordnung und ohne offenen Abgleich.
 
     Für die Kontierung zählen abgelehnte Vorschläge als frei; für die Zuordnung
     nicht — eine abgelehnte Zuordnung wird nicht immer wieder vorgeschlagen.
@@ -62,6 +64,14 @@ def offene_transaktionen(
         z.transaktion_id
         for z in lade_zuordnungen(session)
         if z.status is not ZuordnungStatus.ABGELEHNT or not fuer_kontierung
+    }
+    # Beleg-Abgleich (Baustein 5): ein offener Vorschlag hält beide fern; ein
+    # bestätigter Beleg gehört zur Kontierung, nicht mehr zur Zuordnung.
+    belegt |= {
+        a.transaktion_id
+        for a in lade_abgleiche(session)
+        if a.status is AbgleichStatus.VORGESCHLAGEN
+        or (a.status is AbgleichStatus.BESTAETIGT and not fuer_kontierung)
     }
     belegt |= gebuchte_transaktion_ids(session)
     return sorted(

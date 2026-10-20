@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
+from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
 from accounti.db.repository import (
     lade_belege,
     speichere_buchung,
@@ -37,11 +38,8 @@ from accounti.models import (
     Buchungssatz,
     BuchungStatus,
     Kontakt,
-    KontaktStatus,
     OffenerPosten,
     PostenRichtung,
-    Transaktion,
-    TransaktionQuelle,
 )
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
@@ -134,28 +132,8 @@ def _sachkonto_eingang(
     regelwerk: RegelwerkEngine | None,
 ) -> tuple[str, bool]:
     """(Sachkonto, zur Prüfung?) — Kontakt-Vorschlag, Regelwerk, Standard."""
-    kontakt = treffer.kontakt
-    if kontakt.sachkonto:
-        return kontakt.sachkonto, kontakt.status is not KontaktStatus.GEPRUEFT
-    if regelwerk is not None:
-        text = " ".join(
-            filter(
-                None, [beleg.belegnummer, *(p.bezeichnung for p in beleg.positionen)]
-            )
-        )
-        pseudo = Transaktion(
-            datum=beleg.belegdatum or beleg.eingegangen_am.date(),
-            betrag=-(beleg.brutto or NULL),
-            verwendungszweck=text or kontakt.name,
-            gegenkonto_name=beleg.lieferant_name or kontakt.name,
-            quelle=TransaktionQuelle.MANUELL,
-            rohtext=f"Beleg {beleg.id}",
-        )
-        ergebnis = regelwerk.klassifiziere(pseudo)
-        # nur Ausgaberegeln (… an Bank) taugen als Aufwandskonto
-        if ergebnis is not None and ergebnis.haben_konto == einstellungen.bank_konto:
-            return ergebnis.soll_konto, kontakt.status is not KontaktStatus.GEPRUEFT
-    return einstellungen.standard_aufwand, True
+    s = sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
+    return s.konto, s.pruefen
 
 
 def _gruppen(
