@@ -5,6 +5,7 @@ from typer.testing import CliRunner
 
 from accounti.cli import app
 from accounti.db import init_db, session_factory
+from accounti.db.repo_bank import lade_abrechnungen
 from accounti.db.repository import lade_belege, lade_buchungen
 from tests.pdf_hilfe import pdf_mit_text
 from tests.test_bank_kreditkarte import BEISPIEL, GIRO, GIRO_APRIL
@@ -89,6 +90,7 @@ def test_pdf_abrechnung_uebernehmen_und_abgleichen(umgebung):
     assert r.exit_code == 0, r.output
     assert "12 Umsätze" in _text(r) and "-698,65" in _text(r)
     assert "31.03.2026" in _text(r)
+    assert "vor der Einrichtung" in _text(r)  # Karte heute eingerichtet
     r = _run("kreditkarte", "uebernehmen", beleg, "--db", url)
     assert r.exit_code == 1 and "schon übernommen" in _text(r)
 
@@ -254,3 +256,56 @@ def test_liste_ohne_karten(umgebung):
     url, _, _ = umgebung
     r = _run("kreditkarte", "liste", "--db", url)
     assert r.exit_code == 0 and "Keine Kreditkarten" in _text(r)
+
+
+def test_einrichten_ohne_endziffern_weist_auf_das_breite_muster_hin(umgebung):
+    url, _, _ = umgebung
+    r = _run(
+        "kreditkarte",
+        "einrichten",
+        "--kennung",
+        "VISA1234",
+        "--bezeichnung",
+        "Visa Firma",
+        "--sachkonto",
+        "1730",
+        "--girokonto",
+        GIRO,
+        "--db",
+        url,
+    )
+    assert r.exit_code == 0, r.output
+    assert "--endziffern" in _text(r)
+
+
+def test_vorlaeufige_zuordnung_von_hand_loesen(umgebung):
+    url, ordner, tmp_path = umgebung
+    beleg = _karte_und_pdf(url, tmp_path)
+    assert _run("kreditkarte", "uebernehmen", beleg, "--db", url).exit_code == 0
+    (ordner / "april.sta").write_bytes(
+        GIRO_APRIL.replace("DR698,65", "DR29,00")
+        .replace("4301,35", "4971,00")
+        .replace("KREDITKARTENABRECHNUNG", "KARTENJAHRESGEBUEHR VISA")
+        .encode("cp1252")
+    )
+    _run("bank", "abrufen", "--db", url)
+    r = _run("kreditkarte", "abgleich", "--db", url)
+    assert "Befund" in _text(r) and "Differenz 669,65 €" in _text(r)
+    engine, make_session = _db(url)
+    with make_session() as s:
+        (a,) = lade_abrechnungen(s)
+    engine.dispose()
+    r = _run("kreditkarte", "liste", "--db", url)
+    assert str(a.id)[:8] in _text(r)
+
+    r = _run("kreditkarte", "loesen", str(a.id)[:8], "--db", url)
+    assert r.exit_code == 0, r.output
+    assert "gelöst" in _text(r) and "-29,00" in _text(r)
+    engine, make_session = _db(url)
+    with make_session() as s:
+        assert lade_buchungen(s) == []
+    engine.dispose()
+    r = _run("kreditkarte", "abgleich", "--db", url)
+    assert "Nichts Neues" in _text(r)
+    r = _run("kreditkarte", "loesen", str(a.id)[:8], "--db", url)
+    assert r.exit_code == 1 and "keine zugeordnete" in _text(r)

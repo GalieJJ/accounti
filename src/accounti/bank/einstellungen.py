@@ -60,6 +60,10 @@ class KreditkartenEinstellungen(BaseModel):
         default=r"kreditkart|kartenabrechnung|visa|master ?card|american express|amex",
         description="erkennt die Sammelbelastung auf dem Girokonto",
     )
+    belastung_ausnahme: str = Field(
+        default=r"debit",
+        description="keine Sammelbelastung, obwohl das Muster passt (Debitkarte)",
+    )
     ausgleich_muster: str = Field(
         default=(
             r"ihre zahlung|zahlung erhalten|zahlung.{0,3}danke|zahlungseingang"
@@ -69,7 +73,7 @@ class KreditkartenEinstellungen(BaseModel):
     )
     belastung_fenster_tage: int = Field(default=30, ge=0)
 
-    @field_validator("belastung_muster", "ausgleich_muster")
+    @field_validator("belastung_muster", "belastung_ausnahme", "ausgleich_muster")
     @classmethod
     def _muster(cls, wert: str) -> str:
         try:
@@ -84,7 +88,12 @@ class KreditkartenEinstellungen(BaseModel):
         return "1460" if kontenrahmen.upper() == "SKR04" else "1360"
 
     def ist_belastung(self, text: str) -> bool:
-        return re.search(self.belastung_muster, text, re.IGNORECASE) is not None
+        """Sammelbelastung nach dem Standardmuster — ohne Debitkartenzahlungen
+        („VISA Debit …“), die auf Girokonten häufig sind."""
+        if re.search(self.belastung_muster, text, re.IGNORECASE) is None:
+            return False
+        ausnahme = self.belastung_ausnahme
+        return not ausnahme or re.search(ausnahme, text, re.IGNORECASE) is None
 
     def ist_ausgleich(self, text: str) -> bool:
         return re.search(self.ausgleich_muster, text, re.IGNORECASE) is not None

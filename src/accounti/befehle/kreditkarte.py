@@ -2,7 +2,8 @@
 
 Die Sammelbelastung auf dem Girokonto muss centgenau der Summe der Einzelumsätze
 entsprechen; eine Abweichung ist ein Befund, kein Rundungsposten. `accounti bank
-lauf` gleicht die Karten vor dem Kontieren selbst ab.
+lauf` gleicht die Karten vor dem Kontieren selbst ab. Eine falsche vorläufige
+Zuordnung löst `accounti kreditkarte loesen`.
 """
 
 from __future__ import annotations
@@ -16,8 +17,11 @@ from rich.markup import escape
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from sqlalchemy.orm import Session
 
+    from accounti.bank.kreditkarte import Kartenabgleich
     from accounti.models import Bankkonto
     from accounti.models.bank import Kreditkarte
 
@@ -137,6 +141,12 @@ def einrichten(
         + (f", Endziffern {karte.endziffern}" if karte.endziffern else "")
     )
     console.print(f"[dim]{escape(buchung)}[/dim]")
+    if not endziffern and not muster:
+        console.print(
+            "[yellow]Ohne --endziffern erkennt accounti die Sammelbelastung nur am "
+            "Text (Kreditkarte, Visa, Mastercard, Amex …) — Endziffern oder ein "
+            "eigenes --muster machen den Abgleich sicherer.[/yellow]"
+        )
     if karte_konto.provider == PDF_PROVIDER:
         console.print(
             "[dim]Nächster Schritt: accounti belege import <abrechnung.pdf>, dann "
@@ -169,6 +179,11 @@ def uebernehmen(
         help="ID (Anfang) der erfassten Kreditkartenabrechnung"
     ),
     karte: str | None = typer.Option(None, help="Kennung der Karte"),
+    trotzdem: bool = typer.Option(
+        False,
+        "--trotzdem",
+        help="auch wenn die Sammelbelastung schon anders gebucht ist",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -186,7 +201,7 @@ def uebernehmen(
     with _sitzung(db) as s:
         k = _karte(s, karte)
         try:
-            u = uebernimm_abrechnung(s, beleg, k, einst)
+            u = uebernimm_abrechnung(s, beleg, k, einst, trotzdem=trotzdem)
         except KreditkartenError as fehler:
             _ende(str(fehler))
             return
@@ -197,6 +212,8 @@ def uebernehmen(
         f"schon vorhanden), Summe {betrag_de(a.summe)} € zum {datum_de(a.stichtag)}"
         + (f"; {u.ausgleich} Ausgleichszeile(n) ausgelassen" if u.ausgleich else "")
     )
+    for warnung in u.warnungen:
+        console.print(f"[yellow]Achtung: {escape(warnung)}[/yellow]")
     console.print(
         "[dim]Nächster Schritt: accounti kreditkarte abgleich "
         "(oder accounti bank lauf)[/dim]"
@@ -241,39 +258,39 @@ def abrechnen(
     )
 
 
-@befehl.command("abgleich")
-def abgleich(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
-    """Sammelbelastungen gegen die Abrechnungen prüfen und buchen."""
+def zeige_kartenabgleich(ergebnis: Kartenabgleich, *, still: bool = False) -> None:
+    """Ergebnis des Kartenabgleichs — auch für die Ausgabe von `bank lauf`."""
     from accounti.anzeige import betrag_de, datum_de
-    from accounti.bank.einstellungen import lade_bank_einstellungen
-    from accounti.bank.kreditkarte import gleiche_sammelbelastungen_ab
-    from accounti.db.repo_bank import lade_kreditkarten
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
-    try:
-        buchhaltung = lade_buchhaltung(config)
-        einst = lade_bank_einstellungen(config).kreditkarte
-    except KonfigurationError as fehler:
-        _ende(str(fehler))
-        return
-    with _sitzung(db) as s:
-        ergebnis = gleiche_sammelbelastungen_ab(s, buchhaltung, einst)
-        namen = {k.id: _konto(s, k).bezeichnung for k in lade_kreditkarten(s)}
-        s.commit()
+    def name(karte_id: UUID) -> str:
+        return escape(ergebnis.namen.get(karte_id, ""))
+
     for u in ergebnis.uebernommen:
         console.print(
             f"Übernommen: Abrechnung zum {datum_de(u.abrechnung.stichtag)} "
             f"({u.abrechnung.anzahl} Umsätze)"
         )
+    if ergebnis.nachgetragen:
+        console.print(
+            f"{ergebnis.nachgetragen} spät gelieferte(r) Kartenumsatz/-umsätze in "
+            "offene Abrechnungen nachgetragen"
+        )
     for a in ergebnis.abgeglichen:
         console.print(
-            f"[green]abgeglichen[/green] {escape(namen.get(a.kreditkarte_id, ''))}: "
+            f"[green]abgeglichen[/green] {name(a.kreditkarte_id)}: "
             f"Abrechnung {datum_de(a.stichtag)} {betrag_de(a.summe)} € = Belastung"
         )
     for a in ergebnis.abweichungen:
         console.print(
-            f"[red]Befund[/red] {escape(namen.get(a.kreditkarte_id, ''))}: "
-            f"{escape(a.befund or '')}"
+            f"[red]Befund[/red] {name(a.kreditkarte_id)}: {escape(a.befund or '')} "
+            f"[dim](vorläufig zur Prüfung; falsch zugeordnet: accounti kreditkarte "
+            f"loesen {str(a.id)[:8]})[/dim]"
+        )
+    for tx in ergebnis.geloest:
+        console.print(
+            f"[yellow]Zuordnung gelöst[/yellow] {datum_de(tx.datum)} "
+            f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} — eine andere "
+            "Belastung passt (besser); die vorläufige Buchung ist entfallen"
         )
     for tx in ergebnis.ohne_abrechnung:
         console.print(
@@ -286,26 +303,89 @@ def abgleich(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
         console.print(
             f"[yellow]mehrdeutig[/yellow] {datum_de(tx.datum)} "
             f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} — passt zu "
-            "mehreren Abrechnungen, nichts zugeordnet"
+            "mehreren Abrechnungen oder konkurriert mit einer anderen Belastung, "
+            "nichts zugeordnet"
         )
     if ergebnis.ausgleich_gebucht:
         console.print(
             f"{ergebnis.ausgleich_gebucht} Ausgleichszeile(n) über Geldtransit gebucht"
         )
+    for tx in ergebnis.ausgleich_ohne_belastung:
+        console.print(
+            f"[yellow]Ausgleich zur Prüfung[/yellow] {datum_de(tx.datum)} "
+            f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} — keine gleich "
+            "hohe Sammelbelastung dieser Karte über Geldtransit (anderes Konto, "
+            "Einlage, abweichender Betrag?)"
+        )
     for hinweis in ergebnis.hinweise:
         console.print(f"[yellow]{escape(hinweis)}[/yellow]")
-    if not any(
+    if not still and not any(
         [
             ergebnis.uebernommen,
+            ergebnis.nachgetragen,
             ergebnis.abgeglichen,
             ergebnis.abweichungen,
+            ergebnis.geloest,
             ergebnis.ohne_abrechnung,
             ergebnis.mehrdeutig,
             ergebnis.ausgleich_gebucht,
+            ergebnis.ausgleich_ohne_belastung,
             ergebnis.hinweise,
         ]
     ):
         console.print("[dim]Nichts Neues.[/dim]")
+
+
+@befehl.command("abgleich")
+def abgleich(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
+    """Sammelbelastungen gegen die Abrechnungen prüfen und buchen."""
+    from accounti.bank.einstellungen import lade_bank_einstellungen
+    from accounti.bank.kreditkarte import gleiche_sammelbelastungen_ab
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+
+    try:
+        buchhaltung = lade_buchhaltung(config)
+        einst = lade_bank_einstellungen(config).kreditkarte
+    except KonfigurationError as fehler:
+        _ende(str(fehler))
+        return
+    with _sitzung(db) as s:
+        ergebnis = gleiche_sammelbelastungen_ab(s, buchhaltung, einst)
+        s.commit()
+    zeige_kartenabgleich(ergebnis)
+
+
+@befehl.command("loesen")
+def loesen(
+    abrechnung: str = typer.Argument(help="ID (Anfang) der Abrechnung, siehe liste"),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Falsche vorläufige Zuordnung lösen — die Belastung wird nicht wieder
+    vorgeschlagen, ihre vorläufige Buchung entfällt."""
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.bank.einstellungen import lade_bank_einstellungen
+    from accounti.bank.kreditkarte import KreditkartenError, loese_zuordnung
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+
+    try:
+        buchhaltung = lade_buchhaltung(config)
+        einst = lade_bank_einstellungen(config).kreditkarte
+    except KonfigurationError as fehler:
+        _ende(str(fehler))
+        return
+    with _sitzung(db) as s:
+        try:
+            a, tx = loese_zuordnung(s, abrechnung, buchhaltung, einst)
+        except KreditkartenError as fehler:
+            _ende(str(fehler))
+            return
+        s.commit()
+    console.print(
+        f"[green]Zuordnung gelöst:[/green] Abrechnung zum {datum_de(a.stichtag)} "
+        f"und Belastung {betrag_de(tx.betrag)} € vom {datum_de(tx.datum)} — die "
+        "Abrechnung ist wieder offen, die Belastung kontiert accounti classify"
+    )
 
 
 @befehl.command("liste")
@@ -350,7 +430,8 @@ def liste(db: str = DB_OPTION) -> None:
             else "Belastung noch nicht gefunden"
         )
         console.print(
-            f"  {kennung.get(a.kreditkarte_id, '?')} · {datum_de(a.stichtag)} · "
+            f"  {str(a.id)[:8]} {kennung.get(a.kreditkarte_id, '?')} · "
+            f"{datum_de(a.stichtag)} · "
             f"{a.anzahl} Umsätze · Summe {betrag_de(a.summe)} € · {belastung} · "
             f"[{f}]{a.status.value}[/{f}]"
         )

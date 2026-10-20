@@ -57,3 +57,14 @@ class KreditkartenumsatzRow(Base):
     abrechnung_id: Mapped[str] = mapped_column(
         String(36), ForeignKey("kreditkartenabrechnungen.id"), index=True
     )
+
+
+class KreditkartenablehnungRow(Base):
+    """Von Hand gelöste Zuordnung: diese Belastung nie wieder für diese Abrechnung."""
+
+    __tablename__ = "kreditkartenablehnungen"
+
+    abrechnung_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kreditkartenabrechnungen.id"), primary_key=True
+    )
+    transaktion_id: Mapped[str] = mapped_column(String(36), primary_key=True)

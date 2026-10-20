@@ -1,6 +1,6 @@
 """Kreditkarten: eigenes Konto, PDF-Abrechnung, Abgleich der Sammelbelastung."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -12,6 +12,7 @@ from accounti.bank.kreditkarte import (
     bilde_abrechnung,
     gleiche_sammelbelastungen_ab,
     letzter_stichtag,
+    loese_zuordnung,
     richte_karte_ein,
     uebernimm_abrechnung,
 )
@@ -21,15 +22,17 @@ from accounti.belege.erkennung import BelegErkenner
 from accounti.belege.kanaele import RohBeleg
 from accounti.buchung.kontierung import kontiere_umsaetze
 from accounti.db import init_db, session_factory
-from accounti.db.repo_bank import lade_abrechnungen
+from accounti.db.repo_bank import abgerechnete_transaktion_ids, lade_abrechnungen
 from accounti.db.repository import (
     lade_bankkonto,
     lade_buchungen,
     lade_transaktionen,
+    setze_status,
     speichere_bankkonto,
     speichere_beleg,
     speichere_buchung,
 )
+from accounti.db.tabellen_bank import KreditkarteRow
 from accounti.klassifikation.engine import (
     KlassifikationsEngine,
     Regel,
@@ -82,6 +85,13 @@ def _karte(s, kennung="VISA1234", provider="abrechnung", **kw):
         **kw,
     )
     return karte
+
+
+def _eingerichtet_am(s, karte, wann):
+    """Die Karte wurde zu ``wann`` eingerichtet (statt jetzt)."""
+    s.get(KreditkarteRow, str(karte.id)).erstellt_am = wann
+    s.flush()
+    return karte.model_copy(update={"erstellt_am": wann})
 
 
 def _beispielbeleg(s, text=None):
@@ -632,3 +642,274 @@ def test_bank_lauf_gleicht_karten_vor_dem_kontieren_ab(make_session, tmp_path):
         assert all(
             x.haben_konto == "1730" for x in lade_buchungen(s) if x.soll_konto == "4900"
         )
+
+
+# --- PDF-Abrechnungen aus der Zeit vor der Karte --------------------------------
+
+ALLES = Regel(name="alles", muster=".", soll_konto="4900", haben_konto="1200")
+
+
+def test_alte_abrechnung_mit_schon_gebuchter_belastung_wird_nicht_uebernommen(
+    make_session,
+):
+    """Die Belegerfassung hatte die März-Abrechnung schon, die Sammelbelastung ist
+    längst per Regel als Aufwand gebucht; danach wird die Karte eingerichtet. Von
+    selbst übernommen, buchte classify die zwölf Einzelumsätze ein zweites Mal als
+    Aufwand."""
+    engine = KlassifikationsEngine(regelwerk=RegelwerkEngine([ALLES]))
+    with make_session() as s:
+        beleg = _beispielbeleg(s)
+        _belastung(s)
+        kontiere_umsaetze(s, engine, SKR03)  # damals: als Aufwand gebucht
+        karte = _karte(s)
+        ergebnis = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        kontiere_umsaetze(s, engine, SKR03)
+        assert ergebnis.uebernommen == []
+        (hinweis,) = [h for h in ergebnis.hinweise if str(beleg.id)[:8] in h]
+        assert "schon gebucht" in hinweis and "4900" in hinweis
+        assert len([b for b in lade_buchungen(s) if b.soll_konto == "4900"]) == 1
+        # von Hand nur ausdrücklich
+        with pytest.raises(KreditkartenError, match="schon gebucht"):
+            uebernimm_abrechnung(s, str(beleg.id), karte, EINST)
+        u = uebernimm_abrechnung(s, str(beleg.id), karte, EINST, trotzdem=True)
+        assert any("4900" in w for w in u.warnungen)
+
+
+def test_alte_abrechnung_ohne_offene_belastung_nur_von_hand(make_session):
+    with make_session() as s:
+        karte = _karte(s)  # heute eingerichtet, Abrechnung zum 31.03.2026
+        beleg = _beispielbeleg(s)
+        ergebnis = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert ergebnis.uebernommen == []
+        assert any("vor der Einrichtung" in h for h in ergebnis.hinweise)
+        assert lade_transaktionen(s) == []
+        u = uebernimm_abrechnung(s, str(beleg.id), karte, EINST)
+        assert any("vor der Einrichtung" in w for w in u.warnungen)
+        assert u.neu == 12
+
+
+def test_abrechnung_nach_der_einrichtung_wird_von_selbst_uebernommen(make_session):
+    with make_session() as s:
+        _eingerichtet_am(s, _karte(s), datetime(2026, 3, 1, 9, 0))
+        _beispielbeleg(s)
+        ergebnis = gleiche_sammelbelastungen_ab(s, SKR03, EINST)  # Belastung folgt
+        assert len(ergebnis.uebernommen) == 1
+        assert ergebnis.uebernommen[0].warnungen == []
+
+
+# --- Zuordnung über mehrere Läufe -------------------------------------------------
+
+
+def test_debitkartenzahlung_ist_keine_sammelbelastung(make_session):
+    """Visa- und Mastercard-Debitkarten sind auf Girokonten verbreitet — ihr Text
+    nennt „Visa“, sie sind aber Einzelzahlungen, keine Kartenabrechnung."""
+    with make_session() as s:
+        _uebernommen(s)
+        _auf_konto(
+            s, GIRO, _umsatz("-12.50", 2, "VISA Debitkartenumsatz REWE MARKT KIEL")
+        )
+        _auf_konto(s, GIRO, _umsatz("-45.00", 3, "VISA Debit SHELL TANKSTELLE KIEL"))
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert erster.abweichungen == erster.ohne_abrechnung == erster.mehrdeutig == []
+        assert lade_buchungen(s) == []
+        _belastung(s)
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert len(zweiter.abgeglichen) == 1
+
+
+def test_spaeter_exakter_treffer_loest_die_vorlaeufige_zuordnung(make_session):
+    """Lauf 1 kennt nur eine ungefähre Belastung (Jahresgebühr), Lauf 2 bringt
+    die centgenaue Sammelbelastung: exakt gewinnt — auch über Läufe hinweg."""
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-29.00", tag=2, text="VISA JAHRESGEBUEHR")
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = erster.abweichungen
+        assert a.belastung_betrag == Decimal("-29.00")
+        (vorlaeufig,) = _buchungen_zu(s, "JAHRESGEBUEHR")
+        assert vorlaeufig.status is BuchungStatus.ZUR_PRUEFUNG
+
+        _belastung(s)  # die echte Sammelbelastung am 05.04.
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = zweiter.abgeglichen
+        assert (a.belastung_betrag, a.befund) == (Decimal("-698.65"), None)
+        assert [t.betrag for t in zweiter.geloest] == [Decimal("-29.00")]
+        assert zweiter.ohne_abrechnung == []
+        assert _buchungen_zu(s, "JAHRESGEBUEHR") == []  # vorläufige Buchung gelöst
+        (b,) = _buchungen_zu(s, "KREDITKARTENABRECHNUNG")
+        assert (b.status, b.soll_konto) == (BuchungStatus.AUTO_GEBUCHT, "1730")
+        dritter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)  # stabil
+        assert dritter.abgeglichen == dritter.abweichungen == dritter.geloest == []
+
+
+def test_zweiter_ungefaehrer_kandidat_in_spaeterem_lauf_macht_mehrdeutig(
+    make_session,
+):
+    """Dasselbe Ergebnis wie mit beiden Belastungen in einem Lauf."""
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-698.60", tag=4)
+        assert len(gleiche_sammelbelastungen_ab(s, SKR03, EINST).abweichungen) == 1
+        _belastung(s, "-698.70", tag=6)
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert len(zweiter.mehrdeutig) == 2
+        assert lade_buchungen(s) == []
+        (a,) = lade_abrechnungen(s)
+        assert (a.status, a.belastung_id) == (AbrechnungStatus.OFFEN, None)
+
+
+def test_bestaetigte_abweichung_bleibt_bestehen(make_session):
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-698.66")
+        gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (b,) = _buchungen_zu(s, "KREDITKARTENABRECHNUNG")
+        setze_status(s, str(b.id), BuchungStatus.GEPRUEFT, geprueft_von="mensch")
+        _belastung(s, tag=7)  # centgenau, aber zu spät: die Abweichung ist geprüft
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert zweiter.abgeglichen == [] and zweiter.geloest == []
+        (a,) = lade_abrechnungen(s)
+        assert a.belastung_betrag == Decimal("-698.66")
+
+
+def test_zuordnung_von_hand_loesen(make_session):
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-29.00", tag=2, text="VISA JAHRESGEBUEHR")
+        (a,) = gleiche_sammelbelastungen_ab(s, SKR03, EINST).abweichungen
+        abrechnung, tx = loese_zuordnung(s, str(a.id)[:8], SKR03, EINST)
+        assert (abrechnung.status, abrechnung.belastung_id) == (
+            AbrechnungStatus.OFFEN,
+            None,
+        )
+        assert tx.betrag == Decimal("-29.00")
+        assert lade_buchungen(s) == []
+        # nicht wieder vorgeschlagen, und auch nicht als „ohne Abrechnung“
+        wieder = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert wieder.abweichungen == wieder.ohne_abrechnung == []
+        _belastung(s)
+        assert len(gleiche_sammelbelastungen_ab(s, SKR03, EINST).abgeglichen) == 1
+        with pytest.raises(KreditkartenError, match="automatisch"):
+            loese_zuordnung(s, str(a.id), SKR03, EINST)  # exakt, freigegeben
+
+
+def test_geloest_wird_nur_was_noch_nicht_geprueft_ist(make_session):
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-698.66")
+        (a,) = gleiche_sammelbelastungen_ab(s, SKR03, EINST).abweichungen
+        (b,) = _buchungen_zu(s, "KREDITKARTENABRECHNUNG")
+        setze_status(s, str(b.id), BuchungStatus.EXPORTIERT)
+        with pytest.raises(KreditkartenError, match="exportiert"):
+            loese_zuordnung(s, str(a.id), SKR03, EINST)
+        with pytest.raises(KreditkartenError, match="Keine Abrechnung"):
+            loese_zuordnung(s, "ffffffff", SKR03, EINST)
+
+
+# --- Karten mit Abruf: spät kommende Umsätze, Ausgleich ----------------------------
+
+
+def _nur_abrufkarte(s, *umsaetze, abrechnungstag=20):
+    speichere_bankkonto(
+        s,
+        Bankkonto(
+            iban="DKBVISA9",
+            bezeichnung="Visa DKB",
+            sachkonto="1732",
+            einstellungen={"ordner": "/tmp"},
+        ),
+    )
+    karte, _ = richte_karte_ein(
+        s, girokonto=GIRO, konto="DKBVISA9", abrechnungstag=abrechnungstag
+    )
+    if umsaetze:
+        _auf_konto(s, "DKBVISA9", *umsaetze)
+    return karte
+
+
+def test_spaet_kommende_kartenumsaetze_werden_nachgetragen(make_session):
+    """Das Girokonto kommt täglich, die Kartenumsätze monatlich per Datei: Die
+    Abrechnung wird gebildet, bevor alle Umsätze bis zum Stichtag da sind."""
+    with make_session() as s:
+        _nur_abrufkarte(s, _umsatz("-100.00", 2, "HOTEL KIEL", monat=3))
+        _belastung(s, "-150.00", tag=25, text="VISA DKB ABRECHNUNG", monat=3)
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = erster.abweichungen
+        assert a.summe == Decimal("-100.00")
+        (giro,) = _buchungen_zu(s, "VISA DKB")
+        assert giro.status is BuchungStatus.ZUR_PRUEFUNG
+
+        _auf_konto(s, "DKBVISA9", _umsatz("-50.00", 20, "BAHN", monat=3))
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = zweiter.abgeglichen
+        assert (a.stichtag, a.summe, a.anzahl, a.befund) == (
+            date(2026, 3, 20),
+            Decimal("-150.00"),
+            2,
+            None,
+        )
+        bahn = next(t for t in lade_transaktionen(s) if t.verwendungszweck == "BAHN")
+        assert bahn.id in abgerechnete_transaktion_ids(s)
+        (giro,) = _buchungen_zu(s, "VISA DKB")
+        assert (giro.status, giro.confidence, giro.soll_konto) == (
+            BuchungStatus.AUTO_GEBUCHT,
+            1.0,
+            "1360",
+        )
+
+
+def test_umsatz_nach_abgeglichener_abrechnung_kommt_in_die_naechste(make_session):
+    """Bucht der Herausgeber einen Umsatz erst nach dem Stichtag, steht er in der
+    nächsten Abrechnung — er fällt nicht aus jeder heraus."""
+    with make_session() as s:
+        _nur_abrufkarte(s, _umsatz("-100.00", 2, "HOTEL KIEL", monat=3))
+        _belastung(s, "-100.00", tag=25, text="VISA DKB ABRECHNUNG", monat=3)
+        assert len(gleiche_sammelbelastungen_ab(s, SKR03, EINST).abgeglichen) == 1
+        _auf_konto(
+            s,
+            "DKBVISA9",
+            _umsatz("-50.00", 19, "BAHN", monat=3),  # kam zu spät
+            _umsatz("-30.00", 10, "TAXI", monat=4),
+        )
+        _belastung(s, "-80.00", tag=25, text="VISA DKB ABRECHNUNG", monat=4)
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = zweiter.abgeglichen
+        assert (a.stichtag, a.summe, a.anzahl) == (
+            date(2026, 4, 20),
+            Decimal("-80.00"),
+            2,
+        )
+
+
+def test_ausgleich_nur_mit_gleich_hoher_sammelbelastung_automatisch(make_session):
+    """Die Ausgleichszeile auf dem Kartenkonto wird nur dann automatisch gegen
+    Geldtransit gebucht, wenn dort eine gleich hohe Sammelbelastung dieser Karte
+    steht — sonst bliebe Geldtransit offen (anderes Konto, Einlage, Abweichung)."""
+    with make_session() as s:
+        _nur_abrufkarte(
+            s,
+            _umsatz("-150.00", 2, "HOTEL KIEL", monat=3),
+            _umsatz("150.00", 27, "LASTSCHRIFT AUSGLEICH", monat=3),
+            _umsatz("120.00", 25, "ZAHLUNG ERHALTEN - DANKE", monat=2),
+        )
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)  # Belastung fehlt
+        assert erster.ausgleich_gebucht == 2
+        assert {t.betrag for t in erster.ausgleich_ohne_belastung} == {
+            Decimal("150.00"),
+            Decimal("120.00"),
+        }
+        assert {b.status for b in lade_buchungen(s)} == {BuchungStatus.ZUR_PRUEFUNG}
+
+        _belastung(s, "-150.00", tag=25, text="VISA DKB ABRECHNUNG", monat=3)
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert len(zweiter.abgeglichen) == 1
+        assert zweiter.ausgleich_gebucht == 0 and zweiter.ausgleich_ohne_belastung == []
+        (passend,) = _buchungen_zu(s, "LASTSCHRIFT AUSGLEICH")
+        assert (
+            passend.soll_konto,
+            passend.haben_konto,
+            passend.status,
+            passend.confidence,
+        ) == ("1732", "1360", BuchungStatus.AUTO_GEBUCHT, 1.0)
+        (vorperiode,) = _buchungen_zu(s, "ZAHLUNG ERHALTEN")
+        assert vorperiode.status is BuchungStatus.ZUR_PRUEFUNG

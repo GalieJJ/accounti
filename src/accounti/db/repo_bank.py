@@ -11,8 +11,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.db.repository import _row_zu_transaktion
-from accounti.db.tabellen import BankkontoRow, TransaktionRow
+from accounti.db.tabellen import BankkontoRow, BuchungssatzRow, TransaktionRow
 from accounti.db.tabellen_bank import (
+    KreditkartenablehnungRow,
     KreditkartenabrechnungRow,
     KreditkartenumsatzRow,
     KreditkarteRow,
@@ -179,6 +180,50 @@ def lade_abrechnungen(
         KreditkartenabrechnungRow.stichtag, KreditkartenabrechnungRow.erstellt_am
     ).all()
     return [_row_zu_abrechnung(r) for r in rows]
+
+
+def ergaenze_abrechnung(
+    session: Session, a: Kreditkartenabrechnung, transaktion_ids: Iterable[UUID]
+) -> None:
+    """Weitere Umsätze einer Abrechnung zuordnen (Summe und Anzahl stehen in ``a``)."""
+    try:
+        with session.begin_nested():
+            for tx_id in transaktion_ids:
+                session.add(
+                    KreditkartenumsatzRow(
+                        transaktion_id=str(tx_id), abrechnung_id=str(a.id)
+                    )
+                )
+            session.flush()
+    except IntegrityError as fehler:
+        raise ValueError("Ein Umsatz gehört schon zu einer Abrechnung") from fehler
+    aktualisiere_abrechnung(session, a)
+
+
+def lehne_belastung_ab(session: Session, abrechnung_id: UUID, tx_id: UUID) -> None:
+    if session.get(KreditkartenablehnungRow, (str(abrechnung_id), str(tx_id))):
+        return
+    session.add(
+        KreditkartenablehnungRow(
+            abrechnung_id=str(abrechnung_id), transaktion_id=str(tx_id)
+        )
+    )
+    session.flush()
+
+
+def abgelehnte_belastungen(session: Session) -> set[tuple[UUID, UUID]]:
+    """(Abrechnung, Belastung), die ein Mensch getrennt hat."""
+    rows = session.query(
+        KreditkartenablehnungRow.abrechnung_id, KreditkartenablehnungRow.transaktion_id
+    ).all()
+    return {(UUID(a), UUID(t)) for a, t in rows}
+
+
+def loesche_buchung(session: Session, buchung_id: UUID) -> None:
+    """Vorläufige Buchung des Kartenabgleichs entfernen (noch nicht freigegeben)."""
+    zeilen = session.query(BuchungssatzRow)
+    zeilen.filter(BuchungssatzRow.id == str(buchung_id)).delete()
+    session.flush()
 
 
 def abgerechnete_transaktion_ids(session: Session) -> set[UUID]:
