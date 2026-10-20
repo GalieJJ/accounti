@@ -43,12 +43,13 @@ dependencies = [
     "pillow>=10,<13",
     # Bankzugänge verschlüsselt ablegen (AES-GCM)
     "cryptography>=50.0.2,<51",
-    # FinTS-Direktabruf (LGPL-3.0-or-later, als Bibliothek eingebunden); 5.0.1 vom
-    # 09.10.2026 erst nach Erprobung — sie erlaubt dann auch lxml 6.1 (CVE-2026-41066)
-    "fints==5.0.0",
 ]
 
 [project.optional-dependencies]
+# FinTS-Direktabruf (LGPL-3.0-or-later, als Bibliothek eingebunden), optional: fints 5.0.0
+# verlangt lxml < 6.1 (CVE-2026-41066 — accounti ruft den betroffenen Pfad nicht auf).
+# Auf fints 5.0.1 mit lxml >= 6.1 wechseln, sobald sie zwei Wochen alt ist (23.10.2026).
+fints = ["fints==5.0.0"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",

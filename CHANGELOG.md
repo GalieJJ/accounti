@@ -7,6 +7,27 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Live-Bankanbindung, Paket 3 – FinTS & Kreditkarten** (Baustein 5): Provider `fints` über
+  python-fints — Produkt-ID je Installation (`ACCOUNTI_FINTS_PRODUKT_ID` oder `bank.fints`),
+  Benutzerkennung, PIN und Sitzung (Kundensystem-ID) verschlüsselt im Tresor, camt.052
+  bevorzugt, sonst MT940; verlangt die Bank eine Freigabe, setzt `bank abrufen` den Zustand
+  `freigabe_noetig`, `accounti fints freigeben` fragt nach der TAN oder wartet auf die App;
+  `accounti fints einrichten` wählt das TAN-Verfahren und erledigt die erste Freigabe. Lehnt die
+  Bank die Anmeldung ab, steht das Konto auf `zugang_abgelehnt` und der Cron versucht es nicht
+  weiter (`accounti fints zugang` nimmt die neue PIN); Konten auf `freigabe_noetig` ruft er
+  ebenfalls erst nach `fints freigeben` wieder ab. Das Format (camt/MT940) bleibt fest und
+  wechselt nur mit `accounti fints format`; FinTS nur über https.
+  Kontoauszüge im Format MT940 und CAMT (camt.052/053/054, .02 und .08) für `import bank`, den
+  Datei-Provider und FinTS, mit Saldenprobe. Kreditkarten als eigene Bankkonten mit eigenem
+  Sachkonto (`accounti kreditkarte einrichten|liste|uebernehmen|abrechnen|abgleich`): Umsätze aus
+  PDF-Abrechnungen oder per Provider, Sammelbelastung auf dem Girokonto gegen die Summe der
+  Einzelumsätze — Abweichung ist ein Befund, keine Rundungsbuchung, und bleibt vorläufig, bis ein
+  Mensch sie bestätigt (`accounti kreditkarte loesen` löst sie, `--belastung` entscheidet
+  „mehrdeutig“); Geldtransit für Karten mit Abruf (der Ausgleich wird nur gegen eine bestätigte
+  Sammelbelastung freigegeben). Neuer, optionaler Abschnitt `bank`. Neue Abhängigkeit `fints` 5.0.0 (LGPL-3.0-or-later)
+- **FinTS als Zusatzpaket:**  — fints 5.0.0 verlangt lxml < 6.1
+  (CVE-2026-41066; accounti ruft den betroffenen Pfad nicht auf); Wechsel auf fints 5.0.1 mit
+  lxml ≥ 6.1 ab dem 23.10.2026
 - **Steuermeldungen & elektronische Übermittlung** (Baustein 9): Kennziffern der
   Umsatzsteuer-Voranmeldung nach Vordruck 2026 aus den Buchungen (`accounti ustva --period`),
   Plausibilisierung mit Schweregraden (`ustva pruefen`): Buchungen ohne Steuerschlüssel auf
@@ -211,6 +232,20 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- **Dublettenschutz** über die Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`), wo
+  vorhanden: derselbe Umsatz aus zwei Dateien eines Abrufs oder aus camt.053 und camt.054 bleibt
+  einer. Ohne Referenz zählt die laufende Nummer gleicher Umsätze je Auszug bzw. Datei statt je
+  Abruf: derselbe Umsatz aus Tages- und Monatsauszug bleibt einer
+- **Datei-Provider** liest neben CSV auch MT940 und CAMT, überspringt Auszüge fremder Konten,
+  liest doppelte Dateien und Auszüge nur einmal und meldet den Saldo
+- **`bank lauf`** gleicht vor den offenen Posten die Kreditkarten ab und nennt das Ergebnis
+- **`import bank`** übernimmt bei MT940/CAMT nur die Auszüge des Kontos aus `--konto` und lehnt
+  Dateien mehrerer Konten ohne `--konto` ab; ein Konto ohne IBAN (Kreditkarte) nimmt keine
+  Auszüge eines Bankkontos (IBAN, BLZ/Kontonummer) an
+- **Provider-Schnittstelle:** Rückfrage für Freigaben (`freigabe`), aktualisierte Zugänge
+  (`Abruf.zugang`, `FreigabeNoetigError.zugang`) werden neu verschlüsselt
+- **Kontoauszüge** im Datei-Provider: Dateien mit `.txt`/`.xml` werden nur übernommen, wenn sie
+  MT940 oder CAMT enthalten
 - `steuer/voranmeldung.py` bildet den amtlichen Vordruck 2026 ab: alle Kennziffern mit Zeile,
   Bemessungsgrundlagen in vollen Euro, Steuer zu Kz 81/86/89/93 wie ELSTER aus der
   Bemessungsgrundlage, Kz 83 als Ergebnis; § 13b getrennt in 46/47, 73/74 und 84/85;
@@ -258,6 +293,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
+  erkannt“ zu melden
+- `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback
 - **UStVA:** Das Skonto, das der Ausgleich für den 0-%-Anteil einer Mischrechnung (z. B.
   Kz 41 + Kz 81) ohne Steuerschlüssel bucht, sperrte die Freigabe; es wird jetzt der einzigen
   steuerfreien Kennziffer der Rechnung zugeordnet

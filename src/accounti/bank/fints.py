@@ -116,8 +116,12 @@ def _mt940_text(antworten: Any) -> str:
 @functools.cache
 def _client_klasse() -> type:
     """python-fints-Client mit roher MT940-Abfrage (statt mt-940-Objekten)."""
-    from fints.client import FinTS3PinTanClient
-    from fints.segments.statement import HKKAZ5, HKKAZ6, HKKAZ7
+    try:
+        from fints.client import FinTS3PinTanClient
+        from fints.segments.statement import HKKAZ5, HKKAZ6, HKKAZ7
+    except ImportError as fehler:
+        msg = 'FinTS braucht das Zusatzpaket: pip install "accounti[fints]"'
+        raise ProviderError(msg) from fehler
 
     class Client(FinTS3PinTanClient):  # type: ignore[misc]
         def bietet_camt(self) -> bool:
