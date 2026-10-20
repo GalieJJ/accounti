@@ -91,6 +91,36 @@ def _verkaeufer(firma: Firma) -> Partei:
     )
 
 
+def _berechner(firma: Firma) -> UStBerechner:
+    return UStBerechner(
+        firmen_land=firma.anschrift.land,
+        oss_registriert=firma.oss,
+        oss_schwelle_ueberschritten=firma.oss,
+    )
+
+
+def ustid_pflichtig(entwurf: Ausgangsrechnung, firma: Firma) -> bool:
+    """Wird die Rechnung steuerfrei (K) oder mit Reverse Charge (AE) — braucht sie
+    also eine bestätigte USt-IdNr. des Kunden?"""
+    k = entwurf.kunde
+    if k.privat or not k.ust_id:
+        return False
+    berechner = _berechner(firma)
+    return any(
+        berechner.bestimme_vorfall(
+            k.land.upper(),
+            ist_b2b=True,
+            kaeufer_hat_ust_id=True,
+            ist_sonstige_leistung=p.sonstige_leistung,
+        )
+        in (
+            Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH,
+            Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE,
+        )
+        for p in entwurf.positionen
+    )
+
+
 def baue_rechnung(
     entwurf: Ausgangsrechnung,
     firma: Firma,
@@ -101,11 +131,7 @@ def baue_rechnung(
     _pruefe_kunde(entwurf)
     k = entwurf.kunde
     land = k.land.upper()
-    berechner = UStBerechner(
-        firmen_land=firma.anschrift.land,
-        oss_registriert=firma.oss,
-        oss_schwelle_ueberschritten=firma.oss,
-    )
+    berechner = _berechner(firma)
     ist_b2b = not k.privat
     hat_ust_id = bool(k.ust_id)
 

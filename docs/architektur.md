@@ -118,13 +118,13 @@ Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
-### `kontakte/` *(teilweise — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
+### `kontakte/` *(vorhanden — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
 
 Debitoren- und Kreditorenstammdaten mit Personenkontonummern aus den Nummernkreisen des Kontenrahmens (Abschnitt `buchhaltung`, Standard 10000–69999 / 70000–99999). `erkennung.py` findet Kontakte über IBAN, dann USt-IdNr., dann den normalisierten Namen (Rechtsform, Satzzeichen, Umlaut-Schreibweisen egal) — greift nichts, geht die Neuanlage zur Prüfung, statt still zu passieren. `dienst.py` legt an, vergibt das Personenkonto der Rolle und ergänzt fehlende Angaben, ohne vorhandene zu überschreiben. *(vorhanden)*
 
-`ustid.py` führt die qualifizierte Bestätigungsabfrage durch und protokolliert sie revisionssicher. Erst damit steht die in `steuer/umsatzsteuer.py` implementierte Regel „EU + B2B mit USt-ID → 0 %" auf einer belastbaren Grundlage.
+`ustid.py` führt die qualifizierte Bestätigungsabfrage beim BZSt durch (eVatR-REST-API `POST https://api.evatr.vies.bzst.de/app/v1/abfrage`; die XML-RPC-Schnittstelle ist seit 30.11.2025 abgeschaltet) und protokolliert sie revisionssicher: Tabelle `ustid_pruefungen` mit Rohanfrage und Rohantwort, laufender Nummer und SHA-256-Hash-Kette; Änderungen und Löschungen scheitern am ORM, unter SQLite zusätzlich an Triggern; `pruefe_protokoll()` findet Lücken und veränderte Einträge. Bestätigt ist eine Nummer erst mit `evatr-0000` aus einer qualifizierten Abfrage, bei der Name und Ort nicht abweichen; es zählt die jüngste aussagekräftige Antwort innerhalb von `ustid_pruefung.max_alter_tage`. Erst damit steht die in `steuer/umsatzsteuer.py` implementierte Regel „EU + B2B mit USt-ID → 0 %" auf einer belastbaren Grundlage: `erechnung/ausstellung.py` stellt K und AE ohne Bestätigung nicht aus, `opos/verbuchung.py` bucht solche Erlöse nur zur Prüfung. *(vorhanden)*
 
-### `opos/` *(teilweise — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
+### `opos/` *(vorhanden — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
 
 Offene Posten mit Fälligkeit, Skontofrist und Restbetrag. `verbuchung.py` macht aus einem erfassten Beleg die Buchungen je Steuersatz (Eingang: Sachkonto aus Kontakt-Vorschlag, Regelwerk oder Standard zur Prüfung; Ausgang: Erlöskonto nach Steuerkategorie der E-Rechnung) und den Posten; jeder Beleg genau einmal, jeder in eigenem Savepoint. `auswertung.py` liefert OPOS-Liste, Fälligkeitsstaffel und Summen je Kontakt. *(vorhanden)*
 
@@ -251,6 +251,7 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `Belegposition` | Bezeichnung, Menge, Netto, Steuersatz, Steuerbetrag, Kontovorschlag | → `Beleg`; `Buchungssatz.beleg_position_id` |
 | `Kontakt` | Name, Anschrift, Land, USt-IdNr., IBAN, Zahlungsbedingungen, Personenkonto | → `Beleg`, `OffenerPosten` |
 | `OffenerPosten` | Richtung, Betrag, Restbetrag, Fälligkeit, Skontofrist, Status, Mahnstufe | → `Kontakt`, `Beleg` |
+| `UstIdPruefung` | Nr., Zeitpunkt, USt-IdNr., Art, Anfrage/Antwort roh, BZSt-Status und -ID, Ergebnisse A–D, Vorgänger-Hash, Hash | → `Kontakt` (nur anfügen) |
 | `Zahlung` | Lauf, Betrag, Ausführungsdatum, Status (Entwurf → freigegeben → eingereicht → ausgeführt) | → `OffenerPosten` |
 | `Aufgabe` | Art, Titel, Objektbezug, Zuständigkeit, Fälligkeit, Status, Idempotenzschlüssel | → beliebiges Objekt |
 | `Anlagegut` | Anschaffungsdatum und -kosten, Nutzungsdauer, AfA-Art, Restbuchwert, Abgang | → `Beleg`, `Buchungssatz` |

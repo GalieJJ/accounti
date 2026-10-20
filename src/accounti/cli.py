@@ -9,15 +9,22 @@ from rich.console import Console
 if TYPE_CHECKING:
     from datetime import date
 
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, sessionmaker
 
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
-    from accounti.konfiguration import Firma
-    from accounti.models import Beleg, Buchungssatz, Kontakt, PostenRichtung
+    from accounti.konfiguration import Firma, UstIdEinstellungen
+    from accounti.kontakte.ustid import Bewertung
+    from accounti.models import (
+        Beleg,
+        Buchungssatz,
+        Kontakt,
+        PostenRichtung,
+        UstIdPruefung,
+    )
     from accounti.opos.zuordnung import Zuordnungsvorschlag
 
 app = typer.Typer(
@@ -662,6 +669,60 @@ def _mustang_ausgabe(ergebnis: "MustangErgebnis") -> None:
         console.print(f"  [red]{escape(m)}[/red]")
 
 
+def _ustid_vor_ausstellung(
+    make_session: "sessionmaker[Session]",
+    schluessel: str,
+    firma: "Firma",
+    rechnungsdatum: "date",
+    einstellungen: "UstIdEinstellungen",
+) -> None:
+    """Steuerfreie EU-Rechnung ohne aktuelle Bestätigung: jetzt beim BZSt anfragen.
+
+    Eigene Transaktion: Das Ergebnis bleibt im Protokoll, auch wenn die
+    Ausstellung danach scheitert. Ob es reicht, entscheidet ``stelle_aus``.
+    """
+    from rich.markup import escape
+
+    from accounti.db.repository import lade_ausgangsrechnung
+    from accounti.erechnung.erzeuger.aufbau import ustid_pflichtig
+    from accounti.kontakte.ustid import (
+        EvatrClient,
+        UstIdError,
+        aktuelle_bestaetigung,
+        baue_anfrage,
+        pruefe_ustid,
+    )
+    from accounti.models import AusgangsrechnungStatus
+
+    with make_session() as s:
+        try:
+            entwurf = lade_ausgangsrechnung(s, schluessel)
+        except ValueError:
+            return  # meldet stelle_aus
+        if entwurf.status is not AusgangsrechnungStatus.ENTWURF or not (
+            ustid_pflichtig(entwurf, firma)
+        ):
+            return
+        k = entwurf.kunde
+        lage = aktuelle_bestaetigung(
+            s, k.ust_id, rechnungsdatum, einstellungen.max_alter_tage
+        )
+        if lage.bestaetigt:
+            return
+        try:
+            anfrage = baue_anfrage(
+                firma.ust_id, k.ust_id, k.name, k.strasse, k.plz, k.ort
+            )
+            weg = EvatrClient(einstellungen.url, einstellungen.timeout_sekunden)
+        except UstIdError as fehler:
+            console.print(f"[red]Nicht ausgestellt: {escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        console.print(f"[dim]USt-IdNr. {anfrage.ust_id}: Bestätigung beim BZSt …[/dim]")
+        p = pruefe_ustid(s, weg, anfrage)
+        s.commit()
+    _ustid_ausgabe(p)
+
+
 @rechnung_app.command("ausstellen")
 def rechnung_ausstellen(
     schluessel: str = typer.Argument(help="Entwurfs-ID (Anfang genügt)"),
@@ -688,8 +749,15 @@ def rechnung_ausstellen(
     from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
     from accounti.erechnung.kosit import KositPruefer
     from accounti.erechnung.mustang import MustangPruefer
+    from accounti.konfiguration import KonfigurationError, lade_ustid_pruefung
 
     firma = _lade_firma_oder_ende(config)
+    try:
+        ustid_einstellungen = lade_ustid_pruefung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    rechnungsdatum = _datum_option(datum, "--datum") or date.today()
     kosit = pdf_pruefer = None
     if not ohne_pruefung:
         kosit, pdf_pruefer = KositPruefer(), MustangPruefer()
@@ -709,6 +777,9 @@ def rechnung_ausstellen(
 
     engine, make_session = session_factory(db)
     init_db(engine)
+    _ustid_vor_ausstellung(
+        make_session, schluessel, firma, rechnungsdatum, ustid_einstellungen
+    )
     with make_session() as s:
         try:
             ergebnis = stelle_aus(
@@ -716,9 +787,10 @@ def rechnung_ausstellen(
                 BelegArchiv(archiv),
                 schluessel,
                 firma,
-                _datum_option(datum, "--datum") or date.today(),
+                rechnungsdatum,
                 kosit=kosit,
                 pdf_pruefer=pdf_pruefer,
+                ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
             )
         except (AusstellungError, ValueError) as fehler:
             s.rollback()  # Nummer bleibt frei, der Kreis lückenlos
@@ -749,6 +821,14 @@ def rechnung_ausstellen(
         console.print("[yellow]Ohne formale Prüfung ausgestellt.[/yellow]")
     for b in ergebnis.befunde:
         console.print(f"  [yellow]Hinweis {escape(str(b))}[/yellow]")
+    if ergebnis.ustid is not None and ergebnis.ustid.pruefung is not None:
+        p = ergebnis.ustid.pruefung
+        console.print(
+            f"  USt-IdNr. {p.ust_id}: {escape(ergebnis.ustid.grund)} "
+            f"(BZSt, Protokoll Nr. {p.nr})"
+        )
+        for hinweis in ergebnis.ustid.hinweise:
+            console.print(f"  [yellow]Hinweis: {escape(hinweis)}[/yellow]")
 
 
 @rechnung_app.command("senden")
@@ -971,9 +1051,10 @@ def kontakte_zeigen(
     """Stammdaten und offene Posten eines Kontakts."""
     from rich.markup import escape
 
-    from accounti.anzeige import betrag_de
+    from accounti.anzeige import betrag_de, datum_de
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import lade_posten
+    from accounti.db.repository import lade_posten, lade_ustid_pruefungen
+    from accounti.kontakte.ustid import bewerte, normalisiere
     from accounti.opos.auswertung import offene_posten
 
     engine, make_session = session_factory(db)
@@ -981,6 +1062,9 @@ def kontakte_zeigen(
     with make_session() as s:
         k = _kontakt_oder_ende(s, schluessel)
         posten = [p for p in offene_posten(lade_posten(s)) if p.kontakt_id == k.id]
+        pruefungen = (
+            lade_ustid_pruefungen(s, normalisiere(k.ust_id)) if k.ust_id else []
+        )
 
     def zeile(label: str, wert: object) -> None:
         text = "—" if wert in (None, "") else escape(str(wert))
@@ -995,6 +1079,12 @@ def kontakte_zeigen(
         ),
     )
     zeile("USt-IdNr.", k.ust_id)
+    if pruefungen:
+        letzte = pruefungen[-1]
+        zeile(
+            "USt-IdNr.-Prüfung",
+            f"{datum_de(letzte.zeitpunkt.date())}: {bewerte(letzte).grund}",
+        )
     zeile("Steuernummer", k.steuernummer)
     zeile("IBAN", k.iban)
     zeile("E-Mail", k.email)
@@ -1087,6 +1177,167 @@ def kontakte_bearbeiten(
 # ---------------------------------------------------------------------------
 # Offene Posten
 # ---------------------------------------------------------------------------
+_VERGLEICH = {
+    "A": "stimmt",
+    "B": "stimmt nicht",
+    "C": "nicht angefragt",
+    "D": "nicht mitgeteilt",
+}
+
+
+def _ustid_ausgabe(p: "UstIdPruefung") -> "Bewertung":
+    """Ergebnis einer Bestätigungsabfrage — grün bestätigt, gelb gültig, rot sonst."""
+    from rich.markup import escape
+
+    from accounti.kontakte.ustid import bewerte
+
+    b = bewerte(p)
+    farbe = "green" if b.bestaetigt else "yellow" if b.gueltig else "red"
+    wer = f" ({escape(p.firmenname)}, {p.art.value})" if p.firmenname else ""
+    console.print(f"[{farbe}]USt-IdNr. {p.ust_id}[/{farbe}]{wer} — {escape(b.grund)}")
+    vergleich = [
+        f"{name} {_VERGLEICH.get(wert, wert)}"
+        for name, wert in (
+            ("Name", p.erg_firmenname),
+            ("Straße", p.erg_strasse),
+            ("PLZ", p.erg_plz),
+            ("Ort", p.erg_ort),
+        )
+        if wert
+    ]
+    if vergleich:
+        console.print("  " + " · ".join(vergleich))
+    for hinweis in b.hinweise:
+        console.print(f"  [yellow]Hinweis: {escape(hinweis)}[/yellow]")
+    console.print(
+        f"  [dim]BZSt {p.bzst_zeitpunkt or '—'} · ID {p.bzst_id or '—'} · "
+        f"Protokoll Nr. {p.nr}[/dim]"
+    )
+    return b
+
+
+@kontakte_app.command("pruefe-ustid")
+def kontakte_pruefe_ustid(
+    schluessel: str = typer.Argument(help="Personenkonto oder Anfang der ID"),
+    einfach: bool = typer.Option(
+        False, "--einfach", help="Nur Gültigkeit, ohne Name und Anschrift"
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """USt-IdNr. beim BZSt bestätigen lassen (qualifiziert) und protokollieren."""
+    from rich.markup import escape
+
+    from accounti.db import init_db, session_factory
+    from accounti.konfiguration import (
+        KonfigurationError,
+        lade_eigene_firma,
+        lade_ustid_pruefung,
+    )
+    from accounti.kontakte.ustid import (
+        EvatrClient,
+        UstIdError,
+        baue_anfrage,
+        pruefe_ustid,
+    )
+
+    try:
+        einstellungen = lade_ustid_pruefung(config)
+        eigene = lade_eigene_firma(config)
+        weg = EvatrClient(einstellungen.url, einstellungen.timeout_sekunden)
+    except (KonfigurationError, UstIdError) as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        k = _kontakt_oder_ende(s, schluessel)
+        try:
+            anfrage = baue_anfrage(
+                eigene.ust_id if eigene else None,
+                k.ust_id,
+                k.name,
+                k.strasse,
+                k.plz,
+                k.ort,
+                einfach=einfach,
+            )
+        except UstIdError as fehler:
+            console.print(f"[red]{escape(k.name)}: {escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        p = pruefe_ustid(s, weg, anfrage, kontakt_id=k.id)
+        s.commit()  # der Nachweis bleibt, was auch immer danach geschieht
+    if not _ustid_ausgabe(p).gueltig:
+        raise typer.Exit(1)
+
+
+@kontakte_app.command("ustid-protokoll")
+def kontakte_ustid_protokoll(
+    ust_id: str | None = typer.Argument(None, help="Nur diese USt-IdNr."),
+    csv_datei: str | None = typer.Option(
+        None, "--csv", help="Protokoll als CSV (Semikolon) exportieren"
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Protokoll der USt-IdNr.-Bestätigungen — mit Prüfung auf Unverändertheit."""
+    import csv
+    from pathlib import Path
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.anzeige import datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_ustid_pruefungen
+    from accounti.kontakte.ustid import bewerte, normalisiere, pruefe_protokoll
+    from accounti.models import UstIdPruefung
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        alle = lade_ustid_pruefungen(s)
+    befunde = pruefe_protokoll(alle)
+    eintraege = (
+        [p for p in alle if p.ust_id == normalisiere(ust_id)] if ust_id else alle
+    )
+
+    if eintraege:
+        tabelle = Table(title="USt-IdNr.-Protokoll")
+        for spalte in ("Nr", "Zeitpunkt", "USt-IdNr.", "Art", "Status", "Ergebnis"):
+            tabelle.add_column(spalte, overflow="fold")
+        for p in eintraege:
+            tabelle.add_row(
+                str(p.nr),
+                f"{datum_de(p.zeitpunkt.date())} {p.zeitpunkt:%H:%M:%S}",
+                p.ust_id,
+                p.art.value,
+                p.status or (f"HTTP {p.http_status}" if p.http_status else "—"),
+                escape(bewerte(p).grund),
+            )
+        console.print(tabelle)
+    else:
+        console.print("[dim]Keine Einträge.[/dim]")
+    if csv_datei:
+        with Path(csv_datei).open("w", encoding="utf-8", newline="") as datei:
+            schreiber = csv.DictWriter(
+                datei, fieldnames=list(UstIdPruefung.model_fields), delimiter=";"
+            )
+            schreiber.writeheader()
+            for p in eintraege:
+                schreiber.writerow(p.model_dump(mode="json"))
+        console.print(f"[dim]{len(eintraege)} Einträge → {escape(csv_datei)}[/dim]")
+
+    if befunde:
+        console.print("[red]Protokoll beschädigt:[/red]")
+        for befund in befunde:
+            console.print(f"  [red]{escape(befund)}[/red]")
+        raise typer.Exit(1)
+    console.print(
+        "[green]Protokoll vollständig und unverändert[/green] — "
+        f"{len(alle)} {'Eintrag' if len(alle) == 1 else 'Einträge'}, Hash-Kette geprüft"
+    )
+
+
 opos_app = typer.Typer(help="Offene Posten: verbuchen, Liste, Fälligkeitsstaffel.")
 app.add_typer(opos_app, name="opos")
 
@@ -1132,12 +1383,14 @@ def opos_verbuchen(
         KonfigurationError,
         lade_buchhaltung,
         lade_eigene_firma,
+        lade_ustid_pruefung,
     )
     from accounti.models import BuchungStatus, PostenRichtung
     from accounti.opos.verbuchung import verbuche_belege
 
     try:
         einstellungen = lade_buchhaltung(config)
+        ustid_einstellungen = lade_ustid_pruefung(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -1151,6 +1404,7 @@ def opos_verbuchen(
             BelegArchiv(archiv),
             regelwerk,
             eigene_firma=lade_eigene_firma(config),
+            ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
         )
         s.commit()
     for v in lauf.verbucht:
@@ -1171,6 +1425,8 @@ def opos_verbuchen(
             f"{len(v.buchungen)} Buchungen"
             + (f", [yellow]{pruefen} zur Prüfung[/yellow]" if pruefen else "")
         )
+        for hinweis in v.hinweise:
+            console.print(f"  [yellow]{escape(hinweis)}[/yellow]")
     for beleg, grund in lauf.fehler:
         console.print(
             "[red]Nicht verbucht:[/red] "

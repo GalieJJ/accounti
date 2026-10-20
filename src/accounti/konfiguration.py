@@ -6,6 +6,7 @@ elektronische Adresse und Zahlungsdaten des Verkäufers.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,6 +14,7 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.belege.extraktion import iban_gueltig
+from accounti.kontakte.ustid import EVATR_URL
 
 if TYPE_CHECKING:
     from accounti.kontakte.dienst import Partnerdaten
@@ -168,6 +170,35 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
         return Buchhaltung.model_validate(abschnitt or {})
     except ValidationError as fehler:
         msg = f"{pfad}: Abschnitt 'buchhaltung': {_fehlertext(fehler)}"
+        raise KonfigurationError(msg) from fehler
+
+
+class UstIdEinstellungen(BaseModel):
+    """Bestätigungsabfrage beim BZSt (Abschnitt ``ustid_pruefung``)."""
+
+    url: str = EVATR_URL
+    timeout_sekunden: float = Field(default=60, gt=0)
+    max_alter_tage: int = Field(
+        default=30,
+        ge=0,
+        description="so lange vor dem Rechnungsdatum gilt eine Bestätigung",
+    )
+
+
+def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
+    """Abschnitt ``ustid_pruefung``; ``ACCOUNTI_EVATR_URL`` ersetzt die URL."""
+    pfad = Path(pfad)
+    abschnitt: Any = None
+    if pfad.is_file():
+        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        abschnitt = daten.get("ustid_pruefung") if isinstance(daten, dict) else None
+    werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    if os.environ.get("ACCOUNTI_EVATR_URL"):
+        werte["url"] = os.environ["ACCOUNTI_EVATR_URL"]
+    try:
+        return UstIdEinstellungen.model_validate(werte)
+    except ValidationError as fehler:
+        msg = f"{pfad}: Abschnitt 'ustid_pruefung': {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler
 
 

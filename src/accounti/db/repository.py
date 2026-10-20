@@ -21,6 +21,7 @@ from accounti.db.tabellen import (
     NummernkreisRow,
     OffenerPostenRow,
     TransaktionRow,
+    UstIdPruefungRow,
     VersandprotokollRow,
     ZahlungszuordnungRow,
 )
@@ -45,6 +46,7 @@ from accounti.models import (
     Rechnungsempfaenger,
     Transaktion,
     TransaktionQuelle,
+    UstIdPruefung,
     Versandprotokoll,
     Zahlungszuordnung,
     ZuordnungStatus,
@@ -968,3 +970,37 @@ def gebuchte_transaktion_ids(session: Session) -> set[UUID]:
         .all()
     )
     return {UUID(t) for (t,) in rows if t}
+
+
+# --- USt-IdNr.-Protokoll (nur anfügen) ------------------------------------------
+
+
+def _row_zu_ustid(r: UstIdPruefungRow) -> UstIdPruefung:
+    return UstIdPruefung.model_validate(
+        {feld: getattr(r, feld) for feld in UstIdPruefung.model_fields}
+    )
+
+
+def speichere_ustid_pruefung(session: Session, p: UstIdPruefung) -> None:
+    werte = p.model_dump()
+    werte.update(
+        id=str(p.id),
+        kontakt_id=str(p.kontakt_id) if p.kontakt_id else None,
+        art=p.art.value,
+    )
+    session.add(UstIdPruefungRow(**werte))
+    session.flush()
+
+
+def lade_ustid_pruefungen(
+    session: Session, ust_id: str | None = None
+) -> list[UstIdPruefung]:
+    query = session.query(UstIdPruefungRow).order_by(UstIdPruefungRow.nr)
+    if ust_id is not None:
+        query = query.filter(UstIdPruefungRow.ust_id == ust_id)
+    return [_row_zu_ustid(r) for r in query.all()]
+
+
+def letzte_ustid_pruefung(session: Session) -> UstIdPruefung | None:
+    r = session.query(UstIdPruefungRow).order_by(UstIdPruefungRow.nr.desc()).first()
+    return _row_zu_ustid(r) if r is not None else None

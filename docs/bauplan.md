@@ -32,7 +32,7 @@ Tatsachen.
 | 1 | Bankauszug → Auto-Kontierung (Regeln + KI) → DATEV/CSV | `importers/` `klassifikation/` `buchung/` `export/` `db/` | ✅ fertig | [Spec](specs/2026-06-02-mvp-bank-auto-kontierung.md) |
 | 2 | Belegerfassung & Dokumentenmanagement | `belege/` | 🟨 teilweise | [Spec](specs/2026-08-10-belegerfassung.md) |
 | 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | ✅ fertig | [Spec](specs/2026-08-10-erechnung.md) |
-| 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | 🟨 teilweise | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
+| 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | ✅ fertig | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🔲 geplant | [Spec](specs/2026-08-10-bankanbindung-live.md) |
 | 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | 🔲 geplant | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
@@ -55,10 +55,11 @@ Ausstellen als XRechnung mit lückenlosen Nummernkreisen ([Paket 2](plans/2026-1
 sowie ZUGFeRD-PDF und E-Mail-Versand ([Paket 3](plans/2026-10-20-erechnung-paket-3-zugferd-versand.md)),
 jeweils formal geprüft. Offen als Erweiterungen: Storno/Korrekturrechnung (Typ 384), Dienstleistungen
 an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
-**Baustein 4 ist teilweise fertig,** weil Kontakte mit Personenkonten und offene Posten aus
-Belegen ([Paket 1](plans/2026-10-20-kontakte-opos-paket-1.md)) sowie Zahlungszuordnung und
-Ausgleich mit Skonto ([Paket 2](plans/2026-10-21-kontakte-opos-paket-2-zahlungen.md)) stehen —
-was fehlt, ist die USt-IdNr.-Prüfung (Paket 3).
+**Baustein 4 ist fertig:** Kontakte mit Personenkonten und offene Posten aus Belegen
+([Paket 1](plans/2026-10-20-kontakte-opos-paket-1.md)), Zahlungszuordnung und Ausgleich mit Skonto
+([Paket 2](plans/2026-10-21-kontakte-opos-paket-2-zahlungen.md)) sowie die qualifizierte
+USt-IdNr.-Bestätigung beim BZSt mit revisionssicherem Protokoll
+([Paket 3](plans/2026-10-22-kontakte-opos-paket-3-ustid.md)).
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 
