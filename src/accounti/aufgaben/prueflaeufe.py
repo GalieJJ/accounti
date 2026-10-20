@@ -7,8 +7,12 @@ Prüfung, Bankkonten mit Zustand), und meldet je Fund einen Anlass. Danach gleic
 aktualisiert, und Aufgaben ohne Anlass werden ``hinfaellig`` — so schließt sich
 „Beleg fehlt“ von selbst, sobald der Beleg abgeglichen ist.
 
-Andere Bausteine tragen eigene Läufe mit ``registriere_prueflauf`` ein; jeder Lauf
-besitzt genau eine Aufgabenart (seinen Namen).
+Andere Bausteine tragen eigene Läufe mit ``registriere_prueflauf`` ein — in ihrem
+Modul ``accounti.<baustein>.aufgaben_anbindung``, das ``fuehre_prueflaeufe_aus``
+selbst lädt. Jeder Lauf besitzt genau eine Aufgabenart (seinen Namen): Er schließt
+alle Aufgaben dieser Art ohne Anlass, gleich wer sie angelegt hat. Wer die Regeln
+eines eingebauten Laufs ändern will, registriert seinen Lauf unter demselben Namen
+(ersetzt ihn), statt dieselbe Art daneben zu melden.
 """
 
 from __future__ import annotations
@@ -17,11 +21,13 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+from decimal import ROUND_DOWN, ROUND_UP, Decimal
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
+from accounti.aufgaben.anbindung import lade_anbindungen
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.erzeugung import Abgleich, Anlass, gleiche_ab
 from accounti.aufgaben.fehler import AufgabenError
@@ -55,6 +61,9 @@ class Pruefergebnis:
     umfang: set[Objekt] | None = None
     # warum der Anlass für ein Objekt entfallen ist (sonst grund_entfallen des Laufs)
     gruende: dict[Objekt, str] = field(default_factory=dict)
+    # am Stichtag noch nicht beurteilbar (z.B. jüngere Umsätze bei einem Lauf mit
+    # früherem Stichtag) — ihre Aufgaben bleiben, wie sie sind
+    ausgenommen: set[Objekt] = field(default_factory=set)
 
 
 class Prueflauf(Protocol):
@@ -75,6 +84,7 @@ PRUEFLAEUFE: dict[str, Prueflauf] = {}
 
 
 def registriere_prueflauf(lauf: Prueflauf) -> None:
+    """Trägt den Lauf ein; ein Lauf gleichen Namens wird ersetzt."""
     Objekt(lauf.name, "probe")  # Name ist ein gültiger Bezeichner
     PRUEFLAEUFE[lauf.name] = lauf
 
@@ -88,8 +98,21 @@ def _titel(text: str) -> str:
     return text if len(text) <= 200 else text[:199] + "…"
 
 
-def _komma(wert: float) -> str:
-    return f"{wert:.2f}".replace(".", ",")
+def _vergleich(wert: float, schwelle: float) -> tuple[str, str]:
+    """``wert < schwelle`` so zeigen, dass die Rundung den Vergleich nicht umdreht:
+    Wert abgerundet, Schwelle aufgerundet, beide mit den Stellen der Schwelle
+    (mindestens zwei, höchstens vier) — 0,949 unter 0,95 ist „0,94“, nicht „0,95“."""
+    exponent = Decimal(str(schwelle)).normalize().as_tuple().exponent
+    stellen = min(4, max(2, -exponent if isinstance(exponent, int) else 2))
+    raster = Decimal(1).scaleb(-stellen)
+    return (
+        str(Decimal(str(wert)).quantize(raster, rounding=ROUND_DOWN)),
+        str(Decimal(str(schwelle)).quantize(raster, rounding=ROUND_UP)),
+    )
+
+
+def _komma(text: str) -> str:
+    return text.replace(".", ",")
 
 
 # ---------------------------------------------------------------------------
@@ -134,8 +157,9 @@ class KontierungPruefen:
             unsicher = b.confidence < schwelle
             if not unsicher and b.status is not BuchungStatus.ZUR_PRUEFUNG:
                 continue
+            confidence, grenze = _vergleich(b.confidence, schwelle)
             grund = (
-                f"Confidence {_komma(b.confidence)} unter Schwelle {_komma(schwelle)}"
+                f"Confidence {_komma(confidence)} unter Schwelle {_komma(grenze)}"
                 if unsicher
                 else "zur Prüfung vorgelegt"
             )
@@ -159,7 +183,7 @@ class KontierungPruefen:
                         "soll_konto": b.soll_konto,
                         "haben_konto": b.haben_konto,
                         "status": b.status.value,
-                        "confidence": f"{b.confidence:.2f}",
+                        "confidence": confidence,
                     },
                 )
             )
@@ -182,14 +206,19 @@ class BelegFehlt:
     ) -> Pruefergebnis:
         pruefung = einstellungen.pruefung
         frist = timedelta(days=einstellungen.frist_tage(self.name))
+        transaktionen = [
+            t for t in lade_transaktionen(session) if _im_zeitraum(t.datum, zeitraum)
+        ]
         ergebnis = Pruefergebnis(
-            umfang={
-                Objekt("transaktion", t.id)
-                for t in lade_transaktionen(session)
-                if _im_zeitraum(t.datum, zeitraum)
-            }
+            umfang={Objekt("transaktion", t.id) for t in transaktionen}
             if zeitraum
-            else None
+            else None,
+            # am Stichtag zu jung (oder danach): weder Anlass noch „hinfällig“
+            ausgenommen={
+                Objekt("transaktion", t.id)
+                for t in transaktionen
+                if (stichtag - t.datum).days < pruefung.beleg_fehlt_nach_tagen
+            },
         )
         belege = {b.id: b for b in lade_belege(session)}
         for a in lade_abgleiche(session, status={AbgleichStatus.BESTAETIGT}):
@@ -406,6 +435,7 @@ def fuehre_prueflaeufe_aus(
         raise AufgabenError(msg)
     jetzt = jetzt or datetime.now()
     stichtag = stichtag or jetzt.date()
+    lade_anbindungen()
     if namen:
         unbekannt = [n for n in namen if n not in PRUEFLAEUFE]
         if unbekannt:
@@ -431,6 +461,7 @@ def fuehre_prueflaeufe_aus(
             erzeugt_von=f"prueflauf:{lauf.name}",
             grund_entfallen=lauf.grund_entfallen,
             umfang=befund.umfang,
+            ausgenommen=befund.ausgenommen,
             gruende=befund.gruende,
             einstellungen=einstellungen,
             jetzt=jetzt,

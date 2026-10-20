@@ -10,6 +10,8 @@ from accounti.aufgaben import (
     AufgabenError,
     Vorgang,
     erledige,
+    gleiche_ab,
+    halte_rueckfrage_fest,
     melde_aufgabe,
     schliesse_wenn_erledigt,
     setze_status,
@@ -79,7 +81,9 @@ def test_neue_aufgabe_mit_nummer_frist_und_verlauf(make_session):
     assert a.faellig_am == HEUTE + timedelta(days=10)
     with make_session() as s:
         geladen = lade_aufgabe(s, "1")
-        assert geladen == lade_aufgabe(s, str(a.id)[:8])
+        # Anfang der ID — mit Bindestrich, damit er nie nur aus Ziffern besteht
+        # (sonst als Nummer gelesen, siehe Grenzen)
+        assert geladen == lade_aufgabe(s, str(a.id)[:13])
         (ereignis,) = lade_kommentare(s, aufgabe_id=a.id)
     assert geladen.merkmale == {"betrag": "-59.50"}
     assert geladen.beschreibung == "Umsatz vom 13.03."
@@ -197,11 +201,26 @@ def test_erledigt_bleibt_erledigt(make_session):
 def test_erledigen_nur_aktiver_aufgaben(make_session):
     with make_session() as s:
         _melde(s)
-        erledige(s, "1", von="jan")
+        erledige(s, "1", von="jan", text="Beleg liegt vor")
         with pytest.raises(AufgabenError, match="erledigt"):
-            erledige(s, "1", von="jan")
+            erledige(s, "1", von="jan", text="nochmal")
         with pytest.raises(AufgabenError, match="Keine Aufgabe"):
             erledige(s, "99", von="jan")
+
+
+def test_beleg_fehlt_nur_mit_begruendung_erledigen(make_session):
+    """Belegfrei ohne Begründung ließe nichts für das Belegprinzip zurück."""
+    with make_session() as s:
+        _melde(s)
+        for leer in (None, "   "):
+            with pytest.raises(AufgabenError, match="Begründung"):
+                erledige(s, "1", von="jan", text=leer)
+        assert lade_aufgabe(s, "1").aktiv
+        a = erledige(s, "1", von="jan", text="Kontoführungsgebühr, belegfrei")
+        assert a.status is AufgabenStatus.ERLEDIGT
+        # andere Arten gehen auch ohne Text
+        andere = melde_aufgabe(s, "kontakt_pruefen", Objekt("kontakt", "k1"), titel="x")
+        assert erledige(s, andere.aufgabe, von="jan").status is AufgabenStatus.ERLEDIGT
 
 
 def test_status_wechsel(make_session):
@@ -280,3 +299,74 @@ def test_zeitstempel(make_session):
         m = _melde(s, titel="neu", jetzt=spaeter)
     assert m.aufgabe.erstellt_am == JETZT and m.aufgabe.aktualisiert_am == spaeter
     assert isinstance(m.aufgabe.erstellt_am, datetime)
+
+
+def test_rollback_nimmt_alles_zurueck(make_session):
+    """Die Funktionen arbeiten in der Transaktion des Aufrufers und committen nicht —
+    auch unter SQLite, wo RELEASE des äußersten Savepoints als COMMIT wirkt."""
+    with make_session() as s:
+        _melde(s)
+        s.rollback()
+    with make_session() as s:
+        assert lade_aufgaben(s) == []
+        assert lade_kommentare(s, objekt=TX) == []
+
+
+def test_gleichzeitig_erledigt_wird_nicht_ueberschrieben(make_session, monkeypatch):
+    """Ein Lauf liest die aktiven Aufgaben, ein Mensch erledigt eine davon und
+    committet — der Lauf darf das „erledigt“ nicht mit „hinfällig“ überschreiben."""
+    with make_session() as s:
+        _melde(s)
+        s.commit()
+    import accounti.aufgaben.erzeugung as erzeugung
+
+    echt = erzeugung.lade_aufgaben
+
+    def und_dazwischen(session, **kw):
+        gelesen = echt(session, **kw)
+        with make_session() as mensch:
+            erledige(mensch, "1", von="jan", text="Beleg liegt vor")
+            mensch.commit()
+        return gelesen
+
+    monkeypatch.setattr(erzeugung, "lade_aufgaben", und_dazwischen)
+    with make_session() as s:
+        ergebnis = gleiche_ab(
+            s, "beleg_fehlt", [], erzeugt_von="test", grund_entfallen="weg", jetzt=JETZT
+        )
+        s.commit()
+    assert ergebnis.hinfaellig == [] and len(ergebnis.uebersprungen) == 1
+    with make_session() as s:
+        a = lade_aufgabe(s, "1")
+    assert a.status is AufgabenStatus.ERLEDIGT and a.quittiert_von == "jan"
+
+
+def test_veraltete_aufgabe_ist_ein_fehler(make_session):
+    """Wer eine inzwischen geänderte Aufgabe schreiben will, bekommt AufgabenError
+    statt die Änderung eines anderen zu überschreiben."""
+    with make_session() as s:
+        _melde(s)
+        s.commit()
+    with make_session() as lauf:
+        alt = lade_aufgabe(lauf, "1")
+        with make_session() as mensch:
+            weise_zu(mensch, "1", an="erika", von="erika")
+            mensch.commit()
+        from accounti.aufgaben.erzeugung import _schliesse
+
+        with pytest.raises(AufgabenError, match="inzwischen geändert"):
+            _schliesse(lauf, alt, "weg", "system", JETZT)
+    with make_session() as s:
+        a = lade_aufgabe(s, "1")
+    assert a.aktiv and a.zustaendig == "erika"
+
+
+def test_benutzer_oder_rolle_nicht_beides(make_session):
+    with make_session() as s:
+        with pytest.raises(AufgabenError, match="nicht beides"):
+            _melde(s, zustaendig="jan", rolle="buchhaltung")
+        with pytest.raises(AufgabenError, match="nicht beides"):
+            halte_rueckfrage_fest(
+                s, Objekt("frist", "ustva"), "Frage", "jan", an="jan", rolle="b"
+            )
+        assert lade_aufgaben(s) == []

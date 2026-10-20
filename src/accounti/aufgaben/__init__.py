@@ -6,10 +6,16 @@ was hier exportiert wird::
 
     from accounti.aufgaben import Objekt, melde_aufgabe, schliesse_wenn_erledigt
 
-    melde_aufgabe(session, "beleg_fehlt", Objekt("transaktion", tx.id),
-                  titel="Beleg fehlt: …", erzeugt_von="pruefung:beleg_fehlt")
-    schliesse_wenn_erledigt(session, "beleg_fehlt", Objekt("transaktion", tx.id),
-                            grund="Beleg zugeordnet")
+    melde_aufgabe(session, "frist_ustva", Objekt("frist", "ustva-2026-09"),
+                  titel="USt-Voranmeldung 09/2026 abgeben", erzeugt_von="steuer")
+    schliesse_wenn_erledigt(session, "frist_ustva", Objekt("frist", "ustva-2026-09"),
+                            grund="Voranmeldung abgegeben")
+
+Eine Art gehört genau einem Erzeuger: Die Arten der eingebauten Prüfläufe
+(``beleg_fehlt``, ``kontierung_pruefen`` …) schließt und öffnet ihr Prüflauf. Wer
+deren Regeln ändern will, registriert einen Lauf gleichen Namens (ersetzt ihn) in
+seinem Modul ``accounti.<baustein>.aufgaben_anbindung``, das hier von selbst
+geladen wird.
 
 Die Funktionen arbeiten in der Sitzung des Aufrufers und committen nicht.
 """
@@ -28,6 +34,7 @@ from accounti.aufgaben.einstellungen import (
     lade_aufgaben_einstellungen,
 )
 from accounti.aufgaben.erzeugung import (
+    BEGRUENDUNG_NOETIG,
     Abgleich,
     Anlass,
     Meldung,
@@ -65,6 +72,7 @@ from accounti.models.aufgaben import (
 )
 
 __all__ = [
+    "BEGRUENDUNG_NOETIG",
     "KANAELE",
     "PRUEFLAEUFE",
     "Abgleich",

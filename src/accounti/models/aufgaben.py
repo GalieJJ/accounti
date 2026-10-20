@@ -115,6 +115,9 @@ class Aufgabe(BaseModel):
     abschluss_grund: str | None = Field(default=None, description="warum hinfällig")
     erinnerungsstufe: int = Field(default=0, ge=0, description="zuletzt gemeldet")
     gemeldet_am: date | None = Field(default=None, description="erste Tagesübersicht")
+    version: int = Field(
+        default=0, ge=0, description="Änderungszähler gegen verlorene Änderungen"
+    )
 
     @model_validator(mode="after")
     def _schluessel(self) -> Aufgabe:

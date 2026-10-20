@@ -88,12 +88,14 @@ aufgaben:
         ("pruefung: {kontierung_schwelle: 1.5}", "kontierung_schwelle"),
         ("erinnerung: {stufen: [3, 0]}", "aufsteigend"),
         ("erinnerung: {stufen: [-1]}", "stufen"),
-        ("benachrichtigung: {kanaele: [brieftaube]}", "brieftaube"),
         ("benachrichtigung: {kanaele: []}", "mindestens ein Kanal"),
         ("zustaendigkeit: [{wenn: {art: x}}]", "an oder rolle"),
         ("zustaendigkeit: [{wenn: {art: x}, an: jan, rolle: b}]", "an oder rolle"),
         ("fristen: {beleg_fehlt: -2}", "fristen"),
         ("benachrichtigung: {kanaele: [webhook]}", "webhook.url"),
+        ("benachrichtigung: {webhook: {url: 'hooks.example/x'}}", "http"),
+        ("benachrichtigung: {webhook: {url: 'ftp://hooks.example/x'}}", "http"),
+        ("benachrichtigung: {webhook: {url: 'https:///x'}}", "Host"),
     ],
 )
 def test_fehler_werden_benannt(tmp_path, abschnitt, meldung):
@@ -112,3 +114,24 @@ def test_fehlende_umgebungsvariable(tmp_path, monkeypatch):
     )
     with pytest.raises(KonfigurationError, match="ACCOUNTI_FEHLT"):
         lade_aufgaben_einstellungen(pfad)
+
+
+def test_webhook_url_bleibt_in_der_meldung_geheim(tmp_path):
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        "aufgaben:\n  benachrichtigung:\n"
+        "    webhook: {url: 'hooks.example.com/services/T0/B0/geheim'}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_aufgaben_einstellungen(pfad)
+    assert "geheim" not in str(fehler.value)
+
+
+def test_kanaele_aus_der_registry_nicht_aus_einer_festen_liste():
+    """Ein anderer Baustein trägt seinen Kanal in KANAELE ein — die Konfiguration
+    darf ihn nennen; ob es ihn gibt, prüft erst baue_kanaele."""
+    e = AufgabenEinstellungen.model_validate(
+        {"benachrichtigung": {"kanaele": ["email", "teams"]}}
+    )
+    assert e.benachrichtigung.kanaele == ["email", "teams"]

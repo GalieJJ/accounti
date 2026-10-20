@@ -48,6 +48,9 @@ class AufgabeRow(Base):
     abschluss_grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
     erinnerungsstufe: Mapped[int] = mapped_column(Integer, default=0)
     gemeldet_am: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # jede Änderung zählt hoch; geschrieben wird nur, wenn sie seit dem Lesen gleich
+    # blieb — ein Lauf überschreibt so kein „erledigt“, das ein Mensch gerade setzte
+    version: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class KommentarRow(Base):

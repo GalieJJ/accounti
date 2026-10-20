@@ -5,9 +5,13 @@ Andere Bausteine melden Aufgaben mit ``melde_aufgabe`` und schließen sie mit
 aus Art und Objekt verhindert, dass ein wiederholter Prüflauf dieselbe Aufgabe neu
 anlegt: Ein zweiter Aufruf aktualisiert die vorhandene. Was das System geschlossen hat
 (``hinfaellig``), öffnet es wieder, wenn der Anlass zurückkehrt; was ein Mensch
-erledigt hat, bleibt erledigt.
+erledigt hat, bleibt erledigt. Weil der Schlüssel den Erzeuger nicht kennt, gehört
+eine Art genau einem Erzeuger — die Arten der eingebauten Prüfläufe meldet und
+schließt nur ihr Prüflauf.
 
-Alle Funktionen arbeiten in der Sitzung des Aufrufers und committen nicht.
+Alle Funktionen arbeiten in der Sitzung des Aufrufers und committen nicht; ein
+``rollback()`` nimmt alles zurück. Hat jemand eine Aufgabe seit dem Lesen geändert,
+schreiben sie nicht darüber (``AufgabenError``).
 """
 
 from __future__ import annotations
@@ -18,20 +22,20 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.fehler import AufgabenError
 from accounti.aufgaben.zustaendigkeit import bestimme_zustaendigkeit
 from accounti.db.repo_aufgaben import (
+    AufgabeVeraltetError,
     aktualisiere_aufgabe,
     lade_aufgabe,
     lade_aufgabe_nach_schluessel,
     lade_aufgaben,
     lade_kommentare,
+    lege_aufgabe_an,
     naechste_aufgaben_nr,
-    speichere_aufgabe,
     speichere_kommentar,
 )
 from accounti.models.aufgaben import (
@@ -96,17 +100,28 @@ def finde_aufgabe(session: Session, ref: str | int | Aufgabe) -> Aufgabe:
 def _anlegen(session: Session, aufgabe: Aufgabe) -> Aufgabe | None:
     """Legt an; None, wenn ein paralleler Lauf denselben Schlüssel schneller war."""
     for _ in range(3):
-        try:
-            with session.begin_nested():
-                neu = aufgabe.model_copy(update={"nr": naechste_aufgaben_nr(session)})
-                speichere_aufgabe(session, neu)
+        neu = aufgabe.model_copy(update={"nr": naechste_aufgaben_nr(session)})
+        if lege_aufgabe_an(session, neu):
             return neu
-        except IntegrityError:
-            if lade_aufgabe_nach_schluessel(session, aufgabe.schluessel) is not None:
-                return None
-            # sonst war es die laufende Nummer — neue ziehen
+        if lade_aufgabe_nach_schluessel(session, aufgabe.schluessel) is not None:
+            return None
+        # sonst war es die laufende Nummer — neue ziehen
     msg = "Keine freie Aufgabennummer (zu viele gleichzeitige Läufe)"
     raise AufgabenError(msg)
+
+
+def _schreibe(session: Session, aufgabe: Aufgabe) -> Aufgabe:
+    """Zurückschreiben; hat inzwischen jemand anderes geändert → AufgabenError."""
+    try:
+        return aktualisiere_aufgabe(session, aufgabe)
+    except AufgabeVeraltetError as fehler:
+        raise AufgabenError(str(fehler)) from fehler
+
+
+def _benutzer_oder_rolle(an: str | None, rolle: str | None) -> None:
+    if an is not None and rolle is not None:
+        msg = "Entweder Benutzer oder Rolle zuweisen, nicht beides."
+        raise AufgabenError(msg)
 
 
 def melde_aufgabe(
@@ -131,10 +146,12 @@ def melde_aufgabe(
     Beim Anlegen gilt: ohne ``faellig_am`` die Frist der Art aus den Einstellungen,
     ohne ``zustaendig``/``rolle`` die erste passende Zuständigkeitsregel. Ein zweiter
     Aufruf ändert Titel, Beschreibung, Fälligkeit und Merkmale, hebt die Priorität
-    (senkt sie nie) und lässt Zuständigkeit und Status in Ruhe. Eine ``hinfaellig``
+    (senkt sie nie) und lässt Zuständigkeit, Status und Erzeuger in Ruhe. Benutzer
+    und Rolle zugleich sind ein Fehler. Eine ``hinfaellig``
     geschlossene Aufgabe wird wieder ``offen``; eine ``erledigt`` geschlossene nur mit
     ``wieder_oeffnen=True``.
     """
+    _benutzer_oder_rolle(zustaendig, rolle)
     einstellungen = einstellungen or AufgabenEinstellungen()
     jetzt = _jetzt(jetzt)
     merkmale = dict(merkmale or {})
@@ -206,7 +223,7 @@ def melde_aufgabe(
         return Meldung(vorhanden, vorgang)
 
     aenderung["aktualisiert_am"] = jetzt
-    aufgabe = aktualisiere_aufgabe(session, vorhanden.model_copy(update=aenderung))
+    aufgabe = _schreibe(session, vorhanden.model_copy(update=aenderung))
     if vorgang is Vorgang.WIEDER_OFFEN:
         _ereignis(
             session,
@@ -237,7 +254,7 @@ def schliesse_wenn_erledigt(
 def _schliesse(
     session: Session, aufgabe: Aufgabe, grund: str, von: str, jetzt: datetime
 ) -> Aufgabe:
-    geschlossen = aktualisiere_aufgabe(
+    geschlossen = _schreibe(
         session,
         aufgabe.model_copy(
             update={
@@ -252,6 +269,12 @@ def _schliesse(
     return geschlossen
 
 
+# Arten, die nur mit Begründung erledigt werden: Wer „Beleg fehlt“ schließt, erklärt
+# den Umsatz meist für belegfrei — das muss für das Belegprinzip dokumentiert sein
+# (GoBD Rz. 61 ff.; sonst Eigenbeleg). Andere Bausteine dürfen Arten ergänzen.
+BEGRUENDUNG_NOETIG: set[str] = {"beleg_fehlt"}
+
+
 def erledige(
     session: Session,
     ref: str | int | Aufgabe,
@@ -260,15 +283,22 @@ def erledige(
     text: str | None = None,
     jetzt: datetime | None = None,
 ) -> Aufgabe:
-    """Ein Mensch schließt die Aufgabe ab — optional mit Begründung."""
+    """Ein Mensch schließt die Aufgabe ab — mit Begründung, die bei den Arten aus
+    ``BEGRUENDUNG_NOETIG`` Pflicht ist."""
     jetzt = _jetzt(jetzt)
     aufgabe = finde_aufgabe(session, ref)
     if not aufgabe.aktiv:
         msg = f"Aufgabe #{aufgabe.nr} ist schon {aufgabe.status.value}."
         raise AufgabenError(msg)
+    if aufgabe.art in BEGRUENDUNG_NOETIG and not (text and text.strip()):
+        msg = (
+            f"Aufgabe #{aufgabe.nr} ({aufgabe.art}) nur mit Begründung erledigen, "
+            'z.B. --text "Kontoführungsgebühr, belegfrei".'
+        )
+        raise AufgabenError(msg)
     if text and text.strip():
         kommentiere(session, text, von, aufgabe=aufgabe, jetzt=jetzt)
-    erledigt = aktualisiere_aufgabe(
+    erledigt = _schreibe(
         session,
         aufgabe.model_copy(
             update={
@@ -313,7 +343,7 @@ def setze_status(
         raise AufgabenError(msg)
     if aufgabe.status is status:
         return aufgabe
-    neu = aktualisiere_aufgabe(
+    neu = _schreibe(
         session, aufgabe.model_copy(update={"status": status, "aktualisiert_am": jetzt})
     )
     _ereignis(
@@ -337,15 +367,13 @@ def weise_zu(
 ) -> Aufgabe:
     """An einen Benutzer, an eine Rolle oder (beides leer) zurück in die gemeinsame
     Liste."""
-    if an is not None and rolle is not None:
-        msg = "Entweder Benutzer oder Rolle zuweisen, nicht beides."
-        raise AufgabenError(msg)
+    _benutzer_oder_rolle(an, rolle)
     jetzt = _jetzt(jetzt)
     aufgabe = finde_aufgabe(session, ref)
     if not aufgabe.aktiv:
         msg = f"Aufgabe #{aufgabe.nr} ist schon {aufgabe.status.value}."
         raise AufgabenError(msg)
-    neu = aktualisiere_aufgabe(
+    neu = _schreibe(
         session,
         aufgabe.model_copy(
             update={"zustaendig": an, "rolle": rolle, "aktualisiert_am": jetzt}
@@ -435,6 +463,7 @@ def halte_rueckfrage_fest(
     Mit ``an``/``rolle``/``als_aufgabe`` zusätzlich als Aufgabe ``rueckfrage``; eine
     neue Rückfrage öffnet eine erledigte wieder.
     """
+    _benutzer_oder_rolle(an, rolle)
     jetzt = _jetzt(jetzt)
     aufgabe: Aufgabe | None = None
     if an is not None or rolle is not None or als_aufgabe:
@@ -509,6 +538,9 @@ class Abgleich:
     wieder_offen: list[Aufgabe] = field(default_factory=list)
     abgeschlossen: list[Aufgabe] = field(default_factory=list)  # erledigt, bleibt es
     hinfaellig: list[Aufgabe] = field(default_factory=list)
+    # während des Laufs von anderen geändert — nicht geschlossen, der nächste Lauf
+    # entscheidet neu
+    uebersprungen: list[Aufgabe] = field(default_factory=list)
 
 
 def gleiche_ab(
@@ -519,16 +551,20 @@ def gleiche_ab(
     erzeugt_von: str,
     grund_entfallen: str,
     umfang: Collection[Objekt] | None = None,
+    ausgenommen: Collection[Objekt] = (),
     gruende: Mapping[Objekt, str] | None = None,
     einstellungen: AufgabenEinstellungen | None = None,
     jetzt: datetime | None = None,
 ) -> Abgleich:
     """Meldet alle Anlässe einer Art und schließt, was keinen Anlass mehr hat.
 
-    Geschlossen werden nur aktive Aufgaben dieses Erzeugers, deren Objekt im
-    geprüften ``umfang`` liegt (``None`` = alles geprüft) — ein Lauf über einen Monat
-    schließt nichts aus anderen Monaten. ``gruende`` nennt je Objekt, warum der Anlass
-    entfallen ist (z.B. welcher Beleg zugeordnet wurde); sonst ``grund_entfallen``.
+    Wer abgleicht, besitzt die Art: Geschlossen werden alle aktiven Aufgaben dieser
+    Art — gleich, wer sie angelegt hat —, deren Objekt im geprüften ``umfang`` liegt
+    (``None`` = alles geprüft) und nicht in ``ausgenommen`` steht. Ein Lauf über
+    einen Monat schließt so nichts aus anderen Monaten, ein Lauf mit früherem
+    Stichtag nichts, was er noch nicht beurteilen kann. ``gruende`` nennt je Objekt,
+    warum der Anlass entfallen ist (z.B. welcher Beleg zugeordnet wurde); sonst
+    ``grund_entfallen``. ``erzeugt_von`` steht an neu angelegten Aufgaben.
     """
     gruende = gruende or {}
     jetzt = _jetzt(jetzt)
@@ -557,13 +593,17 @@ def gleiche_ab(
             Vorgang.ABGESCHLOSSEN: ergebnis.abgeschlossen,
         }[m.vorgang].append(m.aufgabe)
     im_umfang = set(umfang) if umfang is not None else None
-    for aufgabe in lade_aufgaben(
-        session, status=AKTIVE_STATUS, art=art, erzeugt_von=erzeugt_von
-    ):
-        if aufgabe.schluessel in gesehen:
+    nicht_beurteilt = set(ausgenommen)
+    for aufgabe in lade_aufgaben(session, status=AKTIVE_STATUS, art=art):
+        if aufgabe.schluessel in gesehen or aufgabe.objekt in nicht_beurteilt:
             continue
         if im_umfang is not None and aufgabe.objekt not in im_umfang:
             continue
         grund = gruende.get(aufgabe.objekt, grund_entfallen)
-        ergebnis.hinfaellig.append(_schliesse(session, aufgabe, grund, SYSTEM, jetzt))
+        try:
+            geschlossen = _schliesse(session, aufgabe, grund, SYSTEM, jetzt)
+        except AufgabenError:
+            ergebnis.uebersprungen.append(aufgabe)
+            continue
+        ergebnis.hinfaellig.append(geschlossen)
     return ergebnis

@@ -5,10 +5,12 @@ from __future__ import annotations
 import json
 from collections.abc import Collection
 from datetime import date
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import CursorResult, func, select, update
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.db import Base
@@ -49,11 +51,16 @@ _FELDER = (
 )
 
 
+class AufgabeVeraltetError(ValueError):
+    """Die Aufgabe wurde seit dem Lesen geändert (anderer Lauf, anderer Mensch)."""
+
+
 def _werte(a: Aufgabe) -> dict[str, Any]:
     werte: dict[str, Any] = {f: getattr(a, f) for f in _FELDER}
     werte["status"] = a.status.value
     werte["prioritaet"] = a.prioritaet.value
     werte["merkmale"] = json.dumps(a.merkmale, ensure_ascii=False, sort_keys=True)
+    werte["version"] = a.version
     return werte
 
 
@@ -64,6 +71,7 @@ def _row_zu_aufgabe(r: AufgabeRow) -> Aufgabe:
         status=AufgabenStatus(r.status),
         prioritaet=Prioritaet(r.prioritaet),
         merkmale=json.loads(r.merkmale or "{}"),
+        version=r.version or 0,
     )
 
 
@@ -72,14 +80,53 @@ def speichere_aufgabe(session: Session, a: Aufgabe) -> None:
     session.flush()
 
 
+def lege_aufgabe_an(session: Session, a: Aufgabe) -> bool:
+    """Legt an, wenn Nummer und Schlüssel frei sind; False, wenn einer belegt ist.
+
+    Ohne Savepoint: Unter pysqlite eröffnet ``SAVEPOINT`` vor der ersten Änderung
+    selbst die Transaktion, und ``RELEASE`` wirkt dann als ``COMMIT`` — die Aufgabe
+    stünde fest in der Datenbank, obwohl der Aufrufer zurückrollt. ``INSERT … ON
+    CONFLICT DO NOTHING`` bleibt in der Transaktion des Aufrufers und bricht sie
+    auch unter Postgres bei einem Konflikt nicht ab.
+    """
+    werte = {"id": str(a.id), **_werte(a)}
+    dialekt = session.get_bind().dialect.name
+    if dialekt == "sqlite":
+        anweisung: Any = sqlite.insert(AufgabeRow).values(**werte)
+    elif dialekt == "postgresql":
+        anweisung = postgresql.insert(AufgabeRow).values(**werte)
+    else:  # andere Datenbanken: Savepoint (dort ohne die pysqlite-Eigenheit)
+        try:
+            with session.begin_nested():
+                speichere_aufgabe(session, a)
+        except IntegrityError:
+            return False
+        return True
+    ergebnis = session.execute(anweisung.on_conflict_do_nothing())
+    return cast("CursorResult[Any]", ergebnis).rowcount == 1
+
+
 def aktualisiere_aufgabe(session: Session, a: Aufgabe) -> Aufgabe:
-    row = session.get(AufgabeRow, str(a.id))
+    """Schreibt die Aufgabe zurück — nur, wenn sie seit dem Lesen niemand geändert
+    hat (``version``); sonst ``AufgabeVeraltetError``, die Sitzung bleibt nutzbar."""
+    werte = _werte(a)
+    werte["version"] = a.version + 1
+    ergebnis = session.execute(
+        update(AufgabeRow)
+        .where(AufgabeRow.id == str(a.id), AufgabeRow.version == a.version)
+        .values(**werte)
+        .execution_options(synchronize_session=False)
+    )
+    row = session.get(AufgabeRow, str(a.id), populate_existing=True)
     if row is None:
         msg = f"Aufgabe {a.id} nicht gefunden."
         raise ValueError(msg)
-    for feld, wert in _werte(a).items():
-        setattr(row, feld, wert)
-    session.flush()
+    if cast("CursorResult[Any]", ergebnis).rowcount != 1:
+        msg = (
+            f"Aufgabe #{row.nr} wurde inzwischen geändert (Status {row.status}) — "
+            "bitte neu laden und erneut versuchen."
+        )
+        raise AufgabeVeraltetError(msg)
     return _row_zu_aufgabe(row)
 
 
@@ -90,7 +137,9 @@ def naechste_aufgaben_nr(session: Session) -> int:
 
 def lade_aufgabe_nach_schluessel(session: Session, schluessel: str) -> Aufgabe | None:
     row = session.scalars(
-        select(AufgabeRow).where(AufgabeRow.schluessel == schluessel)
+        select(AufgabeRow)
+        .where(AufgabeRow.schluessel == schluessel)
+        .execution_options(populate_existing=True)
     ).one_or_none()
     return _row_zu_aufgabe(row) if row is not None else None
 
@@ -98,15 +147,12 @@ def lade_aufgabe_nach_schluessel(session: Session, schluessel: str) -> Aufgabe |
 def lade_aufgabe(session: Session, ref: str | int) -> Aufgabe:
     """Über die laufende Nummer (``42``) oder den Anfang der ID."""
     text = str(ref).strip().lstrip("#")
+    abfrage = select(AufgabeRow).execution_options(populate_existing=True)
     if text.isdigit():
-        rows = session.scalars(select(AufgabeRow).where(AufgabeRow.nr == int(text)))
-        treffer = list(rows)
+        abfrage = abfrage.where(AufgabeRow.nr == int(text))
     else:
-        treffer = list(
-            session.scalars(
-                select(AufgabeRow).where(AufgabeRow.id.in_(_ids(session, text)))
-            )
-        )
+        abfrage = abfrage.where(AufgabeRow.id.in_(_ids(session, text)))
+    treffer = list(session.scalars(abfrage))
     if not treffer:
         msg = f"Keine Aufgabe '{ref}' gefunden."
         raise ValueError(msg)
@@ -128,7 +174,11 @@ def lade_aufgaben(
     objekt: Objekt | None = None,
     erzeugt_von: str | None = None,
 ) -> list[Aufgabe]:
-    abfrage = select(AufgabeRow).order_by(AufgabeRow.nr)
+    abfrage = (
+        select(AufgabeRow)
+        .order_by(AufgabeRow.nr)
+        .execution_options(populate_existing=True)  # frisch, nicht aus dem Cache
+    )
     if status is not None:
         abfrage = abfrage.where(AufgabeRow.status.in_([s.value for s in status]))
     if art is not None:

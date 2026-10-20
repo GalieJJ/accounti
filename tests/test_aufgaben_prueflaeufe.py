@@ -15,6 +15,7 @@ from accounti.aufgaben import (
     Objekt,
     Prioritaet,
     erledige,
+    melde_aufgabe,
 )
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.prueflaeufe import (
@@ -175,6 +176,22 @@ def test_gepruefte_buchung_macht_die_aufgabe_hinfaellig(make_session):
     assert "geprüft" in (a.abschluss_grund or "")
 
 
+def test_confidence_knapp_unter_der_schwelle(make_session):
+    """Die Anzeige rundet nicht über die Schwelle: 0,949 ist „0,94“, nicht „0,95“."""
+    _anlegen(make_session, buchung(confidence=0.949))
+    _lauf(make_session, "kontierung_pruefen")
+    (a,) = _aufgaben(make_session)
+    assert "Confidence 0,94 unter Schwelle 0,95" in a.beschreibung
+    assert a.merkmale["confidence"] == "0.94"
+    fein = AufgabenEinstellungen.model_validate(
+        {"pruefung": {"kontierung_schwelle": 0.955}}
+    )
+    _anlegen(make_session, buchung(confidence=0.9549, buchungstext="Porto"))
+    _lauf(make_session, "kontierung_pruefen", einstellungen=fein)
+    porto = next(a for a in _aufgaben(make_session) if "Porto" in a.titel)
+    assert "Confidence 0,954 unter Schwelle 0,955" in porto.beschreibung
+
+
 def test_zur_pruefung_auch_mit_hoher_confidence(make_session):
     b = buchung(confidence=1.0, status=BuchungStatus.ZUR_PRUEFUNG)
     _anlegen(make_session, b)
@@ -228,6 +245,88 @@ def test_beleg_trifft_ein_und_die_aufgabe_schliesst_sich_selbst(make_session):
     with make_session() as s:
         verlauf = [k.text for k in lade_kommentare(s, aufgabe_id=zu.id)]
     assert any(t.startswith("hinfällig: Beleg zugeordnet") for t in verlauf)
+
+
+def test_der_lauf_besitzt_seine_art(make_session):
+    """Akzeptanz 3 auch für eine Aufgabe, die ein anderer Erzeuger (z.B. Baustein 7)
+    mit derselben Art angelegt hat: Der Prüflauf schließt sie, sobald der Beleg da
+    ist — der Idempotenzschlüssel kennt den Erzeuger nicht."""
+    tx = umsatz()
+    _anlegen(make_session, tx)
+    with make_session() as s:
+        melde_aufgabe(
+            s,
+            "beleg_fehlt",
+            Objekt("transaktion", tx.id),
+            titel="Beleg fehlt: SHELL",
+            erzeugt_von="pruefung:beleg_fehlt",
+            jetzt=LAUF_JETZT,
+        )
+        s.commit()
+    # der Lauf übernimmt die vorhandene Aufgabe (gleicher Schlüssel), keine zweite
+    ersterlauf = _lauf(make_session, "beleg_fehlt")["beleg_fehlt"]
+    assert not ersterlauf.neu and len(ersterlauf.aktualisiert) == 1
+    _anlegen(make_session, quittung())
+    with make_session() as s:
+        assert len(gleiche_belege_ab(s).automatisch) == 1
+        s.commit()
+    (zu,) = _lauf(make_session, "beleg_fehlt")["beleg_fehlt"].hinfaellig
+    assert zu.erzeugt_von == "pruefung:beleg_fehlt"
+    assert zu.status is AufgabenStatus.HINFAELLIG
+
+
+def test_baustein_7_ersetzt_den_eingebauten_lauf(make_session):
+    """Belegfreiheit nach Regel: Ein anderer Baustein trägt seinen Lauf unter dem
+    Namen ``beleg_fehlt`` ein (ersetzt den eingebauten), statt dieselbe Art daneben
+    zu melden und zu schließen — sonst öffnete der eingebaute Lauf jedes Mal wieder,
+    was der andere geschlossen hat."""
+    gebuehr = umsatz("-5.90", verwendungszweck="Kontoführung", gegenkonto_name="Bank")
+    _anlegen(make_session, gebuehr, umsatz())
+    assert len(_lauf(make_session, "beleg_fehlt")["beleg_fehlt"].neu) == 2
+    eingebaut = PRUEFLAEUFE["beleg_fehlt"]
+
+    class MitRegeln:
+        name = "beleg_fehlt"
+        beschreibung = "Umsätze ohne Beleg, Gebühren belegfrei"
+        grund_entfallen = "Umsatz hat einen Beleg oder ist nach Regel belegfrei"
+
+        def finde(self, session, einstellungen, stichtag, zeitraum):
+            befund = eingebaut.finde(session, einstellungen, stichtag, zeitraum)
+            befund.anlaesse = [
+                a for a in befund.anlaesse if a.merkmale["gegenpartei"] != "Bank"
+            ]
+            return befund
+
+    registriere_prueflauf(MitRegeln())
+    try:
+        erster = _lauf(make_session, "beleg_fehlt")["beleg_fehlt"]
+        zweiter = _lauf(make_session, "beleg_fehlt")["beleg_fehlt"]
+    finally:
+        registriere_prueflauf(eingebaut)
+    assert len(erster.hinfaellig) == 1 and len(erster.unveraendert) == 1
+    assert not zweiter.hinfaellig and not zweiter.wieder_offen
+    zu = next(a for a in _aufgaben(make_session) if not a.aktiv)
+    assert zu.merkmale["gegenpartei"] == "Bank"
+
+
+def test_frueherer_stichtag_schliesst_nichts_juengeres(make_session):
+    """Ein Lauf mit --stichtag in der Vergangenheit kann jüngere Umsätze nicht
+    beurteilen — ihre Aufgaben bleiben offen, Stufe und Meldung bleiben stehen."""
+    _anlegen(make_session, umsatz(tag=8))  # 20.03.
+    assert _lauf(make_session, "beleg_fehlt")["beleg_fehlt"].neu
+    frueher = _lauf(make_session, "beleg_fehlt", stichtag=date(2026, 3, 10))
+    assert not frueher["beleg_fehlt"].hinfaellig
+    (a,) = _aufgaben(make_session)
+    assert a.status is AufgabenStatus.OFFEN
+    wieder = _lauf(make_session, "beleg_fehlt")["beleg_fehlt"]
+    assert not wieder.wieder_offen and len(wieder.unveraendert) == 1
+    # ebenso, wenn nach_tagen ihn am Stichtag noch nicht erfasst
+    e = AufgabenEinstellungen.model_validate(
+        {"pruefung": {"beleg_fehlt_nach_tagen": 30}}
+    )
+    assert not _lauf(make_session, "beleg_fehlt", einstellungen=e)[
+        "beleg_fehlt"
+    ].hinfaellig
 
 
 def test_belegfrei_erledigt_bleibt_erledigt(make_session):

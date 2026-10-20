@@ -8,15 +8,18 @@ Adresse eingetragen hat.
 
 Kanäle: ``email`` (SMTP-Zugang und Absender aus dem Abschnitt ``versand``, derselbe
 Versandweg wie für Rechnungen) und ``webhook`` (JSON mit ``text`` für Slack,
-Mattermost & Co.). Jeder Versuch steht im Protokoll ``aufgaben_benachrichtigungen``.
-Als gemeldet (Stufe, „neu“) gilt eine Aufgabe erst, wenn jeder Kanal sie heute
-zugestellt hat — ein Ausfall holt der nächste Lauf nach.
+Mattermost & Co.). Jeder Versuch steht im Protokoll ``aufgaben_benachrichtigungen``
+— auch ein unerwarteter Fehler eines Kanals ist nur ein Fehlschlag dieser
+Zustellung. Als gemeldet (Stufe, „neu“) gilt eine Aufgabe erst, wenn jeder Kanal sie
+heute zugestellt hat, eine Eskalation erst, wenn auch die Kopie an das
+Eskalationsziel überall ankam — ein Ausfall holt der nächste Lauf nach.
 """
 
 from __future__ import annotations
 
+import http.client
 import json
-import smtplib
+import re
 import urllib.error
 import urllib.request
 from collections import defaultdict
@@ -33,10 +36,12 @@ from urllib.parse import urlsplit
 from sqlalchemy.orm import Session
 
 from accounti.anzeige import datum_de
+from accounti.aufgaben.anbindung import lade_anbindungen
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.erinnerung import Erinnerung, faellige_erinnerungen
 from accounti.aufgaben.zustaendigkeit import GEMEINSAM
 from accounti.db.repo_aufgaben import (
+    AufgabeVeraltetError,
     aktualisiere_aufgabe,
     lade_aufgaben,
     lade_benachrichtigungen,
@@ -71,6 +76,22 @@ class Eintrag:
     aufgabe: Aufgabe
     abschnitt: Abschnitt
     erinnerung: Erinnerung | None = None
+    # Empfänger der Eskalationskopie, wenn es eine eigene Übersicht dafür gibt
+    kopie_an: str | None = None
+
+
+_ERWAEHNUNG = re.compile(r"@(?=\w)")
+
+
+def fuer_chat(text: str) -> str:
+    """Text für Slack, Mattermost & Co. entschärfen — Titel enthalten Fremddaten
+    (Kontaktname, Dateiname, Buchungstext). ``&``, ``<``, ``>`` werden maskiert
+    (Slack liest sie sonst als Steuerzeichen: ``<!channel>``, ``<URL|Text>``),
+    Markdown-Links ``[Text](URL)`` und @-Erwähnungen mit einem unsichtbaren
+    Leerzeichen gebrochen."""
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    text = text.replace("](", "]\u200b(")
+    return _ERWAEHNUNG.sub("@\u200b", text)
 
 
 @dataclass
@@ -143,7 +164,9 @@ class Tagesuebersicht:
 
     def als_json(self) -> dict[str, Any]:
         return {
-            "text": self.text(),  # Slack, Mattermost & Co. zeigen dieses Feld
+            # Slack, Mattermost & Co. zeigen dieses Feld — entschärft; die Felder
+            # unten bleiben roh, wer sie anzeigt, maskiert selbst
+            "text": fuer_chat(self.text()),
             "empfaenger": self.empfaenger,
             "tag": self.tag.isoformat(),
             "offen": self.offen,
@@ -198,10 +221,12 @@ def stelle_zusammen(
             u.ueberfaellig += 1
         erinnerung = erinnerungen.get(a.id)
         if erinnerung is not None:
-            u.eintraege.append(Eintrag(a, "faellig", erinnerung))
+            eintrag = Eintrag(a, "faellig", erinnerung)
+            u.eintraege.append(eintrag)
             if erinnerung.eskaliert_an:
                 ziel = empfaenger_von(erinnerung.eskaliert_an, einstellungen)
                 if ziel != schluessel:
+                    eintrag.kopie_an = ziel
                     uebersicht(ziel).eintraege.append(
                         Eintrag(a, "eskaliert", erinnerung)
                     )
@@ -277,22 +302,35 @@ class WebhookKanal:
         self.url = url
         self.timeout = timeout
 
-    def adresse(self, uebersicht: Tagesuebersicht) -> str | None:
+    def _ziel(self) -> str:
         teile = urlsplit(self.url)  # Pfad und Abfrage tragen oft ein Geheimnis
+        if not teile.scheme or not teile.netloc:
+            return "(ungültige Adresse)"
         return f"{teile.scheme}://{teile.netloc}/…"
 
+    def adresse(self, uebersicht: Tagesuebersicht) -> str | None:
+        return self._ziel()
+
     def sende(self, uebersicht: Tagesuebersicht) -> None:
-        anfrage = urllib.request.Request(
-            self.url,
-            data=json.dumps(uebersicht.als_json(), ensure_ascii=False).encode("utf-8"),
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
+        daten = json.dumps(uebersicht.als_json(), ensure_ascii=False).encode("utf-8")
         try:
+            anfrage = urllib.request.Request(
+                self.url,
+                data=daten,
+                method="POST",
+                headers={"Content-Type": "application/json"},
+            )
             with urllib.request.urlopen(anfrage, timeout=self.timeout) as antwort:
                 status = antwort.status
         except urllib.error.HTTPError as fehler:
             status = fehler.code
+        except urllib.error.URLError as fehler:
+            msg = f"Webhook {self._ziel()} nicht erreichbar: {fehler.reason}"
+            raise KanalError(msg) from fehler
+        except (OSError, ValueError, http.client.HTTPException) as fehler:
+            # ohne den Text des Fehlers: er kann die URL samt Geheimnis enthalten
+            msg = f"Webhook {self._ziel()} nicht zustellbar ({type(fehler).__name__})"
+            raise KanalError(msg) from fehler
         if not 200 <= status < 300:
             msg = f"Webhook antwortete mit HTTP {status}"
             raise KanalError(msg)
@@ -329,12 +367,19 @@ def baue_kanaele(
     einstellungen: AufgabenEinstellungen, pfad: str | Path
 ) -> tuple[dict[str, Kanal], dict[str, str]]:
     """Richtet die konfigurierten Kanäle ein: (Kanäle, Fehler je Kanal)."""
+    lade_anbindungen()  # Kanäle anderer Bausteine
     kanaele: dict[str, Kanal] = {}
     fehler: dict[str, str] = {}
     for name in einstellungen.benachrichtigung.kanaele:
+        fabrik = KANAELE.get(name)
+        if fabrik is None:
+            fehler[name] = (
+                f"unbekannter Kanal {name} (vorhanden: {', '.join(sorted(KANAELE))})"
+            )
+            continue
         try:
-            kanaele[name] = KANAELE[name](einstellungen, Path(pfad))
-        except (KonfigurationError, KeyError) as problem:
+            kanaele[name] = fabrik(einstellungen, Path(pfad))
+        except KonfigurationError as problem:
             fehler[name] = str(problem)
     return kanaele, fehler
 
@@ -370,8 +415,14 @@ def versende_tagesuebersichten(
     stichtag: date | None = None,
     jetzt: datetime | None = None,
     kanalfehler: Mapping[str, str] | None = None,
+    sichern: Callable[[], None] | None = None,
 ) -> Erinnerungslauf:
-    """Stellt die Tagesübersichten zu — je Empfänger und Kanal einmal am Tag."""
+    """Stellt die Tagesübersichten zu — je Empfänger und Kanal einmal am Tag.
+
+    ``sichern`` wird nach jeder protokollierten Zustellung aufgerufen (die CLI
+    übergibt ``session.commit``): Bricht der Lauf danach ab, steht das Gesendete
+    trotzdem im Protokoll, und der nächste Lauf verschickt es nicht noch einmal.
+    """
     jetzt = jetzt or datetime.now()
     stichtag = stichtag or jetzt.date()
     kanalfehler = kanalfehler or {}
@@ -399,7 +450,7 @@ def versende_tagesuebersichten(
             else:
                 try:
                     kanal.sende(u)
-                except (KanalError, OSError, smtplib.SMTPException) as problem:
+                except Exception as problem:  # jeder Fehler: nur diese Zustellung
                     fehler = f"{type(problem).__name__}: {problem}"
             speichere_benachrichtigung(
                 session,
@@ -414,6 +465,8 @@ def versende_tagesuebersichten(
                     zeitpunkt=jetzt,
                 ),
             )
+            if sichern is not None:
+                sichern()
             if fehler is None:
                 zugestellt[(u.empfaenger, name)].update(u.nummern)
             lauf.zustellungen.append(
@@ -422,28 +475,45 @@ def versende_tagesuebersichten(
                 )
             )
 
+    def ueberall(nr: int, empfaenger: str) -> bool:
+        return all(nr in zugestellt[(empfaenger, n)] for n in namen)
+
     for u in lauf.uebersichten:
         for e in u.eintraege:
             if e.abschnitt == "eskaliert":
-                continue  # Kopie; maßgeblich ist die Übersicht des Zuständigen
-            if all(e.aufgabe.nr in zugestellt[(u.empfaenger, n)] for n in namen):
-                lauf.gemeldet.append(_vermerke(session, e, stichtag, jetzt))
+                continue  # Kopie; vermerkt wird am Eintrag des Zuständigen
+            if not ueberall(e.aufgabe.nr, u.empfaenger):
+                continue
+            kopie_da = e.kopie_an is None or ueberall(e.aufgabe.nr, e.kopie_an)
+            try:
+                lauf.gemeldet.append(_vermerke(session, e, stichtag, jetzt, kopie_da))
+            except AufgabeVeraltetError:
+                continue  # inzwischen geändert — der nächste Lauf vermerkt
     return lauf
 
 
 def _vermerke(
-    session: Session, eintrag: Eintrag, stichtag: date, jetzt: datetime
+    session: Session,
+    eintrag: Eintrag,
+    stichtag: date,
+    jetzt: datetime,
+    kopie_da: bool = True,
 ) -> Aufgabe:
-    """Gemeldete Stufe speichern; bei Eskalation Priorität hoch und Verlauf."""
+    """Gemeldete Stufe speichern; bei Eskalation Priorität hoch und Verlauf.
+
+    Kam die Kopie an das Eskalationsziel nicht (überall) an, gilt nur die Stufe
+    davor als gemeldet — der nächste Lauf eskaliert erneut."""
     a = eintrag.aufgabe
     aenderung: dict[str, object] = {"gemeldet_am": a.gemeldet_am or stichtag}
     er = eintrag.erinnerung
+    eskaliert = er is not None and bool(er.eskaliert_an) and kopie_da
     if er is not None:
-        aenderung["erinnerungsstufe"] = er.stufe
-        if er.eskaliert_an:
+        stufe = er.stufe if eskaliert or not er.eskaliert_an else er.stufe - 1
+        aenderung["erinnerungsstufe"] = max(a.erinnerungsstufe, stufe)
+        if eskaliert:
             aenderung["prioritaet"] = Prioritaet.HOCH
     neu = aktualisiere_aufgabe(session, a.model_copy(update=aenderung))
-    if er is not None and er.eskaliert_an:
+    if er is not None and eskaliert:
         speichere_kommentar(
             session,
             Kommentar(

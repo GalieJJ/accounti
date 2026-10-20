@@ -11,6 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -31,8 +32,6 @@ STANDARD_FRISTEN: dict[str, int] = {
     "bank_freigabe": 0,
     "rueckfrage": 7,
 }
-
-BEKANNTE_KANAELE = ("email", "webhook")
 
 
 def _pruefe_stufen(stufen: list[int]) -> list[int]:
@@ -99,6 +98,19 @@ class WebhookEinstellungen(BaseModel):
     url: str
     timeout_sekunden: float = Field(default=10, gt=0)
 
+    @field_validator("url")
+    @classmethod
+    def _url(cls, wert: str) -> str:
+        # die Meldung nennt die URL nicht: Pfad und Abfrage tragen oft ein Geheimnis
+        teile = urlsplit(wert.strip())
+        if teile.scheme not in ("http", "https"):
+            msg = "Adresse mit http:// oder https:// angeben"
+            raise ValueError(msg)
+        if not teile.hostname:
+            msg = "Host fehlt in der Adresse"
+            raise ValueError(msg)
+        return wert.strip()
+
 
 class BenachrichtigungsEinstellungen(BaseModel):
     kanaele: list[str] = Field(default_factory=lambda: ["email"])
@@ -113,16 +125,11 @@ class BenachrichtigungsEinstellungen(BaseModel):
     @field_validator("kanaele")
     @classmethod
     def _kanaele(cls, wert: list[str]) -> list[str]:
+        # Ob es einen Kanal gibt, weiß erst die Registry KANAELE (andere Bausteine
+        # tragen eigene ein) — das prüft baue_kanaele und meldet es je Kanal.
         if not wert:
             # ohne Kanal gälte jede Aufgabe als gemeldet, ohne dass jemand sie sah
-            msg = "mindestens ein Kanal (email oder webhook)"
-            raise ValueError(msg)
-        unbekannt = [k for k in wert if k not in BEKANNTE_KANAELE]
-        if unbekannt:
-            msg = (
-                f"unbekannter Kanal {', '.join(unbekannt)} "
-                f"(erlaubt: {', '.join(BEKANNTE_KANAELE)})"
-            )
+            msg = "mindestens ein Kanal (z.B. email oder webhook)"
             raise ValueError(msg)
         return wert
 

@@ -4,13 +4,18 @@ E-Mails gehen per echtem ``smtplib`` an einen SMTP-Testserver auf 127.0.0.1, der
 Webhook an einen lokalen HTTP-Server. Nichts verlässt den Rechner.
 """
 
+import socketserver
+import threading
 from datetime import date, datetime, timedelta
 
 import pytest
 
 from accounti.aufgaben import melde_aufgabe
 from accounti.aufgaben.benachrichtigung import (
+    KANAELE,
     EmailKanal,
+    KanalError,
+    Tagesuebersicht,
     WebhookKanal,
     baue_kanaele,
     stelle_zusammen,
@@ -298,8 +303,8 @@ def test_erledigte_aufgaben_fehlen(make_session, smtp, fuenf_aufgaben):
 
     e = _einstellungen()
     with make_session() as s:
-        erledige(s, "3", von="jan")
-        erledige(s, "5", von="jan")
+        erledige(s, "3", von="jan", text="belegfrei")
+        erledige(s, "5", von="jan", text="belegfrei")
         s.commit()
     _versende(make_session, e, {"email": _email(smtp, e)})
     assert [an for _, an, _ in smtp.nachrichten] == [["jan@firma.example"]]
@@ -330,3 +335,212 @@ aufgaben:
     ohne_versand.write_text("aufgaben: {}\n", encoding="utf-8")
     kanaele, fehler = baue_kanaele(AufgabenEinstellungen(), ohne_versand)
     assert kanaele == {} and "versand" in fehler["email"]
+
+
+# ---------------------------------------------------------------------------
+# Teilausfälle, unerwartete Fehler, Abbruch
+# ---------------------------------------------------------------------------
+
+
+class Attrappe:
+    """Kanal ohne Netz: merkt sich, was er zustellt; scheitert für ausgewählte
+    Empfänger (oder alle) mit dem angegebenen Fehler."""
+
+    def __init__(self, name="email", scheitert_bei=(), fehler=None, immer=False):
+        self.name = name
+        self.post = []
+        self.scheitert_bei = set(scheitert_bei)
+        self.immer = immer
+        self.fehler = fehler or KanalError("550 Postfach voll")
+
+    def adresse(self, uebersicht):
+        return f"{uebersicht.empfaenger}@firma.example"
+
+    def sende(self, uebersicht):
+        if self.immer or uebersicht.empfaenger in self.scheitert_bei:
+            raise self.fehler
+        self.post.append(
+            (
+                uebersicht.tag,
+                uebersicht.empfaenger,
+                [e.abschnitt for e in uebersicht.eintraege],
+            )
+        )
+
+
+def _eskalierend():
+    return AufgabenEinstellungen.model_validate(
+        {
+            "erinnerung": {"stufen": [0, 3, 7], "eskalation_an": "@leitung"},
+            "benachrichtigung": _einstellungen().benachrichtigung.model_dump(),
+        }
+    )
+
+
+def _verlauf(make_session, nr):
+    with make_session() as s:
+        a = lade_aufgabe(s, str(nr))
+        return a, [k.text for k in lade_kommentare(s, aufgabe_id=a.id)]
+
+
+def test_eskalation_erst_vermerkt_wenn_auch_die_kopie_ankam(make_session):
+    """Fällt nur der Kanal des Eskalationsziels aus, gilt die Eskalation nicht als
+    gemeldet — der nächste Lauf eskaliert erneut, statt sie zu verlieren."""
+    e = _eskalierend()
+    with make_session() as s:
+        _aufgabe(s, 1, TAG - timedelta(days=7), zustaendig="jan")
+        s.commit()
+    kanal = Attrappe(scheitert_bei={"@leitung"})
+    _versende(make_session, e, {"email": kanal})
+    assert [p[1] for p in kanal.post] == ["jan"]
+    a, verlauf = _verlauf(make_session, 1)
+    assert a.erinnerungsstufe == 2 and a.prioritaet is Prioritaet.NORMAL
+    assert not any("eskaliert" in t for t in verlauf)
+
+    kanal.scheitert_bei.clear()
+    _versende(make_session, e, {"email": kanal}, stichtag=TAG + timedelta(days=1))
+    assert [(p[1], p[2]) for p in kanal.post[1:]] == [
+        ("@leitung", ["eskaliert"]),
+        ("jan", ["faellig"]),
+    ]
+    a, verlauf = _verlauf(make_session, 1)
+    assert a.erinnerungsstufe == 3 and a.prioritaet is Prioritaet.HOCH
+    assert sum("eskaliert an @leitung" in t for t in verlauf) == 1
+    # danach ist Ruhe
+    _versende(make_session, e, {"email": kanal}, stichtag=TAG + timedelta(days=2))
+    assert len(kanal.post) == 3
+
+
+def test_eskalation_wenn_das_ziel_heute_schon_post_hatte(make_session):
+    """Hatte die Leitung heute schon ihre Übersicht, entfällt die Kopie — dann ist
+    auch die Eskalation nicht gemeldet und kommt am nächsten Tag."""
+    e = _eskalierend()
+    kanal = Attrappe()
+    with make_session() as s:
+        _aufgabe(s, 1, TAG, rolle="leitung")
+        s.commit()
+    _versende(make_session, e, {"email": kanal})
+    with make_session() as s:
+        _aufgabe(s, 2, TAG - timedelta(days=7), zustaendig="jan")
+        s.commit()
+    lauf = _versende(make_session, e, {"email": kanal})
+    assert {z.empfaenger: z.uebersprungen for z in lauf.zustellungen} == {
+        "@leitung": True,
+        "jan": False,
+    }
+    a, verlauf = _verlauf(make_session, 2)
+    assert a.erinnerungsstufe == 2 and not any("eskaliert" in t for t in verlauf)
+    _versende(make_session, e, {"email": kanal}, stichtag=TAG + timedelta(days=1))
+    assert ("@leitung", ["eskaliert"]) in [(p[1], p[2]) for p in kanal.post]
+    assert _verlauf(make_session, 2)[0].erinnerungsstufe == 3
+
+
+def test_unerwarteter_kanalfehler_bricht_den_lauf_nicht_ab(
+    make_session, fuenf_aufgaben
+):
+    """Ein Fehler außerhalb der erwarteten Arten (z.B. ValueError) ist ein
+    Fehlschlag dieser Zustellung — die übrigen gehen hinaus und stehen im
+    Protokoll, ein zweiter Lauf verschickt nichts doppelt."""
+    e = _einstellungen(
+        kanaele=["email", "webhook"], webhook={"url": "https://x.example/h"}
+    )
+    email = Attrappe()
+    kaputt = Attrappe("webhook", fehler=ValueError("kaputt"), immer=True)
+    lauf = _versende(make_session, e, {"email": email, "webhook": kaputt})
+    assert {(z.empfaenger, z.kanal): z.erfolgreich for z in lauf.zustellungen} == {
+        ("gemeinsam", "email"): True,
+        ("gemeinsam", "webhook"): False,
+        ("jan", "email"): True,
+        ("jan", "webhook"): False,
+    }
+    assert "ValueError" in (lauf.zustellungen[1].fehler or "")
+    with make_session() as s:
+        assert len(lade_benachrichtigungen(s, tag=TAG)) == 4
+    _versende(make_session, e, {"email": email, "webhook": kaputt})
+    assert len(email.post) == 2
+
+
+def test_protokoll_bleibt_auch_bei_abbruch(make_session, fuenf_aufgaben):
+    """Mit ``sichern`` (die CLI übergibt ``commit``) steht jede Zustellung sofort
+    fest — bricht der Lauf danach ab, verschickt der nächste nichts doppelt."""
+
+    class Abbruch(BaseException):
+        pass
+
+    e = _einstellungen()
+    kanal = Attrappe(scheitert_bei={"jan"}, fehler=Abbruch())
+    with make_session() as s, pytest.raises(Abbruch):
+        versende_tagesuebersichten(
+            s, e, {"email": kanal}, stichtag=TAG, jetzt=UHR, sichern=s.commit
+        )
+    with make_session() as s:
+        protokoll = lade_benachrichtigungen(s, tag=TAG)
+    assert [(p.empfaenger, p.erfolgreich) for p in protokoll] == [("gemeinsam", True)]
+    kanal.scheitert_bei.clear()
+    _versende(make_session, e, {"email": kanal})
+    assert [p[1] for p in kanal.post] == ["gemeinsam", "jan"]
+    with make_session() as s:
+        assert lade_aufgabe(s, "3").erinnerungsstufe == 1  # aus der ersten Zustellung
+
+
+class _KeinHttp(socketserver.StreamRequestHandler):
+    def handle(self):
+        self.rfile.readline()
+        self.wfile.write(b"kein http\r\n")
+
+
+@pytest.mark.parametrize("art", ["ohne_schema", "kein_http", "verweigert"])
+def test_webhook_fehler_sind_kanalfehler_ohne_geheimnis(art):
+    server = None
+    if art == "ohne_schema":
+        url = "hooks.example.com/services/T0/B0/geheim"
+    elif art == "kein_http":
+        server = socketserver.TCPServer(("127.0.0.1", 0), _KeinHttp)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        url = f"http://127.0.0.1:{server.server_address[1]}/geheim"
+    else:
+        frei = socketserver.TCPServer(("127.0.0.1", 0), _KeinHttp)
+        port = frei.server_address[1]
+        frei.server_close()
+        url = f"http://127.0.0.1:{port}/geheim"
+    try:
+        with pytest.raises(KanalError) as fehler:
+            WebhookKanal(url, timeout=5).sende(Tagesuebersicht("jan", TAG))
+    finally:
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+    assert "geheim" not in str(fehler.value)
+
+
+def test_webhook_text_ohne_fremdes_markup(make_session, webhook):
+    """Titel enthalten Fremddaten (Kontaktname, Dateiname, Buchungstext). Im Feld
+    ``text`` dürfen sie weder alle benachrichtigen noch Links unterschieben."""
+    boese = (
+        "<!channel> <https://evil.example/login|Zahlung freigeben> "
+        "[hier](https://evil.example) @all & Co"
+    )
+    with make_session() as s:
+        _aufgabe(s, 1, TAG, titel=f"Kontakt prüfen: {boese}", zustaendig="jan")
+        s.commit()
+    e = _einstellungen(kanaele=["webhook"], webhook={"url": webhook.url})
+    _versende(make_session, e, {"webhook": WebhookKanal(webhook.url, 5)})
+    (anfrage,) = webhook.anfragen
+    text = anfrage["body"]["text"]
+    assert "<" not in text and ">" not in text and "](" not in text
+    assert "@all" not in text and "@channel" not in text
+    assert "&lt;!channel&gt;" in text and "&amp; Co" in text
+    # die strukturierten Felder bleiben roh — wer sie anzeigt, maskiert selbst
+    assert anfrage["body"]["aufgaben"][0]["titel"].endswith("@all & Co")
+
+
+def test_eigener_kanal_aus_der_registry(tmp_path, monkeypatch):
+    attrappe = Attrappe("teams")
+    monkeypatch.setitem(KANAELE, "teams", lambda einstellungen, pfad: attrappe)
+    e = AufgabenEinstellungen.model_validate(
+        {"benachrichtigung": {"kanaele": ["teams", "brieftaube"]}}
+    )
+    kanaele, fehler = baue_kanaele(e, tmp_path / "fehlt.yaml")
+    assert kanaele == {"teams": attrappe}
+    assert "unbekannter Kanal brieftaube" in fehler["brieftaube"]
+    assert "teams" in fehler["brieftaube"]  # nennt, was es gibt

@@ -153,6 +153,33 @@ def test_fehler(umgebung):
     assert r.exit_code == 1
 
 
+def test_falsche_angaben_ohne_traceback(umgebung):
+    def fehler(*args, meldung):
+        r = _run(umgebung, *args)
+        assert r.exit_code == 1 and isinstance(r.exception, SystemExit), r.output
+        assert meldung in _text(r)
+
+    fehler("objekt", "Beleg", "123", meldung="Objekttyp 'Beleg' ungültig")
+    fehler("rueckfrage", "abc", "--typ", "Beleg", "--text", "Frage", meldung="ungültig")
+    fehler(
+        "rueckfrage",
+        "ustva-2026-09",
+        "--typ",
+        "frist",
+        "--text",
+        "Frage",
+        "--an",
+        "jan",
+        "--rolle",
+        "buchhaltung",
+        meldung="nicht beides",
+    )
+    _pruefen(umgebung, "--lauf", "beleg_fehlt")
+    fehler("erledigen", "1", meldung="nur mit Begründung")
+    r = _run(umgebung, "erledigen", "1", "--text", "Kontoführungsgebühr, belegfrei")
+    assert r.exit_code == 0, r.output
+
+
 def test_erinnern_vorschau_und_versand(umgebung, tmp_path):
     url, _, _ = umgebung
     _pruefen(umgebung)

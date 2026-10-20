@@ -1,13 +1,14 @@
 """Persistenz der Aufgaben, Kommentare und Benachrichtigungen."""
 
 from datetime import date
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import inspect
 
 from accounti.db import init_db, session_factory
 from accounti.db.repo_aufgaben import (
+    AufgabeVeraltetError,
     aktualisiere_aufgabe,
     ids_mit_praefix,
     lade_aufgabe,
@@ -15,6 +16,7 @@ from accounti.db.repo_aufgaben import (
     lade_aufgaben,
     lade_benachrichtigungen,
     lade_kommentare,
+    lege_aufgabe_an,
     naechste_aufgaben_nr,
     speichere_aufgabe,
     speichere_benachrichtigung,
@@ -67,6 +69,8 @@ def test_aufgabe_hin_und_zurueck(make_session):
     factory, _ = make_session
     a = _aufgabe(
         1,
+        # fester Anfang mit Buchstaben: ein reiner Ziffernanfang gälte als Nummer
+        id=UUID("ab12cd34-5e6f-4a7b-8c9d-0e1f2a3b4c5d"),
         beschreibung="Umsatz ohne Beleg",
         zustaendig="jan",
         faellig_am=date(2026, 10, 30),
@@ -181,3 +185,33 @@ def test_praefixsuche(make_session):
         assert ids_mit_praefix(s, BelegRow, str(b.id)[:5]) == [str(b.id)]
         assert ids_mit_praefix(s, BelegRow, str(uuid4())) == []
         assert ids_mit_praefix(s, BelegRow, "%") == []  # kein LIKE-Joker
+
+
+def test_anlegen_bei_belegtem_schluessel_oder_nummer(make_session):
+    factory, _ = make_session
+    a = Aufgabe(art="beleg_fehlt", titel="x", objekt_typ="beleg", objekt_id="1", nr=1)
+    andere = Aufgabe(
+        art="beleg_fehlt", titel="y", objekt_typ="beleg", objekt_id="2", nr=1
+    )
+    with factory() as s:
+        assert lege_aufgabe_an(s, a)
+        assert not lege_aufgabe_an(s, a.model_copy(update={"id": uuid4(), "nr": 2}))
+        assert not lege_aufgabe_an(s, andere)  # Nummer belegt
+        assert lege_aufgabe_an(s, andere.model_copy(update={"nr": 2}))
+        s.rollback()  # kein Savepoint, der vorher schon committet hätte
+    with factory() as s:
+        assert lade_aufgaben(s) == []
+
+
+def test_aktualisieren_nur_ohne_zwischenzeitliche_aenderung(make_session):
+    factory, _ = make_session
+    a = Aufgabe(art="beleg_fehlt", titel="x", objekt_typ="beleg", objekt_id="1", nr=1)
+    with factory() as s:
+        speichere_aufgabe(s, a)
+        gelesen = lade_aufgabe(s, "1")
+        assert gelesen.version == 0
+        neu = aktualisiere_aufgabe(s, gelesen.model_copy(update={"titel": "y"}))
+        assert neu.version == 1
+        with pytest.raises(AufgabeVeraltetError, match="inzwischen geändert"):
+            aktualisiere_aufgabe(s, gelesen.model_copy(update={"titel": "z"}))
+        assert lade_aufgabe(s, "1").titel == "y"

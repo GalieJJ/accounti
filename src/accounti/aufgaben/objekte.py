@@ -3,8 +3,9 @@
 Eine Aufgabe zeigt auf ``Objekt(typ, id)``. Für die Typen, die es schon gibt, steht
 hier, wie man sie findet (Anfang der ID, Personenkonto, IBAN) und wie man sie in
 einer Zeile beschreibt. Andere Bausteine tragen eigene Typen mit
-``registriere_objekttyp`` ein; unbekannte Typen (z.B. Fristen ohne eigene Tabelle)
-funktionieren trotzdem — sie werden nur nicht aufgelöst und roh angezeigt.
+``registriere_objekttyp`` in ihrem Modul ``aufgaben_anbindung`` ein; unbekannte
+Typen (z.B. Fristen ohne eigene Tabelle) funktionieren trotzdem — sie werden nur
+nicht aufgelöst und roh angezeigt.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
+from accounti.aufgaben.anbindung import lade_anbindungen
 from accounti.aufgaben.fehler import AufgabenError
 from accounti.db import Base
 from accounti.db.repo_aufgaben import ids_mit_praefix
@@ -59,6 +61,7 @@ def registriere_objekttyp(
 
 def beschreibe(session: Session, objekt: Objekt) -> str:
     """Eine Zeile zum Objekt; unbekannte Typen als ``typ:id``."""
+    lade_anbindungen()  # Objekttypen anderer Bausteine
     eintrag = OBJEKTTYPEN.get(objekt.typ)
     if eintrag is None:
         return str(objekt)
@@ -71,9 +74,13 @@ def beschreibe(session: Session, objekt: Objekt) -> str:
 
 def loese_auf(session: Session, typ: str, schluessel: str) -> Objekt:
     """Kurzangabe (Anfang der ID, Personenkonto, IBAN …) → vollständiges Objekt."""
+    lade_anbindungen()
     eintrag = OBJEKTTYPEN.get(typ)
     if eintrag is None:
-        return Objekt(typ, schluessel)
+        try:
+            return Objekt(typ, schluessel)
+        except ValueError as fehler:  # ungültiger Typ oder leere ID
+            raise AufgabenError(str(fehler)) from fehler
     try:
         treffer = eintrag.finde(session, schluessel)
     except ValueError as fehler:

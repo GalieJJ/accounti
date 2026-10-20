@@ -326,7 +326,9 @@ def erledigen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Als erledigt abschließen — ein späterer Prüflauf öffnet sie nicht wieder."""
+    """Als erledigt abschließen — ein späterer Prüflauf öffnet sie nicht wieder.
+
+    „Beleg fehlt“ nur mit Begründung (--text), z.B. warum kein Beleg nötig ist."""
     from accounti.aufgaben.erzeugung import erledige
 
     wer = _von(von, _einstellungen(config))
@@ -428,6 +430,11 @@ def _pruefausgabe(ergebnisse: list[Laufergebnis]) -> None:
             f"{len(g.aktualisiert)} aktualisiert, {len(g.wieder_offen)} wieder offen, "
             f"{len(g.hinfaellig)} hinfällig"
             + (f", {len(g.abgeschlossen)} bleiben erledigt" if g.abgeschlossen else "")
+            + (
+                f", {len(g.uebersprungen)} gleichzeitig geändert (nächster Lauf)"
+                if g.uebersprungen
+                else ""
+            )
         )
         for a in g.neu + g.wieder_offen:
             console.print(f"  [yellow]+[/yellow] #{a.nr} {escape(a.titel)}")
@@ -496,6 +503,7 @@ def _erinnern(
             stichtag=stichtag,
             jetzt=jetzt,
             kanalfehler=kanalfehler,
+            sichern=s.commit,  # Gesendetes bleibt protokolliert, auch bei Abbruch
         ),
     )
     if not lauf.uebersichten:

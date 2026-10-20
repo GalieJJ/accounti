@@ -105,7 +105,7 @@ def test_erledigte_fallen_aus_der_gemeinsamen_liste(make_session):
     with make_session() as s:
         melde_aufgabe(s, "beleg_fehlt", Objekt("transaktion", "1"), titel="x")
         assert len(gemeinsame_liste(lade_aufgaben(s))) == 1
-        erledige(s, "1", von="jan")
+        erledige(s, "1", von="jan", text="belegfrei")
         assert gemeinsame_liste(lade_aufgaben(s)) == []
         melde_aufgabe(s, "beleg_fehlt", Objekt("transaktion", "2"), titel="y")
         weise_zu(s, "2", an="jan", von="jan")
