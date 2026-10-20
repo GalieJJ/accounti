@@ -55,6 +55,7 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 | FinTS-Formate | HKKAZ liefert MT940, HKCAZ camt (Report camt.052, Formate in HICAZS); python-fints: `get_transactions_xml()` gibt die XML-Dokumente roh zurück | Quelltext `fints/client.py` |
 | camt.053 .02 vs. .08 | `.02`: `Ntry/Sts` ist ein Code, Parteien `RltdPties/Dbtr/Nm`; `.08`: `Ntry/Sts/Cd`, Parteien `RltdPties/Dbtr/Pty/Nm`; beide: `Ntry/Amt@Ccy`, `CdtDbtInd` (CRDT/DBIT), `RvslInd`, `BookgDt/Dt|DtTm`, `ValDt`, `AcctSvcrRef`, `NtryDtls/TxDtls/Refs/EndToEndId|MndtId`, `RmtInf/Ustrd|Strd`, `AddtlNtryInf`; Salden `Bal/Tp/CdOrPrtry/Cd` (OPBD, PRCD, CLBD) | XSD `camt.053.001.02.xsd` und `camt.053.001.08.xsd` von iso20022.org |
 | MT940 | `:61:` = Valuta JJMMTT, opt. Buchungsdatum MMTT, D/C/RD/RC, opt. dritte Währungsstelle, Betrag mit Komma, Buchungsschlüssel (N + 3), Kundenreferenz (NONREF, wenn keine), `//` Bankreferenz, Zeile 2 Zusatz; `:86:` strukturiert: Geschäftsvorfallcode (3 Ziffern), dann `?00` Buchungstext, `?10` Primanota, `?20`–`?29` und `?60`–`?63` Verwendungszweck (mit SEPA-Schlüsseln `EREF+`, `KREF+`, `MREF+`, `CRED+`, `SVWZ+`, `ABWA+` …), `?30` BLZ/BIC, `?31` Konto/IBAN, `?32`/`?33` Name, `?34` Textschlüsselergänzung | DFÜ-Abkommen Anlage 3 Kap. MT940 (Fachkenntnis), gegengeprüft an mBank „Formatbeschreibung MT940“ (`:61:`, NONREF, `//`), HVB „SEPA-Geschäftsvorfallcodes“ (GVC in ?00-Position), Schlüsseltabelle in mt-940 5.1.1 |
+| Zeitlimit | python-fints sendet über `requests.Session.post` ohne `timeout` — eine hängende Gegenstelle blockiert unbegrenzt | Quelltext `fints/connection.py` 5.0.0 |
 | Geldtransit | SKR03 1360, SKR04 1460 (Verrechnungskonto zwischen eigenen Finanzkonten); für ein Kreditkartenkonto gibt es keine belastbar belegte Standardnummer → Sachkonto bei der Einrichtung Pflicht | Haufe „Kreditkarte/EC-Karte: Zahlungseingänge per Kreditkarte“ |
 
 ## Schnitt in Pakete
@@ -79,6 +80,8 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 | Freigabe | `BankProvider(freigabe=…)`: ohne Rückfrage (`bank abrufen`, `bank lauf`, Cron) wird `FreigabeNoetigError` zum Zustand `freigabe_noetig` mit dem Hinweis `accounti fints freigeben`; mit Rückfrage (`fints einrichten`, `fints freigeben`) fragt die CLI nach der TAN bzw. wartet auf die App (Statusabfrage im Abstand `freigabe_intervall_sekunden`, höchstens `freigabe_wartezeit_sekunden`) | Spec 4.2 und 5: als Zustand gemeldet; ein Cron-Lauf darf nie auf eine Eingabe warten; Baustein 8 macht aus dem Zustand eine Aufgabe |
 | PIN falsch / gesperrt | `ProviderError` ohne Wiederholung; die Meldung enthält nie Zugangsdaten | python-fints sperrt die PIN nach 9xxx-Antworten; jeder weitere Versuch kann den Zugang sperren |
 | Erster Abruf | ohne Abrufstand ab heute minus `erster_abruf_tage` (Standard 90) | Umsätze der letzten 90 Tage fallen unter die SCA-Ausnahme |
+| Zeitlimit | jede Anfrage an die Bank mit `zeitlimit_sekunden` (Standard 120); auch von python-fints beim Dialogaufbau verpackte Verbindungsfehler werden zu „Bank nicht erreichbar“ | python-fints setzt selbst kein Zeitlimit — ein hängender Server hielte den Cron auf |
+| Rückmeldungen der Bank | der Logger `fints` bekommt einen `NullHandler` | python-fints protokolliert jede 3xxx-Rückmeldung als Warnung; ohne eigene Logging-Einrichtung landete das ungefragt auf der Konsole |
 | TAN-Verfahren | `fints einrichten` fragt die Verfahren der Bank ab und lässt wählen (Einstellung `tan_verfahren`, ggf. `tan_medium`); ohne Einstellung wählt python-fints das erste zweistufige Verfahren | eine Wahl, die der Mensch einmal trifft, statt bei jedem Lauf |
 | MT940-Parser | Standardbibliothek; `@@` als Zeilenumbruch; Buchungsdatum (sonst Valuta) als Datum; D/RC negativ, C/RD positiv; Verwendungszweck = `SVWZ+` (sonst der ganze Text) plus `EREF` als Referenz; Name aus ?32+?33, IBAN aus ?31; Saldenprobe je Auszug (Anfangssaldo + Umsätze = Endsaldo), sonst Fehler | ein Auszug, der nicht aufgeht, ist unvollständig — Fehler statt stiller Lücke |
 | CAMT-Parser | camt.052/053/054, Versionen .02 und .08 namensraumunabhängig; nur gebuchte Einträge (BOOK); Vorzeichen aus `CdtDbtInd`; Gegenpartei bei Gutschrift `Dbtr`, bei Belastung `Cdtr`; eine Transaktion je `Ntry` (Sammler: Verwendungszwecke zusammengefasst); DTD/Entity abgelehnt; Saldenprobe, wenn Anfangs- (OPBD/PRCD) und Endsaldo (CLBD) da sind | Vormerkposten sind keine Buchungen; die Kontozeile ist die Buchung |
@@ -87,10 +90,11 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 | Datei-Provider | MT940/CAMT werden am Inhalt erkannt (`.sta`, `.mt940`, `.940`, `.txt`, `.xml`), `format` gilt nur für CSV; Saldo des letzten Auszugs wird gemeldet | Fallback bleibt vollständig (Akzeptanz 6) |
 | `import bank` | `--format mt940|camt`, `auto` erkennt beide am Inhalt vor den CSV-Profilen | eine Stelle für alle Dateiformate |
 | Kreditkarte | eigenes Bankkonto (Kennung statt IBAN, z.B. `VISA1234`, eigenes Sachkonto als Pflichtangabe) plus Eintrag in `kreditkarten`: Girokonto, Muster der Sammelbelastung, Endziffern, Abrechnungstag | Vorgabe des Auftrags; die Kartennummer selbst wird nie gespeichert |
-| Kartenumsätze | Provider `abrechnung` (PDF über die Belegerfassung, `kreditkarte uebernehmen BELEG`) oder jeder andere Provider (`datei`, `fints`); Übernahme mit Dublettenschutz am Kartenkonto | Spec 4.3: Provider oder PDF; der PDF-Weg nutzt den vorhandenen Positionssplit |
+| Kartenumsätze | Provider `abrechnung` (PDF über die Belegerfassung, `kreditkarte uebernehmen BELEG`) oder jeder andere Provider (`datei`, `fints`); Übernahme mit Dublettenschutz am Kartenkonto. Der Abgleich übernimmt erfasste Kartenabrechnungen von selbst, aber nur, wenn genau eine Karte eingerichtet ist und sie per PDF abrechnet — sonst Hinweis | Spec 4.3: Provider oder PDF; der PDF-Weg nutzt den vorhandenen Positionssplit. Die PDF einer Karte mit Abruf liegt oft ebenfalls in den Belegen und darf nicht geraten werden |
+| Abrechnungsbetrag des Belegs | wird **nicht** gegen die Positionen geprüft | den Gesamtbetrag einer Kartenabrechnung liest die Belegextraktion nicht verlässlich (Saldo, Vortrag, Limit); eine fehlende Zeile fällt am Abgleich mit der Sammelbelastung auf |
 | Ausgleichszeilen | positive Zeilen mit „Zahlung/Ausgleich/Lastschrift/…“ (`ausgleich_muster`) sind die Begleichung der Vorperiode, kein Einzelumsatz | sonst stimmte keine Summe |
 | Abrechnung | PDF: Positionen des Belegs, Stichtag = Belegdatum; Provider: Umsätze nach dem letzten Stichtag bis zum Stichtag (Abrechnungstag des Monats oder `kreditkarte abrechnen --stichtag`); jeder Umsatz gehört höchstens zu einer Abrechnung | eindeutiger Abrechnungszeitraum |
-| Sammelbelastung | Girokonto-Umsatz < 0, Muster (und Endziffern, falls gesetzt) im Text, 0–`belastung_fenster_tage` (30) nach dem Stichtag. Betrag = Summe → abgeglichen; sonst **Befund** mit centgenauer Differenz; mehrere Kandidaten → keine Zuordnung, Hinweis | Spec 4.3; „streng vor großzügig“ |
+| Sammelbelastung | Girokonto-Umsatz < 0, Muster (und Endziffern, falls gesetzt) im Text, 0–`belastung_fenster_tage` (30) nach dem Stichtag. Zuerst exakte Treffer (Betrag = Summe → abgeglichen), dann genau eine Abrechnung für genau eine Belastung → **Befund** mit centgenauer Differenz; konkurrieren Belastungen oder Karten, wird nichts zugeordnet („mehrdeutig“). Eine schon anders gebuchte Belastung wird zugeordnet, aber nicht umgebucht — Befund „anders gebucht“. Längst gebuchte alte Belastungen ohne Abrechnung bleiben still | Spec 4.3; „streng vor großzügig“; wer die Karte nachträglich einrichtet, soll nicht jeden Monat dieselben Altfälle sehen |
 | Buchung | PDF-Karte: Sammelbelastung „Kreditkarte an Bank“; Karte mit Abruf: Sammelbelastung „Geldtransit an Bank“, Ausgleichszeile „Kreditkarte an Geldtransit“ (SKR03 1360, SKR04 1460, `geldtransit_konto`). Abgeglichen → automatisch (Confidence 1,0), Abweichung → zur Prüfung mit voller Belastung; nie eine Buchung über die Differenz | jede Kontozeile wird genau einmal auf ihrem Finanzkonto gebucht; `classify` fasst gebuchte Umsätze nicht an; die Einzelumsätze kontiert `classify` gegen das Kartenkonto |
 | Lauf | `bank lauf`: abrufen → **Kreditkarten** → offene Posten → Belegabgleich → kontieren | die Sammelbelastung darf weder als offener Posten noch per Regelwerk gebucht werden |
 | Konfiguration | Abschnitt `bank` (Unterabschnitte `fints`, `kreditkarte`) mit eigenem Lader `bank/einstellungen.py`, alles mit Standardwerten | Muster `lade_buchhaltung`; ohne Abschnitt lauffähig |
@@ -101,36 +105,49 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 
 ### Paket A – Formate
 
-- [ ] **MT940** (`importers/mt940.py`): `:61:` (Valuta/Buchungsdatum, Jahreswechsel, C/D/RC/RD, Bankreferenz, NONREF), `:86:` strukturiert und unstrukturiert, SEPA-Schlüssel, `@@`, mehrere Auszüge, Saldenprobe, Kontokennung (`tests/test_bank_mt940.py`).
-- [ ] **CAMT** (`importers/camt.py`): 052/053/054 in .02 und .08, Vorzeichen, Status, Storno, Gegenpartei, Referenzen, Sammler, Saldenprobe, DTD abgelehnt (`tests/test_bank_camt.py`).
-- [ ] **Gemeinsam** (`importers/kontoauszug.py`): Formaterkennung, Kontozuordnung (IBAN, BLZ/Konto), Registry `mt940`/`camt`, `waehle_importer(…, "auto")` erkennt beide.
-- [ ] **Dublettenschutz mit Bankreferenz** (`bank/dubletten.py`): ohne Referenz unveränderter Schlüssel; verschiedene Referenzen unabhängig von der Reihenfolge; Wiederholung → keine Dublette (`tests/test_bank_dubletten.py`).
-- [ ] **Datei-Provider** liest MT940/CAMT, überspringt fremde Konten und Notizen, meldet den Saldo; `import bank` mit MT940/CAMT und zweimal importiert → nichts doppelt (Akzeptanz 2, 6) (`tests/test_bank_provider.py`, `tests/test_cli_bank_formate.py`).
+- [x] **MT940** (`importers/mt940.py`): `:61:` (Valuta/Buchungsdatum, Jahreswechsel, C/D/RC/RD, Bankreferenz, NONREF), `:86:` strukturiert und unstrukturiert, SEPA-Schlüssel, `@@`, mehrere Auszüge, Saldenprobe, Kontokennung (`tests/test_bank_mt940.py`).
+- [x] **CAMT** (`importers/camt.py`): 052/053/054 in .02 und .08, Vorzeichen, Status, Storno, Gegenpartei, Referenzen, Sammler, Saldenprobe, DTD abgelehnt (`tests/test_bank_camt.py`).
+- [x] **Gemeinsam** (`importers/kontoauszug.py`): Formaterkennung, Kontozuordnung (IBAN, BLZ/Konto), Registry `mt940`/`camt`, `waehle_importer(…, "auto")` erkennt beide.
+- [x] **Dublettenschutz mit Bankreferenz** (`bank/dubletten.py`): ohne Referenz unveränderter Schlüssel; verschiedene Referenzen unabhängig von der Reihenfolge; Wiederholung → keine Dublette (`tests/test_bank_dubletten.py`).
+- [x] **Datei-Provider** liest MT940/CAMT, überspringt fremde Konten und Notizen, meldet den Saldo; `import bank` mit MT940/CAMT und zweimal importiert → nichts doppelt (Akzeptanz 2, 6) (`tests/test_bank_provider.py`, `tests/test_cli_bank_formate.py`).
 
 ### Paket B – FinTS
 
-- [ ] **Abhängigkeit** `fints==5.0.0` in `pyproject.toml`, mypy-Ausnahme für das untypisierte Paket.
-- [ ] **Einstellungen** (`bank/einstellungen.py`): Abschnitt `bank`, Standardwerte, `${VAR}`, `ACCOUNTI_FINTS_PRODUKT_ID`, Fehlertexte (`tests/test_bank_einstellungen.py`).
-- [ ] **Provider-Schnittstelle**: `Freigabeanfrage`, `BankProvider(freigabe=…)`, `Abruf.zugang`, `FreigabeNoetigError.zugang`; `rufe_ab(…, freigabe=…)` verschlüsselt geänderte Zugänge neu (`tests/test_bank_lauf.py`).
-- [ ] **Provider `fints`** (`bank/fints.py`) gegen die Attrappe: Produkt-ID (fehlt, Reihenfolge, Länge), Konto über IBAN, camt/MT940, Zeitraum, Saldo, Sitzung, Freigabe bei Initialisierung und Abruf (TAN, App mit Statusabfrage, Abbruch, Zeitüberschreitung, ohne Rückfrage → Zustand), PIN falsch, Verbindung weg, TAN-Verfahren (`tests/test_bank_fints.py`).
-- [ ] **Einrichtung** (`richte_fints_ein`): TAN-Verfahren und -Medium wählen, erste Freigabe, Konto bei der Bank vorhanden.
-- [ ] **CLI** `fints einrichten|freigeben` (`befehle/fints.py`); **Akzeptanz 1** mit der Attrappe: einrichten (TAN) → `bank abrufen` zweimal ohne Eingabe → Bank verlangt Freigabe → Zustand, `fints freigeben` → weiter (`tests/test_cli_fints.py`).
-- [ ] **Akzeptanz 5** für FinTS: weder PIN noch Benutzerkennung noch Sitzung im Klartext in der Datenbank.
-- [ ] **Testbank** (`tests/fints_testbank.py`): echter python-fints-Client gegen lokale HTTP-Testbank — Produkt-ID im HKVVB, Freigabe bei der Initialisierung, MT940 mit Aufsetzpunkt, camt, zweiter Abruf mit gesicherter Sitzung ohne neue Kundensystem-ID und ohne TAN (`tests/test_bank_fints_testbank.py`).
+- [x] **Abhängigkeit** `fints==5.0.0` in `pyproject.toml`, mypy-Ausnahme für das untypisierte Paket.
+- [x] **Einstellungen** (`bank/einstellungen.py`): Abschnitt `bank`, Standardwerte, `${VAR}`, `ACCOUNTI_FINTS_PRODUKT_ID`, Fehlertexte (`tests/test_bank_einstellungen.py`).
+- [x] **Provider-Schnittstelle**: `Freigabeanfrage`, `BankProvider(freigabe=…)`, `Abruf.zugang`, `FreigabeNoetigError.zugang`; `rufe_ab(…, freigabe=…)` verschlüsselt geänderte Zugänge neu (`tests/test_bank_lauf.py`).
+- [x] **Provider `fints`** (`bank/fints.py`) gegen die Attrappe: Produkt-ID (fehlt, Reihenfolge, Länge), Konto über IBAN, camt/MT940, Zeitraum, Saldo, Sitzung, Freigabe bei Initialisierung und Abruf (TAN, App mit Statusabfrage, Abbruch, Zeitüberschreitung, ohne Rückfrage → Zustand), PIN falsch, Verbindung weg, TAN-Verfahren (`tests/test_bank_fints.py`).
+- [x] **Einrichtung** (`richte_fints_ein`): TAN-Verfahren und -Medium wählen, erste Freigabe, Konto bei der Bank vorhanden.
+- [x] **CLI** `fints einrichten|freigeben` (`befehle/fints.py`); **Akzeptanz 1** mit der Attrappe: einrichten (TAN) → `bank abrufen` zweimal ohne Eingabe → Bank verlangt Freigabe → Zustand, `fints freigeben` → weiter (`tests/test_cli_fints.py`).
+- [x] **Akzeptanz 5** für FinTS: weder PIN noch Benutzerkennung noch Sitzung im Klartext in der Datenbank.
+- [x] **Testbank** (`tests/fints_testbank.py`): echter python-fints-Client gegen lokale HTTP-Testbank — Produkt-ID im HKVVB, Freigabe bei der Initialisierung, MT940 mit Aufsetzpunkt, camt, zweiter Abruf mit gesicherter Sitzung ohne neue Kundensystem-ID und ohne TAN, falsche PIN, Einrichtung, Zeitlimit bei hängender Bank (`tests/test_bank_fints_testbank.py`).
+- [x] **Akzeptanz 6** mit FinTS: Bank fällt aus → `import bank --konto` mit dem Auszug → späterer Abruf bringt nichts doppelt (`tests/test_cli_fints.py`).
 
 ### Paket C – Kreditkarten
 
-- [ ] **Modelle und Persistenz**: `models/bank.py`, `db/tabellen_bank.py` (`kreditkarten`, `kreditkartenabrechnungen`, `kreditkartenumsaetze`), `db/repo_bank.py` (`tests/test_bank_kreditkarte_repo.py`).
-- [ ] **Einrichtung und Provider `abrechnung`**: Karte als Bankkonto mit eigenem Sachkonto, Girokonto muss existieren, vorhandenes Konto als Karte markieren.
-- [ ] **PDF-Übernahme**: Positionen des Belegs → Umsätze am Kartenkonto (Dublettenschutz), Ausgleichszeilen ausgenommen, Abrechnung mit Summe; zweimal → Fehler; Abweichung der Positionen vom Abrechnungsbetrag → Befund.
-- [ ] **Abrechnung aus Provider-Umsätzen** (Stichtag, Abrechnungstag).
-- [ ] **Sammelbelastung**: gleich → abgeglichen und gebucht; 1 Cent Differenz → Befund, zur Prüfung, keine Rundungsbuchung; mehrdeutig → nichts; ohne Abrechnung → Hinweis; Geldtransit für Karten mit Abruf inkl. Ausgleichszeile; idempotent (`tests/test_bank_kreditkarte.py`).
-- [ ] **Lauf**: Schritt im `bank lauf` vor den offenen Posten; `classify` bucht die Einzelumsätze gegen das Kartenkonto.
-- [ ] **CLI** `kreditkarte einrichten|liste|uebernehmen|abrechnen|abgleich` (`tests/test_cli_kreditkarte.py`).
+- [x] **Modelle und Persistenz**: `models/bank.py`, `db/tabellen_bank.py` (`kreditkarten`, `kreditkartenabrechnungen`, `kreditkartenumsaetze`), `db/repo_bank.py` (`tests/test_bank_kreditkarte_repo.py`).
+- [x] **Einrichtung und Provider `abrechnung`**: Karte als Bankkonto mit eigenem Sachkonto, Girokonto muss existieren, vorhandenes Konto als Karte markieren.
+- [x] **PDF-Übernahme**: Positionen des Belegs (echte Belegerkennung des Beispiels `examples/belege/kreditkarte_12_umsaetze.txt`) → Umsätze am Kartenkonto (Dublettenschutz), Ausgleichszeilen ausgenommen, Abrechnung mit Summe; zweimal → Fehler; nur Kontoauszüge mit Kartenumsätzen; von selbst nur bei genau einer (PDF-)Karte.
+- [x] **Abrechnung aus Provider-Umsätzen** (Stichtag, Abrechnungstag).
+- [x] **Sammelbelastung**: gleich → abgeglichen und gebucht; 1 Cent Differenz → Befund, zur Prüfung, keine Rundungsbuchung; mehrdeutig → nichts; exakter Treffer gewinnt; Endziffern; Fenster; ohne Abrechnung → Hinweis, alte gebuchte still; schon anders gebucht → Befund; Geldtransit (SKR03/SKR04) für Karten mit Abruf inkl. Ausgleichszeile; idempotent (`tests/test_bank_kreditkarte.py`).
+- [x] **Lauf**: Schritt im `bank lauf` vor den offenen Posten; `classify` bucht die Einzelumsätze gegen das Kartenkonto.
+- [x] **CLI** `kreditkarte einrichten|liste|uebernehmen|abrechnen|abgleich` (`tests/test_cli_kreditkarte.py`).
+
+### Belege der Akzeptanzkriterien (Spec 7)
+
+| Nr. | Kriterium | Tests |
+|-----|-----------|-------|
+| 1 | Abruf ohne weitere Eingabe außer der Freigabe | `test_cli_fints.py::test_akzeptanz_1_abruf_ohne_weitere_eingabe_ausser_der_freigabe` (CLI, Attrappe), `test_bank_fints.py::test_freigabe_mit_tan_und_danach_ohne_eingabe`, `test_bank_fints.py::test_abruf_aller_konten_mit_freigabe_und_tresor`, `test_bank_fints_testbank.py::test_mt940_mit_freigabe_und_gesicherter_sitzung` (echter Client) |
+| 2 | zweiter Abruf ohne Dubletten | `test_cli_bank_formate.py::test_import_bank_mt940_zweimal_ohne_dubletten`, `test_bank_dubletten.py::test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze`, `test_cli_fints.py::test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt`, dazu aus Paket 2 `test_bank_lauf.py::test_abruf_ohne_weitere_eingabe_und_ohne_dubletten` |
+| 3 | mit Beleg höhere Regel-Trefferquote | Paket 1: `test_bank_abgleichslauf.py::test_beleg_hebt_die_regel_trefferquote` |
+| 4 | zwei gleiche Rechnungen → zwei Vorschläge | Paket 1: `test_bank_abgleich.py::test_zwei_gleiche_quittungen_am_selben_tag_werden_vorgeschlagen` |
+| 5 | kein Zugangsdatum im Klartext | `test_bank_fints.py::test_abruf_aller_konten_mit_freigabe_und_tresor`, `test_bank_lauf.py::test_geaenderter_zugang_wird_neu_verschluesselt`, `test_cli_fints.py::test_akzeptanz_1_…` |
+| 6 | Dateiimport bleibt bei Ausfall nutzbar | `test_cli_fints.py::test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt`, `test_bank_provider.py::test_liest_mt940_und_camt_und_meldet_den_saldo`, Paket 2: `test_bank_lauf.py::test_dateiimport_bleibt_nutzbar_wenn_der_provider_ausfaellt` |
+| 4.3 | Sammelbelastung gegen Summe, Abweichung = Befund | `test_bank_kreditkarte.py::test_sammelbelastung_gleich_summe_wird_gebucht`, `::test_ein_cent_abweichung_ist_ein_befund_kein_rundungsposten`, `test_cli_kreditkarte.py::test_abweichung_wird_als_befund_gemeldet` |
 
 ### Abschluss
 
-- [ ] `pytest`, `ruff check`, `ruff format --check` (ohne Cache), `mypy` grün; Plan abgehakt; Doku-Bausteine unten aktuell.
+- [x] `pytest`, `ruff check`, `ruff format --check` (ohne Cache), `mypy` grün; Plan abgehakt; Doku-Bausteine unten aktuell.
 
 ## Grenzen
 
@@ -157,8 +174,10 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
   PSD2-Provider ist nicht Teil dieses Pakets.
 - **PDF-Abrechnungen** nutzen die vorhandene Zeilenerkennung aus Baustein 2 (Zeilen, die mit
   einem Datum beginnen). Zeilen ohne Datum, Fremdwährungsangaben und mehrzeilige Umsätze
-  erkennt sie nicht — die Abweichung zwischen Positionen und Abrechnungsbetrag wird dann zum
-  Befund, nicht still übernommen.
+  erkennt sie nicht; eine so verlorene Zeile fällt erst beim Abgleich mit der Sammelbelastung
+  als Befund auf (der Gesamtbetrag des Belegs wird nicht gegengeprüft, weil die Extraktion ihn
+  bei Kartenabrechnungen nicht verlässlich liest). Geprüft ist der Weg mit dem Beispiel aus
+  `examples/belege/`, nicht mit Abrechnungen echter Kartenherausgeber.
 - **Abrechnungszeitraum bei Abruf-Karten** nur über einen monatlichen Abrechnungstag oder von
   Hand (`kreditkarte abrechnen`); Wochen- oder Sonderrhythmen nicht.
 - **Sammelbuchungen** (mehrere `TxDtls` in einem `Ntry`, MT940-Sammler) werden eine Transaktion
@@ -171,8 +190,19 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 - **`classify` allein** (ohne `bank lauf` oder `kreditkarte abgleich` davor) kann eine
   Sammelbelastung per Regelwerk buchen; der Kartenabgleich meldet sie danach als „schon
   gebucht“, statt sie umzubuchen.
-- **Hilfetext** von `bank verbinde` nennt `fints` noch als „später“ (steht in `cli.py`, das dieses
-  Paket nicht ändert).
+- **Ausgabe von `bank lauf`** nennt das Ergebnis des Kartenabgleichs nicht (die Zeile steht in
+  `cli.py`, das dieses Paket nicht ändert); Befunde zeigen `kreditkarte abgleich` und
+  `kreditkarte liste`. `bank lauf --config` gilt nur für den Abschnitt `buchhaltung`; der Abschnitt
+  `bank` kommt in `bank lauf` und `bank abrufen` immer aus `config/accounti.yaml`
+  (Arbeitsverzeichnis) bzw. der Umgebung.
+- **Hilfetext** von `bank verbinde` nennt `fints` noch als „später“ (ebenfalls `cli.py`).
+- **Sammelbelastung ohne Abrechnung** wird gemeldet, aber nicht gebucht — läuft danach `classify`,
+  kann das Regelwerk sie buchen. Abhilfe: PDF vor dem Lauf übernehmen oder einen Abrechnungstag
+  einstellen; die Automatik übernimmt PDF-Abrechnungen nur bei genau einer Karte.
+- **`import bank --konto`** prüft bei MT940/CAMT nicht, ob der Auszug zum angegebenen Konto
+  gehört (das tut nur der Datei-Provider); der Befehl steht in `cli.py`.
+- **TAN-Medien** (`get_tan_media`) sind nur gegen die Attrappe getestet, nicht gegen die
+  Testbank mit dem echten Client.
 
 ## Doku-Bausteine
 
@@ -206,6 +236,11 @@ accounti import bank camt053.xml --konto DE12…
 
 accounti kreditkarte einrichten --kennung VISA1234 --bezeichnung "Visa Firma" \
   --sachkonto 1730 --girokonto DE12… --endziffern 1234
+                                               # eigenes Sachkonto der Karte (Nummer mit der
+                                               # Steuerberatung abstimmen), keine Kartennummer
+accounti kreditkarte einrichten --konto AMEX01 --girokonto DE12… --abrechnungstag 20
+                                               # Karte mit Abruf (z.B. Datei-Provider): Ausgleich
+                                               # über Geldtransit 1360/1460
 accounti belege import abrechnung-maerz.pdf    # PDF-Abrechnung wird in Umsätze zerlegt …
 accounti kreditkarte uebernehmen <BELEG-ID>    # … und landet am Kartenkonto
 accounti kreditkarte abgleich                  # Sammelbelastung ./. Summe der Einzelumsätze
@@ -214,7 +249,9 @@ accounti kreditkarte liste                     # Karten, Abrechnungen, Befunde
 
 Stimmt die Sammelbelastung auf dem Girokonto nicht centgenau mit der Summe der Einzelumsätze
 überein, bucht accounti sie zur Prüfung und nennt die Differenz als Befund — es gibt keinen
-Rundungsposten. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontieren selbst.
+Rundungsposten. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontieren selbst; ist
+genau eine Karte mit PDF-Abrechnung eingerichtet, übernimmt er erfasste Abrechnungen auch von
+selbst. Die Einzelumsätze kontiert `classify` gegen das Sachkonto der Karte.
 ````
 
 ### README — Roadmap v0.3
@@ -248,7 +285,9 @@ Rundungsposten. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontier
   meldet den Saldo
 - **`bank lauf`** gleicht vor den offenen Posten die Kreditkarten ab
 - **Provider-Schnittstelle:** Rückfrage für Freigaben (`freigabe`), aktualisierte Zugänge
-  (`Abruf.zugang`) werden neu verschlüsselt
+  (`Abruf.zugang`, `FreigabeNoetigError.zugang`) werden neu verschlüsselt
+- **Kontoauszüge** im Datei-Provider: Dateien mit `.txt`/`.xml` werden nur übernommen, wenn sie
+  MT940 oder CAMT enthalten
 
 ### Behoben
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
@@ -291,8 +330,24 @@ Offen als Erweiterung: der PSD2-Provider (opt-in) und Kreditkarten per FinTS.
   Buchung zur Prüfung, nie ein Rundungsposten. Gebucht wird „Kreditkarte an Bank“ (PDF-Karten)
   bzw. über Geldtransit (Karten mit Abruf). Läuft in `bank lauf` vor den offenen Posten.
   *(vorhanden)*
+- `abrechnung.py` — Provider `abrechnung` für Konten, deren Umsätze aus übernommenen
+  Abrechnungen kommen (PDF-Kreditkarten); liefert beim Abruf nichts. *(vorhanden)*
 - `dubletten.py` — … bezieht die Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`) ein,
   wo vorhanden. *(vorhanden)*
+- `provider.py` — … Rückfrage für Freigaben (`BankProvider(freigabe=…)`, `Freigabeanfrage`);
+  geänderte Zugänge (Sitzung, Tokens) gibt der Provider in `Abruf.zugang` bzw.
+  `FreigabeNoetigError.zugang` zurück, `rufe_ab` verschlüsselt sie neu. *(vorhanden)*
+```
+
+Abschnitt „Neuen Bank-Provider hinzufügen“ (ersetzt den bisherigen ersten Absatz):
+
+```markdown
+Ein Provider implementiert die Schnittstelle aus `bank/provider.py`: `felder` (Einstellungen),
+`geheime_felder` (landen im Tresor) und `abrufen(konto, zugang, ab)` — Umsätze ab einem Stand,
+optional Saldo. Verlangt die Bank eine Freigabe, fragt er über die mitgegebene Rückfrage nach
+oder meldet `FreigabeNoetigError`; ändern sich Zugangsdaten (Sitzung, Tokens), gibt er sie in
+`Abruf.zugang` zurück. Alles dahinter (Normalisierung, Dublettenschutz, Abgleich, Kontierung) ist
+providerunabhängig. Vorbild: `bank/fints.py`.
 ```
 
 ```markdown
@@ -318,9 +373,10 @@ bank:
     erster_abruf_tage: 90        # erster Abruf ohne Stand: so weit zurück (SCA-Ausnahme: 90 Tage)
     freigabe_wartezeit_sekunden: 300   # so lange auf die Freigabe in der App warten
     freigabe_intervall_sekunden: 3     # Abstand der Statusabfragen
+    zeitlimit_sekunden: 120      # je Anfrage an die Bank — ein hängender Server hält den Cron nicht auf
   kreditkarte:
     geldtransit_konto: "1360"    # SKR04: 1460; leer = nach buchhaltung.kontenrahmen
     belastung_fenster_tage: 30   # Sammelbelastung so viele Tage nach dem Abrechnungsstichtag
     # belastung_muster: "kreditkart|kartenabrechnung|visa|master ?card|american express|amex"
-    # ausgleich_muster: "zahlung|ausgleich|lastschrift|einzug|begleich|abbuchung"
+    # ausgleich_muster: "ihre zahlung|zahlung erhalten|zahlung.{0,3}danke|zahlungseingang|ausgleich|lastschrift|einzug|begleich|abbuchung"
 ```

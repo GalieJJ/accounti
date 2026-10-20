@@ -450,6 +450,18 @@ def test_pdf_abrechnung_wird_bei_einer_karte_von_selbst_uebernommen(make_session
         assert any("kreditkarte uebernehmen" in h for h in zweiter.hinweise)
 
 
+def test_neben_einer_abrufkarte_wird_eine_pdf_abrechnung_nicht_geraten(make_session):
+    """Auch die PDF einer Karte mit Abruf landet zur Aufbewahrung in den Belegen —
+    sie darf nicht von selbst bei der PDF-Karte landen."""
+    with make_session() as s:
+        _karte(s)
+        _abrufkarte(s)
+        _beispielbeleg(s)
+        ergebnis = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert ergebnis.uebernommen == []
+        assert any("kreditkarte uebernehmen" in h for h in ergebnis.hinweise)
+
+
 def test_einzelumsaetze_kontiert_classify_gegen_das_kartenkonto(make_session):
     regel = Regel(
         name="aws",

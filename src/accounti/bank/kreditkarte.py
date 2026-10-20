@@ -438,8 +438,10 @@ class _Abgleich:
         ]
         if not offen:
             return
+        # von selbst nur, wenn es genau eine Karte gibt und sie per PDF abrechnet —
+        # die PDF einer Karte mit Abruf liegt oft auch in den Belegen
         pdf_karten = [k for k in self.karten if k.direkt]
-        if len(pdf_karten) != 1:
+        if len(self.karten) != 1 or len(pdf_karten) != 1:
             self.ergebnis.hinweise.append(
                 f"{len(offen)} Kreditkartenabrechnung(en) noch nicht übernommen — "
                 "accounti kreditkarte uebernehmen <BELEG> --karte <KENNUNG>"
