@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from accounti.bank.abgleich import Abgleichsergebnis
 from accounti.bank.abgleichslauf import gleiche_belege_ab
 from accounti.bank.dubletten import mit_schluessel
+from accounti.bank.einstellungen import BankEinstellungen, lade_bank_einstellungen
+from accounti.bank.kreditkarte import Kartenabgleich, gleiche_sammelbelastungen_ab
 from accounti.bank.provider import (
     BANK_PROVIDER,
     Freigabe,
@@ -147,6 +149,7 @@ def rufe_ab(
 @dataclass
 class Banklauf:
     abrufe: list[KontoAbruf] = field(default_factory=list)
+    kreditkarten: Kartenabgleich = field(default_factory=Kartenabgleich)
     zuordnung: Zahlungslauf = field(default_factory=Zahlungslauf)
     abgleich: Abgleichsergebnis = field(default_factory=Abgleichsergebnis)
     kontierung: Kontierungslauf = field(default_factory=Kontierungslauf)
@@ -157,10 +160,17 @@ def bank_lauf(
     engine: KlassifikationsEngine,
     einstellungen: Buchhaltung,
     schluessel: str | None = None,
+    bank_einstellungen: BankEinstellungen | None = None,
 ) -> Banklauf:
-    """Der geplante Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren."""
+    """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
+    abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
+    bevor offene Posten oder das Regelwerk sie sehen."""
+    bank = bank_einstellungen or lade_bank_einstellungen()
     return Banklauf(
         abrufe=rufe_ab(session, schluessel),
+        kreditkarten=gleiche_sammelbelastungen_ab(
+            session, einstellungen, bank.kreditkarte
+        ),
         zuordnung=zuordne_zahlungen(session, einstellungen),
         abgleich=gleiche_belege_ab(session),
         kontierung=kontiere_umsaetze(session, engine, einstellungen),

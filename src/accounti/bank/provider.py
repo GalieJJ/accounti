@@ -81,4 +81,4 @@ def registriere(klasse: type[BankProvider]) -> type[BankProvider]:
 
 
 # eingebaute Provider registrieren
-from accounti.bank import datei, fints  # noqa: E402, F401
+from accounti.bank import abrechnung, datei, fints  # noqa: E402, F401
