@@ -2,6 +2,7 @@
 
 Ist ein Jahr abgeschlossen (Saldovortrag), lassen sich Buchungen dieses Jahres nicht
 mehr anlegen, ändern oder löschen — das prüft ein ORM-Ereignis auf ``buchungssaetze``.
+Angenommen wird nur noch der Stornovermerk (``storniert_durch``, Baustein 7).
 Es greift für jeden Code, der dieses Modul geladen hat (``init_db`` und
 ``registriere_tabellen`` tun das). Rohes SQL umgeht es; einen Datenbanktrigger gibt es
 nicht, weil das Sperrjahr im Datum steckt.
@@ -142,6 +143,19 @@ def gesperrte_jahre(verbindung: Connection) -> set[int]:
     )
 
 
+def nur_stornovermerk(ziel: BuchungssatzRow) -> bool:
+    """Ändert sich nur der Stornovermerk (``storniert_durch`` einmal gesetzt)?
+
+    Das nimmt auch ein gesperrter Zeitraum an (Baustein 7): Der Inhalt der Buchung
+    bleibt, das Storno selbst steht mit eigenem Datum in einem offenen Zeitraum.
+    """
+    geaendert = [a for a in inspect(ziel).attrs if a.history.has_changes()]
+    if [a.key for a in geaendert] != ["storniert_durch"]:
+        return False
+    (a,) = geaendert
+    return bool(a.history.added and a.history.added[0]) and not any(a.history.deleted)
+
+
 def _sperre_pruefen(verbindung: Connection, ziel: BuchungssatzRow) -> None:
     jahre = {ziel.datum.year} if ziel.datum else set()
     alt = inspect(ziel).attrs.datum.history.deleted
@@ -156,9 +170,16 @@ def _sperre_pruefen(verbindung: Connection, ziel: BuchungssatzRow) -> None:
 
 
 @event.listens_for(BuchungssatzRow, "before_insert")
-@event.listens_for(BuchungssatzRow, "before_update")
 @event.listens_for(BuchungssatzRow, "before_delete")
 def _buchung_im_gesperrten_jahr(
     _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
 ) -> None:
     _sperre_pruefen(verbindung, ziel)
+
+
+@event.listens_for(BuchungssatzRow, "before_update")
+def _aenderung_im_gesperrten_jahr(
+    _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
+) -> None:
+    if not nur_stornovermerk(ziel):
+        _sperre_pruefen(verbindung, ziel)

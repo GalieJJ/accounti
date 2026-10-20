@@ -63,6 +63,13 @@ class BuchungssatzRow(Base):
     confidence: Mapped[float] = mapped_column(Float)
     geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
     beleg_position_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Storno statt Änderung (Baustein 7) — eindeutig: höchstens ein Storno je Buchung
+    storniert_durch: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, unique=True
+    )
+    storno_von: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, unique=True
+    )
 
 
 class BelegRow(Base):

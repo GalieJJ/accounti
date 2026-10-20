@@ -2259,12 +2259,27 @@ def export_datev(
             BuchungStatus.EXPORTIERT,
         }
     )
+    from accounti.pruefung.storno import markiere_exportiert
+
     _, make_session = session_factory(db)
     with make_session() as s:
         buchungen = lade_buchungen(s, status=freigegeben)
-    cfg = DATEVConfig(berater_nummer=berater, mandanten_nummer=mandant)
-    datei = DATEVExporter(cfg).exportiere(buchungen, output)
+        cfg = DATEVConfig(berater_nummer=berater, mandanten_nummer=mandant)
+        datei = DATEVExporter(cfg).exportiere(buchungen, output)
+        # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
+        markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
+        s.commit()
     console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
+    if markiert or gesperrt:
+        console.print(
+            f"[dim]{markiert} als exportiert vermerkt"
+            + (
+                f", {gesperrt} in abgeschlossenen Zeiträumen unverändert"
+                if gesperrt
+                else ""
+            )
+            + "[/dim]"
+        )
 
 
 def _regel_speichern(
@@ -2339,6 +2354,12 @@ def review(
     console.print("[bold]Status-Übersicht:[/bold]")
     for status, anzahl in zaehler.items():
         console.print(f"  {status.value:12} {anzahl}")
+    storniert = sum(1 for b in alle if b.storniert_durch is not None)
+    if storniert:
+        console.print(
+            f"  {'storniert':12} {storniert} (mit Stornobuchung, beide sichtbar: "
+            "accounti buchung zeige <ID>)"
+        )
 
     if not pruefliste:
         console.print("[green]Nichts zu prüfen — alles freigegeben.[/green]")
@@ -2363,7 +2384,8 @@ def review(
     console.print(tabelle)
     console.print(
         "[dim]Freigeben: accounti bestaetige <ID> · "
-        "Korrigieren: accounti korrigiere <ID> --soll .. --haben ..[/dim]"
+        "Korrigieren: accounti korrigiere <ID> --soll .. --haben .. "
+        "(freigegebene Buchungen: Storno mit Neubuchung)[/dim]"
     )
 
 
@@ -2371,22 +2393,32 @@ def review(
 def bestaetige(
     buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
-    von: str = typer.Option("supervisor", help="Wer hat geprüft"),
+    von: str | None = typer.Option(
+        None, help="Wer gibt frei (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
+    ),
 ) -> None:
-    """Eine Buchung als geprüft freigeben."""
+    """Eine Buchung freigeben (geprüft) — die Freigabe steht im Journal."""
+    from rich.markup import escape
+
     from accounti.db import session_factory
-    from accounti.db.repository import setze_status
-    from accounti.models import BuchungStatus
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.pruefung.storno import StornoError, freigeben
 
     _, make_session = session_factory(db)
     with make_session() as s:
         try:
-            b = setze_status(s, buchung_id, BuchungStatus.GEPRUEFT, geprueft_von=von)
-        except ValueError as fehler:
-            console.print(f"[red]{fehler}[/red]")
+            b, geaendert = freigeben(s, buchung_id, von)
+            s.commit()
+        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
-        s.commit()
-    console.print(f"[green]Freigegeben:[/green] {str(b.id)[:8]} → geprüft")
+    if geaendert:
+        console.print(f"[green]Freigegeben:[/green] {str(b.id)[:8]} → geprüft")
+    else:
+        console.print(
+            f"[yellow]Schon freigegeben:[/yellow] {str(b.id)[:8]} ({b.status.value})"
+        )
 
 
 def _lerne_sachkonto(
@@ -2421,93 +2453,95 @@ def korrigiere(
     soll: str = typer.Option(..., help="Korrigiertes Soll-Konto"),
     haben: str = typer.Option(..., help="Korrigiertes Haben-Konto"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
-    steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
-    von: str = typer.Option("supervisor", help="Wer hat korrigiert"),
+    steuer: int | None = typer.Option(
+        None, help="Neuer Steuerschlüssel (ohne Angabe bleibt er)"
+    ),
+    ohne_steuer: bool = typer.Option(
+        False, "--ohne-steuer", help="Steuerschlüssel entfernen"
+    ),
+    von: str | None = typer.Option(
+        None, help="Wer korrigiert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
+    ),
+    grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
+    datum: str | None = typer.Option(
+        None,
+        help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist",
+    ),
     lernen: bool = typer.Option(False, "--lernen", help="Korrektur als Regel merken"),
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """Eine Buchung korrigieren (optional als Regel lernen)."""
-    from accounti.buchung.mapper import zu_buchungssatz
-    from accounti.db import session_factory
-    from accounti.db.repository import (
-        aktualisiere_buchung,
-        finde_buchung,
-        lade_transaktion,
-    )
-    from accounti.models import BuchungStatus, Klassifikationsergebnis
+    """Eine Buchung korrigieren — nach der Freigabe als Storno mit Neubuchung."""
+    from rich.markup import escape
 
+    from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_transaktion
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.pruefung.storno import StornoError
+    from accounti.pruefung.storno import korrigiere as korrigiere_buchung
+
+    try:
+        kontenrahmen = lade_kontenrahmen(lade_buchhaltung(config).kontenrahmen)
+    except (KonfigurationError, KontenrahmenError) as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    tag = _datum_option(datum, "--datum")
     _, make_session = session_factory(db)
+    gelernt = None
+    gegenkonto = zweck = None
     with make_session() as s:
         try:
-            original = finde_buchung(s, buchung_id)
-        except ValueError as fehler:
-            console.print(f"[red]{fehler}[/red]")
-            raise typer.Exit(1) from fehler
-        if original.transaktion_id is None:
-            # Belegbuchung: Beträge und Steuer kommen aus dem Beleg, korrigiert
-            # werden nur die Konten.
-            if steuer is not None:
-                console.print(
-                    "[red]Die Steuer einer Belegbuchung kommt aus dem Beleg — "
-                    "nur Konten korrigieren.[/red]"
-                )
-                raise typer.Exit(1)
-            neu = original.model_copy(
-                update={
-                    "soll_konto": soll,
-                    "haben_konto": haben,
-                    "status": BuchungStatus.KORRIGIERT,
-                    "geprueft_von": von,
-                }
+            k = korrigiere_buchung(
+                s,
+                buchung_id,
+                soll,
+                haben,
+                steuer=steuer,
+                ohne_steuer=ohne_steuer,
+                von=von,
+                grund=grund,
+                datum=tag,
+                kontenrahmen=kontenrahmen,
             )
-            aktualisiere_buchung(s, buchung_id, neu)
-            gelernt = _lerne_sachkonto(s, original, soll, haben) if lernen else None
+            if lernen and k.original.transaktion_id is None:
+                gelernt = _lerne_sachkonto(s, k.original, soll, haben)
+            elif lernen and k.original.transaktion_id is not None:
+                tx = lade_transaktion(s, k.original.transaktion_id)
+                if tx is not None:
+                    gegenkonto, zweck = tx.gegenkonto_name, tx.verwendungszweck
             s.commit()
-            console.print(
-                f"[green]Korrigiert:[/green] {str(original.id)[:8]} → "
-                f"Soll {soll} / Haben {haben}"
-            )
-            if gelernt:
-                console.print(f"[green]Gelernt:[/green] {gelernt}")
-            return
-
-        tx = lade_transaktion(s, original.transaktion_id)
-        if tx is None:
-            console.print("[red]Zugehörige Transaktion nicht gefunden.[/red]")
-            raise typer.Exit(1)
-
-        ergebnis = Klassifikationsergebnis(
-            transaktion_id=tx.id,
-            soll_konto=soll,
-            haben_konto=haben,
-            steuer_schluessel=steuer,
-            buchungstext=original.buchungstext,
-            confidence=1.0,
-            begruendung="manuelle Korrektur",
-            quelle="supervisor",
+        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+    kurz = str(k.original.id)[:8]
+    if k.storno is None:
+        console.print(
+            f"[green]Korrigiert:[/green] {kurz} → Soll {soll} / Haben {haben}"
         )
-        neu = zu_buchungssatz(tx, ergebnis).model_copy(
-            update={
-                "id": original.id,
-                "status": BuchungStatus.KORRIGIERT,
-                "geprueft_von": von,
-            }
+    else:
+        assert k.neu is not None
+        console.print(
+            f"[green]Storniert:[/green] {kurz} durch Storno {str(k.storno.id)[:8]}; "
+            f"Neubuchung {str(k.neu.id)[:8]} → Soll {soll} / Haben {haben}"
         )
-        aktualisiere_buchung(s, buchung_id, neu)
-        s.commit()
-        gegenkonto = tx.gegenkonto_name
-        zweck = tx.verwendungszweck
-
-    console.print(
-        f"[green]Korrigiert:[/green] {str(original.id)[:8]} → "
-        f"Soll {soll} / Haben {haben}"
-    )
-    if lernen:
+        console.print(
+            "[dim]Die Buchung war freigegeben — Original, Storno und Neubuchung "
+            f"bleiben sichtbar (accounti buchung zeige {kurz}).[/dim]"
+        )
+    if gelernt:
+        console.print(f"[green]Gelernt:[/green] {gelernt}")
+    if lernen and (gegenkonto or zweck):
         import re
 
         basis = (gegenkonto or zweck or "").strip()
         muster = re.escape(basis.split()[0]) if basis else ""
         if muster:
-            _regel_speichern(f"gelernt_{muster}".lower(), muster, soll, haben, steuer)
+            schluessel = k.neu.steuer_schluessel if k.neu else steuer
+            _regel_speichern(
+                f"gelernt_{muster}".lower(), muster, soll, haben, schluessel
+            )
             console.print(f"[green]Regel gelernt:[/green] Muster '{muster}'")
 
 

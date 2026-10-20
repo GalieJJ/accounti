@@ -111,6 +111,8 @@ def _row_zu_buchung(r: BuchungssatzRow) -> Buchungssatz:
         status=BuchungStatus(r.status),
         confidence=r.confidence,
         geprueft_von=r.geprueft_von,
+        storniert_durch=_uuid(r.storniert_durch),
+        storno_von=_uuid(r.storno_von),
     )
 
 
@@ -170,6 +172,8 @@ def speichere_buchung(session: Session, b: Buchungssatz) -> None:
             status=b.status.value,
             confidence=b.confidence,
             geprueft_von=b.geprueft_von,
+            storniert_durch=_str(b.storniert_durch),
+            storno_von=_str(b.storno_von),
         )
     )
 
@@ -898,12 +902,18 @@ def aktualisiere_posten(
 
 
 def lade_belegbuchungen(session: Session, beleg_id: UUID) -> list[Buchungssatz]:
-    """Die Buchungen aus der Verbuchung eines Belegs (ohne Zahlungsbuchungen)."""
+    """Die Buchungen aus der Verbuchung eines Belegs (ohne Zahlungsbuchungen).
+
+    Stornierte Buchungen und ihre Stornobuchungen heben sich auf und zählen nicht;
+    die Neubuchung einer Korrektur zählt.
+    """
     rows = (
         session.query(BuchungssatzRow)
         .filter(
             BuchungssatzRow.beleg_id == str(beleg_id),
             BuchungssatzRow.transaktion_id.is_(None),
+            BuchungssatzRow.storniert_durch.is_(None),
+            BuchungssatzRow.storno_von.is_(None),
         )
         .all()
     )

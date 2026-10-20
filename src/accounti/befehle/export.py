@@ -124,10 +124,16 @@ def datev_belege(
     """Belegpaket (document.xml) und Buchungsstapel mit Beleglink für DATEV."""
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.export.datev_belege import BelegexportError, exportiere_belegpaket
+    from accounti.db.repository import lade_buchungen
+    from accounti.export.datev_belege import (
+        FREIGEGEBEN,
+        BelegexportError,
+        exportiere_belegpaket,
+    )
     from accounti.export.datev_format import DatevFormatError
     from accounti.export.datev_stammdaten import lade_datev_mandant
     from accounti.konfiguration import KonfigurationError
+    from accounti.pruefung.storno import markiere_exportiert
 
     von, bis = zeitraum(period)
     try:
@@ -138,6 +144,14 @@ def datev_belege(
             ergebnis = exportiere_belegpaket(
                 s, BelegArchiv(archiv), datev, von, bis, Path(ausgabe), alle=alle
             )
+            # Baustein 7: exportierte Buchungen vermerken, Export ins Journal
+            exportiert = [
+                b
+                for b in lade_buchungen(s, status=None if alle else FREIGEGEBEN)
+                if von <= b.datum <= bis
+            ]
+            markiere_exportiert(s, exportiert, ergebnis.stapel_pfad, "datev_belege")
+            s.commit()
     except (KonfigurationError, BelegexportError, DatevFormatError) as fehler:
         raise _fehler(fehler) from fehler
     if ergebnis.zip_pfad is None:

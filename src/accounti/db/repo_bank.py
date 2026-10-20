@@ -220,9 +220,14 @@ def abgelehnte_belastungen(session: Session) -> set[tuple[UUID, UUID]]:
 
 
 def loesche_buchung(session: Session, buchung_id: UUID) -> None:
-    """Vorläufige Buchung des Kartenabgleichs entfernen (noch nicht freigegeben)."""
-    zeilen = session.query(BuchungssatzRow)
-    zeilen.filter(BuchungssatzRow.id == str(buchung_id)).delete()
+    """Vorläufige Buchung des Kartenabgleichs entfernen (noch nicht freigegeben).
+
+    Über die Sitzung, nicht als Massen-``DELETE``: So greifen Jahres- und
+    Monatssperre, die Storno-Regel und das Journal (Baustein 7).
+    """
+    zeile = session.get(BuchungssatzRow, str(buchung_id))
+    if zeile is not None:
+        session.delete(zeile)
     session.flush()
 
 
