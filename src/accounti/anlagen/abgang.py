@@ -21,6 +21,7 @@ from accounti.anlagen.konfiguration import AnlagenEinstellungen
 from accounti.anlagen.lauf import AfaLaufErgebnis, afa_lauf
 from accounti.anlagen.rechtsstand import Rechtsstand
 from accounti.anzeige import betrag_de
+from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import aktualisiere_anlage, lade_anlage
 from accounti.db.repository import speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
@@ -61,6 +62,7 @@ def buche_abgang(
     rechtsstand: Rechtsstand | None = None,
 ) -> Abgangsergebnis:
     rs = rechtsstand or einstellungen.rechtsstand()
+    pruefe_jahr_offen(session, datum.year)
     anlage = lade_anlage(session, schluessel)
     if anlage.abgang_datum is not None:
         msg = f"Anlagegut {anlage.nr}: Abgang schon am {anlage.abgang_datum:%d.%m.%Y}"

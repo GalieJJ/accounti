@@ -123,9 +123,9 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 
 ### Paket 3 — Abgrenzung, EÜR, Vortrag
 
-- [ ] **Abgrenzung** (`abschluss/abgrenzung.py`): Zeitraum aus Text, Anteil monats-/taggenau, Dezember-Jahresversicherung → ARAP-Vorschlag mit Auflösung 01.01. (**Akzeptanz 3**), PRAP, ohne Zeitraum/ohne Folgejahr kein Vorschlag, idempotent, Bestätigen bucht beide, Ablehnen keine, RAP-Verzicht, EÜR ohne Vorschläge (`tests/test_abschluss_abgrenzung.py`).
-- [ ] **EÜR** (`abschluss/euer.py`, `euer_vordrucke.yaml`): Zeilen 2025/2026, Kennzahlen, Summen, nicht zugeordnete Konten, Entnahmen/Einlagen; EÜR = SuSa (**Akzeptanz 6**) (`tests/test_abschluss_euer.py`).
-- [ ] **Vortrag und Sperre** (`abschluss/vortrag.py`): Eröffnungssalden, Schlusssalden, EB = Schluss (**Akzeptanz 7**), Sperre gegen Anlegen/Ändern/Löschen, Fehler-Befund verhindert Vortrag, Wiederöffnen mit Protokoll, erneuter Vortrag bucht nur Differenzen, Protokoll-Hash-Kette (`tests/test_abschluss_vortrag.py`).
+- [x] **Abgrenzung** (`abschluss/abgrenzung.py`): Zeitraum aus Text, Anteil monats-/taggenau, Dezember-Jahresversicherung → ARAP-Vorschlag mit Auflösung 01.01. (**Akzeptanz 3**), PRAP, ohne Zeitraum/ohne Folgejahr kein Vorschlag, idempotent, Bestätigen bucht beide, Ablehnen keine, RAP-Verzicht, EÜR ohne Vorschläge (`tests/test_abschluss_abgrenzung.py`); Prüfung `abgrenzungen` — offene Vorschläge sind ein Fehler-Befund (`tests/test_abschluss_pruefungen.py`).
+- [x] **EÜR** (`abschluss/euer.py`, `euer_vordrucke.yaml`): Zeilen 2025/2026, Kennzahlen, Summen, nicht zugeordnete Konten, Entnahmen/Einlagen; EÜR = SuSa (**Akzeptanz 6**) (`tests/test_abschluss_euer.py`).
+- [x] **Vortrag und Sperre** (`abschluss/vortrag.py`): Eröffnungssalden, Schlusssalden, EB = Schluss (**Akzeptanz 7**), Sperre gegen Anlegen/Ändern/Löschen, Fehler-Befund verhindert Vortrag, Wiederöffnen mit Protokoll, erneuter Vortrag bucht nur Differenzen, Protokoll-Hash-Kette, Kassenbuch/AfA-Lauf/Abgang prüfen die Sperre vorher, Sperre auch in CLI-Befehlen ohne `init_db` (`tests/test_abschluss_vortrag.py`).
 - [ ] **Durchlauf:** synthetisches Geschäftsjahr — Eröffnung, Bank, Kasse, Belege, Anlage, AfA, Abgrenzung, Prüfung, SuSa, EÜR, Vortrag, Eröffnungssalden = Schlusssalden (`tests/test_abschluss_durchlauf.py`).
 - [ ] **CLI:** `abschluss eroeffnung|buchen|abgrenzungen|abgrenzen|bestaetigen|ablehnen|euer [--csv]|vortrag|oeffnen` (`tests/test_cli_abschluss.py`).
 - [ ] **Abschluss:** `pytest`, `ruff check`, `ruff format --check`, `mypy` grün; Checkboxen abgehakt; Doku-Bausteine vollständig.
@@ -171,8 +171,9 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - **Mehrere Kapital-/Privatkonten** (Gesellschafter einer Personengesellschaft) werden nicht
   getrennt vorgetragen: Ergebnis und alle Privatkonten gehen auf ein `ergebnis_konto`.
 - **Jahressperre:** Das ORM-Ereignis greift für jeden Code, der `accounti.db.tabellen_abschluss`
-  geladen hat (`init_db`/`registriere_tabellen` tun das). Rohes SQL an der Datenbank vorbei sperrt
-  es nicht (kein Datenbanktrigger). Ein `classify`-Lauf, der einen Umsatz in ein gesperrtes Jahr
+  geladen hat (`init_db`/`registriere_tabellen` tun das; die CLI lädt es beim Start über
+  `befehle/abschluss.py`, also auch für `bestaetige`, `korrigiere`, `classify`). Rohes SQL und
+  Massen-`insert()`/`update()` an der ORM-Einheit vorbei sperrt es nicht (kein Datenbanktrigger). Ein `classify`-Lauf, der einen Umsatz in ein gesperrtes Jahr
   buchen will, bricht mit `JahrGesperrtError` ab.
 - **Bestehende Kontenrahmendatei:** `config/skr03.yaml` (Auszug, von keinem Code gelesen) nennt
   4800 „Abschreibungen auf Sachanlagen“ und 0650 „Büromaschinen, EDV-Anlagen“; im DATEV SKR03 2026

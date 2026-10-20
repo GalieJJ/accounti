@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from accounti.abschluss.konfiguration import KassenEinstellungen
 from accounti.anzeige import betrag_de
+from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_kasse import (
     lade_kassenbuch,
     naechste_kassennummer,
@@ -105,6 +106,7 @@ def anfangsbestand(
 ) -> Kassenvorgang:
     """Erster Eintrag eines leeren Kassenbuchs. Gebucht wird er nicht — der EB-Wert des
     Kassenkontos kommt aus Eröffnungssalden oder Saldovortrag."""
+    pruefe_jahr_offen(session, datum.year)
     if lade_kassenbuch(session):
         raise KassenbuchError("Anfangsbestand nur in einem leeren Kassenbuch")
     if betrag < 0:
@@ -171,6 +173,7 @@ def _speichere(
     einstellungen: KassenEinstellungen,
     buchung_umkehren: Buchungssatz | None = None,
 ) -> Kassenvorgang:
+    pruefe_jahr_offen(session, v.datum.year)
     _pruefe_verlauf([*lade_kassenbuch(session), v])
     tx = Transaktion(
         datum=v.datum,

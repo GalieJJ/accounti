@@ -28,6 +28,7 @@ from accounti.anlagen.afa import (
 from accounti.anlagen.konfiguration import AnlagenEinstellungen
 from accounti.anlagen.rechtsstand import Rechtsstand
 from accounti.anzeige import betrag_de
+from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import (
     lade_afa_vorgaenge,
     lade_anlagen,
@@ -144,6 +145,7 @@ def afa_lauf(
     """Bucht die noch fehlende AfA des Jahres bis einschließlich ``bis_monat``."""
     if not 1 <= bis_monat <= 12:
         raise ValueError(f"Monat {bis_monat} gibt es nicht")
+    pruefe_jahr_offen(session, jahr)
     ergebnis = AfaLaufErgebnis(jahr, bis_monat)
     for p in afa_positionen(session, jahr, einstellungen, bis_monat, rechtsstand):
         if p.differenz == 0:

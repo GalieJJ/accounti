@@ -9,6 +9,10 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
+# Jahressperre: das ORM-Ereignis auf ``buchungssaetze`` hängt am Import dieses Moduls.
+# Die CLI lädt jede Befehlsgruppe beim Start — so greift die Sperre auch in Befehlen,
+# die ``init_db`` nicht aufrufen (``bestaetige``, ``korrigiere``, ``classify`` …).
+import accounti.db.tabellen_abschluss  # noqa: F401
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 

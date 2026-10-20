@@ -30,7 +30,11 @@ from accounti.anlagen.konfiguration import AnlagenEinstellungen, lade_anlagen
 from accounti.anlagen.lauf import afa_positionen
 from accounti.anlagen.spiegel import anlagenspiegel
 from accounti.anzeige import betrag_de
-from accounti.db.repo_abschluss import kontoauszugssaldo, speichere_kontoauszugssaldo
+from accounti.db.repo_abschluss import (
+    kontoauszugssaldo,
+    lade_abgrenzungen,
+    speichere_kontoauszugssaldo,
+)
 from accounti.db.repo_anlagen import lade_anlagen as lade_anlagegueter
 from accounti.db.repo_kasse import lade_kassenbuch
 from accounti.db.repository import (
@@ -40,7 +44,7 @@ from accounti.db.repository import (
     lade_buchungen,
     lade_transaktionen,
 )
-from accounti.models.abschluss import Kontoauszugssaldo
+from accounti.models.abschluss import AbgrenzungStatus, Kontoauszugssaldo
 
 NULL = Decimal("0")
 
@@ -235,6 +239,19 @@ def _anlagen(k: Abschlusskontext) -> list[Befund]:
     return befunde
 
 
+def _abgrenzungen(k: Abschlusskontext) -> list[Befund]:
+    offen = lade_abgrenzungen(k.session, k.jahr, AbgrenzungStatus.VORGESCHLAGEN)
+    if not offen:
+        return []
+    nummern = _liste([str(a.nr) for a in offen])
+    text = (
+        f"{len(offen)} Abgrenzungsvorschl{'äge' if len(offen) > 1 else 'ag'} "
+        f"{k.jahr} nicht entschieden (Nr. {nummern}) — accounti abschluss "
+        "bestaetigen … oder ablehnen …"
+    )
+    return [Befund("abgrenzungen", Schwere.FEHLER, text)]
+
+
 def _verrechnungskonten(k: Abschlusskontext) -> list[Befund]:
     return [
         Befund(
@@ -305,6 +322,7 @@ PRUEFUNGEN: dict[str, Callable[[Abschlusskontext], list[Befund]]] = {
     "bank": _bank,
     "kasse": _kasse,
     "anlagen": _anlagen,
+    "abgrenzungen": _abgrenzungen,
     "verrechnungskonten": _verrechnungskonten,
     "vortragskonten": _vortragskonten,
     "euer_personenkonten": _euer_personenkonten,

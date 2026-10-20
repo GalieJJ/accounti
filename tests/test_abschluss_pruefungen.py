@@ -233,3 +233,36 @@ def test_gwg_anlage_ohne_afa_konto_eintrag(make_session, config):
         freigeben(s, J, "test")
         s.commit()
     assert befunde(make_session, config, "anlagen") == []
+
+
+def test_abgrenzungen_entschieden(make_session, tmp_path):
+    """Ein offener ARAP-/PRAP-Vorschlag ist eine offene Bewertung — Fehler."""
+    from accounti.abschluss.abgrenzung import (
+        lehne_abgrenzung_ab,
+        schlage_abgrenzungen_vor,
+    )
+    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.anlagen.rechtsstand import lade_rechtsstand
+
+    bilanz = tmp_path / "bilanz.yaml"
+    bilanz.write_text("abschluss:\n  gewinnermittlung: bilanz\n", encoding="utf-8")
+    assert befunde(make_session, bilanz, "abgrenzungen") == []
+    buche(
+        make_session,
+        date(J, 12, 1),
+        "4360",
+        "1200",
+        "1200",
+        "Versicherung 01.01.2027-31.12.2027",
+    )
+    with make_session() as s:
+        (v,) = schlage_abgrenzungen_vor(
+            s, J, lade_abschluss(bilanz), lade_rechtsstand()
+        ).vorschlaege
+        s.commit()
+    (b,) = befunde(make_session, bilanz, "abgrenzungen")
+    assert b.schwere is Schwere.FEHLER and "1 Abgrenzungsvorschlag" in b.text
+    with make_session() as s:
+        lehne_abgrenzung_ab(s, str(v.nr), "test")
+        s.commit()
+    assert befunde(make_session, bilanz, "abgrenzungen") == []
