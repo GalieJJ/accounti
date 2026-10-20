@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -29,6 +29,7 @@ from accounti.models import (
 )
 from accounti.opos.verbuchung import verbuche_belege
 from tests.test_erechnung_aufbau import FIRMA, entwurf, kunde, pos
+from tests.test_ustid_protokoll import bestaetige
 
 EINSTELLUNGEN = Buchhaltung()
 
@@ -329,6 +330,9 @@ def test_ausgangsrechnung_bucht_debitor_an_erloes(umgebung):
     assert v.beleg.richtung is Belegrichtung.AUSGANG
 
 
+VORTAG = datetime(2026, 3, 9, 10, 0)
+
+
 @pytest.mark.parametrize(
     ("k", "position", "erloes"),
     [
@@ -344,12 +348,38 @@ def test_ausgangsrechnung_bucht_debitor_an_erloes(umgebung):
 )
 def test_steuerfreie_erloese(umgebung, k, position, erloes):
     make_session, archiv = umgebung
+    if k.ust_id:
+        with make_session() as s:
+            bestaetige(s, k.ust_id, jetzt=VORTAG)
+            s.commit()
     _ausgangsrechnung(make_session, archiv, entwurf(k, position))
     _verbuche(make_session, archiv=archiv)
     with make_session() as s:
         (b,) = lade_buchungen(s)
     assert (b.soll_konto, b.haben_konto, b.steuer_schluessel) == ("10000", erloes, None)
     assert b.status is BuchungStatus.AUTO_GEBUCHT
+
+
+def test_ungueltig_gewordene_ust_id_geht_zur_pruefung(umgebung):
+    """Akzeptanz 7: keine automatische Buchung als steuerfreie ig. Lieferung."""
+    make_session, archiv = umgebung
+    with make_session() as s:
+        bestaetige(s, "FR12345678901", jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(
+        make_session,
+        archiv,
+        entwurf(kunde(land="FR", ust_id="FR12345678901"), pos("Rahmen", "100")),
+    )
+    with make_session() as s:  # nach dem Ausstellen, vor dem Verbuchen
+        bestaetige(s, "FR12345678901", "evatr-2006", datetime(2026, 3, 11, 9, 0))
+        s.commit()
+    (v,) = _verbuche(make_session, archiv=archiv)
+    (b,) = v.buchungen
+    assert (b.haben_konto, b.status) == ("8125", BuchungStatus.ZUR_PRUEFUNG)
+    (hinweis,) = v.hinweise
+    assert "FR12345678901" in hinweis and "nicht gültig" in hinweis
+    assert "pruefe-ustid" in hinweis
 
 
 def test_fehlerhafter_beleg_haelt_den_lauf_nicht_auf(umgebung):

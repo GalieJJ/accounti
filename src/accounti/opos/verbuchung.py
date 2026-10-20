@@ -29,6 +29,7 @@ from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.dienst import KontaktTreffer, Partnerdaten, kontakt_fuer
 from accounti.kontakte.erkennung import finde_kontakt
+from accounti.kontakte.ustid import USTID_KATEGORIEN, aktuelle_bestaetigung
 from accounti.models import (
     Beleg,
     Belegart,
@@ -71,6 +72,7 @@ class Verbuchung:
     treffer: KontaktTreffer
     posten: OffenerPosten
     buchungen: list[Buchungssatz] = field(default_factory=list)
+    hinweise: list[str] = field(default_factory=list)
 
     @property
     def kontakt_neu(self) -> bool:
@@ -163,6 +165,7 @@ def _gruppen(
     sachkonto_pruefen: bool,
     rechnung: Rechnung | None,
     land: str,
+    ustid_bestaetigt: bool = True,
 ) -> list[_Gruppe]:
     gruppen: dict[tuple[str, int | None], _Gruppe] = {}
     positionen = beleg.positionen or []
@@ -182,7 +185,9 @@ def _gruppen(
             # 0 % oder unbekannter Satz: § 13b, steuerfrei oder unklar → Mensch
             pruefen = sachkonto_pruefen or schluessel is None or kategorie == "AE"
         elif kategorie in _ERLOES_STEUERFREI:
-            konto, schluessel, pruefen = _ERLOES_STEUERFREI[kategorie], None, False
+            konto, schluessel = _ERLOES_STEUERFREI[kategorie], None
+            # K/AE nur mit bestätigter USt-IdNr. des Käufers automatisch
+            pruefen = kategorie in USTID_KATEGORIEN and not ustid_bestaetigt
         elif satz in _ERLOES_STEUERPFLICHTIG and kategorie in ("S", None):
             konto, schluessel = _ERLOES_STEUERPFLICHTIG[satz], _UST_SCHLUESSEL[satz]
             pruefen = False
@@ -229,6 +234,7 @@ def verbuche_beleg(
     archiv: BelegArchiv | None = None,
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
+    ustid_max_alter_tage: int = 30,
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
@@ -291,9 +297,30 @@ def verbuche_beleg(
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
+    hinweise = []
+    ustid_bestaetigt = True
+    if rechnung is not None and any(
+        kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
+    ):
+        ust_id = rechnung.kaeufer.ust_id
+        lage = aktuelle_bestaetigung(session, ust_id, belegdatum, ustid_max_alter_tage)
+        ustid_bestaetigt = lage.bestaetigt
+        if not lage.bestaetigt:
+            hinweise.append(
+                f"USt-IdNr. {ust_id or '—'} nicht bestätigt: {lage.grund} — "
+                "steuerfreie Erlöse zur Prüfung "
+                f"(accounti kontakte pruefe-ustid {personenkonto})"
+            )
+
     buchungen = []
     for g in _gruppen(
-        beleg, eingang, sachkonto, sachkonto_pruefen, rechnung, treffer.kontakt.land
+        beleg,
+        eingang,
+        sachkonto,
+        sachkonto_pruefen,
+        rechnung,
+        treffer.kontakt.land,
+        ustid_bestaetigt,
     ):
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
         if g.netto < 0:  # Gutschrift: Seiten tauschen, Beträge positiv
@@ -340,7 +367,7 @@ def verbuche_beleg(
         skonto_betrag=skonto_betrag,
     )
     speichere_posten(session, posten)
-    return Verbuchung(beleg, treffer, posten, buchungen)
+    return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
 @dataclass
@@ -355,6 +382,7 @@ def verbuche_belege(
     archiv: BelegArchiv | None = None,
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
+    ustid_max_alter_tage: int = 30,
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
@@ -372,7 +400,13 @@ def verbuche_belege(
         try:
             with session.begin_nested():
                 verbuchung = verbuche_beleg(
-                    session, beleg, einstellungen, archiv, regelwerk, eigene_firma
+                    session,
+                    beleg,
+                    einstellungen,
+                    archiv,
+                    regelwerk,
+                    eigene_firma,
+                    ustid_max_alter_tage,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, ValueError) as fehler:

@@ -73,6 +73,12 @@ buchhaltung:
   skonto_erhalten: {"19": "3736", "7": "3731", "0": "3730"}   # SKR03
   skonto_gewaehrt: {"19": "8736", "7": "8731", "0": "8730"}
 
+# USt-IdNr.-Bestätigung beim BZSt (optional — eigene USt-IdNr. aus mandant.ust_id)
+ustid_pruefung:
+  max_alter_tage: 30           # so lange vor dem Rechnungsdatum gilt eine Bestätigung
+  timeout_sekunden: 60         # Rückfragen beim Mitgliedstaat können dauern
+  # url: https://api.evatr.vies.bzst.de/app/v1/abfrage   # oder ACCOUNTI_EVATR_URL
+
 # Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
 versand:
   absender: "Meine Firma GmbH <rechnung@meine-firma.example>"

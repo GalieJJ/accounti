@@ -3,7 +3,11 @@ from decimal import Decimal
 
 import pytest
 
-from accounti.erechnung.erzeuger.aufbau import NichtUnterstuetztError, baue_rechnung
+from accounti.erechnung.erzeuger.aufbau import (
+    NichtUnterstuetztError,
+    baue_rechnung,
+    ustid_pflichtig,
+)
 from accounti.erechnung.validierung import Schwere, pruefe
 from accounti.konfiguration import Firma
 from accounti.models import AusgangsPosition, Ausgangsrechnung, Rechnungsempfaenger
@@ -203,3 +207,20 @@ def test_dienstleistung_ins_drittland_noch_nicht_unterstuetzt():
                 pos("Beratung", "100", sonstige_leistung=True),
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("k", "leistung", "pflichtig"),
+    [
+        (kunde(land="AT", ust_id="ATU12345678"), False, True),  # ig. Lieferung
+        (kunde(land="AT", ust_id="ATU12345678"), True, True),  # Reverse Charge
+        (kunde(), False, False),  # Inland
+        (kunde(land="AT", ust_id=None), False, False),  # ohne USt-IdNr.
+        (kunde(land="FR", ust_id="FR12345678901", privat=True), False, False),
+        (kunde(land="CH", ust_id="CHE123456789"), False, False),  # Drittland
+    ],
+    ids=["ig_lieferung", "reverse_charge", "inland", "ohne", "privat", "drittland"],
+)
+def test_ustid_pflichtig(k, leistung, pflichtig):
+    e = entwurf(k, pos("Rahmen", "100", sonstige_leistung=leistung))
+    assert ustid_pflichtig(e, FIRMA) is pflichtig

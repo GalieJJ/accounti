@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
+    Connection,
     Date,
     DateTime,
     Float,
@@ -14,6 +15,9 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
+    event,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -254,3 +258,66 @@ class ZahlungszuordnungRow(Base):
     confidence: Mapped[float] = mapped_column(Float)
     begruendung: Mapped[str] = mapped_column(String(500))
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class UnveraenderbarError(RuntimeError):
+    """Ein Protokolleintrag soll geändert oder gelöscht werden."""
+
+
+class UstIdPruefungRow(Base):
+    """Protokoll der USt-IdNr.-Bestätigungen — nur anfügen, verkettet per Hash."""
+
+    __tablename__ = "ustid_pruefungen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    nr: Mapped[int] = mapped_column(Integer, unique=True)
+    zeitpunkt: Mapped[datetime] = mapped_column(DateTime)
+    kontakt_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("kontakte.id"), nullable=True, index=True
+    )
+    eigene_ust_id: Mapped[str] = mapped_column(String(20))
+    ust_id: Mapped[str] = mapped_column(String(20), index=True)
+    art: Mapped[str] = mapped_column(String(20))
+    firmenname: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    strasse: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    plz: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ort: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    bzst_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bzst_zeitpunkt: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    gueltig_ab: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    gueltig_bis: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    erg_firmenname: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    erg_strasse: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    erg_plz: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    erg_ort: Mapped[str | None] = mapped_column(String(1), nullable=True)
+    fehler: Mapped[str | None] = mapped_column(Text, nullable=True)
+    anfrage: Mapped[str] = mapped_column(Text)
+    antwort: Mapped[str | None] = mapped_column(Text, nullable=True)
+    aufbewahren_bis: Mapped[date] = mapped_column(Date)
+    vorgaenger_hash: Mapped[str] = mapped_column(String(64))
+    hash: Mapped[str] = mapped_column(String(64), unique=True)
+
+
+@event.listens_for(UstIdPruefungRow, "before_update")
+@event.listens_for(UstIdPruefungRow, "before_delete")
+def _nur_anfuegen(*_: object) -> None:
+    msg = "Das USt-IdNr.-Protokoll ist unveränderbar — Einträge nur anfügen"
+    raise UnveraenderbarError(msg)
+
+
+# SQLite sperrt auch rohes SQL; Postgres verlässt sich auf ORM-Sperre und Hash-Kette.
+USTID_TRIGGER = [
+    f"CREATE TRIGGER ustid_pruefungen_kein_{aktion.lower()} BEFORE {aktion} "
+    "ON ustid_pruefungen BEGIN "
+    "SELECT RAISE(ABORT, 'USt-IdNr.-Protokoll ist unveränderbar'); END"
+    for aktion in ("UPDATE", "DELETE")
+]
+
+
+@event.listens_for(UstIdPruefungRow.__table__, "after_create")
+def _ustid_trigger(_: object, verbindung: Connection, **__: object) -> None:
+    if verbindung.dialect.name == "sqlite":
+        for sql in USTID_TRIGGER:
+            verbindung.execute(text(sql))

@@ -78,7 +78,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Belegabgleich** | Beleg ↔ Kontoumsatz automatisch zusammenführen, bevor kontiert wird |
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
-| 🟨 | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung; USt-IdNr.-Prüfung mit Protokoll folgt |
+| ✅ | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung, qualifizierte USt-IdNr.-Bestätigung beim BZSt (eVatR-REST-API) mit revisionssicherem Protokoll |
 | ✅ | **Offene Posten** | Beleg → Buchung auf Personenkonto + offener Posten, OPOS-Liste, Fälligkeitsstaffel, Zahlungszuordnung (Referenz → exakt → Vorschlag), Teil- und Sammelzahlung, Skonto mit Vorsteuer-/Umsatzsteuerkorrektur |
 | 🔲 | **Zahlungsverkehr** | Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe-Workflow |
 | 🔲 | **Mahnwesen** | Mehrstufig, mit Verzugszinsen und Mahngebühren |
@@ -214,6 +214,25 @@ accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen
 accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
 accounti classify                              # kontiert nur, was übrig bleibt
 ```
+
+### USt-IdNr.-Prüfung
+
+Steuerfreie innergemeinschaftliche Lieferungen und Reverse Charge gibt es nur mit einer
+**qualifizierten Bestätigung des BZSt** (§ 18e UStG). accounti fragt über die eVatR-REST-API an
+und hält jede Abfrage mit der Rohantwort in einem Protokoll fest, das nur wachsen kann
+(Hash-Kette, unter SQLite zusätzlich per Trigger gesperrt).
+
+```bash
+accounti kontakte pruefe-ustid 10001          # qualifiziert: Name, Straße, PLZ, Ort
+accounti kontakte pruefe-ustid 10001 --einfach
+accounti kontakte ustid-protokoll             # Protokoll + Prüfung auf Unverändertheit
+accounti kontakte ustid-protokoll ATU12345678 --csv ustid.csv
+```
+
+`accounti rechnung ausstellen` fragt bei Kategorie K oder AE selbst an, wenn keine
+Bestätigung aus den letzten 30 Tagen vorliegt (`ustid_pruefung.max_alter_tage`). Ist die
+Nummer ungültig oder stimmen Name/Ort nicht, wird die Rechnung nicht ausgestellt, und
+`opos verbuchen` legt solche Erlöse zur Prüfung vor.
 
 ---
 
@@ -353,7 +372,8 @@ Wo sitzt der Käufer?
         ▼
    ┌─ Inland (DE) ──────────────▶ 19% / 7% USt
    │
-   ├─ EU-Land ─┬─ B2B + USt-ID ─▶ 0% (ig. Lieferung / Reverse Charge)
+   ├─ EU-Land ─┬─ B2B + USt-ID ─▶ 0% (ig. Lieferung / Reverse Charge),
+   │            │                  nur mit qualifizierter BZSt-Bestätigung
    │            │
    │            └─ B2C ──────────▶ OSS: Steuersatz des Bestimmungslands
    │                               (FR 20%, IT 22%, ES 21%, SE 25%...)
@@ -459,7 +479,7 @@ kontieren will, braucht nur v0.1.
 
 ### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*
 - [x] Debitoren/Kreditoren-Stammdaten mit Personenkonten und Kontakterkennung
-- [ ] USt-IdNr.-Prüfung mit Protokoll
+- [x] USt-IdNr.-Prüfung mit Protokoll
 - [x] Offene Posten aus Belegen, OPOS-Liste, Fälligkeitsstaffel
 - [x] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
 - [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten

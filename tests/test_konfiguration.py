@@ -1,6 +1,11 @@
 import pytest
 
-from accounti.konfiguration import KonfigurationError, lade_firma
+from accounti.konfiguration import (
+    KonfigurationError,
+    lade_firma,
+    lade_ustid_pruefung,
+)
+from accounti.kontakte.ustid import EVATR_URL
 
 VOLL = """
 mandant:
@@ -82,3 +87,31 @@ def test_ungueltige_iban(tmp_path):
     pfad.write_text(VOLL.replace("DE89 3704", "DE00 3704"), encoding="utf-8")
     with pytest.raises(KonfigurationError, match="IBAN"):
         lade_firma(pfad)
+
+
+def test_ustid_pruefung_standard(tmp_path, monkeypatch):
+    monkeypatch.delenv("ACCOUNTI_EVATR_URL", raising=False)
+    e = lade_ustid_pruefung(tmp_path / "fehlt.yaml")
+    assert (e.url, e.timeout_sekunden, e.max_alter_tage) == (EVATR_URL, 60, 30)
+
+
+def test_ustid_pruefung_aus_datei_und_umgebung(tmp_path, monkeypatch):
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        "ustid_pruefung:\n  max_alter_tage: 0\n  timeout_sekunden: 20\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ACCOUNTI_EVATR_URL", "http://127.0.0.1:9/app/v1/abfrage")
+    e = lade_ustid_pruefung(konfig)
+    assert (e.url, e.timeout_sekunden, e.max_alter_tage) == (
+        "http://127.0.0.1:9/app/v1/abfrage",
+        20,
+        0,
+    )
+
+
+def test_ustid_pruefung_ungueltig(tmp_path):
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text("ustid_pruefung:\n  max_alter_tage: -1\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError, match="ustid_pruefung"):
+        lade_ustid_pruefung(konfig)

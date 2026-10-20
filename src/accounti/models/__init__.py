@@ -350,6 +350,47 @@ class Zahlungszuordnung(BaseModel):
     erstellt_am: datetime = Field(default_factory=datetime.now)
 
 
+class UstIdPruefart(str, enum.Enum):
+    EINFACH = "einfach"  # nur Gültigkeit
+    QUALIFIZIERT = "qualifiziert"  # Gültigkeit + Name/Anschrift
+
+
+class UstIdPruefung(BaseModel):
+    """Eine Bestätigungsabfrage beim BZSt (§ 18e UStG) — Eintrag im Protokoll.
+
+    Anfrage und Antwort bleiben roh erhalten: Der empfangene Datensatz ist der
+    Nachweis der qualifizierten Bestätigung.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    nr: int = Field(default=0, description="laufende Nummer, vergibt das Protokoll")
+    zeitpunkt: datetime = Field(default_factory=datetime.now)
+    kontakt_id: UUID | None = None
+    eigene_ust_id: str
+    ust_id: str
+    art: UstIdPruefart
+    firmenname: str | None = None
+    strasse: str | None = None
+    plz: str | None = None
+    ort: str | None = None
+    http_status: int | None = None
+    status: str | None = Field(default=None, description="evatr-… des BZSt")
+    bzst_id: str | None = Field(default=None, description="technische ID der Abfrage")
+    bzst_zeitpunkt: str | None = Field(default=None, description="anfrageZeitpunkt")
+    gueltig_ab: str | None = None
+    gueltig_bis: str | None = None
+    erg_firmenname: str | None = None  # A stimmt · B nicht · C nicht angefragt ·
+    erg_strasse: str | None = None  # D vom Mitgliedstaat nicht mitgeteilt
+    erg_plz: str | None = None
+    erg_ort: str | None = None
+    fehler: str | None = Field(default=None, description="keine/unlesbare Antwort")
+    anfrage: str = Field(description="gesendetes JSON")
+    antwort: str | None = Field(default=None, description="empfangene Antwort, roh")
+    aufbewahren_bis: date
+    vorgaenger_hash: str = ""
+    hash: str = ""
+
+
 # ---------------------------------------------------------------------------
 # Konto — aus Kontenrahmen (SKR03/SKR04)
 # ---------------------------------------------------------------------------
