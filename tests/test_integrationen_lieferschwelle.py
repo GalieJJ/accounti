@@ -18,34 +18,9 @@ from accounti.integrationen.einstellungen import Integrationen, lade_integration
 from accounti.integrationen.lauf import Kontext, eu_fernverkaeufe, importiere
 from accounti.konfiguration import Buchhaltung
 from accounti.models import BuchungStatus
+from tests.marktplatz_hilfe import ebay_bericht
 
 D = Decimal
-
-EBAY_KOPF = (
-    '"Datum der Transaktionserstellung";"Typ";"Bestellnummer";"Versandziel - Land";'
-    '"Betrag abzügl. Kosten";"Auszahlungswährung";"Auszahlungsdatum";'
-    '"Auszahlung Nr.";"Transaktionsbetrag (inkl. Kosten)";"Beschreibung"'
-)
-
-
-def ebay_bericht(*zeilen: tuple[str, str, str, str, str, str, str]) -> bytes:
-    """(Datum, Typ, Bestellnummer, Land, Betrag, Auszahlung Nr., Auszahlungsdatum)."""
-    text = [EBAY_KOPF]
-    for datum, typ, bestellung, land, betrag, nummer, auszahlungsdatum in zeilen:
-        werte = [
-            datum,
-            typ,
-            bestellung,
-            land,
-            betrag,
-            "EUR",
-            auszahlungsdatum,
-            nummer,
-            betrag if typ == "Bestellung" else "",
-            "",
-        ]
-        text.append(";".join(f'"{w}"' for w in werte))
-    return ("\r\n".join(text) + "\r\n").encode("utf-8")
 
 
 @pytest.fixture

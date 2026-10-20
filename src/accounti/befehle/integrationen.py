@@ -48,6 +48,9 @@ def _eur(betrag: Decimal) -> str:
 
 def _befunde(befunde: list[Befund]) -> None:
     for b in befunde:
+        if b.erledigt:
+            console.print(f"  [dim]{b.code} (erledigt): {escape(b.text)}[/dim]")
+            continue
         farbe = _FARBE.get(b.schweregrad.value, "white")
         console.print(f"  [{farbe}]{b.code}[/{farbe}]: {escape(b.text)}")
 
@@ -134,11 +137,17 @@ def marktplatz_import(
             f"[bold]{markt_name} {escape(a.nummer)}[/bold] "
             f"({a.von:%d.%m.}–{a.bis:%d.%m.%Y})"
         )
-        if not e.neu:
+        if e.nachgetragen:
+            console.print(
+                f"{kopf}: schon bekannt — {e.nachgetragen} Posten nachgetragen, "
+                f"{e.buchungen} Buchungen."
+            )
+        elif not e.neu:
             console.print(f"{kopf}: schon importiert — nichts gebucht.")
             continue
-        zusatz = f", {e.umsaetze} neue PayPal-Umsätze" if e.umsaetze else ""
-        console.print(f"{kopf}: {e.buchungen} Buchungen{zusatz}.")
+        else:
+            zusatz = f", {e.umsaetze} neue PayPal-Umsätze" if e.umsaetze else ""
+            console.print(f"{kopf}: {e.buchungen} Buchungen{zusatz}.")
         abgleich = _abgleich_text(a, e.abgleich)
         if abgleich:
             console.print(f"  {abgleich}")
@@ -176,7 +185,7 @@ def marktplatz_liste(db: str = DB_OPTION) -> None:
             f"{a.von:%d.%m.}–{a.bis:%d.%m.%Y}",
             f"{_eur(a.auszahlung)} {a.waehrung}" if a.auszahlung is not None else "—",
             a.status.value,
-            str(len(a.befunde)),
+            str(len(a.offene_befunde)),
         )
     console.print(tabelle)
 

@@ -112,3 +112,32 @@ def test_unbekannter_marktplatz_und_kaputte_datei(tmp_path):
     )
     assert r.exit_code == 1
     assert "Kopfzeile" in r.output
+
+
+def test_cli_nachtrag_einer_auszahlung_ueber_zwei_berichte(tmp_path):
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    august = tmp_path / "aug.csv"
+    august.write_bytes(
+        ebay_bericht(
+            ("30.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", "")
+        )
+    )
+    september = tmp_path / "sep.csv"
+    september.write_bytes(
+        ebay_bericht(
+            ("01.09.2026", "Bestellung", "12-2", "Deutschland", "50,00", "P1", ""),
+            ("02.09.2026", "Auszahlung", "", "", "-150,00", "P1", "02.09.2026"),
+        )
+    )
+    archiv = ["--archiv", str(tmp_path / "archiv")]
+    for datei in (august, september):
+        r = runner.invoke(
+            app,
+            ["marktplatz", "import", "ebay", str(datei), *archiv, *_basis(tmp_path)],
+        )
+        assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "2 Posten nachgetragen, 1 Buchungen" in text
+    r = runner.invoke(app, ["marktplatz", "zeigen", "P1", *_basis(tmp_path)[:2]])
+    assert "auszahlung_folgt (erledigt)" in _text(r)

@@ -12,8 +12,8 @@ Gebucht wird „Bank an Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit d
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
+from dataclasses import dataclass, field
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from accounti.db.repo_integrationen import (
     ergaenze_befunde,
+    erledige_befunde,
     lade_abrechnungen,
     setze_abrechnungsstatus,
     setze_bank_transaktion,
@@ -55,9 +56,19 @@ class Abgleich:
     befund: Befund | None = None
 
 
+ABGLEICHSBEFUNDE = {
+    "auszahlung_abweichung",
+    "auszahlung_mehrdeutig",
+    "auszahlung_anderweitig_gebucht",
+}
+
+
 def status_von(abrechnung: Abrechnung) -> AbrechnungStatus:
-    if any(b.schweregrad is Schweregrad.FEHLER for b in abrechnung.befunde):
+    """Status aus den offenen Befunden und den noch nicht abgeglichenen Posten."""
+    if any(b.schweregrad is Schweregrad.FEHLER for b in abrechnung.offene_befunde):
         return AbrechnungStatus.ABWEICHUNG
+    if not abrechnung.vollstaendig:
+        return AbrechnungStatus.GEBUCHT  # die Auszahlung steht noch aus
     offen = [
         p
         for p in abrechnung.posten
@@ -68,104 +79,150 @@ def status_von(abrechnung: Abrechnung) -> AbrechnungStatus:
     return AbrechnungStatus.GEBUCHT if offen else AbrechnungStatus.ABGEGLICHEN
 
 
+@dataclass
+class _Lauf:
+    """Gemeinsamer Stand eines Abgleichslaufs über mehrere Abrechnungen."""
+
+    session: Session
+    kontext: Kontext
+    bankumsaetze: list[Transaktion]
+    offen_ids: set[UUID]
+    gebucht: set[UUID]
+    benutzt: set[UUID] = field(default_factory=set)
+
+
 def gleiche_auszahlungen_ab(
     session: Session,
     kontext: Kontext,
     abrechnungen: list[Abrechnung] | None = None,
 ) -> list[Abgleich]:
-    """Gleicht offene Auszahlungen (und PayPal-Einzahlungen) mit der Bank ab."""
+    """Gleicht offene Auszahlungen (und PayPal-Einzahlungen) mit der Bank ab.
+
+    Erst werden alle eindeutigen exakten Treffer zugeordnet — wiederholt, weil jeder
+    Treffer die Kandidaten der übrigen verkleinert —, danach erst Befunde für den
+    Rest gebildet. So ist ein Umsatz, den im selben Lauf eine andere Auszahlung
+    bekommen hat, für niemanden eine Abweichung, unabhängig von der Reihenfolge.
+    """
     e = kontext.einstellungen
     if abrechnungen is None:
         abrechnungen = lade_abrechnungen(session)
-    offen_ids = {t.id for t in offene_transaktionen(session, fuer_kontierung=True)}
-    gebucht = gebuchte_transaktion_ids(session)
     marktkonten = {k.verrechnungskonto for k in e.marktplaetze.values()}
-    bankumsaetze = [
-        t
-        for t in lade_transaktionen(session)
-        if t.quelle is not TransaktionQuelle.PAYPAL
-        and (t.sachkonto or kontext.buchhaltung.bank_konto) not in marktkonten
-    ]
-    benutzt: set[UUID] = set()
-    ergebnisse: list[Abgleich] = []
+    lauf = _Lauf(
+        session=session,
+        kontext=kontext,
+        bankumsaetze=[
+            t
+            for t in lade_transaktionen(session)
+            if t.quelle is not TransaktionQuelle.PAYPAL
+            and (t.sachkonto or kontext.buchhaltung.bank_konto) not in marktkonten
+        ],
+        offen_ids={t.id for t in offene_transaktionen(session, fuer_kontierung=True)},
+        gebucht=gebuchte_transaktion_ids(session),
+    )
+    offene: list[tuple[Abrechnung, Marktplatzposten, Decimal]] = []
     for a in abrechnungen:
-        offene_posten = [
-            p
-            for p in a.posten
-            if p.art in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG)
-            and p.bank_transaktion_id is None
-        ]
-        if not offene_posten:
-            continue
-        neue_befunde: list[Befund] = []
-        for p in offene_posten:
+        for p in a.posten:
+            if (
+                p.art not in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG)
+                or p.bank_transaktion_id is not None
+            ):
+                continue
             if a.waehrung != "EUR" and p.betrag_eur is None:
                 continue  # ohne Kurs nicht gebucht, also auch nicht abzugleichen
             erwartet = -(p.betrag_eur if p.betrag_eur is not None else p.betrag)
-            if not erwartet:
+            if erwartet:
+                offene.append((a, p, erwartet))
+
+    ergebnisse: dict[UUID, Abgleich] = {}
+    weiter = True
+    while weiter:
+        weiter = False
+        for a, p, erwartet in offene:
+            if p.id in ergebnisse:
                 continue
-            ergebnis = _gleiche_ab(
-                session,
-                kontext,
-                a,
-                p,
-                erwartet,
-                bankumsaetze,
-                offen_ids,
-                gebucht,
-                benutzt,
-            )
-            ergebnisse.append(ergebnis)
+            kandidaten = _kandidaten(lauf, a, p, erwartet)
+            if len(kandidaten) == 1:
+                ergebnisse[p.id] = _zuordnen(lauf, a, p, kandidaten[0])
+                weiter = True
+    neue_befunde: dict[UUID, list[Befund]] = {}
+    for a, p, erwartet in offene:
+        if p.id not in ergebnisse:
+            ergebnis = _befund(lauf, a, p, erwartet)
+            ergebnisse[p.id] = ergebnis
             if ergebnis.befund is not None:
-                neue_befunde.append(ergebnis.befund)
-        if neue_befunde:
-            ergaenze_befunde(session, a.id, neue_befunde)
-            a.befunde.extend(neue_befunde)
+                neue_befunde.setdefault(a.id, []).append(ergebnis.befund)
+
+    for a in {a.id: a for a, _p, _e in offene}.values():
+        befunde = neue_befunde.get(a.id, [])
+        if befunde:
+            ergaenze_befunde(session, a.id, befunde)
+            a.befunde.extend(befunde)
         a.status = status_von(a)
         setze_abrechnungsstatus(session, a.id, a.status)
-    return ergebnisse
+    return [ergebnisse[p.id] for _a, p, _e in offene]
 
 
-def _gleiche_ab(
-    session: Session,
-    kontext: Kontext,
-    a: Abrechnung,
-    p: Marktplatzposten,
-    erwartet: Decimal,
-    bankumsaetze: list[Transaktion],
-    offen_ids: set[UUID],
-    gebucht: set[UUID],
-    benutzt: set[UUID],
-) -> Abgleich:
-    konten = kontext.einstellungen.marktplatz(a.marktplatz)
-    stichworte = [w.upper() for w in konten.bank_stichworte]
-    bis = p.datum + timedelta(days=kontext.einstellungen.auszahlung_toleranz_tage)
+def _fenster(lauf: _Lauf, p: Marktplatzposten) -> tuple[date, date]:
+    toleranz = timedelta(days=lauf.kontext.einstellungen.auszahlung_toleranz_tage)
+    return p.datum - VORLAUF, p.datum + toleranz
 
-    def im_fenster(t: Transaktion) -> bool:
-        return p.datum - VORLAUF <= t.datum <= bis
 
-    def erkennbar(t: Transaktion) -> bool:
-        text = f"{t.verwendungszweck} {t.gegenkonto_name or ''}".upper()
-        return any(w in text for w in stichworte) or a.nummer.upper() in text
+def _erkennbar(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
+    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
+    text = f"{t.verwendungszweck} {t.gegenkonto_name or ''}".upper()
+    return (
+        any(w.upper() in text for w in konten.bank_stichworte)
+        or a.nummer.upper() in text
+    )
 
+
+def _kandidaten(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> list[Transaktion]:
+    """Freie Bankumsätze mit exakt dem erwarteten Betrag im Zeitfenster."""
+    von, bis = _fenster(lauf, p)
     kandidaten = [
         t
-        for t in bankumsaetze
-        if t.id in offen_ids
-        and t.id not in benutzt
+        for t in lauf.bankumsaetze
+        if t.id in lauf.offen_ids
+        and t.id not in lauf.benutzt
         and t.betrag == erwartet
-        and im_fenster(t)
+        and von <= t.datum <= bis
     ]
     if len(kandidaten) > 1:
-        kandidaten = [t for t in kandidaten if erkennbar(t)] or kandidaten
+        kandidaten = [t for t in kandidaten if _erkennbar(lauf, a, t)] or kandidaten
+    return kandidaten
+
+
+def _zuordnen(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, t: Transaktion
+) -> Abgleich:
+    """Exakter Treffer: Befunde zu diesem Posten aus früheren Läufen erledigen sich."""
+    erledigt = [
+        b
+        for b in a.offene_befunde
+        if b.code in ABGLEICHSBEFUNDE and b.posten_nr == p.nr
+    ]
+    for b in erledigt:
+        b.erledigt = True
+    erledige_befunde(lauf.session, [b.id for b in erledigt])
+    lauf.benutzt.add(t.id)
+    setze_bank_transaktion(lauf.session, p.id, t.id)
+    p.bank_transaktion_id = t.id
+    a.status = status_von(a)
+    _buche(lauf.session, lauf.kontext, a, t)
+    return Abgleich(a, p, t)
+
+
+def _befund(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> Abgleich:
+    """Kein eindeutiger Treffer: mehrdeutig, abweichend, anderweitig gebucht — oder
+    einfach noch nicht auf der Bank."""
+    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
-    if len(kandidaten) == 1:
-        (t,) = kandidaten
-        _buche(session, kontext, a, t)
-        benutzt.add(t.id)
-        setze_bank_transaktion(session, p.id, t.id)
-        p.bank_transaktion_id = t.id
-        return Abgleich(a, p, t)
+    von, bis = _fenster(lauf, p)
+    kandidaten = _kandidaten(lauf, a, p, erwartet)
     if kandidaten:
         return Abgleich(
             a,
@@ -181,12 +238,15 @@ def _gleiche_ab(
                 posten_nr=p.nr,
             ),
         )
+    frei = [
+        t
+        for t in lauf.bankumsaetze
+        if t.id not in lauf.benutzt and von <= t.datum <= bis and _erkennbar(lauf, a, t)
+    ]
     anders = [
         t
-        for t in bankumsaetze
-        if t.id in offen_ids
-        and im_fenster(t)
-        and erkennbar(t)
+        for t in frei
+        if t.id in lauf.offen_ids
         and t.betrag != erwartet
         and (t.betrag > 0) == (erwartet > 0)
     ]
@@ -206,17 +266,15 @@ def _gleiche_ab(
                 posten_nr=p.nr,
             ),
         )
-    schon = [
-        t
-        for t in bankumsaetze
-        if t.id in gebucht and im_fenster(t) and t.betrag == erwartet and erkennbar(t)
-    ]
+    schon = [t for t in frei if t.id in lauf.gebucht and t.betrag == erwartet]
     if schon:
         t = schon[0]
         ids = [
-            str(b.id)[:8] for b in lade_buchungen(session) if b.transaktion_id == t.id
+            str(b.id)[:8]
+            for b in lade_buchungen(lauf.session)
+            if b.transaktion_id == t.id
         ]
-        bank = t.sachkonto or kontext.buchhaltung.bank_konto
+        bank = t.sachkonto or lauf.kontext.buchhaltung.bank_konto
         return Abgleich(
             a,
             p,
@@ -244,7 +302,7 @@ def _buche(session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion) ->
         else e.marktplatz(a.marktplatz).verrechnungskonto
     )
     soll, haben = (bank, gegen) if t.betrag > 0 else (gegen, bank)
-    pruefen = a.status is AbrechnungStatus.ABWEICHUNG
+    pruefen = status_von(a) is AbrechnungStatus.ABWEICHUNG
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     art = "Auszahlung" if t.betrag > 0 else "Einzahlung"
     speichere_buchung(

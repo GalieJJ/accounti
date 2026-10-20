@@ -64,6 +64,10 @@ class Befund(BaseModel):
     text: str
     posten_nr: int | None = None
     erstellt_am: datetime = Field(default_factory=datetime.now)
+    erledigt: bool = Field(
+        default=False,
+        description="durch einen späteren Nachtrag oder Abgleich überholt",
+    )
 
 
 class Laenderangabe(BaseModel):
@@ -137,9 +141,17 @@ class Abrechnung(BaseModel):
     dateiname: str = ""
     beleg_id: UUID | None = None
     status: AbrechnungStatus = AbrechnungStatus.GEBUCHT
+    vollstaendig: bool = Field(
+        default=True,
+        description="False: die Auszahlungszeile steht noch in keinem Bericht (eBay)",
+    )
     importiert_am: datetime = Field(default_factory=datetime.now)
     posten: list[Marktplatzposten] = Field(default_factory=list)
     befunde: list[Befund] = Field(default_factory=list)
+
+    @property
+    def offene_befunde(self) -> list[Befund]:
+        return [b for b in self.befunde if not b.erledigt]
 
     def summe(self, *arten: Postenart) -> Decimal:
         """Summe der Posten (ohne Angabe: aller Posten)."""

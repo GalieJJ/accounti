@@ -100,10 +100,14 @@ def ergaenze_auszahlung(abrechnung: Abrechnung) -> None:
     """Legt den Auszahlungsposten an, wenn der Bericht keine eigene Zeile hat.
 
     Betrag: die gemeldete Auszahlung, sonst die Summe der Einzelposten (dann prüft
-    erst der Bankabgleich). PayPal hat keine Auszahlung — es ist ein Konto.
+    erst der Bankabgleich). PayPal hat keine Auszahlung — es ist ein Konto. Fehlt
+    die Auszahlungszeile, weil sie erst im nächsten Bericht steht (eBay), wird
+    nichts erfunden.
     """
-    if abrechnung.marktplatz == "paypal" or any(
-        p.art is Postenart.AUSZAHLUNG for p in abrechnung.posten
+    if (
+        abrechnung.marktplatz == "paypal"
+        or not abrechnung.vollstaendig
+        or any(p.art is Postenart.AUSZAHLUNG for p in abrechnung.posten)
     ):
         return
     einzel = sum(
@@ -126,6 +130,28 @@ def ergaenze_auszahlung(abrechnung: Abrechnung) -> None:
             auszahlungs_nr=abrechnung.nummer,
         )
     )
+
+
+def _in_eur(betrag: Decimal, kurs: Decimal) -> Decimal:
+    return (betrag / kurs).quantize(CENT, rounding=ROUND_HALF_UP)
+
+
+def setze_auszahlung_eur(abrechnung: Abrechnung) -> None:
+    """Fremdwährung: Auszahlung in EUR = Summe der einzeln umgerechneten Posten."""
+    kurs = abrechnung.kurs
+    if abrechnung.marktplatz == "paypal" or abrechnung.waehrung == "EUR" or not kurs:
+        return
+    summe = -sum(
+        (
+            _in_eur(q.betrag, kurs)
+            for q in abrechnung.posten
+            if q.art not in _NICHT_EINZELPOSTEN
+        ),
+        NULL,
+    )
+    for p in abrechnung.posten:
+        if p.art is Postenart.AUSZAHLUNG:
+            p.betrag_eur = summe
 
 
 # ---------------------------------------------------------------------------
@@ -152,7 +178,7 @@ class _Lauf:
         kurs = self.abrechnung.kurs
         if self.abrechnung.waehrung == "EUR" or kurs is None:
             return betrag
-        return (betrag / kurs).quantize(CENT, rounding=ROUND_HALF_UP)
+        return _in_eur(betrag, kurs)
 
     def bucht(
         self,
@@ -477,7 +503,8 @@ def buche_abrechnung(
             ]
         )
     fehler = any(
-        b.schweregrad is Schweregrad.FEHLER for b in [*abrechnung.befunde, *befunde]
+        b.schweregrad is Schweregrad.FEHLER
+        for b in [*abrechnung.offene_befunde, *befunde]
     )
     lauf = _Lauf(abrechnung, kontext, konten, umsaetze or {}, pruefen_alle=fehler)
     lauf.ergebnis.befunde.extend(befunde)
@@ -557,19 +584,13 @@ def buche_abrechnung(
                 p.referenz,
                 True,
             )
-        elif p.art in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG):
-            if abrechnung.marktplatz == "paypal":
-                text = f"PayPal {'Abbuchung' if betrag < 0 else 'Einzahlung'} Bank"
-                lauf.bucht(betrag, transit, p.datum, text, None, p.referenz)
-            elif abrechnung.waehrung != "EUR":
-                p.betrag_eur = -sum(
-                    (
-                        lauf.eur(q.betrag)
-                        for q in abrechnung.posten
-                        if q.art not in _NICHT_EINZELPOSTEN
-                    ),
-                    NULL,
-                )
+        elif (
+            p.art in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG)
+            and abrechnung.marktplatz == "paypal"
+        ):
+            text = f"PayPal {'Abbuchung' if betrag < 0 else 'Einzahlung'} Bank"
+            lauf.bucht(betrag, transit, p.datum, text, None, p.referenz)
+    setze_auszahlung_eur(abrechnung)
 
     texte = dict(_BEFUNDTEXTE)
     texte["ersatz"] = (

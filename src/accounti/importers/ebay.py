@@ -161,6 +161,21 @@ class EbayImporter(MarktplatzImporter):
                 self._zeile(abrechnung, zeile, dezimal)
             if any(p.art is Postenart.AUSZAHLUNG for p in abrechnung.posten):
                 abrechnung.auszahlung = -abrechnung.summe(Postenart.AUSZAHLUNG)
+            else:
+                # Monatsberichte schneiden Auszahlungen: die übrigen Posten und die
+                # Auszahlungszeile stehen im nächsten Bericht
+                abrechnung.vollstaendig = False
+                abrechnung.befunde.append(
+                    Befund(
+                        code="auszahlung_folgt",
+                        schweregrad=Schweregrad.HINWEIS,
+                        text=(
+                            f"Die Auszahlungszeile von {nummer} steht nicht in diesem "
+                            "Bericht — die Posten sind gebucht, Summenprobe und "
+                            "Bankabgleich folgen mit dem Bericht, der sie enthält"
+                        ),
+                    )
+                )
             abrechnungen.append(abrechnung)
         if offen:
             abrechnungen[-1].befunde.append(

@@ -64,6 +64,7 @@ def _befund_zeile(abrechnung_id: UUID, b: Befund) -> MarktplatzBefundRow:
         text=b.text[:1000],
         posten_nr=b.posten_nr,
         erstellt_am=b.erstellt_am,
+        erledigt=b.erledigt,
     )
 
 
@@ -84,9 +85,40 @@ def speichere_abrechnung(session: Session, a: Abrechnung) -> None:
             dateiname=a.dateiname[:255],
             beleg_id=str(a.beleg_id) if a.beleg_id else None,
             status=a.status.value,
+            vollstaendig=a.vollstaendig,
             importiert_am=a.importiert_am,
         )
     )
+    session.flush()
+    for p in a.posten:
+        session.add(_posten_zeile(a.id, p))
+    for b in a.befunde:
+        session.add(_befund_zeile(a.id, b))
+    session.flush()
+
+
+def aktualisiere_abrechnung(session: Session, a: Abrechnung) -> None:
+    """Schreibt eine ergänzte Abrechnung zurück: Kopf, Posten und Befunde.
+
+    Posten und Befunde werden aus dem Modell neu geschrieben (IDs bleiben) — so
+    kommen Nachträge, ein ersetzter Auszahlungsposten und erledigte Befunde in einem
+    Schritt in die Datenbank.
+    """
+    row = session.get(MarktplatzAbrechnungRow, str(a.id))
+    if row is None:
+        raise ValueError(f"Abrechnung {a.id} nicht gefunden")
+    row.von, row.bis = a.von, a.bis
+    row.auszahlungsdatum = a.auszahlungsdatum
+    row.auszahlung = a.auszahlung
+    row.kurs = a.kurs
+    row.status = a.status.value
+    row.vollstaendig = a.vollstaendig
+    session.query(MarktplatzPostenRow).filter(
+        MarktplatzPostenRow.abrechnung_id == str(a.id)
+    ).delete(synchronize_session="fetch")
+    session.query(MarktplatzBefundRow).filter(
+        MarktplatzBefundRow.abrechnung_id == str(a.id)
+    ).delete(synchronize_session="fetch")
     session.flush()
     for p in a.posten:
         session.add(_posten_zeile(a.id, p))
@@ -115,6 +147,7 @@ def _abrechnung(
         dateiname=r.dateiname,
         beleg_id=UUID(r.beleg_id) if r.beleg_id else None,
         status=AbrechnungStatus(r.status),
+        vollstaendig=r.vollstaendig is not False,
         importiert_am=r.importiert_am,
         posten=[
             Marktplatzposten(
@@ -151,6 +184,7 @@ def _abrechnung(
                 text=b.text,
                 posten_nr=b.posten_nr,
                 erstellt_am=b.erstellt_am,
+                erledigt=bool(b.erledigt),
             )
             for b in sorted(befunde, key=lambda x: x.erstellt_am)
         ],
@@ -197,6 +231,33 @@ def lade_abrechnung(session: Session, schluessel: str) -> Abrechnung:
     return treffer[0]
 
 
+def lade_abrechnung_nach_nummer(
+    session: Session, marktplatz: str, nummer: str
+) -> Abrechnung | None:
+    """Die Abrechnung (Marktplatz, Nummer) mit Posten und Befunden, sonst None."""
+    r = (
+        session.query(MarktplatzAbrechnungRow)
+        .filter(
+            MarktplatzAbrechnungRow.marktplatz == marktplatz,
+            MarktplatzAbrechnungRow.nummer == nummer,
+        )
+        .first()
+    )
+    if r is None:
+        return None
+    posten = (
+        session.query(MarktplatzPostenRow)
+        .filter(MarktplatzPostenRow.abrechnung_id == r.id)
+        .all()
+    )
+    befunde = (
+        session.query(MarktplatzBefundRow)
+        .filter(MarktplatzBefundRow.abrechnung_id == r.id)
+        .all()
+    )
+    return _abrechnung(r, posten, befunde)
+
+
 def abrechnung_vorhanden(session: Session, marktplatz: str, nummer: str) -> bool:
     return (
         session.query(MarktplatzAbrechnungRow.id)
@@ -229,12 +290,13 @@ def vorhandene_referenzen(session: Session, marktplatz: str) -> set[str]:
 def ergaenze_befunde(
     session: Session, abrechnung_id: UUID, befunde: list[Befund]
 ) -> int:
-    """Hängt neue Befunde an; gleiche (Code und Text) werden nicht wiederholt."""
+    """Hängt neue Befunde an; gleiche offene (Code, Text) werden nicht wiederholt."""
     vorhanden = {
         (b.code, b.text)
         for b in session.query(MarktplatzBefundRow)
         .filter(MarktplatzBefundRow.abrechnung_id == str(abrechnung_id))
         .all()
+        if not b.erledigt
     }
     neu = 0
     for b in befunde:
@@ -245,6 +307,15 @@ def ergaenze_befunde(
         neu += 1
     session.flush()
     return neu
+
+
+def erledige_befunde(session: Session, befund_ids: list[UUID]) -> None:
+    """Markiert Befunde als erledigt — sie bleiben sichtbar, zählen aber nicht mehr."""
+    for befund_id in befund_ids:
+        row = session.get(MarktplatzBefundRow, str(befund_id))
+        if row is not None:
+            row.erledigt = True
+    session.flush()
 
 
 def setze_bank_transaktion(

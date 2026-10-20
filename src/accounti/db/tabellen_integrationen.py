@@ -38,6 +38,7 @@ class MarktplatzAbrechnungRow(Base):
     dateiname: Mapped[str] = mapped_column(String(255))
     beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(20))
+    vollstaendig: Mapped[bool] = mapped_column(Boolean, default=True)
     importiert_am: Mapped[datetime] = mapped_column(DateTime)
 
 
@@ -85,3 +86,4 @@ class MarktplatzBefundRow(Base):
     text: Mapped[str] = mapped_column(String(1000))
     posten_nr: Mapped[int | None] = mapped_column(Integer, nullable=True)
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+    erledigt: Mapped[bool] = mapped_column(Boolean, default=False)
