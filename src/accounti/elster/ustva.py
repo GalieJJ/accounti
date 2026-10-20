@@ -54,10 +54,16 @@ from accounti.steuer.plausibilitaet import (
     Schwellen,
     Schweregrad,
     freigabe_gesperrt,
+    offene_befunde,
     plausibilisiere,
+    ustid_befunde,
 )
 from accounti.steuer.voranmeldung import UStVoranmeldung
 from accounti.steuer.zeitraum import Zeitraum
+from accounti.steuer.zusammenfassende_meldung import (
+    ZusammenfassendeMeldung,
+    erstelle_zm,
+)
 
 
 def kontenplan(
@@ -146,11 +152,13 @@ def bereite_vor(
     daten = _Daten(session, buchhaltung, einstellungen)
     e = daten.ermittle(zeitraum)
     e.voranmeldung.berichtigt = abgegeben(session, Meldeart.USTVA, str(zeitraum))
+    svz_befunde = _sondervorauszahlung(session, e, einstellungen)
 
     def bestaetigung(ust_id: str | None, stichtag: date) -> Bewertung:
         return aktuelle_bestaetigung(session, ust_id, stichtag, ustid_max_alter_tage)
 
-    befunde = _zeitraum_befunde(zeitraum, einstellungen) + plausibilisiere(
+    befunde = _zeitraum_befunde(zeitraum, einstellungen) + svz_befunde
+    befunde += plausibilisiere(
         e,
         bestaetigung=bestaetigung,
         plan=daten.plan,
@@ -165,6 +173,47 @@ def bereite_vor(
     )
     rang = {Schweregrad.FEHLER: 0, Schweregrad.WARNUNG: 1, Schweregrad.HINWEIS: 2}
     return Vorbereitung(zeitraum, e, sorted(befunde, key=lambda b: rang[b.schweregrad]))
+
+
+def letzte_betraege(session: Session, art: Meldeart) -> dict[str, Decimal]:
+    """Je Zeitraum der Betrag der zuletzt erfolgreich abgegebenen Anmeldung."""
+    werte: dict[str, Decimal] = {}
+    for u in lade_uebermittlungen(session, art, modus=Modus.ECHT):
+        if u.erfolgreich and u.betrag is not None:
+            werte[u.zeitraum] = u.betrag
+    return werte
+
+
+def festgesetzte_svz(
+    session: Session, jahr: int, einstellungen: ElsterEinstellungen
+) -> Decimal | None:
+    """Sondervorauszahlung eines Jahres: Konfiguration vor Protokoll."""
+    if einstellungen.sondervorauszahlung is not None:
+        return einstellungen.sondervorauszahlung
+    return letzte_betraege(session, Meldeart.DAUERFRIST).get(str(jahr))
+
+
+def _sondervorauszahlung(
+    session: Session, e: Ermittlung, einstellungen: ElsterEinstellungen
+) -> list[Befund]:
+    """Kz 39 in der letzten Voranmeldung des Jahres (Monatszahler mit DFV)."""
+    z = e.zeitraum
+    if not (
+        einstellungen.dauerfristverlaengerung
+        and einstellungen.voranmeldungszeitraum == "monat"
+        and z.monat == 12
+    ):
+        return []
+    svz = festgesetzte_svz(session, z.jahr, einstellungen)
+    if svz is None:
+        text = (
+            f"Sondervorauszahlung {z.jahr} unbekannt — Kz 39 fehlt "
+            "(elster.sondervorauszahlung oder accounti ustva dauerfrist)"
+        )
+        return [Befund("sondervorauszahlung", Schweregrad.WARNUNG, text)]
+    if svz:
+        e.voranmeldung.addiere(39, svz)
+    return []
 
 
 def abgegeben(session: Session, art: Meldeart, zeitraum: str) -> bool:
@@ -185,7 +234,7 @@ class Kontext:
     produkt_version: str = __version__
 
 
-def _kopf(kontext: Kontext, modus: Modus) -> Kopf:
+def kopf_fuer(kontext: Kontext, modus: Modus) -> Kopf:
     if modus is not Modus.PRUEFUNG and not kontext.hersteller_id:
         msg = (
             "Eigene Hersteller-ID fehlt (elster.hersteller_id) — ELSTER nimmt ohne sie "
@@ -307,7 +356,7 @@ def uebermittle(
             )
         except FreigabeError as fehler:
             raise UebermittlungError(str(fehler)) from fehler
-    kopf = _kopf(kontext, modus)
+    kopf = kopf_fuer(kontext, modus)
     xml = ustva_xml(
         v.voranmeldung,
         v.zeitraum,
@@ -360,3 +409,22 @@ def kontext_aus(pfad: str | Path, einstellungen: ElsterEinstellungen) -> Kontext
         hersteller_id=einstellungen.hersteller_id,
         produkt_name=einstellungen.produkt_name,
     )
+
+
+def bereite_zm_vor(
+    session: Session,
+    zeitraum: Zeitraum,
+    *,
+    buchhaltung: Buchhaltung,
+    einstellungen: ElsterEinstellungen,
+    ustid_max_alter_tage: int = 30,
+) -> tuple[ZusammenfassendeMeldung, list[Befund]]:
+    """Zusammenfassende Meldung eines Monats oder Quartals und ihre Befunde."""
+    daten = _Daten(session, buchhaltung, einstellungen)
+    e = daten.ermittle(zeitraum)
+
+    def bestaetigung(ust_id: str | None, stichtag: date) -> Bewertung:
+        return aktuelle_bestaetigung(session, ust_id, stichtag, ustid_max_alter_tage)
+
+    befunde = offene_befunde(e) + ustid_befunde(e, bestaetigung)
+    return erstelle_zm(e), befunde

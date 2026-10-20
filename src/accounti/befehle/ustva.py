@@ -14,10 +14,13 @@ from rich.markup import escape
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 if TYPE_CHECKING:
+    from decimal import Decimal
+
     from sqlalchemy.orm import Session
 
     from accounti.elster.konfiguration import ElsterEinstellungen
     from accounti.elster.ustva import Vorbereitung
+    from accounti.elster.zahllast import Zahllastbuchung
     from accounti.konfiguration import Buchhaltung
     from accounti.models.elster import Uebermittlung
     from accounti.steuer.plausibilitaet import Befund
@@ -116,7 +119,11 @@ def vorbereitung(period: str | None, db: str, config: str) -> Vorbereitung:
         return lauf.vorbereiten(s)
 
 
-def zeige_befunde(befunde: list[Befund]) -> None:
+def zeige_befunde(
+    befunde: list[Befund],
+    gesperrt: str = "Freigabe gesperrt",
+    moeglich: str = "Freigabe möglich[/green] (accounti ustva freigeben)",
+) -> None:
     from accounti.steuer.plausibilitaet import freigabe_gesperrt
 
     for b in befunde:
@@ -125,10 +132,10 @@ def zeige_befunde(befunde: list[Befund]) -> None:
     fehler = sum(1 for b in befunde if b.schweregrad.value == "fehler")
     if freigabe_gesperrt(befunde):
         console.print(
-            f"[red bold]Freigabe gesperrt:[/red bold] {fehler} Fehler — erst beheben"
+            f"[red bold]{gesperrt}:[/red bold] {fehler} Fehler — erst beheben"
         )
     else:
-        console.print("[green]Freigabe möglich[/green] (accounti ustva freigeben)")
+        console.print(f"[green]{moeglich}")
 
 
 def zeige_kennziffern(v: Vorbereitung) -> None:
@@ -267,7 +274,7 @@ def zeige_uebermittlung(u: Uebermittlung, weg_grund: str) -> None:
         console.print(f"  [yellow]{escape(str(zeile))}[/yellow]")
     zeilen = [
         f"Modus {u.modus.value} · Weg {u.weg} ({escape(weg_grund)})",
-        f"Kz 83 {betrag_de(u.betrag)} €"
+        f"Kz {83 if u.art.value == 'UStVA' else 38} {betrag_de(u.betrag)} €"
         + (" · berichtigt (Kz 10)" if u.berichtigt else ""),
     ]
     if u.ticket:
@@ -307,6 +314,7 @@ def uebermitteln(
     from accounti.elster.konfiguration import KonfigurationError
     from accounti.elster.uebermittlung import UebermittlungError, waehle_uebermittler
     from accounti.elster.ustva import kontext_aus, uebermittle
+    from accounti.elster.zahllast import buche_zahllast
     from accounti.models.elster import Modus
 
     if test and testfall:
@@ -334,9 +342,165 @@ def uebermitteln(
         except UebermittlungError as fehler:
             ende(fehler, 1)
         s.commit()  # der Nachweis bleibt, was auch immer danach geschieht
+        z = buche_zahllast(
+            s,
+            u,
+            buchhaltung=lauf.buchhaltung,
+            einstellungen=lauf.einstellungen,
+            steuernummer=kontext.steuernummer,
+        )
+        s.commit()
     if ausgabe:
         Path(ausgabe).write_text(u.datensatz, encoding="utf-8")
         console.print(f"[dim]Datensatz → {escape(ausgabe)}[/dim]")
     zeige_uebermittlung(u, grund)
+    if z is not None:
+        zeige_zahllast(z)
+    if not u.erfolgreich:
+        raise typer.Exit(1)
+
+
+def zeige_zahllast(z: Zahllastbuchung) -> None:
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.models.elster import Meldeart
+
+    art = "Erstattung" if z.betrag < 0 else "Zahllast"
+    if z.art is Meldeart.DAUERFRIST:
+        art = "Sondervorauszahlung"
+    console.print(
+        f"{art} {betrag_de(z.betrag)} € als offener Posten bei "
+        f"{escape(z.kontakt.name)} (Kreditor {z.kontakt.kreditor_konto}), fällig "
+        f"{datum_de(z.posten.faellig_am)} — gebucht {z.buchung.soll_konto} an "
+        f"{z.buchung.haben_konto}"
+    )
+
+
+def _betrag(text: str | None, name: str) -> Decimal | None:
+    """``39000``, ``39000.00`` oder ``39.000,00`` → Decimal."""
+    from decimal import Decimal, InvalidOperation
+
+    if text is None:
+        return None
+    roh = text.strip()
+    if "," in roh:
+        roh = roh.replace(".", "").replace(",", ".")
+    try:
+        return Decimal(roh)
+    except InvalidOperation:
+        ende(f"{name}: {text!r} ist kein Betrag")
+
+
+@befehl.command("dauerfrist")
+def dauerfrist(
+    jahr: int = typer.Option(..., "--jahr", help="Jahr der Dauerfristverlängerung"),
+    summe_vorjahr: str | None = typer.Option(
+        None, "--summe-vorjahr", help="Summe der Vorauszahlungen (Kz 83) im Vorjahr"
+    ),
+    svz_vorjahr: str | None = typer.Option(
+        None, "--svz-vorjahr", help="Im Vorjahr abgezogene Sondervorauszahlung"
+    ),
+    freigeben: bool = typer.Option(False, "--freigeben", help="Freigabe erteilen"),
+    von: str | None = typer.Option(None, "--von", help="Wer gibt frei (Name)"),
+    uebermitteln: bool = typer.Option(False, "--uebermitteln", help="Abgeben"),
+    test: bool = typer.Option(False, "--test", help="Nur erzeugen und prüfen"),
+    testfall: bool = typer.Option(False, "--testfall", help="Mit Testmerker senden"),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+    archiv: str = ARCHIV_OPTION,
+) -> None:
+    """Dauerfristverlängerung mit Sondervorauszahlung (1/11) berechnen und anmelden."""
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.elster.dauerfrist import (
+        DauerfristError,
+        berechne_svz,
+        gib_dauerfrist_frei,
+        uebermittle_dauerfrist,
+    )
+    from accounti.elster.freigabe import FreigabeError
+    from accounti.elster.konfiguration import KonfigurationError, lade_elster
+    from accounti.elster.uebermittlung import UebermittlungError, waehle_uebermittler
+    from accounti.elster.ustva import kontext_aus
+    from accounti.elster.zahllast import buche_zahllast
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.models.elster import Modus
+    from accounti.steuer.fristen import sondervorauszahlung_frist
+
+    if test and testfall:
+        ende("--test und --testfall schließen sich aus")
+    try:
+        einstellungen = lade_elster(config)
+        buchhaltung = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        ende(fehler)
+    summe = _betrag(summe_vorjahr, "--summe-vorjahr")
+    vorjahr = _betrag(svz_vorjahr, "--svz-vorjahr")
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    try:
+        with make_session() as s:
+            try:
+                svz = berechne_svz(s, jahr, einstellungen, summe, vorjahr)
+            except DauerfristError as fehler:
+                ende(fehler)
+            console.print(f"[bold]Dauerfristverlängerung {jahr}[/bold]")
+            if svz.betrag is None:
+                console.print("  Quartalszahler: Antrag ohne Sondervorauszahlung")
+            else:
+                frist = sondervorauszahlung_frist(jahr, einstellungen.bundesland)
+                console.print(
+                    f"  Vorauszahlungen {jahr - 1}: {betrag_de(svz.summe_vorjahr)} € · "
+                    f"Sondervorauszahlung {jahr - 1}: {betrag_de(svz.svz_vorjahr)} €"
+                )
+                console.print(
+                    f"  Sondervorauszahlung {jahr} (Kz 38, 1/11): "
+                    f"[bold]{betrag_de(svz.betrag)} €[/bold] — anzumelden bis "
+                    f"{datum_de(frist.faellig_am)}"
+                )
+            if freigeben:
+                try:
+                    f = gib_dauerfrist_frei(s, svz, von or "")
+                except FreigabeError as fehler:
+                    ende(fehler, 1)
+                s.commit()
+                console.print(
+                    f"[green]Freigegeben von {escape(f.freigegeben_von)}[/green]"
+                )
+            if not (uebermitteln or test or testfall):
+                return
+            try:
+                kontext = kontext_aus(config, einstellungen)
+            except KonfigurationError as fehler:
+                ende(fehler)
+            uebermittler, grund = waehle_uebermittler(einstellungen)
+            modus = (
+                Modus.PRUEFUNG if test else Modus.TESTFALL if testfall else Modus.ECHT
+            )
+            try:
+                u = uebermittle_dauerfrist(
+                    s,
+                    svz,
+                    modus=modus,
+                    kontext=kontext,
+                    uebermittler=uebermittler,
+                    archiv=BelegArchiv(archiv),
+                )
+            except UebermittlungError as fehler:
+                ende(fehler, 1)
+            s.commit()
+            z = buche_zahllast(
+                s,
+                u,
+                buchhaltung=buchhaltung,
+                einstellungen=einstellungen,
+                steuernummer=kontext.steuernummer,
+            )
+            s.commit()
+    finally:
+        engine.dispose()
+    zeige_uebermittlung(u, grund)
+    if z is not None:
+        zeige_zahllast(z)
     if not u.erfolgreich:
         raise typer.Exit(1)

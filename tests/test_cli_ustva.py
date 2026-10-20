@@ -281,3 +281,25 @@ def test_akzeptanz_4_freigeben_und_uebermitteln_per_cli(tmp_path):
     tabelle = (tmp_path / "protokoll.csv").read_text(encoding="utf-8")
     assert tabelle.count("\n") == 2  # Kopf + ein Eintrag
     assert "attrappe-0001" in tabelle and "Erika Muster" in tabelle
+
+
+def test_akzeptanz_5_zahllast_per_cli_als_offener_posten(tmp_path):
+    from accounti.db.repository import lade_kontakte, lade_posten
+
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    u = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert u.exit_code == 0, u.output
+    assert "Zahllast 2.145,18 € als offener Posten bei Finanzamt München" in text(u)
+    assert "fällig 10.09.2026" in text(u)
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        (posten,) = lade_posten(s)
+        kontakt = next(k for k in lade_kontakte(s) if k.id == posten.kontakt_id)
+    engine.dispose()
+    assert (kontakt.name, posten.betrag) == ("Finanzamt München", D("2145.18"))
+    liste = runner.invoke(app, ["opos", "liste", "--db", url])
+    assert liste.exit_code == 0, liste.output
+    assert "Finanzamt" in text(liste)  # die Spalte bricht den Namen um
+    assert "1 Posten · Rest 2.145,18 €" in text(liste)

@@ -82,7 +82,8 @@ def _kurz(b: Buchungssatz) -> str:
     )
 
 
-def _ustid(e: Ermittlung, bestaetigung: Bestaetigung) -> list[Befund]:
+def ustid_befunde(e: Ermittlung, bestaetigung: Bestaetigung) -> list[Befund]:
+    """EU-Umsätze ohne qualifiziert bestätigte USt-IdNr. des Abnehmers."""
     befunde = []
     for u in e.eu:
         if u.betrag <= 0:
@@ -104,6 +105,20 @@ def _ustid(e: Ermittlung, bestaetigung: Bestaetigung) -> list[Befund]:
             )
         befunde.append(Befund("ustid", Schweregrad.FEHLER, text, u.buchung.id))
     return befunde
+
+
+def offene_befunde(e: Ermittlung) -> list[Befund]:
+    """Buchungen im Zeitraum, über die noch ein Mensch entscheiden muss."""
+    return [
+        Befund(
+            "offene_buchungen",
+            Schweregrad.FEHLER,
+            f"{_kurz(b)}: noch zur Prüfung ({b.status.value}) — erst entscheiden "
+            "(accounti review), dann melden",
+            b.id,
+        )
+        for b in e.offen
+    ]
 
 
 def _konsistenz(va: UStVoranmeldung) -> list[Befund]:
@@ -215,23 +230,14 @@ def plausibilisiere(
     """
     plan = plan or Kontenplan()
     schwellen = schwellen or Schwellen()
-    befunde = [
-        Befund(
-            "offene_buchungen",
-            Schweregrad.FEHLER,
-            f"{_kurz(b)}: noch zur Prüfung ({b.status.value}) — erst entscheiden "
-            "(accounti review), dann melden",
-            b.id,
-        )
-        for b in e.offen
-    ]
+    befunde = offene_befunde(e)
     befunde += [
         Befund(
             "ohne_steuerschluessel", Schweregrad.FEHLER, f"{_kurz(b)}: {grund}", b.id
         )
         for b, grund in e.ohne_kennziffer
     ]
-    befunde += _ustid(e, bestaetigung)
+    befunde += ustid_befunde(e, bestaetigung)
     befunde += _konsistenz(e.voranmeldung)
     befunde += _verprobung(e, schwellen.verprobung_toleranz)
     if oss_aktiv:

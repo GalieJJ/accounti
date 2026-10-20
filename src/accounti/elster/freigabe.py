@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -21,7 +22,7 @@ from accounti.db.repo_elster import (
     speichere_freigabe,
 )
 from accounti.models.elster import Freigabe, Meldeart, Modus
-from accounti.steuer.plausibilitaet import Schweregrad
+from accounti.steuer.plausibilitaet import Befund, Schweregrad
 
 if TYPE_CHECKING:
     from accounti.elster.ustva import Vorbereitung
@@ -49,23 +50,29 @@ def ustva_inhalt(v: Vorbereitung) -> dict[str, Any]:
 
 
 def gib_frei(
-    session: Session,
-    v: Vorbereitung,
-    von: str,
-    jetzt: datetime | None = None,
-    art: Meldeart = Meldeart.USTVA,
-    daten: dict[str, Any] | None = None,
+    session: Session, v: Vorbereitung, von: str, jetzt: datetime | None = None
 ) -> Freigabe:
-    """Speichert die Freigabe; Fehler-Befunde sperren sie."""
+    """Gibt die Voranmeldung frei; Fehler-Befunde sperren die Freigabe."""
+    return speichere(session, Meldeart.USTVA, ustva_inhalt(v), von, v.befunde, jetzt)
+
+
+def speichere(
+    session: Session,
+    art: Meldeart,
+    daten: dict[str, Any],
+    von: str,
+    befunde: Sequence[Befund] = (),
+    jetzt: datetime | None = None,
+) -> Freigabe:
+    """Speichert die Freigabe genau dieser Werte."""
     if not von.strip():
         raise FreigabeError("Wer gibt frei? Name angeben (--von)")
-    if v.gesperrt:
-        gruende = "; ".join(b.text for b in v.fehler)
-        raise FreigabeError(f"Freigabe gesperrt: {gruende}")
-    daten = daten if daten is not None else ustva_inhalt(v)
+    fehler = [b.text for b in befunde if b.schweregrad is Schweregrad.FEHLER]
+    if fehler:
+        raise FreigabeError(f"Freigabe gesperrt: {'; '.join(fehler)}")
     gesehen = [
         f"{b.schweregrad.value}: {b.text}"
-        for b in v.befunde
+        for b in befunde
         if b.schweregrad is not Schweregrad.FEHLER
     ]
     freigabe = Freigabe(

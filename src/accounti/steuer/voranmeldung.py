@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 
 from accounti.anzeige import betrag_de
 
@@ -203,6 +203,17 @@ _ANDERE = (65, 69)  # Zeilen 46 und 47
 def volle_euro(betrag: Decimal) -> Decimal:
     """Centbeträge abschneiden (gegen null)."""
     return betrag.quantize(Decimal("1"), rounding=ROUND_DOWN)
+
+
+def sondervorauszahlung(
+    summe_vorauszahlungen: Decimal, svz_vorjahr: Decimal
+) -> Decimal:
+    """Ein Elftel der Vorauszahlungen des Vorjahres zuzüglich der dort abgezogenen
+    Sondervorauszahlung (§ 47 UStDV, USt 5 E 2026); ein Überschuss ergibt 0 €."""
+    basis = summe_vorauszahlungen + svz_vorjahr
+    if basis <= 0:
+        return NULL
+    return (basis / 11).quantize(CENT, rounding=ROUND_HALF_UP)
 
 
 @dataclass
