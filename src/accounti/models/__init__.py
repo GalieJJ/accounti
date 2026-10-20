@@ -103,6 +103,14 @@ class Transaktion(BaseModel):
     )
     rohtext: str = Field(description="Originalzeile aus Import, für Debugging")
     importiert_am: datetime = Field(default_factory=datetime.now)
+    bankkonto_id: UUID | None = Field(default=None, description="Eingerichtetes Konto")
+    sachkonto: str | None = Field(
+        default=None,
+        description="Sachkonto des Bankkontos (sonst buchhaltung.bank_konto)",
+    )
+    dublettenschluessel: str | None = Field(
+        default=None, description="Schutz vor doppeltem Abruf/Import"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +355,33 @@ class Zahlungszuordnung(BaseModel):
     status: ZuordnungStatus
     confidence: float = Field(ge=0.0, le=1.0)
     begruendung: str
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
+class KontoZustand(str, enum.Enum):
+    BEREIT = "bereit"
+    FREIGABE_NOETIG = "freigabe_noetig"  # Bank verlangt eine TAN-Freigabe (SCA)
+    FEHLER = "fehler"
+
+
+class Bankkonto(BaseModel):
+    """Eingerichtetes Bankkonto mit Provider und Abrufstand (Baustein 5)."""
+
+    id: UUID = Field(default_factory=uuid4)
+    iban: str
+    bezeichnung: str
+    sachkonto: str = Field(default="1200", description="Finanzkonto im Kontenrahmen")
+    provider: str = "datei"
+    einstellungen: dict[str, str] = Field(
+        default_factory=dict, description="nicht geheim, z.B. Ordner"
+    )
+    zugang: str | None = Field(
+        default=None, description="verschlüsselt (Tresor) — nie Klartext"
+    )
+    abrufstand: date | None = None
+    letzter_abruf: datetime | None = None
+    zustand: KontoZustand = KontoZustand.BEREIT
+    meldung: str | None = None
     erstellt_am: datetime = Field(default_factory=datetime.now)
 
 

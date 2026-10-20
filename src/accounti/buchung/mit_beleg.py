@@ -162,7 +162,7 @@ def kontiere_mit_beleg(
     text = f"{beleg.lieferant_name or ''} {beleg.belegnummer or ''}".strip()
     buchungen = []
     for g in gruppen.values():
-        soll, haben = g.konto, einstellungen.bank_konto
+        soll, haben = g.konto, tx.sachkonto or einstellungen.bank_konto
         if not eingang:
             soll, haben = haben, soll
         if gutschrift:

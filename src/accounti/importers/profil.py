@@ -226,3 +226,21 @@ def importer_fuer_datei(
 
 
 registriere_profile(EINGEBAUTE_PROFILE)
+
+
+def waehle_importer(
+    pfad: str | Path, format: str = "auto", eigene: str | Path = "config/banken.yaml"
+) -> BankImporter:
+    """Importer für eine Datei: festes Format oder automatisch erkannt.
+
+    Eigene Profile aus ``config/banken.yaml`` werden registriert und mitgeprüft.
+    """
+    profile = lade_banken_profile(eigene)
+    registriere_profile(profile)
+    if format == "auto":
+        return importer_fuer_datei(pfad, {**EINGEBAUTE_PROFILE, **profile})
+    if format in BANK_IMPORTERS:
+        return BANK_IMPORTERS[format]
+    verfuegbar = ", ".join(sorted(BANK_IMPORTERS))
+    msg = f"Unbekanntes Format '{format}'. Verfügbar: {verfuegbar}"
+    raise ValueError(msg)

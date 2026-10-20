@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session, sessionmaker
 
+    from accounti.bank.lauf import KontoAbruf
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
     from accounti.erechnung.kosit import KositErgebnis
@@ -56,44 +57,43 @@ def import_bank(
     datei: str = typer.Argument(help="Pfad zur Bank-CSV-Datei"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     format: str = typer.Option("auto", help="Bankformat (auto = erkennen)"),
+    konto: str | None = typer.Option(
+        None, help="Eingerichtetes Bankkonto (IBAN) — Sachkonto und Dublettenschutz"
+    ),
 ) -> None:
-    """Banktransaktionen importieren."""
+    """Banktransaktionen importieren — was schon da ist, wird übersprungen."""
+    from rich.markup import escape
+
+    from accounti.bank.lauf import speichere_neue
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import speichere_transaktion
-    from accounti.importers import BANK_IMPORTERS
-    from accounti.importers.profil import (
-        EINGEBAUTE_PROFILE,
-        importer_fuer_datei,
-        lade_banken_profile,
-        registriere_profile,
-    )
+    from accounti.db.repository import lade_bankkonto
+    from accounti.importers.profil import waehle_importer
 
-    eigene = lade_banken_profile("config/banken.yaml")
-    registriere_profile(eigene)
-
-    if format == "auto":
-        try:
-            importer = importer_fuer_datei(datei, {**EINGEBAUTE_PROFILE, **eigene})
-        except ValueError as fehler:
-            console.print(f"[red]{fehler}[/red]")
-            raise typer.Exit(1) from fehler
-    elif format in BANK_IMPORTERS:
-        importer = BANK_IMPORTERS[format]
-    else:
-        verfuegbar = ", ".join(sorted(BANK_IMPORTERS))
-        console.print(
-            f"[red]Unbekanntes Format '{format}'. Verfügbar: {verfuegbar}[/red]"
-        )
-        raise typer.Exit(1)
+    try:
+        importer = waehle_importer(datei, format)
+    except ValueError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
 
     transaktionen = importer.importiere(datei)
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
-        for tx in transaktionen:
-            speichere_transaktion(s, tx)
+        bankkonto = None
+        if konto is not None:
+            try:
+                bankkonto = lade_bankkonto(s, konto)
+            except ValueError as fehler:
+                console.print(f"[red]{escape(str(fehler))}[/red]")
+                raise typer.Exit(1) from fehler
+        neu, doppelt = speichere_neue(
+            s, transaktionen, f"datei:{importer.name}", bankkonto
+        )
         s.commit()
-    console.print(f"[green]{len(transaktionen)}[/green] Transaktionen importiert.")
+    console.print(
+        f"[green]{neu}[/green] Transaktionen importiert"
+        + (f", {doppelt} Dubletten übersprungen." if doppelt else ".")
+    )
 
 
 @import_app.command("banken")
@@ -1921,6 +1921,217 @@ def bank_offen(
     for b in bericht.belege_ohne_umsatz:
         console.print(f"  {escape(_beleg_text(b))}")
     console.print("[dim]Rechnungen ohne Zahlung stehen in 'accounti opos liste'.[/dim]")
+
+
+@bank_app.command("schluessel")
+def bank_schluessel() -> None:
+    """Neuen Schlüssel für den Tresor der Bankzugänge erzeugen."""
+    from accounti.bank.tresor import UMGEBUNG, neuer_schluessel
+
+    console.print(
+        "Diesen Schlüssel sicher aufbewahren (Passwortmanager) und in der Umgebung "
+        "setzen — ohne ihn sind gespeicherte Bankzugänge nicht mehr lesbar:"
+    )
+    console.print(f"export {UMGEBUNG}={neuer_schluessel()}", soft_wrap=True)
+
+
+@bank_app.command("verbinde")
+def bank_verbinde(
+    provider: str = typer.Option("datei", help="datei (später: fints, psd2)"),
+    iban: str = typer.Option(..., help="IBAN des Kontos"),
+    bezeichnung: str = typer.Option(..., help="z.B. 'Giro Sparkasse'"),
+    sachkonto: str = typer.Option("1200", help="Finanzkonto im Kontenrahmen"),
+    feld: Annotated[
+        list[str] | None,
+        typer.Option(help="Einstellung des Providers, z.B. ordner=./auszuege"),
+    ] = None,
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Bankkonto einrichten; Zugangsdaten werden abgefragt und verschlüsselt."""
+    import re
+
+    from rich.markup import escape
+
+    from accounti.bank.provider import BANK_PROVIDER
+    from accounti.bank.tresor import TresorError, lade_schluessel, verschluessele
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    def ende(text: str) -> None:
+        console.print(f"[red]{escape(text)}[/red]")
+        raise typer.Exit(1)
+
+    klasse = BANK_PROVIDER.get(provider)
+    if klasse is None:
+        ende(
+            f"Unbekannter Provider '{provider}'. Verfügbar: {', '.join(BANK_PROVIDER)}"
+        )
+        return
+    einstellungen: dict[str, str] = {}
+    for eintrag in feld or []:
+        name, _, wert = eintrag.partition("=")
+        if name not in klasse.felder:
+            erlaubt = ", ".join(klasse.felder) or "keine"
+            ende(f"Einstellung '{name}' gibt es bei {provider} nicht ({erlaubt})")
+        einstellungen[name] = wert
+    konto = Bankkonto(
+        iban=re.sub(r"\s", "", iban).upper(),
+        bezeichnung=bezeichnung,
+        sachkonto=sachkonto,
+        provider=provider,
+        einstellungen=einstellungen,
+    )
+    if klasse.geheime_felder:
+        try:
+            schluessel = lade_schluessel()
+        except TresorError as fehler:
+            ende(str(fehler))
+            return
+        geheim = {
+            name: typer.prompt(name, hide_input=True) for name in klasse.geheime_felder
+        }
+        konto = konto.model_copy(
+            update={"zugang": verschluessele(geheim, schluessel, str(konto.id))}
+        )
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            speichere_bankkonto(s, konto)
+        except ValueError as fehler:
+            ende(str(fehler))
+        s.commit()
+    console.print(
+        f"[green]Eingerichtet:[/green] {escape(konto.bezeichnung)} {konto.iban} "
+        f"({provider}, Sachkonto {konto.sachkonto})"
+        + (" — Zugang verschlüsselt gespeichert" if konto.zugang else "")
+    )
+    console.print("[dim]Nächster Schritt: accounti bank abrufen[/dim]")
+
+
+@bank_app.command("konten")
+def bank_konten(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Eingerichtete Bankkonten mit Abrufstand."""
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.anzeige import datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_bankkonten
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        konten = lade_bankkonten(s)
+    if not konten:
+        console.print("[dim]Keine Bankkonten — accounti bank verbinde …[/dim]")
+        return
+    tabelle = Table(title="Bankkonten")
+    for spalte in ("IBAN", "Bezeichnung", "Sachkonto", "Provider", "Stand", "Zustand"):
+        tabelle.add_column(spalte, overflow="fold")
+    for k in konten:
+        zustand = k.zustand.value + (f": {k.meldung}" if k.meldung else "")
+        tabelle.add_row(
+            k.iban,
+            escape(k.bezeichnung),
+            k.sachkonto,
+            k.provider,
+            datum_de(k.abrufstand) if k.abrufstand else "—",
+            escape(zustand),
+        )
+    console.print(tabelle)
+
+
+def _abruf_ausgabe(abrufe: "list[KontoAbruf]") -> None:
+    from rich.markup import escape
+
+    for a in abrufe:
+        farbe = {"bereit": "green", "freigabe_noetig": "yellow"}.get(
+            a.zustand.value, "red"
+        )
+        text = f"{a.neu} neu, {a.doppelt} schon vorhanden"
+        if a.meldung:
+            text = f"{a.zustand.value}: {a.meldung}"
+        console.print(
+            f"[{farbe}]{escape(a.konto.bezeichnung)}[/{farbe}] {a.konto.iban} — "
+            f"{escape(text)}"
+        )
+    if not abrufe:
+        console.print("[dim]Keine Bankkonten — accounti bank verbinde …[/dim]")
+
+
+@bank_app.command("abrufen")
+def bank_abrufen(
+    konto: str | None = typer.Option(None, help="Nur dieses Konto (IBAN)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Neue Umsätze aller Konten holen — ohne Dubletten."""
+    from rich.markup import escape
+
+    from accounti.bank.lauf import rufe_ab
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_bankkonto
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        konten = None
+        if konto is not None:
+            try:
+                konten = [lade_bankkonto(s, konto)]
+            except ValueError as fehler:
+                console.print(f"[red]{escape(str(fehler))}[/red]")
+                raise typer.Exit(1) from fehler
+        abrufe = rufe_ab(s, konten=konten)
+        s.commit()
+    _abruf_ausgabe(abrufe)
+
+
+@bank_app.command("lauf")
+def bank_lauf_befehl(
+    llm: bool = typer.Option(False, "--llm/--no-llm", help="LLM-Stufe nutzen"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Geplanter Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren."""
+    from rich.markup import escape
+
+    from accounti.bank.lauf import bank_lauf
+    from accounti.db import init_db, session_factory
+    from accounti.klassifikation.engine import (
+        STANDARD_REGELN,
+        KlassifikationsEngine,
+        RegelwerkEngine,
+    )
+    from accounti.klassifikation.llm import LLMEngine
+    from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+
+    try:
+        einstellungen = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    engine = KlassifikationsEngine(
+        regelwerk=RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN),
+        llm=LLMEngine() if llm else None,
+    )
+    db_engine, make_session = session_factory(db)
+    init_db(db_engine)
+    with make_session() as s:
+        ergebnis = bank_lauf(s, engine, einstellungen)
+        s.commit()
+    _abruf_ausgabe(ergebnis.abrufe)
+    z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung
+    console.print(
+        f"Offene Posten: {len(z.gebucht)} ausgeglichen, {len(z.vorgeschlagen)} "
+        f"vorgeschlagen · Belege: {len(a.automatisch)} abgeglichen, "
+        f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
+        f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
+    )
 
 
 # ---------------------------------------------------------------------------

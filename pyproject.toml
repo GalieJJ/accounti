@@ -41,6 +41,8 @@ dependencies = [
     # ZUGFeRD-PDF (PDF/A-3b); Pillow 13 erst nach Erprobung
     "fpdf2>=2.8.9,<2.9",
     "pillow>=10,<13",
+    # Bankzugänge verschlüsselt ablegen (AES-GCM)
+    "cryptography>=50.0.2,<51",
 ]
 
 [project.optional-dependencies]

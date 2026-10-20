@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -13,6 +15,7 @@ from sqlalchemy.orm import Session
 from accounti.db.tabellen import (
     AusgangspositionRow,
     AusgangsrechnungRow,
+    BankkontoRow,
     BelegabgleichRow,
     BelegEingangRow,
     BelegpositionRow,
@@ -31,6 +34,7 @@ from accounti.models import (
     AusgangsPosition,
     Ausgangsrechnung,
     AusgangsrechnungStatus,
+    Bankkonto,
     Beleg,
     Belegabgleich,
     Belegart,
@@ -43,6 +47,7 @@ from accounti.models import (
     Eingangsergebnis,
     Kontakt,
     KontaktStatus,
+    KontoZustand,
     OffenerPosten,
     PostenRichtung,
     PostenStatus,
@@ -83,6 +88,9 @@ def _row_zu_transaktion(r: TransaktionRow) -> Transaktion:
         gegenkonto_iban=r.gegenkonto_iban,
         quelle=TransaktionQuelle(r.quelle),
         rohtext=r.rohtext,
+        bankkonto_id=_uuid(r.bankkonto_id),
+        sachkonto=r.sachkonto,
+        dublettenschluessel=r.dublettenschluessel,
     )
 
 
@@ -123,6 +131,9 @@ def speichere_transaktion(session: Session, tx: Transaktion) -> None:
             gegenkonto_iban=tx.gegenkonto_iban,
             quelle=tx.quelle.value,
             rohtext=tx.rohtext,
+            bankkonto_id=_str(tx.bankkonto_id),
+            sachkonto=tx.sachkonto,
+            dublettenschluessel=tx.dublettenschluessel,
         )
     )
 
@@ -1075,3 +1086,91 @@ def gebuchte_beleg_ids(session: Session) -> set[UUID]:
         .all()
     )
     return {UUID(b) for (b,) in rows if b}
+
+
+# --- Bankkonten (Baustein 5) ----------------------------------------------------
+
+
+def vorhandene_dublettenschluessel(session: Session, schluessel: set[str]) -> set[str]:
+    """Welche dieser Dublettenschlüssel stehen schon in der Datenbank?"""
+    if not schluessel:
+        return set()
+    rows = (
+        session.query(TransaktionRow.dublettenschluessel)
+        .filter(TransaktionRow.dublettenschluessel.in_(list(schluessel)))
+        .all()
+    )
+    return {s for (s,) in rows if s}
+
+
+def _row_zu_bankkonto(r: BankkontoRow) -> Bankkonto:
+    return Bankkonto(
+        id=UUID(r.id),
+        iban=r.iban,
+        bezeichnung=r.bezeichnung,
+        sachkonto=r.sachkonto,
+        provider=r.provider,
+        einstellungen=json.loads(r.einstellungen or "{}"),
+        zugang=r.zugang,
+        abrufstand=r.abrufstand,
+        letzter_abruf=r.letzter_abruf,
+        zustand=KontoZustand(r.zustand),
+        meldung=r.meldung,
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def _bankkonto_werte(k: Bankkonto) -> dict[str, object]:
+    return {
+        "iban": k.iban,
+        "bezeichnung": k.bezeichnung,
+        "sachkonto": k.sachkonto,
+        "provider": k.provider,
+        "einstellungen": json.dumps(k.einstellungen, ensure_ascii=False),
+        "zugang": k.zugang,
+        "abrufstand": k.abrufstand,
+        "letzter_abruf": k.letzter_abruf,
+        "zustand": k.zustand.value,
+        "meldung": (k.meldung or "")[:500] or None,
+        "erstellt_am": k.erstellt_am,
+    }
+
+
+def speichere_bankkonto(session: Session, k: Bankkonto) -> None:
+    try:
+        with session.begin_nested():
+            session.add(BankkontoRow(id=str(k.id), **_bankkonto_werte(k)))
+    except IntegrityError as fehler:
+        raise ValueError(f"Konto {k.iban} ist schon eingerichtet") from fehler
+
+
+def aktualisiere_bankkonto(session: Session, k: Bankkonto) -> None:
+    row = session.get(BankkontoRow, str(k.id))
+    if row is None:
+        raise ValueError(f"Konto {k.iban} nicht gefunden")
+    for feld, wert in _bankkonto_werte(k).items():
+        setattr(row, feld, wert)
+    session.flush()
+
+
+def lade_bankkonten(session: Session) -> list[Bankkonto]:
+    rows = session.query(BankkontoRow).order_by(BankkontoRow.erstellt_am).all()
+    return [_row_zu_bankkonto(r) for r in rows]
+
+
+def lade_bankkonto(session: Session, schluessel: str) -> Bankkonto:
+    """Konto über IBAN (Leerzeichen egal) oder den Anfang der ID."""
+    kompakt = re.sub(r"\s", "", schluessel).upper()
+    treffer = [
+        k
+        for k in lade_bankkonten(session)
+        if k.iban == kompakt or str(k.id).startswith(schluessel.lower())
+    ]
+    if len(treffer) != 1:
+        msg = (
+            f"Kein Bankkonto '{schluessel}'"
+            if not treffer
+            else f"'{schluessel}' ist nicht eindeutig"
+        )
+        raise ValueError(msg)
+    return treffer[0]

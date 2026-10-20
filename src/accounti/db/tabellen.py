@@ -36,6 +36,13 @@ class TransaktionRow(Base):
     gegenkonto_iban: Mapped[str | None] = mapped_column(String(34), nullable=True)
     quelle: Mapped[str] = mapped_column(String(20))
     rohtext: Mapped[str] = mapped_column(String(2000))
+    bankkonto_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
+    sachkonto: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    dublettenschluessel: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, unique=True, index=True
+    )
 
 
 class BuchungssatzRow(Base):
@@ -257,6 +264,23 @@ class ZahlungszuordnungRow(Base):
     status: Mapped[str] = mapped_column(String(20))
     confidence: Mapped[float] = mapped_column(Float)
     begruendung: Mapped[str] = mapped_column(String(500))
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class BankkontoRow(Base):
+    __tablename__ = "bankkonten"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    iban: Mapped[str] = mapped_column(String(34), unique=True)
+    bezeichnung: Mapped[str] = mapped_column(String(100))
+    sachkonto: Mapped[str] = mapped_column(String(10))
+    provider: Mapped[str] = mapped_column(String(20))
+    einstellungen: Mapped[str] = mapped_column(Text)  # JSON, nicht geheim
+    zugang: Mapped[str | None] = mapped_column(Text, nullable=True)  # verschlüsselt
+    abrufstand: Mapped[date | None] = mapped_column(Date, nullable=True)
+    letzter_abruf: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    zustand: Mapped[str] = mapped_column(String(20))
+    meldung: Mapped[str | None] = mapped_column(String(500), nullable=True)
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
 
 

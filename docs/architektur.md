@@ -83,10 +83,13 @@ Liest und schreibt strukturierte Rechnungen. Alle Formate werden auf ein gemeins
 
 Holt Kontoumsätze selbst ab und führt sie mit Belegen zusammen.
 
-- `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar.
+- `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle, `datei.py`). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar. Verlangt die Bank eine Freigabe, meldet der Provider das als Zustand am Konto. *(vorhanden: Schnittstelle und `datei`)*
+- `tresor.py` — Zugangsdaten mit AES-GCM verschlüsselt, Schlüssel aus `ACCOUNTI_SCHLUESSEL`, das Chiffrat an das Konto gebunden. *(vorhanden)*
+- `dubletten.py` — Dublettenschlüssel aus Konto, Datum, Betrag, Verwendungszweck, Gegenpartei und laufender Nummer gleicher Umsätze; gilt für Abruf und `import bank`. *(vorhanden)*
+- `lauf.py` — Abruf aller Konten (ab Stand minus 14 Tage) und der geplante Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren; idempotent. Umsätze tragen das Sachkonto ihres Bankkontos. *(vorhanden)*
 - `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender. Abgeglichen werden Quittungen und sonstige Belege; Rechnungen laufen über offene Posten. Automatisch nur, was auf beiden Seiten eindeutig ist; zwei gleiche Belege werden zwei Vorschläge. *(vorhanden)*
 - `abgleichslauf.py` — Tabelle `belegabgleiche` (vorgeschlagen/bestätigt/abgelehnt), Bestätigen verwirft konkurrierende Vorschläge, Bericht „Umsätze ohne Beleg / Belege ohne Umsatz“. *(vorhanden)*
-- `konten.py` — Bankkonten und Zugänge; Zugangsdaten verschlüsselt, nie in Logs, nie im LLM-Prompt.
+- Bankkonten (`Bankkonto` in `models/`, Tabelle `bankkonten`) — IBAN, Sachkonto, Provider, Einstellungen, verschlüsselter Zugang, Abrufstand, Zustand; Zugangsdaten nie in Logs, nie im LLM-Prompt. *(vorhanden)*
 
 ### `klassifikation/`
 

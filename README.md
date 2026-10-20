@@ -74,7 +74,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
 | ✅ | **Bank-Import** | CSV mehrerer Banken, konfigurationsgetriebene Profile mit Auto-Erkennung |
-| 🔲 | **Live-Bankanbindung** | FinTS/HBCI direkt, PSD2-Aggregator optional, Kreditkarten |
+| 🟨 | **Live-Bankanbindung** | Bankkonten mit verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider (Ordner mit Kontoauszügen), Dublettenschutz, geplanter Lauf `bank lauf`; FinTS und Kreditkarten folgen |
 | ✅ | **Belegabgleich** | Quittungen und sonstige Belege ↔ Kontoumsatz (Referenz → exakt → Vorschlag), bevor kontiert wird; `classify` bucht abgeglichene Umsätze aus dem Beleg mit dessen Vorsteuer |
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
@@ -218,6 +218,21 @@ accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <I
 accounti classify                              # kontiert aus dem Beleg, sonst Regelwerk/LLM
 accounti bank offen                            # Umsätze ohne Beleg, Belege ohne Umsatz
 ```
+
+### Bankkonten und geplanter Lauf
+
+```bash
+accounti bank schluessel                       # Schlüssel für verschlüsselte Bankzugänge
+export ACCOUNTI_SCHLUESSEL=…                   # gehört in die Umgebung, nicht ins Projekt
+accounti bank verbinde --provider datei --iban DE12… --bezeichnung "Giro" \
+  --sachkonto 1200 --feld ordner=./eingang/kontoauszuege
+accounti bank konten                           # Konten, Abrufstand, Zustand
+accounti bank abrufen                          # neue Umsätze aller Konten, ohne Dubletten
+accounti bank lauf                             # abrufen → zuordnen → abgleichen → kontieren (Cron)
+```
+
+Auch `accounti import bank` überspringt jetzt Umsätze, die schon da sind; mit `--konto IBAN`
+landen sie beim eingerichteten Konto und dessen Sachkonto.
 
 ### USt-IdNr.-Prüfung
 
@@ -488,7 +503,8 @@ kontieren will, braucht nur v0.1.
 - [x] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
 - [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
 - [x] Belegabgleich vor der Kontierung
-- [ ] Geplanter Abruf über Provider (Datei, FinTS — braucht eine FinTS-Produktregistrierung)
+- [x] Bankkonten, Provider-Schnittstelle, Datei-Provider, Dublettenschutz, geplanter Lauf
+- [ ] FinTS-Provider und Kreditkarten (FinTS braucht eine Produktregistrierung)
 
 ### v0.4 — Zahlung & Prüfung *(Bausteine 6, 7)*
 - [ ] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe
