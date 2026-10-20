@@ -7,6 +7,22 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Steuermeldungen & elektronische Übermittlung** (Baustein 9): Kennziffern der
+  Umsatzsteuer-Voranmeldung nach Vordruck 2026 aus den Buchungen (`accounti ustva --period`),
+  Plausibilisierung mit Schweregraden (`ustva pruefen`): Buchungen ohne Steuerschlüssel auf
+  Erlöskonten und ig. Lieferungen/EU-Leistungen ohne bestätigte USt-IdNr. sperren die Freigabe;
+  Freigabe durch den Menschen (`ustva freigeben --von`), gebunden an die Formularwerte;
+  ELSTER-Datensatz (UStVA, Dauerfristverlängerung) mit Testmodus ohne Abgabe
+  (`ustva uebermitteln --test`), Übermittler-Schnittstelle mit ERiC-Adapter über ctypes und
+  Attrappe; Zertifikats-PIN verschlüsselt außerhalb der Datenbank (`elster pin`);
+  Übermittlungsprotokoll nur zum Anfügen mit Hash-Kette, Datensatz, Ticket, Zeitpunkt und
+  Prüfbericht (`elster protokoll`); Zahllast als offener Posten beim Kreditor „Finanzamt“
+  (1780 an Kreditor, fällig zur Frist), Erstattung als Forderung, Berichtigung als
+  Differenz und mit dem offenen Posten verrechnet, Nachbuchen mit `elster zahllast`;
+  Testmodus beim ersten Lauf; Sondervorauszahlung je Jahr
+  (`ustva dauerfrist`); Zusammenfassende Meldung je USt-IdNr. mit CSV für den Portal-Import
+  (`accounti zm`); Fristenkalender nach § 108 Abs. 3 AO mit Feiertagen je Bundesland
+  (`accounti fristen`); neuer, optionaler Abschnitt `elster`
 - **Integrationen & Export, Pakete 1–4** (Baustein 11 ohne REST-API): Marktplatz-Importer für
   Amazon (Abrechnungsbericht Flat File V2 mit Länderdatei), eBay (Transaktionsbericht), PayPal
   (Aktivitäten, als eigenes Konto mit Guthabenkette und Fremdwährungsumrechnung) und Shopify
@@ -195,6 +211,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- `steuer/voranmeldung.py` bildet den amtlichen Vordruck 2026 ab: alle Kennziffern mit Zeile,
+  Bemessungsgrundlagen in vollen Euro, Steuer zu Kz 81/86/89/93 wie ELSTER aus der
+  Bemessungsgrundlage, Kz 83 als Ergebnis; § 13b getrennt in 46/47, 73/74 und 84/85;
+  ig. Erwerb 7 % (Kz 93)
+- OSS-Umsätze erscheinen in der Voranmeldung als Nettoumsatz in Kz 45 (vorher: gar nicht)
 - DATEV-Exporte mit Beleglink schreiben Belegfeld 1 nur noch mit den von DATEV zugelassenen
   Zeichen (Befund bei Kürzung)
 - Buchungen in einem abgeschlossenen Jahr lassen sich nicht mehr anlegen, ändern oder löschen
@@ -237,6 +258,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **UStVA:** Das Skonto, das der Ausgleich für den 0-%-Anteil einer Mischrechnung (z. B.
+  Kz 41 + Kz 81) ohne Steuerschlüssel bucht, sperrte die Freigabe; es wird jetzt der einzigen
+  steuerfreien Kennziffer der Rechnung zugeordnet
+- `opos verbuchen` bucht EU-Leistungen mit Steuerschuld des Empfängers (Kategorie AE) auf
+  8336 statt 8338 (8338 ist im SKR03 „Drittland, nicht steuerbar“); ältere Buchungen auf
+  8338/8339 an EU-Unternehmer mit USt-IdNr. meldet die Plausibilisierung als Warnung
+- Zahlungsausgleich: ein Posten gegen einen Kontakt mit nur einem Personenkonto (z. B.
+  Erstattung des Finanzamts) bucht auf dieses Konto, statt abzubrechen
+- DATEV-Steuerschlüssel für ig. Erwerb (19/18) und § 13b (94) in `steuer/umsatzsteuer.py`
 - OSS-Meldung und Schwellenprüfung (`steuer/oss.py`) zählten Erstattungen auf OSS-Erlöskonten
   als Umsatz statt als Minderung
 - OSS-Meldung (`steuer/oss.py`): Erstattungen früherer Quartale werden als Korrektur des

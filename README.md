@@ -101,9 +101,9 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 |--------|---------|-------------|
 | ✅ | **Umsatzsteuer** | USt/VSt-Berechnung, Steuerautomatik, Geschäftsvorfall-Bestimmung |
 | ✅ | **OSS-Verfahren** | EU-weite MwSt (27 Länder), Schwellenwertprüfung, Quartalsmeldung |
-| ✅ | **USt-Voranmeldung** | ELSTER-Kennziffern, Zahllast-Berechnung |
-| 🔲 | **Elektronische Übermittlung** | Voranmeldung, Dauerfristverlängerung, Zusammenfassende Meldung — mit Protokoll |
-| 🔲 | **Fristenkalender** | Abgabefristen berechnet, inkl. Wochenend- und Feiertagsverschiebung |
+| ✅ | **USt-Voranmeldung** | Kennziffern nach Vordruck 2026 aus den Buchungen (Steuerschlüssel + Automatikkonten), volle Euro wie ELSTER, Plausibilisierung (ohne Steuerschlüssel, unbestätigte USt-IdNr., Verprobung, Vormonatsvergleich), Freigabe durch den Menschen |
+| 🟨 | **Elektronische Übermittlung** | ELSTER-Datensatz UStVA/Dauerfristverlängerung, Testmodus ohne Abgabe, ERiC-Anbindung über ctypes (mit eigener Hersteller-ID und Zertifikat), unveränderbares Protokoll, Zahllast als offener Posten beim Finanzamt; Zusammenfassende Meldung als Portaldatei |
+| ✅ | **Fristenkalender** | UStVA, Dauerfristverlängerung, Sondervorauszahlung, ZM, OSS — verschoben nach § 108 Abs. 3 AO mit Feiertagen des Bundeslands |
 | ✅ | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |
 | ✅ | **Anlagenbuchhaltung** | Anlagegüter mit AfA linear (monatsgenau), degressiv (2020–2022, 2024, 07/2025–2027 mit Wechsel zur linearen AfA), GWG, Sammelposten, digitale Wirtschaftsgüter, E-Fahrzeuge — Grenzbeträge mit Gültigkeitszeitraum, AfA-Tabelle, AfA-Lauf je Monat oder Jahr, Abgang mit Ergebnis, Anlagenspiegel |
 | 🟨 | **Jahresabschluss** | Kassenbuch ohne negativen Bestand, Bank-Saldenabstimmung als Abschlusssperre, Abschlussprüfungen, Summen- und Saldenliste, ARAP/PRAP-Vorschläge mit Auflösung, Einnahmenüberschussrechnung nach Anlage EÜR 2025/2026, Saldovortrag mit Jahressperre; Bilanz/GuV, Rückstellungen und Übermittlung folgen |
@@ -303,6 +303,30 @@ accounti kontakte ustid-protokoll ATU12345678 --csv ustid.csv
 Bestätigung aus den letzten 30 Tagen vorliegt (`ustid_pruefung.max_alter_tage`). Ist die
 Nummer ungültig oder stimmen Name/Ort nicht, wird die Rechnung nicht ausgestellt, und
 `opos verbuchen` legt solche Erlöse zur Prüfung vor.
+
+### Umsatzsteuer-Voranmeldung und ELSTER
+
+```bash
+accounti ustva --period 2026-08                 # Kennziffern (Vordruck 2026) + Plausibilisierung
+accounti ustva pruefen --period 2026-08         # nur die Befunde; Fehler sperren die Freigabe
+accounti ustva freigeben --period 2026-08 --von "Erika Muster"
+accounti ustva uebermitteln --period 2026-08 --test --ausgabe ustva.xml   # prüfen, nichts geht raus
+accounti ustva uebermitteln --period 2026-08    # abgeben (ERiC), Protokoll, Zahllast als offener Posten
+accounti ustva dauerfrist --jahr 2027           # Dauerfristverlängerung + Sondervorauszahlung (1/11)
+accounti zm --period 2026-Q3 --csv zm.csv       # Zusammenfassende Meldung für den Portal-Import
+accounti fristen --jahr 2026 --bundesland BY    # Fristenkalender mit Wochenend- und Feiertagsverschiebung
+accounti elster pin                             # Zertifikats-PIN verschlüsselt ablegen
+accounti elster protokoll                       # Übermittlungsprotokoll + Prüfung auf Unverändertheit
+accounti elster zahllast                        # fehlende Zahllast-Buchungen zu Abgaben nachholen
+```
+
+Abgegeben wird nur, was ein Mensch freigegeben hat — die Freigabe hängt an den Formularwerten;
+ändern sich danach Buchungen, passt sie nicht mehr, und ein neuer Fehler-Befund sperrt die Abgabe
+auch mit Freigabe. Der erste Lauf eines Betriebs ist immer der Testmodus: Ohne erfolgreichen
+Prüflauf über ERiC wird nur geprüft, erst der nächste Aufruf gibt ab. Ohne ERiC (Registrierung beim
+Bayerischen Landesamt für Steuern, eigene Hersteller-ID, Zertifikat) bleibt der Testmodus: Der
+Datensatz wird erzeugt und geprüft, aber nicht abgegeben; die Attrappe (`elster.uebermittler:
+attrappe`) prüft und testet nur, sie gibt nie ab.
 
 ### Marktplätze und DATEV-Übergabe
 
@@ -565,7 +589,7 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 - Bucht auf **separate OSS-Erlöskonten** (SKR03: 8320-8339)
 - Erstellt die **Quartalsmeldung** mit Aufschlüsselung nach Land und Steuersatz
 - Kennt die **Abgabefristen** (letzter Tag des Folgemonats)
-- Markiert OSS-Umsätze korrekt als **nicht Teil der USt-Voranmeldung**
+- Meldet OSS-Umsätze in der USt-Voranmeldung **nur als Nettoumsatz in Kz 45** (Anleitung 2026, Zeile 36) — die Steuer läuft über die OSS-Meldung
 
 ### USt-Voranmeldung
 
@@ -669,7 +693,7 @@ kontieren will, braucht nur v0.1.
 
 ### v1.0 — Meldungen & Abschluss *(Bausteine 9, 12)*
 - [ ] Elektronische Übermittlung: Voranmeldung, Dauerfristverlängerung, ZM
-- [ ] Plausibilisierung vor Abgabe, Übermittlungsprotokolle, Fristenkalender
+- [x] Plausibilisierung vor Abgabe, Übermittlungsprotokolle, Fristenkalender
 - [x] Anlagenbuchhaltung: AfA, GWG, Sammelposten, Anlagenspiegel
 - [ ] Abgrenzungen, Rückstellungen, Kassenbuch
 - [ ] Jahresabschluss: EÜR oder Bilanz mit GuV, Saldovortrag

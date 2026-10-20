@@ -144,6 +144,35 @@ belegkanaele:
         parameter: {includeDocument: "true"}
         inhalt: fileContent    # Base64 in der JSON-Antwort
 
+# Steuermeldungen & ELSTER (optional — ohne diesen Abschnitt gelten die Standards)
+elster:
+  voranmeldungszeitraum: monat     # monat oder quartal (§ 18 Abs. 2 UStG)
+  dauerfristverlaengerung: false   # Frist + 1 Monat (§ 46 UStDV)
+  # sondervorauszahlung: {2026: 4000.00}  # festgesetzte SVZ je Jahr (Kz 39 im Dezember);
+  #                                      # sonst die angemeldete aus dem Protokoll
+  bundesland: BY                   # Feiertage (§ 108 Abs. 3 AO) und Steuernummer im ELSTER-Format
+  # steuernummer: "9181081508155"  # 13-stellig; sonst mandant.steuernummer
+  finanzamt:
+    name: "Finanzamt München"      # Kreditor für die Zahllast
+    # iban: "DE…"                  # hilft der Zahlungszuordnung
+  # hersteller_id: "12345"         # eigene Hersteller-ID (Kz09) — ohne sie nur Testmodus
+  uebermittler: eric               # eric oder attrappe (nur --test/--testfall, gibt nie ab)
+  eric:
+    bibliothek: /opt/eric/lib/libericapi.so
+    plugins: /opt/eric/lib/plugins2  # Standard: plugins2 neben der Bibliothek
+    log: /var/log/accounti/eric
+    zertifikat: /etc/accounti/elster.pfx
+    pin_datei: /etc/accounti/elster-pin.enc   # 'accounti elster pin', Schlüssel aus ACCOUNTI_SCHLUESSEL
+  abweichung_prozent: 50           # Vormonats-/Vorjahresvergleich: ab hier ein Hinweis …
+  abweichung_mindestens: 1000      # … wenn die Differenz mindestens so groß ist (Euro)
+  # steuerrelevante_konten: ["2750-2752", "8000-8959"]  # ersetzt die Standardliste
+  #                                           # der Erlöskonten (SKR04: 4000-4799,
+  #                                           # 4833-4836, 4841-4842, 4844-4845,
+  #                                           # 4848-4852, 4860-4869, 4940-4949,
+  #                                           # 6884-6892)
+  # kennziffern_konten: {"8150": 43, "1588": 62}  # eigene Konten → Kennziffer
+  #                                           # (Bemessungsgrundlage oder Steuerfeld)
+
 # Anlagenbuchhaltung (optional — ohne diesen Abschnitt gelten die Standards des Kontenrahmens
 # aus buchhaltung.kontenrahmen; hier SKR03)
 anlagen:

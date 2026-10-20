@@ -44,8 +44,15 @@ Tatsachen.
 
 Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen · 🔲 geplant
 
-**Baustein 9 ist teilweise fertig,** weil `steuer/umsatzsteuer.py`, `steuer/oss.py` und
-`steuer/voranmeldung.py` die Kennziffern bereits berechnen — was fehlt, ist die Übermittlung.
+**Baustein 9 ist teilweise fertig:** Kennziffern nach Vordruck 2026 aus den Buchungen,
+Plausibilisierung, Freigabe durch den Menschen, ELSTER-Datensatz mit Testmodus, Übermittler mit
+ERiC-Adapter, unveränderbares Übermittlungsprotokoll, Zahllast als offener Posten,
+Sondervorauszahlung, Zusammenfassende Meldung als Portaldatei und Fristenkalender stehen
+([Plan](plans/2026-10-25-steuermeldungen-elster.md)). Was fehlt, ist der erste echte Lauf: Er
+braucht die Registrierung als Entwickler beim Bayerischen Landesamt für Steuern, eine eigene
+Hersteller-ID (die Test-ID 74931 ist seit ERiC 39.4 gesperrt) und ein ELSTER-Zertifikat. Fristen
+werden Aufgaben, sobald Baustein 8 steht; Periodenabschluss und Prüfbefunde prüft die
+Plausibilisierung, sobald Baustein 7 steht.
 
 **Baustein 2 ist fertig:** Ordner- und Upload-Kanal, Archiv, Dublettenprüfung, Eingangsprotokoll
 ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)), Erkennung, OCR und Positionssplit
