@@ -121,6 +121,12 @@ def test_ohne_postfach_unbekannte_quelle_und_webhook(tmp_path):
     )
     assert r.exit_code == 1
     assert "kanaele webhook starten" in r.output
+    neu = tmp_path / "neu"
+    neu.mkdir()
+    r = runner.invoke(app, ["belege", "abholen", "--kanal", "fax", *_args(neu)])
+    assert r.exit_code == 1
+    assert "ordner, email, connector" in r.output
+    assert not (neu / "a.db").exists()  # keine Datenbank für einen Tippfehler
 
 
 def test_verbindungsfehler_und_fehlende_variable_enden_mit_exit_1(

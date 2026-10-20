@@ -54,6 +54,23 @@ def passwort_fuer(postfach: EmailPostfach, make_session: sessionmaker[Session]) 
     return passwort
 
 
+def pruefe_abholbar(kanal: str) -> None:
+    """Fehler mit Hinweis, wenn sich dieser Kanal nicht abholen lässt."""
+    if kanal in ABHOLBAR:
+        return
+    if kanal == "webhook":
+        msg = (
+            "Der Kanal 'webhook' wird nicht abgeholt, er empfängt: "
+            "accounti kanaele webhook starten"
+        )
+        raise KonfigurationError(msg)
+    msg = (
+        f"Kanal '{kanal}' kann nicht abgeholt werden. Verfügbar: "
+        f"{', '.join(ABHOLBAR)} (Einzeldateien: accounti belege import)"
+    )
+    raise KonfigurationError(msg)
+
+
 def baue_kanaele(
     kanal: str,
     einstellungen: KanalEinstellungen,
@@ -61,6 +78,7 @@ def baue_kanaele(
     quelle: str | None = None,
 ) -> list[AbholKanal]:
     """Die konfigurierten Quellen eines Kanals (alle oder nur ``quelle``)."""
+    pruefe_abholbar(kanal)
     gedaechtnis = DbGedaechtnis(make_session)
     pruefung = einstellungen.pruefung()
     if kanal == "email":
@@ -103,14 +121,5 @@ def baue_kanaele(
             )
             for e in eintraege
         ]
-    if kanal == "webhook":
-        msg = (
-            "Der Kanal 'webhook' wird nicht abgeholt, er empfängt: "
-            "accounti kanaele webhook starten"
-        )
-        raise KonfigurationError(msg)
-    msg = (
-        f"Kanal '{kanal}' kann nicht abgeholt werden. Verfügbar: "
-        f"{', '.join(ABHOLBAR)} (Einzeldateien: accounti belege import)"
-    )
+    msg = f"Kanal '{kanal}' hat keine konfigurierten Quellen (ordner: --ordner)"
     raise KonfigurationError(msg)

@@ -54,11 +54,12 @@ def hole_ab(
     from rich.markup import escape
 
     from accounti.belege.kanaele.abholung import KanalError
-    from accounti.belege.kanaele.aufbau import baue_kanaele
+    from accounti.belege.kanaele.aufbau import baue_kanaele, pruefe_abholbar
     from accounti.belege.kanaele.einstellungen import lade_belegkanaele
     from accounti.konfiguration import KonfigurationError
 
     try:
+        pruefe_abholbar(kanal)  # vor dem Anlegen der Datenbank
         kanaele = baue_kanaele(kanal, lade_belegkanaele(config), _sitzungen(db), quelle)
     except KonfigurationError as fehler:
         _ende(str(fehler))
