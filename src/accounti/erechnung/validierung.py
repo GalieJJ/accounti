@@ -121,6 +121,14 @@ class _Pruefung:
             self.pflicht(
                 "BR-DE-4", r.verkaeufer.anschrift.plz, "PLZ des Verkäufers (BT-38)"
             )
+            if r.lieferanschrift is not None:
+                lieferung = r.lieferanschrift
+                self.pflicht(
+                    "BR-DE-10", lieferung.ort, "Ort der Lieferanschrift (BT-77)"
+                )
+                self.pflicht(
+                    "BR-DE-11", lieferung.plz, "PLZ der Lieferanschrift (BT-78)"
+                )
         self.pflicht("BR-10", r.kaeufer.anschrift.land, "Land des Käufers (BT-55)")
         self.pflicht(
             "BR-12", r.summen.positionen_netto, "Summe der Positionen (BT-106)"
@@ -247,6 +255,8 @@ class _Pruefung:
                 st.befreiungsgrund or st.befreiungsgrund_code
             ):
                 self.fehler(f"BR-{kat}-10", f"{name}: Befreiungsgrund (BT-120) fehlt")
+            if kat == "K" and not (r.lieferanschrift and r.lieferanschrift.land):
+                self.fehler("BR-IC-12", f"{name}: Lieferland (BT-80) fehlt")
             if kat in _BEIDE_UST_ID and not (r.verkaeufer.ust_id and r.kaeufer.ust_id):
                 self.fehler(
                     _BEIDE_UST_ID[kat],
@@ -269,14 +279,15 @@ class _Pruefung:
         info = EU_STEUERSAETZE.get(land)
         if info is None:
             return
+        # Im OSS-Verfahren gilt der Satz des Bestimmungslands.
+        laender = [info]
+        ziel = EU_STEUERSAETZE.get((self.r.kaeufer.anschrift.land or "").upper())
+        if ziel is not None and ziel is not info:
+            laender.append(ziel)
         erlaubt = {
             _satz(s)
-            for s in (
-                info.normal,
-                info.ermaessigt,
-                info.ermaessigt_2,
-                info.super_ermaessigt,
-            )
+            for i in laender
+            for s in (i.normal, i.ermaessigt, i.ermaessigt_2, i.super_ermaessigt)
             if s is not None
         }
         if _satz(satz) not in erlaubt:

@@ -140,3 +140,12 @@ def test_extension_zahlbetrag_mit_drittzahlungen_ist_nur_warnung():
     befunde = pruefe(r)
     assert "BR-CO-16" not in _regeln(befunde)
     assert "BR-CO-16" in _regeln(befunde, Schwere.WARNUNG)
+
+
+def test_lieferanschrift_braucht_ort_und_plz():
+    from accounti.erechnung.modell import Anschrift
+
+    r = dataclasses.replace(
+        _lies("xrechnung_cii.xml"), lieferanschrift=Anschrift(land="DE")
+    )
+    assert {"BR-DE-10", "BR-DE-11"} <= _regeln(pruefe(r))

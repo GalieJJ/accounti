@@ -26,6 +26,22 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-deu
 
+      - name: Cache KoSIT-Prüftool
+        uses: actions/cache@v6
+        with:
+          path: .kosit
+          key: kosit-${{ hashFiles('scripts/kosit_installieren.sh') }}
+
+      - name: Install KoSIT-Prüftool (formale XRechnung-Prüfung)
+        run: |
+          bash scripts/kosit_installieren.sh
+          # Validator ist mit JDK 21 gebaut; die Runner bringen Java 21 mit.
+          JAVA="${JAVA_HOME_21_X64:-$JAVA_HOME}/bin/java"
+          "$JAVA" -version
+          echo "ACCOUNTI_JAVA=$JAVA" >> "$GITHUB_ENV"
+          # In der CI dürfen die KoSIT-Tests nicht still übersprungen werden.
+          echo "ACCOUNTI_KOSIT_PFLICHT=1" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

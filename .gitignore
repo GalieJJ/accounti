@@ -27,6 +27,8 @@ accounti.db
 # Belegarchiv und Watch-Ordner (Standardpfade, enthalten echte Belege)
 /archiv/
 /eingang/
+# KoSIT-Prüftool (scripts/kosit_installieren.sh)
+/.kosit/
 *.log
 
 # Environment

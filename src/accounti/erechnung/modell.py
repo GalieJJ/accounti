@@ -136,6 +136,7 @@ class Rechnung:
     leistungsdatum: date | None = None  # BT-72
     leistungszeitraum_von: date | None = None  # BT-73
     leistungszeitraum_bis: date | None = None  # BT-74
+    lieferanschrift: Anschrift | None = None  # BG-15 (BT-75, BT-77, BT-78, BT-80)
     verkaeufer: Partei = field(default_factory=Partei)
     kaeufer: Partei = field(default_factory=Partei)
     zahlungsart: str | None = None  # BT-81

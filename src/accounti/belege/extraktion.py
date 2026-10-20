@@ -107,7 +107,7 @@ def _zeilen(text: str) -> list[str]:
     return [z.strip() for z in text.splitlines() if z.strip()]
 
 
-def _iban_gueltig(iban: str) -> bool:
+def iban_gueltig(iban: str) -> bool:
     umgestellt = iban[4:] + iban[:4]
     ziffern = "".join(str(int(c, 36)) for c in umgestellt)
     return int(ziffern) % 97 == 1
@@ -118,7 +118,7 @@ def _finde_iban(text: str) -> str | None:
         roh = treffer.group().replace(" ", "")
         # Der Kandidat kann Folgetext mitnehmen — von lang nach kurz prüfen.
         for laenge in range(min(len(roh), 34), 14, -1):
-            if _iban_gueltig(roh[:laenge]):
+            if iban_gueltig(roh[:laenge]):
                 return roh[:laenge]
     return None
 

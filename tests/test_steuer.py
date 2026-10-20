@@ -102,6 +102,36 @@ class TestUStBerechner:
         )
         assert vorfall == Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH
 
+    def test_eu_b2b_dienstleistung_ist_reverse_charge(self) -> None:
+        """Sonstige Leistung an EU-Unternehmer: Steuerschuld geht über (§ 3a Abs. 2)."""
+        vorfall = self.berechner.bestimme_vorfall(
+            "AT", ist_b2b=True, kaeufer_hat_ust_id=True, ist_sonstige_leistung=True
+        )
+        assert vorfall == Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE
+
+    def test_reverse_charge_berechnung(self) -> None:
+        pos = self.berechner.berechne_ust(
+            Decimal("1000.00"),
+            bestimmungsland="AT",
+            ist_b2b=True,
+            kaeufer_hat_ust_id=True,
+            ist_sonstige_leistung=True,
+        )
+        assert pos.geschaeftsvorfall == Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE
+        assert pos.steuersatz == Decimal("0")
+        assert pos.steuerbetrag == Decimal("0.00")
+        assert pos.kennziffer_ust_va == 21
+
+    def test_dienstleistung_inland_und_b2c_unveraendert(self) -> None:
+        assert (
+            self.berechner.bestimme_vorfall("DE", ist_sonstige_leistung=True)
+            == Geschaeftsvorfall.INLAND
+        )
+        assert (
+            self.berechner.bestimme_vorfall("FR", ist_sonstige_leistung=True)
+            == Geschaeftsvorfall.EU_B2C_OSS
+        )
+
     def test_eu_b2b_ohne_ust_id_ist_b2c(self) -> None:
         """B2B ohne USt-ID wird wie B2C behandelt."""
         vorfall = self.berechner.bestimme_vorfall(

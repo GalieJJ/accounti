@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
+from sqlalchemy import update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.db.tabellen import (
+    AusgangspositionRow,
+    AusgangsrechnungRow,
     BelegEingangRow,
     BelegpositionRow,
     BelegRow,
     BuchungssatzRow,
+    NummernkreisRow,
     TransaktionRow,
 )
 from accounti.models import (
+    AusgangsPosition,
+    Ausgangsrechnung,
+    AusgangsrechnungStatus,
     Beleg,
     Belegart,
     BelegEingang,
@@ -24,6 +33,7 @@ from accounti.models import (
     Buchungssatz,
     BuchungStatus,
     Eingangsergebnis,
+    Rechnungsempfaenger,
     Transaktion,
     TransaktionQuelle,
 )
@@ -413,3 +423,208 @@ def lade_eingaenge(session: Session) -> list[BelegEingang]:
         )
         for r in rows.all()
     ]
+
+
+# ---------------------------------------------------------------------------
+# Ausgangsrechnungen
+# ---------------------------------------------------------------------------
+
+
+def _row_zu_ausgangsrechnung(
+    r: AusgangsrechnungRow, positionen: list[AusgangspositionRow]
+) -> Ausgangsrechnung:
+    return Ausgangsrechnung(
+        id=UUID(r.id),
+        status=AusgangsrechnungStatus(r.status),
+        nummer=r.nummer,
+        kunde=Rechnungsempfaenger(
+            name=r.kunde_name,
+            strasse=r.kunde_strasse,
+            plz=r.kunde_plz,
+            ort=r.kunde_ort,
+            land=r.kunde_land,
+            ust_id=r.kunde_ust_id,
+            email=r.kunde_email,
+            leitweg_id=r.kunde_leitweg_id,
+            privat=r.kunde_privat,
+        ),
+        positionen=[
+            AusgangsPosition(
+                id=UUID(p.id),
+                bezeichnung=p.bezeichnung,
+                menge=Decimal(str(p.menge)).normalize(),
+                einheit=p.einheit,
+                einzelpreis=Decimal(str(p.einzelpreis)).normalize(),
+                ermaessigt=p.ermaessigt,
+                sonstige_leistung=p.sonstige_leistung,
+            )
+            for p in sorted(positionen, key=lambda p: p.nr)
+        ],
+        leistungsdatum=r.leistungsdatum,
+        bestellnummer=r.bestellnummer,
+        notiz=r.notiz,
+        skonto_prozent=_dec(r.skonto_prozent),
+        skonto_tage=r.skonto_tage,
+        rechnungsdatum=r.rechnungsdatum,
+        zahlungsziel=r.zahlungsziel,
+        beleg_id=_uuid(r.beleg_id),
+        datei_hash=r.datei_hash,
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def _positions_zeilen(session: Session, rechnung_id: str) -> list[AusgangspositionRow]:
+    return (
+        session.query(AusgangspositionRow)
+        .filter(AusgangspositionRow.rechnung_id == rechnung_id)
+        .all()
+    )
+
+
+def speichere_ausgangsrechnung(session: Session, r: Ausgangsrechnung) -> None:
+    k = r.kunde
+    session.add(
+        AusgangsrechnungRow(
+            id=str(r.id),
+            status=r.status.value,
+            nummer=r.nummer,
+            kunde_name=k.name,
+            kunde_strasse=k.strasse,
+            kunde_plz=k.plz,
+            kunde_ort=k.ort,
+            kunde_land=k.land.upper(),
+            kunde_ust_id=k.ust_id,
+            kunde_email=k.email,
+            kunde_leitweg_id=k.leitweg_id,
+            kunde_privat=k.privat,
+            leistungsdatum=r.leistungsdatum,
+            bestellnummer=r.bestellnummer,
+            notiz=r.notiz,
+            skonto_prozent=r.skonto_prozent,
+            skonto_tage=r.skonto_tage,
+            rechnungsdatum=r.rechnungsdatum,
+            zahlungsziel=r.zahlungsziel,
+            beleg_id=_str(r.beleg_id),
+            datei_hash=r.datei_hash,
+            erstellt_am=r.erstellt_am,
+        )
+    )
+    for p in r.positionen:
+        _speichere_ausgangsposition(session, str(r.id), p)
+    session.flush()
+
+
+def _speichere_ausgangsposition(
+    session: Session, rechnung_id: str, p: AusgangsPosition
+) -> None:
+    nr = len(_positions_zeilen(session, rechnung_id)) + 1
+    session.add(
+        AusgangspositionRow(
+            id=str(p.id),
+            rechnung_id=rechnung_id,
+            nr=nr,
+            bezeichnung=p.bezeichnung,
+            menge=p.menge,
+            einheit=p.einheit,
+            einzelpreis=p.einzelpreis,
+            ermaessigt=p.ermaessigt,
+            sonstige_leistung=p.sonstige_leistung,
+        )
+    )
+    session.flush()
+
+
+def _finde_ausgangsrechnung(session: Session, schluessel: str) -> AusgangsrechnungRow:
+    """Sucht über die Rechnungsnummer oder den Anfang der ID."""
+    treffer = (
+        session.query(AusgangsrechnungRow)
+        .filter(AusgangsrechnungRow.nummer == schluessel)
+        .all()
+    ) or (
+        session.query(AusgangsrechnungRow)
+        .filter(AusgangsrechnungRow.id.like(f"{schluessel}%"))
+        .all()
+    )
+    if not treffer:
+        msg = f"Keine Rechnung mit Nummer oder ID '{schluessel}' gefunden."
+        raise ValueError(msg)
+    if len(treffer) > 1:
+        msg = f"'{schluessel}' ist mehrdeutig ({len(treffer)} Treffer)."
+        raise ValueError(msg)
+    return treffer[0]
+
+
+def lade_ausgangsrechnung(session: Session, schluessel: str) -> Ausgangsrechnung:
+    row = _finde_ausgangsrechnung(session, schluessel)
+    return _row_zu_ausgangsrechnung(row, _positions_zeilen(session, row.id))
+
+
+def lade_ausgangsrechnungen(session: Session) -> list[Ausgangsrechnung]:
+    rows = session.query(AusgangsrechnungRow).order_by(AusgangsrechnungRow.erstellt_am)
+    return [_row_zu_ausgangsrechnung(r, _positions_zeilen(session, r.id)) for r in rows]
+
+
+def fuege_position_hinzu(
+    session: Session, schluessel: str, position: AusgangsPosition
+) -> Ausgangsrechnung:
+    row = _finde_ausgangsrechnung(session, schluessel)
+    if row.status != AusgangsrechnungStatus.ENTWURF.value:
+        msg = f"Rechnung {row.nummer} ist bereits ausgestellt und unveränderlich."
+        raise ValueError(msg)
+    _speichere_ausgangsposition(session, row.id, position)
+    return _row_zu_ausgangsrechnung(row, _positions_zeilen(session, row.id))
+
+
+def markiere_ausgestellt(
+    session: Session,
+    rechnung_id: UUID,
+    *,
+    nummer: str,
+    rechnungsdatum: date,
+    zahlungsziel: date | None,
+    beleg_id: UUID,
+    datei_hash: str,
+) -> None:
+    row = session.get(AusgangsrechnungRow, str(rechnung_id))
+    if row is None:
+        msg = f"Rechnung {rechnung_id} nicht gefunden."
+        raise ValueError(msg)
+    if row.status != AusgangsrechnungStatus.ENTWURF.value:
+        msg = f"Rechnung {row.nummer} ist bereits ausgestellt."
+        raise ValueError(msg)
+    row.status = AusgangsrechnungStatus.AUSGESTELLT.value
+    row.nummer = nummer
+    row.rechnungsdatum = rechnungsdatum
+    row.zahlungsziel = zahlungsziel
+    row.beleg_id = str(beleg_id)
+    row.datei_hash = datei_hash
+    session.flush()
+
+
+def naechste_nummer(session: Session, kreis: str, jahr: int) -> int:
+    """Zählt den Nummernkreis in der laufenden Transaktion hoch.
+
+    Das ``UPDATE`` sperrt die Zeile bis zum Commit; parallele Aussteller warten.
+    Wird die Transaktion zurückgerollt, ist die Nummer wieder frei — so bleibt
+    der Kreis lückenlos.
+    """
+    bedingung = (NummernkreisRow.kreis == kreis) & (NummernkreisRow.jahr == jahr)
+    erhoeht = session.execute(
+        update(NummernkreisRow)
+        .where(bedingung)
+        .values(letzte=NummernkreisRow.letzte + 1)
+    )
+    if erhoeht.rowcount == 0:  # type: ignore[attr-defined]
+        try:
+            with session.begin_nested():
+                session.add(NummernkreisRow(kreis=kreis, jahr=jahr, letzte=1))
+            return 1
+        except IntegrityError:
+            # Ein paralleler Aussteller hat den Kreis gerade angelegt.
+            session.execute(
+                update(NummernkreisRow)
+                .where(bedingung)
+                .values(letzte=NummernkreisRow.letzte + 1)
+            )
+    wert = session.query(NummernkreisRow.letzte).filter(bedingung).scalar()
+    return int(wert)
