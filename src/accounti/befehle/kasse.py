@@ -10,6 +10,7 @@ from rich.table import Table
 
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
+from accounti.db.tabellen_abschluss import JahrGesperrtError
 
 NAME = "kasse"
 befehl = typer.Typer(help="Kassenbuch: laufende Nummer, Bestand nie negativ, Storno.")
@@ -39,7 +40,7 @@ def anfangsbestand_befehl(
             v = anfangsbestand(
                 s, betrag(betrag_text), datum(datum_text, "--datum"), kasse, von
             )
-        except KassenbuchError as fehler:
+        except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
     console.print(
@@ -88,7 +89,7 @@ def buchen(
                 satz,
                 von,
             )
-        except KassenbuchError as fehler:
+        except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         stand = bestand(lade_kassenbuch(s))
         s.commit()
@@ -116,7 +117,7 @@ def storno(
     with sitzung(db)() as s:
         try:
             v = storniere(s, nr, grund, kasse, datum(datum_text, "--datum"), von)
-        except KassenbuchError as fehler:
+        except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
     console.print(f"[green]Nr. {v.nr}[/green] {escape(v.text)} {betrag_de(v.betrag)} €")

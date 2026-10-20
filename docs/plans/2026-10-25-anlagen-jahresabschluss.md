@@ -94,6 +94,8 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 | Abschlussprüfungen | benannte Prüfungen, je einzeln aufrufbar, Befund mit Schwere (Fehler/Warnung/Hinweis): unfreigegeben, ungebucht, Bank, Kasse, Anlagen (AfA gebucht, RBW = Anlagekonto), Abgrenzungen offen, Verrechnungskonten, Vortragskonten ausgeglichen, EÜR: offene Personenkonten, EÜR: nicht zugeordnete Konten | Spec 4.5; Baustein 7 existiert noch nicht, deshalb eigene schlanke Befunde |
 | Saldovortrag | Schlusssalden = Bestandskonten, Erfolgs- und Privatkonten (bei EÜR auch Steuerkonten) auf das Kapitalkonto (`ergebnis_konto`, SKR03 0880 / SKR04 2010); EB-Buchungen am 01.01.J+1 gegen 9000 (Debitoren 9008, Kreditoren 9009), gebucht wird nur die Differenz zu schon vorhandenen EB-Werten (erneuter Vortrag nach Wiederöffnen = Korrektur, keine Löschung). Nur ohne Fehler-Befund | Akzeptanz 7 |
 | Jahressperre | Tabelle `abschluesse`; ein ORM-Ereignis auf `buchungssaetze` (in `tabellen_abschluss.py`, ohne Änderung an bestehendem Code) verweigert Anlegen, Ändern und Löschen von Buchungen in gesperrten Jahren (`JahrGesperrtError`); Kassenbuch und AfA-Lauf prüfen vorher. `abschluss oeffnen --grund` hebt die Sperre auf, nur wenn das Folgejahr offen ist; jede Aktion steht in `abschlussprotokoll` (nur anfügen, Hash-Kette) | Spec 4.8: Änderung nur mit erneutem Abschluss und Protokoll |
+| Sperre an allen Eingängen | Neben dem ORM-Ereignis prüfen Kassenbuch, AfA-Lauf, Abgang, `anlagen anlegen` (Zugang im gesperrten Jahr änderte dessen Anlagenspiegel) und Abgrenzungsvorschläge die Sperre vorher und melden sie als Fehler. `befehle/abschluss.py` importiert `db/tabellen_abschluss.py` auf Modulebene, damit die Sperre auch in CLI-Befehlen gilt, die `init_db` nicht aufrufen | Spec 4.8; sonst schlüge die Sperre erst beim `commit` mit Traceback zu oder gar nicht |
+| Abgrenzungen offen | Prüfung `abgrenzungen`: ein nicht entschiedener Vorschlag des Jahres ist ein Fehler-Befund | Bewertungsentscheidung wird bestätigt, nicht übergangen (Spec 5) |
 | Eröffnungssalden | `abschluss eroeffnung --jahr J --konto K --saldo S` für das erste Jahr in accounti (EB gegen 9000/9008/9009, geprüft) | ohne EB-Werte kann der Bankabgleich nicht stimmen |
 | Konfiguration | Abschnitte `anlagen`, `abschluss`, `kasse` mit eigenen Ladern (`lade_anlagen`, `lade_abschluss`, `lade_kasse`); Standards je Kontenrahmen aus `buchhaltung.kontenrahmen` (SKR03/SKR04); alles läuft ohne die Abschnitte | Auftrag |
 | Abhängigkeiten | keine neuen | Standardbibliothek, pydantic, sqlalchemy, pyyaml, typer, rich reichen |
@@ -126,8 +128,8 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - [x] **Abgrenzung** (`abschluss/abgrenzung.py`): Zeitraum aus Text, Anteil monats-/taggenau, Dezember-Jahresversicherung → ARAP-Vorschlag mit Auflösung 01.01. (**Akzeptanz 3**), PRAP, ohne Zeitraum/ohne Folgejahr kein Vorschlag, idempotent, Bestätigen bucht beide, Ablehnen keine, RAP-Verzicht, EÜR ohne Vorschläge (`tests/test_abschluss_abgrenzung.py`); Prüfung `abgrenzungen` — offene Vorschläge sind ein Fehler-Befund (`tests/test_abschluss_pruefungen.py`).
 - [x] **EÜR** (`abschluss/euer.py`, `euer_vordrucke.yaml`): Zeilen 2025/2026, Kennzahlen, Summen, nicht zugeordnete Konten, Entnahmen/Einlagen; EÜR = SuSa (**Akzeptanz 6**) (`tests/test_abschluss_euer.py`).
 - [x] **Vortrag und Sperre** (`abschluss/vortrag.py`): Eröffnungssalden, Schlusssalden, EB = Schluss (**Akzeptanz 7**), Sperre gegen Anlegen/Ändern/Löschen, Fehler-Befund verhindert Vortrag, Wiederöffnen mit Protokoll, erneuter Vortrag bucht nur Differenzen, Protokoll-Hash-Kette, Kassenbuch/AfA-Lauf/Abgang prüfen die Sperre vorher, Sperre auch in CLI-Befehlen ohne `init_db` (`tests/test_abschluss_vortrag.py`).
-- [ ] **Durchlauf:** synthetisches Geschäftsjahr — Eröffnung, Bank, Kasse, Belege, Anlage, AfA, Abgrenzung, Prüfung, SuSa, EÜR, Vortrag, Eröffnungssalden = Schlusssalden (`tests/test_abschluss_durchlauf.py`).
-- [ ] **CLI:** `abschluss eroeffnung|buchen|abgrenzungen|abgrenzen|bestaetigen|ablehnen|euer [--csv]|vortrag|oeffnen` (`tests/test_cli_abschluss.py`).
+- [x] **Durchlauf:** synthetisches Geschäftsjahr, je einmal als EÜR und als Bilanz — Eröffnung, Bank, Kasse, Belege, Anlage aus Beleg, AfA, Abgrenzung (Bilanz), Prüfung, SuSa, EÜR (EÜR), Vortrag, Eröffnungssalden = Schlusssalden; das Folgejahr rechnet darauf weiter (Kassenbestand, Anlagenspiegel, AfA, Prüfungen ohne Fehler) (`tests/test_abschluss_durchlauf.py`).
+- [x] **CLI:** `abschluss eroeffnung|buchen|abgrenzungen|abgrenzen|bestaetigen|ablehnen|euer [--csv]|vortrag|oeffnen`; `kasse …` und `anlagen …` melden ein gesperrtes Jahr ohne Traceback (`tests/test_cli_abschluss.py`).
 - [ ] **Abschluss:** `pytest`, `ruff check`, `ruff format --check`, `mypy` grün; Checkboxen abgehakt; Doku-Bausteine vollständig.
 
 ---
@@ -183,6 +185,16 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - **Perioden geschlossen / Voranmeldungen abgegeben** (Spec 4.5) sind nicht prüfbar, solange es
   Baustein 7 und 9 nicht gibt. Die Summe der Personenkonten wird nicht gegen die OPOS-Liste
   abgestimmt.
+- **Abschlussbuchungen aus Spec 3 [2]:** Rückstellungen, die Umsatzsteuer-Jahresabgrenzung
+  (Umbuchung der Steuerkonten auf ein USt-Verrechnungskonto) und die Umbuchung der Privatkonten im
+  alten Jahr gibt es nicht. Privatkonten und Ergebnis gehen erst mit dem Saldovortrag (als
+  EB-Buchung zum 01.01.) auf das Kapitalkonto; Steuerkonten werden bei Bilanzierung mit ihrem Saldo
+  vorgetragen.
+- **Kontennachweis, Betriebsvermögensvergleich** (Spec 4.6) und die **Bewertung offener Posten**
+  (Einzel-/Pauschalwertberichtigung, Spec 4.5) fehlen.
+- **AfA-Tabelle:** Die Spec nennt `config/afa.yaml`; die Tabelle liegt mit den Grenzbeträgen in
+  `anlagen/rechtsstand.yaml` (Paketdaten) und wird über `anlagen.rechtsstand` durch eine eigene
+  Datei ergänzt/ersetzt — `config/` gehört nicht zu den Dateien dieses Bausteins.
 - **Postgres:** Getestet ist unter SQLite; die Tabellen sind portabel, die Sperre ist ORM-seitig.
 
 ## Doku-Bausteine
@@ -221,7 +233,8 @@ accounti kasse bestand --gezaehlt 275.10       # Kassensturz
 accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # nur im ersten Jahr
 accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
 accounti abschluss buchen --jahr 2026          # AfA + Abgrenzungsvorschläge
-accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <ID> | ablehnen <ID>
+accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
+accounti abschluss abgrenzen 3f2a9c1e --von 2026-11-01 --bis 2027-10-31   # Zeitraum nicht im Text
 accounti abschluss pruefen --jahr 2026         # Fehler blockieren den Vortrag
 accounti abschluss susa --jahr 2026
 accounti abschluss euer --jahr 2026            # Anlage EÜR nach Zeilen und Kennzahlen
@@ -315,7 +328,9 @@ Baustein 9).
   mit (Tabelle `abgrenzungen`). *(vorhanden)*
 - `euer.py` + `euer_vordrucke.yaml` — EÜR nach Kennzahlen, Zeilen je Vordruckjahr. *(vorhanden)*
 - `vortrag.py` — Eröffnungssalden, Saldovortrag (EB gegen 9000/9008/9009), Jahressperre
-  (`abschluesse`, ORM-Ereignis auf `buchungssaetze`), Protokoll `abschlussprotokoll`. *(vorhanden)*
+  (`abschluesse`, ORM-Ereignis auf `buchungssaetze` in `db/tabellen_abschluss.py`; die CLI lädt es
+  über `befehle/abschluss.py` beim Start), Protokoll `abschlussprotokoll` (nur anfügen,
+  Hash-Kette). *(vorhanden)*
 - Bilanz/GuV, Rückstellungen und Übermittlung *(geplant)*.
 ```
 
@@ -332,13 +347,16 @@ anlagen:
     afa_immateriell: "4822"
     gwg_afa: "4855"              # Sofortabschreibung GWG
     sammelposten_afa: "4862"
+    gwg: "0480"                  # Anlagekonto GWG
+    sammelposten: "0485"         # Anlagekonto Sammelposten
     abgang_buchverlust: "2310"   # Restbuchwert
     abgang_buchgewinn: "2315"
     erloes_buchverlust: "8801"   # 19 % USt
     erloes_buchgewinn: "8820"
     erloes_buchverlust_ohne_ust: "8800"
     erloes_buchgewinn_ohne_ust: "8829"
-  kfz_konten: ["0320", "0350"]
+  kfz_konten: ["0320", "0350"]       # AfA auf afa_kfz
+  immaterielle_konten: [["0010", "0049"]]   # AfA auf afa_immateriell
   anlagekonten: [["0010", "0499"]]   # Buchungen hierauf ohne Anlagegut → anlagen vorschlaege
 
 # Jahresabschluss (optional)

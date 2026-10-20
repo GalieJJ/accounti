@@ -17,6 +17,7 @@ from accounti.anlagen.afa import pruefe_anlage, schlage_art_vor
 from accounti.anlagen.konfiguration import AnlagenEinstellungen
 from accounti.anlagen.rechtsstand import Rechtsstand
 from accounti.anzeige import betrag_de
+from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import lade_anlagen, speichere_anlage
 from accounti.db.repository import (
     lade_belegbuchungen,
@@ -89,6 +90,8 @@ def lege_an(
             )
     if not bezeichnung or datum is None or kosten is None or kosten <= 0:
         raise AnlageError("Bezeichnung, Anschaffungsdatum und Kosten (netto) fehlen")
+    # ein Zugang im abgeschlossenen Jahr änderte dessen AfA und Anlagenspiegel
+    pruefe_jahr_offen(session, datum.year)
 
     eintrag = rs.afa_tabelle.get(typ) if typ else None
     if typ and eintrag is None:

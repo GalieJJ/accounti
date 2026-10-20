@@ -297,6 +297,19 @@ def test_kasse_und_afa_im_gesperrten_jahr(make_session, config, jahr_2026):
     anlegen(make_session, 1300, date(2026, 1, 1), nd=13)
     with make_session() as s, pytest.raises(JahrGesperrtError):
         afa_lauf(s, 2026, lade_anlagen(config))
+    # ein Zugang im abgeschlossenen Jahr änderte dessen Anlagenspiegel
+    from accounti.anlagen.dienst import lege_an
+
+    with make_session() as s, pytest.raises(JahrGesperrtError):
+        lege_an(
+            s,
+            lade_anlagen(config),
+            bezeichnung="Regal",
+            datum=date(2026, 12, 1),
+            kosten=D("1300"),
+            konto="0420",
+            nutzungsdauer=13,
+        )
 
 
 def test_sperre_gilt_fuer_jeden_cli_befehl():

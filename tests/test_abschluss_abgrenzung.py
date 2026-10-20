@@ -338,3 +338,37 @@ def test_manuell_abgrenzen(make_session, bilanz):
     bank = buche(make_session, date(2026, 11, 2), "1200", "1360", "5", "Umbuchung")
     with make_session() as s, pytest.raises(AbgrenzungError, match="Erfolgskonto"):
         grenze_ab(s, str(bank.id)[:8], date(2026, 11, 1), date(2027, 10, 31), bilanz)
+
+
+def test_gesperrtes_jahr(make_session, bilanz):
+    from datetime import datetime
+
+    from accounti.db.repo_abschluss import setze_jahresabschluss
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.abschluss import Jahresabschluss
+
+    b = buche(
+        make_session,
+        date(2026, 12, 1),
+        "4360",
+        "1200",
+        "1200",
+        "Versicherung 01.01.2027-31.12.2027",
+    )
+    with make_session() as s:
+        setze_jahresabschluss(
+            s,
+            Jahresabschluss(
+                jahr=2026,
+                gesperrt=True,
+                gewinnermittlung="bilanz",
+                ergebnis=D("0"),
+                abgeschlossen_am=datetime.now(),
+                von="test",
+            ),
+        )
+        s.commit()
+    with make_session() as s, pytest.raises(JahrGesperrtError):
+        schlage_abgrenzungen_vor(s, 2026, bilanz, STAND)
+    with make_session() as s, pytest.raises(JahrGesperrtError):
+        grenze_ab(s, str(b.id)[:8], date(2026, 12, 1), date(2027, 11, 30), bilanz)

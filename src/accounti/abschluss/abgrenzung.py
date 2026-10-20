@@ -162,6 +162,7 @@ def schlage_abgrenzungen_vor(
     einst: AbschlussEinstellungen,
     rechtsstand: Rechtsstand,
 ) -> AbgrenzungsLauf:
+    pruefe_jahr_offen(session, jahr)
     lauf = AbgrenzungsLauf()
     if einst.gewinnermittlung != "bilanz":
         lauf.hinweise.append(
@@ -223,6 +224,7 @@ def grenze_ab(
         b = finde_buchung(session, buchung)
     except ValueError as fehler:
         raise AbgrenzungError(str(fehler)) from fehler
+    pruefe_jahr_offen(session, b.datum.year)
     if b.id in abgegrenzte_buchungen(session):
         raise AbgrenzungError(
             f"Für Buchung {str(b.id)[:8]} gibt es schon einen Vorschlag"

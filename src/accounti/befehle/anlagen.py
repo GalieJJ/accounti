@@ -12,6 +12,7 @@ from rich.table import Table
 
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
+from accounti.db.tabellen_abschluss import JahrGesperrtError
 
 NAME = "anlagen"
 befehl = typer.Typer(
@@ -101,7 +102,7 @@ def anlegen(
                 wechsel_linear=not kein_wechsel,
                 afa_konto=afa_konto,
             )
-        except (AnlageError, AfaRegelError) as fehler:
+        except (AnlageError, AfaRegelError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
     a = e.anlage
@@ -212,7 +213,7 @@ def afa(
     with sitzung(db)() as s:
         try:
             e = afa_lauf(s, jahr, einst, bis_monat)
-        except (AfaRegelError, ValueError) as fehler:
+        except (AfaRegelError, ValueError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
     if not e.buchungen:
@@ -247,7 +248,10 @@ def freigeben_befehl(
     from accounti.anlagen.lauf import freigeben
 
     with sitzung(db)() as s:
-        anzahl = freigeben(s, jahr, von)
+        try:
+            anzahl = freigeben(s, jahr, von)
+        except JahrGesperrtError as fehler:
+            ende(str(fehler))
         s.commit()
     console.print(f"[green]{anzahl} AfA-Buchung freigegeben[/green] ({jahr})")
 
@@ -286,7 +290,7 @@ def abgang(
                 gegenkonto,
                 not ohne_ust,
             )
-        except (AbgangError, AfaRegelError, ValueError) as fehler:
+        except (AbgangError, AfaRegelError, ValueError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
     for b in [*e.afa.buchungen, *e.buchungen]:
