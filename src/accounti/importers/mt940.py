@@ -179,6 +179,7 @@ def _auszug(nachricht: list[tuple[str, str]]) -> Auszug:
             auszug.konto = inhalt.strip()
         elif feld in ("60F", "60M"):
             auszug.anfangssaldo, _, auszug.waehrung = _saldo(inhalt)
+            auszug.fortsetzung = feld == "60M"  # Zwischensaldo: Folgeseite
         elif feld == "61":
             offen.append((inhalt, None))
         elif feld == "86" and offen and offen[-1][1] is None and not abgeschlossen:

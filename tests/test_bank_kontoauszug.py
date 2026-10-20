@@ -60,9 +60,18 @@ def test_lies_kontoauszug_waehlt_den_parser():
         ("37040044/0532013000", "DE02120300000000202051", False),
         ("COBADEFFXXX/DE02120300000000202051", "DE02120300000000202051", True),
         (None, "DE02120300000000202051", True),  # unbekannt: nicht ausschließen
-        ("12030000/0000202051", "VISA1234", True),  # Karte ohne IBAN
-        ("DE02120300000000202051", "VISA1234", False),  # Giro-Auszug, keine Karte
+        # Karte ohne IBAN: Auszüge eines Bankkontos gehören nicht dazu
+        ("DE02120300000000202051", "VISA1234", False),
+        ("12030000/0000202051", "VISA1234", False),
+        ("12030000/0000202051EUR", "VISA1234", False),
+        ("DEUTDEFFXXX/0532013000", "VISA1234", False),
         ("visa 1234", "VISA1234", True),
+        ("4111XXXXXXXX1234", "VISA1234", True),  # unbekannte Form: nicht ausschließen
+        # Kennung in der Form BLZ/Kontonummer: genau dieses Konto
+        ("12030000/0000202051", "12030000/202051", True),
+        ("12030000/0000202052", "12030000/202051", False),
+        ("DE02120300000000202051", "12030000/0000202051", True),
+        ("DE89370400440532013000", "12030000/0000202051", False),
         ("irgendwas", "DE02120300000000202051", True),
     ],
 )

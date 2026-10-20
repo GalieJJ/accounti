@@ -200,3 +200,85 @@ def test_kartenkonto_ohne_iban_ueberspringt_auszuege_mit_iban(tmp_path):
         iban="DKBVISA9", bezeichnung="Visa", einstellungen={"ordner": str(tmp_path)}
     )
     assert BANK_PROVIDER["datei"]().abrufen(karte, {}, None).transaktionen == []
+
+
+def test_kartenkonto_ohne_iban_ueberspringt_auszuege_mit_kontonummer(tmp_path):
+    """MT940 nennt das Girokonto meist als BLZ/Kontonummer (12030000/0000202051)."""
+    (tmp_path / "giro.sta").write_bytes((DATEN / "auszug.sta").read_bytes())
+    karte = Bankkonto(
+        iban="DKBVISA9", bezeichnung="Visa", einstellungen={"ordner": str(tmp_path)}
+    )
+    assert BANK_PROVIDER["datei"]().abrufen(karte, {}, None).transaktionen == []
+
+
+TAGESAUSZUG_13 = """:20:STARTUMSE
+:25:12030000/0000202051
+:28C:00013/001
+:60F:C260312EUR1000,00
+:61:2603130313DR5,00NMSCNONREF
+:86:106?00KARTENZAHLUNG?109310?20SVWZ+PARKHAUS ALTSTADT?32APCOA PARKING
+:62F:C260313EUR995,00
+-
+"""
+
+MONATSAUSZUG_03 = """:20:STARTUMSE
+:25:12030000/0000202051
+:28C:00003/001
+:60F:C260301EUR1000,00
+:61:2603130313DR5,00NMSCNONREF
+:86:106?00KARTENZAHLUNG?109310?20SVWZ+PARKHAUS ALTSTADT?32APCOA PARKING
+:61:2603310331DR3,50NCHGNONREF
+:86:805?00ENTGELTABSCHLUSS?20Entgeltabrechnung
+:62F:C260331EUR991,50
+-
+"""
+
+
+def test_tages_und_monatsauszug_ohne_bankreferenz(tmp_path):
+    """MT940 ohne Bankreferenz (NONREF): Erst liegt der Tagesauszug im Ordner,
+    dann kommt der Monatsauszug desselben Zeitraums dazu. Derselbe Umsatz darf
+    nicht doppelt gespeichert werden."""
+    from accounti.bank.lauf import rufe_ab
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_transaktionen, speichere_bankkonto
+
+    ordner = tmp_path / "giro"
+    ordner.mkdir()
+    (ordner / "tag-13.sta").write_text(TAGESAUSZUG_13, encoding="utf-8")
+    engine, make_session = session_factory("sqlite://")
+    init_db(engine)
+    with make_session() as s:
+        speichere_bankkonto(s, _giro(ordner))
+        (erster,) = rufe_ab(s)
+        assert (erster.neu, erster.doppelt) == (1, 0)
+        (ordner / "monat-03.sta").write_text(MONATSAUSZUG_03, encoding="utf-8")
+        (zweiter,) = rufe_ab(s)
+        assert (zweiter.neu, zweiter.doppelt) == (1, 2)
+        betraege = sorted(str(t.betrag) for t in lade_transaktionen(s))
+    engine.dispose()
+    assert betraege == ["-3.50", "-5.00"]
+
+
+def test_zwei_seiten_eines_auszugs_zaehlen_zusammen(tmp_path):
+    """Ein langer MT940-Auszug kommt in Seiten (:62M: Zwischensaldo, dann :60M:).
+    Zwei echte gleiche Umsätze auf zwei Seiten bleiben zwei — die laufende Nummer
+    gilt für den ganzen Auszug, nicht je Seite."""
+    seiten = TAGESAUSZUG_13.replace(":62F:", ":62M:") + TAGESAUSZUG_13.replace(
+        ":28C:00013/001", ":28C:00013/002"
+    ).replace(":60F:C260312EUR1000,00", ":60M:C260313EUR995,00").replace(
+        "EUR995,00\n-", "EUR990,00\n-"
+    )
+    (tmp_path / "tag-13.sta").write_text(seiten, encoding="utf-8")
+    abruf = BANK_PROVIDER["datei"]().abrufen(_giro(tmp_path), {}, None)
+    assert len(abruf.transaktionen) == 2
+    from accounti.bank.lauf import speichere_neue
+    from accounti.db import init_db, session_factory
+
+    engine, make_session = session_factory("sqlite://")
+    init_db(engine)
+    with make_session() as s:
+        konto = _giro(tmp_path)
+        assert speichere_neue(
+            s, abruf.transaktionen, konto.iban, konto, abruf.abschnitte
+        ) == (2, 0)
+    engine.dispose()

@@ -18,7 +18,7 @@ verschlüsselt sie neu.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
@@ -53,6 +53,18 @@ class Abruf:
     saldo: Decimal | None = None
     saldo_datum: date | None = None
     zugang: dict[str, str] | None = None  # geändert → wird neu verschlüsselt
+    # wo in ``transaktionen`` ein Auszug bzw. eine Datei beginnt: gleiche Umsätze
+    # ohne Bankreferenz zählt der Dublettenschutz je Abschnitt (leer: ein Abschnitt)
+    abschnitte: list[int] = field(default_factory=list)
+
+    def fuege_hinzu(
+        self, umsaetze: Iterable[Transaktion], fortsetzung: bool = False
+    ) -> None:
+        """Umsätze eines Auszugs bzw. einer Datei als eigenen Abschnitt anhängen —
+        die Folgeseite eines Auszugs (``fortsetzung``) gehört zum vorigen."""
+        if not fortsetzung:
+            self.abschnitte.append(len(self.transaktionen))
+        self.transaktionen.extend(umsaetze)
 
 
 @dataclass(frozen=True)

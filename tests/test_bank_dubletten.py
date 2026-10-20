@@ -102,3 +102,26 @@ def test_mit_bankreferenz_zaehlt_der_verwendungszweck_nicht():
         [einzeln.model_copy(update=ref)]
     )
     assert _schluessel([sammler]) != _schluessel([einzeln])  # ohne Referenz: zwei
+
+
+def test_laufende_nummer_je_auszug():
+    """Tages- und Monatsauszug im selben Abruf: derselbe Umsatz ohne Bankreferenz
+    steht in beiden und bleibt einer. Zwei gleiche Umsätze in einem Auszug bleiben
+    zwei — gezählt wird je Auszug bzw. Datei, nicht über den ganzen Abruf."""
+    tag = [tx(tag=13)]
+    monat = [tx(tag=12), tx(tag=13), tx(betrag="-3.50", zweck="ENTGELT")]
+    beide = [
+        t.dublettenschluessel
+        for t in mit_schluessel(tag + monat, "DE12", abschnitte=[0, 1])
+    ]
+    assert beide[0] == beide[2] == _schluessel(tag)[0]
+    assert len(set(beide)) == 3
+    zwei = [
+        t.dublettenschluessel
+        for t in mit_schluessel([tx(), tx(), tx()], "DE12", abschnitte=[0, 2])
+    ]
+    assert zwei[0] != zwei[1] and zwei[2] == zwei[0]
+    # ohne Abschnitte: ein Abschnitt wie bisher
+    assert _schluessel([tx(), tx()]) == [
+        t.dublettenschluessel for t in mit_schluessel([tx(), tx()], "DE12", [0])
+    ]

@@ -193,3 +193,11 @@ def test_dtd_auch_in_utf16_abgelehnt(kodierung, bom):
     )
     with pytest.raises(KontoauszugError, match="DTD"):
         lies_camt(bom + text.encode(kodierung))
+
+
+def test_folgeseite_eines_auszugs_wird_erkannt():
+    """Seite 2 eines Auszugs zählt im Dublettenschutz zum selben Auszug."""
+    (erste,) = lies_camt(_doc(_ntry()))
+    seite = "<StmtPgntn><PgNb>2</PgNb><LastPgInd>true</LastPgInd></StmtPgntn>"
+    (zweite,) = lies_camt(_doc(seite, _ntry()))
+    assert (erste.fortsetzung, zweite.fortsetzung) == (False, True)

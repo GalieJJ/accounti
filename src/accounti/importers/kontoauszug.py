@@ -25,6 +25,10 @@ LAENGE_NAME = 200
 LAENGE_ROHTEXT = 2000
 
 _IBAN = re.compile(r"[A-Z]{2}\d{2}[A-Z0-9]{10,30}")
+_BLZ_KONTO = re.compile(r"(\d+)/(\d+)[A-Z]*")  # MT940 :25:, ggf. mit Währung
+_BIC = r"[A-Z]{6}[A-Z0-9]{2}(?:[A-Z0-9]{3})?"
+# Kontoangabe eines Bankkontos: BLZ/Kontonummer oder BIC/Kontonummer
+_BANKKONTO = re.compile(rf"(?:\d+|{_BIC})/\d+[A-Z]*")
 _CAMT = re.compile(rb"<(?:\w+:)?BkToCstmr(?:Stmt|AcctRpt|DbtCdtNtfctn)\b")
 _MT940_FELDER = (rb":20:", rb":25:")
 _MT940_SALDO = re.compile(rb":60[FM]:")
@@ -51,6 +55,14 @@ def _kompakt(text: str) -> str:
     return re.sub(r"\s", "", text).upper()
 
 
+def _blz_konto(kompakt: str) -> tuple[str, int] | None:
+    """(BLZ, Kontonummer) aus einer deutschen IBAN oder „BLZ/Kontonummer“."""
+    if _IBAN.fullmatch(kompakt):
+        return (kompakt[4:12], int(kompakt[12:])) if kompakt[:2] == "DE" else None
+    treffer = _BLZ_KONTO.fullmatch(kompakt)
+    return (treffer[1], int(treffer[2])) if treffer else None
+
+
 @dataclass
 class Auszug:
     """Ein Auszug (MT940-Nachricht, camt-Statement/-Report) mit seinen Umsätzen."""
@@ -61,24 +73,32 @@ class Auszug:
     endsaldo: Decimal | None = None
     endsaldo_datum: date | None = None
     umsaetze: list[Transaktion] = field(default_factory=list)
+    # weitere Seite desselben Auszugs (MT940 :60M:, camt Seitennummer > 1)
+    fortsetzung: bool = False
 
     def gehoert_zu(self, iban: str) -> bool:
         """Passt der Auszug zum Konto? Im Zweifel ja — ausgeschlossen wird nur,
-        was erkennbar zu einem anderen Konto gehört."""
+        was erkennbar zu einem anderen Konto gehört.
+
+        Ein Konto ohne IBAN (z.B. eine Kreditkarte mit der Kennung VISA1234) nimmt
+        keinen Auszug eines Bankkontos an — weder mit IBAN noch mit BLZ/Kontonummer
+        oder BIC/Kontonummer, außer die Kennung ist genau diese Kontoangabe."""
         if not self.konto:
             return True
         konto, eigene = _kompakt(self.konto), _kompakt(iban)
-        treffer = _IBAN.search(konto)
-        if not _IBAN.fullmatch(eigene):
-            # z.B. eine Kreditkarte: ein Auszug mit IBAN gehört zu einem Girokonto
-            return konto == eigene or treffer is None
-        if treffer:
-            return treffer.group(0) == eigene
-        blz, _, nummer = konto.partition("/")
-        nummer = re.sub(r"[A-Z]+$", "", nummer)
-        if not (blz.isdigit() and nummer.isdigit()) or not eigene.startswith("DE"):
+        if konto == eigene:
             return True
-        return eigene[4:12] == blz and int(eigene[12:]) == int(nummer)
+        treffer = _IBAN.search(konto)
+        fremde_iban = treffer.group(0) if treffer else None
+        eigene_iban = _IBAN.fullmatch(eigene) is not None
+        if eigene_iban and fremde_iban:
+            return fremde_iban == eigene
+        eigen, fremd = _blz_konto(eigene), _blz_konto(fremde_iban or konto)
+        if eigen and fremd:
+            return eigen == fremd
+        if eigene_iban:
+            return True  # Kontoangabe in anderer Form: nicht ausschließen
+        return fremde_iban is None and _BANKKONTO.fullmatch(konto) is None
 
 
 def pruefe_salden(auszug: Auszug, name: str) -> None:

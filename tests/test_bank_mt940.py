@@ -239,3 +239,10 @@ def test_lange_texte_werden_gekuerzt():
     tx = auszug.umsaetze[0]
     assert len(tx.verwendungszweck) <= 500
     assert len(tx.rohtext) <= 2000
+
+
+def test_folgeseite_mit_zwischensaldo_wird_erkannt():
+    seite_1 = _auszug().replace(":62F:", ":62M:")
+    seite_2 = _auszug().replace(":60F:", ":60M:")
+    erste, zweite = lies_mt940(seite_1 + seite_2)
+    assert (erste.fortsetzung, zweite.fortsetzung) == (False, True)

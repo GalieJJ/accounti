@@ -4,8 +4,10 @@ Fallback und Notausgang: accounti bleibt ohne jede Bankverbindung voll nutzbar.
 CSV-Dateien laufen über die Profile aus Baustein 1 (Einstellung ``format``), MT940
 und CAMT werden am Inhalt erkannt. Auszüge eines anderen Kontos werden übersprungen.
 Jeder Abruf liest alle Dateien des Ordners; was schon da ist, fängt der
-Dublettenschutz ab. Eine Datei, die zweimal im Ordner liegt (erneuter Download),
-und ein Auszug, der in zwei Dateien steckt, zählen nur einmal.
+Dublettenschutz ab — er zählt gleiche Umsätze je Auszug (CSV: je Datei), sodass
+derselbe Umsatz aus Tages- und Monatsauszug einer bleibt. Eine Datei, die zweimal im
+Ordner liegt (erneuter Download), und ein Auszug, der in zwei Dateien steckt, zählen
+nur einmal.
 """
 
 from __future__ import annotations
@@ -58,7 +60,7 @@ def _lies_auszuege(
         if not auszug.gehoert_zu(konto.iban) or kennung in gelesen:
             continue
         gelesen.add(kennung)
-        abruf.transaktionen.extend(auszug.umsaetze)
+        abruf.fuege_hinzu(auszug.umsaetze, auszug.fortsetzung)
         datum = auszug.endsaldo_datum
         neuer = abruf.saldo_datum is None or (datum and datum >= abruf.saldo_datum)
         if auszug.endsaldo is not None and datum is not None and neuer:
@@ -93,7 +95,7 @@ class DateiProvider(BankProvider):
                 dateien.add(inhalt)
                 if endung == ".csv":
                     importer = waehle_importer(datei, format)
-                    abruf.transaktionen.extend(importer.importiere(datei))
+                    abruf.fuege_hinzu(importer.importiere(datei))
                 else:
                     _lies_auszuege(daten, konto, abruf, auszuege)
             except (ValueError, KeyError, UnicodeDecodeError) as fehler:

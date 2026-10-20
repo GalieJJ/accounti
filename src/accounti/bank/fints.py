@@ -501,8 +501,9 @@ class FinTSProvider(BankProvider):
         for auszug in auszuege:
             if not auszug.gehoert_zu(konto.iban):
                 continue
-            abruf.transaktionen.extend(
-                t for t in auszug.umsaetze if grenze is None or t.datum >= grenze
+            abruf.fuege_hinzu(
+                (t for t in auszug.umsaetze if grenze is None or t.datum >= grenze),
+                auszug.fortsetzung,
             )
             if auszug.endsaldo is not None:
                 abruf.saldo, abruf.saldo_datum = auszug.endsaldo, auszug.endsaldo_datum

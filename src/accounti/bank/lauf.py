@@ -12,6 +12,7 @@ Versuch mit derselben PIN kann den Zugang sperren).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -57,10 +58,12 @@ def speichere_neue(
     transaktionen: list[Transaktion],
     quelle: str,
     konto: Bankkonto | None = None,
+    abschnitte: Sequence[int] = (),
 ) -> tuple[int, int]:
     """Speichert nur, was noch nicht da ist — auch innerhalb des Abrufs (derselbe
-    Umsatz aus zwei Dateien); liefert (neu, doppelt)."""
-    mit = mit_schluessel(transaktionen, konto.iban if konto else quelle)
+    Umsatz aus zwei Dateien oder Auszügen); liefert (neu, doppelt). ``abschnitte``
+    wie bei ``mit_schluessel`` (``Abruf.abschnitte``)."""
+    mit = mit_schluessel(transaktionen, konto.iban if konto else quelle, abschnitte)
     vorhanden = vorhandene_dublettenschluessel(
         session, {t.dublettenschluessel for t in mit if t.dublettenschluessel}
     )
@@ -127,7 +130,7 @@ def rufe_ab(
             neuer_zugang = abruf.zugang
             with session.begin_nested():
                 ergebnis.neu, ergebnis.doppelt = speichere_neue(
-                    session, abruf.transaktionen, konto.iban, konto
+                    session, abruf.transaktionen, konto.iban, konto, abruf.abschnitte
                 )
             if abruf.transaktionen:
                 neuester = max(t.datum for t in abruf.transaktionen)

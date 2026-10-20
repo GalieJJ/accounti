@@ -127,3 +127,32 @@ def test_import_bank_mit_kaputtem_saldo_ohne_traceback(tmp_path):
     assert r.exit_code == 1
     assert "Saldo" in _text(r) and "geht nicht auf" in _text(r)
     assert r.exception is None or isinstance(r.exception, SystemExit)
+
+
+def test_import_bank_auf_ein_kartenkonto_lehnt_giro_auszuege_ab(tmp_path):
+    """MT940 nennt das Konto meist als BLZ/Kontonummer: Ein Girokonto-Auszug darf
+    nicht auf einem Kartenkonto ohne IBAN landen (er bekäme dessen Sachkonto)."""
+    url = f"sqlite:///{(tmp_path / 'f.db').as_posix()}"
+    _konto_anlegen(url, "VISA1234")
+    datei = tmp_path / "auszug.sta"
+    datei.write_bytes((DATEN / "auszug.sta").read_bytes())
+    r = runner.invoke(
+        app, ["import", "bank", str(datei), "--konto", "VISA1234", "--db", url]
+    )
+    assert r.exit_code == 1
+    assert "gehört nicht zum Konto VISA1234" in _text(r)
+    assert "12030000/0000202051" in _text(r)
+    engine, make_session = session_factory(url)
+    init_db(engine)
+    with make_session() as s:
+        assert lade_transaktionen(s) == []
+    engine.dispose()
+
+    # wer Kartenauszüge mit Kontonummer bekommt, nimmt die Nummer als Kennung
+    _konto_anlegen(url, "12030000/0000202051")
+    r = runner.invoke(
+        app,
+        ["import", "bank", str(datei), "--konto", "12030000/0000202051", "--db", url],
+    )
+    assert r.exit_code == 0, r.output
+    assert "6 Transaktionen importiert" in _text(r)

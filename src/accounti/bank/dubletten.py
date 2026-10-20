@@ -1,9 +1,10 @@
 """Dublettenschutz für Bankumsätze — ein Umsatz kommt genau einmal ins System.
 
 Der Schlüssel fasst Konto, Datum, Betrag, Verwendungszweck und Gegenpartei zusammen,
-plus die laufende Nummer gleicher Umsätze im selben Abruf: Zwei echte Parkgebühren
+plus die laufende Nummer gleicher Umsätze im selben Auszug (bzw. in derselben Datei
+oder demselben Abruf, wenn der Provider keine Auszüge kennt): Zwei echte Parkgebühren
 über 5 € am selben Tag bleiben zwei, derselbe Umsatz aus einem überlappenden zweiten
-Abruf oder einem doppelten Import bleibt einer.
+Abruf, einem doppelten Import oder aus Tages- und Monatsauszug bleibt einer.
 
 Liefert die Bank eine Referenz (camt ``AcctSvcrRef``, MT940 ``//Referenz``), ist sie
 der Unterscheider: Der Schlüssel besteht dann aus Konto, Datum, Betrag und Referenz,
@@ -18,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections import Counter
+from collections.abc import Sequence
 
 from accounti.importers.kontoauszug import LEERE_REFERENZEN
 from accounti.models import Transaktion
@@ -42,14 +44,20 @@ def _basis(tx: Transaktion, konto: str) -> tuple[str, bool]:
     return "|".join(teile), False
 
 
-def mit_schluessel(transaktionen: list[Transaktion], konto: str) -> list[Transaktion]:
+def mit_schluessel(
+    transaktionen: list[Transaktion], konto: str, abschnitte: Sequence[int] = ()
+) -> list[Transaktion]:
     """Kopien mit Dublettenschlüssel; ``konto`` ist IBAN oder Bezeichnung der Quelle.
 
-    Gleiche Schlüssel im selben Abruf sind mit Bankreferenz derselbe Umsatz, ohne
-    sie zählt die laufende Nummer."""
+    Gleiche Schlüssel sind mit Bankreferenz derselbe Umsatz, ohne sie zählt die
+    laufende Nummer — je Abschnitt: ``abschnitte`` nennt, wo in ``transaktionen``
+    ein neuer Auszug bzw. eine neue Datei beginnt (leer: alles ein Abschnitt)."""
+    beginn = set(abschnitte)
     gezaehlt: Counter[str] = Counter()
     ergebnis = []
-    for tx in transaktionen:
+    for i, tx in enumerate(transaktionen):
+        if i in beginn:
+            gezaehlt.clear()
         basis, mit_referenz = _basis(tx, konto)
         gezaehlt[basis] += 1
         nummer = 1 if mit_referenz else gezaehlt[basis]

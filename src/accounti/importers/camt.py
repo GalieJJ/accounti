@@ -158,9 +158,11 @@ def _umsatz(ntry: ET.Element, waehrung: str | None, wo: str) -> Transaktion:
 
 def _auszug(behaelter: ET.Element, nr: int) -> Auszug:
     wo = f"camt-{_name(behaelter)} {nr}"
+    seite = _text(behaelter, f"{_name(behaelter)}Pgntn/PgNb") or ""
     auszug = Auszug(
         konto=_text(behaelter, "Acct/Id/IBAN") or _text(behaelter, "Acct/Id/Othr/Id"),
         waehrung=_text(behaelter, "Acct/Ccy"),
+        fortsetzung=seite.isdigit() and int(seite) > 1,
     )
     for bal in _kinder(behaelter, "Bal"):
         art = _text(bal, "Tp/CdOrPrtry/Cd")
