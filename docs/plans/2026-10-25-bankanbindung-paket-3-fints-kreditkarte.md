@@ -88,8 +88,9 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 | TAN-Verfahren | `fints einrichten` fragt die Verfahren der Bank ab und lässt wählen (Einstellung `tan_verfahren`, ggf. `tan_medium`); ohne Einstellung wählt python-fints das erste zweistufige Verfahren | eine Wahl, die der Mensch einmal trifft, statt bei jedem Lauf |
 | MT940-Parser | Standardbibliothek; `@@` als Zeilenumbruch; Buchungsdatum (sonst Valuta) als Datum; D/RC negativ, C/RD positiv; Verwendungszweck = `SVWZ+` (sonst der ganze Text) plus `EREF` als Referenz; Name aus ?32+?33, IBAN aus ?31; Saldenprobe je Auszug (Anfangssaldo + Umsätze = Endsaldo), sonst Fehler | ein Auszug, der nicht aufgeht, ist unvollständig — Fehler statt stiller Lücke |
 | CAMT-Parser | camt.052/053/054, Versionen .02 und .08 namensraumunabhängig; nur gebuchte Einträge (BOOK); Vorzeichen aus `CdtDbtInd`; Gegenpartei bei Gutschrift `Dbtr`, bei Belastung `Cdtr`, bei Storno (`RvslInd=true`) umgekehrt; eine Transaktion je `Ntry` (Sammler: Verwendungszwecke zusammengefasst); DTD/Entity abgelehnt — im Parser selbst (expat-Handler), damit UTF-16 nicht vorbeikommt; Saldenprobe, wenn Anfangs- (OPBD/PRCD) und Endsaldo (CLBD) da sind | Vormerkposten sind keine Buchungen; die Kontozeile ist die Buchung; eine Rücklastschrift trägt die Parteien der Lastschrift (Prüfbefunde 12, 14) |
-| Fremde Konten | Auszüge, deren Konto (IBAN oder BLZ/Kontonummer) nicht zum Bankkonto passt, überspringt der Datei-Provider; ein Konto ohne IBAN (Kreditkarte) überspringt Auszüge mit IBAN | ein Ordner mit Auszügen mehrerer Konten ordnet nichts falsch zu |
-| Bankreferenz | `Transaktion.quelle_referenz` (NONREF/NOTPROVIDED zählen nicht). Ohne Referenz bleibt der Schlüssel wie in Paket 2 (Konto, Datum, Betrag, Zweck, Gegenpartei, laufende Nummer). **Mit** Referenz ist sie der Unterscheider: Konto, Datum, Betrag, Referenz — ohne laufende Nummer und ohne Zweck/Name; `speichere_neue` prüft auch innerhalb eines Abrufs | Spec 5: „Dublettenschutz über Bank-Referenz“; derselbe Umsatz aus zwei Dateien eines Abrufs (doppelter Download, camt.052 neben camt.053) und die camt.054-Auflösung eines Sammlers aus camt.053 (anderer Zweck) bleiben einer (Prüfbefunde 9, 10) |
+| Fremde Konten | Auszüge, deren Konto (IBAN oder BLZ/Kontonummer) nicht zum Bankkonto passt, überspringt der Datei-Provider, `import bank --konto` lehnt sie ab. Ein Konto ohne IBAN (Kreditkarte, Kennung z.B. `VISA1234`) nimmt keinen Auszug eines Bankkontos an — weder mit IBAN noch mit BLZ/Kontonummer oder BIC/Kontonummer —, außer die Kennung ist genau diese Kontoangabe (eine Kennung `BLZ/Kontonummer` passt auch zur deutschen IBAN desselben Kontos). Andere Formen (z.B. eine maskierte Kartennummer) gelten weiter als passend | ein Ordner mit Auszügen mehrerer Konten ordnet nichts falsch zu; MT940 nennt das Girokonto meist als BLZ/Kontonummer — ein Giro-Auszug landete sonst mit dem Sachkonto der Karte im Journal (Prüfbefunde 11, R2-4). Wer Kartenauszüge mit Kontonummer bekommt, gibt diese bei der Einrichtung als Kennung an |
+| Bankreferenz | `Transaktion.quelle_referenz` (NONREF/NOTPROVIDED zählen nicht). Ohne Referenz bleibt der Schlüssel wie in Paket 2 (Konto, Datum, Betrag, Zweck, Gegenpartei, laufende Nummer — die Nummer zählt jetzt je Auszug, siehe nächste Zeile). **Mit** Referenz ist sie der Unterscheider: Konto, Datum, Betrag, Referenz — ohne laufende Nummer und ohne Zweck/Name; `speichere_neue` prüft auch innerhalb eines Abrufs | Spec 5: „Dublettenschutz über Bank-Referenz“; derselbe Umsatz aus zwei Dateien eines Abrufs (doppelter Download, camt.052 neben camt.053) und die camt.054-Auflösung eines Sammlers aus camt.053 (anderer Zweck) bleiben einer (Prüfbefunde 9, 10) |
+| Laufende Nummer je Auszug | Ohne Bankreferenz zählt `mit_schluessel` gleiche Umsätze je Abschnitt: Der Provider meldet in `Abruf.abschnitte`, wo ein Auszug (MT940-Nachricht, camt-Statement/-Report) bzw. eine CSV-Datei beginnt (`Abruf.fuege_hinzu`); Folgeseiten eines Auszugs (MT940 `:60M:`, camt `…Pgntn/PgNb` > 1, `Auszug.fortsetzung`) gehören zum vorigen Abschnitt. Gilt für Datei-Provider und FinTS; `import bank` zählt je Datei (wie bisher), die PDF-Übernahme je Abrechnung | Tages- und Monatsauszug desselben Zeitraums im Ordner (MT940 NONREF, CSV) ergaben sonst Dubletten (#1 im Tages-, #2 im Monatsauszug); zwei echte gleiche Umsätze stehen in **einem** Auszug, denn Banken trennen Auszüge nach Buchungstag. Folgeseiten nicht zusammenzuzählen, verlöre dagegen einen echten zweiten Umsatz, wenn die Seitengrenze zwischen beide fällt (Prüfbefund R2-3) |
 | Datei-Provider | MT940/CAMT werden am Inhalt erkannt (`.sta`, `.mt940`, `.940`, `.txt`, `.xml`), `format` gilt nur für CSV; Saldo des letzten Auszugs wird gemeldet. Eine Datei mit gleichem Inhalt wie eine schon gelesene und ein Auszug mit gleichem Inhalt (Konto, Salden, Umsätze) zählen nur einmal | Fallback bleibt vollständig (Akzeptanz 6); ohne Bankreferenz ist das der einzige Schutz gegen doppelte Downloads |
 | `import bank` | `--format mt940|camt`, `auto` erkennt beide am Inhalt vor den CSV-Profilen. MT940/CAMT mit `--konto`: nur die Auszüge dieses Kontos, gehört keiner dazu → Fehler; ohne `--konto` und mit Auszügen mehrerer Konten → Fehler. Fehler beim Lesen (Saldo geht nicht auf) enden mit Meldung, nicht mit Traceback. Dafür ist `cli.py` minimal geändert (`importiere_fuer_konto`) | fremde Umsätze bekämen sonst still das Sachkonto des genannten Kontos (Prüfbefund 11, 17) |
 | Kreditkarte | eigenes Bankkonto (Kennung statt IBAN, z.B. `VISA1234`, eigenes Sachkonto als Pflichtangabe) plus Eintrag in `kreditkarten`: Girokonto, Muster der Sammelbelastung, Endziffern, Abrechnungstag | Vorgabe des Auftrags; die Kartennummer selbst wird nie gespeichert |
@@ -98,12 +99,12 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 | Abrechnungsbetrag des Belegs | wird **nicht** gegen die Positionen geprüft | den Gesamtbetrag einer Kartenabrechnung liest die Belegextraktion nicht verlässlich (Saldo, Vortrag, Limit); eine fehlende Zeile fällt am Abgleich mit der Sammelbelastung auf |
 | Ausgleichszeilen | positive Zeilen mit „Zahlung/Ausgleich/Lastschrift/…“ (`ausgleich_muster`) sind die Begleichung der Vorperiode, kein Einzelumsatz | sonst stimmte keine Summe |
 | Abrechnung | PDF: Positionen des Belegs, Stichtag = Belegdatum; Provider: Umsätze bis zum Stichtag (Abrechnungstag des Monats oder `kreditkarte abrechnen --stichtag`), die noch zu keiner Abrechnung gehören — auch spät gelieferte aus einem früheren Zeitraum, nicht aber vor dem Beginn der ersten Abrechnung (mit `--von` nur ab diesem Tag); jeder Umsatz gehört höchstens zu einer Abrechnung. **Nachtragen:** Kommt ein Kartenumsatz, nachdem die Abrechnung seines Zeitraums gebildet wurde, wandert er in die offene (oder vorläufig zugeordnete) Abrechnung mit dem nächsten Stichtag ab seinem Datum; ist die seines Zeitraums schon fest, in die nächste | eindeutiger Abrechnungszeitraum; das Girokonto kommt oft täglich, die Kartenumsätze monatlich per Datei, und Herausgeber rechnen nach Buchungs-, nicht Kaufdatum ab (Prüfbefund 5) |
-| Sammelbelastung | Girokonto-Umsatz < 0, Muster (und Endziffern, falls gesetzt) im Text, 0–`belastung_fenster_tage` (30) nach dem Stichtag; das Standardmuster schließt Texte mit `belastung_ausnahme` (Standard `debit`) aus, ein eigenes Muster der Karte nicht. Zuerst exakte Treffer (Betrag = Summe → abgeglichen), dann genau eine Abrechnung für genau eine Belastung → **Befund** mit centgenauer Differenz; konkurrieren Belastungen oder Karten, wird nichts zugeordnet („mehrdeutig“). Eine schon anders gebuchte Belastung wird zugeordnet, aber nicht umgebucht — Befund „anders gebucht“. Längst gebuchte alte Belastungen ohne Abrechnung bleiben still. `kreditkarte einrichten` ohne Endziffern und ohne Muster weist auf das breite Muster hin | Spec 4.3; „streng vor großzügig“; wer die Karte nachträglich einrichtet, soll nicht jeden Monat dieselben Altfälle sehen; Visa-/Mastercard-Debitkarten sind auf Girokonten verbreitet (Prüfbefund 8) |
-| Vorläufig über Läufe | Eine Zuordnung mit Abweichung ist **vorläufig**, solange ihre Buchung zur Prüfung steht (bzw. bei „anders gebucht“ eine Differenz bleibt). Jeder Lauf bewertet vorläufige Zuordnungen zusammen mit den offenen Abrechnungen neu: Ergebnis gleich → bleibt; kommt ein exakter Treffer, wird sie gelöst (vorläufige Buchung gelöscht — sie war nie freigegeben) und der Treffer gebucht; kommt ein zweiter Kandidat → beide „mehrdeutig“, nichts gebucht. Geprüft, korrigiert, exportiert oder automatisch gebucht → fest. `accounti kreditkarte loesen <ABRECHNUNG>` löst eine vorläufige Zuordnung von Hand und merkt sich das Paar (Tabelle `kreditkartenablehnungen`), damit es nicht wieder vorgeschlagen wird | „exakter Treffer gewinnt“ galt sonst nur innerhalb eines Laufs: ein früher, ungefährer Kandidat verbrauchte die Abrechnung, die echte Belastung lief danach ins Regelwerk (Prüfbefunde 4, 8); das Ergebnis hängt so nicht mehr davon ab, in welchem Lauf eine Belastung kommt |
-| Buchung | PDF-Karte: Sammelbelastung „Kreditkarte an Bank“; Karte mit Abruf: Sammelbelastung „Geldtransit an Bank“, Ausgleichszeile „Kreditkarte an Geldtransit“ (SKR03 1360, SKR04 1460, `geldtransit_konto`). Abgeglichen → automatisch (Confidence 1,0), Abweichung → zur Prüfung mit voller Belastung; nie eine Buchung über die Differenz. Die Ausgleichszeile automatisch nur, wenn eine gleich hohe, über Geldtransit gebuchte Sammelbelastung dieser Karte noch keinen Ausgleich hat; sonst zur Prüfung (Confidence 0,5, Meldung „Ausgleich zur Prüfung“) — kommt die Belastung später, wird die vorläufige Buchung bestätigt | jede Kontozeile wird genau einmal auf ihrem Finanzkonto gebucht; `classify` fasst gebuchte Umsätze nicht an; die Einzelumsätze kontiert `classify` gegen das Kartenkonto. Ein Ausgleich von einem anderen Konto (privat → Einlage) oder ein abweichender Betrag ließe Geldtransit sonst still offen (Prüfbefund 7) |
+| Sammelbelastung | Girokonto-Umsatz < 0, Muster (und Endziffern, falls gesetzt) im Text, 0–`belastung_fenster_tage` (30) nach dem Stichtag; das Standardmuster schließt Texte mit `belastung_ausnahme` (Standard `debit`) aus, ein eigenes Muster der Karte nicht. Zuerst exakte Treffer (Betrag = Summe → abgeglichen), dann genau eine Abrechnung für genau eine Belastung → **Befund** mit centgenauer Differenz; konkurrieren Belastungen oder Karten, wird nichts zugeordnet („mehrdeutig“) — die Meldung nennt Umsatz-ID, die umkämpfte(n) Abrechnung(en) und den Befehl `accounti kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>`, mit dem ein Mensch einen Kandidaten abtrennt. Eine schon anders gebuchte Belastung wird zugeordnet, aber nicht umgebucht — Befund „anders gebucht“. Längst gebuchte alte Belastungen ohne Abrechnung bleiben still. `kreditkarte einrichten` ohne Endziffern und ohne Muster weist auf das breite Muster hin | Spec 4.3; „streng vor großzügig“; wer die Karte nachträglich einrichtet, soll nicht jeden Monat dieselben Altfälle sehen; Visa-/Mastercard-Debitkarten sind auf Girokonten verbreitet (Prüfbefund 8) |
+| Vorläufig über Läufe | Eine Zuordnung mit Abweichung ist **vorläufig**, solange ihre Buchung zur Prüfung steht (bzw. bei „anders gebucht“ eine Differenz bleibt). Jeder Lauf bewertet vorläufige Zuordnungen zusammen mit den offenen Abrechnungen neu: Ergebnis gleich → bleibt; kommt ein exakter Treffer, wird sie gelöst (vorläufige Buchung gelöscht — sie war nie freigegeben) und der Treffer gebucht; kommt ein zweiter Kandidat → beide „mehrdeutig“, nichts gebucht. Geprüft, korrigiert, exportiert oder automatisch gebucht → fest. `accounti kreditkarte loesen <ABRECHNUNG>` löst eine vorläufige Zuordnung von Hand und merkt sich das Paar (Tabelle `kreditkartenablehnungen`), damit es nicht wieder vorgeschlagen wird. **Mehrdeutig von Hand entscheiden:** `kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>` (`trenne_belastung`) legt das Paar ebenfalls dort ab, auch ohne bestehende Zuordnung (ist der Umsatz der Abrechnung vorläufig zugeordnet, wird gelöst wie oben); der nächste Lauf ordnet die übrigen Kandidaten zu — centgenau → abgeglichen, sonst Befund. Der Umsatz muss eine Belastung des Girokontos der Karte sein. Ohne diesen Befehl war „mehrdeutig“ eine Sackgasse: beide Kandidaten blieben im Fenster, jeder Lauf erkannte dieselbe Konkurrenz, `loesen` brauchte eine Zuordnung (Prüfbefund R2-2) | „exakter Treffer gewinnt“ galt sonst nur innerhalb eines Laufs: ein früher, ungefährer Kandidat verbrauchte die Abrechnung, die echte Belastung lief danach ins Regelwerk (Prüfbefunde 4, 8); das Ergebnis hängt so nicht mehr davon ab, in welchem Lauf eine Belastung kommt |
+| Buchung | PDF-Karte: Sammelbelastung „Kreditkarte an Bank“; Karte mit Abruf: Sammelbelastung „Geldtransit an Bank“, Ausgleichszeile „Kreditkarte an Geldtransit“ (SKR03 1360, SKR04 1460, `geldtransit_konto`). Abgeglichen → automatisch (Confidence 1,0), Abweichung → zur Prüfung mit voller Belastung; nie eine Buchung über die Differenz. Die Ausgleichszeile automatisch nur, wenn eine gleich hohe, über Geldtransit gebuchte **und bestätigte** Sammelbelastung dieser Karte (ihre Buchung automatisch gebucht, geprüft, korrigiert oder exportiert) noch keinen Ausgleich hat; sonst zur Prüfung (Confidence 0,5, Meldung „Ausgleich zur Prüfung“ — bei einer nur vorläufig zugeordneten Belastung mit diesem Grund). Wird die Belastung später bestätigt oder kommt sie erst später, bestätigt der nächste Lauf die vorläufige Ausgleichsbuchung | jede Kontozeile wird genau einmal auf ihrem Finanzkonto gebucht; `classify` fasst gebuchte Umsätze nicht an; die Einzelumsätze kontiert `classify` gegen das Kartenkonto. Ein Ausgleich von einem anderen Konto (privat → Einlage) oder ein abweichender Betrag ließe Geldtransit sonst still offen (Prüfbefund 7). Gegen eine vorläufige Belastung freigegeben, bliebe der Ausgleich stehen, wenn der Abgleich die Belastung später löst (Prüfbefund R2-1). Eine freigegebene Ausgleichsbuchung wird nie nachträglich zurückgestuft: `export datev` nimmt `auto` mit, ohne den Status zu ändern — sie kann schon beim Steuerbüro sein |
 | Lauf | `bank lauf`: abrufen → **Kreditkarten** → offene Posten → Belegabgleich → kontieren | die Sammelbelastung darf weder als offener Posten noch per Regelwerk gebucht werden |
 | Konfiguration | Abschnitt `bank` (Unterabschnitte `fints`, `kreditkarte`) mit eigenem Lader `bank/einstellungen.py`, alles mit Standardwerten | Muster `lade_buchhaltung`; ohne Abschnitt lauffähig |
-| CLI | neue Gruppen `fints` (`einrichten`, `freigeben`, `zugang`, `format`) und `kreditkarte` (`einrichten`, `liste`, `uebernehmen [--trotzdem]`, `abrechnen`, `abgleich`, `loesen`) in `befehle/`; `bank verbinde --provider fints` funktioniert ebenfalls. `cli.py` minimal geändert: `import bank` (Kontoprüfung, Fehler ohne Traceback) und `bank lauf` (gibt den Kartenabgleich über `befehle.kreditkarte.zeige_kartenabgleich` aus) | Dateiregeln; die Gruppen `bank` und `import` gehören `cli.py` — eine stille Fehlbuchung und verschwundene Befunde rechtfertigen die kleine Änderung (Prüfbefunde 11, 17) |
+| CLI | neue Gruppen `fints` (`einrichten`, `freigeben`, `zugang`, `format`) und `kreditkarte` (`einrichten`, `liste`, `uebernehmen [--trotzdem]`, `abrechnen`, `abgleich`, `loesen [--belastung]`) in `befehle/`; `bank verbinde --provider fints` funktioniert ebenfalls. `cli.py` minimal geändert: `import bank` (Kontoprüfung, Fehler ohne Traceback) und `bank lauf` (gibt den Kartenabgleich über `befehle.kreditkarte.zeige_kartenabgleich` aus) | Dateiregeln; die Gruppen `bank` und `import` gehören `cli.py` — eine stille Fehlbuchung und verschwundene Befunde rechtfertigen die kleine Änderung (Prüfbefunde 11, 17) |
 | Tests | nie gegen eine echte Bank: Attrappe des python-fints-Clients (Szenarien: Freigabe bei der Initialisierung, App-Freigabe, TAN beim Abruf, PIN falsch, Verbindung weg) **und** eine lokale Testbank (HTTP auf 127.0.0.1) mit selbst geschriebenen FinTS-Antworten für den echten Client; Kontoauszüge als aufgezeichnete Beispieldateien in `tests/daten/bank/` | Spec 6 |
 
 ## Aufgaben
@@ -146,17 +147,24 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
 - [x] **Recherche** (Befund 13): Kreditkartenkonto SKR03 1730 / SKR04 3610, Vorschlag in der Hilfe von `kreditkarte einrichten`.
 - [x] **Migration** (Befund 16): keine Alembic-Migration im Paket (Dateiregel) — Pflichtschritt beim Zusammenführen, siehe Abschluss.
 
+### Runde 2 – Prüfbefunde
+
+- [x] **Ausgleich gegen vorläufige Belastung** (R2-1): nur zur Prüfung, bestätigt mit der Belastung (`test_bank_kreditkarte.py::test_ausgleich_gegen_vorlaeufige_belastung_nur_zur_pruefung` — zwei Läufe, dann mehrdeutig, Saldo Geldtransit der freigegebenen Buchungen 0; `::test_ausgleich_wird_mit_der_gepruefen_belastung_bestaetigt`). `_loese`/`loese_zuordnung` stufen keinen Ausgleich zurück: gegen eine lösbare (vorläufige) Belastung wird keiner mehr freigegeben, und eine freigegebene Buchung kann schon exportiert sein.
+- [x] **Mehrdeutig von Hand entscheiden** (R2-2): `trenne_belastung`, `kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>`, Meldung nennt Umsatz-ID und Befehl (`test_bank_kreditkarte.py::test_mehrdeutig_wird_von_hand_entschieden` → Befund, `::test_mehrdeutig_zwischen_zwei_karten_wird_von_hand_abgeglichen` → abgeglichen, `::test_trennen_einer_vorlaeufigen_zuordnung_loest_sie`, `::test_trennen_prueft_abrechnung_und_umsatz`; `test_cli_kreditkarte.py::test_mehrdeutig_von_hand_entscheiden`).
+- [x] **Laufende Nummer je Auszug** (R2-3): `Abruf.abschnitte`/`fuege_hinzu`, `mit_schluessel(…, abschnitte)`, Folgeseiten (`Auszug.fortsetzung`) (`test_bank_dubletten.py::test_laufende_nummer_je_auszug`; `test_bank_provider.py::test_tages_und_monatsauszug_ohne_bankreferenz` über `rufe_ab`, `::test_zwei_seiten_eines_auszugs_zaehlen_zusammen`; `test_bank_mt940.py::test_folgeseite_mit_zwischensaldo_wird_erkannt`; `test_bank_camt.py::test_folgeseite_eines_auszugs_wird_erkannt`).
+- [x] **Kartenkonto und BLZ/Kontonummer** (R2-4): `Auszug.gehoert_zu` (`test_bank_kontoauszug.py::test_gehoert_zu`, `test_cli_bank_formate.py::test_import_bank_auf_ein_kartenkonto_lehnt_giro_auszuege_ab` mit `auszug.sta`, `test_bank_provider.py::test_kartenkonto_ohne_iban_ueberspringt_auszuege_mit_kontonummer`).
+
 ### Belege der Akzeptanzkriterien (Spec 7)
 
 | Nr. | Kriterium | Tests |
 |-----|-----------|-------|
 | 1 | Abruf ohne weitere Eingabe außer der Freigabe | `test_cli_fints.py::test_akzeptanz_1_abruf_ohne_weitere_eingabe_ausser_der_freigabe` (CLI, Attrappe), `test_bank_fints.py::test_freigabe_mit_tan_und_danach_ohne_eingabe`, `test_bank_fints.py::test_abruf_aller_konten_mit_freigabe_und_tresor`, `test_bank_fints_testbank.py::test_mt940_mit_freigabe_und_gesicherter_sitzung` (echter Client) |
-| 2 | zweiter Abruf ohne Dubletten | `test_cli_bank_formate.py::test_import_bank_mt940_zweimal_ohne_dubletten`, `test_bank_dubletten.py::test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze`, `test_cli_fints.py::test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt`, `test_cli_fints.py::test_format_nur_ausdruecklich_wechseln`, `test_bank_provider.py::test_doppelt_heruntergeladener_auszug_kommt_einmal`, `::test_ueberlappende_auszuege_mit_bankreferenz`, `::test_camt054_neben_camt053_bucht_den_sammler_nicht_doppelt`, dazu aus Paket 2 `test_bank_lauf.py::test_abruf_ohne_weitere_eingabe_und_ohne_dubletten` |
+| 2 | zweiter Abruf ohne Dubletten | `test_cli_bank_formate.py::test_import_bank_mt940_zweimal_ohne_dubletten`, `test_bank_dubletten.py::test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze`, `test_cli_fints.py::test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt`, `test_cli_fints.py::test_format_nur_ausdruecklich_wechseln`, `test_bank_provider.py::test_doppelt_heruntergeladener_auszug_kommt_einmal`, `::test_ueberlappende_auszuege_mit_bankreferenz`, `::test_camt054_neben_camt053_bucht_den_sammler_nicht_doppelt`, `::test_tages_und_monatsauszug_ohne_bankreferenz`, dazu aus Paket 2 `test_bank_lauf.py::test_abruf_ohne_weitere_eingabe_und_ohne_dubletten` |
 | 3 | mit Beleg höhere Regel-Trefferquote | Paket 1: `test_bank_abgleichslauf.py::test_beleg_hebt_die_regel_trefferquote` |
 | 4 | zwei gleiche Rechnungen → zwei Vorschläge | Paket 1: `test_bank_abgleich.py::test_zwei_gleiche_quittungen_am_selben_tag_werden_vorgeschlagen` |
 | 5 | kein Zugangsdatum im Klartext | `test_bank_fints.py::test_abruf_aller_konten_mit_freigabe_und_tresor`, `test_bank_lauf.py::test_geaenderter_zugang_wird_neu_verschluesselt`, `test_cli_fints.py::test_akzeptanz_1_…`, `test_cli_fints.py::test_kunden_id_liegt_verschluesselt_im_zugang` |
 | 6 | Dateiimport bleibt bei Ausfall nutzbar | `test_cli_fints.py::test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt`, `test_bank_provider.py::test_liest_mt940_und_camt_und_meldet_den_saldo`, Paket 2: `test_bank_lauf.py::test_dateiimport_bleibt_nutzbar_wenn_der_provider_ausfaellt` |
-| 4.3 | Sammelbelastung gegen Summe, Abweichung = Befund | `test_bank_kreditkarte.py::test_sammelbelastung_gleich_summe_wird_gebucht`, `::test_ein_cent_abweichung_ist_ein_befund_kein_rundungsposten`, `::test_spaeter_exakter_treffer_loest_die_vorlaeufige_zuordnung`, `test_cli_kreditkarte.py::test_abweichung_wird_als_befund_gemeldet`, `::test_bank_lauf_nennt_das_ergebnis_des_kartenabgleichs` |
+| 4.3 | Sammelbelastung gegen Summe, Abweichung = Befund | `test_bank_kreditkarte.py::test_sammelbelastung_gleich_summe_wird_gebucht`, `::test_ein_cent_abweichung_ist_ein_befund_kein_rundungsposten`, `::test_spaeter_exakter_treffer_loest_die_vorlaeufige_zuordnung`, `::test_mehrdeutig_wird_von_hand_entschieden`, `test_cli_kreditkarte.py::test_abweichung_wird_als_befund_gemeldet`, `::test_bank_lauf_nennt_das_ergebnis_des_kartenabgleichs` |
 
 ### Abschluss
 
@@ -213,13 +221,23 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
   gebucht — läuft danach `classify`, kann das Regelwerk sie buchen (eine Belastung vor
   `classify` zurückzuhalten, hieße die Auswahl offener Umsätze in `opos/` zu ändern). Abhilfe: PDF
   vor dem Lauf übernehmen, einen Abrechnungstag oder Endziffern einstellen; die Automatik
-  übernimmt PDF-Abrechnungen nur bei genau einer Karte.
+  übernimmt PDF-Abrechnungen nur bei genau einer Karte. „Mehrdeutig“ entscheidet ein Mensch mit
+  `kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>`; hat `classify` die echte Belastung bis
+  dahin schon gebucht, ordnet der nächste Abgleich sie zu, meldet aber „anders gebucht“ (Befund)
+  statt umzubuchen — die Buchung korrigiert dann die Buchhaltung.
+- **Karten nachträglich ändern** (Endziffern, Muster, Abrechnungstag) geht nicht per Befehl; ein
+  zu breites Muster lässt sich nur je Abrechnung mit `loesen` bzw. `--belastung` ausgleichen.
 - **`import bank` ohne `--konto`** prüft nur, dass die Datei höchstens ein Konto enthält, nicht
   welches; CSV-Dateien kennen kein Konto und werden wie bisher übernommen.
 - **Bankreferenz gilt als eindeutig** je Konto, Tag und Betrag. Vergäbe eine Bank dieselbe
-  `//Referenz` für zwei gleich hohe Umsätze am selben Tag, bliebe einer. Ohne Bankreferenz
-  (MT940 `NONREF`, CSV) erkennt der Datei-Provider nur Dateien und Auszüge mit gleichem Inhalt —
-  ein Tages- neben einem Monatsauszug desselben Zeitraums ergibt dann Dubletten.
+  `//Referenz` für zwei gleich hohe Umsätze am selben Tag, bliebe einer.
+- **Ohne Bankreferenz zählt die laufende Nummer je Auszug** (MT940 `NONREF`; CSV je Datei).
+  Stünden zwei echte, in Datum, Betrag, Zweck und Gegenpartei gleiche Umsätze in zwei
+  **verschiedenen** Auszügen eines Abrufs (nicht Folgeseiten), bliebe einer — Banken trennen
+  Auszüge nach Buchungstag, das ist daher nicht zu erwarten, aber nicht mit echten Bankdaten
+  geprüft. `import bank` zählt je Datei: Eine einzelne Datei mit Tages- **und** Monatsauszug
+  ergibt dort weiter Dubletten (dafür hätte sich `cli.py` erneut ändern müssen). camt-Folgeseiten
+  in getrennten Dateien zählen nur zusammen, wenn sie direkt aufeinander folgen (Dateinamen).
 - **Formatwechsel ohne Überlappung:** Nach `fints format` holt der Abruf erst ab dem Tag nach dem
   Abrufstand. Bucht die Bank danach noch etwas mit älterem Datum nach, fehlt es — dann den Auszug
   per `import bank --konto` nachholen.
@@ -227,6 +245,10 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
   Zuordnung löst (später exakter Treffer, zweiter Kandidat, `kreditkarte loesen`). Das betrifft
   nur Buchungen zur Prüfung, die weder freigegeben noch exportiert sind; geprüfte, korrigierte,
   exportierte und automatisch gebuchte bleiben unangetastet (`kreditkarte loesen` lehnt ab).
+  Ein Ausgleich gegen eine vorläufige Belastung steht zur Prüfung; gibt ein Mensch ihn frei,
+  bevor die Belastung bestätigt ist, und löst der Abgleich die Belastung danach, bleibt der
+  Ausgleich freigegeben stehen und Geldtransit offen — die Meldung „Ausgleich zur Prüfung“ nennt
+  den Grund.
 - **Debitkarten-Ausnahme:** Das Standardmuster erkennt keine Sammelbelastung, deren Text „debit“
   enthält (z.B. „SEPA DIRECT DEBIT … KREDITKARTE“); dann ein eigenes `--muster` setzen oder
   `bank.kreditkarte.belastung_ausnahme` ändern.
@@ -238,6 +260,10 @@ bank lauf: abrufen → Kreditkarten → offene Posten → Belegabgleich → kont
   gebucht ist, kontiert `classify` diese Umsätze ein zweites Mal. Die Prüfung für alte
   PDF-Abrechnungen gilt hier nicht — beim Einrichten nur Auszüge ab dem ersten offenen
   Abrechnungszeitraum bereitstellen.
+- **Kartenkonto mit Kontonummer:** Ein Konto ohne IBAN nimmt keine Auszüge mit IBAN,
+  BLZ/Kontonummer oder BIC/Kontonummer an. Tragen die Kartenauszüge eine solche Kontoangabe, muss
+  sie bei der Einrichtung die Kennung sein; sonst überspringt der Datei-Provider sie still (ohne
+  Meldung) und `import bank --konto` lehnt sie ab.
 - **Keine Alembic-Migration im Paket** (Dateiregel): die vier Kreditkarten-Tabellen entstehen im
   Betrieb über `init_db`; die Migration ist Pflichtschritt beim Zusammenführen (Abschluss).
 - **TAN-Medien** (`get_tan_media`) sind nur gegen die Attrappe getestet, nicht gegen die
@@ -289,12 +315,17 @@ accounti kreditkarte uebernehmen <BELEG-ID>    # … und landet am Kartenkonto
 accounti kreditkarte abgleich                  # Sammelbelastung ./. Summe der Einzelumsätze
 accounti kreditkarte liste                     # Karten, Abrechnungen, Befunde
 accounti kreditkarte loesen <ABRECHNUNG>       # falsche vorläufige Zuordnung lösen
+accounti kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>
+                                               # „mehrdeutig“: diese Belastung gehört nicht
+                                               # zu dieser Abrechnung
 ```
 
 Stimmt die Sammelbelastung auf dem Girokonto nicht centgenau mit der Summe der Einzelumsätze
 überein, bucht accounti sie zur Prüfung und nennt die Differenz als Befund — es gibt keinen
 Rundungsposten. Diese Zuordnung bleibt vorläufig: Kommt später die centgenaue Belastung, löst
-accounti sie selbst. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontieren und
+accounti sie selbst. Passen mehrere Belastungen ungefähr (etwa eine Jahresgebühr und die
+Abrechnung), ordnet accounti nichts zu und meldet „mehrdeutig“ mit dem Befehl, der eine davon
+abtrennt. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontieren und
 nennt sein Ergebnis; ist genau eine Karte mit PDF-Abrechnung eingerichtet, übernimmt er erfasste
 Abrechnungen auch von selbst — nicht aber Abrechnungen, deren Sammelbelastung schon anders
 gebucht ist (sonst stünde der Aufwand doppelt da). Die Einzelumsätze kontiert `classify` gegen
@@ -327,18 +358,21 @@ das Sachkonto der Karte.
   Sachkonto (`accounti kreditkarte einrichten|liste|uebernehmen|abrechnen|abgleich`): Umsätze aus
   PDF-Abrechnungen oder per Provider, Sammelbelastung auf dem Girokonto gegen die Summe der
   Einzelumsätze — Abweichung ist ein Befund, keine Rundungsbuchung, und bleibt vorläufig, bis ein
-  Mensch sie bestätigt (`accounti kreditkarte loesen` löst sie); Geldtransit für Karten mit
-  Abruf. Neuer, optionaler Abschnitt `bank`. Neue Abhängigkeit `fints` 5.0.0 (LGPL-3.0-or-later)
+  Mensch sie bestätigt (`accounti kreditkarte loesen` löst sie, `--belastung` entscheidet
+  „mehrdeutig“); Geldtransit für Karten mit Abruf (der Ausgleich wird nur gegen eine bestätigte
+  Sammelbelastung freigegeben). Neuer, optionaler Abschnitt `bank`. Neue Abhängigkeit `fints` 5.0.0 (LGPL-3.0-or-later)
 
 ### Geändert
 - **Dublettenschutz** über die Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`), wo
   vorhanden: derselbe Umsatz aus zwei Dateien eines Abrufs oder aus camt.053 und camt.054 bleibt
-  einer; Schlüssel ohne Referenz bleiben unverändert
+  einer. Ohne Referenz zählt die laufende Nummer gleicher Umsätze je Auszug bzw. Datei statt je
+  Abruf: derselbe Umsatz aus Tages- und Monatsauszug bleibt einer
 - **Datei-Provider** liest neben CSV auch MT940 und CAMT, überspringt Auszüge fremder Konten,
   liest doppelte Dateien und Auszüge nur einmal und meldet den Saldo
 - **`bank lauf`** gleicht vor den offenen Posten die Kreditkarten ab und nennt das Ergebnis
 - **`import bank`** übernimmt bei MT940/CAMT nur die Auszüge des Kontos aus `--konto` und lehnt
-  Dateien mehrerer Konten ohne `--konto` ab
+  Dateien mehrerer Konten ohne `--konto` ab; ein Konto ohne IBAN (Kreditkarte) nimmt keine
+  Auszüge eines Bankkontos (IBAN, BLZ/Kontonummer) an
 - **Provider-Schnittstelle:** Rückfrage für Freigaben (`freigabe`), aktualisierte Zugänge
   (`Abruf.zugang`, `FreigabeNoetigError.zugang`) werden neu verschlüsselt
 - **Kontoauszüge** im Datei-Provider: Dateien mit `.txt`/`.xml` werden nur übernommen, wenn sie
@@ -387,14 +421,17 @@ Offen als Erweiterung: der PSD2-Provider (opt-in) und Kreditkarten per FinTS.
   Buchung zur Prüfung, nie ein Rundungsposten; solche Zuordnungen sind vorläufig und werden bei
   jedem Lauf neu bewertet (exakter Treffer gewinnt auch über Läufe), spät gelieferte
   Kartenumsätze werden nachgetragen, alte PDF-Abrechnungen mit schon gebuchter Belastung nicht
-  von selbst übernommen. Gebucht wird „Kreditkarte an Bank“ (PDF-Karten) bzw. über Geldtransit
-  (Karten mit Abruf; der Ausgleich nur gegen eine gleich hohe Belastung automatisch). Läuft in
-  `bank lauf` vor den offenen Posten.
+  von selbst übernommen; „mehrdeutig“ entscheidet ein Mensch (`trenne_belastung`). Gebucht wird
+  „Kreditkarte an Bank“ (PDF-Karten) bzw. über Geldtransit (Karten mit Abruf; der Ausgleich nur
+  gegen eine gleich hohe, bestätigte Belastung automatisch). Läuft in `bank lauf` vor den offenen
+  Posten.
   *(vorhanden)*
 - `abrechnung.py` — Provider `abrechnung` für Konten, deren Umsätze aus übernommenen
   Abrechnungen kommen (PDF-Kreditkarten); liefert beim Abruf nichts. *(vorhanden)*
 - `dubletten.py` — … mit Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`) besteht der
-  Schlüssel aus Konto, Datum, Betrag und Referenz (ohne laufende Nummer und Zweck). *(vorhanden)*
+  Schlüssel aus Konto, Datum, Betrag und Referenz (ohne laufende Nummer und Zweck); ohne sie zählt
+  die laufende Nummer je Auszug bzw. Datei (`Abruf.abschnitte`, Folgeseiten gehören dazu).
+  *(vorhanden)*
 - `lauf.py` — … Konten auf `freigabe_noetig` oder `zugang_abgelehnt` ruft ein Abruf ohne
   Rückfrage nicht ab. *(vorhanden)*
 - `provider.py` — … Rückfrage für Freigaben (`BankProvider(freigabe=…)`, `Freigabeanfrage`);
@@ -419,7 +456,8 @@ providerunabhängig. Vorbild: `bank/fints.py`.
 - `camt.py` — camt.052/053/054 (.02 und .08), nur gebuchte Einträge, Bankreferenz, Storno
   (`RvslInd`), DTD/Entities im Parser abgelehnt (auch UTF-16), Saldenprobe. *(vorhanden)*
 - `kontoauszug.py` — gemeinsames `Auszug`-Modell, Formaterkennung am Inhalt, Kontozuordnung
-  (IBAN oder BLZ/Kontonummer), `AuszugImporter` mit Kontoprüfung für `import bank --konto`.
+  (IBAN oder BLZ/Kontonummer; ein Konto ohne IBAN nimmt keine Auszüge eines Bankkontos an),
+  `AuszugImporter` mit Kontoprüfung für `import bank --konto`.
   Registry-Einträge `mt940` und `camt`; `--format auto` erkennt sie vor den CSV-Profilen.
   *(vorhanden)*
 ```
