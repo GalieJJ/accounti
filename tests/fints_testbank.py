@@ -15,6 +15,7 @@ import base64
 import datetime as dt
 import http.server
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -166,6 +167,11 @@ def _bankparameter(camt: bool) -> list[FinTS3Segment]:
     return segmente
 
 
+class _Server(http.server.HTTPServer):
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        """Nach einem Zeitlimit ist der Client schon weg — kein Grund zum Lärm."""
+
+
 @dataclass
 class FinTSTestbank:
     mt940_teile: list[str]
@@ -174,6 +180,7 @@ class FinTSTestbank:
     pin: str = "1234"
     tan: str = "123456"
     sca_bei_init: bool = True
+    verzoegerung: float = 0.0  # Sekunden bis zur Antwort (Zeitlimit prüfen)
     produkt_ids: list[str] = field(default_factory=list)
     produkt_versionen: list[str] = field(default_factory=list)
     systeme: list[str] = field(default_factory=list)
@@ -192,6 +199,7 @@ class FinTSTestbank:
 
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_POST(self) -> None:  # noqa: N802 (Name aus http.server)
+                time.sleep(bank.verzoegerung)
                 laenge = int(self.headers["Content-Length"])
                 nachricht = base64.b64decode(self.rfile.read(laenge))
                 antwort = base64.b64encode(bank.beantworte(nachricht))
@@ -203,7 +211,7 @@ class FinTSTestbank:
             def log_message(self, *_: object) -> None:
                 pass
 
-        self._server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self._server = _Server(("127.0.0.1", 0), Handler)
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
         host, port = self._server.server_address[:2]
         self.url = f"http://{host!s}:{port}/fints"

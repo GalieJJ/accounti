@@ -343,6 +343,30 @@ def test_ohne_abrechnung_wird_nichts_gebucht(make_session):
         assert lade_buchungen(s) == []
 
 
+def test_alte_schon_gebuchte_belastungen_ohne_abrechnung_bleiben_still(make_session):
+    """Wer die Karte nachträglich einrichtet, hat frühere Sammelbelastungen längst
+    gebucht — sie sollen nicht bei jedem Lauf als „ohne Abrechnung“ auftauchen."""
+    with make_session() as s:
+        _karte(s)
+        _belastung(s, tag=5, monat=1)
+        tx = next(
+            t for t in lade_transaktionen(s) if "KREDITKARTEN" in t.verwendungszweck
+        )
+        speichere_buchung(
+            s,
+            Buchungssatz(
+                transaktion_id=tx.id,
+                datum=tx.datum,
+                soll_konto="1730",
+                haben_konto="1200",
+                betrag_netto=Decimal("698.65"),
+                buchungstext="früher gebucht",
+            ),
+        )
+        ergebnis = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert ergebnis.ohne_abrechnung == [] and ergebnis.mehrdeutig == []
+
+
 def test_belastung_ausserhalb_des_fensters(make_session):
     with make_session() as s:
         _uebernommen(s)

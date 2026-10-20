@@ -145,10 +145,11 @@ def erzeuge_client(
     produkt_id: str,
     produkt_version: str,
     daten: bytes | None,
+    zeitlimit: float,
 ) -> FinTSClient:
     """Der echte Client; Tests ersetzen diese Funktion durch eine Attrappe."""
     klasse = _client_klasse()
-    client: FinTSClient = klasse(
+    client = klasse(
         blz,
         benutzerkennung,
         pin,
@@ -158,7 +159,10 @@ def erzeuge_client(
         product_id=produkt_id,
         product_version=produkt_version,
     )
-    return client
+    # python-fints setzt kein Zeitlimit — ein hängender Server hielte den Cron auf
+    sitzung = client.connection.session
+    sitzung.request = functools.partial(sitzung.request, timeout=zeitlimit)
+    return client  # type: ignore[no-any-return]
 
 
 def _braucht_freigabe(antwort: Any) -> bool:
@@ -218,6 +222,10 @@ def _fehler_uebersetzt(konto: Bankkonto, zugang: dict[str, str]) -> Iterator[Non
     except KontoauszugError as f:
         raise fehler(f"Antwort der Bank nicht lesbar: {f}") from f
     except (FinTSError, ValueError) as f:
+        # python-fints verpackt Verbindungsfehler beim Dialogaufbau
+        ursache = f.__cause__ or f.__context__
+        if isinstance(ursache, FinTSConnectionError | requests.RequestException):
+            raise fehler(f"Bank nicht erreichbar ({server}): {ursache}") from f
         raise fehler(f"FinTS-Fehler: {f}") from f
     except Exception as f:
         if type(f) is not Exception:  # python-fints wirft schlichte Exceptions
@@ -307,6 +315,7 @@ class FinTSProvider(BankProvider):
             produkt_id=produkt_id,
             produkt_version=self.einstellungen.produkt_version,
             daten=_sitzung_lesen(zugang) if mit_sitzung else None,
+            zeitlimit=self.einstellungen.zeitlimit_sekunden,
         )
         if e.get("tan_verfahren"):
             client.set_tan_mechanism(e["tan_verfahren"])

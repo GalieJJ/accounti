@@ -25,6 +25,7 @@ def test_ohne_datei_und_ohne_abschnitt_gelten_die_standards(tmp_path):
         assert e == BankEinstellungen()
     assert e.fints.produkt_id is None
     assert e.fints.erster_abruf_tage == 90
+    assert e.fints.zeitlimit_sekunden == 120
     assert e.kreditkarte.belastung_fenster_tage == 30
 
 

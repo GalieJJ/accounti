@@ -38,6 +38,9 @@ class FinTSEinstellungen(BaseModel):
     )
     freigabe_wartezeit_sekunden: float = Field(default=300, gt=0)
     freigabe_intervall_sekunden: float = Field(default=3, ge=0)
+    zeitlimit_sekunden: float = Field(
+        default=120, gt=0, description="je Anfrage an die Bank — kein ewiges Warten"
+    )
 
     @field_validator("produkt_id")
     @classmethod

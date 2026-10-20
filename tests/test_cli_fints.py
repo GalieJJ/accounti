@@ -202,3 +202,46 @@ def test_freigeben_ohne_fints_konten(umgebung):
     assert "Keine FinTS-Konten" in _text(r)
     r = _run("fints", "freigeben", "--konto", "DE00", "--db", url)
     assert r.exit_code == 1
+
+
+def test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt(umgebung, tmp_path):
+    """Fällt die Bank aus, bleibt der Dateiimport nutzbar — und was die Bank danach
+    liefert, kommt nicht doppelt (Akzeptanz 2: gleicher Auszug, gleiche Schlüssel)."""
+    from fints.exceptions import FinTSConnectionError
+
+    from tests.fints_attrappe import DATEN
+
+    bank, url = umgebung
+    bank.sca_bei_init = None
+    bank.verfahren = {"921": "pushTAN 2.0"}
+    r = _run(
+        "fints",
+        "einrichten",
+        "--iban",
+        IBAN,
+        "--bezeichnung",
+        "Giro",
+        "--blz",
+        "12030000",
+        "--server",
+        SERVER,
+        "--format",
+        "mt940",
+        "--db",
+        url,
+        eingabe="kunde-4711\n1234\n",
+    )
+    assert r.exit_code == 0, r.output
+    bank.verbindung_weg = FinTSConnectionError("Bad status code 503")
+    r = _run("bank", "abrufen", "--db", url)
+    assert "fehler" in _text(r) and "nicht erreichbar" in _text(r)
+
+    datei = tmp_path / "auszug.sta"
+    datei.write_bytes((DATEN / "auszug.sta").read_bytes())
+    r = _run("import", "bank", str(datei), "--konto", IBAN, "--db", url)
+    assert r.exit_code == 0, r.output
+    assert "6 Transaktionen importiert" in _text(r)
+
+    bank.verbindung_weg = None
+    r = _run("bank", "abrufen", "--db", url)
+    assert "0 neu, 6 schon vorhanden" in _text(r)

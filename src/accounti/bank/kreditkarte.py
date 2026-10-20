@@ -491,6 +491,7 @@ class _Abgleich:
             else:
                 rest.append(tx)
         paare = {tx.id: self._paare(tx) for tx in rest}
+        gebucht = gebuchte_transaktion_ids(self.session)
         for tx in rest:  # 2. genau eine Abrechnung und keine andere Belastung dafür
             eigene = paare[tx.id]
             konkurrenz = [
@@ -500,7 +501,8 @@ class _Abgleich:
                 and {a.id for _, a in paare[t.id]} & {a.id for _, a in eigene}
             ]
             if not eigene:
-                self.ergebnis.ohne_abrechnung.append(tx)
+                if tx.id not in gebucht:  # längst gebuchte alte Belastungen: still
+                    self.ergebnis.ohne_abrechnung.append(tx)
             elif len(eigene) == 1 and not konkurrenz:
                 self._ordne_zu(tx, *eigene[0], AbrechnungStatus.ABWEICHUNG)
             else:

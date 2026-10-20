@@ -123,3 +123,13 @@ def test_einrichtung_gegen_die_testbank(testbank):
     assert testbank.freigegeben == {testbank.systeme[0]}
     abruf = _provider().abrufen(konto, zugang, None)  # danach ohne Eingabe
     assert len(abruf.transaktionen) == 6
+
+
+def test_haengende_bank_haelt_den_lauf_nicht_auf(testbank):
+    testbank.verzoegerung = 1.0
+    provider = FinTSProvider(
+        None,
+        einstellungen=FinTSEinstellungen(produkt_id=PRODUKT_ID, zeitlimit_sekunden=0.2),
+    )
+    with pytest.raises(ProviderError, match="nicht erreichbar"):
+        provider.abrufen(_konto(testbank), ZUGANG, None)

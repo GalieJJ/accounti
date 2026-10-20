@@ -91,6 +91,7 @@ class AttrappenClient:
         produkt_id: str,
         produkt_version: str,
         daten: bytes | None,
+        zeitlimit: float,
     ) -> None:
         self.bank = bank
         self.pin = pin
