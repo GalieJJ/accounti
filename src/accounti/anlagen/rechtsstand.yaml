@@ -1,0 +1,223 @@
+# accounti — Rechtsstand der Anlagenbuchhaltung (Stand 20.10.2026)
+#
+# Grenzbeträge und Sätze ändern sich mit der Gesetzgebung. Maßgeblich ist der Tag der
+# Anschaffung/Herstellung/Einlage: Ein Zugang aus 2015 rechnet mit den Werten von 2015.
+# Beträge sind netto (ohne abziehbare Vorsteuer). Eigene Ergänzungen in einer Datei
+# gleicher Form, eingebunden über anlagen.rechtsstand in config/accounti.yaml — eigene
+# Einträge gehen vor.
+
+grenzen:
+  - von: 1900-01-01
+    bis: 2007-12-31
+    gwg: 410
+    quelle: "§ 6 Abs. 2 EStG a. F. (vor dem Unternehmensteuerreformgesetz 2008)"
+  - von: 2008-01-01
+    bis: 2009-12-31
+    gwg: 150
+    verzeichnis_ab: 150
+    sammelposten_von: 150
+    sammelposten_bis: 1000
+    pflicht: true
+    quelle: >-
+      § 6 Abs. 2, 2a EStG i. d. F. des Unternehmensteuerreformgesetzes 2008:
+      Sofortabzug bis 150 € und Sammelposten 150–1.000 € zwingend
+  - von: 2010-01-01
+    bis: 2017-12-31
+    gwg: 410
+    verzeichnis_ab: 150
+    sammelposten_von: 150
+    sammelposten_bis: 1000
+    quelle: >-
+      § 6 Abs. 2, 2a EStG i. d. F. des Wachstumsbeschleunigungsgesetzes vom 22.12.2009
+      (BGBl. 2009 I S. 3950); BMF 30.09.2010, IV C 6 - S 2180/09/10001
+  - von: 2018-01-01
+    gwg: 800
+    verzeichnis_ab: 250
+    sammelposten_von: 250
+    sammelposten_bis: 1000
+    quelle: >-
+      § 6 Abs. 2, 2a EStG i. d. F. des Gesetzes gegen schädliche Steuerpraktiken im
+      Zusammenhang mit Rechteüberlassungen vom 27.06.2017; Wortlaut geprüft am 20.10.2026
+      (gesetze-im-internet.de)
+
+# Degressive AfA (§ 7 Abs. 2 EStG): Satz = Faktor × linearer Satz, höchstens Höchstsatz.
+degressiv:
+  - von: 2020-01-01
+    bis: 2022-12-31
+    faktor: 2.5
+    hoechstsatz: 25
+    quelle: >-
+      § 7 Abs. 2 EStG i. d. F. vom 27.03.2024 (Zweites Corona-Steuerhilfegesetz),
+      fortgeltend nach dem Investitionssofortprogramm
+  - von: 2024-04-01
+    bis: 2024-12-31
+    faktor: 2
+    hoechstsatz: 20
+    quelle: "§ 7 Abs. 2 EStG i. d. F. des Wachstumschancengesetzes vom 27.03.2024"
+  - von: 2025-07-01
+    bis: 2027-12-31
+    faktor: 3
+    hoechstsatz: 30
+    quelle: >-
+      § 7 Abs. 2 EStG i. d. F. des Gesetzes für ein steuerliches Investitionssofortprogramm,
+      verkündet 18.07.2025 (BGBl. 2025 I Nr. 161)
+
+# Elektrofahrzeuge (§ 7 Abs. 2a EStG): Prozent der Anschaffungskosten je Jahr; im
+# Anschaffungsjahr voll, auch bei unterjähriger Anschaffung.
+e_fahrzeug:
+  - von: 2025-07-01
+    bis: 2027-12-31
+    saetze: [75, 10, 5, 5, 3, 2]
+    quelle: "§ 7 Abs. 2a EStG (Investitionssofortprogramm, BGBl. 2025 I Nr. 161)"
+
+# Computerhardware und Software: Nutzungsdauer 1 Jahr, volle AfA im Anschaffungsjahr wird
+# nicht beanstandet.
+digital:
+  - von: 2021-01-01
+    quelle: >-
+      BMF 22.02.2022, IV C 3 - S 2190/21/10002 :025, Rz. 1.4 (ersetzt BMF 26.02.2021);
+      Wirtschaftsjahre, die nach dem 31.12.2020 enden
+
+# Verzicht auf Rechnungsabgrenzungsposten bis zur GWG-Grenze (§ 5 Abs. 5 Satz 2 EStG),
+# erstmals für Wirtschaftsjahre, die nach dem 31.12.2021 enden.
+rap_verzicht:
+  - von: 2021-12-31
+    quelle: "§ 5 Abs. 5 Satz 2 EStG i. d. F. des JStG 2022 (BT-Drs. 20/4229)"
+
+# AfA-Tabelle für die allgemein verwendbaren Anlagegüter (BMF 15.12.2000,
+# IV D 2 - S 1551 - 188/00, BStBl I 2000 S. 1532), Auswahl. Die Nutzungsdauer ist ein
+# Vorschlag und immer änderbar; konto ist das vorgeschlagene Anlagekonto je Kontenrahmen.
+afa_tabelle:
+  pkw:
+    bezeichnung: "Personenkraftwagen und Kombiwagen"
+    nutzungsdauer: 6
+    fundstelle: "AfA-Tabelle AV 4.2.1"
+    konto: {SKR03: "0320", SKR04: "0520"}
+    kfz: true
+  e_pkw:
+    bezeichnung: "Elektro-Pkw (§ 7 Abs. 2a EStG wählbar)"
+    nutzungsdauer: 6
+    fundstelle: "AfA-Tabelle AV 4.2.1"
+    konto: {SKR03: "0320", SKR04: "0520"}
+    kfz: true
+  lkw:
+    bezeichnung: "Lastkraftwagen, Sattelschlepper, Kipper"
+    nutzungsdauer: 9
+    fundstelle: "AfA-Tabelle AV 4.2.3"
+    konto: {SKR03: "0350", SKR04: "0540"}
+    kfz: true
+  motorrad:
+    bezeichnung: "Motorräder, Motorroller, Fahrräder u. ä."
+    nutzungsdauer: 7
+    fundstelle: "AfA-Tabelle AV 4.2.2"
+    konto: {SKR03: "0320", SKR04: "0520"}
+    kfz: true
+  stapler:
+    bezeichnung: "Elektrokarren, Stapler, Hubwagen"
+    nutzungsdauer: 8
+    fundstelle: "AfA-Tabelle AV 4.5"
+    konto: {SKR03: "0400", SKR04: "0630"}
+  computer:
+    bezeichnung: "Computerhardware: PC, Notebook, Tablet, Drucker, Scanner, Bildschirme"
+    nutzungsdauer: 1
+    afa_art: digital
+    fundstelle: "BMF 22.02.2022 (AfA-Tabelle AV 6.14.3.2: 3 Jahre)"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  notebook:
+    bezeichnung: "Notebook"
+    nutzungsdauer: 1
+    afa_art: digital
+    fundstelle: "BMF 22.02.2022 (AfA-Tabelle AV 6.14.3.2: 3 Jahre)"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  software:
+    bezeichnung: "Betriebs- und Anwendersoftware"
+    nutzungsdauer: 1
+    afa_art: digital
+    immateriell: true
+    fundstelle: "BMF 22.02.2022, Rz. 5"
+    konto: {SKR03: "0027", SKR04: "0135"}
+  mobiltelefon:
+    bezeichnung: "Mobilfunkendgeräte"
+    nutzungsdauer: 5
+    fundstelle: "AfA-Tabelle AV 6.13.2.2"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  telefonanlage:
+    bezeichnung: "Fernsprechnebenstellenanlagen"
+    nutzungsdauer: 10
+    fundstelle: "AfA-Tabelle AV 6.13.1"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  faxgeraet:
+    bezeichnung: "Textendeinrichtungen (Faxgeräte u. ä.)"
+    nutzungsdauer: 6
+    fundstelle: "AfA-Tabelle AV 6.13.3"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  audio_video:
+    bezeichnung: "Foto-, Film-, Video- und Audiogeräte"
+    nutzungsdauer: 7
+    fundstelle: "AfA-Tabelle AV 6.14.4"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  beamer:
+    bezeichnung: "Präsentationsgeräte, Datensichtgeräte"
+    nutzungsdauer: 8
+    fundstelle: "AfA-Tabelle AV 6.14.6"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  registrierkasse:
+    bezeichnung: "Registrierkassen"
+    nutzungsdauer: 6
+    fundstelle: "AfA-Tabelle AV 6.14.7"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  kopierer:
+    bezeichnung: "Vervielfältigungsgeräte (Kopierer)"
+    nutzungsdauer: 7
+    fundstelle: "AfA-Tabelle AV 6.14.10"
+    konto: {SKR03: "0410", SKR04: "0635"}
+  aktenvernichter:
+    bezeichnung: "Reißwölfe (Aktenvernichter)"
+    nutzungsdauer: 8
+    fundstelle: "AfA-Tabelle AV 6.14.13"
+    konto: {SKR03: "0420", SKR04: "0650"}
+  bueromoebel:
+    bezeichnung: "Büromöbel"
+    nutzungsdauer: 13
+    fundstelle: "AfA-Tabelle AV 6.15"
+    konto: {SKR03: "0420", SKR04: "0650"}
+  klimageraet:
+    bezeichnung: "Klimageräte (mobil)"
+    nutzungsdauer: 11
+    fundstelle: "AfA-Tabelle AV 6.5"
+    konto: {SKR03: "0400", SKR04: "0630"}
+  ladeneinbau:
+    bezeichnung: "Ladeneinbauten, Gaststätteneinbauten, Schaufensteranlagen"
+    nutzungsdauer: 8
+    fundstelle: "AfA-Tabelle AV 3.7"
+    konto: {SKR03: "0430", SKR04: "0690"}
+  ladeneinrichtung:
+    bezeichnung: "Wirtschaftsgüter der Ladeneinrichtungen"
+    nutzungsdauer: 8
+    fundstelle: "AfA-Tabelle AV 6.2"
+    konto: {SKR03: "0430", SKR04: "0690"}
+  container:
+    bezeichnung: "Transport-, Bau-, Büro- und Wohncontainer"
+    nutzungsdauer: 10
+    fundstelle: "AfA-Tabelle AV 3.6"
+    konto: {SKR03: "0490", SKR04: "0690"}
+  tresor:
+    bezeichnung: "Panzerschränke, Tresore"
+    nutzungsdauer: 23
+    fundstelle: "AfA-Tabelle AV 6.19.2"
+    konto: {SKR03: "0420", SKR04: "0650"}
+  werkstatt:
+    bezeichnung: "Werkstätten-, Labor- und Lagereinrichtungen"
+    nutzungsdauer: 14
+    fundstelle: "AfA-Tabelle AV 6.1"
+    konto: {SKR03: "0400", SKR04: "0630"}
+  messestand:
+    bezeichnung: "Messestände"
+    nutzungsdauer: 6
+    fundstelle: "AfA-Tabelle AV 6.3"
+    konto: {SKR03: "0490", SKR04: "0690"}
+  photovoltaik:
+    bezeichnung: "Photovoltaikanlagen"
+    nutzungsdauer: 20
+    fundstelle: "AfA-Tabelle AV 3.1.6"
+    konto: {SKR03: "0400", SKR04: "0630"}
