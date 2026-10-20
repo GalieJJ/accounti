@@ -126,9 +126,8 @@ def lade_integrationen(pfad: str | Path = STANDARD_PFAD) -> Integrationen:
     eigene = werte.pop("marktplaetze", None) or {}
     try:
         if not isinstance(eigene, dict):
-            raise KonfigurationError(
-                f"{pfad}: integrationen.marktplaetze ist keine Liste"
-            )
+            msg = f"{pfad}: integrationen.marktplaetze muss Name → Konten zuordnen"
+            raise KonfigurationError(msg)
         marktplaetze = {}
         for name in {*_STANDARD_MARKTPLAETZE, *eigene}:
             basis = dict(_STANDARD_MARKTPLAETZE.get(name, {}))
