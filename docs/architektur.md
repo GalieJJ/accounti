@@ -46,7 +46,10 @@ Bank-CSVs laufen **konfigurationsgetrieben** über `profil.py`: Ein `BankProfil`
 - `sparkasse.py` — dünner Wrapper um das Sparkasse-Profil (Rückwärtskompatibilität).
 - Registry `BANK_IMPORTERS` (Bankname → einsatzbereiter Importer); `import bank --format auto` erkennt die Bank an den Spaltenüberschriften.
 
-Geplant (eigene Importer, kein Bank-CSV): `mt940.py`, `camt.py` (XML), `jtl.py`, `amazon.py`, `ebay.py`, `paypal.py`.
+Marktplätze (Baustein 11) haben eigene Importer, die eine *Abrechnung* mit Posten liefern statt
+Transaktionen — `marktplatz.py` (gemeinsame Parser, Länderdatei, Registry
+`MARKTPLATZ_IMPORTER`), `amazon.py`, `ebay.py`, `paypal.py`, `shopify.py`. Geplant: `mt940.py`,
+`camt.py` (XML), `jtl.py`.
 
 ### `belege/` *(vorhanden — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
 
@@ -91,6 +94,26 @@ Holt Kontoumsätze selbst ab und führt sie mit Belegen zusammen.
 - `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender. Abgeglichen werden Quittungen und sonstige Belege; Rechnungen laufen über offene Posten. Automatisch nur, was auf beiden Seiten eindeutig ist; zwei gleiche Belege werden zwei Vorschläge. *(vorhanden)*
 - `abgleichslauf.py` — Tabelle `belegabgleiche` (vorgeschlagen/bestätigt/abgelehnt), Bestätigen verwirft konkurrierende Vorschläge, Bericht „Umsätze ohne Beleg / Belege ohne Umsatz“. *(vorhanden)*
 - Bankkonten (`Bankkonto` in `models/`, Tabelle `bankkonten`) — IBAN, Sachkonto, Provider, Einstellungen, verschlüsselter Zugang, Abrufstand, Zustand; Zugangsdaten nie in Logs, nie im LLM-Prompt. *(vorhanden)*
+
+### `integrationen/` *(teilweise — [Baustein 11](specs/2026-08-10-integrationen-export.md))*
+
+Bucht Marktplatz-Abrechnungen. Eine Abrechnung hat genau einen Abgleichspunkt gegen die Bank
+(Amazon: Settlement-ID, eBay/Shopify: Auszahlung, PayPal: Zeitraum der Datei — PayPal ist ein
+eigenes Konto mit Guthaben).
+
+- `lauf.py` — Bericht archivieren (Beleg, Kanal `marktplatz`), Dubletten über Datei-Hash,
+  Nachträge zu bekannten Abrechnungen (Marktplatz, Nummer) über den Inhalt der Posten,
+  PayPal-Zeilen als Umsätze auf dem PayPal-Konto, Lieferschwelle je Kalenderjahr, Buchen,
+  Abgleichen.
+- `buchung.py` — Summenprobe (Abweichung = Befund, keine Differenzbuchung); Erlös je Bestellung,
+  Gebühren je Art, Erstattungen, Einbehalte gegen das Verrechnungskonto; Steuer je
+  Bestimmungsland über `steuer.umsatzsteuer`; Lieferschwelle.
+- `auszahlung.py` — Auszahlung ↔ Bankumsatz exakt (erst alle eindeutigen Treffer, dann
+  Befunde), sonst Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`.
+- `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
+  gebuchten mit der gemeldeten OSS-Steuer.
+- `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03).
+- Tabellen `marktplatz_abrechnungen`, `marktplatz_posten`, `marktplatz_befunde`.
 
 ### `klassifikation/`
 
@@ -295,16 +318,24 @@ Ein Testmodus erzeugt und prüft, ohne abzugeben. Die Freigabe durch einen Mensc
 
 ### `export/`
 
-**DATEV-Export** (Priorität):
-- EXTF-Format Version 700
-- Buchungsstapel + Debitoren/Kreditoren
-- cp1252-Encoding (DATEV-Standard)
+**DATEV-Export** (Priorität), Format EXTF Version 700, Windows-1252:
+- `datev.py` — Buchungsstapel (`accounti export datev`).
+- `datev_format.py`, `datev_felder.py` — Kopfzeile, Feldtypen und Feldlisten wörtlich aus DATEVs
+  Musterdateien und Formatbeschreibung; was nicht passt, ist ein `DatevFormatError`.
+- `datev_stammdaten.py` — Debitoren/Kreditoren (Kategorie 16, Version 5) aus `kontakte/`.
+- `datev_belege.py` — Belegpaket (ZIP mit `document.xml` nach `Document_v060.xsd`) und
+  Buchungsstapel mit Beleglink `BEDI "<GUID>"`: der Beleg hängt beim Empfänger am Buchungssatz.
+- `kontoauszuege.py` — Monatsauszüge je Finanzkonto, lückenlos nummeriert, festgeschrieben
+  (Tabellen `kontoauszuege`, `kontoauszug_umsaetze`, Hash-Kette), als MT940 und Saldenverlauf;
+  `pruefe_auszuege` für Baustein 7.
+
+Befehle: `accounti datev stammdaten|belege|kontoauszuege`.
 
 Weitere Exportformate:
 - CSV (generisch)
 - JSON (für API-Konsumenten)
 
-Geplant ([Baustein 11](specs/2026-08-10-integrationen-export.md)): Debitoren-/Kreditoren-Stammdaten, Belegbilder mit Verknüpfung zum Buchungssatz, Kontoauszüge, Prüfungsdatenüberlassung.
+Geplant ([Baustein 11](specs/2026-08-10-integrationen-export.md)): Prüfungsdatenüberlassung.
 
 ### `bwa/`
 

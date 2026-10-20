@@ -113,8 +113,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
 | ✅ | **DATEV-Buchungsstapel** | ASCII-konformer EXTF-Export, gegen echte Dateien geprüft |
-| 🔲 | **DATEV vollständig** | Debitoren/Kreditoren-Stammdaten, Belegbilder, Kontoauszüge |
-| 🔲 | **Marktplätze & ERP** | JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal — mit Bestimmungsland |
+| ✅ | **DATEV vollständig** | Debitoren/Kreditoren (EXTF, Golden-Test), Belegpaket mit `document.xml` und Buchungsstapel mit Beleglink — Belege hängen beim Empfänger am Buchungssatz —, Kontoauszüge lückenlos nummeriert als MT940 mit Saldenverlauf |
+| 🟨 | **Marktplätze & ERP** | Amazon (Abrechnungsbericht V2), eBay, Shopify, PayPal (als eigenes Konto) — Erlöse, Gebühren, Erstattungen, Einbehalte einzeln gebucht, Summenprobe, Auszahlungsabgleich, Bestimmungsland → OSS; JTL-Wawi folgt |
 | 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
 | 🔲 | **REST-API** | Belege einliefern, Buchungen und OPOS abfragen, Läufe anstoßen |
 | 🔲 | **Mehrere Gesellschaften** | Eigene Firmen mit eigenem Wirtschaftsjahr und Kontenrahmen |
@@ -303,6 +303,34 @@ accounti kontakte ustid-protokoll ATU12345678 --csv ustid.csv
 Bestätigung aus den letzten 30 Tagen vorliegt (`ustid_pruefung.max_alter_tage`). Ist die
 Nummer ungültig oder stimmen Name/Ort nicht, wird die Rechnung nicht ausgestellt, und
 `opos verbuchen` legt solche Erlöse zur Prüfung vor.
+
+### Marktplätze und DATEV-Übergabe
+
+```bash
+accounti marktplatz import amazon ./abrechnung.txt --laender ./ust_transaktionen.csv
+accounti marktplatz import paypal ./aktivitaeten.csv     # PayPal ist ein eigenes Konto (1210)
+accounti marktplatz import shopify ./auszahlung.csv --laender ./bestellungen.csv
+accounti marktplatz liste                                # Status und Befunde je Abrechnung
+accounti marktplatz abgleichen                           # Auszahlungen ↔ Bankumsätze
+accounti marktplatz oss --quartal 2026-Q3                # OSS-Quartalsmeldung
+
+accounti datev stammdaten --ausgabe ./export             # Debitoren/Kreditoren
+accounti datev belege --period 2026-08 --ausgabe ./export/belege-08.zip
+accounti datev kontoauszuege --period 2026-08 --anfangssaldo 1.234,56   # erstes Mal
+accounti datev kontoauszuege --period 2026-09 --kontrollsaldo 2.345,67
+```
+
+Jede Abrechnung wird als Beleg archiviert und Bestandteil für Bestandteil gegen ein
+Verrechnungskonto gebucht; die Auszahlung ist nur der Abgleichspunkt gegen die Bank. Stimmt die
+Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Ein
+weiterer Bericht zu einer bekannten Abrechnung (Monatsberichte, erneuter Export) bucht nur die
+Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nichts nachgetragen.
+Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
+Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
+er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
+FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`.
+`datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel
+mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen festgeschrieben.
 
 ### Anlagen und Jahresabschluss
 
@@ -635,7 +663,7 @@ kontieren will, braucht nur v0.1.
 ### v0.6 — Integrationen *(Baustein 11)*
 - [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal
 - [ ] Bestimmungsland-Erkennung für OSS
-- [ ] DATEV vollständig: Stammdaten, Belegbilder, Kontoauszüge
+- [x] DATEV vollständig: Stammdaten, Belegbilder, Kontoauszüge
 - [ ] REST-API, Prüfungsdatenüberlassung
 - [ ] MT940/CAMT-Import
 

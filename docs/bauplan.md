@@ -90,8 +90,11 @@ E-Mail oder Webhook. Die Bausteine 7 und 9 melden ihre Aufgaben über `accounti.
 Offen: Einhängen in `bank lauf` (bis dahin `accounti aufgaben lauf` im selben Cron-Eintrag),
 Benutzerkonten und Rechte (Baustein 10).
 
-**Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
-sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
+**Baustein 11 ist teilweise fertig,** weil Marktplatz-Abrechnungen (Amazon, eBay, PayPal,
+Shopify) mit Summenprobe, Auszahlungsabgleich und OSS-Zuordnung sowie die vollständige
+DATEV-Übergabe — Stammdaten, Belege mit Beleglink, lückenlos nummerierte Kontoauszüge — stehen
+([Plan](plans/2026-10-25-integrationen-export.md)). Was fehlt, sind die REST-API (mit Baustein 10),
+JTL-Wawi, die Prüfungsdatenüberlassung und die Beleg-Connectoren.
 
 **Baustein 12 ist teilweise fertig,** weil die Anlagenbuchhaltung (AfA linear, degressiv, GWG,
 Sammelposten, digitale Wirtschaftsgüter, E-Fahrzeuge, Abgang, Anlagenspiegel — Grenzbeträge mit

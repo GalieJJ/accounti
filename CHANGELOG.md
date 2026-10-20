@@ -7,6 +7,21 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Integrationen & Export, Pakete 1–4** (Baustein 11 ohne REST-API): Marktplatz-Importer für
+  Amazon (Abrechnungsbericht Flat File V2 mit Länderdatei), eBay (Transaktionsbericht), PayPal
+  (Aktivitäten, als eigenes Konto mit Guthabenkette und Fremdwährungsumrechnung) und Shopify
+  (Auszahlungstransaktionen mit Bestellexport); jede Abrechnung wird archiviert, Erlöse je
+  Bestellung, Gebühren je Art, Erstattungen und Einbehalte werden einzeln gegen ein
+  Verrechnungskonto gebucht, die Summenprobe meldet Abweichungen als Befund, die Auszahlung wird
+  exakt gegen den Bankumsatz abgeglichen (`accounti marktplatz import|liste|zeigen|abgleichen`);
+  Steuer je Bestimmungsland über `accounti.steuer` (Inland, OSS, ig. Lieferung, Ausfuhr,
+  Lieferschwelle aus Vorjahr und laufendem Jahr), Umsatzsteuer der Marktplatzgebühren
+  (Amazon mit Vorsteuer), OSS-Quartalsmeldung mit Korrekturen früherer Quartale und ermäßigten
+  Sätzen (`accounti marktplatz oss`); Nachträge zu bekannten Abrechnungen; DATEV-Debitoren/Kreditoren
+  (EXTF Kategorie 16, Version 5), Belegpaket mit `document.xml` (Version 6.0) und Buchungsstapel
+  mit Beleglink (`accounti datev stammdaten|belege`); Kontoauszüge je Finanzkonto, lückenlos
+  nummeriert, festgeschrieben mit Hash-Kette, als MT940 mit Saldenverlauf
+  (`accounti datev kontoauszuege`). Neuer, optionaler Konfigurationsabschnitt `integrationen`
 - **Anlagenbuchhaltung & Jahresabschluss** (Baustein 12): Anlagegüter mit AfA linear
   (monatsgenau, § 7 Abs. 1 Satz 4 EStG), degressiv (2,5-fach/25 % für 2020–2022, 2-fach/20 % für
   04–12/2024, 3-fach/30 % für 07/2025–2027, automatischer Wechsel zur linearen AfA), GWG
@@ -180,6 +195,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- DATEV-Exporte mit Beleglink schreiben Belegfeld 1 nur noch mit den von DATEV zugelassenen
+  Zeichen (Befund bei Kürzung)
 - Buchungen in einem abgeschlossenen Jahr lassen sich nicht mehr anlegen, ändern oder löschen
   (`JahrGesperrtError`); `accounti abschluss oeffnen` hebt die Sperre mit Begründung und Protokoll
   auf. `classify`, `opos zuordnen` und `bank abgleich` lassen Umsätze in abgeschlossenen Jahren
@@ -220,6 +237,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- OSS-Meldung und Schwellenprüfung (`steuer/oss.py`) zählten Erstattungen auf OSS-Erlöskonten
+  als Umsatz statt als Minderung
+- OSS-Meldung (`steuer/oss.py`): Erstattungen früherer Quartale werden als Korrektur des
+  Ursprungsquartals ausgewiesen, die CSV lässt negative Zeilen nicht mehr weg, ermäßigte Sätze
+  über eigene Erlöskonten, Steuer je Land und Satz aus der Summe der Bemessungsgrundlagen
 - **`import bank`** hat dieselbe Datei beim zweiten Import doppelt eingelesen; Umsätze tragen
   jetzt einen Dublettenschlüssel und werden nur einmal gespeichert
 - Ein zweiter `accounti classify`-Lauf hat alle Transaktionen erneut gebucht; jetzt werden nur
