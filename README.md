@@ -80,8 +80,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
 | ✅ | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung, qualifizierte USt-IdNr.-Bestätigung beim BZSt (eVatR-REST-API) mit revisionssicherem Protokoll |
 | ✅ | **Offene Posten** | Beleg → Buchung auf Personenkonto + offener Posten, OPOS-Liste, Fälligkeitsstaffel, Zahlungszuordnung (Referenz → exakt → Vorschlag), Teil- und Sammelzahlung, Skonto mit Vorsteuer-/Umsatzsteuerkorrektur |
-| 🔲 | **Zahlungsverkehr** | Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe-Workflow |
-| 🔲 | **Mahnwesen** | Mehrstufig, mit Verzugszinsen und Mahngebühren |
+| ✅ | **Zahlungsverkehr** | Zahlungsvorschlag mit Skonto zuerst und Grund je Position, Zahlungslauf mit blockierender Prüfung (IBAN ≠ Stammsatz oder Rechnung stoppt), Freigabe (optional Vier-Augen) und Storno mit Protokoll, SEPA-Sammelüberweisung `pain.001.001.09` (DK GBIC_5) als Datei |
+| ✅ | **Mahnwesen** | Konfigurierbare Stufen, Verzugszinsen nach § 288 BGB mit datiertem Basiszinssatz, 40-€-Pauschale im B2B, Mahnschreiben als PDF/Text/E-Mail, Mahnstufe am offenen Posten |
 | ✅ | **Lernschleife** | Korrekturen werden zu Regeln — das System fragt mit der Zeit seltener |
 
 **Prüfen & Zusammenarbeiten**
@@ -233,6 +233,41 @@ accounti bank vorschlaege                      # mehrdeutig, Rundung, Trinkgeld
 accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <ID>
 accounti classify                              # kontiert aus dem Beleg, sonst Regelwerk/LLM
 accounti bank offen                            # Umsätze ohne Beleg, Belege ohne Umsatz
+```
+
+### Zahlungsverkehr
+
+```bash
+accounti zahlung vorschlag --stichtag 2026-10-21      # Skonto zuerst, Grund je Position
+accounti zahlung anlegen --stichtag 2026-10-21        # Entwurf = Lauf 1
+accounti zahlung entfernen 1 3                         # Position 3 nicht zahlen (nur im Entwurf)
+accounti zahlung pruefen 1                             # blockierend: IBAN, Betrag, Sperre, Dubletten
+accounti zahlung freigeben 1                           # mit zahlung.vier_augen: zweite Person (eigene Anmeldung)
+accounti zahlung sepa 1 --datei ueberweisung.xml      # pain.001.001.09 → im Onlinebanking hochladen
+accounti opos zuordnen                                 # Kontoumsätze gleichen die Posten aus
+accounti zahlung abgleichen                            # Lauf → ausgeführt
+accounti zahlung stornieren 1 --grund "doppelt"       # freigegebene Läufe: nur Storno, mit Protokoll
+accounti zahlung sperre 70003 --grund "Reklamation"   # Kreditor vom Zahlungsverkehr ausnehmen
+```
+
+Weicht die IBAN der Rechnung vom Stammsatz ab, stoppt der Lauf — so funktionieren gefälschte
+Rechnungen. Überweisungen gehen nur an Empfänger im EWR (für die Schweiz oder das Vereinigte
+Königreich verlangt SEPA den BIC). Mit `zahlung.vier_augen` gibt frei, wer am Rechner angemeldet
+ist — das ist so stark wie diese Anmeldung, nicht mehr. Nach einem Rückruf beim Lieferanten auf bekanntem Weg: Stammsatz ändern
+(`accounti kontakte bearbeiten 70003 --iban …`) oder mit `accounti zahlung iban-klaeren 1 2
+--grund "…"` festhalten, dass an die Stammsatz-IBAN gezahlt wird.
+
+### Mahnwesen
+
+```bash
+accounti mahnwesen lauf --stichtag 2026-10-21          # Mahnentwürfe mit Zinsen, Pauschale, Gebühren
+accounti mahnwesen zeigen 7                            # Mahnschreiben als Text
+accounti mahnwesen versenden 7 --pdf mahnung-7.pdf     # oder --text, --email; Mahnstufe am Posten +1
+accounti mahnwesen versenden 8 --text m.txt --am 2026-10-20   # Brief ging gestern zur Post
+accounti mahnwesen kunde 10001 --unternehmer           # B2B: 9 Prozentpunkte + 40 € Pauschale
+accounti mahnwesen sperre 10002 --grund "Ratenzahlung" # Kunde vom Mahnlauf ausnehmen
+accounti mahnwesen basiszins                           # Basiszinssätze mit Gültigkeitszeitraum
+accounti mahnwesen historie 10001                      # versendete Mahnungen eines Kunden
 ```
 
 ### Bankkonten und geplanter Lauf
@@ -548,8 +583,8 @@ kontieren will, braucht nur v0.1.
 - [ ] FinTS-Provider und Kreditkarten (FinTS braucht eine Produktregistrierung)
 
 ### v0.4 — Zahlung & Prüfung *(Bausteine 6, 7)*
-- [ ] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe
-- [ ] Mehrstufiges Mahnwesen mit Verzugszinsen
+- [x] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe
+- [x] Mehrstufiges Mahnwesen mit Verzugszinsen
 - [ ] Prüfregeln für Vollständigkeit, Richtigkeit, Zeitgerechtheit, Ordnung
 - [ ] Belegnachforderung, unveränderbares Journal, Periodenabschluss
 - [ ] Generierte Verfahrensdokumentation
