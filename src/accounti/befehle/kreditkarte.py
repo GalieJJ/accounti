@@ -69,7 +69,9 @@ def einrichten(
     ),
     bezeichnung: str | None = typer.Option(None, help="z.B. 'Visa Firmenkarte'"),
     sachkonto: str | None = typer.Option(
-        None, help="eigenes Sachkonto der Karte im Kontenrahmen"
+        None,
+        help="eigenes Sachkonto der Karte, z.B. SKR03 1730 / SKR04 3610 "
+        "„Kreditkartenabrechnung“ (mit der Steuerberatung abstimmen)",
     ),
     konto: str | None = typer.Option(
         None, help="vorhandenes Bankkonto als Karte nutzen (statt eines neuen)"
@@ -361,8 +363,7 @@ def loesen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Falsche vorläufige Zuordnung lösen — die Belastung wird nicht wieder
-    vorgeschlagen, ihre vorläufige Buchung entfällt."""
+    """Falsche vorläufige Zuordnung lösen (Buchung entfällt, kein neuer Vorschlag)."""
     from accounti.anzeige import betrag_de, datum_de
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.kreditkarte import KreditkartenError, loese_zuordnung
