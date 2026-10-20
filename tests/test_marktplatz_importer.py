@@ -238,3 +238,50 @@ def test_shopify_bestandteile(shopify):
     }
     assert laender["#1002"] == "NL"
     assert any("noch nicht ausgezahlt" in b.text for b in shopify.befunde)
+
+
+@pytest.mark.parametrize(
+    ("typ", "brutto", "art"),
+    [
+        ("Website-Zahlung", "119.00", Postenart.ERLOES),
+        ("Express-Checkout-Zahlung", "20.00", Postenart.ERLOES),
+        ("Handyzahlung", "20.00", Postenart.ERLOES),
+        ("Website Payment", "20.00", Postenart.ERLOES),
+        ("Allgemeine Zahlung", "238.00", Postenart.ZAHLUNG),
+        ("Allgemeine Zahlung", "-45.00", Postenart.ZAHLUNG),
+        ("General Payment", "50.00", Postenart.ZAHLUNG),
+        ("Rückzahlung", "-119.00", Postenart.ERSTATTUNG),
+        ("Rückzahlung", "45.00", Postenart.ZAHLUNG),
+        ("Payment Refund", "45.00", Postenart.ZAHLUNG),
+        ("Einbehaltung für offene Konfliktlösung", "-119.00", Postenart.EINBEHALT),
+        (
+            "Rückbuchung einer Einbehaltung für offene Konfliktlösung",
+            "119.00",
+            Postenart.EINBEHALT,
+        ),
+        ("Reversal of General Account Hold", "10.00", Postenart.EINBEHALT),
+        ("Rückbuchung", "-119.00", Postenart.SONSTIGES),
+        ("Payment Reversal", "-10.00", Postenart.SONSTIGES),
+        ("Chargeback", "-10.00", Postenart.SONSTIGES),
+    ],
+)
+def test_paypal_typen(typ, brutto, art):
+    from accounti.importers.paypal import _art, _Zeile
+
+    zeile = _Zeile(
+        nr=2,
+        datum=date(2026, 9, 1),
+        zeit="",
+        name="",
+        typ=typ,
+        waehrung="EUR",
+        brutto=D(brutto),
+        gebuehr=D("0"),
+        netto=D(brutto),
+        code="X",
+        zugehoerig="",
+        guthaben=None,
+        land=None,
+        text=typ,
+    )
+    assert _art(zeile)[0] is art

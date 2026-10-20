@@ -1,5 +1,6 @@
 """Importlauf: Bericht archivieren, buchen, Auszahlung gegen die Bank abgleichen."""
 
+import hashlib
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -239,3 +240,51 @@ def test_paypal_ueberlappender_export(umgebung):
     neue = [p for p in ergebnis.abrechnung.posten if p.art is Postenart.ERLOES]
     assert [p.referenz for p in neue] == ["XNEU0000000000001"]
     assert len(lade_buchungen(s)) == anzahl + 2  # Erlös und Gebühr
+
+
+# --- PayPal: Einbehalt, Rückbuchung, eingehende Zahlungen ---------------------------
+
+
+def test_paypal_sonderfaelle(umgebung):
+    s, archiv, kontext = umgebung
+    roh = (FIXTURES / "paypal_sonderfaelle.csv").read_bytes()
+    (ergebnis,) = paypal(s, archiv, kontext, roh, "sonder.csv")
+    assert ergebnis.umsaetze == 7
+    nach_schluessel = {t.dublettenschluessel: t for t in lade_transaktionen(s)}
+    pp = {
+        code: nach_schluessel[hashlib.sha256(f"paypal|{code}".encode()).hexdigest()]
+        for code in (f"5{x}{x}0000000000000{i}" for i, x in enumerate("ABCDEFG", 1))
+    }
+    buchungen = lade_buchungen(s)
+
+    def zu(code):
+        return [b for b in buchungen if b.transaktion_id == pp[code].id]
+
+    # Verkauf über den Checkout: Erlös
+    verkauf = {(b.soll_konto, b.haben_konto) for b in zu("5AA00000000000001")}
+    assert ("1210", "8400") in verkauf
+    # Einbehalt für den Konflikt und seine Freigabe: Einbehaltskonto, glatt
+    (einbehalt,) = zu("5BB00000000000002")
+    (frei,) = zu("5CC00000000000003")
+    assert (einbehalt.soll_konto, einbehalt.haben_konto) == ("1500", "1210")
+    assert (frei.soll_konto, frei.haben_konto) == ("1210", "1500")
+    assert saldo(buchungen, "1500") == 0
+    # Rückbuchung (Chargeback): kein Einbehalt, sondern Klärung zur Prüfung
+    (rueck,) = zu("5DD00000000000004")
+    assert (rueck.soll_konto, rueck.haben_konto) == ("1590", "1210")
+    assert rueck.status is BuchungStatus.ZUR_PRUEFUNG
+    befunde = {b.code: b for b in ergebnis.abrechnung.befunde}
+    assert "§ 17 UStG" in befunde["rueckbuchung"].text
+    # eingehende Zahlung ohne Checkout (Ausgangsrechnung) und Erstattung an uns:
+    # kein Erlös, offen für opos zuordnen/classify
+    for code in ("5EE00000000000005", "5GG00000000000007", "5FF00000000000006"):
+        assert zu(code) == []
+    offen = {t.id for t in offene_transaktionen(s, True)}
+    assert {pp[c].id for c in ("5EE00000000000005", "5GG00000000000007")} <= offen
+    hinweise = [
+        b.text for b in ergebnis.abrechnung.befunde if b.code == "eingehende_zahlung"
+    ]
+    assert len(hinweise) == 2 and any("RE-2026-100" in h for h in hinweise)
+    assert [b.betrag_netto for b in buchungen if b.haben_konto == "8400"] == [
+        D("100.00")
+    ]

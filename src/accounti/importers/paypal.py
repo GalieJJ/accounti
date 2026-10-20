@@ -67,23 +67,49 @@ class _Zeile:
     text: str
 
 
-def _art(z: _Zeile) -> Postenart:
+# Zahlungsarten aus dem Checkout eines Shops oder Marktplatzes — nur sie sind Verkäufe
+_CHECKOUT = (
+    "website",
+    "checkout",
+    "handy",
+    "mobil",
+    "warenkorb",
+    "shopping cart",
+    "ebay",
+)
+
+
+def _art(z: _Zeile) -> tuple[Postenart, str | None]:
+    """Postenart der Zeile und ggf. der Code des Hinweises dazu.
+
+    Verkauf ist nur eine eingehende Checkout-Zahlung; andere eingehende Zahlungen
+    (z.B. auf eine Ausgangsrechnung) und Erstattungen an uns bleiben unverbucht für
+    ``opos zuordnen``/``classify``. Einbehaltungen und ihre Freigaben gehen auf das
+    Einbehaltskonto, Rückbuchungen (Chargebacks) und Zahlungsrückbuchungen zur
+    Prüfung auf das Klärungskonto.
+    """
     t = z.typ.casefold()
     if "währungsumrechnung" in t or "currency conversion" in t:
-        return Postenart.UMRECHNUNG
+        return Postenart.UMRECHNUNG, None
     if ("abbuchung" in t and "bank" in t) or "withdrawal" in t:
-        return Postenart.AUSZAHLUNG
+        return Postenart.AUSZAHLUNG, None
     if "bankgutschrift" in t or "einzahlung" in t or "deposit" in t:
-        return Postenart.EINZAHLUNG
+        return Postenart.EINZAHLUNG, None
+    if "einbehalt" in t or "hold" in t:
+        return Postenart.EINBEHALT, None  # Einbehaltung (−) oder Freigabe (+)
+    if "rückbuchung" in t or "reversal" in t or "chargeback" in t:
+        return Postenart.SONSTIGES, "rueckbuchung"
     if "rückzahlung" in t or "rückerstattung" in t or "refund" in t:
-        return Postenart.ERSTATTUNG
-    if any(
-        w in t for w in ("einbehalt", "rückbuchung", "konflikt", "hold", "reversal")
-    ):
-        return Postenart.EINBEHALT
+        if z.brutto < 0:
+            return Postenart.ERSTATTUNG, None
+        return Postenart.ZAHLUNG, "eingehende_zahlung"  # Erstattung an uns
     if "zahlung" in t or "payment" in t:
-        return Postenart.ERLOES if z.brutto > 0 else Postenart.ZAHLUNG
-    return Postenart.SONSTIGES
+        if z.brutto <= 0:
+            return Postenart.ZAHLUNG, None
+        if any(w in t for w in _CHECKOUT):
+            return Postenart.ERLOES, None
+        return Postenart.ZAHLUNG, "eingehende_zahlung"
+    return Postenart.SONSTIGES, None
 
 
 class PaypalImporter(MarktplatzImporter):
@@ -115,18 +141,18 @@ class PaypalImporter(MarktplatzImporter):
         )
         umrechnungen: dict[str, list[_Zeile]] = defaultdict(list)
         for z in zeilen:
-            if _art(z) is Postenart.UMRECHNUNG and z.zugehoerig:
+            if _art(z)[0] is Postenart.UMRECHNUNG and z.zugehoerig:
                 umrechnungen[z.zugehoerig].append(z)
         # EUR-Seiten von Umrechnungen, die zu einem Fremdwährungsumsatz gehören
         verbraucht = {
             u.code
             for z in zeilen
-            if z.waehrung != KONTOWAEHRUNG and _art(z) is not Postenart.UMRECHNUNG
+            if z.waehrung != KONTOWAEHRUNG and _art(z)[0] is not Postenart.UMRECHNUNG
             for u in umrechnungen[z.code]
             if u.waehrung == KONTOWAEHRUNG
         }
         for z in zeilen:
-            art = _art(z)
+            art, hinweis = _art(z)
             if art is Postenart.UMRECHNUNG:
                 if z.waehrung != KONTOWAEHRUNG:
                     self._posten(abrechnung, z, Postenart.UMRECHNUNG, z.netto)
@@ -134,7 +160,7 @@ class PaypalImporter(MarktplatzImporter):
                     self._eur(abrechnung, z, Postenart.SONSTIGES)
                 continue
             if z.waehrung == KONTOWAEHRUNG:
-                self._eur(abrechnung, z, art)
+                self._eur(abrechnung, z, art, hinweis)
                 continue
             # Fremdwährung: EUR-Seite der zugehörigen Umrechnung suchen
             eur = next(
@@ -175,7 +201,7 @@ class PaypalImporter(MarktplatzImporter):
                     f"{kurs.quantize(Decimal('0.000001'))})"
                 ),
             )
-            self._eur(abrechnung, umgerechnet, art)
+            self._eur(abrechnung, umgerechnet, art, hinweis)
         return [abrechnung]
 
     # -- Zeilen ----------------------------------------------------------------
@@ -303,7 +329,13 @@ class PaypalImporter(MarktplatzImporter):
             )
         )
 
-    def _eur(self, abrechnung: Abrechnung, z: _Zeile, art: Postenart) -> None:
+    def _eur(
+        self,
+        abrechnung: Abrechnung,
+        z: _Zeile,
+        art: Postenart,
+        hinweis: str | None = None,
+    ) -> None:
         if art in (Postenart.ERLOES, Postenart.ERSTATTUNG):
             self._posten(abrechnung, z, art, z.brutto)
             if z.gebuehr:
@@ -321,7 +353,36 @@ class PaypalImporter(MarktplatzImporter):
                 )
             return
         self._posten(abrechnung, z, art, z.netto)
-        if art is Postenart.SONSTIGES:
+        betrag = f"{z.brutto:.2f}".replace(".", ",")
+        if hinweis == "rueckbuchung":
+            abrechnung.befunde.append(
+                Befund(
+                    code="rueckbuchung",
+                    schweregrad=Schweregrad.WARNUNG,
+                    text=(
+                        f"Zeile {z.nr}: {z.typ} über {betrag} {z.waehrung} "
+                        f"(zu {z.zugehoerig or z.code}) — auf dem Klärungskonto zur "
+                        "Prüfung: Erlösminderung mit Berichtigung der USt "
+                        "(§ 17 UStG) oder Forderung an den Käufer"
+                    ),
+                    posten_nr=z.nr,
+                )
+            )
+        elif hinweis == "eingehende_zahlung":
+            abrechnung.befunde.append(
+                Befund(
+                    code="eingehende_zahlung",
+                    schweregrad=Schweregrad.HINWEIS,
+                    text=(
+                        f"Zeile {z.nr}: {z.text} über {betrag} {z.waehrung} von "
+                        f"{z.name or 'unbekannt'} — kein Checkout-Verkauf, nicht als "
+                        "Erlös gebucht; mit accounti opos zuordnen bzw. classify "
+                        "kontieren"
+                    ),
+                    posten_nr=z.nr,
+                )
+            )
+        elif art is Postenart.SONSTIGES:
             abrechnung.befunde.append(
                 Befund(
                     code="unbekannter_posten",
