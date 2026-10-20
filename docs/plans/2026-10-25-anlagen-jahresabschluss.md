@@ -114,12 +114,12 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 
 ### Paket 2 — Kasse, Salden, Prüfungen
 
-- [ ] **Kontenrahmen** (`abschluss/kontenrahmen.py`, `kontenrahmen_skr03.yaml`, `kontenrahmen_skr04.yaml`): Kontoart je Gewinnermittlung, Geldkonten, Steuerkonten, EÜR-Kennzahl, engste Spanne gewinnt (`tests/test_abschluss_kontenrahmen.py`).
-- [ ] **Salden** (`abschluss/salden.py`): Bewegungen mit Steueraufteilung für alle Buchungsmuster (Bank, Beleg, OPOS, Skonto, Gutschrift), nur freigegebene, EB-Werte, SuSa ausgeglichen (`tests/test_abschluss_salden.py`).
-- [ ] **Konfiguration** (`abschluss/konfiguration.py`): `abschluss` und `kasse`, Standards je Kontenrahmen.
-- [ ] **Kassenbuch** (`abschluss/kassenbuch.py`, `models/kasse.py`, `db/tabellen_kasse.py`, `db/repo_kasse.py`): laufende Nummer, Bestand, Tagessaldo, Ablehnung bei negativem Bestand (**Akzeptanz 4**) — auch rückdatiert und per Storno, unveränderbar, Transaktion/Buchung, gesperrtes Jahr (`tests/test_kassenbuch.py`).
-- [ ] **Kontoauszugssalden und Prüfungen** (`abschluss/pruefungen.py`, `models/abschluss.py`, `db/tabellen_abschluss.py`, `db/repo_abschluss.py`): jede Prüfung mit auslösendem und nicht auslösendem Fixture; Bankabweichung blockiert (**Akzeptanz 5**) (`tests/test_abschluss_pruefungen.py`).
-- [ ] **CLI** (`befehle/kasse.py`, `befehle/abschluss.py`): `kasse anfangsbestand|buchen|storno|liste|bestand`, `abschluss saldo|pruefen|susa [--csv]` (`tests/test_cli_kasse.py`, `tests/test_cli_abschluss.py`).
+- [x] **Kontenrahmen** (`abschluss/kontenrahmen.py`, `kontenrahmen_skr03.yaml`, `kontenrahmen_skr04.yaml`): Kontoart je Gewinnermittlung, Geldkonten, Steuerkonten, EÜR-Kennzahl, engste Spanne gewinnt (`tests/test_abschluss_kontenrahmen.py`).
+- [x] **Salden** (`abschluss/salden.py`): Bewegungen mit Steueraufteilung für alle Buchungsmuster (Bank, Beleg, OPOS, Skonto, Gutschrift), nur freigegebene, EB-Werte, SuSa ausgeglichen (`tests/test_abschluss_salden.py`).
+- [x] **Konfiguration** (`abschluss/konfiguration.py`): `abschluss` und `kasse`, Standards je Kontenrahmen.
+- [x] **Kassenbuch** (`abschluss/kassenbuch.py`, `models/kasse.py`, `db/tabellen_kasse.py`, `db/repo_kasse.py`): laufende Nummer, Bestand, Tagessaldo, Ablehnung bei negativem Bestand (**Akzeptanz 4**) — auch rückdatiert und per Storno, unveränderbar, Transaktion/Buchung, gesperrtes Jahr (`tests/test_kassenbuch.py`).
+- [x] **Kontoauszugssalden und Prüfungen** (`abschluss/pruefungen.py`, `models/abschluss.py`, `db/tabellen_abschluss.py`, `db/repo_abschluss.py`): jede Prüfung mit auslösendem und nicht auslösendem Fixture; Bankabweichung blockiert (**Akzeptanz 5**) (`tests/test_abschluss_pruefungen.py`).
+- [x] **CLI** (`befehle/kasse.py`, `befehle/abschluss.py`): `kasse anfangsbestand|buchen|storno|liste|bestand`, `abschluss saldo|pruefen|susa [--csv]` (`tests/test_cli_kasse.py`, `tests/test_cli_abschluss.py`).
 
 ### Paket 3 — Abgrenzung, EÜR, Vortrag
 
