@@ -39,6 +39,30 @@ datev:
   mandanten_nummer: "00001"
   wirtschaftsjahr_beginn: "2026-01-01"
 
+# Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03)
+integrationen:
+  erloes_inland: { "19": "8400", "7": "8300" }
+  bu_inland: { "19": 3, "7": 2 }
+  erloes_ig_lieferung: "8125"   # B2B mit USt-IdNr. (zur Prüfung)
+  erloes_ausfuhr: "8120"        # Drittland (zur Prüfung: Ausfuhrnachweis)
+  erloes_unbekannt: "8200"      # Bestimmungsland fehlt (zur Prüfung)
+  geldtransit_konto: "1360"
+  auszahlung_toleranz_tage: 10  # Bankeingang bis so viele Tage nach dem Auszahlungsdatum
+  ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
+  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8330" } (anlegen)
+  eu_fernverkaeufe_sonstige: {} # Jahr → EU-Fernverkäufe netto außerhalb der Marktplätze, z.B. { 2025: 12000 }
+  paypal_kontobezeichnung: "PPLXLULL/PAYPAL"   # Feld :25: im MT940 des PayPal-Kontos
+  marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
+    amazon:
+      verrechnungskonto: "1361"
+      bank_stichworte: ["AMAZON"]
+      ust_gebuehren: vorsteuer  # vorsteuer | 13b (mit bu_gebuehren) | ohne — Amazon seit 08/2024 mit deutscher USt
+      ust_werbung: null         # Werbung getrennt einstellen (nicht eingestellt → zur Prüfung)
+      lager_nur_inland: false   # true: FBA nur aus deutschen Lagern (kein Pan-EU/CEE)
+    ebay:    { verrechnungskonto: "1362", ust_gebuehren: null }   # mit dem Berater klären
+    shopify: { verrechnungskonto: "1363", verkaufsgebuehr: "4970", ust_gebuehren: null }
+    paypal:  { verrechnungskonto: "1210", verkaufsgebuehr: "4970", ust_gebuehren: ohne }
+
 # KI-Klassifikation
 llm:
   # Provider: anthropic, openai, ollama

@@ -1,0 +1,202 @@
+"""Grundbausteine des DATEV-Formats (EXTF): Kopfzeile, Feldwerte, Datei.
+
+Regeln aus DATEVs Musterdateien und der Formatbeschreibung des Prüfprogramms:
+
+* Zeile 1 ist die Kopfzeile mit 31 Feldern (Versionsnummer 700); Textfelder stehen in
+  Anführungszeichen — auch leer, so wie in der DATEV-Musterdatei.
+* Zeile 2 enthält die Spaltenüberschriften, ab Zeile 3 folgen die Datensätze.
+* Felder vom Typ Text stehen immer in Anführungszeichen, innere Anführungszeichen
+  werden verdoppelt; Zahlen, Beträge, Daten und Konten stehen ohne.
+* Dezimalkomma, keine Tausenderpunkte; Datum ``TTMMJJJJ`` (Belegdatum im
+  Buchungsstapel ``TTMM``, das Jahr kommt aus dem Kopf).
+* Semikolon als Trenner, CRLF als Zeilenende, Zeichensatz Windows-1252.
+
+Was sich nicht in Windows-1252 schreiben lässt oder zu lang ist, wird nicht still
+verändert, sondern als ``DatevFormatError`` gemeldet.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
+
+from accounti.export.datev_felder import Feld
+
+
+class DatevFormatError(ValueError):
+    """Ein Wert passt nicht ins DATEV-Format."""
+
+
+Wert = str | int | Decimal | date | None
+
+# Kopffelder, die DATEV in Anführungszeichen schreibt (Musterdateien, 1-basiert)
+_KOPF_TEXT = {1, 4, 8, 9, 10, 17, 18, 22, 24, 27, 30, 31}
+HERKUNFT = "RE"
+ANWENDUNG = "accounti"
+
+
+@dataclass(frozen=True)
+class Kopf:
+    """Die 31 Felder der EXTF-Kopfzeile (soweit sie nicht konstant sind)."""
+
+    kategorie: int
+    formatname: str
+    formatversion: int
+    berater: int
+    mandant: int
+    wj_beginn: date
+    sachkontenlaenge: int = 4
+    datum_von: date | None = None
+    datum_bis: date | None = None
+    bezeichnung: str = ""
+    diktatkuerzel: str = ""
+    buchungstyp: int | None = None
+    rechnungslegungszweck: int | None = None
+    festschreibung: int | None = None
+    waehrung: str = ""
+    skr: str = ""
+    erzeugt_am: datetime = field(default_factory=datetime.now)
+
+
+def _zahl(wert: int | None) -> str:
+    return "" if wert is None else str(wert)
+
+
+def kopfzeile(k: Kopf) -> str:
+    if len(k.bezeichnung) > 30:
+        raise DatevFormatError(f"Bezeichnung {k.bezeichnung!r} länger als 30 Zeichen")
+    if not 1001 <= k.berater <= 9999999:
+        raise DatevFormatError(f"Beraternummer {k.berater} ungültig (1001–9999999)")
+    if not 1 <= k.mandant <= 99999:
+        raise DatevFormatError(f"Mandantennummer {k.mandant} ungültig (1–99999)")
+    erzeugt = f"{k.erzeugt_am:%Y%m%d%H%M%S}{k.erzeugt_am.microsecond // 1000:03d}"
+    werte = [
+        "EXTF",
+        "700",
+        str(k.kategorie),
+        k.formatname,
+        str(k.formatversion),
+        erzeugt,
+        "",  # importiert (setzt DATEV)
+        HERKUNFT,
+        "",  # exportiert von
+        "",  # importiert von (setzt DATEV)
+        str(k.berater),
+        str(k.mandant),
+        f"{k.wj_beginn:%Y%m%d}",
+        str(k.sachkontenlaenge),
+        f"{k.datum_von:%Y%m%d}" if k.datum_von else "",
+        f"{k.datum_bis:%Y%m%d}" if k.datum_bis else "",
+        k.bezeichnung,
+        k.diktatkuerzel,
+        _zahl(k.buchungstyp),
+        _zahl(k.rechnungslegungszweck),
+        _zahl(k.festschreibung),
+        k.waehrung,
+        "",  # reserviert
+        "",  # Derivatskennzeichen
+        "",  # reserviert
+        "",  # reserviert
+        k.skr,
+        "",  # Branchenlösung
+        "",  # reserviert
+        "",  # reserviert
+        ANWENDUNG,
+    ]
+    return ";".join(
+        f'"{w}"' if nr in _KOPF_TEXT else w for nr, w in enumerate(werte, start=1)
+    )
+
+
+def feldwert(feld: Feld, wert: Wert, datumsformat: str = "%d%m%Y") -> str:
+    """Ein Feld nach seinem Typ schreiben."""
+    if feld.typ == "T":
+        text = re.sub(r"[\r\n\t]", " ", "" if wert is None else str(wert))
+        if len(text) > feld.laenge:
+            msg = f"{feld.name}: {text!r} länger als {feld.laenge} Zeichen"
+            raise DatevFormatError(msg)
+        return '"' + text.replace('"', '""') + '"'
+    if wert is None or wert == "":
+        return ""
+    if feld.typ == "D":
+        if not isinstance(wert, date):
+            raise DatevFormatError(f"{feld.name}: {wert!r} ist kein Datum")
+        return wert.strftime(datumsformat)
+    if feld.typ == "K":
+        text = str(wert)
+        if not re.fullmatch(r"\d{1,9}", text):
+            raise DatevFormatError(f"{feld.name}: Konto {text!r} ungültig")
+        return text
+    if isinstance(wert, date) or (isinstance(wert, str) and not wert.isdigit()):
+        raise DatevFormatError(f"{feld.name}: {wert!r} ist keine Zahl")
+    zahl = Decimal(str(wert))
+    nachkomma = feld.nachkomma or (2 if feld.typ == "B" else 0)
+    text = f"{zahl:.{nachkomma}f}"
+    vorkomma = text.lstrip("-").split(".")[0]
+    if len(vorkomma) > feld.laenge:
+        raise DatevFormatError(f"{feld.name}: {wert} hat zu viele Stellen")
+    return text.replace(".", ",")
+
+
+_BELEGFELD1_UNZULAESSIG = re.compile(r"[^A-Za-z0-9_$&%*+\-/]")
+
+
+def belegfeld1(text: str | None) -> str:
+    """Belegfeld 1 (Rechnungs-/Belegnummer) im DATEV-Zeichenvorrat, höchstens 36.
+
+    DATEV lässt nur Buchstaben, Ziffern und ``$ & % * + - /`` zu; Leerzeichen,
+    Umlaute, Punkt, Komma, Semikolon und Doppelpunkt sind unzulässig (DATEV-Format,
+    Buchungsstapel, Feld 11). Das Feld ist der Schlüssel für den OPOS-Ausgleich.
+    """
+    return _BELEGFELD1_UNZULAESSIG.sub("", text or "")[:36]
+
+
+def feldnummer(felder: tuple[Feld, ...], name: str) -> int:
+    """1-basierte Feldnummer zu einer eindeutigen Spaltenüberschrift."""
+    treffer = [i for i, f in enumerate(felder, start=1) if f.name == name]
+    if len(treffer) != 1:
+        raise KeyError(name)
+    return treffer[0]
+
+
+def kontoart(nummer: str, sachkontenlaenge: int) -> str | None:
+    """``sachkonto``, ``personenkonto`` oder None, wenn die Nummer nicht passt."""
+    if not re.fullmatch(r"\d{1,9}", nummer):
+        return None
+    if len(nummer) <= sachkontenlaenge:
+        return "sachkonto"
+    if len(nummer) == sachkontenlaenge + 1:
+        return "personenkonto"
+    return None
+
+
+def schreibe_extf(
+    kopf: Kopf,
+    felder: tuple[Feld, ...],
+    zeilen: list[dict[int, Wert]],
+    datumsformate: dict[int, str] | None = None,
+) -> bytes:
+    """EXTF-Datei: Kopfzeile, Überschriften, Datensätze (Felder nach Nummer)."""
+    datumsformate = datumsformate or {}
+    ausgabe = [kopfzeile(kopf), ";".join(f.name for f in felder)]
+    for nr, zeile in enumerate(zeilen, start=1):
+        unbekannt = set(zeile) - set(range(1, len(felder) + 1))
+        if unbekannt:
+            raise DatevFormatError(
+                f"Datensatz {nr}: Felder {sorted(unbekannt)} gibt es nicht"
+            )
+        ausgabe.append(
+            ";".join(
+                feldwert(f, zeile.get(i), datumsformate.get(i, "%d%m%Y"))
+                for i, f in enumerate(felder, start=1)
+            )
+        )
+    text = "\r\n".join(ausgabe) + "\r\n"
+    try:
+        return text.encode("cp1252")
+    except UnicodeEncodeError as fehler:
+        zeichen = text[fehler.start : fehler.end]
+        msg = f"Zeichen {zeichen!r} lässt sich nicht in Windows-1252 schreiben"
+        raise DatevFormatError(msg) from fehler
