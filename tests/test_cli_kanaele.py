@@ -8,6 +8,7 @@ from accounti.bank.tresor import neuer_schluessel
 from accounti.cli import app
 from accounti.db import session_factory
 from accounti.db.repo_kanaele import lade_kanal_zugang
+from tests.http_attrappe import HttpAttrappe, datei_antwort, json_antwort
 from tests.imap_attrappe import ImapAttrappe, Postfach
 from tests.pdf_hilfe import pdf_mit_text
 from tests.test_kanaele_email import mail
@@ -282,3 +283,113 @@ def test_webhook_starten_uebergibt_app_an_uvicorn(tmp_path, monkeypatch):
     )
     assert r.exit_code == 0, r.output
     assert gestartet["port"] == 9999
+
+
+# ---------------------------------------------------------------------------
+# Connector
+# ---------------------------------------------------------------------------
+
+
+def _connector_konfig(tmp_path, url, kopf='Authorization: "Bearer {zugang}"'):
+    pfad = tmp_path / "connector.yaml"
+    pfad.write_text(
+        f"""
+belegkanaele:
+  connectoren:
+    - name: portal
+      typ: json
+      basis_url: {url}/api
+      kopfzeilen:
+        {kopf}
+      liste:
+        pfad: /dokumente
+        eintraege: records
+      felder:
+        id: id
+        dateiname: name
+        absender: lieferant
+      datei:
+        pfad: /dokumente/{{id}}/datei
+""",
+        encoding="utf-8",
+    )
+    return str(pfad)
+
+
+def _abholen_connector(tmp_path, konfig):
+    return runner.invoke(
+        app,
+        [
+            "belege",
+            "abholen",
+            "--kanal",
+            "connector",
+            "--config",
+            konfig,
+            *_args(tmp_path),
+        ],
+    )
+
+
+def test_connector_ende_zu_ende(tmp_path, monkeypatch):
+    monkeypatch.setenv("ACCOUNTI_SCHLUESSEL", neuer_schluessel())
+    routen = {
+        "/api/dokumente": lambda a: json_antwort(
+            {"records": [{"id": 42, "name": "re-42.pdf", "lieferant": "Müller"}]}
+        ),
+        "/api/dokumente/42/datei": lambda a: datei_antwort(pdf_mit_text(RECHNUNG)),
+    }
+    with HttpAttrappe(routen) as server:
+        konfig = _connector_konfig(tmp_path, server.url)
+        pruefen = runner.invoke(app, ["kanaele", "connectoren", "--config", konfig])
+        assert pruefen.exit_code == 0, pruefen.output
+        assert "json" in pruefen.output
+        assert "portal (json): in Ordnung" in pruefen.output
+        ohne = _abholen_connector(tmp_path, konfig)
+        assert ohne.exit_code == 1
+        assert "kanaele zugang connector portal" in ohne.output
+        r = runner.invoke(
+            app,
+            [
+                "kanaele",
+                "zugang",
+                "connector",
+                "portal",
+                "--config",
+                konfig,
+                "--db",
+                _db(tmp_path),
+            ],
+            input="portal-token\n",
+        )
+        assert r.exit_code == 0, r.output
+        r = _abholen_connector(tmp_path, konfig)
+        assert r.exit_code == 0, r.output
+        assert "Connector portal (json)" in r.output
+        assert "1 neu" in r.output
+        assert server.anfragen[-1].kopfzeilen["authorization"] == "Bearer portal-token"
+        zweit = _abholen_connector(tmp_path, konfig)
+        assert "0 neu" in zweit.output
+    liste = runner.invoke(app, ["belege", "liste", "--db", _db(tmp_path)])
+    assert "re-42.pdf" in liste.output
+    assert "172.50" in liste.output
+    nachrichten = runner.invoke(
+        app, ["kanaele", "nachrichten", "--kanal", "connector", "--db", _db(tmp_path)]
+    )
+    assert "Müller" in nachrichten.output
+
+
+def test_connectoren_meldet_fehlerhafte_konfiguration(tmp_path):
+    konfig = _connector_konfig(tmp_path, "http://portal.example", 'X-API-KEY: "abc"')
+    r = runner.invoke(app, ["kanaele", "connectoren", "--config", konfig])
+    assert r.exit_code == 1
+    assert "https" in r.output
+    assert _abholen_connector(tmp_path, konfig).exit_code == 1
+    leer = tmp_path / "leer.yaml"
+    leer.write_text("", encoding="utf-8")
+    r = runner.invoke(app, ["kanaele", "connectoren", "--config", str(leer)])
+    assert r.exit_code == 0
+    assert "Kein Connector" in r.output
+    r = _abholen_connector(tmp_path, str(leer))
+    assert r.exit_code == 1
+    assert "Kein Connector" in r.output

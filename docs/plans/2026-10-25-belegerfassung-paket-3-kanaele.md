@@ -131,9 +131,9 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 
 ### Paket D — Connector
 
-- [ ] **Registry und Basisklasse** (`tests/test_kanaele_connector.py`): `BELEG_CONNECTOREN["json"]`, eigene Connector-Klasse über Registry nutzbar; `ConnectorKanal` merkt Dokument-IDs, zweiter Lauf lädt nichts; Download-Fehler → nicht gemerkt, Hinweis; falscher Typ → gemerkt mit Hinweis.
-- [ ] **JSON-Connector gegen lokalen HTTP-Server:** Liste mit Punktpfad, Seiten (Seitenparameter bis leere Seite / `max_seiten`), Next-URL, Datei binär und als Base64-Feld, `{id}` URL-kodiert, Kopfzeilen mit `${VAR}` und `{zugang}`, Kopfzeilen nicht an fremde Hosts, fremde Download-Hosts nur aus `erlaubte_hosts`, http außerhalb localhost abgelehnt, 401/500 → `KanalError`, Antwort über der Grenze.
-- [ ] **CLI:** `belege abholen --kanal connector`, `kanaele connectoren`, `kanaele zugang connector NAME`.
+- [x] **Registry und Basisklasse** (`tests/test_kanaele_connector.py`): `BELEG_CONNECTOREN["json"]`, eigene Connector-Klasse über Registry nutzbar; `ConnectorKanal` merkt Dokument-IDs, zweiter Lauf lädt nichts; Download-Fehler → nicht gemerkt, Hinweis; falscher Typ → gemerkt mit Hinweis.
+- [x] **JSON-Connector gegen lokalen HTTP-Server:** Liste mit Punktpfad, Seiten (Seitenparameter bis leere Seite / `max_seiten`), Next-URL, Datei binär und als Base64-Feld, `{id}` URL-kodiert, Kopfzeilen mit `${VAR}` und `{zugang}`, Kopfzeilen nicht an fremde Hosts, fremde Download-Hosts nur aus `erlaubte_hosts`, http außerhalb localhost abgelehnt, 401/500 → `KanalError`, Antwort über der Grenze.
+- [x] **CLI:** `belege abholen --kanal connector`, `kanaele connectoren`, `kanaele zugang connector NAME`.
 
 ### Paket E — Akzeptanz und Abschluss
 

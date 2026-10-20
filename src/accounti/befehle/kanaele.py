@@ -156,6 +156,42 @@ def nachrichten(
     console.print(tabelle)
 
 
+@befehl.command("connectoren")
+def connectoren(config: str = KONFIG_OPTION) -> None:
+    """Connector-Typen und die konfigurierten Connectoren mit Prüfergebnis."""
+    from rich.markup import escape
+
+    from accounti.belege.kanaele.connector import BELEG_CONNECTOREN, baue_connector
+    from accounti.belege.kanaele.einstellungen import lade_belegkanaele
+    from accounti.konfiguration import KonfigurationError
+
+    console.print("[bold]Connector-Typen:[/bold]")
+    for typ, klasse in sorted(BELEG_CONNECTOREN.items()):
+        console.print(f"  • {typ:8} [dim]{escape(klasse.beschreibung)}[/dim]")
+    try:
+        einstellungen = lade_belegkanaele(config)
+    except KonfigurationError as fehler:
+        _ende(str(fehler))
+        return
+    if not einstellungen.connectoren:
+        console.print(
+            "[dim]Kein Connector konfiguriert (belegkanaele.connectoren).[/dim]"
+        )
+        return
+    console.print("[bold]Konfiguriert:[/bold]")
+    fehlerhaft = False
+    for eintrag in einstellungen.connectoren:
+        try:
+            baue_connector(eintrag, lambda: None)
+            zustand = "[green]in Ordnung[/green]"
+        except KonfigurationError as fehler:
+            zustand = f"[red]{escape(str(fehler))}[/red]"
+            fehlerhaft = True
+        console.print(f"  • {escape(eintrag.name)} ({escape(eintrag.typ)}): {zustand}")
+    if fehlerhaft:
+        raise typer.Exit(1)
+
+
 # ---------------------------------------------------------------------------
 # Webhook
 # ---------------------------------------------------------------------------

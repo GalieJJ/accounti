@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from accounti.bank.tresor import TresorError
 from accounti.belege.kanaele.abholung import AbholKanal, KanalError
+from accounti.belege.kanaele.connector import ConnectorKanal, baue_connector
 from accounti.belege.kanaele.einstellungen import (
     EmailPostfach,
     KanalEinstellungen,
@@ -77,6 +78,30 @@ def baue_kanaele(
                 pruefung,
             )
             for p in postfaecher
+        ]
+    if kanal == "connector":
+        eintraege = (
+            [einstellungen.connector(quelle)]
+            if quelle
+            else list(einstellungen.connectoren)
+        )
+        if not eintraege:
+            msg = (
+                "Kein Connector konfiguriert — Abschnitt belegkanaele.connectoren "
+                "anlegen"
+            )
+            raise KonfigurationError(msg)
+        return [
+            ConnectorKanal(
+                baue_connector(
+                    e,
+                    partial(geheimnis_aus_tresor, make_session, "connector", e.name),
+                    pruefung.max_bytes,
+                ),
+                gedaechtnis,
+                pruefung,
+            )
+            for e in eintraege
         ]
     if kanal == "webhook":
         msg = (
