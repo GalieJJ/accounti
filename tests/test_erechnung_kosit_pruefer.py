@@ -14,11 +14,11 @@ from tests.test_erechnung_erzeuger import FAELLE
 
 FIXTURES = Path(__file__).resolve().parents[1] / "examples" / "erechnung"
 PRUEFER = KositPruefer()
-# In der CI (ACCOUNTI_KOSIT_PFLICHT=1) wird nicht übersprungen: Fehlt das Prüftool,
-# scheitern die Tests.
+# In der CI (ACCOUNTI_PRUEFWERKZEUGE_PFLICHT=1) wird nicht übersprungen:
+# Fehlt das Prüftool, scheitern die Tests.
 NUR_MIT_KOSIT = pytest.mark.skipif(
-    not PRUEFER.verfuegbar() and not os.environ.get("ACCOUNTI_KOSIT_PFLICHT"),
-    reason="KoSIT-Prüftool fehlt (scripts/kosit_installieren.sh)",
+    not PRUEFER.verfuegbar() and not os.environ.get("ACCOUNTI_PRUEFWERKZEUGE_PFLICHT"),
+    reason="KoSIT-Prüftool fehlt (scripts/pruefwerkzeuge_installieren.sh)",
 )
 
 BERICHT = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -55,7 +55,7 @@ def test_akzeptierter_bericht():
 def test_ohne_installation(tmp_path):
     pruefer = KositPruefer(tmp_path)
     assert not pruefer.verfuegbar()
-    with pytest.raises(KositNichtVerfuegbarError, match="kosit_installieren"):
+    with pytest.raises(KositNichtVerfuegbarError, match="pruefwerkzeuge_installieren"):
         pruefer.pruefe(b"<x/>")
 
 

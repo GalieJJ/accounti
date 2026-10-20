@@ -14,6 +14,7 @@ from accounti.db.repository import (
 from accounti.erechnung import lies
 from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
 from accounti.erechnung.kosit import KositErgebnis, KositMeldung
+from accounti.erechnung.mustang import MustangErgebnis
 from accounti.models import (
     AusgangsrechnungStatus,
     Belegart,
@@ -34,6 +35,17 @@ class FalscherPruefer:
         self.geprueft.append(name)
         meldungen = [] if self.akzeptiert else [KositMeldung("error", "BR-DE-1", "x")]
         return KositErgebnis(self.akzeptiert, meldungen)
+
+
+class FalscherPdfPruefer:
+    def __init__(self, gueltig=True):
+        self.gueltig = gueltig
+        self.geprueft = []
+
+    def pruefe(self, pdf, name="rechnung.pdf"):
+        self.geprueft.append(name)
+        meldungen = [] if self.gueltig else ["Not a PDF/A-3"]
+        return MustangErgebnis(self.gueltig, self.gueltig, True, None, meldungen)
 
 
 @pytest.fixture
@@ -138,3 +150,44 @@ def test_ausgestellt_nicht_mehr_aenderbar(umgebung):
         s.commit()
         with pytest.raises(ValueError, match="unveränderlich"):
             fuege_position_hinzu(s, "2026-0001", pos("Nachtrag", "1"))
+
+
+def test_ausstellen_erzeugt_und_archiviert_das_zugferd_pdf(umgebung):
+    from accounti.belege.erkennung import erkenne_format
+    from accounti.belege.kanaele import RohBeleg
+
+    make_session, archiv = umgebung
+    schluessel = _anlegen(make_session)
+    pdf_pruefer = FalscherPdfPruefer()
+    with make_session() as s:
+        ergebnis = stelle_aus(
+            s, archiv, schluessel, FIRMA, DATUM, pdf_pruefer=pdf_pruefer
+        )
+        s.commit()
+        r = lade_ausgangsrechnung(s, "2026-0001")
+    assert pdf_pruefer.geprueft == ["2026-0001.pdf"]
+    assert ergebnis.pdf.startswith(b"%PDF-")
+    assert archiv.lese(r.pdf_hash) == ergebnis.pdf
+    roh = RohBeleg(dateiname="x.pdf", inhalt=ergebnis.pdf, kanal="t", herkunft="t")
+    assert erkenne_format(roh).xml == ergebnis.xml
+
+
+def test_abgelehntes_pdf_verbraucht_keine_nummer(umgebung):
+    make_session, archiv = umgebung
+    schluessel = _anlegen(make_session)
+    with make_session() as s:
+        with pytest.raises(AusstellungError, match="PDF/A") as info:
+            stelle_aus(
+                s,
+                archiv,
+                schluessel,
+                FIRMA,
+                DATUM,
+                pdf_pruefer=FalscherPdfPruefer(False),
+            )
+        assert info.value.mustang is not None
+        s.rollback()
+    with make_session() as s:
+        assert stelle_aus(s, archiv, schluessel, FIRMA, DATUM).rechnung.nummer == (
+            "2026-0001"
+        )

@@ -136,13 +136,18 @@ def test_rechnung_schreiben_und_ausstellen(tmp_path):
         "--datum",
         "2026-03-10",
     ]
-    if not KositPruefer().verfuegbar():
-        argumente.append("--ohne-kosit")
+    from accounti.erechnung.mustang import MustangPruefer
+
+    if not (KositPruefer().verfuegbar() and MustangPruefer().verfuegbar()):
+        argumente.append("--ohne-formale-pruefung")
     r = runner.invoke(app, argumente)
     assert r.exit_code == 0, r.output
     assert "2026-0001" in r.output
     xml = (ausgabe / "2026-0001.xml").read_bytes()
     assert b"<ram:ID>2026-0001</ram:ID>" in xml
+    pdf = (ausgabe / "2026-0001.pdf").read_bytes()
+    assert pdf.startswith(b"%PDF-")
+    assert xml in pdf or b"xrechnung.xml" in pdf
 
     liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
     assert "2026-0001" in liste.output and "ausgestellt" in liste.output
@@ -221,7 +226,7 @@ def test_reverse_charge_vorschau(tmp_path):
 def test_ausstellen_ohne_pruefwerkzeug_braucht_ausdrueckliche_zustimmung(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setenv("ACCOUNTI_KOSIT_DIR", str(tmp_path / "nirgends"))
+    monkeypatch.setenv("ACCOUNTI_PRUEFWERKZEUGE", str(tmp_path / "nirgends"))
     url, konfig = _basis(tmp_path)
     rid = _neu(url)
     _position(url, rid, "--text", "Rahmen", "--preis", "100")
@@ -242,7 +247,7 @@ def test_ausstellen_ohne_pruefwerkzeug_braucht_ausdrueckliche_zustimmung(
         ],
     )
     assert r.exit_code == 1
-    assert "--ohne-kosit" in r.output
+    assert "--ohne-formale-pruefung" in r.output
     liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
     assert "entwurf" in liste.output
 
@@ -286,3 +291,148 @@ def test_pruefen_mit_kosit(tmp_path):
     )
     assert r.exit_code == 1
     assert "KoSIT" in r.output and "REJECT" in r.output.upper()
+
+
+# ---------------------------------------------------------------------------
+# Versand
+# ---------------------------------------------------------------------------
+
+VERSAND_YAML = """
+versand:
+  absender: "Galerie Muster GmbH <rechnung@galerie-muster.example>"
+  smtp:
+    host: smtp.example
+    benutzer: rechnung
+    passwort: "${ACCOUNTI_SMTP_PASSWORT}"
+"""
+
+
+def _ausgestellt(tmp_path, monkeypatch):
+    url, konfig = _basis(tmp_path)
+    Path(konfig).write_text(FIRMA_YAML + VERSAND_YAML, encoding="utf-8")
+    monkeypatch.setenv("ACCOUNTI_SMTP_PASSWORT", "geheim")
+    rid = _neu(url)
+    _position(url, rid, "--text", "Rahmen", "--preis", "100")
+    archiv = str(tmp_path / "archiv")
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "ausstellen",
+            rid,
+            "--db",
+            url,
+            "--config",
+            konfig,
+            "--archiv",
+            archiv,
+            "--ausgabe",
+            str(tmp_path / "out"),
+            "--datum",
+            "2026-03-10",
+            "--ohne-formale-pruefung",
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    return url, konfig, archiv
+
+
+def test_senden_per_smtp(tmp_path, monkeypatch):
+    from tests.test_versand import FalscherSmtp
+
+    FalscherSmtp.gesendet, FalscherSmtp.fehler = [], None
+    monkeypatch.setattr("accounti.erechnung.versand.smtplib.SMTP", FalscherSmtp)
+    url, konfig, archiv = _ausgestellt(tmp_path, monkeypatch)
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "senden",
+            "2026-0001",
+            "--db",
+            url,
+            "--config",
+            konfig,
+            "--archiv",
+            archiv,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert "versendet" in r.output
+    ((verbindung, nachricht),) = FalscherSmtp.gesendet
+    assert nachricht["To"] == "rechnung@atelier-kundin.example"
+    assert verbindung.schritte == ["verbinden", "starttls", "login rechnung"]
+
+    zeigen = runner.invoke(
+        app, ["rechnung", "zeigen", "2026-0001", "--db", url, "--config", konfig]
+    )
+    assert (
+        "Versand" in zeigen.output
+        and "rechnung@atelier-kundin.example" in zeigen.output
+    )
+    liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
+    assert "versendet" in liste.output
+
+
+def test_senden_fehlschlag(tmp_path, monkeypatch):
+    import smtplib
+
+    from tests.test_versand import FalscherSmtp
+
+    FalscherSmtp.gesendet = []
+    FalscherSmtp.fehler = smtplib.SMTPAuthenticationError(535, b"Anmeldung abgelehnt")
+    monkeypatch.setattr("accounti.erechnung.versand.smtplib.SMTP", FalscherSmtp)
+    url, konfig, archiv = _ausgestellt(tmp_path, monkeypatch)
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "senden",
+            "2026-0001",
+            "--db",
+            url,
+            "--config",
+            konfig,
+            "--archiv",
+            archiv,
+        ],
+    )
+    assert r.exit_code == 1
+    assert "Anmeldung abgelehnt" in r.output
+    zeigen = runner.invoke(
+        app, ["rechnung", "zeigen", "2026-0001", "--db", url, "--config", konfig]
+    )
+    assert "fehlgeschlagen" in zeigen.output
+    FalscherSmtp.fehler = None
+
+
+def test_senden_als_eml_datei(tmp_path, monkeypatch):
+    from email import message_from_bytes
+    from email.policy import default
+
+    url, konfig, archiv = _ausgestellt(tmp_path, monkeypatch)
+    eml = tmp_path / "vorschau.eml"
+    r = runner.invoke(
+        app,
+        [
+            "rechnung",
+            "senden",
+            "2026-0001",
+            "--db",
+            url,
+            "--config",
+            konfig,
+            "--archiv",
+            archiv,
+            "--format",
+            "xrechnung",
+            "--eml",
+            str(eml),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    nachricht = message_from_bytes(eml.read_bytes(), policy=default)
+    (anhang,) = list(nachricht.iter_attachments())
+    assert anhang.get_filename() == "2026-0001.xml"
+    liste = runner.invoke(app, ["rechnung", "liste", "--db", url])
+    assert "versendet" not in liste.output  # nur Vorschau, kein Versand

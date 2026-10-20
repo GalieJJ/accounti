@@ -226,8 +226,25 @@ class Ausgangsrechnung(BaseModel):
     rechnungsdatum: date | None = None
     zahlungsziel: date | None = None
     beleg_id: UUID | None = None
-    datei_hash: str | None = None
+    datei_hash: str | None = Field(default=None, description="XRechnung im Archiv")
+    pdf_hash: str | None = Field(default=None, description="ZUGFeRD-PDF im Archiv")
     erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
+class Versandprotokoll(BaseModel):
+    """Ein Versandversuch einer Ausgangsrechnung — auch, wenn er scheiterte."""
+
+    id: UUID = Field(default_factory=uuid4)
+    rechnung_id: UUID
+    zeitpunkt: datetime = Field(default_factory=datetime.now)
+    weg: str = Field(description="z.B. 'email'")
+    empfaenger: str
+    format: str = Field(description="'zugferd' oder 'xrechnung'")
+    dateiname: str
+    datei_hash: str
+    message_id: str | None = None
+    erfolgreich: bool
+    fehler: str | None = None
 
 
 # ---------------------------------------------------------------------------

@@ -60,6 +60,18 @@ import:
   # Duplikaterkennung
   duplikat_check: true
 
+# Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
+versand:
+  absender: "Meine Firma GmbH <rechnung@meine-firma.example>"
+  bcc: "buchhaltung@meine-firma.example"   # Kopie an sich selbst (optional)
+  smtp:
+    host: "smtp.meine-firma.example"
+    port: 587
+    benutzer: "rechnung@meine-firma.example"
+    passwort: "${ACCOUNTI_SMTP_PASSWORT}"   # Umgebungsvariable, nie im Klartext
+    verschluesselung: starttls             # starttls, ssl oder keine
+  # betreff/text überschreibbar, Platzhalter: {nummer} {firma} {datum} {faellig} {brutto} {format}
+
 # Server
 server:
   host: "127.0.0.1"

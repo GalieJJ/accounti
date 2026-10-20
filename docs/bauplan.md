@@ -31,7 +31,7 @@ Tatsachen.
 |---|----------|------------|--------|------|
 | 1 | Bankauszug → Auto-Kontierung (Regeln + KI) → DATEV/CSV | `importers/` `klassifikation/` `buchung/` `export/` `db/` | ✅ fertig | [Spec](specs/2026-06-02-mvp-bank-auto-kontierung.md) |
 | 2 | Belegerfassung & Dokumentenmanagement | `belege/` | 🟨 teilweise | [Spec](specs/2026-08-10-belegerfassung.md) |
-| 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | 🟨 teilweise | [Spec](specs/2026-08-10-erechnung.md) |
+| 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | ✅ fertig | [Spec](specs/2026-08-10-erechnung.md) |
 | 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | 🔲 geplant | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🔲 geplant | [Spec](specs/2026-08-10-bankanbindung-live.md) |
 | 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | 🔲 geplant | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
@@ -50,11 +50,11 @@ Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen ·
 Eingangsprotokoll ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)) sowie Erkennung, OCR und
 Positionssplit ([Paket 2](plans/2026-10-19-belegerfassung-paket-2.md)) stehen — was fehlt, sind der
 E-Mail-Kanal, Webhook und Connectoren.
-**Baustein 3 ist teilweise fertig,** weil Eingang und Ausstellen stehen: XRechnung und ZUGFeRD
-werden ohne OCR übernommen und fachlich validiert ([Paket 1](plans/2026-10-19-erechnung-paket-1-eingang.md)),
-Ausgangsrechnungen werden mit lückenloser Nummer als XRechnung ausgestellt und vom KoSIT-Prüftool
-formal geprüft ([Paket 2](plans/2026-10-19-erechnung-paket-2-ausgang.md)) — was fehlt, sind das
-ZUGFeRD-PDF (PDF/A-3) und der Versand.
+**Baustein 3 ist fertig:** Eingang ([Paket 1](plans/2026-10-19-erechnung-paket-1-eingang.md)),
+Ausstellen als XRechnung mit lückenlosen Nummernkreisen ([Paket 2](plans/2026-10-19-erechnung-paket-2-ausgang.md))
+sowie ZUGFeRD-PDF und E-Mail-Versand ([Paket 3](plans/2026-10-20-erechnung-paket-3-zugferd-versand.md)),
+jeweils formal geprüft. Offen als Erweiterungen: Storno/Korrekturrechnung (Typ 384), Dienstleistungen
+an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

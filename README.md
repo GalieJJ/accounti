@@ -67,7 +67,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Belegerkennung** | PDF-Textebene, OCR mit lokaler Engine (Tesseract), Belegart per Regelwerk + optionalem LLM, Dublettenerkennung, Rechenprobe |
 | ✅ | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
 | ✅ | **E-Rechnung Eingang** | XRechnung (UBL/CII) und ZUGFeRD/Factur-X ohne OCR übernehmen, fachlich validieren (EN-16931-Regeln, § 14 UStG), `accounti rechnung pruefen` |
-| 🟨 | **E-Rechnung Ausgang** | Rechnungen schreiben und als XRechnung ausstellen: lückenlose Nummernkreise, Steuer aus `steuer/` (Inland, Reverse-Charge, ig. Lieferung, Ausfuhr, OSS), Prüfung mit dem KoSIT-Prüftool; ZUGFeRD-PDF und Versand folgen |
+| ✅ | **E-Rechnung Ausgang** | Rechnungen schreiben und als XRechnung + ZUGFeRD-PDF (PDF/A-3b) ausstellen: lückenlose Nummernkreise, Steuer aus `steuer/` (Inland, Reverse-Charge, ig. Lieferung, Ausfuhr, OSS), formale Prüfung mit KoSIT und Mustang/veraPDF, Versand per E-Mail mit Protokoll |
 
 **Buchen & Zahlen**
 
@@ -133,9 +133,10 @@ Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
 - Python 3.11+
 - PostgreSQL 15+
 - Ein LLM-Zugang (Anthropic API, OpenAI, oder lokales Modell via Ollama)
-- Optional für die formale XRechnung-Prüfung: Java 21 und das KoSIT-Prüftool
-  (`scripts/kosit_installieren.sh`, feste Version mit Prüfsumme). Ohne Prüftool stellt
-  `accounti rechnung ausstellen` nur mit ausdrücklichem `--ohne-kosit` aus.
+- Optional für die formale Prüfung von E-Rechnungen: Java 21 und die Prüfwerkzeuge KoSIT
+  (XRechnung) und Mustang/veraPDF (ZUGFeRD, PDF/A-3) — `scripts/pruefwerkzeuge_installieren.sh`,
+  feste Versionen mit Prüfsumme. Ohne sie stellt `accounti rechnung ausstellen` nur mit
+  ausdrücklichem `--ohne-formale-pruefung` aus.
 - Optional für gescannte Belege und Fotos: Tesseract mit deutschen Sprachdaten
   (`apt install tesseract-ocr tesseract-ocr-deu`). Ohne Tesseract landen Scans mit Hinweis in der Prüfung.
 
@@ -186,12 +187,13 @@ accounti belege liste --status pruefung
 accounti rechnung pruefen ./eingang/rechnung.xml --kosit
 
 # Ausgangsrechnung schreiben und als XRechnung ausstellen (Firmendaten: config/accounti.yaml)
-scripts/kosit_installieren.sh
+scripts/pruefwerkzeuge_installieren.sh
 accounti rechnung neu --name "Kunde GmbH" --plz 10115 --ort Berlin \
   --ust-id DE123456789 --email rechnung@kunde.example
 accounti rechnung position <ID> --text "Beratung" --preis 120 --menge 8 --einheit HUR --leistung
 accounti rechnung zeigen <ID>
-accounti rechnung ausstellen <ID>     # vergibt die Nummer, prüft, archiviert → rechnungen/
+accounti rechnung ausstellen <ID>     # Nummer, XRechnung + ZUGFeRD-PDF, Prüfung → rechnungen/
+accounti rechnung senden RE-2026-0001 # per E-Mail (Abschnitt 'versand'), mit Versandprotokoll
 ```
 
 ---
@@ -434,7 +436,7 @@ kontieren will, braucht nur v0.1.
 - [x] E-Rechnung lesen: XRechnung (UBL/CII), ZUGFeRD/Factur-X, mit fachlicher Validierung
 - [x] E-Rechnung: formale Prüfung gegen XSD/Schematron (KoSIT-Prüftool)
 - [x] E-Rechnung schreiben: XRechnung mit lückenlosen Nummernkreisen
-- [ ] E-Rechnung: ZUGFeRD-PDF (PDF/A-3) und Versand
+- [x] E-Rechnung: ZUGFeRD-PDF (PDF/A-3b) und Versand per E-Mail
 
 ### v0.3 — Personenkonten & Bank *(Bausteine 4, 5)*
 - [ ] Debitoren/Kreditoren-Stammdaten, USt-IdNr.-Prüfung mit Protokoll

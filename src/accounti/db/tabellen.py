@@ -137,7 +137,26 @@ class AusgangsrechnungRow(Base):
     zahlungsziel: Mapped[date | None] = mapped_column(Date, nullable=True)
     beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     datei_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pdf_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class VersandprotokollRow(Base):
+    __tablename__ = "versandprotokolle"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    rechnung_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("ausgangsrechnungen.id"), index=True
+    )
+    zeitpunkt: Mapped[datetime] = mapped_column(DateTime)
+    weg: Mapped[str] = mapped_column(String(20))
+    empfaenger: Mapped[str] = mapped_column(String(320))
+    format: Mapped[str] = mapped_column(String(20))
+    dateiname: Mapped[str] = mapped_column(String(255))
+    datei_hash: Mapped[str] = mapped_column(String(64))
+    message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    erfolgreich: Mapped[bool] = mapped_column(Boolean)
+    fehler: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
 
 class AusgangspositionRow(Base):

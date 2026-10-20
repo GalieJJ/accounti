@@ -24,7 +24,9 @@ from accounti.erechnung import lies
 from accounti.erechnung.abbildung import zu_beleg
 from accounti.erechnung.erzeuger.aufbau import baue_rechnung
 from accounti.erechnung.erzeuger.cii import schreibe_cii
+from accounti.erechnung.erzeuger.zugferd import schreibe_zugferd
 from accounti.erechnung.kosit import KositErgebnis
+from accounti.erechnung.mustang import MustangErgebnis
 from accounti.erechnung.validierung import Befund, Schwere, pruefe
 from accounti.konfiguration import Firma
 from accounti.models import (
@@ -40,25 +42,33 @@ class FormalerPruefer(Protocol):
     def pruefe(self, xml: bytes, name: str = ...) -> KositErgebnis: ...
 
 
+class PdfPruefer(Protocol):
+    def pruefe(self, pdf: bytes, name: str = ...) -> MustangErgebnis: ...
+
+
 class AusstellungError(RuntimeError):
     def __init__(
         self,
         text: str,
         befunde: list[Befund] | None = None,
         kosit: KositErgebnis | None = None,
+        mustang: MustangErgebnis | None = None,
     ) -> None:
         super().__init__(text)
         self.befunde = befunde or []
         self.kosit = kosit
+        self.mustang = mustang
 
 
 @dataclass
 class AusstellErgebnis:
     rechnung: Ausgangsrechnung
     xml: bytes
+    pdf: bytes
     beleg: Beleg
     befunde: list[Befund] = field(default_factory=list)
     kosit: KositErgebnis | None = None
+    mustang: MustangErgebnis | None = None
 
 
 def stelle_aus(
@@ -68,8 +78,14 @@ def stelle_aus(
     firma: Firma,
     rechnungsdatum: date,
     kosit: FormalerPruefer | None = None,
+    pdf_pruefer: PdfPruefer | None = None,
+    erstellt_am: datetime | None = None,
 ) -> AusstellErgebnis:
-    """Stellt einen Entwurf aus. ``kosit=None`` überspringt die formale Prüfung."""
+    """Stellt einen Entwurf aus: XRechnung und ZUGFeRD-PDF.
+
+    ``kosit`` prüft das XML, ``pdf_pruefer`` das PDF formal; ``None`` überspringt
+    die jeweilige Prüfung.
+    """
     entwurf = lade_ausgangsrechnung(session, schluessel)
     if entwurf.status is not AusgangsrechnungStatus.ENTWURF:
         msg = f"Rechnung {entwurf.nummer} ist bereits ausgestellt."
@@ -100,8 +116,20 @@ def stelle_aus(
             msg = f"KoSIT-Prüftool: {gruende}"
             raise AusstellungError(msg, befunde=befunde, kosit=kosit_ergebnis)
 
+    jetzt = erstellt_am or datetime.now().astimezone()
+    pdf = schreibe_zugferd(rechnung, xml, jetzt)
+    mustang_ergebnis = None
+    if pdf_pruefer is not None:
+        mustang_ergebnis = pdf_pruefer.pruefe(pdf, f"{nummer}.pdf")
+        if not mustang_ergebnis.gueltig:
+            gruende = "; ".join(mustang_ergebnis.meldungen) or "abgelehnt"
+            msg = f"ZUGFeRD-PDF (Mustang/veraPDF): {gruende}"
+            raise AusstellungError(
+                msg, befunde=befunde, kosit=kosit_ergebnis, mustang=mustang_ergebnis
+            )
+
     datei_hash = archiv.ablegen(xml, ".xml")
-    jetzt = datetime.now()
+    pdf_hash = archiv.ablegen(pdf, ".pdf")
     beleg = zu_beleg(
         gelesen,
         befunde,
@@ -110,7 +138,7 @@ def stelle_aus(
             dateiname=f"{nummer}.xml",
             kanal="rechnung",
             herkunft=f"accounti rechnung ausstellen {nummer}",
-            eingegangen_am=jetzt,
+            eingegangen_am=jetzt.replace(tzinfo=None),
             aufbewahren_bis=aufbewahrungsende(rechnungsdatum),
         ),
     ).model_copy(
@@ -128,11 +156,14 @@ def stelle_aus(
         zahlungsziel=rechnung.faellig,
         beleg_id=beleg.id,
         datei_hash=datei_hash,
+        pdf_hash=pdf_hash,
     )
     return AusstellErgebnis(
         rechnung=lade_ausgangsrechnung(session, nummer),
         xml=xml,
+        pdf=pdf,
         beleg=beleg,
         befunde=befunde,
         kosit=kosit_ergebnis,
+        mustang=mustang_ergebnis,
     )
