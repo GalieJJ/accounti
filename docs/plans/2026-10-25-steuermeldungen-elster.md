@@ -114,9 +114,9 @@ elster/zahllast.py: Eigenbeleg → 1780 an Kreditor „Finanzamt“ → offener 
 
 ### Paket 2 — Fristen
 
-- [ ] **Feiertage** (`steuer/feiertage.py`): bundeseinheitlich, je Land, Ostern über `dateutil` (`tests/test_steuer_fristen.py`).
-- [ ] **Fristen** (`steuer/fristen.py`): § 108 Abs. 3 AO, UStVA/DFV/SVZ/ZM/OSS, Kalender eines Jahres, fällige Fristen ab Stichtag; Akzeptanz 6 (10. auf Samstag/Sonntag, Feiertag, Kette Karfreitag–Ostermontag, Sonderfall 10. Februar).
-- [ ] **CLI** `accounti fristen --jahr` (`tests/test_cli_fristen.py`).
+- [x] **Feiertage** (`steuer/feiertage.py`): bundeseinheitlich, je Land, Ostersonntag selbst berechnet (Meeus/Jones/Butcher; `dateutil` hat keine Typstubs) (`tests/test_steuer_fristen.py`).
+- [x] **Fristen** (`steuer/fristen.py`): § 108 Abs. 3 AO, UStVA/DFV/SVZ/ZM/OSS, Kalender eines Jahres, fällige Fristen ab Stichtag; Akzeptanz 6 (10. auf Samstag/Sonntag, Feiertag, Kette Karfreitag–Ostermontag, Sonderfall 10. Februar).
+- [x] **CLI** `accounti fristen --jahr` (`tests/test_cli_fristen.py`).
 
 ### Paket 3 — Datensatz, Übermittlung, Protokoll
 
