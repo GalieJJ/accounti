@@ -518,6 +518,7 @@ def gleiche_ab(
     erzeugt_von: str,
     grund_entfallen: str,
     umfang: Collection[Objekt] | None = None,
+    gruende: Mapping[Objekt, str] | None = None,
     einstellungen: AufgabenEinstellungen | None = None,
     jetzt: datetime | None = None,
 ) -> Abgleich:
@@ -525,8 +526,10 @@ def gleiche_ab(
 
     Geschlossen werden nur aktive Aufgaben dieses Erzeugers, deren Objekt im
     geprüften ``umfang`` liegt (``None`` = alles geprüft) — ein Lauf über einen Monat
-    schließt nichts aus anderen Monaten.
+    schließt nichts aus anderen Monaten. ``gruende`` nennt je Objekt, warum der Anlass
+    entfallen ist (z.B. welcher Beleg zugeordnet wurde); sonst ``grund_entfallen``.
     """
+    gruende = gruende or {}
     jetzt = _jetzt(jetzt)
     ergebnis = Abgleich()
     gesehen: set[str] = set()
@@ -560,7 +563,6 @@ def gleiche_ab(
             continue
         if im_umfang is not None and aufgabe.objekt not in im_umfang:
             continue
-        ergebnis.hinfaellig.append(
-            _schliesse(session, aufgabe, grund_entfallen, SYSTEM, jetzt)
-        )
+        grund = gruende.get(aufgabe.objekt, grund_entfallen)
+        ergebnis.hinfaellig.append(_schliesse(session, aufgabe, grund, SYSTEM, jetzt))
     return ergebnis

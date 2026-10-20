@@ -39,6 +39,14 @@ from accounti.aufgaben.erzeugung import (
 )
 from accounti.aufgaben.fehler import AufgabenError
 from accounti.aufgaben.objekte import beschreibe, loese_auf, registriere_objekttyp
+from accounti.aufgaben.prueflaeufe import (
+    PRUEFLAEUFE,
+    Laufergebnis,
+    Pruefergebnis,
+    Prueflauf,
+    fuehre_prueflaeufe_aus,
+    registriere_prueflauf,
+)
 from accounti.models.aufgaben import (
     Aufgabe,
     AufgabenStatus,
@@ -49,6 +57,7 @@ from accounti.models.aufgaben import (
 )
 
 __all__ = [
+    "PRUEFLAEUFE",
     "Abgleich",
     "Anlass",
     "Aufgabe",
@@ -57,14 +66,18 @@ __all__ = [
     "AufgabenStatus",
     "Kommentar",
     "KommentarArt",
+    "Laufergebnis",
     "Meldung",
     "Objekt",
     "Prioritaet",
+    "Pruefergebnis",
+    "Prueflauf",
     "Rueckfrage",
     "Vorgang",
     "aufgaben_zu",
     "beschreibe",
     "erledige",
+    "fuehre_prueflaeufe_aus",
     "gleiche_ab",
     "halte_rueckfrage_fest",
     "kommentare_zu",
@@ -73,6 +86,7 @@ __all__ = [
     "loese_auf",
     "melde_aufgabe",
     "registriere_objekttyp",
+    "registriere_prueflauf",
     "schliesse_wenn_erledigt",
     "setze_status",
     "weise_zu",
