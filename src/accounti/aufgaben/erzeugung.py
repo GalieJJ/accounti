@@ -83,7 +83,8 @@ def _ereignis(
     )
 
 
-def _lade(session: Session, ref: str | int | Aufgabe) -> Aufgabe:
+def finde_aufgabe(session: Session, ref: str | int | Aufgabe) -> Aufgabe:
+    """Aufgabe über Nummer (``42``, ``#42``) oder Anfang der ID; sonst AufgabenError."""
     if isinstance(ref, Aufgabe):
         ref = str(ref.id)
     try:
@@ -261,7 +262,7 @@ def erledige(
 ) -> Aufgabe:
     """Ein Mensch schließt die Aufgabe ab — optional mit Begründung."""
     jetzt = _jetzt(jetzt)
-    aufgabe = _lade(session, ref)
+    aufgabe = finde_aufgabe(session, ref)
     if not aufgabe.aktiv:
         msg = f"Aufgabe #{aufgabe.nr} ist schon {aufgabe.status.value}."
         raise AufgabenError(msg)
@@ -306,7 +307,7 @@ def setze_status(
         )
         raise AufgabenError(msg)
     jetzt = _jetzt(jetzt)
-    aufgabe = _lade(session, ref)
+    aufgabe = finde_aufgabe(session, ref)
     if not aufgabe.aktiv:
         msg = f"Aufgabe #{aufgabe.nr} ist schon {aufgabe.status.value}."
         raise AufgabenError(msg)
@@ -340,7 +341,7 @@ def weise_zu(
         msg = "Entweder Benutzer oder Rolle zuweisen, nicht beides."
         raise AufgabenError(msg)
     jetzt = _jetzt(jetzt)
-    aufgabe = _lade(session, ref)
+    aufgabe = finde_aufgabe(session, ref)
     if not aufgabe.aktiv:
         msg = f"Aufgabe #{aufgabe.nr} ist schon {aufgabe.status.value}."
         raise AufgabenError(msg)
@@ -382,7 +383,7 @@ def kommentiere(
         raise AufgabenError(msg)
     aufgabe_id: UUID | None = None
     if aufgabe is not None:
-        gefunden = _lade(session, aufgabe)
+        gefunden = finde_aufgabe(session, aufgabe)
         if objekt is not None and objekt != gefunden.objekt:
             msg = (
                 f"Aufgabe #{gefunden.nr} hängt an {gefunden.objekt}, nicht an "
