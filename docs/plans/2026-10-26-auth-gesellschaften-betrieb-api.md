@@ -130,17 +130,17 @@ Schnittstelle.
 
 ### Paket 2 — Web-Gerüst und REST-API
 
-- [ ] **App-Fabrik und Dienste** (`api/app.py`, `api/dienste.py`, `api/einstellungen.py`, `api/sicherheit.py`): Systemdatenbank, Gesellschaften, Engines je Gesellschaft, Sicherheitskopfzeilen, `/gesund` (`tests/test_api_app.py`).
-- [ ] **Anmeldung** (`api/sitzung.py`, `api/seiten/anmeldung.py`): Formular mit Double-Submit, Anmeldung ohne zweiten Faktor scheitert (Akzeptanz 4 im Browser), Cookie-Attribute, Abmelden serverseitig, Weiterleitung nur relativ (`tests/test_api_anmeldung.py`).
-- [ ] **CSRF und Rollen-Dependency** (`api/sitzung.py`): POST ohne/mit falschem Token → 403 (`tests/test_api_anmeldung.py`).
-- [ ] **Registry, Layout, Start, Gesellschaftswechsel** (`api/registry.py`, `api/seiten/`, `api/vorlagen/`): Akzeptanz 5 im Browser, Benutzer der Gesellschaft A sieht B nicht (`tests/test_api_gesellschaften.py`).
-- [ ] **Freigaben im Browser** (`api/seiten/freigaben.py`): Zahlungslauf und USt-VA über dieselben Funktionen wie die CLI, mit Einmalcode; Rechte-Matrix jede Rolle × jeder Endpunkt (Akzeptanz 3) (`tests/test_api_rechte_matrix.py`).
-- [ ] **REST** (`api/rest/`): offene Posten, Buchungen, Belege (Pipeline), Läufe; Token-Rechte (Integrationen Akz. 7), Gesellschaft des Tokens (`tests/test_api_rest.py`).
-- [ ] **`accounti serve`** (`api/server.py`, `cli.py`) (`tests/test_api_server.py`).
+- [x] **App-Fabrik und Dienste** (`api/app.py`, `api/dienste.py`, `api/einstellungen.py`, `api/sicherheit.py`): Systemdatenbank, Gesellschaften, Engines je Gesellschaft, Sicherheitskopfzeilen, `/gesund` (`tests/test_api_anmeldung.py::test_sicherheitskopfzeilen`, `::test_gesund`).
+- [x] **Anmeldung** (`api/sitzung.py`, `api/seiten/anmeldung.py`, `api/formular.py`): Formular mit Double-Submit, Anmeldung ohne zweiten Faktor scheitert (Akzeptanz 4 im Browser), Cookie-Attribute, Abmelden serverseitig, Leerlauf, Sperre, Weiterleitung nur relativ (`tests/test_api_anmeldung.py`).
+- [x] **CSRF und Rollen-Dependency** (`api/sitzung.py`): POST ohne/mit falschem Token, fremde Seite → 403; `X-CSRF-Token` für HTMX (`tests/test_api_anmeldung.py::test_csrf_falsch_oder_fremde_seite`).
+- [x] **Registry, Layout, Start, Gesellschaftswechsel** (`api/registry.py`, `api/vorlagen.py`, `api/vorlagen/`, `api/statisch/`, `api/seiten/start.py`, `api/seiten/gesellschaft.py`): Akzeptanz 5 im Browser über **alle** Seiten, Benutzer der Gesellschaft A sieht B nicht, Navigation nach Rechten, Autoescape (`tests/test_api_gesellschaften.py`, `tests/test_api_app.py`).
+- [x] **Freigaben im Browser** (`api/seiten/freigaben.py`): Zahlungslauf (auch Vier-Augen) und USt-VA über dieselben Funktionen wie die CLI, mit frischem Einmalcode; Rechte-Matrix jede Rolle × jeder Endpunkt, Vollständigkeit der Matrix (Akzeptanz 3) (`tests/test_api_rechte_matrix.py`).
+- [x] **REST** (`api/rest/`): `ich`, offene Posten, Buchungen, Belege (Pipeline, Kanal `api`), Läufe; Token-Rechte je Endpunkt (Integrationen Akz. 7), Gesellschaft des Tokens, Ablauf und Widerruf, keine Sitzung als Token (`tests/test_api_rest.py`, `tests/test_api_rechte_matrix.py`).
+- [x] **Protokollierung** (`betrieb/protokoll.py`, `api/sicherheit.py`): Schwärzung an jedem Handler, Zugriffsprotokoll ohne Abfrage und IP, HTTP-Bibliotheken leise; Test gegen die Ausgabe eines Durchlaufs mit Namen, IBAN, Token und Passwort (`tests/test_betrieb_protokoll.py`).
+- [x] **`accounti serve`** (`api/server.py`, Platzhalter in `cli.py` ersetzt) (`tests/test_api_server.py`).
 
 ### Paket 3 — Betrieb
 
-- [ ] **Protokollierung** (`betrieb/protokoll.py`): Filter und Zugriffsprotokoll; Test gegen die Ausgabe eines Durchlaufs mit IBAN, Namen, Token und Passwort (`tests/test_betrieb_protokoll.py`).
 - [ ] **Verschlüsselung** (`betrieb/verschluesselung.py`): Stückweise AES-GCM, falscher Schlüssel, manipuliert, abgeschnitten, umsortiert (`tests/test_betrieb_verschluesselung.py`).
 - [ ] **Sicherung** (`betrieb/sicherung.py`, `befehle/sicherung.py`): erstellen, prüfen, wiederherstellen in eine leere Umgebung — Buchungen und Belege vollständig (Akzeptanz 7), nicht leer → Abbruch, Pfade im Archiv, Typen (`tests/test_betrieb_sicherung.py`, `tests/test_cli_sicherung.py`).
 - [ ] **Aufbewahrung** (`betrieb/aufbewahrung.py`, `befehle/betrieb.py aufbewahrung`) (`tests/test_betrieb_aufbewahrung.py`).
@@ -150,7 +150,95 @@ Schnittstelle.
 
 ## Schnittstelle für die Web-Oberfläche
 
-*(wird beim Bau von Paket 3 ausgefüllt)*
+Die Supervisions-Queue, Auswertungen und die Zweisprachigkeit (Spec 4.2, 4.3, 4.5) entstehen
+auf diesem Gerüst, ohne `app.py`, `sitzung.py` oder das Grundlayout umzubauen.
+
+**Neue Seite = neues Modul** in `src/accounti/api/seiten/<bereich>.py` — automatisch eingehängt
+(`api/registry.routermodule`, Muster wie `accounti.befehle`; Module mit `_` am Anfang zählen
+nicht):
+
+```python
+from typing import Annotated
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
+from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+
+from accounti.api.formular import formular            # urlencoded-Formular, zwischengespeichert
+from accounti.api.registry import Navigationspunkt
+from accounti.api.sitzung import Angemeldet, dienste_von, erfordert, gesellschaft_db
+from accounti.api.vorlagen import seite
+from accounti.models.auth import Recht
+
+router = APIRouter()
+NAVIGATION = [Navigationspunkt("Prüfen", "/pruefen", Recht.BUCHEN, reihenfolge=10)]
+
+@router.get("/pruefen", response_class=HTMLResponse)
+async def queue(
+    request: Request,
+    a: Annotated[Angemeldet, Depends(erfordert(Recht.BUCHEN))],   # sonst 303 / 403
+    s: Annotated[Session, Depends(gesellschaft_db)],              # DB der aktiven Gesellschaft
+) -> HTMLResponse:
+    vorschlaege = await run_in_threadpool(lade_pruefliste, s)     # dieselbe Funktion wie die CLI
+    return seite(request, "pruefen.html", {"titel": "Prüfen", "vorschlaege": vorschlaege})
+
+@router.post("/pruefen/{buchung_id}/freigeben")
+async def freigeben(
+    buchung_id: str,
+    request: Request,
+    a: Annotated[Angemeldet, Depends(erfordert(Recht.BUCHUNG_FREIGEBEN))],
+    s: Annotated[Session, Depends(gesellschaft_db)],
+) -> HTMLResponse:
+    felder = await formular(request)    # CSRF ist an dieser Stelle schon geprüft
+    ...                                 # Person für Journal/geprueft_von: a.benutzer.name
+```
+
+- **Rechte** (`models/auth.py`, Rollen → Rechte in `ROLLEN_RECHTE`): `Recht.LESEN`, `BUCHEN`
+  (erfassen, prüfen, korrigieren), `BELEGE_EINLIEFERN`, `LAEUFE_STARTEN`, `BUCHUNG_FREIGEBEN`,
+  `ZAHLUNG_FREIGEBEN`, `STEUER_FREIGEBEN`, `VERWALTEN`. `erfordert(Recht.X)` liefert
+  `Angemeldet` mit `benutzer` (`name` für Journal und `geprueft_von`), `gesellschaft`
+  (`kuerzel`, `name`, `datenbank`, `archiv`, `konfiguration`, `regeln`), `gesellschaften` (für
+  den Wechsel), `rechte`, `darf(recht)` und `csrf`. Ohne Sitzung: Seiten 303 nach
+  `/anmelden?weiter=…`, Pfade unter `/api/` 401; ohne Recht 403. `AngemeldetDep` gibt es für
+  Seiten, die nur eine Anmeldung brauchen.
+- **Daten nur über `gesellschaft_db`** und `a.gesellschaft`: Archiv
+  `BelegArchiv(a.gesellschaft.archiv)`, Konfiguration `lade_…(a.gesellschaft.konfiguration)`,
+  Regeln `lade_regeln(a.gesellschaft.regeln)`. Nie `config/accounti.yaml` oder `archiv/belege`
+  fest einsetzen und nie einen Lader ohne Pfad aufrufen — sonst zeigt eine Seite nach dem Wechsel
+  die falsche Gesellschaft. Committen tut die Seite selbst (`s.commit()`).
+- **Blockierendes** (Datenbank, OCR, scrypt) in `run_in_threadpool` oder als `def`-Handler.
+- **Formulare:** jedes nicht lesende Formular trägt
+  `<input type="hidden" name="csrf" value="{{ csrf }}">`; HTMX schickt den Kopf, z. B.
+  `<body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>`. Felder liest `await formular(request)`;
+  Datei-Uploads liest `accounti.belege.webhook.anfrage.lies_anfrage` (Multipart mit der
+  Standardbibliothek). `python-multipart` ist nicht installiert, `request.form()` geht nicht.
+- **Freigaben mit frischem Einmalcode:** vor jeder Freigabe
+  `api.seiten.freigaben.bestaetige_einmalcode(dienste_von(request), a, felder["einmalcode"])`
+  (Schalter `auth.einmalcode_bestaetigung`) — wie bei Zahlungslauf und USt-VA.
+- **Vorlagen** in `src/accounti/api/vorlagen/` mit `{% extends "basis.html" %}`, Blöcke `titel`,
+  `kopf` (eigene Stylesheets/Skripte), `inhalt`; Kontext immer `angemeldet`, `csrf`,
+  `navigation`, `version`, `titel`, `meldung`, `fehler`. Autoescape und `StrictUndefined` sind
+  an; Filter `betrag` (1.234,50) und `datum` (TT.MM.JJJJ). Das Layout zeigt „Gesellschaft:
+  **Name**“ und bei mehreren den Wechsler (`POST /gesellschaft`). Für die Zweisprachigkeit gibt
+  es noch keinen Übersetzungsmechanismus (`lang="de"` im Layout).
+- **Statisches** in `src/accounti/api/statisch/` unter `/statisch/…` — HTMX als Datei dort
+  ablegen, nicht von einem CDN laden. Die CSP erlaubt nur eigene Skripte und Stile, keine
+  Inline-Skripte und keine `style=`-Attribute; Belege dürfen in `<iframe>`/`<object>` derselben
+  Herkunft (`frame-src`/`object-src 'self'`, `frame-ancestors 'self'`). Antworten außer
+  `/statisch` tragen `Cache-Control: no-store`.
+- **Pfade** enthalten nur IDs, keine Namen — das Zugriffsprotokoll schreibt den Pfad (ohne
+  Abfrage).
+- **Rechte-Matrix:** jeder neue Endpunkt gehört in `SEITEN` bzw. `REST` in
+  `tests/test_api_rechte_matrix.py`, sonst schlägt `test_jeder_endpunkt_steht_in_der_matrix`
+  fehl.
+- **REST-Module** in `src/accounti/api/rest/` (Präfix `/api/v1`):
+  `Depends(erfordert_recht(TokenRecht.X))` für das Recht, `TokenDb` für die Datenbank der
+  Gesellschaft des Tokens; Beträge als Zeichenkette. Neue Token-Rechte ergänzen `TokenRecht`.
+- **Testen:** `tests/api_hilfe.py` — `webwelt(tmp_path)` (zwei Gesellschaften, steuerbare `Uhr`),
+  `person(name, Rolle…)`, `angemeldet(name)` → Testclient mit Sitzung, `token(kuerzel,
+  TokenRecht…)`, `csrf(client)`; Basisadresse `https://accounti.test` (das Cookie ist `Secure`).
+- **Start:** `accounti serve` (mit Registry alle Gesellschaften); in Tests
+  `erstelle_app(Dienste(systemdatenbank, {kuerzel: Gesellschaft}, uhr=…, schluessel=…))`.
 
 ## Akzeptanzkriterien → Tests
 

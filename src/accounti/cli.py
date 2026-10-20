@@ -2534,12 +2534,18 @@ def korrigiere(
 # ---------------------------------------------------------------------------
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", help="Host-Adresse"),
-    port: int = typer.Option(8400, help="Port"),
+    host: str | None = typer.Option(None, help="Host-Adresse (sonst server.host)"),
+    port: int | None = typer.Option(None, help="Port (sonst server.port, 8400)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration"
+    ),
 ) -> None:
-    """Web-UI für Supervision starten."""
-    console.print(f"[bold]accounti server[/bold] → http://{host}:{port}")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 4[/yellow]")
+    """Web-Oberfläche und REST-API starten (TLS über einen Reverse-Proxy)."""
+    from accounti.api.server import starte_aus_cli
+
+    starte_aus_cli(host, port, db, archiv, config)
 
 
 # ---------------------------------------------------------------------------

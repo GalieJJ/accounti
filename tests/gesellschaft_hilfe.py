@@ -46,7 +46,9 @@ def zwei_gesellschaften(tmp_path: Path, standard: str | None = None) -> Umgebung
         config[k].write_text(
             f"mandant:\n  name: {name}\n  kontenrahmen: {rahmen}\n"
             f"buchhaltung:\n  kontenrahmen: {rahmen}\n"
-            f"datev:\n  wirtschaftsjahr_beginn: '2026-0{1 if k == 'a' else 7}-01'\n",
+            f"datev:\n  wirtschaftsjahr_beginn: '2026-0{1 if k == 'a' else 7}-01'\n"
+            f"zahlung:\n  auftraggeber:\n    name: {name}\n"
+            "    iban: DE12500105170648489890\n    bic: COBADEFFXXX\n",
             encoding="utf-8",
         )
     system = _url(tmp_path / "system.db")
@@ -67,3 +69,15 @@ def zwei_gesellschaften(tmp_path: Path, standard: str | None = None) -> Umgebung
         encoding="utf-8",
     )
     return Umgebung(tmp_path, registry, system, db, archiv, config)
+
+
+def zahlungslauf(u: Umgebung, kuerzel: str) -> None:
+    """Zahlungslauf 1 im Entwurf über den Posten der Gesellschaft (wie per CLI)."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+
+    befehl = ["zahlung", "anlegen", "--db", u.db[kuerzel]]
+    befehl += ["--config", str(u.config[kuerzel]), "--stichtag", "2026-12-01"]
+    r = CliRunner().invoke(app, [*befehl, "--von", "eva"])
+    assert r.exit_code == 0, r.output

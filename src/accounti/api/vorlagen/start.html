@@ -1,0 +1,22 @@
+{% extends "basis.html" %}
+{% block titel %}Übersicht{% endblock %}
+{% block inhalt %}
+<h1>Übersicht</h1>
+<dl class="kennzahlen">
+  <div><dt>Offene Posten</dt><dd data-wert="offene_posten">{{ offene_posten }} · {{ offene_summe | betrag }} €</dd></div>
+  <div><dt>Buchungen zur Prüfung</dt><dd data-wert="buchungen_pruefung">{{ buchungen_pruefung }}</dd></div>
+  <div><dt>Belege zur Prüfung</dt><dd data-wert="belege_pruefung">{{ belege_pruefung }}</dd></div>
+  <div><dt>Zahlungsläufe im Entwurf</dt><dd data-wert="zahlungslaeufe">{{ zahlungslaeufe }}</dd></div>
+</dl>
+{% if posten %}
+<table class="liste">
+  <caption>Fällige offene Posten</caption>
+  <thead><tr><th>Fällig</th><th>Kontakt</th><th>Beleg</th><th class="zahl">Rest</th></tr></thead>
+  <tbody>
+  {% for p in posten %}
+    <tr><td>{{ p.faellig_am | datum }}</td><td>{{ p.kontakt }}</td><td>{{ p.belegnummer or "—" }}</td><td class="zahl">{{ p.restbetrag | betrag }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% endblock %}
