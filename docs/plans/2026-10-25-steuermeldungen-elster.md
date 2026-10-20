@@ -84,7 +84,7 @@ elster/zahllast.py: Eigenbeleg → 1780 an Kreditor „Finanzamt“ → offener 
 | USt-IdNr. | Kz 41, 42 und 21 brauchen eine aktuelle qualifizierte Bestätigung (`kontakte.ustid.aktuelle_bestaetigung`, Stichtag = Buchungsdatum, `ustid_pruefung.max_alter_tage`); Abnehmer über das Personenkonto oder den offenen Posten des Belegs | Akzeptanz 7; Steuerfreiheit nur mit Nachweis (§ 6a Abs. 4 UStG) |
 | Plausibilisierung | Befunde mit Schweregrad `fehler`/`warnung`/`hinweis` (wie Baustein 7 geplant); Fehler sperren die Freigabe. Weitere Regeln: Umsatzsteuer-Verprobung (gebucht ./. Formular > 1 €), Vormonat/Vorjahresmonat (> 50 % und > 1.000 €), EU-Privatkunden mit deutscher USt bei OSS-Registrierung, Kz 83 rechnerisch | Spec 4.1; Schwellen konfigurierbar |
 | Baustein 7/8 | Periodenabschluss und offene Prüfbefunde: Schnittstelle `weitere_befunde`, ohne Baustein 7 ein Hinweis; Aufgaben aus Fristen: `faellige_fristen()` liefert sie, eingehängt wird später | Bausteine 7 und 8 entstehen parallel |
-| Freigabe | eigener Schritt `ustva freigeben --von NAME`; speichert Name, Zeitpunkt, Formularwerte und deren Hash; echte Übermittlung nur mit passender, noch nicht verbrauchter Freigabe; ändern sich Buchungen, passt der Hash nicht mehr | „immer durch den Menschen, nie automatisch“ |
+| Freigabe | eigener Schritt `ustva freigeben --von NAME`; speichert Name, Zeitpunkt, Formularwerte und deren Hash; echte Übermittlung nur mit passender, noch nicht verbrauchter Freigabe; ändern sich Buchungen, passt der Hash nicht mehr; vor der Abgabe wird erneut plausibilisiert, neue Fehler sperren auch mit gültiger Freigabe | „immer durch den Menschen, nie automatisch“ |
 | Datensatz | `elster/datensatz.py` baut ELSTER-XML mit `xml.etree` (Elementreihenfolge laut Recherche); Zeitraum 01–12 bzw. 41–44; Steuernummer ins ELSTER-Format (`elster/steuernummer.py`, 13-stellig auch direkt) | keine neue Abhängigkeit; Schema nicht öffentlich |
 | Datensatzprüfung | intern: wohlgeformt, Namensräume, Pflichtfelder, Steuernummer/Finanzamt, Betragsformate, Kz 83 aus den Werten im XML nachgerechnet, Testmerker passend zum Modus; mit ERiC zusätzlich EBV-8 | „prüffähig“ auch ohne ERiC nachweisbar |
 | Testmodus | `--test`: Datensatz mit Testmerker 700000004, Prüfung, **kein Versand**, Datei optional (`--ausgabe`), Protokoll mit Modus `pruefung`; `--testfall` sendet mit Testmerker über ERiC (Server löscht ihn) | Spec: erzeugen und prüfen ohne Abgabe; Testfall prüft Zertifikat und Leitung |
@@ -133,10 +133,11 @@ elster/zahllast.py: Eigenbeleg → 1780 an Kreditor „Finanzamt“ → offener 
 
 ### Paket 4 — Zahllast, Dauerfrist, ZM
 
-- [ ] **Zahllast** (`elster/zahllast.py`): Kreditor Finanzamt, Eigenbeleg, Buchung, Posten zur Frist, Erstattung, Berichtigung als Differenz; Akzeptanz 5 (`tests/test_elster_zahllast.py`).
-- [ ] **Dauerfrist/Sondervorauszahlung**: Berechnung, Datensatz, `ustva dauerfrist`, Kz 39 im Dezember.
-- [ ] **Zusammenfassende Meldung** (`steuer/zusammenfassende_meldung.py`): L/D/S je USt-IdNr., Minderungen, Bestätigung, CSV `#v3.0`; `accounti zm` (`tests/test_steuer_zm.py`, `tests/test_cli_zm.py`).
-- [ ] **Abschluss**: `pytest`, `ruff` (ohne Cache), `ruff format --check`, `mypy` grün; Checkboxen, Doku-Bausteine.
+- [x] **Zahllast** (`elster/zahllast.py`): Kreditor Finanzamt, Eigenbeleg, Buchung, Posten zur Frist, Erstattung, Berichtigung als Differenz; Akzeptanz 5 (`tests/test_elster_zahllast.py`).
+- [x] **Dauerfrist/Sondervorauszahlung**: Berechnung, Datensatz, `ustva dauerfrist`, Kz 39 im Dezember (`tests/test_elster_dauerfrist.py`).
+- [x] **Zusammenfassende Meldung** (`steuer/zusammenfassende_meldung.py`): L/D/S je USt-IdNr., Minderungen, Bestätigung, CSV `#v3.0`; `accounti zm` (`tests/test_steuer_zm.py`, `tests/test_cli_zm.py`).
+- [x] **Abgabesperre nach der Freigabe**: Vor der echten Abgabe wird erneut plausibilisiert; ein Fehler, der erst nach der Freigabe entsteht, ohne die Werte zu ändern (Buchung ohne Steuerschlüssel, abgelaufene USt-IdNr.-Bestätigung), sperrt die Abgabe (`test_neuer_fehler_nach_der_freigabe_sperrt_die_abgabe`).
+- [x] **Abschluss**: `pytest`, `ruff` (ohne Cache), `ruff format --check`, `mypy` grün; Checkboxen, Doku-Bausteine; CLI-Probelauf unter `/tmp` mit Attrappe.
 
 ## Grenzen
 
@@ -153,6 +154,7 @@ elster/zahllast.py: Eigenbeleg → 1780 an Kreditor „Finanzamt“ → offener 
 - **ZM:** keine Direktübermittlung (ZMDO), nur Portaldatei; Dreiecksgeschäfte nur über Konto 8130; Konsignationslager nicht abgebildet; die Wahl monatlich/vierteljährlich (50.000-€-Grenze) prüft accounti nicht selbst.
 - **OSS-Meldung** bleibt der bestehende Datei-Export; die Frist ist unverschoben übernommen.
 - **Postgres:** Protokoll-Trigger nur unter SQLite (wie USt-IdNr.-Protokoll).
+- **Attrappe ist nur für Probe-Datenbanken.** Mit `elster.uebermittler: attrappe` steht auch ein „echter“ Lauf als Modus `echt` (Weg `attrappe`, Ticket `attrappe-…`) im unveränderbaren Protokoll und bucht die Zahllast als offenen Posten — die Ausgabe sagt deutlich, dass nichts gesendet wurde, verhindert es aber nicht. In einer Produktivdatenbank nicht einschalten.
 - **Eine Voranmeldung je Zeitraum** für die eine Firma aus `mandant`; mehrere Gesellschaften (Baustein 11) nicht.
 
 ## Doku-Bausteine
@@ -184,7 +186,8 @@ accounti elster protokoll                       # Übermittlungsprotokoll + Prü
 ```
 
 Abgegeben wird nur, was ein Mensch freigegeben hat — die Freigabe hängt an den Formularwerten;
-ändern sich danach Buchungen, ist sie verbraucht. Ohne ERiC (Registrierung beim Bayerischen
+ändern sich danach Buchungen, passt sie nicht mehr, und ein neuer Fehler-Befund sperrt die Abgabe
+auch mit Freigabe. Ohne ERiC (Registrierung beim Bayerischen
 Landesamt für Steuern, eigene Hersteller-ID, Zertifikat) bleibt der Testmodus: Der Datensatz wird
 erzeugt und geprüft, aber nicht abgegeben.
 ````

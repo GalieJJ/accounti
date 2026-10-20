@@ -343,13 +343,18 @@ def uebermittle(
 ) -> Uebermittlung:
     """Voranmeldung prüfen (Testmodus), als Testfall senden oder abgeben.
 
-    Abgegeben wird nur mit einer passenden, unverbrauchten Freigabe. Jeder Lauf landet
-    im Protokoll; der Aufrufer schreibt sofort fest.
+    Abgegeben wird nur mit einer passenden, unverbrauchten Freigabe und ohne
+    Fehler-Befund — auch einer, der erst nach der Freigabe entstanden ist, ohne die
+    Werte zu ändern (z. B. eine Buchung ohne Steuerschlüssel). Jeder Lauf landet im
+    Protokoll; der Aufrufer schreibt sofort fest.
     """
     freigabe = None
     if modus is not Modus.PRUEFUNG and uebermittler is None:
         raise UebermittlungError("Kein Übermittler: ERiC ist nicht eingerichtet")
     if modus is Modus.ECHT:
+        if v.gesperrt:
+            fehler = "; ".join(b.text for b in v.fehler)
+            raise UebermittlungError(f"Abgabe gesperrt: {fehler}")
         try:
             freigabe = offene_freigabe(
                 session, Meldeart.USTVA, str(v.zeitraum), ustva_inhalt(v)

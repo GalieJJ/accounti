@@ -151,6 +151,26 @@ def test_freigabe_passt_nicht_mehr_nach_neuer_buchung(db):
             )  # fmt: skip
 
 
+def test_neuer_fehler_nach_der_freigabe_sperrt_die_abgabe(db):
+    """Akzeptanz 2 auch nach der Freigabe: Die Werte bleiben gleich (die Buchung ohne
+    Steuerschlüssel zählt in keine Kennziffer), die Abgabe ist trotzdem gesperrt."""
+    make_session, einstellungen, archiv = db
+    attrappe = AttrappenUebermittler()
+    with make_session() as s:
+        gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
+        speichere_buchung(s, buchung("10001", "8200", "99.00", text="ohne BU"))
+        s.commit()
+        v = vorbereiten(s, einstellungen)
+        assert v.gesperrt
+        with pytest.raises(UebermittlungError, match="gesperrt.*8200"):
+            uebermittle(
+                s, v, modus=Modus.ECHT, kontext=KONTEXT, uebermittler=attrappe,
+                archiv=archiv,
+            )  # fmt: skip
+        assert lade_uebermittlungen(s) == []
+    assert attrappe.gesendet == []
+
+
 def test_berichtigte_anmeldung_tritt_neben_die_alte(db):
     make_session, einstellungen, archiv = db
     attrappe = AttrappenUebermittler()
