@@ -117,7 +117,9 @@ def test_ohne_falscher_oder_widerrufener_token_401(make_session, tmp_path, token
     ohne = c.post("/belege", content=PDF)
     assert ohne.status_code == 401
     assert ohne.headers["www-authenticate"].startswith("Bearer")
-    falsch = c.post("/belege", content=PDF, headers=_auth(token[:-1] + "A"))
+    # letztes Zeichen sicher ändern — der Token kann selbst auf "A" enden
+    anders = token[:-1] + ("B" if token.endswith("A") else "A")
+    falsch = c.post("/belege", content=PDF, headers=_auth(anders))
     assert falsch.status_code == 401
     basic = c.post("/belege", content=PDF, headers={"Authorization": "Basic eDp5"})
     assert basic.status_code == 401
