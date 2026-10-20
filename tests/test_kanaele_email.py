@@ -1,9 +1,11 @@
 import datetime as dt
 import email.policy
+import hashlib
 import imaplib
 import quopri
 from email.message import EmailMessage
 from email.utils import format_datetime
+from pathlib import Path
 
 import pytest
 
@@ -11,15 +13,19 @@ from accounti.belege.kanaele import BELEG_KANAELE
 from accounti.belege.kanaele.abholung import KanalError
 from accounti.belege.kanaele.einstellungen import EmailPostfach
 from accounti.belege.kanaele.email import EmailKanal, lies_nachricht
-from accounti.belege.kanaele.gedaechtnis import DbGedaechtnis
+from accounti.belege.kanaele.gedaechtnis import DbGedaechtnis, absender_zu_beleg
 from accounti.belege.kanaele.pruefung import Dateipruefung
 from accounti.db import init_db, session_factory
 from accounti.db.repo_kanaele import lade_nachrichten
+from accounti.models import Beleg
 from tests.imap_attrappe import ImapAttrappe, Postfach, zertifikate
 from tests.pdf_hilfe import pdf_mit_text
 
 PDF = pdf_mit_text("Rechnung RE-1\nGesamtbetrag 119,00 EUR")
 PNG_LOGO = b"\x89PNG\r\n\x1a\n" + b"\x00" * 40
+SCAN = (
+    Path(__file__).resolve().parents[1] / "examples/belege/quittung_tankstelle_scan.jpg"
+).read_bytes()
 
 
 def mail(
@@ -102,6 +108,43 @@ def test_mehrere_anhaenge_und_weitergeleitete_nachricht():
     n = lies_nachricht(aussen.as_bytes(), Dateipruefung())
     assert [d.dateiname for d in n.dateien] == ["aussen.pdf", "innen.pdf"]
     assert n.absender == "kollegin@firma.example"
+    # Hinweis auf den Kreditor ist der Rechnungssteller, nicht die Weiterleitende
+    aussen_datei, innen_datei = n.dateien
+    assert (aussen_datei.absender, aussen_datei.absender_name) == (None, None)
+    assert innen_datei.absender == "rechnung@mueller.example"
+    assert innen_datei.absender_name == "Bürobedarf Müller GmbH"
+
+
+def test_weitergeleitete_rechnung_absender_zum_beleg(make_session):
+    innen = mail(("innen.pdf", PDF + b"innen", "application/pdf"))
+    aussen = EmailMessage()
+    aussen["From"] = "Kollegin <kollegin@firma.example>"
+    aussen["Subject"] = "WG: Ihre Rechnung"
+    aussen.set_content("Bitte buchen.")
+    aussen.add_attachment(email.message_from_bytes(innen, policy=email.policy.default))
+    pf = Postfach()
+    pf.lege_ab(aussen.as_bytes())
+    with ImapAttrappe(pf) as server:
+        (roh,) = _alles(_kanal(server.port, make_session))
+    assert roh.herkunft == (
+        "E-Mail rechnungen von rechnung@mueller.example (weitergeleitet von "
+        "kollegin@firma.example): WG: Ihre Rechnung"
+    )
+    beleg = Beleg(
+        datei_hash=hashlib.sha256(roh.inhalt).hexdigest(),
+        dateiname=roh.dateiname,
+        kanal="email",
+        herkunft=roh.herkunft,
+        aufbewahren_bis=dt.date(2036, 12, 31),
+    )
+    with make_session() as s:
+        n = absender_zu_beleg(s, beleg)
+    assert n is not None
+    assert (n.absender, n.absender_name) == (
+        "rechnung@mueller.example",
+        "Bürobedarf Müller GmbH",
+    )
+    assert "weitergeleitet von Kollegin <kollegin@firma.example>" in (n.hinweis or "")
 
 
 def test_textkoerper_und_eingebettetes_logo_werden_uebersprungen():
@@ -116,7 +159,55 @@ def test_textkoerper_und_eingebettetes_logo_werden_uebersprungen():
     m.add_attachment(PDF, maintype="application", subtype="pdf", filename="r.pdf")
     n = lies_nachricht(m.as_bytes(), Dateipruefung())
     assert [d.dateiname for d in n.dateien] == ["r.pdf"]
+    # übersprungen, aber nicht still: Name und Größe stehen im Hinweis
+    (hinweis,) = n.hinweise
+    assert "eingebettetes Bild logo.png" in hinweis
+    assert "48 Bytes" in hinweis
+    assert n.abgelehnt == 0
+
+
+def _foto_im_text(**kopf):
+    """Aufbau wie Apple Mail / Gmail-Web: Foto im HTML-Text, inline mit Content-ID."""
+    m = EmailMessage()
+    m["From"] = "Erika <erika@firma.example>"
+    m["Subject"] = "Tankquittung"
+    m.set_content("Quittung anbei")
+    m.add_alternative('<p>Quittung: <img src="cid:foto1"></p>', subtype="html")
+    m.get_payload()[1].add_related(
+        SCAN, maintype="image", subtype="jpeg", cid="<foto1>", **kopf
+    )
+    return m.as_bytes()
+
+
+@pytest.mark.parametrize(
+    "kopf",
+    [
+        {"filename": "IMG_4711.jpeg", "disposition": "inline"},  # Apple Mail
+        {"filename": "image.png", "disposition": "inline"},  # Gmail-Web
+        {},  # ohne Dateinamen
+    ],
+)
+def test_eingefuegtes_foto_im_text_ist_ein_beleg(kopf):
+    n = lies_nachricht(_foto_im_text(**kopf), Dateipruefung())
+    assert [d.inhalt for d in n.dateien] == [SCAN]
+    assert n.dateien[0].dateiname.endswith((".jpeg", ".jpg"))
     assert n.hinweise == []
+
+
+def test_smime_signatur_ist_transport_kein_abgelehnter_anhang():
+    m = EmailMessage()
+    m["From"] = "a@b.example"
+    m.set_content("x")
+    m.add_attachment(PDF, maintype="application", subtype="pdf", filename="r.pdf")
+    m.add_attachment(
+        b"0\x82\x01signatur",
+        maintype="application",
+        subtype="pkcs7-signature",
+        filename="smime.p7s",
+    )
+    n = lies_nachricht(m.as_bytes(), Dateipruefung())
+    assert [d.dateiname for d in n.dateien] == ["r.pdf"]
+    assert (n.hinweise, n.abgelehnt) == ([], 0)
 
 
 def test_unerlaubter_typ_und_zu_gross_als_hinweis():
@@ -128,6 +219,7 @@ def test_unerlaubter_typ_und_zu_gross_als_hinweis():
     n = lies_nachricht(roh, Dateipruefung(max_bytes=1500))
     assert [d.dateiname for d in n.dateien] == ["ok.png"]
     assert len(n.hinweise) == 2
+    assert n.abgelehnt == 2
     assert "vertrag.docx" in n.hinweise[0]
     assert "ZIP" in n.hinweise[0]
     assert "gross.pdf" in n.hinweise[1]
@@ -274,6 +366,52 @@ def test_verschieben_mit_move(make_session):
         )
     assert pf.ordner["INBOX"] == []
     assert len(pf.ordner["Belege abgeholt"]) == 1
+
+
+ZIP_MIT_XRECHNUNG = b"PK\x03\x04" + b"\x00" * 26 + b"xrechnung.xml"
+
+
+@pytest.mark.parametrize(
+    ("nach_abholen", "ziel"), [("verschieben", "Belege abgeholt"), ("gelesen", None)]
+)
+def test_nachricht_ohne_aufgenommenen_beleg_bleibt_unberuehrt_im_posteingang(
+    make_session, nach_abholen, ziel
+):
+    """Nur ZIP, nur Text, PDF plus abgelehnter Anhang: Die Nachricht ist nicht
+    erledigt — sie bleibt ungelesen im Posteingang, damit ein Mensch sie sieht."""
+    pf = Postfach()
+    pf.ordner["Belege abgeholt"] = []
+    pf.lege_ab(mail(("rechnung.zip", ZIP_MIT_XRECHNUNG, "application/zip")))
+    pf.lege_ab(mail(message_id="<text@x>", betreff="Rechnung im Text"))
+    pf.lege_ab(
+        mail(
+            ("r2.pdf", PDF + b"2", "application/pdf"),
+            ("anlage.docx", b"PK\x03\x04 docx", "application/octet-stream"),
+            message_id="<halb@x>",
+        )
+    )
+    pf.lege_ab(mail(("r3.pdf", PDF + b"3", "application/pdf"), message_id="<ok@x>"))
+    with ImapAttrappe(pf) as server:
+        kanal = _kanal(
+            server.port, make_session, nach_abholen=nach_abholen, ziel_ordner=ziel
+        )
+        assert [r.dateiname for r in _alles(kanal)] == ["r2.pdf", "r3.pdf"]
+        assert sum("von Hand" in h for h in kanal.hinweise) == 3
+        # gemerkt: der nächste Lauf lädt nichts erneut
+        geladen = sum("BODY.PEEK[]" in b for b in pf.befehle)
+        assert _alles(_kanal(server.port, make_session, nach_abholen=nach_abholen,
+                             ziel_ordner=ziel)) == []  # fmt: skip
+        assert sum("BODY.PEEK[]" in b for b in pf.befehle) == geladen
+    if nach_abholen == "verschieben":
+        assert [n.uid for n in pf.ordner["INBOX"]] == [1, 2, 3]
+        assert len(pf.ordner["Belege abgeholt"]) == 1
+    else:
+        assert [n.flags for n in pf.ordner["INBOX"]] == [
+            set(),
+            set(),
+            set(),
+            {"\\Seen"},
+        ]
 
 
 def test_verschieben_ohne_move_faehigkeit_bricht_vorher_ab(make_session):

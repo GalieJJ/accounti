@@ -8,6 +8,11 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field
 
 
+class Absender(BaseModel):
+    adresse: str | None = None
+    name: str | None = None
+
+
 class AbgeholteNachricht(BaseModel):
     """Eine verarbeitete Nachricht (E-Mail, Portaldokument, Webhook-Aufruf).
 
@@ -28,6 +33,13 @@ class AbgeholteNachricht(BaseModel):
     abgeholt_am: datetime = Field(default_factory=datetime.now)
     datei_hashes: list[str] = Field(
         default_factory=list, description="aufgenommene Dateien (SHA-256)"
+    )
+    urspruenglich: dict[str, Absender] = Field(
+        default_factory=dict,
+        description=(
+            "Datei-Hash → Absender der weitergeleiteten Nachricht, in der die Datei "
+            "steckte (der Rechnungssteller statt des Weiterleitenden)"
+        ),
     )
     hinweis: str | None = Field(
         default=None, description="z.B. übersprungene Anhänge mit Grund"

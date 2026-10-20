@@ -267,8 +267,11 @@ def belege_abholen(
     from accounti.belege.kanaele.ordner import OrdnerKanal
 
     if kanal != OrdnerKanal.name:
-        from accounti.befehle.kanaele import hole_ab
+        from accounti.befehle.kanaele import eigene_firma_vorgabe, hole_ab
 
+        eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
+            config, eigene_ust_id, eigene_firma
+        )
         erkenner = (
             _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
             if erkennen

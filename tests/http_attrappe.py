@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -79,3 +80,54 @@ class HttpAttrappe:
     def __exit__(self, *_: object) -> None:
         self._server.shutdown()
         self._server.server_close()
+
+
+class RohAttrappe:
+    """Server, der auf jede Anfrage genau ``antwort`` schickt und die Verbindung
+    schließt — für abgebrochene Antworten (zu kurz, kaputtes chunked)."""
+
+    def __init__(self, antwort: bytes = b"") -> None:
+        self.antwort = antwort
+        self.anfragen: list[bytes] = []
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.bind(("127.0.0.1", 0))
+        self._sock.listen(8)
+        self._sock.settimeout(0.05)
+        self._stopp = threading.Event()
+        self._faden = threading.Thread(target=self._lauf, daemon=True)
+
+    def _lauf(self) -> None:
+        while not self._stopp.is_set():
+            try:
+                verbindung, _ = self._sock.accept()
+            except TimeoutError:
+                continue
+            except OSError:
+                return
+            with verbindung:
+                verbindung.settimeout(2)
+                kopf = b""
+                while b"\r\n\r\n" not in kopf:
+                    teil = verbindung.recv(4096)
+                    if not teil:
+                        break
+                    kopf += teil
+                self.anfragen.append(kopf)
+                verbindung.sendall(self.antwort)
+
+    @property
+    def port(self) -> int:
+        return int(self._sock.getsockname()[1])
+
+    @property
+    def url(self) -> str:
+        return f"http://127.0.0.1:{self.port}"
+
+    def __enter__(self) -> RohAttrappe:
+        self._faden.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._stopp.set()
+        self._faden.join(timeout=2)
+        self._sock.close()

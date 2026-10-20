@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import ClassVar
 
 from pydantic import BaseModel, ValidationError
@@ -38,8 +39,21 @@ class PortalDokument:
     id: str
     dateiname: str | None = None
     absender: str | None = None
-    datum: str | None = None
+    datum: str | None = None  # Datum im Portal, ISO 8601 → Gedächtnis
     url: str | None = None
+
+
+def portaldatum(text: str | None) -> datetime | None:
+    """Datum aus der Portalantwort (ISO 8601) als Ortszeit; sonst ``None``."""
+    if not text:
+        return None
+    try:
+        zeit = datetime.fromisoformat(text.strip())
+    except ValueError:
+        return None
+    if zeit.tzinfo is not None:
+        zeit = zeit.astimezone().replace(tzinfo=None)
+    return zeit
 
 
 class BelegConnector:
@@ -155,6 +169,7 @@ class ConnectorKanal(AbholKanal):
                 schluessel=dokument.id,
                 absender=dokument.absender,
                 betreff=dokument.dateiname,
+                gesendet_am=portaldatum(dokument.datum),
                 datei_hashes=[hashlib.sha256(roh.inhalt).hexdigest()] if roh else [],
                 hinweis=hinweis,
             )

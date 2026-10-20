@@ -60,29 +60,31 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 | Konfiguration | Abschnitt `belegkanaele` in `config/accounti.yaml`, Lader `lade_belegkanaele` im Paket; ohne Abschnitt Standardwerte (keine Postfächer, keine Connectoren, Webhook 127.0.0.1:8410) | Vorgabe; alles läuft auch ohne |
 | `${VAR}` | wird erst beim Bau des gewählten Kanals aufgelöst | eine fehlende Variable eines anderen Postfachs stört nicht |
 | Passwort | `passwort` darf nur `${UMGEBUNGSVARIABLE}` sein — Klartext ist ein Konfigurationsfehler; fehlt es, kommt es aus dem Tresor (`accounti kanaele zugang email NAME`, AES-GCM aus `bank/tresor.py`, Bezug `kanal:email:NAME`) | nie Klartext in Dateien |
-| Geheimnisse beim Connector | Kopfzeilen und Parameter mit Namen wie `authorization`, `*key*`, `*token*`, `*secret*`, `*passw*`, `cookie` müssen `${VAR}` oder `{zugang}` (Tresor) enthalten | dieselbe Regel für API-Schlüssel |
+| Geheimnisse beim Connector | Kopfzeilen, Parameter und Query-Strings in `liste.pfad`/`datei.pfad` mit Namen wie `authorization`, `auth`, `*key*`, `*token*`, `*secret*`, `*passw*`, `pwd`, `cookie`, `session`, `credential`, `signature` dürfen nur aus `${VAR}` oder `{zugang}` (Tresor) bestehen, höchstens mit festem Präfix (`Bearer {zugang}`, `sid=${VAR}`) — Mischwerte wie `Bearer klartext${X}` sind ein Fehler | dieselbe Regel für API-Schlüssel |
 | Dateiprüfung | Typ am Inhalt (Signatur), nicht an Endung oder Content-Type: PDF, XML (wohlgeformtes Wurzelelement, keine DTD), JPEG, PNG, TIFF — dieselben Formate wie `erkennung.py`; Standard höchstens 25 MB je Datei; leere Dateien abgelehnt; Dateiname ohne Pfadanteile, Endung passend zum Typ | was die Erkennung nicht lesen kann, gehört nicht ins Archiv; 25 MB = übliche Anhangsgrenze |
 | IMAP | `imaplib` (Standardbibliothek), nur UID-Befehle; `EXAMINE` (nur lesen), solange nichts markiert oder verschoben wird; Abruf mit `BODY.PEEK[]`; Größe vorab per `RFC822.SIZE` (Standard höchstens 50 MB je Nachricht) | keine Abhängigkeit; das Postfach bleibt unverändert |
 | Verschlüsselung | `ssl` (Standard, 993), `starttls` (143), `keine` nur für localhost; immer `ssl.create_default_context()` (Zertifikat und Hostname), eigene CA per `ca_datei` | imaplib prüft sonst nicht |
 | Anmeldung | `LOGIN` mit Benutzer und (App-)Passwort; kein OAuth2 | siehe Grenzen |
-| Verarbeitete merken | Tabelle `kanal_nachrichten`, eindeutig über (Kanal, Quelle, Schlüssel); Schlüssel bei E-Mail `Ordner:UIDVALIDITY:UID`, zusätzlich Message-ID je Quelle; bei Connectoren die Dokument-ID | RFC 9051 2.3.1.1; Message-ID fängt neu angelegte Postfächer ab |
+| Verarbeitete merken | Tabelle `kanal_nachrichten`, eindeutig über (Kanal, Quelle, Schlüssel); Schlüssel bei E-Mail `Ordner:UIDVALIDITY:UID`, zusätzlich Message-ID je Quelle; bei Connectoren die Dokument-ID. Zu lange Schlüssel (> 300) und Message-IDs (> 500) werden gekürzt und mit ihrem SHA-256 abgeschlossen — beim Speichern und Vergleichen gleich | RFC 9051 2.3.1.1; Message-ID fängt neu angelegte Postfächer ab; passt in die Spalten (Postgres) und bleibt eindeutig |
 | Wann gemerkt wird | erst wenn alle Anhänge einer Nachricht aufgenommen und bestätigt sind; bricht der Lauf ab, holt der nächste die Nachricht erneut — schon Aufgenommenes fängt die Hash-Dublettenprüfung | kein Belegverlust bei Absturz, vorhandene Dublettenprüfung |
-| Nach dem Abholen | `belassen` (Standard), `gelesen` (`\Seen`), `verschieben` (`UID MOVE`, nur wenn der Server MOVE kann) | das Postfach gehört dem Menschen; das Gedächtnis in der DB reicht |
-| Anhänge | jeder MIME-Teil mit Dateiname oder Belegtyp, auch in weitergeleiteten Nachrichten; Textkörper und eingebettete Bilder (`inline` mit `Content-ID`, z. B. Signaturlogos) werden übersprungen; Abgelehntes steht als Hinweis an der Nachricht | Logos sind keine Belege; nichts verschwindet still |
-| Absender | From-Adresse und -Name, Betreff, Datum, Message-ID in `kanal_nachrichten`; Adresse und Betreff zusätzlich in `Beleg.herkunft`; `absender_zu_beleg()` liefert den Hinweis zum Beleg | Spec 4.1: Hinweis auf den Kreditor, keine Logik |
+| Nach dem Abholen | `belassen` (Standard), `gelesen` (`\Seen`), `verschieben` (`UID MOVE`, nur wenn der Server MOVE kann) — markiert bzw. verschoben wird nur eine **erledigte** Nachricht: mindestens eine Belegdatei aufgenommen, kein Anhang abgelehnt. Nachrichten ohne Belegdatei oder mit abgelehntem Anhang bleiben ungelesen im Posteingang (Hinweis „bitte von Hand ansehen“), gemerkt werden sie trotzdem | das Postfach gehört dem Menschen; was accounti nicht übernehmen konnte, darf im Postfach nicht wie erledigt aussehen |
+| Anhänge | jeder MIME-Teil mit Dateiname oder Belegtyp, auch in weitergeleiteten Nachrichten; Textkörper und Signaturen (S/MIME, PGP) werden übersprungen; eingebettete Bilder (`inline`/`multipart/related` mit `Content-ID`) unter 32 KB gelten als Logo und werden **mit Hinweis** (Name, Größe) übersprungen, größere (in den Text eingefügtes Foto, Screenshot) sind Belege; Abgelehntes steht als Hinweis an der Nachricht | Signaturlogos sind keine Belege, Fotos von Quittungen schon (Apple Mail, Gmail-Web und Outlook betten sie so ein); nichts verschwindet still |
+| Absender | From-Adresse und -Name, Betreff, Datum, Message-ID in `kanal_nachrichten`; Adresse und Betreff zusätzlich in `Beleg.herkunft`; `absender_zu_beleg()` liefert den Hinweis zum Beleg — aus der Nachricht, mit der der Beleg entstand (der ersten). Steckt die Datei in einer weitergeleiteten Nachricht (`message/rfc822`), ist deren Absender der Hinweis (je Datei in `kanal_nachricht_dateien`, in der Herkunft „von X (weitergeleitet von Y)“) | Spec 4.1: Hinweis auf den Kreditor, keine Logik; der Weiterleitende ist nicht der Rechnungssteller |
 | E-Mail selbst | wird nicht archiviert, nur ihre Anhänge byte-genau | GoBD: Mail als Transportmittel nicht aufbewahrungspflichtig; Mails mit eigenem Inhalt → Grenzen |
 | Webhook-Framework | FastAPI + uvicorn (vorhanden); Body selbst gelesen und mitgezählt, `Content-Length` vorab geprüft | `python-multipart` fehlt; Größenlimit greift, bevor gepuffert wird |
 | Webhook-Formate | Rohdaten (Dateiname per `X-Dateiname` oder `?dateiname=`), `multipart/form-data` (Standardbibliothek `email`), JSON `{"absender", "dateien": [{"dateiname", "inhalt_base64"}]}`; höchstens 10 Dateien und 60 MB je Anfrage | deckt curl, n8n, Make, Zapier ab — ohne neue Abhängigkeit |
-| Token | `accounti_wh_` + 256 Bit aus `secrets`; gespeichert nur SHA-256 (Tabelle `webhook_tokens`), Klartext genau einmal bei der Erzeugung; `Authorization: Bearer`; widerrufbar; „zuletzt genutzt“ | hohe Entropie → schneller Hash ohne Salz genügt; Tokens nie in URLs (Logs) |
+| Token | `accounti_wh_` + 256 Bit aus `secrets`; gespeichert nur SHA-256 (Tabelle `webhook_tokens`), Klartext genau einmal bei der Erzeugung; `Authorization: Bearer`; widerrufbar; „zuletzt genutzt“; der Name ist nur unter **aktiven** Tokens eindeutig (Teilindex) — nach dem Widerruf lässt sich ein Token unter demselben Namen neu anlegen | hohe Entropie → schneller Hash ohne Salz genügt; Tokens nie in URLs (Logs); Austausch eines durchgesickerten Tokens ohne neuen Namen (Quelle im Gedächtnis bleibt) |
 | Antworten | 200 mit Ergebnis je Datei (`neu`/`dublette`/`verdacht`, Beleg-ID, Status), 400, 401 (+`WWW-Authenticate: Bearer`), 413, 415 | RFC 9110, RFC 6750 |
 | Nebenläufigkeit | Aufnahme im Threadpool, je Prozess durch eine Sperre serialisiert | die Dublettenprüfung liest den Bestand — zwei gleichzeitige gleiche Uploads dürfen nicht zwei Belege werden |
 | Webhook-Herkunft | `Webhook <Tokenname>` plus optionaler Absender (`absender`-Feld, `X-Absender`); Eintrag in `kanal_nachrichten` | Absender als Hinweis wie bei E-Mail |
 | Bindung | Standard `127.0.0.1:8410`; TLS über einen Reverse-Proxy | kein eigener TLS-Stack im Prozess |
 | Connector | Basisklasse `BelegConnector` (`dokumente()`, `lade()`) mit eigenem Einstellungsmodell, Registry `BELEG_CONNECTOREN` (Typ → Klasse); der Kanal `connector` holt über die konfigurierten Instanzen und merkt Dokument-IDs | Spec 4.1, analog `BANK_PROVIDER` |
-| Generischer Connector | `typ: json`: Liste per GET (Punktpfad zu den Einträgen, Felder `id`/`dateiname`/`absender`/`datum`/`url`), Seiten über Seitenparameter oder Next-URL, Datei binär oder als Base64-Feld einer JSON-Antwort | beschreibt typische REST-Portale ohne Code (Beispiel GetMyInvoices) |
-| HTTP-Client | `urllib` (Standardbibliothek), Zeitlimit, Antwortgröße begrenzt | wie `kontakte/ustid.py`; `httpx` ist keine erklärte Abhängigkeit |
-| Connector-Sicherheit | `https` Pflicht (`http` nur localhost); Kopfzeilen nur an den Host von `basis_url`; Download-URLs fremder Hosts nur aus `erlaubte_hosts` und dann ohne Kopfzeilen; keine Weiterleitungen auf fremde Hosts mit Zugangsdaten | eine Portalantwort darf Zugangsdaten nicht an Dritte umleiten |
+| Generischer Connector | `typ: json`: Liste per GET (Punktpfad zu den Einträgen, Felder `id`/`dateiname`/`absender`/`datum`/`url`), Seiten über Seitenparameter **oder** Next-URL (beides zugleich ist ein Konfigurationsfehler), Datei binär oder als Base64-Feld einer JSON-Antwort; `datum` (ISO 8601) steht im Gedächtnis | beschreibt typische REST-Portale ohne Code (Beispiel GetMyInvoices) |
+| Vollständigkeit beim Connector | Jeder Lauf liest alle Seiten, bis eine leer ist oder keine Next-URL mehr kommt. `max_seiten` (Standard 50) schützt nur vor Endlosschleifen: Liegt danach noch eine Seite mit Einträgen, scheitert der Lauf mit Meldung (Exit 1); was auf den gelesenen Seiten stand, ist dann schon aufgenommen | jeder Lauf beginnt bei Seite 1 — ein beruhigender Hinweis ließe Dokumente hinter `max_seiten` für immer liegen (§ 146 Abs. 1 AO, Vollständigkeit) |
+| HTTP-Client | `urllib` (Standardbibliothek), Zeitlimit, Antwortgröße begrenzt; eine Antwort, die vor dem angekündigten Ende abbricht (`Content-Length` nicht erreicht, chunked abgebrochen), ist ein `KanalError` — nicht aufgenommen, nicht gemerkt, der nächste Lauf versucht es erneut; ebenso alle Fehler aus `http.client` (`InvalidURL`, `BadStatusLine` …) und kaputte URLs | wie `kontakte/ustid.py`; `httpx` ist keine erklärte Abhängigkeit; `read(n)` meldet ein vorzeitiges Verbindungsende nicht — ein Rest würde sonst als Original archiviert |
+| Connector-Sicherheit | `https` Pflicht (`http` nur localhost) — für `basis_url` und für Download-URLs fremder Hosts; Kopfzeilen nur an den Host von `basis_url`; Download-URLs fremder Hosts nur aus `erlaubte_hosts` und dann ohne Kopfzeilen; keine Weiterleitungen auf fremde Hosts mit Zugangsdaten; URLs aus der Portalantwort werden vor dem Abruf prozentkodiert (Leerzeichen, Umlaute) | eine Portalantwort darf Zugangsdaten nicht an Dritte umleiten; über http könnte jemand im Netz die Rechnung (z. B. die IBAN) austauschen, und sie würde als Original archiviert |
 | CLI | `belege abholen --kanal email|connector [--quelle NAME] [--config]` (minimale Erweiterung in `cli.py`), neue Gruppe `kanaele`: `zugang`, `nachrichten`, `connectoren`, `webhook token|tokens|widerrufen|starten` | Spec 4.8 nennt `belege abholen --kanal email` |
+| Eigene Firma | `belege abholen --kanal email|connector` nimmt Name und USt-IdNr. aus `mandant` der `--config`-Datei als Vorgabe, wenn `--eigene-firma`/`--eigene-ust-id` fehlen — wie `kanaele webhook starten` | eine Rechnungskopie (BCC) im Belegpostfach wird sonst je nach Kanal Eingangs- oder Ausgangsrechnung |
 
 ## Dateistruktur
 
@@ -135,6 +137,18 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 - [x] **JSON-Connector gegen lokalen HTTP-Server:** Liste mit Punktpfad, Seiten (Seitenparameter bis leere Seite / `max_seiten`), Next-URL, Datei binär und als Base64-Feld, `{id}` URL-kodiert, Kopfzeilen mit `${VAR}` und `{zugang}`, Kopfzeilen nicht an fremde Hosts, fremde Download-Hosts nur aus `erlaubte_hosts`, http außerhalb localhost abgelehnt, 401/500 → `KanalError`, Antwort über der Grenze.
 - [x] **CLI:** `belege abholen --kanal connector`, `kanaele connectoren`, `kanaele zugang connector NAME`.
 
+### Nacharbeit nach der Prüfung (Runde 1, 20.10.2026)
+
+- [x] **Connector, Vollständigkeit:** mehr Seiten als `max_seiten` → `KanalError` mit wahrer Meldung statt „der nächste Lauf macht weiter“, über zwei Läufe geprüft; genau `max_seiten` volle Seiten sind kein Fehler; Next-URL ebenso; `seite_parameter` + `naechste` zugleich abgelehnt (`test_kanaele_connector.py::test_mehr_seiten_als_max_seiten_ist_ein_fehler_kein_beruhigender_hinweis`, `::test_genau_max_seiten_volle_seiten_sind_kein_fehler`, `::test_next_url_ueber_max_seiten_ist_ein_fehler`).
+- [x] **Connector, Downloads:** zu kurze Antwort (Content-Length nicht erreicht, eigener Socket-Server) wird nicht aufgenommen und nicht gemerkt; abgebrochenes chunked, URL mit Leerzeichen und kaputte URL brechen den Lauf nicht ab; fremde Hosts nur mit https (`::test_unvollstaendiger_download_wird_nicht_als_original_gemerkt`, `::test_abgebrochenes_chunked_und_kaputte_url_brechen_den_lauf_nicht_ab`, `::test_fremder_download_host_nur_mit_https`).
+- [x] **Connector, Klartextsperre:** Query-Strings in Pfaden, Mischwerte und `X-Auth` abgelehnt, Platzhalter mit festem Präfix erlaubt (`::test_einstellungen_werden_geprueft`, `::test_platzhalter_mit_festem_praefix_sind_erlaubt`); `felder.datum` im Gedächtnis (`::test_portaldatum_steht_im_gedaechtnis`).
+- [x] **E-Mail, Nachbehandlung:** nur ZIP, nur Text, PDF + abgelehnter Anhang → bleibt ungelesen bzw. im Posteingang, gemerkt, mit Hinweis (`test_kanaele_email.py::test_nachricht_ohne_aufgenommenen_beleg_bleibt_unberuehrt_im_posteingang[verschieben|gelesen]`).
+- [x] **E-Mail, eingebettete Bilder:** Foto im Text (Apple Mail, Gmail-Web, ohne Dateinamen) wird Beleg; kleines Logo mit Hinweis samt Name und Größe; S/MIME-Signatur ist kein abgelehnter Anhang (`::test_eingefuegtes_foto_im_text_ist_ein_beleg`, `::test_textkoerper_und_eingebettetes_logo_werden_uebersprungen`, `::test_smime_signatur_ist_transport_kein_abgelehnter_anhang`).
+- [x] **E-Mail, Weiterleitung:** innerer Absender je Datei, Herkunft „von X (weitergeleitet von Y)“, `absender_zu_beleg` liefert den Rechnungssteller und die Nachricht der Neuaufnahme (`::test_mehrere_anhaenge_und_weitergeleitete_nachricht`, `::test_weitergeleitete_rechnung_absender_zum_beleg`, `test_kanaele_gedaechtnis.py::test_absender_zum_beleg_ist_die_nachricht_der_neuaufnahme`).
+- [x] **CLI:** eigene Rechnung per E-Mail mit `mandant` in der Konfiguration → Ausgangsrechnung (`test_cli_kanaele.py::test_eigene_rechnung_per_email_erkennt_mandant_aus_der_konfiguration`).
+- [x] **Gedächtnis und Tokens:** lange Message-IDs/Schlüssel (`test_kanaele_gedaechtnis.py::test_lange_message_id_und_schluessel_passen_in_die_spalten_und_bleiben_eindeutig`); widerrufenes Token unter demselben Namen ersetzen (`test_kanaele_webhook.py::test_widerrufenes_token_unter_demselben_namen_ersetzen`).
+- [x] Plan umbenannt: `2026-10-25-…` → `2026-10-20-…` (Datum von Recherche und Probelauf), Links in den Doku-Bausteinen angepasst.
+
 ### Paket E — Akzeptanz und Abschluss
 
 - [x] **Akzeptanz 1–6 über die neuen Kanäle** (`tests/test_kanaele_akzeptanz.py`).
@@ -178,12 +192,37 @@ Absender als Hinweis (`test_kanaele_akzeptanz.py::test_absender_ist_hinweis_zum_
   `accounti belege abholen --kanal email` per Cron/systemd-Timer aufrufen.
 - **Ordnernamen nur ASCII**; modified UTF-7 (RFC 3501 5.1.3) ist nicht umgesetzt.
 - **E-Mails ohne Anhang** (Rechnung nur im HTML-Text, z. B. Plattform-Quittungen) werden kein
-  Beleg; sie stehen mit Hinweis „keine Belegdatei“ in `kanal_nachrichten`. Die E-Mail selbst wird
+  Beleg; sie stehen mit Hinweis „keine Belegdatei“ in `kanal_nachrichten` und bleiben bei
+  `nach_abholen: gelesen|verschieben` ungelesen im Posteingang. Die E-Mail selbst wird
   nicht archiviert. Enthält sie selbst steuerlich Relevantes (Handels-/Geschäftsbrief, BFH XI R
   15/23), muss das Mailarchiv sie aufbewahren — accounti tut das nicht. Die GoBD-Randziffern nach
   der 2. Änderung (14.07.2025) habe ich nur aus Sekundärquellen, nicht am BMF-Text geprüft.
 - **Nicht angenommene Formate:** ZIP, Office-Dateien, `.eml`, GIF, **HEIC/WebP** (übliche
-  Handyfotos!) werden mit Hinweis abgelehnt — die Erkennung könnte sie nicht lesen.
+  Handyfotos!) werden mit Hinweis abgelehnt — die Erkennung könnte sie nicht lesen. accounti
+  **archiviert das Original solcher Anhänge nicht** und legt keinen Beleg „zur Prüfung“ an; sie
+  erscheinen nicht in `belege liste --status pruefung`. Die Nachricht bleibt bei
+  `nach_abholen: gelesen|verschieben` ungelesen im Posteingang — dort (bzw. im Mailarchiv) liegt
+  das Original im Empfangsformat (GoBD Rz. 131); den Inhalt entpackt bzw. umgewandelt mit
+  `accounti belege import` einlesen. Bei `belassen` (Standard) bleibt nur der Hinweis in der
+  Ausgabe des Laufs und in `accounti kanaele nachrichten` — wer die Belege nicht täglich dort
+  sichtet, sollte `gelesen` oder `verschieben` wählen. Eine Nachricht mit PDF **und** abgelehntem
+  Anhang (z. B. Exchange-Fußzeile `ATT00001.htm`) bleibt deshalb ebenfalls im Posteingang.
+- **Eingebettete Bilder unter 32 KB** gelten als Logo und werden übersprungen (mit Hinweis, Name
+  und Größe) — ein sehr kleines Foto einer Quittung (z. B. Apple Mail „Klein“) wäre damit kein
+  Beleg; größere Signaturbanner werden umgekehrt einmal zum Beleg (danach Dublette per Hash).
+  Die Grenze ist eine Faustregel, nicht an echten Postfächern vermessen.
+- **Weitergeleitete Rechnungen:** Der ursprüngliche Absender wird nur erkannt, wenn die Rechnung
+  als angehängte Nachricht (`message/rfc822`) kommt. Bei einer Weiterleitung „im Text“ (Anhänge
+  direkt an der Weiterleitung) bleibt der Weiterleitende der Absender.
+- **Eingangsdatum = Abholzeitpunkt:** `eingegangen_am` eines per E-Mail oder Connector geholten
+  Belegs ist der Zeitpunkt des Abholens, nicht der Date-Kopf der Mail bzw. das Portaldatum (beide
+  stehen nur in `kanal_nachrichten.gesendet_am`). Grund: `RohBeleg.eingegangen_am` füllt zugleich
+  das Eingangsprotokoll (`BelegEingang`, wann accounti den Beleg erfasst hat); mit dem Date-Kopf
+  zeigte es Zeitpunkte, zu denen accounti den Beleg noch nicht hatte, und verdrehte die
+  Reihenfolge Neu/Dublette. Folge: Wird ein Beleg **ohne erkanntes Belegdatum** über die
+  Jahresgrenze nachgeholt (`ab:`), fällt das Rückfalldatum für Buchung und Kreditkartenjahr ins
+  Abholjahr. Sauber wäre ein eigenes Zugangsdatum am `Beleg` — eine Modelländerung im Kern,
+  nicht Teil dieses Pakets.
 - **Message-ID:** Eine andere Nachricht mit bereits bekannter Message-ID (fehlerhaftes
   Absendersystem) wird übersprungen — mit Hinweis, aber ohne Beleg.
 - **Kein „Vergessen“:** Gemerkte Nachrichten/Dokumente lassen sich nicht per CLI zurücksetzen;
@@ -196,8 +235,11 @@ Absender als Hinweis (`test_kanaele_akzeptanz.py::test_absender_ist_hinweis_zum_
   `belege abholen` sind nicht gegeneinander abgesichert (die Dublettenprüfung der Pipeline ist
   nicht atomar — das gilt schon seit Paket 1). Die LLM-Stufe ist im Webhook-Dienst nicht wählbar.
 - **Generischer Connector:** nur GET mit Kopfzeilen/Parametern; kein OAuth-Ablauf, kein
-  POST-Listing, keine inkrementellen Filter (z. B. „seit letztem Lauf“) — jedes Mal wird die
-  ganze Liste gelesen, Bekanntes aber nicht erneut geladen. Die Liste muss ein JSON-Array sein;
+  POST-Listing, keine inkrementellen Filter (z. B. „seit letztem Lauf“), kein gespeicherter
+  Fortsetzungspunkt — jedes Mal wird die ganze Liste gelesen (eine Anfrage je Seite), Bekanntes
+  aber nicht erneut geladen. Hat die Liste mehr als `max_seiten` Seiten (Standard 50, bei
+  GetMyInvoices mit `perPage: 100` also mehr als 5.000 Dokumente), scheitert jeder Lauf mit
+  Exit 1, bis `liste.max_seiten` erhöht ist. Die Liste muss ein JSON-Array sein;
   die GetMyInvoices-Doku beschreibt `records` als Objekt — passt die echte Antwort nicht, braucht
   es einen eigenen Connector-Typ. Gescheiterte Downloads werden bei jedem Lauf ohne Pause erneut
   versucht. Das GetMyInvoices-Beispiel ist **nicht** gegen ein Konto geprüft.
@@ -206,9 +248,14 @@ Absender als Hinweis (`test_kanaele_akzeptanz.py::test_absender_ist_hinweis_zum_
   HTTP-Server.
 - **Absender ≠ Kontakt:** Der Absender wird gespeichert, aber `kontakte/erkennung.py` nutzt ihn
   (noch) nicht zur Zuordnung.
+- **Klartextsperre nach Namen:** Ob ein Wert geheim ist, erkennt die Prüfung am Namen der
+  Kopfzeile bzw. des Parameters (`auth`, `key`, `token`, `secret`, `passw`, `pwd`, `cookie`,
+  `session`, `credential`, `signature`). Ein Schlüssel unter einem unverdächtigen Namen (etwa
+  `X-Kunde: abc123`) fällt nicht auf.
 - **Datenbank:** vier neue Tabellen (`kanal_nachrichten`, `kanal_nachricht_dateien`,
   `webhook_tokens`, `kanal_zugaenge`) ohne Migration (entsteht beim Zusammenführen); getestet nur
-  mit SQLite.
+  mit SQLite. `webhook_tokens` braucht einen Teilindex (`UNIQUE (name) WHERE widerrufen_am IS
+  NULL`, SQLite und PostgreSQL) — die Migration muss ihn mit anlegen.
 - Starlette 1.6 meldet im Test eine `DeprecationWarning` für `httpx` im TestClient — betrifft nur
   die Testumgebung.
 
@@ -248,15 +295,19 @@ accounti belege abholen --kanal connector
 - **Belegerfassung, Paket 3 – Kanäle E-Mail, Webhook, Connector** (Baustein 2 damit fertig):
   `accounti belege abholen --kanal email` holt die Anhänge neuer Nachrichten aus IMAP-Postfächern
   (TLS mit Zertifikatsprüfung, eigene CA möglich; Ordner nur lesend, `BODY.PEEK[]`; danach
-  wahlweise gelesen markieren oder verschieben), speichert Absender, Betreff und Message-ID als
-  Hinweis und merkt sich verarbeitete Nachrichten (`accounti kanaele nachrichten`); Passwörter nur
+  wahlweise gelesen markieren oder verschieben — nur, wenn alle Anhänge übernommen sind; sonst
+  bleibt die Nachricht ungelesen im Posteingang), speichert Absender, Betreff und Message-ID als
+  Hinweis (bei weitergeleiteten Rechnungen den ursprünglichen Absender) und merkt sich
+  verarbeitete Nachrichten (`accounti kanaele nachrichten`); in den Text eingefügte Fotos von
+  Quittungen werden Belege, kleine Logos mit Hinweis übersprungen. Passwörter nur
   per `${UMGEBUNGSVARIABLE}` oder verschlüsselt im Tresor (`accounti kanaele zugang`).
   Tokengeschützter Webhook für Fremdsysteme und Messenger-Weiterleitungen
   (`accounti kanaele webhook token|tokens|widerrufen|starten`, FastAPI): Rohdaten,
   multipart/form-data und JSON mit Base64, Tokens nur als SHA-256 gespeichert, Größe (413) und
   Typ am Inhalt (415) geprüft, bevor etwas gespeichert wird. Connectoren für Belegportale mit
   Registry `BELEG_CONNECTOREN` und generischem JSON/HTTP-Connector (`typ: json`, Seiten,
-  Base64-Inhalte, Zugangsdaten nur an den eigenen Host) — `accounti belege abholen --kanal
+  Base64-Inhalte, Zugangsdaten nur an den eigenen Host, nur https, abgebrochene Downloads werden
+  erneut versucht, mehr Seiten als `max_seiten` sind ein Fehler) — `accounti belege abholen --kanal
   connector`, `accounti kanaele connectoren`. Neuer, optionaler Abschnitt `belegkanaele`; neue
   Tabellen `kanal_nachrichten`, `kanal_nachricht_dateien`, `webhook_tokens`, `kanal_zugaenge`.
   Keine neue Abhängigkeit
@@ -267,7 +318,8 @@ accounti belege abholen --kanal connector
 ```markdown
 - `accounti belege abholen` kennt `--kanal email|connector`, `--quelle` und `--config`; ein
   unbekannter Kanal nennt alle abholbaren Kanäle, `--kanal webhook` verweist auf
-  `accounti kanaele webhook starten`
+  `accounti kanaele webhook starten`. Bei `email|connector` gilt `mandant` (Name, USt-IdNr.) aus
+  der Konfiguration als Vorgabe für `--eigene-firma`/`--eigene-ust-id`
 ```
 
 **Behoben**
@@ -290,7 +342,7 @@ Absatz (ersetzt „Baustein 2 ist teilweise fertig …“):
 **Baustein 2 ist fertig:** Ordner- und Upload-Kanal, Archiv, Dublettenprüfung, Eingangsprotokoll
 ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)), Erkennung, OCR und Positionssplit
 ([Paket 2](plans/2026-10-19-belegerfassung-paket-2.md)) sowie die Kanäle E-Mail (IMAP),
-Webhook und Connector für Belegportale ([Paket 3](plans/2026-10-25-belegerfassung-paket-3-kanaele.md)).
+Webhook und Connector für Belegportale ([Paket 3](plans/2026-10-20-belegerfassung-paket-3-kanaele.md)).
 Offen als Erweiterungen: OAuth2 für Microsoft 365 und Gmail, IMAP IDLE statt Abruf per Timer,
 HEIC-Fotos, Rechnungen im E-Mail-Text und eigene Connector-Typen für einzelne Portale.
 ```
@@ -301,7 +353,7 @@ Kopf: `### belege/ *(vorhanden — [Baustein 2](specs/2026-08-10-belegerfassung.
 zu `kanaele/` wird ersetzt durch:
 
 ```markdown
-- `kanaele/` — `BELEG_KANAELE`-Registry: `ordner`, `upload`, `email`, `webhook`, `connector`. Alle liefern nur Rohdatei plus Herkunft; `pruefung.py` prüft für alle Typ am Inhalt (PDF, XML ohne DTD, JPEG, PNG, TIFF) und Größe. `email.py` holt Anhänge per IMAP (UID-Befehle, `BODY.PEEK[]`, Ordner nur lesend, TLS mit Zertifikatsprüfung), Absender als Hinweis; `gedaechtnis.py` merkt verarbeitete Nachrichten in `kanal_nachrichten` (Ordner + UIDVALIDITY + UID, Message-ID) erst, wenn alle Anhänge aufgenommen sind. `connector.py` ist Basisklasse und Registry `BELEG_CONNECTOREN` für Belegportale, `json_http.py` der generische JSON/HTTP-Connector. Geheimnisse nur als `${VAR}` oder im Tresor (`zugaenge.py`, AES-GCM wie `bank/tresor.py`). Konfiguration: Abschnitt `belegkanaele` (`einstellungen.py`). *(vorhanden)*
+- `kanaele/` — `BELEG_KANAELE`-Registry: `ordner`, `upload`, `email`, `webhook`, `connector`. Alle liefern nur Rohdatei plus Herkunft; `pruefung.py` prüft für alle Typ am Inhalt (PDF, XML ohne DTD, JPEG, PNG, TIFF) und Größe. `email.py` holt Anhänge per IMAP (UID-Befehle, `BODY.PEEK[]`, Ordner nur lesend, TLS mit Zertifikatsprüfung), Absender als Hinweis; `gedaechtnis.py` merkt verarbeitete Nachrichten in `kanal_nachrichten` (Ordner + UIDVALIDITY + UID, Message-ID) erst, wenn alle Anhänge aufgenommen sind; gelesen markiert oder verschoben wird eine Nachricht nur, wenn nichts abgelehnt wurde. `connector.py` ist Basisklasse und Registry `BELEG_CONNECTOREN` für Belegportale, `json_http.py` der generische JSON/HTTP-Connector. Geheimnisse nur als `${VAR}` oder im Tresor (`zugaenge.py`, AES-GCM wie `bank/tresor.py`). Konfiguration: Abschnitt `belegkanaele` (`einstellungen.py`). *(vorhanden)*
 - `webhook/` — FastAPI-Endpunkt `POST /belege` für Fremdsysteme und Messenger-Weiterleitungen: Bearer-Token (gespeichert nur als SHA-256), Rohdaten/multipart/JSON, Größe und Typ werden geprüft, bevor etwas gespeichert wird; Aufnahmen je Prozess serialisiert. Start mit `accounti kanaele webhook starten`, TLS über einen Reverse-Proxy. *(vorhanden)*
 ```
 
@@ -358,6 +410,7 @@ belegkanaele:
         parameter: {perPage: "100", archivedFilter: "1"}
         eintraege: records
         seite_parameter: pageNumber
+        # max_seiten: 50       # mehr Seiten → Fehler (Exit 1), dann erhöhen
       felder: {id: documentUid, dateiname: filename, absender: companyName}
       datei:
         pfad: "/documents/{id}"

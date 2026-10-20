@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from uuid import UUID, uuid4
 
@@ -15,13 +16,30 @@ from accounti.db.tabellen_kanaele import (
     KanalZugangRow,
     WebhookTokenRow,
 )
-from accounti.models.kanaele import AbgeholteNachricht, KanalZugang, WebhookToken
+from accounti.models.kanaele import (
+    AbgeholteNachricht,
+    Absender,
+    KanalZugang,
+    WebhookToken,
+)
+
+SCHLUESSEL_LAENGE = 300
+MESSAGE_ID_LAENGE = 500
 
 
 def _kurz(text: str | None, laenge: int) -> str | None:
     if text is None:
         return None
     return text if len(text) <= laenge else text[: laenge - 1] + "…"
+
+
+def _kennung(text: str, laenge: int) -> str:
+    """Eine Kennung, die in die Spalte passt und eindeutig bleibt: zu lange Werte
+    werden gekürzt und mit ihrem SHA-256 abgeschlossen — beim Speichern und beim
+    Vergleichen gleich."""
+    if len(text) <= laenge:
+        return text
+    return text[: laenge - 65] + "#" + hashlib.sha256(text.encode()).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -37,9 +55,12 @@ def nachricht_bekannt(
     message_id: str | None = None,
 ) -> bool:
     """Wurde diese Nachricht (Schlüssel oder Message-ID) schon verarbeitet?"""
-    bedingung = KanalNachrichtRow.schluessel == schluessel
+    bedingung = KanalNachrichtRow.schluessel == _kennung(schluessel, SCHLUESSEL_LAENGE)
     if message_id:
-        bedingung = or_(bedingung, KanalNachrichtRow.message_id == message_id)
+        bedingung = or_(
+            bedingung,
+            KanalNachrichtRow.message_id == _kennung(message_id, MESSAGE_ID_LAENGE),
+        )
     treffer = session.scalar(
         select(KanalNachrichtRow.id)
         .where(
@@ -58,8 +79,10 @@ def merke_nachricht(session: Session, n: AbgeholteNachricht) -> None:
             id=str(n.id),
             kanal=n.kanal,
             quelle=n.quelle,
-            schluessel=n.schluessel,
-            message_id=_kurz(n.message_id, 500),
+            schluessel=_kennung(n.schluessel, SCHLUESSEL_LAENGE),
+            message_id=(
+                _kennung(n.message_id, MESSAGE_ID_LAENGE) if n.message_id else None
+            ),
             absender=_kurz(n.absender, 320),
             absender_name=_kurz(n.absender_name, 200),
             betreff=_kurz(n.betreff, 500),
@@ -70,14 +93,22 @@ def merke_nachricht(session: Session, n: AbgeholteNachricht) -> None:
     )
     session.flush()  # Nachricht vor ihren Dateien (Fremdschlüssel)
     for nr, datei_hash in enumerate(n.datei_hashes, start=1):
+        ursprung = n.urspruenglich.get(datei_hash) or Absender()
         session.add(
             KanalNachrichtDateiRow(
-                id=str(uuid4()), nachricht_id=str(n.id), nr=nr, datei_hash=datei_hash
+                id=str(uuid4()),
+                nachricht_id=str(n.id),
+                nr=nr,
+                datei_hash=datei_hash,
+                absender=_kurz(ursprung.adresse, 320),
+                absender_name=_kurz(ursprung.name, 200),
             )
         )
 
 
-def _row_zu_nachricht(r: KanalNachrichtRow, hashes: list[str]) -> AbgeholteNachricht:
+def _row_zu_nachricht(
+    r: KanalNachrichtRow, dateien: list[KanalNachrichtDateiRow]
+) -> AbgeholteNachricht:
     return AbgeholteNachricht(
         id=UUID(r.id),
         kanal=r.kanal,
@@ -89,7 +120,12 @@ def _row_zu_nachricht(r: KanalNachrichtRow, hashes: list[str]) -> AbgeholteNachr
         betreff=r.betreff,
         gesendet_am=r.gesendet_am,
         abgeholt_am=r.abgeholt_am,
-        datei_hashes=hashes,
+        datei_hashes=[d.datei_hash for d in dateien],
+        urspruenglich={
+            d.datei_hash: Absender(adresse=d.absender, name=d.absender_name)
+            for d in dateien
+            if d.absender or d.absender_name
+        },
         hinweis=r.hinweis,
     )
 
@@ -97,16 +133,15 @@ def _row_zu_nachricht(r: KanalNachrichtRow, hashes: list[str]) -> AbgeholteNachr
 def _mit_dateien(
     session: Session, rows: list[KanalNachrichtRow]
 ) -> list[AbgeholteNachricht]:
-    hashes: dict[str, list[str]] = {r.id: [] for r in rows}
+    dateien: dict[str, list[KanalNachrichtDateiRow]] = {r.id: [] for r in rows}
     if rows:
-        dateien = session.scalars(
+        for d in session.scalars(
             select(KanalNachrichtDateiRow)
-            .where(KanalNachrichtDateiRow.nachricht_id.in_(list(hashes)))
+            .where(KanalNachrichtDateiRow.nachricht_id.in_(list(dateien)))
             .order_by(KanalNachrichtDateiRow.nr)
-        )
-        for d in dateien:
-            hashes[d.nachricht_id].append(d.datei_hash)
-    return [_row_zu_nachricht(r, hashes[r.id]) for r in rows]
+        ):
+            dateien[d.nachricht_id].append(d)
+    return [_row_zu_nachricht(r, dateien[r.id]) for r in rows]
 
 
 def lade_nachrichten(
@@ -127,7 +162,10 @@ def lade_nachrichten(
 
 
 def nachricht_zu_datei(session: Session, datei_hash: str) -> AbgeholteNachricht | None:
-    """Die jüngste Nachricht, mit der diese Datei gekommen ist."""
+    """Die erste Nachricht, mit der diese Datei kam — die der Neuaufnahme.
+
+    Spätere Eingänge derselben Datei (Weiterleitung, Webhook) sind Dubletten und
+    ändern den Hinweis auf den Kreditor nicht."""
     row = session.scalar(
         select(KanalNachrichtRow)
         .join(
@@ -135,7 +173,7 @@ def nachricht_zu_datei(session: Session, datei_hash: str) -> AbgeholteNachricht 
             KanalNachrichtDateiRow.nachricht_id == KanalNachrichtRow.id,
         )
         .where(KanalNachrichtDateiRow.datei_hash == datei_hash)
-        .order_by(KanalNachrichtRow.abgeholt_am.desc())
+        .order_by(KanalNachrichtRow.abgeholt_am)
         .limit(1)
     )
     return None if row is None else _mit_dateien(session, [row])[0]
@@ -157,9 +195,21 @@ def _row_zu_token(r: WebhookTokenRow) -> WebhookToken:
     )
 
 
+def _aktives_token(session: Session, name: str) -> WebhookTokenRow | None:
+    return session.scalar(
+        select(WebhookTokenRow).where(
+            WebhookTokenRow.name == name, WebhookTokenRow.widerrufen_am.is_(None)
+        )
+    )
+
+
 def speichere_webhook_token(session: Session, t: WebhookToken) -> None:
-    if session.scalar(select(WebhookTokenRow.id).where(WebhookTokenRow.name == t.name)):
-        msg = f"Ein Webhook-Token '{t.name}' gibt es schon (erst widerrufen?)"
+    """Eindeutig ist der Name nur unter aktiven Tokens (Ersetzen nach Widerruf)."""
+    if _aktives_token(session, t.name) is not None:
+        msg = (
+            f"Ein aktives Webhook-Token '{t.name}' gibt es schon — zum Ersetzen erst "
+            f"widerrufen: accounti kanaele webhook widerrufen {t.name}"
+        )
         raise ValueError(msg)
     try:
         with session.begin_nested():
@@ -178,7 +228,11 @@ def speichere_webhook_token(session: Session, t: WebhookToken) -> None:
 
 
 def lade_webhook_tokens(session: Session) -> list[WebhookToken]:
-    rows = session.scalars(select(WebhookTokenRow).order_by(WebhookTokenRow.name))
+    rows = session.scalars(
+        select(WebhookTokenRow).order_by(
+            WebhookTokenRow.name, WebhookTokenRow.erstellt_am
+        )
+    )
     return [_row_zu_token(r) for r in rows]
 
 
@@ -192,12 +246,19 @@ def finde_webhook_token(session: Session, token_hash: str) -> WebhookToken | Non
 def widerrufe_webhook_token(
     session: Session, name: str, zeitpunkt: datetime | None = None
 ) -> WebhookToken:
-    row = session.scalar(select(WebhookTokenRow).where(WebhookTokenRow.name == name))
+    """Widerruft das aktive Token dieses Namens (schon widerrufen: unverändert)."""
+    row = _aktives_token(session, name) or session.scalar(
+        select(WebhookTokenRow)
+        .where(WebhookTokenRow.name == name)
+        .order_by(WebhookTokenRow.erstellt_am.desc())
+        .limit(1)
+    )
     if row is None:
         msg = f"Webhook-Token '{name}' nicht gefunden"
         raise ValueError(msg)
     if row.widerrufen_am is None:
         row.widerrufen_am = zeitpunkt or datetime.now()
+        session.flush()
     return _row_zu_token(row)
 
 

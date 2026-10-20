@@ -1,5 +1,6 @@
 import base64
 from collections.abc import Iterator
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import BaseModel
@@ -21,7 +22,12 @@ from accounti.belege.kanaele.pruefung import Dateipruefung
 from accounti.db import init_db, session_factory
 from accounti.db.repo_kanaele import lade_nachrichten
 from accounti.konfiguration import KonfigurationError
-from tests.http_attrappe import HttpAttrappe, datei_antwort, json_antwort
+from tests.http_attrappe import (
+    HttpAttrappe,
+    RohAttrappe,
+    datei_antwort,
+    json_antwort,
+)
 from tests.pdf_hilfe import pdf_mit_text
 
 PDF_A = pdf_mit_text("Rechnung A")
@@ -260,6 +266,35 @@ def test_download_url_eigener_und_fremder_host(make_session, monkeypatch):
         assert all(a.kopfzeilen["x-api-key"] == "geheim-k" for a in portal.anfragen)
 
 
+def test_portaldatum_steht_im_gedaechtnis(make_session, monkeypatch):
+    """felder.datum wird gelesen und wie der Date-Kopf einer Mail gespeichert."""
+    monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
+    with HttpAttrappe() as server:
+        server.routen["/api/v1/dokumente"] = lambda a: json_antwort(
+            [
+                {"uid": 1, "am": "2026-09-15T08:00:00+02:00"},
+                {"uid": 2, "am": "2026-09-16"},
+                {"uid": 3, "am": "15.09.2026"},
+            ]
+        )
+        for nr, inhalt in ((1, PDF_A), (2, PDF_B), (3, PDF_C)):
+            server.routen[f"/api/v1/dokumente/{nr}/datei"] = lambda _a, i=inhalt: (
+                datei_antwort(i)
+            )
+        eintrag = _json_eintrag(
+            server, liste={"pfad": "/dokumente"}, felder={"id": "uid", "datum": "am"}
+        )
+        assert len(_alles(_kanal(eintrag, make_session))) == 3
+    with make_session() as s:
+        datum = {
+            n.schluessel: n.gesendet_am for n in lade_nachrichten(s, kanal="connector")
+        }
+    erwartet = datetime(2026, 9, 15, 8, 0, tzinfo=timezone(timedelta(hours=2)))
+    assert datum["1"] == erwartet.astimezone(None).replace(tzinfo=None)
+    assert datum["2"] == datetime(2026, 9, 16)
+    assert datum["3"] is None  # nicht ISO 8601
+
+
 def test_zugang_aus_dem_tresor(make_session):
     with HttpAttrappe() as server:
         server.routen["/api/v1/dokumente"] = lambda a: json_antwort([])
@@ -326,21 +361,162 @@ def test_weiterleitung_auf_fremden_host_wird_abgelehnt(make_session, monkeypatch
     assert fremd.anfragen == []
 
 
-def test_max_seiten_begrenzt_mit_hinweis(make_session, monkeypatch):
+def _seiten_mit_dateien(server, anzahl, pro_seite=2):
+    eintraege = [{"uid": nr} for nr in range(1, anzahl + 1)]
+    server.routen["/api/v1/dokumente"] = _seiten(eintraege, pro_seite)
+    for nr in range(1, anzahl + 1):
+        server.routen[f"/api/v1/dokumente/{nr}/datei"] = lambda _a, n=nr: datei_antwort(
+            PDF_A + str(n).encode()
+        )
+
+
+def test_mehr_seiten_als_max_seiten_ist_ein_fehler_kein_beruhigender_hinweis(
+    make_session, monkeypatch
+):
+    """Jeder Lauf beginnt bei Seite 1 — was hinter max_seiten liegt, darf nicht
+    still liegen bleiben: Der Lauf scheitert mit wahrer Meldung (Exit 1)."""
     monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
     with HttpAttrappe() as server:
-        server.routen["/api/v1/dokumente"] = lambda a: json_antwort(
-            {"daten": {"eintraege": [{"uid": a.parameter["seite"]}]}}
-        )
+        _seiten_mit_dateien(server, 6)
+        eintrag = _json_eintrag(server)
+        eintrag["liste"] = {**eintrag["liste"], "max_seiten": 2}
+        for _lauf in range(2):
+            kanal = _kanal(eintrag, make_session)
+            geholt = []
+            with pytest.raises(KanalError, match="mehr als 2 Seiten") as fehler:
+                for roh in kanal.abholen():
+                    geholt.append(roh)
+                    kanal.bestaetige(roh)
+            assert "max_seiten" in str(fehler.value)
+            assert not any("nächste Lauf macht weiter" in h for h in kanal.hinweise)
+        # Lauf 1 hat die ersten vier aufgenommen, Lauf 2 nichts Neues gefunden
+        with make_session() as s:
+            assert len(lade_nachrichten(s, kanal="connector")) == 4
+        # mit genug Seiten kommt der Rest im nächsten Lauf
+        eintrag["liste"] = {**eintrag["liste"], "max_seiten": 3}
+        rest = _alles(_kanal(eintrag, make_session))
+        assert [r.inhalt for r in rest] == [PDF_A + b"5", PDF_A + b"6"]
+
+
+def test_genau_max_seiten_volle_seiten_sind_kein_fehler(make_session, monkeypatch):
+    monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
+    with HttpAttrappe() as server:
+        _seiten_mit_dateien(server, 4)
+        eintrag = _json_eintrag(server)
+        eintrag["liste"] = {**eintrag["liste"], "max_seiten": 2}
+        kanal = _kanal(eintrag, make_session)
+        assert len(_alles(kanal)) == 4
+        assert kanal.hinweise == []
+
+
+def test_next_url_ueber_max_seiten_ist_ein_fehler(make_session, monkeypatch):
+    monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
+
+    def seite(anfrage):
+        nr = int(anfrage.parameter.get("s", "1"))
+        return json_antwort({"records": [{"uid": nr}], "next": f"?s={nr + 1}"})
+
+    with HttpAttrappe({"/api/v1/dokumente": seite}) as server:
         for nr in range(1, 5):
             server.routen[f"/api/v1/dokumente/{nr}/datei"] = lambda _a, n=nr: (
                 datei_antwort(PDF_A + str(n).encode())
             )
-        eintrag = _json_eintrag(server)
-        eintrag["liste"] = {**eintrag["liste"], "max_seiten": 3}
+        eintrag = _json_eintrag(
+            server,
+            liste={
+                "pfad": "/dokumente",
+                "eintraege": "records",
+                "naechste": "next",
+                "max_seiten": 3,
+            },
+        )
+        with pytest.raises(KanalError, match="mehr als 3 Seiten"):
+            _alles(_kanal(eintrag, make_session))
+
+
+def test_unvollstaendiger_download_wird_nicht_als_original_gemerkt(
+    make_session, monkeypatch
+):
+    """Content-Length 100000, aber nur 20 Bytes und Verbindungsende: Das ist kein
+    Original — nicht aufnehmen, nicht merken, nächster Lauf versucht es erneut."""
+    monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
+    kurz = (
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n"
+        b"Content-Length: 100000\r\nConnection: close\r\n\r\n" + PDF_A[:20]
+    )
+    with RohAttrappe(kurz) as dateien, HttpAttrappe() as portal:
+        portal.routen["/api/v1/dokumente"] = lambda a: json_antwort(
+            [{"uid": 1, "datei": {"name": "p-1.pdf"}, "url": f"{dateien.url}/p-1.pdf"}]
+        )
+        eintrag = _json_eintrag(
+            portal,
+            liste={"pfad": "/dokumente"},
+            felder={"id": "uid", "dateiname": "datei.name", "url": "url"},
+            erlaubte_hosts=["127.0.0.1"],
+        )
         kanal = _kanal(eintrag, make_session)
-        assert len(_alles(kanal)) == 3
-        assert any("max_seiten" in h for h in kanal.hinweise)
+        assert _alles(kanal) == []
+        assert any("unvollständig" in h and "erneut" in h for h in kanal.hinweise)
+        dateien.antwort = (
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n"
+            b"Content-Length: %d\r\nConnection: close\r\n\r\n" % len(PDF_A) + PDF_A
+        )
+        (roh,) = _alles(_kanal(eintrag, make_session))
+        assert roh.inhalt == PDF_A
+
+
+def test_abgebrochenes_chunked_und_kaputte_url_brechen_den_lauf_nicht_ab(
+    make_session, monkeypatch
+):
+    monkeypatch.setenv("ACCOUNTI_TEST_PORTAL", "k")
+    chunked = (
+        b"HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n"
+        b"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        b"400\r\n" + PDF_A[:20]
+    )
+    with RohAttrappe(chunked) as dateien, HttpAttrappe() as portal:
+        portal.routen["/api/v1/dokumente"] = lambda a: json_antwort(
+            [
+                {"uid": 1, "url": f"{dateien.url}/c.pdf"},
+                {"uid": 2, "url": "/api/v1/a/Rechnung 2.pdf"},
+                {"uid": 3, "url": "http://[::1/kaputt.pdf"},
+                {"uid": 4, "url": "/api/v1/a/vier.pdf"},
+            ]
+        )
+        portal.routen["/api/v1/a/Rechnung%202.pdf"] = lambda a: datei_antwort(PDF_B)
+        portal.routen["/api/v1/a/vier.pdf"] = lambda a: datei_antwort(PDF_C)
+        eintrag = _json_eintrag(
+            portal,
+            liste={"pfad": "/dokumente"},
+            felder={"id": "uid", "url": "url"},
+            datei={},
+            erlaubte_hosts=["127.0.0.1"],
+        )
+        kanal = _kanal(eintrag, make_session)
+        assert [r.inhalt for r in _alles(kanal)] == [PDF_B, PDF_C]
+        assert any("Dokument 1 nicht geladen" in h for h in kanal.hinweise)
+        assert any("Dokument 3 nicht geladen" in h for h in kanal.hinweise)
+        with make_session() as s:
+            gemerkt = {n.schluessel for n in lade_nachrichten(s, kanal="connector")}
+        assert gemerkt == {"2", "4"}
+
+
+def test_fremder_download_host_nur_mit_https():
+    class _S:
+        url = "https://portal.example"
+
+    eintrag = _json_eintrag(
+        _S(),
+        liste={"pfad": "/dokumente"},
+        felder={"id": "uid", "url": "url"},
+        datei={},
+        erlaubte_hosts=["dateien.example"],
+    )
+    connector = baue_connector(ConnectorEintrag(**eintrag), lambda: None)
+    with pytest.raises(KanalError, match="https"):
+        connector.lade(PortalDokument(id="1", url="http://dateien.example/x.pdf"))
+    with pytest.raises(KanalError, match="erlaubte_hosts"):
+        connector.lade(PortalDokument(id="1", url="ftp://dateien.example/x.pdf"))
 
 
 @pytest.mark.parametrize(
@@ -352,6 +528,14 @@ def test_max_seiten_begrenzt_mit_hinweis(make_session, monkeypatch):
         ({"liste": {"pfad": "/d", "parameter": {"api_token": "abc"}}}, "Klartext"),
         ({"datei": {}}, "datei.pfad"),
         ({"unbekannt": 1}, "unbekannt"),
+        ({"liste": {"pfad": "/d?apiKey=klartext-123"}}, "Klartext"),
+        ({"datei": {"pfad": "/d/{id}?token=klartext-123"}}, "Klartext"),
+        ({"kopfzeilen": {"Authorization": "Bearer klartext-123${X}"}}, "Klartext"),
+        ({"kopfzeilen": {"X-Auth": "klartext-123"}}, "Klartext"),
+        (
+            {"liste": {"pfad": "/d", "seite_parameter": "s", "naechste": "n"}},
+            "seite_parameter oder naechste",
+        ),
     ],
 )
 def test_einstellungen_werden_geprueft(aenderung, meldung):
@@ -362,3 +546,21 @@ def test_einstellungen_werden_geprueft(aenderung, meldung):
     with pytest.raises(KonfigurationError, match=meldung) as fehler:
         baue_connector(ConnectorEintrag(**eintrag), lambda: None)
     assert "klartext-123" not in str(fehler.value)
+
+
+@pytest.mark.parametrize(
+    "kopfzeilen",
+    [
+        {"Authorization": "Bearer {zugang}"},
+        {"Authorization": "Basic ${ACCOUNTI_TEST_B64}"},
+        {"X-API-KEY": "${ACCOUNTI_TEST_PORTAL}"},
+        {"Cookie": "sid=${ACCOUNTI_TEST_SID}"},
+        {"X-Author": "Max Muster", "Accept-Language": "de"},
+    ],
+)
+def test_platzhalter_mit_festem_praefix_sind_erlaubt(kopfzeilen):
+    class _S:
+        url = "https://portal.example"
+
+    eintrag = {**_json_eintrag(_S()), "kopfzeilen": kopfzeilen}
+    baue_connector(ConnectorEintrag(**eintrag), lambda: None)

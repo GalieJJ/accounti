@@ -107,6 +107,37 @@ def test_pdf_per_email_wird_erfasst(tmp_path, postfach, monkeypatch):
     assert "Bürobedarf Müller GmbH" in nachrichten.output
 
 
+def test_eigene_rechnung_per_email_erkennt_mandant_aus_der_konfiguration(
+    tmp_path, monkeypatch
+):
+    """Rechnungskopie (BCC) im Belegpostfach: Wie beim Webhook liest der Erkenner
+    Name und USt-IdNr. aus ``mandant`` — sonst würde sie zur Eingangsrechnung."""
+    from accounti.db.repository import lade_belege
+    from accounti.models import Belegart
+
+    monkeypatch.setenv("ACCOUNTI_TEST_IMAP", "geheim")
+    ausgang = (FIXTURES / "ausgangsrechnung.txt").read_text(encoding="utf-8")
+    pf = Postfach()
+    pf.lege_ab(
+        mail(
+            ("RE-2026-117.pdf", pdf_mit_text(ausgang), "application/pdf"),
+            absender="Galerie Muster GmbH <buchhaltung@galerie.example>",
+        )
+    )
+    with ImapAttrappe(pf) as server:
+        konfig = Path(_konfig(tmp_path, server.port))
+        konfig.write_text(
+            'mandant:\n  name: "Galerie Muster GmbH"\n  ust_id: DE999999999\n'
+            + konfig.read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+        r = _abholen(tmp_path, str(konfig))
+    assert r.exit_code == 0, r.output
+    with session_factory(_db(tmp_path))[1]() as s:
+        (beleg,) = lade_belege(s)
+    assert beleg.belegart is Belegart.AUSGANGSRECHNUNG
+
+
 def test_ohne_postfach_unbekannte_quelle_und_webhook(tmp_path):
     leer = tmp_path / "leer.yaml"
     leer.write_text("mandant:\n  name: X\n", encoding="utf-8")

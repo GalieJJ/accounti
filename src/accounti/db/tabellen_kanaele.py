@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from accounti.db import Base
@@ -44,13 +53,28 @@ class KanalNachrichtDateiRow(Base):
     )
     nr: Mapped[int] = mapped_column(Integer)
     datei_hash: Mapped[str] = mapped_column(String(64), index=True)
+    # Absender der weitergeleiteten Nachricht, in der die Datei steckte
+    absender: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    absender_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class WebhookTokenRow(Base):
+    """Widerrufene Tokens bleiben stehen; eindeutig ist der Name nur unter den
+    aktiven — so lässt sich ein Token unter demselben Namen ersetzen."""
+
     __tablename__ = "webhook_tokens"
+    __table_args__ = (
+        Index(
+            "uq_webhook_token_aktiv",
+            "name",
+            unique=True,
+            sqlite_where=text("widerrufen_am IS NULL"),
+            postgresql_where=text("widerrufen_am IS NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    name: Mapped[str] = mapped_column(String(100), unique=True)
+    name: Mapped[str] = mapped_column(String(100), index=True)
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
     widerrufen_am: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

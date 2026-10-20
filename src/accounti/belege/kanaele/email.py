@@ -9,6 +9,10 @@ wird nur lesend geöffnet (EXAMINE), Nachrichten werden mit ``BODY.PEEK[]`` gela
 (setzt ``\\Seen`` nicht, RFC 9051 6.4.5). Welche Nachricht schon verarbeitet ist,
 weiß das Gedächtnis: Ordner + UIDVALIDITY + UID bezeichnen eine Nachricht dauerhaft
 (RFC 9051 2.3.1.1), die Message-ID fängt neu angelegte Ordner ab.
+
+Als gelesen markiert oder verschoben wird eine Nachricht nur, wenn sie erledigt ist:
+mindestens eine Belegdatei aufgenommen und kein Anhang abgelehnt. Alles andere
+bleibt ungelesen im Posteingang — dort sieht es ein Mensch.
 """
 
 from __future__ import annotations
@@ -31,7 +35,7 @@ from accounti.belege.kanaele.abholung import AbholKanal, KanalError
 from accounti.belege.kanaele.einstellungen import EmailPostfach
 from accounti.belege.kanaele.gedaechtnis import Gedaechtnis
 from accounti.belege.kanaele.pruefung import DateiAbgelehntError, Dateipruefung
-from accounti.models.kanaele import AbgeholteNachricht
+from accounti.models.kanaele import AbgeholteNachricht, Absender
 
 KANAL = "email"
 _MONATE = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
@@ -47,6 +51,17 @@ _BELEG_MIME = frozenset(
         "image/tiff",
     }
 )
+# Signaturen gehören zum Transport wie der Textkörper — kein Beleg, keine Ablehnung
+_TRANSPORT_MIME = frozenset(
+    {
+        "application/pkcs7-signature",
+        "application/x-pkcs7-signature",
+        "application/pgp-signature",
+    }
+)
+# Eingebettete Bilder darunter gelten als Logo/Signatur (mit Hinweis), darüber als
+# Beleg — ein Foto oder Screenshot einer Quittung ist praktisch immer größer.
+LOGO_HOECHSTENS = 32 * 1024
 _GROESSEN_JE_ABRUF = 200
 
 
@@ -59,6 +74,9 @@ _GROESSEN_JE_ABRUF = 200
 class Belegdatei:
     dateiname: str
     inhalt: bytes
+    # Absender der weitergeleiteten Nachricht, in der die Datei steckte
+    absender: str | None = None
+    absender_name: str | None = None
 
 
 @dataclass
@@ -70,6 +88,11 @@ class GeleseneNachricht:
     gesendet_am: datetime | None = None
     dateien: list[Belegdatei] = field(default_factory=list)
     hinweise: list[str] = field(default_factory=list)
+    abgelehnt: int = 0  # Anhänge, die nicht als Beleg übernommen wurden
+
+
+def _groesse(anzahl: int) -> str:
+    return f"{anzahl} Bytes" if anzahl < 1024 else f"{anzahl / 1024:.0f} KB"
 
 
 def _kopf(nachricht: Message, name: str) -> str | None:
@@ -114,25 +137,36 @@ def _dateiname(teil: Message) -> str | None:
         return None
 
 
-def _blaetter(teil: Message, eltern: str = "") -> Iterator[tuple[Message, str]]:
-    """Alle Blätter des MIME-Baums mit dem Inhaltstyp ihres Elternteils."""
+def _blaetter(
+    teil: Message, eltern: str = "", umschlag: Message | None = None
+) -> Iterator[tuple[Message, str, Message | None]]:
+    """Alle Blätter des MIME-Baums mit dem Inhaltstyp ihres Elternteils und der
+    innersten weitergeleiteten Nachricht (``message/rfc822``), in der sie stecken."""
     if teil.is_multipart():
         unterteile = teil.get_payload()
+        weitergeleitet = teil.get_content_type() == "message/rfc822"
         if isinstance(unterteile, list):
             for unter in unterteile:
                 if isinstance(unter, Message):
-                    yield from _blaetter(unter, teil.get_content_type())
+                    yield from _blaetter(
+                        unter,
+                        teil.get_content_type(),
+                        unter if weitergeleitet else umschlag,
+                    )
         return
-    yield teil, eltern
+    yield teil, eltern, umschlag
 
 
 def lies_nachricht(roh: bytes, pruefung: Dateipruefung) -> GeleseneNachricht:
     """Absender, Betreff, Datum und Belegdateien einer E-Mail.
 
     Belegdatei ist jeder MIME-Teil mit Dateinamen oder mit einem Belegtyp — auch in
-    weitergeleiteten Nachrichten. Textkörper und eingebettete Bilder (``inline`` mit
-    Content-ID, z.B. das Logo in der Signatur) sind keine Belege. Was die
-    Dateiprüfung ablehnt, wird als Hinweis vermerkt, nicht still verworfen.
+    weitergeleiteten Nachrichten. Keine Belege sind Textkörper, Signaturen (S/MIME,
+    PGP) und kleine eingebettete Bilder (``inline``/``multipart/related`` mit
+    Content-ID unter ``LOGO_HOECHSTENS``, z.B. das Logo der Signatur) — Letztere
+    mit Hinweis samt Name und Größe. Größere eingebettete Bilder (ein in den Text
+    eingefügtes Foto einer Quittung) sind Belege. Was die Dateiprüfung ablehnt,
+    wird als Hinweis vermerkt und in ``abgelehnt`` gezählt, nicht still verworfen.
     """
     nachricht = email.message_from_bytes(roh, policy=email.policy.default)
     absender, absender_name = _absender(nachricht)
@@ -144,25 +178,36 @@ def lies_nachricht(roh: bytes, pruefung: Dateipruefung) -> GeleseneNachricht:
         gesendet_am=_datum(nachricht),
     )
     nr = 0
-    for teil, eltern in _blaetter(nachricht):
+    for teil, eltern, umschlag in _blaetter(nachricht):
         dateiname = _dateiname(teil)
         typ = teil.get_content_type()
         disposition = teil.get_content_disposition()
         if dateiname is None and disposition != "attachment" and typ not in _BELEG_MIME:
             continue  # Textkörper
-        eingebettet = disposition == "inline" or eltern == "multipart/related"
-        if eingebettet and teil.get("Content-ID") and typ.startswith("image/"):
-            continue  # im HTML eingebettetes Bild, z.B. Logo der Signatur
+        if typ in _TRANSPORT_MIME:
+            continue  # Signatur der Nachricht
         nr += 1
         inhalt = teil.get_payload(decode=True)
         if not isinstance(inhalt, bytes):
+            continue
+        eingebettet = disposition == "inline" or eltern == "multipart/related"
+        cid = _kopf(teil, "Content-ID")
+        bild = bool(eingebettet and cid and typ.startswith("image/"))
+        if bild and len(inhalt) < LOGO_HOECHSTENS:
+            gelesen.hinweise.append(
+                f"eingebettetes Bild {dateiname or cid} ({_groesse(len(inhalt))}) "
+                f"übersprungen — unter {_groesse(LOGO_HOECHSTENS)}, vermutlich "
+                "Logo oder Signatur; ist es ein Beleg, als Anhang senden"
+            )
             continue
         try:
             name = pruefung.pruefe(dateiname or f"anhang-{nr}", inhalt)
         except DateiAbgelehntError as fehler:
             gelesen.hinweise.append(f"übersprungen: {fehler}")
+            gelesen.abgelehnt += 1
             continue
-        gelesen.dateien.append(Belegdatei(name, inhalt))
+        ursprung = _absender(umschlag) if umschlag is not None else (None, None)
+        gelesen.dateien.append(Belegdatei(name, inhalt, *ursprung))
     return gelesen
 
 
@@ -311,6 +356,13 @@ class EmailKanal(AbholKanal):
         hinweis: str | None = None,
     ) -> None:
         g = gelesen or GeleseneNachricht()
+        urspruenglich = {
+            hashlib.sha256(d.inhalt).hexdigest(): Absender(
+                adresse=d.absender, name=d.absender_name
+            )
+            for d in g.dateien
+            if d.absender or d.absender_name
+        }
         self.gedaechtnis.merke(
             AbgeholteNachricht(
                 kanal=KANAL,
@@ -324,6 +376,7 @@ class EmailKanal(AbholKanal):
                 datei_hashes=[
                     hashlib.sha256(r.inhalt).hexdigest() for r in rohbelege or []
                 ],
+                urspruenglich=urspruenglich,
                 hinweis=hinweis,
             )
         )
@@ -334,12 +387,26 @@ class EmailKanal(AbholKanal):
         self.hinweise.append(meldung)
         return text
 
-    def _herkunft(self, g: GeleseneNachricht) -> str:
+    def _herkunft(self, g: GeleseneNachricht, d: Belegdatei) -> str:
+        von = g.absender or "unbekannt"
+        if d.absender:
+            von = f"{d.absender} (weitergeleitet von {von})"
         herkunft = (
-            f"E-Mail {self.postfach.name} von {g.absender or 'unbekannt'}: "
-            f"{g.betreff or '(ohne Betreff)'}"
+            f"E-Mail {self.postfach.name} von {von}: {g.betreff or '(ohne Betreff)'}"
         )
         return herkunft[:500]
+
+    def _bleibt_liegen(self) -> str | None:
+        """Hinweis für eine nicht erledigte Nachricht, die nicht markiert wird."""
+        p = self.postfach
+        if p.nach_abholen == "gelesen":
+            return "bleibt ungelesen im Postfach — bitte von Hand ansehen"
+        if p.nach_abholen == "verschieben":
+            return (
+                f"nicht nach {p.ziel_ordner} verschoben, bleibt in {p.ordner} — "
+                "bitte von Hand ansehen"
+            )
+        return None
 
     def _nachbehandeln(self, imap: imaplib.IMAP4, uid: str) -> None:
         p = self.postfach
@@ -415,7 +482,7 @@ class EmailKanal(AbholKanal):
                     dateiname=d.dateiname,
                     inhalt=d.inhalt,
                     kanal=KANAL,
-                    herkunft=self._herkunft(gelesen),
+                    herkunft=self._herkunft(gelesen, d),
                 )
                 for d in gelesen.dateien
             ]
@@ -425,9 +492,15 @@ class EmailKanal(AbholKanal):
             hinweise = list(gelesen.hinweise)
             if not rohbelege:
                 hinweise.insert(0, "keine Belegdatei")
+            # erledigt nur, wenn etwas aufgenommen und nichts abgelehnt wurde
+            erledigt = bool(rohbelege) and not gelesen.abgelehnt
+            liegen = None if erledigt else self._bleibt_liegen()
+            if liegen:
+                hinweise.append(liegen)
             for h in hinweise:
                 self._hinweis(uid, gelesen, h)
             self._merke(
                 schluessel(uid), gelesen, rohbelege, "; ".join(hinweise) or None
             )
-            self._nachbehandeln(imap, uid)
+            if erledigt:
+                self._nachbehandeln(imap, uid)

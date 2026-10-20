@@ -39,6 +39,20 @@ def _sitzungen(db: str) -> sessionmaker[Session]:
     return make_session
 
 
+def eigene_firma_vorgabe(
+    config: str, ust_ids: list[str], firma: str | None
+) -> tuple[list[str], str | None]:
+    """Eigene USt-IdNr. und Firma: was per Option kam, sonst ``mandant`` aus der
+    Konfiguration — wie beim Webhook, damit eine Rechnungskopie im Belegpostfach
+    über jeden Kanal als Ausgangsrechnung erkannt wird."""
+    from accounti.konfiguration import lade_eigene_firma
+
+    eigen = lade_eigene_firma(config)
+    if eigen is None:
+        return ust_ids, firma
+    return (ust_ids or ([eigen.ust_id] if eigen.ust_id else [])), firma or eigen.name
+
+
 def hole_ab(
     kanal: str,
     quelle: str | None,

@@ -94,6 +94,29 @@ def test_token_nur_als_hash_gespeichert(make_session, token):
         assert pruefe_token(s, token) is None
 
 
+def test_widerrufenes_token_unter_demselben_namen_ersetzen(make_session):
+    """Durchgesickertes Token für n8n austauschen: widerrufen, neu anlegen — der
+    Name (und damit die Quelle im Gedächtnis) bleibt."""
+    with make_session() as s:
+        alt = lege_token_an(s, "n8n")
+        with pytest.raises(ValueError, match="kanaele webhook widerrufen n8n"):
+            lege_token_an(s, "n8n")
+        widerrufe_webhook_token(s, "n8n")
+        neu = lege_token_an(s, "n8n")
+        s.commit()
+    with make_session() as s:
+        assert pruefe_token(s, alt) is None
+        assert pruefe_token(s, neu).name == "n8n"
+        tokens = lade_webhook_tokens(s)
+        assert [(t.name, t.aktiv) for t in tokens] == [("n8n", False), ("n8n", True)]
+        # erneut widerrufen trifft das aktive, danach wieder neu anlegbar
+        widerrufe_webhook_token(s, "n8n")
+        s.commit()
+        assert pruefe_token(s, neu) is None
+        lege_token_an(s, "n8n")
+        s.commit()
+
+
 def test_zwei_tokens_sind_verschieden(make_session):
     with make_session() as s:
         assert lege_token_an(s, "a") != lege_token_an(s, "b")

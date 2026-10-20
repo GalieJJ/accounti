@@ -63,5 +63,32 @@ class DbGedaechtnis:
 
 
 def absender_zu_beleg(session: Session, beleg: Beleg) -> AbgeholteNachricht | None:
-    """Die Nachricht, mit der die Datei des Belegs kam — Absender als Hinweis."""
-    return nachricht_zu_datei(session, beleg.datei_hash)
+    """Die Nachricht, mit der die Datei des Belegs kam — Absender als Hinweis.
+
+    Steckte die Datei in einer weitergeleiteten Nachricht, ist deren Absender der
+    Hinweis auf den Kreditor; der Weiterleitende steht dann im ``hinweis``.
+    """
+    nachricht = nachricht_zu_datei(session, beleg.datei_hash)
+    if nachricht is None:
+        return None
+    ursprung = nachricht.urspruenglich.get(beleg.datei_hash)
+    if ursprung is None:
+        return nachricht
+    adresse, name = nachricht.absender, nachricht.absender_name
+    weiter = (f"{name} <{adresse}>" if name else adresse) if adresse else name
+    return nachricht.model_copy(
+        update={
+            "absender": ursprung.adresse,
+            "absender_name": ursprung.name,
+            "hinweis": "; ".join(
+                filter(
+                    None,
+                    [
+                        f"weitergeleitet von {weiter}" if weiter else None,
+                        nachricht.hinweis,
+                    ],
+                )
+            )
+            or None,
+        }
+    )
