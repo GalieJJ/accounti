@@ -5,7 +5,8 @@ denselben Weg gehen: in .02 ist ``Ntry/Sts`` ein Code und die Partei heißt
 ``RltdPties/Dbtr/Nm``, in .08 steht ``Ntry/Sts/Cd`` und ``RltdPties/Dbtr/Pty/Nm``.
 Übernommen werden nur gebuchte Einträge (``BOOK``); das Vorzeichen kommt aus
 ``CdtDbtInd``, die Bankreferenz aus ``AcctSvcrRef``. DTDs und Entities werden
-abgelehnt — ein Kontoauszug braucht sie nie.
+abgelehnt — ein Kontoauszug braucht sie nie; geprüft wird im XML-Parser selbst,
+damit auch UTF-16 nicht daran vorbeikommt.
 """
 
 from __future__ import annotations
@@ -15,13 +16,15 @@ import xml.etree.ElementTree as ET
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from xml.parsers import expat
 
-from accounti.importers import BANK_IMPORTERS, BankImporter
+from accounti.importers import BANK_IMPORTERS
 from accounti.importers.kontoauszug import (
     LAENGE_NAME,
     LAENGE_ROHTEXT,
     LAENGE_ZWECK,
     Auszug,
+    AuszugImporter,
     KontoauszugError,
     kuerze,
     pruefe_salden,
@@ -123,8 +126,11 @@ def _umsatz(ntry: ET.Element, waehrung: str | None, wo: str) -> Transaktion:
     if datum is None:
         raise KontoauszugError(f"Buchungsdatum fehlt in {wo}")
     details = [tx for nd in _kinder(ntry, "NtryDtls") for tx in _kinder(nd, "TxDtls")]
-    # Gegenpartei: bei Gutschriften der Zahler, bei Belastungen der Empfänger
-    rollen = ("Dbtr", "Cdtr") if betrag >= 0 else ("Cdtr", "Dbtr")
+    # Gegenpartei: bei Gutschriften der Zahler, bei Belastungen der Empfänger — bei
+    # einem Storno (RvslInd) umgekehrt, denn er trägt die Parteien der ursprünglichen
+    # Buchung (Rücklastschrift: Dbtr ist man selbst, Cdtr der Gläubiger)
+    storno = (_text(ntry, "RvslInd") or "").lower() == "true"
+    rollen = ("Dbtr", "Cdtr") if (betrag >= 0) != storno else ("Cdtr", "Dbtr")
     parteien = set()
     for tx in details:
         name, iban = _partei(tx, rollen[0])
@@ -171,10 +177,28 @@ def _auszug(behaelter: ET.Element, nr: int) -> Auszug:
     return auszug
 
 
+_KEINE_DTD = "DTD/Entity-Deklarationen sind in Kontoauszügen nicht erlaubt"
+
+
+def _verbiete_dtd(*_: object) -> None:
+    raise KontoauszugError(_KEINE_DTD)
+
+
+def _pruefe_ohne_dtd(daten: bytes) -> None:
+    """Im Parser selbst, in jeder Kodierung, die er liest (auch UTF-16)."""
+    pruefer = expat.ParserCreate()
+    pruefer.StartDoctypeDeclHandler = _verbiete_dtd
+    pruefer.EntityDeclHandler = _verbiete_dtd
+    try:
+        pruefer.Parse(daten, True)
+    except expat.ExpatError as fehler:
+        raise KontoauszugError(f"XML nicht wohlgeformt: {fehler}") from fehler
+
+
 def lies_camt(daten: bytes) -> list[Auszug]:
     if _DTD.search(daten):
-        msg = "DTD/Entity-Deklarationen sind in Kontoauszügen nicht erlaubt"
-        raise KontoauszugError(msg)
+        raise KontoauszugError(_KEINE_DTD)
+    _pruefe_ohne_dtd(daten)
     try:
         wurzel = ET.fromstring(daten)
     except ET.ParseError as fehler:
@@ -190,13 +214,13 @@ def lies_camt(daten: bytes) -> list[Auszug]:
     return [_auszug(b, nr) for nr, b in enumerate(behaelter, start=1)]
 
 
-class CamtImporter(BankImporter):
+class CamtImporter(AuszugImporter):
     """``accounti import bank auszug.xml --format camt``."""
 
     name = "camt"
 
-    def importiere(self, pfad: str | Path) -> list[Transaktion]:
-        return [t for a in lies_camt(Path(pfad).read_bytes()) for t in a.umsaetze]
+    def auszuege(self, pfad: str | Path) -> list[Auszug]:
+        return lies_camt(Path(pfad).read_bytes())
 
 
 BANK_IMPORTERS[CamtImporter.name] = CamtImporter()

@@ -154,3 +154,42 @@ def test_registriert_als_importer(tmp_path):
     datei = tmp_path / "a.xml"
     datei.write_bytes((DATEN / "camt053_v08.xml").read_bytes())
     assert len(BANK_IMPORTERS["camt"].importiere(datei)) == 4
+
+
+def test_ruecklastschrift_mit_beiden_parteien_nennt_den_glaeubiger():
+    """Storno (RvslInd): die Rücklastschrift trägt die Parteien der Lastschrift —
+    Dbtr ist man selbst, die Gegenpartei ist der Gläubiger (Cdtr)."""
+    parteien = (
+        "<NtryDtls><TxDtls><RltdPties>"
+        "<Dbtr><Pty><Nm>Meine Firma GmbH</Nm></Pty></Dbtr>"
+        "<DbtrAcct><Id><IBAN>DE02120300000000202051</IBAN></Id></DbtrAcct>"
+        "<Cdtr><Pty><Nm>Telefon AG</Nm></Pty></Cdtr>"
+        "<CdtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></CdtrAcct>"
+        "</RltdPties></TxDtls></NtryDtls>"
+    )
+    storno = _ntry("49.99", ind="CRDT", rest=parteien).replace(
+        "<Sts>", "<RvslInd>true</RvslInd><Sts>"
+    )
+    gutschrift = _ntry("49.99", ind="CRDT", rest=parteien)
+    rueck, normal = lies_camt(_doc(storno, gutschrift))[0].umsaetze
+    assert (rueck.gegenkonto_name, rueck.gegenkonto_iban) == (
+        "Telefon AG",
+        "DE89370400440532013000",
+    )
+    assert normal.gegenkonto_name == "Meine Firma GmbH"  # Gutschrift: der Zahler
+
+
+@pytest.mark.parametrize(
+    ("kodierung", "bom"), [("utf-16", b""), ("utf-16-be", b"\xfe\xff")]
+)
+def test_dtd_auch_in_utf16_abgelehnt(kodierung, bom):
+    """Der Byte-Vergleich fände „<!DOCTYPE“ in UTF-16 nicht — geprüft wird im
+    XML-Parser selbst."""
+    rumpf = _doc(_ntry(rest="<AddtlNtryInf>&b;</AddtlNtryInf>")).decode()
+    text = (
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<!DOCTYPE d [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;">]>'
+        + rumpf.split("?>", 1)[1]
+    )
+    with pytest.raises(KontoauszugError, match="DTD"):
+        lies_camt(bom + text.encode(kodierung))

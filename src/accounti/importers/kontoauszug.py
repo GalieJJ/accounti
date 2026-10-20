@@ -11,7 +11,9 @@ import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 
+from accounti.importers import BankImporter
 from accounti.models import Transaktion
 
 # Platzhalter, die Banken statt einer Referenz liefern — zählen nicht als Referenz
@@ -66,9 +68,10 @@ class Auszug:
         if not self.konto:
             return True
         konto, eigene = _kompakt(self.konto), _kompakt(iban)
-        if not _IBAN.fullmatch(eigene):
-            return True  # z.B. eine Kreditkarte: keine IBAN zum Vergleichen
         treffer = _IBAN.search(konto)
+        if not _IBAN.fullmatch(eigene):
+            # z.B. eine Kreditkarte: ein Auszug mit IBAN gehört zu einem Girokonto
+            return konto == eigene or treffer is None
         if treffer:
             return treffer.group(0) == eigene
         blz, _, nummer = konto.partition("/")
@@ -120,3 +123,48 @@ def lies_kontoauszug(daten: bytes) -> list[Auszug]:
 
         return lies_mt940(dekodiere(daten))
     raise KontoauszugError("Kein Kontoauszug im Format MT940 oder CAMT")
+
+
+def umsaetze_fuer_konto(auszuege: list[Auszug], konto: str | None) -> list[Transaktion]:
+    """Umsätze der Auszüge, die zum Konto gehören.
+
+    Ohne Konto nur, wenn die Datei höchstens ein Konto enthält — sonst landeten die
+    Umsätze fremder Konten mit dem Sachkonto des einen im Journal. Gehört kein
+    Auszug zum genannten Konto, ist es die falsche Datei."""
+    if konto is None:
+        konten = sorted({_kompakt(a.konto) for a in auszuege if a.konto})
+        if len(konten) > 1:
+            msg = (
+                f"Die Datei enthält Auszüge mehrerer Konten ({', '.join(konten)}) — "
+                "mit --konto das Konto wählen"
+            )
+            raise KontoauszugError(msg)
+        return [t for a in auszuege for t in a.umsaetze]
+    passend = [a for a in auszuege if a.gehoert_zu(konto)]
+    if auszuege and not passend:
+        fremd = ", ".join(sorted({a.konto for a in auszuege if a.konto}))
+        msg = f"Die Datei gehört nicht zum Konto {konto} (sie nennt {fremd})"
+        raise KontoauszugError(msg)
+    return [t for a in passend for t in a.umsaetze]
+
+
+class AuszugImporter(BankImporter):
+    """Importer für Kontoauszüge mit Kontoangabe (MT940, CAMT)."""
+
+    def auszuege(self, pfad: str | Path) -> list[Auszug]:
+        raise NotImplementedError
+
+    def importiere(
+        self, pfad: str | Path, konto: str | None = None
+    ) -> list[Transaktion]:
+        return umsaetze_fuer_konto(self.auszuege(pfad), konto)
+
+
+def importiere_fuer_konto(
+    importer: BankImporter, pfad: str | Path, konto: str | None
+) -> list[Transaktion]:
+    """``import bank``: MT940/CAMT nur mit den Auszügen des Kontos (CSV kennt kein
+    Konto und bleibt wie gehabt)."""
+    if isinstance(importer, AuszugImporter):
+        return importer.importiere(pfad, konto)
+    return importer.importiere(pfad)

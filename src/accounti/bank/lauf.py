@@ -58,7 +58,8 @@ def speichere_neue(
     quelle: str,
     konto: Bankkonto | None = None,
 ) -> tuple[int, int]:
-    """Speichert nur, was noch nicht da ist; liefert (neu, doppelt)."""
+    """Speichert nur, was noch nicht da ist — auch innerhalb des Abrufs (derselbe
+    Umsatz aus zwei Dateien); liefert (neu, doppelt)."""
     mit = mit_schluessel(transaktionen, konto.iban if konto else quelle)
     vorhanden = vorhandene_dublettenschluessel(
         session, {t.dublettenschluessel for t in mit if t.dublettenschluessel}
@@ -73,6 +74,8 @@ def speichere_neue(
             )
         speichere_transaktion(session, tx)
         neu += 1
+        if tx.dublettenschluessel:
+            vorhanden.add(tx.dublettenschluessel)
     session.flush()
     return neu, len(mit) - neu
 

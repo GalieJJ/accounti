@@ -48,3 +48,82 @@ def test_formate_werden_aufgelistet():
     r = runner.invoke(app, ["import", "banken"])
     assert r.exit_code == 0, r.output
     assert "mt940" in r.output and "camt" in r.output
+
+
+def _konto_anlegen(url, iban):
+    r = runner.invoke(
+        app,
+        [
+            "bank",
+            "verbinde",
+            "--provider",
+            "datei",
+            "--iban",
+            iban,
+            "--bezeichnung",
+            "Konto",
+            "--feld",
+            "ordner=.",
+            "--db",
+            url,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+
+
+def test_import_bank_mit_konto_nimmt_nur_dessen_auszuege(tmp_path):
+    """Ein Export mehrerer Konten oder eine falsche Datei: fremde Umsätze bekämen
+    sonst das Sachkonto des genannten Kontos."""
+    url = f"sqlite:///{(tmp_path / 'f.db').as_posix()}"
+    _konto_anlegen(url, "DE44500105175407324931")
+    falsch = tmp_path / "giro.xml"
+    falsch.write_bytes((DATEN / "camt053_v08.xml").read_bytes())
+    r = runner.invoke(
+        app,
+        [
+            "import",
+            "bank",
+            str(falsch),
+            "--konto",
+            "DE44500105175407324931",
+            "--db",
+            url,
+        ],
+    )
+    assert r.exit_code == 1
+    assert "DE02120300000000202051" in _text(r) and "Traceback" not in r.output
+
+    beide = tmp_path / "beide.xml"
+    v08 = (DATEN / "camt053_v08.xml").read_text(encoding="utf-8")
+    v02 = (DATEN / "camt053_v02.xml").read_text(encoding="utf-8")
+    stmt_v02 = v02[v02.index("<Stmt>") : v02.index("</Stmt>") + len("</Stmt>")]
+    beide.write_text(v08.replace("</Stmt>", "</Stmt>" + stmt_v02, 1), encoding="utf-8")
+    r = runner.invoke(
+        app,
+        [
+            "import",
+            "bank",
+            str(beide),
+            "--konto",
+            "DE44500105175407324931",
+            "--db",
+            url,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert "3 Transaktionen importiert" in _text(r)
+    r = runner.invoke(app, ["import", "bank", str(beide), "--db", url])
+    assert r.exit_code == 1
+    assert "mehrerer Konten" in _text(r) and "--konto" in _text(r)
+
+
+def test_import_bank_mit_kaputtem_saldo_ohne_traceback(tmp_path):
+    url = f"sqlite:///{(tmp_path / 'f.db').as_posix()}"
+    kaputt = tmp_path / "kaputt.sta"
+    kaputt.write_bytes(
+        (DATEN / "auszug.sta").read_bytes().replace(b"2167,10", b"2167,11")
+    )
+    r = runner.invoke(app, ["import", "bank", str(kaputt), "--db", url])
+    assert r.exit_code == 1
+    assert "Saldo" in _text(r) and "geht nicht auf" in _text(r)
+    assert r.exception is None or isinstance(r.exception, SystemExit)

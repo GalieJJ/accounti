@@ -107,3 +107,96 @@ def test_kaputter_kontoauszug_nennt_den_namen(tmp_path):
     )
     with pytest.raises(ProviderError, match="kaputt.sta"):
         BANK_PROVIDER["datei"]().abrufen(_konto(tmp_path), {}, None)
+
+
+def _giro(ordner):
+    return Bankkonto(
+        iban="DE02120300000000202051",
+        bezeichnung="Giro",
+        einstellungen={"ordner": str(ordner)},
+    )
+
+
+def _speichern(transaktionen, konto):
+    from accounti.bank.lauf import speichere_neue
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_transaktionen
+
+    engine, make_session = session_factory("sqlite://")
+    init_db(engine)
+    with make_session() as s:
+        ergebnis = speichere_neue(s, transaktionen, konto.iban, konto)
+        summe = sum(t.betrag for t in lade_transaktionen(s))
+    engine.dispose()
+    return ergebnis, summe
+
+
+@pytest.mark.parametrize("datei", ["camt053_v08.xml", "auszug.sta"])
+def test_doppelt_heruntergeladener_auszug_kommt_einmal(tmp_path, datei):
+    """Wie nach einem erneuten Download: „auszug.xml“ und „auszug (1).xml“."""
+    endung = Path(datei).suffix
+    (tmp_path / f"auszug{endung}").write_bytes((DATEN / datei).read_bytes())
+    (tmp_path / f"auszug (1){endung}").write_bytes((DATEN / datei).read_bytes())
+    abruf = BANK_PROVIDER["datei"]().abrufen(_giro(tmp_path), {}, None)
+    (neu, _), _ = _speichern(abruf.transaktionen, _giro(tmp_path))
+    assert neu == (4 if endung == ".xml" else 6)  # MT940 hier ohne Bankreferenz
+
+
+def test_ueberlappende_auszuege_mit_bankreferenz(tmp_path):
+    """camt.052 (Tagesreport) neben camt.053 (Auszug) desselben Tages: dieselben
+    Buchungen mit derselben AcctSvcrRef kommen einmal."""
+    import re
+
+    voll = (DATEN / "camt053_v08.xml").read_text(encoding="utf-8")
+    (tmp_path / "monat.xml").write_text(voll, encoding="utf-8")
+    # Tagesreport vom 13.03.: ohne Salden, ohne den Umsatz vom 12.03., ohne RmtInf
+    tag = re.sub(r"<Bal>.*?</Bal>", "", voll, flags=re.S)
+    tag = re.sub(r"<Ntry>.*?</Ntry>", "", tag, count=1, flags=re.S)
+    tag = re.sub(r"<RmtInf>.*?</RmtInf>", "", tag, flags=re.S)
+    tag = tag.replace("BkToCstmrStmt", "BkToCstmrAcctRpt").replace("Stmt>", "Rpt>")
+    (tmp_path / "tag.xml").write_text(tag, encoding="utf-8")
+    abruf = BANK_PROVIDER["datei"]().abrufen(_giro(tmp_path), {}, None)
+    (neu, _), summe = _speichern(abruf.transaktionen, _giro(tmp_path))
+    assert (neu, summe) == (4, Decimal("1120.50"))
+
+
+CAMT053_SAMMLER = """<?xml version="1.0"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+<BkToCstmrStmt><Stmt><Id>S1</Id>
+<Acct><Id><IBAN>DE02120300000000202051</IBAN></Id></Acct>
+<Ntry><Amt Ccy="EUR">300.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>
+<BookgDt><Dt>2026-03-12</Dt></BookgDt><AcctSvcrRef>2026031200007</AcctSvcrRef>
+<AddtlNtryInf>SAMMLER-UEBERWEISUNG 3 POSTEN</AddtlNtryInf></Ntry>
+</Stmt></BkToCstmrStmt></Document>"""
+
+CAMT054_AUFLOESUNG = """<?xml version="1.0"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.054.001.08">
+<BkToCstmrDbtCdtNtfctn><Ntfctn><Id>N1</Id>
+<Acct><Id><IBAN>DE02120300000000202051</IBAN></Id></Acct>
+<Ntry><Amt Ccy="EUR">300.00</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>
+<BookgDt><Dt>2026-03-12</Dt></BookgDt><AcctSvcrRef>2026031200007</AcctSvcrRef>
+<NtryDtls>{}</NtryDtls></Ntry>
+</Ntfctn></BkToCstmrDbtCdtNtfctn></Document>""".format(
+    "".join(
+        f"<TxDtls><Amt Ccy='EUR'>100.00</Amt><RltdPties><Cdtr><Nm>Lieferant {i}</Nm>"
+        f"</Cdtr></RltdPties><RmtInf><Ustrd>RE {i}</Ustrd></RmtInf></TxDtls>"
+        for i in (1, 2, 3)
+    )
+)
+
+
+def test_camt054_neben_camt053_bucht_den_sammler_nicht_doppelt(tmp_path):
+    (tmp_path / "auszug.xml").write_text(CAMT053_SAMMLER, encoding="utf-8")
+    (tmp_path / "avis.xml").write_text(CAMT054_AUFLOESUNG, encoding="utf-8")
+    abruf = BANK_PROVIDER["datei"]().abrufen(_giro(tmp_path), {}, None)
+    assert len(abruf.transaktionen) == 2  # beide Dateien gelesen
+    (neu, doppelt), summe = _speichern(abruf.transaktionen, _giro(tmp_path))
+    assert (neu, doppelt, summe) == (1, 1, Decimal("-300.00"))
+
+
+def test_kartenkonto_ohne_iban_ueberspringt_auszuege_mit_iban(tmp_path):
+    (tmp_path / "giro.xml").write_bytes((DATEN / "camt053_v08.xml").read_bytes())
+    karte = Bankkonto(
+        iban="DKBVISA9", bezeichnung="Visa", einstellungen={"ordner": str(tmp_path)}
+    )
+    assert BANK_PROVIDER["datei"]().abrufen(karte, {}, None).transaktionen == []

@@ -309,3 +309,17 @@ def test_vorlaeufige_zuordnung_von_hand_loesen(umgebung):
     assert "Nichts Neues" in _text(r)
     r = _run("kreditkarte", "loesen", str(a.id)[:8], "--db", url)
     assert r.exit_code == 1 and "keine zugeordnete" in _text(r)
+
+
+def test_bank_lauf_nennt_das_ergebnis_des_kartenabgleichs(umgebung):
+    url, ordner, tmp_path = umgebung
+    beleg = _karte_und_pdf(url, tmp_path)
+    assert _run("kreditkarte", "uebernehmen", beleg, "--db", url).exit_code == 0
+    (ordner / "april.sta").write_bytes(
+        GIRO_APRIL.replace("DR698,65", "DR698,75")
+        .replace("4301,35", "4301,25")
+        .encode("cp1252")
+    )
+    r = _run("bank", "lauf", "--db", url)  # ohne config/regeln.yaml: Standardregeln
+    assert r.exit_code == 0, r.output
+    assert "Befund" in _text(r) and "Differenz -0,10 €" in _text(r)

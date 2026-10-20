@@ -61,6 +61,8 @@ def test_lies_kontoauszug_waehlt_den_parser():
         ("COBADEFFXXX/DE02120300000000202051", "DE02120300000000202051", True),
         (None, "DE02120300000000202051", True),  # unbekannt: nicht ausschließen
         ("12030000/0000202051", "VISA1234", True),  # Karte ohne IBAN
+        ("DE02120300000000202051", "VISA1234", False),  # Giro-Auszug, keine Karte
+        ("visa 1234", "VISA1234", True),
         ("irgendwas", "DE02120300000000202051", True),
     ],
 )

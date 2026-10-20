@@ -15,12 +15,13 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from accounti.importers import BANK_IMPORTERS, BankImporter
+from accounti.importers import BANK_IMPORTERS
 from accounti.importers.kontoauszug import (
     LAENGE_NAME,
     LAENGE_ROHTEXT,
     LAENGE_ZWECK,
     Auszug,
+    AuszugImporter,
     KontoauszugError,
     dekodiere,
     kuerze,
@@ -205,14 +206,13 @@ def lies_mt940(text: str) -> list[Auszug]:
     return auszuege
 
 
-class MT940Importer(BankImporter):
+class MT940Importer(AuszugImporter):
     """``accounti import bank auszug.sta --format mt940``."""
 
     name = "mt940"
 
-    def importiere(self, pfad: str | Path) -> list[Transaktion]:
-        auszuege = lies_mt940(dekodiere(Path(pfad).read_bytes()))
-        return [t for a in auszuege for t in a.umsaetze]
+    def auszuege(self, pfad: str | Path) -> list[Auszug]:
+        return lies_mt940(dekodiere(Path(pfad).read_bytes()))
 
 
 BANK_IMPORTERS[MT940Importer.name] = MT940Importer()

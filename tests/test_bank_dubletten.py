@@ -82,3 +82,23 @@ def test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze():
     # nur einer der beiden kommt im nächsten Abruf noch einmal: keine neue Dublette
     assert _schluessel([b]) == [hin[1]]
     assert _schluessel([tx()]) not in ([hin[0]], [hin[1]])
+
+
+def test_mit_bankreferenz_zaehlt_die_wiederholung_nicht():
+    """Derselbe Umsatz aus zwei Dateien eines Abrufs (z.B. „auszug (1).xml“) ist
+    einer — die Referenz der Bank unterscheidet, nicht die laufende Nummer."""
+    a = tx(quelle_referenz="2026031300003")
+    assert len(set(_schluessel([a, a]))) == 1
+    assert _schluessel([a, a])[0] == _schluessel([a])[0]
+
+
+def test_mit_bankreferenz_zaehlt_der_verwendungszweck_nicht():
+    """camt.053 nennt beim Sammler die Zusatzinfo, camt.054 die Einzelzwecke —
+    dieselbe Buchung (gleiche AcctSvcrRef) bleibt eine."""
+    sammler = tx("-300.00", zweck="SAMMLER-UEBERWEISUNG 3 POSTEN", name=None)
+    einzeln = tx("-300.00", zweck="RE 1; RE 2; RE 3", name=None)
+    ref = {"quelle_referenz": "2026031200007"}
+    assert _schluessel([sammler.model_copy(update=ref)]) == _schluessel(
+        [einzeln.model_copy(update=ref)]
+    )
+    assert _schluessel([sammler]) != _schluessel([einzeln])  # ohne Referenz: zwei
