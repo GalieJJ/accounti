@@ -180,3 +180,23 @@ def lade_oss(pfad: str | Path = STANDARD_PFAD) -> bool:
     daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
     mandant = daten.get("mandant") if isinstance(daten, dict) else None
     return bool(isinstance(mandant, dict) and mandant.get("oss"))
+
+
+def lade_mandant(pfad: str | Path = STANDARD_PFAD) -> dict[str, str]:
+    """Name, Anschrift und Steuernummer aus ``mandant`` — nachsichtig gelesen."""
+    pfad = Path(pfad)
+    daten: Any = {}
+    if pfad.is_file():
+        daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    mandant = daten.get("mandant") if isinstance(daten, dict) else None
+    mandant = mandant if isinstance(mandant, dict) else {}
+    anschrift = mandant.get("anschrift")
+    anschrift = anschrift if isinstance(anschrift, dict) else {}
+    werte = {
+        "name": mandant.get("name"),
+        "strasse": anschrift.get("strasse"),
+        "plz": anschrift.get("plz"),
+        "ort": anschrift.get("ort"),
+        "steuernummer": mandant.get("steuernummer"),
+    }
+    return {k: str(v).strip() for k, v in werte.items() if v not in (None, "")}

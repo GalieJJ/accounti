@@ -120,16 +120,16 @@ elster/zahllast.py: Eigenbeleg → 1780 an Kreditor „Finanzamt“ → offener 
 
 ### Paket 3 — Datensatz, Übermittlung, Protokoll
 
-- [ ] **Konfiguration** (`elster/konfiguration.py`): Abschnitt `elster` mit Standards (`tests/test_elster_konfiguration.py`).
-- [ ] **Steuernummer** (`elster/steuernummer.py`): 16 Länder, 13-stellig direkt, Fehler (`tests/test_elster_steuernummer.py`).
-- [ ] **Datensatz** (`elster/datensatz.py`): UStVA-XML, Testmerker, Prüfung, Kz 83 nachgerechnet (`tests/test_elster_datensatz.py`).
-- [ ] **Modelle, Tabellen, Repository** (`models/elster.py`, `db/tabellen_elster.py`, `db/repo_elster.py`).
-- [ ] **Protokoll** (`elster/protokoll.py`): Hash-Kette, Änderung/Löschung scheitern (ORM, Trigger), Manipulation, Lücke, Archivdatei verändert (`tests/test_elster_protokoll.py`).
-- [ ] **Übermittler** (`elster/uebermittlung.py`): Schnittstelle, Attrappe, Auswahl (`tests/test_elster_uebermittlung.py`).
-- [ ] **PIN** (`elster/pin.py`): Tresor, Datei 0600, falscher Schlüssel (`tests/test_elster_pin.py`).
-- [ ] **ERiC-Adapter** (`elster/eric.py`): ctypes gegen eine im Test gebaute C-Attrappe (`tests/test_elster_eric.py`).
-- [ ] **Freigabe und Ablauf** (`elster/freigabe.py`, `elster/ustva.py`): Freigabe nur ohne Fehler, Hash-Bindung, verbraucht; Akzeptanz 3 und 4.
-- [ ] **CLI** `ustva freigeben`, `ustva uebermitteln [--test|--testfall] [--ausgabe]`, `elster protokoll`, `elster pin` (`tests/test_cli_ustva.py`, `tests/test_cli_elster.py`).
+- [x] **Konfiguration** (`elster/konfiguration.py`): Abschnitt `elster` mit Standards (`tests/test_elster_konfiguration.py`).
+- [x] **Steuernummer** (`elster/steuernummer.py`): 16 Länder, 13-stellig direkt, Fehler (`tests/test_elster_steuernummer.py`).
+- [x] **Datensatz** (`elster/datensatz.py`): UStVA-XML, Testmerker, Prüfung, Kz 83 nachgerechnet (`tests/test_elster_datensatz.py`).
+- [x] **Modelle, Tabellen, Repository** (`models/elster.py`, `db/tabellen_elster.py`, `db/repo_elster.py`).
+- [x] **Protokoll** (`elster/protokoll.py`): Hash-Kette, Änderung/Löschung scheitern (ORM, Trigger), Manipulation, Lücke, Archivdatei verändert (`tests/test_elster_protokoll.py`).
+- [x] **Übermittler** (`elster/uebermittlung.py`): Schnittstelle, Attrappe, Auswahl (`tests/test_elster_uebermittlung.py`).
+- [x] **PIN** (`elster/pin.py`): Tresor, Datei 0600, falscher Schlüssel (`tests/test_elster_pin.py`).
+- [x] **ERiC-Adapter** (`elster/eric.py`): ctypes gegen eine im Test gebaute C-Attrappe (`tests/test_elster_eric.py`).
+- [x] **Freigabe und Ablauf** (`elster/freigabe.py`, `elster/ustva.py`): Freigabe nur ohne Fehler, Hash-Bindung, verbraucht; Akzeptanz 3 und 4.
+- [x] **CLI** `ustva freigeben`, `ustva uebermitteln [--test|--testfall] [--ausgabe]`, `elster protokoll`, `elster pin` (`tests/test_cli_ustva.py`, `tests/test_cli_elster.py`).
 
 ### Paket 4 — Zahllast, Dauerfrist, ZM
 

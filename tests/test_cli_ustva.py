@@ -195,3 +195,89 @@ def test_quartal_passt_nicht_zur_konfiguration(tmp_path):
     )
     assert r.exit_code == 1
     assert "voranmeldungszeitraum" in r.output
+
+
+# --- Freigabe und Übermittlung (Akzeptanz 3 und 4) ----------------------------------
+
+
+def mit_attrappe(konfig):
+    """Probelauf-Konfiguration: Attrappe statt ERiC, eigene Hersteller-ID."""
+    with open(konfig, "a", encoding="utf-8") as datei:
+        datei.write("  uebermittler: attrappe\n  hersteller_id: '12345'\n")
+
+
+def befehl(url, konfig, tmp_path, *argumente):
+    archiv = (
+        ["--archiv", str(tmp_path / "archiv")] if "uebermitteln" in argumente else []
+    )
+    return runner.invoke(
+        app,
+        ["ustva", *argumente, "--period", "2026-08", "--db", url, "--config", konfig]
+        + archiv,
+    )
+
+
+def protokoll(url, tmp_path, *extra):
+    return runner.invoke(
+        app,
+        [
+            "elster",
+            "protokoll",
+            "--db",
+            url,
+            "--archiv",
+            str(tmp_path / "archiv"),
+            *extra,
+        ],
+    )
+
+
+def test_akzeptanz_3_testmodus_per_cli(tmp_path):
+    url, konfig = umgebung(tmp_path)
+    datei = tmp_path / "ustva.xml"
+    r = befehl(url, konfig, tmp_path, "uebermitteln", "--test", "--ausgabe", str(datei))
+    assert r.exit_code == 0, r.output
+    assert "nichts abgegeben" in text(r)
+    assert "ERiC nicht eingerichtet" in text(r)
+    xml = datei.read_text(encoding="utf-8")
+    assert "<Testmerker>700000004</Testmerker>" in xml
+    assert "<Kz83>2145.18</Kz83>" in xml
+    p = protokoll(url, tmp_path)
+    assert p.exit_code == 0, p.output
+    assert "pruefung" in p.output and "vollständig und unverändert" in text(p)
+
+
+def test_echte_abgabe_braucht_freigabe(tmp_path):
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    r = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert r.exit_code == 1
+    assert "nicht freigegeben" in text(r)
+
+
+def test_freigabe_gesperrt_per_cli(tmp_path):
+    url, konfig = umgebung(tmp_path, AUGUST + [buchung("10001", "8200", "99.00")])
+    r = befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika Muster")
+    assert r.exit_code == 1
+    assert "Freigabe gesperrt" in text(r) and "8200" in text(r)
+
+
+def test_akzeptanz_4_freigeben_und_uebermitteln_per_cli(tmp_path):
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    f = befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika Muster")
+    assert f.exit_code == 0, f.output
+    assert "Freigegeben von Erika Muster" in text(f)
+    assert "2.145,18" in text(f)
+    u = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert u.exit_code == 0, u.output
+    ausgabe = text(u)
+    assert "Attrappe" in ausgabe  # deutlich: nichts wurde wirklich abgegeben
+    assert "Ticket attrappe-0001" in ausgabe
+    assert "Protokoll Nr. 1" in ausgabe
+    p = protokoll(url, tmp_path, "--csv", str(tmp_path / "protokoll.csv"))
+    assert p.exit_code == 0, p.output
+    assert "echt" in p.output and "vollständig und unverändert" in text(p)
+    tabelle = (tmp_path / "protokoll.csv").read_text(encoding="utf-8")
+    assert tabelle.count("\n") == 2  # Kopf + ein Eintrag
+    assert "attrappe-0001" in tabelle and "Erika Muster" in tabelle

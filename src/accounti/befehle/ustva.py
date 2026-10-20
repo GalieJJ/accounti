@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, NoReturn
 
 import typer
 from rich.markup import escape
@@ -11,8 +14,17 @@ from rich.markup import escape
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
+
+    from accounti.elster.konfiguration import ElsterEinstellungen
     from accounti.elster.ustva import Vorbereitung
+    from accounti.konfiguration import Buchhaltung
+    from accounti.models.elster import Uebermittlung
     from accounti.steuer.plausibilitaet import Befund
+    from accounti.steuer.zeitraum import Zeitraum
+
+ARCHIV_STANDARD = "archiv/belege"  # wie die Belege: ein Archiv für alles
+ARCHIV_OPTION = typer.Option(ARCHIV_STANDARD, "--archiv", help="Archivverzeichnis")
 
 NAME = "ustva"
 befehl = typer.Typer(
@@ -36,11 +48,40 @@ def euro(wert: object) -> str:
     return betrag_de(wert if isinstance(wert, Decimal) else None)
 
 
-def vorbereitung(period: str | None, db: str, config: str) -> Vorbereitung:
-    """Konfiguration und Daten laden, Zeitraum vorbereiten — oder klar beenden."""
+@dataclass
+class Lauf:
+    """Konfiguration eines Aufrufs — einmal geladen, Fehler klar gemeldet."""
+
+    zeitraum: Zeitraum
+    config: str
+    buchhaltung: Buchhaltung
+    einstellungen: ElsterEinstellungen
+    ustid_max_alter_tage: int
+    oss: bool
+
+    def vorbereiten(self, s: Session) -> Vorbereitung:
+        from accounti.elster.ustva import bereite_vor
+
+        return bereite_vor(
+            s,
+            self.zeitraum,
+            buchhaltung=self.buchhaltung,
+            einstellungen=self.einstellungen,
+            ustid_max_alter_tage=self.ustid_max_alter_tage,
+            oss_aktiv=self.oss,
+        )
+
+
+def ende(fehler: object, kode: int = 2) -> NoReturn:
+    console.print(f"[red]{escape(str(fehler))}[/red]")
+    raise typer.Exit(kode)
+
+
+@contextmanager
+def sitzung(period: str | None, db: str, config: str) -> Iterator[tuple[Session, Lauf]]:
+    """Konfiguration laden und eine Datenbanksitzung öffnen — oder klar beenden."""
     from accounti.db import init_db, session_factory
     from accounti.elster.konfiguration import lade_elster, lade_oss
-    from accounti.elster.ustva import bereite_vor
     from accounti.konfiguration import (
         KonfigurationError,
         lade_buchhaltung,
@@ -49,30 +90,30 @@ def vorbereitung(period: str | None, db: str, config: str) -> Vorbereitung:
     from accounti.steuer.zeitraum import Zeitraum, ZeitraumError
 
     if period is None:
-        console.print("[red]Zeitraum fehlt — z.B. --period 2026-08[/red]")
-        raise typer.Exit(2)
+        ende("Zeitraum fehlt — z.B. --period 2026-08")
     try:
-        zeitraum = Zeitraum.lies(period)
-        buchhaltung = lade_buchhaltung(config)
-        einstellungen = lade_elster(config)
-        ustid = lade_ustid_pruefung(config)
-        oss = lade_oss(config)
+        lauf = Lauf(
+            zeitraum=Zeitraum.lies(period),
+            config=config,
+            buchhaltung=lade_buchhaltung(config),
+            einstellungen=lade_elster(config),
+            ustid_max_alter_tage=lade_ustid_pruefung(config).max_alter_tage,
+            oss=lade_oss(config),
+        )
     except (ZeitraumError, KonfigurationError) as fehler:
-        console.print(f"[red]{escape(str(fehler))}[/red]")
-        raise typer.Exit(2) from fehler
+        ende(fehler)
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
-        ergebnis = bereite_vor(
-            s,
-            zeitraum,
-            buchhaltung=buchhaltung,
-            einstellungen=einstellungen,
-            ustid_max_alter_tage=ustid.max_alter_tage,
-            oss_aktiv=oss,
-        )
-    engine.dispose()
-    return ergebnis
+    try:
+        with make_session() as s:
+            yield s, lauf
+    finally:
+        engine.dispose()
+
+
+def vorbereitung(period: str | None, db: str, config: str) -> Vorbereitung:
+    with sitzung(period, db, config) as (s, lauf):
+        return lauf.vorbereiten(s)
 
 
 def zeige_befunde(befunde: list[Befund]) -> None:
@@ -185,4 +226,117 @@ def pruefen(
     console.print(f"[bold]Prüfung {v.zeitraum.text}[/bold]")
     zeige_befunde(v.befunde)
     if v.gesperrt:
+        raise typer.Exit(1)
+
+
+@befehl.command("freigeben")
+def freigeben(
+    period: str | None = PERIOD_OPTION,
+    von: str = typer.Option(..., "--von", help="Wer gibt frei (Name)"),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Werte des Zeitraums zur Abgabe freigeben — immer durch einen Menschen."""
+    from accounti.anzeige import betrag_de
+    from accounti.elster.freigabe import FreigabeError, gib_frei
+
+    with sitzung(period, db, config) as (s, lauf):
+        v = lauf.vorbereiten(s)
+        zeige_kennziffern(v)
+        zeige_befunde(v.befunde)
+        try:
+            f = gib_frei(s, v, von)
+        except FreigabeError as fehler:
+            ende(fehler, 1)
+        s.commit()
+    console.print(
+        f"[green]Freigegeben von {escape(f.freigegeben_von)}[/green] am "
+        f"{f.zeitpunkt:%d.%m.%Y %H:%M} — Kz 83 {betrag_de(v.voranmeldung.kz83)} € "
+        f"[dim](Werte-Hash {f.inhalt_hash[:12]}…)[/dim]"
+    )
+    console.print(f"Abgeben: accounti ustva uebermitteln --period {v.zeitraum}")
+
+
+def zeige_uebermittlung(u: Uebermittlung, weg_grund: str) -> None:
+    from accounti.anzeige import betrag_de
+
+    farbe = "green" if u.erfolgreich else "red"
+    console.print(f"[{farbe}]{escape(u.ergebnis)}[/{farbe}]")
+    bericht = json.loads(u.pruefbericht)
+    for zeile in [*bericht.get("intern", []), *bericht.get("hinweise", [])]:
+        console.print(f"  [yellow]{escape(str(zeile))}[/yellow]")
+    zeilen = [
+        f"Modus {u.modus.value} · Weg {u.weg} ({escape(weg_grund)})",
+        f"Kz 83 {betrag_de(u.betrag)} €"
+        + (" · berichtigt (Kz 10)" if u.berichtigt else ""),
+    ]
+    if u.ticket:
+        zeilen.append(f"Ticket {u.ticket}")
+    if u.freigegeben_von:
+        zeilen.append(f"freigegeben von {escape(u.freigegeben_von)}")
+    zeilen.append(f"Protokoll Nr. {u.nr} · Datensatz {u.datensatz_hash[:12]}…")
+    for zeile in zeilen:
+        console.print(f"  {zeile}")
+    if u.weg == "attrappe":
+        console.print(
+            "[yellow]Attrappe (elster.uebermittler) — es wurde nichts an ELSTER "
+            "gesendet[/yellow]"
+        )
+
+
+@befehl.command("uebermitteln")
+def uebermitteln(
+    period: str | None = PERIOD_OPTION,
+    test: bool = typer.Option(
+        False, "--test", help="Testmodus: Datensatz erzeugen und prüfen, nichts abgeben"
+    ),
+    testfall: bool = typer.Option(
+        False, "--testfall", help="Mit Testmerker an ELSTER senden (wird gelöscht)"
+    ),
+    ausgabe: str | None = typer.Option(
+        None, "--ausgabe", help="Datensatz zusätzlich in diese Datei schreiben"
+    ),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+    archiv: str = ARCHIV_OPTION,
+) -> None:
+    """Voranmeldung übermitteln — nur mit Freigabe; ``--test`` gibt nichts ab."""
+    from pathlib import Path
+
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.elster.konfiguration import KonfigurationError
+    from accounti.elster.uebermittlung import UebermittlungError, waehle_uebermittler
+    from accounti.elster.ustva import kontext_aus, uebermittle
+    from accounti.models.elster import Modus
+
+    if test and testfall:
+        ende("--test und --testfall schließen sich aus")
+    modus = Modus.PRUEFUNG if test else Modus.TESTFALL if testfall else Modus.ECHT
+    with sitzung(period, db, config) as (s, lauf):
+        try:
+            kontext = kontext_aus(config, lauf.einstellungen)
+        except KonfigurationError as fehler:
+            ende(fehler)
+        uebermittler, grund = waehle_uebermittler(lauf.einstellungen)
+        if uebermittler is None:
+            console.print(f"[dim]{escape(grund)}[/dim]")
+        v = lauf.vorbereiten(s)
+        zeige_befunde(v.befunde)
+        try:
+            u = uebermittle(
+                s,
+                v,
+                modus=modus,
+                kontext=kontext,
+                uebermittler=uebermittler,
+                archiv=BelegArchiv(archiv),
+            )
+        except UebermittlungError as fehler:
+            ende(fehler, 1)
+        s.commit()  # der Nachweis bleibt, was auch immer danach geschieht
+    if ausgabe:
+        Path(ausgabe).write_text(u.datensatz, encoding="utf-8")
+        console.print(f"[dim]Datensatz → {escape(ausgabe)}[/dim]")
+    zeige_uebermittlung(u, grund)
+    if not u.erfolgreich:
         raise typer.Exit(1)
