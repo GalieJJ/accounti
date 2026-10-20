@@ -22,6 +22,7 @@ from accounti.belege.pipeline import Erkenner, nimm_auf
 from accounti.db.repo_integrationen import (
     abrechnung_vorhanden,
     aktualisiere_abrechnung,
+    erloes_codes,
     lade_abrechnung_nach_nummer,
     lade_abrechnungen,
     speichere_abrechnung,
@@ -30,6 +31,7 @@ from accounti.db.repo_integrationen import (
 )
 from accounti.db.repository import speichere_buchung, speichere_transaktion
 from accounti.importers.marktplatz import MARKTPLATZ_IMPORTER
+from accounti.importers.paypal import FruehereUmsaetze, PaypalImporter
 from accounti.integrationen.auszahlung import (
     ABGLEICHSBEFUNDE,
     Abgleich,
@@ -339,7 +341,15 @@ def importiere(
     if importer is None:
         bekannt = ", ".join(sorted(MARKTPLATZ_IMPORTER))
         raise IntegrationError(f"Marktplatz '{markt}' unbekannt (bekannt: {bekannt})")
-    abrechnungen = importer.lies(inhalt, dateiname, laender)
+    if isinstance(importer, PaypalImporter):
+        # Rückzahlungen: ist die zugehörige Zahlung ein früher importierter Verkauf?
+        frueher = FruehereUmsaetze(
+            verkaeufe=frozenset(erloes_codes(session, markt)),
+            alle=frozenset(vorhandene_referenzen(session, markt)),
+        )
+        abrechnungen = importer.lies(inhalt, dateiname, laender, frueher=frueher)
+    else:
+        abrechnungen = importer.lies(inhalt, dateiname, laender)
     if auszahlung is not None and len(abrechnungen) != 1:
         msg = "--auszahlung geht nur bei einer Auszahlung je Datei"
         raise IntegrationError(msg)

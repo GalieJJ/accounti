@@ -16,6 +16,7 @@ exakt.
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -79,14 +80,29 @@ _CHECKOUT = (
 )
 
 
-def _art(z: _Zeile) -> tuple[Postenart, str | None]:
+@dataclass(frozen=True)
+class FruehereUmsaetze:
+    """Transaktionscodes aus schon importierten PayPal-Exporten."""
+
+    verkaeufe: frozenset[str] = frozenset()  # Checkout-Erlöse (Code oder Bezug)
+    alle: frozenset[str] = frozenset()
+
+
+def _art(
+    z: _Zeile,
+    verkaeufe: Collection[str] = (),
+    bekannt: Collection[str] = (),
+) -> tuple[Postenart, str | None]:
     """Postenart der Zeile und ggf. der Code des Hinweises dazu.
 
     Verkauf ist nur eine eingehende Checkout-Zahlung; andere eingehende Zahlungen
     (z.B. auf eine Ausgangsrechnung) und Erstattungen an uns bleiben unverbucht für
-    ``opos zuordnen``/``classify``. Einbehaltungen und ihre Freigaben gehen auf das
-    Einbehaltskonto, Rückbuchungen (Chargebacks) und Zahlungsrückbuchungen zur
-    Prüfung auf das Klärungskonto.
+    ``opos zuordnen``/``classify``. Eine Rückzahlung an den Kunden mindert den Erlös
+    nur, wenn ihre zugehörige Zahlung ein Checkout-Verkauf ist (``verkaeufe``: aus
+    dieser Datei oder früheren Exporten) — sonst bleibt sie wie die Zahlung selbst
+    unverbucht. Einbehaltungen und ihre Freigaben gehen auf das Einbehaltskonto,
+    Rückbuchungen (Chargebacks) und Zahlungsrückbuchungen zur Prüfung auf das
+    Klärungskonto.
     """
     t = z.typ.casefold()
     if "währungsumrechnung" in t or "currency conversion" in t:
@@ -100,9 +116,13 @@ def _art(z: _Zeile) -> tuple[Postenart, str | None]:
     if "rückbuchung" in t or "reversal" in t or "chargeback" in t:
         return Postenart.SONSTIGES, "rueckbuchung"
     if "rückzahlung" in t or "rückerstattung" in t or "refund" in t:
-        if z.brutto < 0:
+        if z.brutto >= 0:
+            return Postenart.ZAHLUNG, "eingehende_zahlung"  # Erstattung an uns
+        if z.zugehoerig and z.zugehoerig in verkaeufe:
             return Postenart.ERSTATTUNG, None
-        return Postenart.ZAHLUNG, "eingehende_zahlung"  # Erstattung an uns
+        if z.zugehoerig and z.zugehoerig in bekannt:
+            return Postenart.ZAHLUNG, "rueckzahlung_ohne_verkauf"
+        return Postenart.ZAHLUNG, "rueckzahlung_unbekannt"
     if "zahlung" in t or "payment" in t:
         if z.brutto <= 0:
             return Postenart.ZAHLUNG, None
@@ -121,7 +141,10 @@ class PaypalImporter(MarktplatzImporter):
         inhalt: bytes,
         dateiname: str,
         laender: dict[str, Laenderangabe] | None = None,
+        *,
+        frueher: FruehereUmsaetze | None = None,
     ) -> list[Abrechnung]:
+        """``frueher``: Codes schon importierter Exporte (für Rückzahlungen)."""
         zeilen, befunde = self._zeilen(inhalt)
         if not zeilen:
             raise MarktplatzFormatError(
@@ -151,8 +174,17 @@ class PaypalImporter(MarktplatzImporter):
             for u in umrechnungen[z.code]
             if u.waehrung == KONTOWAEHRUNG
         }
+        frueher = frueher or FruehereUmsaetze()
+        verkaeufe = frueher.verkaeufe | {
+            c
+            for z in zeilen
+            if _art(z)[0] is Postenart.ERLOES
+            for c in (z.code, z.zugehoerig)
+            if c
+        }
+        bekannt = frueher.alle | {z.code for z in zeilen}
         for z in zeilen:
-            art, hinweis = _art(z)
+            art, hinweis = _art(z, verkaeufe, bekannt)
             if art is Postenart.UMRECHNUNG:
                 if z.waehrung != KONTOWAEHRUNG:
                     self._posten(abrechnung, z, Postenart.UMRECHNUNG, z.netto)
@@ -160,7 +192,7 @@ class PaypalImporter(MarktplatzImporter):
                     self._eur(abrechnung, z, Postenart.SONSTIGES)
                 continue
             if z.waehrung == KONTOWAEHRUNG:
-                self._eur(abrechnung, z, art, hinweis)
+                self._eur(abrechnung, z, art, hinweis, z.zugehoerig)
                 continue
             # Fremdwährung: EUR-Seite der zugehörigen Umrechnung suchen
             eur = next(
@@ -201,7 +233,7 @@ class PaypalImporter(MarktplatzImporter):
                     f"{kurs.quantize(Decimal('0.000001'))})"
                 ),
             )
-            self._eur(abrechnung, umgerechnet, art, hinweis)
+            self._eur(abrechnung, umgerechnet, art, hinweis, z.zugehoerig)
         return [abrechnung]
 
     # -- Zeilen ----------------------------------------------------------------
@@ -335,7 +367,9 @@ class PaypalImporter(MarktplatzImporter):
         z: _Zeile,
         art: Postenart,
         hinweis: str | None = None,
+        bezug: str = "",
     ) -> None:
+        """``bezug``: zugehöriger Transaktionscode laut Export."""
         if art in (Postenart.ERLOES, Postenart.ERSTATTUNG):
             self._posten(abrechnung, z, art, z.brutto)
             if z.gebuehr:
@@ -378,6 +412,37 @@ class PaypalImporter(MarktplatzImporter):
                         f"{z.name or 'unbekannt'} — kein Checkout-Verkauf, nicht als "
                         "Erlös gebucht; mit accounti opos zuordnen bzw. classify "
                         "kontieren"
+                    ),
+                    posten_nr=z.nr,
+                )
+            )
+        elif hinweis == "rueckzahlung_ohne_verkauf":
+            abrechnung.befunde.append(
+                Befund(
+                    code=hinweis,
+                    schweregrad=Schweregrad.HINWEIS,
+                    text=(
+                        f"Zeile {z.nr}: {z.text} über {betrag} {z.waehrung} an "
+                        f"{z.name or 'unbekannt'} zu {bezug} — die zugehörige "
+                        "Zahlung war kein Checkout-Verkauf, daher keine "
+                        "Erlösminderung; mit accounti opos zuordnen bzw. classify "
+                        "kontieren"
+                    ),
+                    posten_nr=z.nr,
+                )
+            )
+        elif hinweis == "rueckzahlung_unbekannt":
+            abrechnung.befunde.append(
+                Befund(
+                    code="rueckzahlung_ohne_verkauf",
+                    schweregrad=Schweregrad.WARNUNG,
+                    text=(
+                        f"Zeile {z.nr}: {z.text} über {betrag} {z.waehrung} an "
+                        f"{z.name or 'unbekannt'} zu {bezug or 'keiner Zahlung'} — "
+                        "die zugehörige Zahlung ist nicht importiert, daher nicht "
+                        "als Erlösminderung gebucht: war sie ein Verkauf, mit "
+                        "Berichtigung der USt (§ 17 UStG) kontieren, sonst mit "
+                        "accounti opos zuordnen"
                     ),
                     posten_nr=z.nr,
                 )

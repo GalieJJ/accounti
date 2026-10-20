@@ -250,7 +250,7 @@ def test_shopify_bestandteile(shopify):
         ("Allgemeine Zahlung", "238.00", Postenart.ZAHLUNG),
         ("Allgemeine Zahlung", "-45.00", Postenart.ZAHLUNG),
         ("General Payment", "50.00", Postenart.ZAHLUNG),
-        ("Rückzahlung", "-119.00", Postenart.ERSTATTUNG),
+        ("Rückzahlung", "-119.00", Postenart.ZAHLUNG),  # ohne bekannten Verkauf
         ("Rückzahlung", "45.00", Postenart.ZAHLUNG),
         ("Payment Refund", "45.00", Postenart.ZAHLUNG),
         ("Einbehaltung für offene Konfliktlösung", "-119.00", Postenart.EINBEHALT),
@@ -266,9 +266,15 @@ def test_shopify_bestandteile(shopify):
     ],
 )
 def test_paypal_typen(typ, brutto, art):
-    from accounti.importers.paypal import _art, _Zeile
+    from accounti.importers.paypal import _art
 
-    zeile = _Zeile(
+    assert _art(_pp_zeile(typ, brutto))[0] is art
+
+
+def _pp_zeile(typ, brutto, zugehoerig=""):
+    from accounti.importers.paypal import _Zeile
+
+    return _Zeile(
         nr=2,
         datum=date(2026, 9, 1),
         zeit="",
@@ -279,9 +285,24 @@ def test_paypal_typen(typ, brutto, art):
         gebuehr=D("0"),
         netto=D(brutto),
         code="X",
-        zugehoerig="",
+        zugehoerig=zugehoerig,
         guthaben=None,
         land=None,
         text=typ,
     )
-    assert _art(zeile)[0] is art
+
+
+@pytest.mark.parametrize(
+    ("zugehoerig", "erwartet"),
+    [
+        ("VERKAUF", (Postenart.ERSTATTUNG, None)),
+        ("ZAHLUNG", (Postenart.ZAHLUNG, "rueckzahlung_ohne_verkauf")),
+        ("FREMD", (Postenart.ZAHLUNG, "rueckzahlung_unbekannt")),
+        ("", (Postenart.ZAHLUNG, "rueckzahlung_unbekannt")),
+    ],
+)
+def test_paypal_rueckzahlung_nur_zu_einem_verkauf_ist_erstattung(zugehoerig, erwartet):
+    from accounti.importers.paypal import _art
+
+    zeile = _pp_zeile("Rückzahlung", "-119.00", zugehoerig)
+    assert _art(zeile, {"VERKAUF"}, {"VERKAUF", "ZAHLUNG"}) == erwartet

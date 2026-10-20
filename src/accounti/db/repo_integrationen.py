@@ -287,6 +287,27 @@ def vorhandene_referenzen(session: Session, marktplatz: str) -> set[str]:
     return {r for (r,) in rows if r}
 
 
+def erloes_codes(session: Session, marktplatz: str) -> set[str]:
+    """Referenzen und Bestellnummern schon importierter Erlösposten.
+
+    PayPal: die Transaktionscodes der Checkout-Verkäufe (bei Fremdwährung steht der
+    Code des Verkaufs in der Bestellnummer, die Referenz ist die Umrechnung).
+    """
+    rows = (
+        session.query(MarktplatzPostenRow.referenz, MarktplatzPostenRow.bestellnummer)
+        .join(
+            MarktplatzAbrechnungRow,
+            MarktplatzAbrechnungRow.id == MarktplatzPostenRow.abrechnung_id,
+        )
+        .filter(
+            MarktplatzAbrechnungRow.marktplatz == marktplatz,
+            MarktplatzPostenRow.art == Postenart.ERLOES.value,
+        )
+        .all()
+    )
+    return {c for zeile in rows for c in zeile if c}
+
+
 def ergaenze_befunde(
     session: Session, abrechnung_id: UUID, befunde: list[Befund]
 ) -> int:

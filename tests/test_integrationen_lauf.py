@@ -29,8 +29,9 @@ from accounti.models import (
     Transaktion,
     TransaktionQuelle,
 )
-from accounti.models.integrationen import AbrechnungStatus, Postenart
+from accounti.models.integrationen import AbrechnungStatus, Postenart, Schweregrad
 from accounti.opos.zahlungslauf import offene_transaktionen
+from tests.marktplatz_hilfe import paypal_bericht
 
 FIXTURES = Path(__file__).resolve().parents[1] / "examples" / "marktplatz"
 D = Decimal
@@ -249,11 +250,11 @@ def test_paypal_sonderfaelle(umgebung):
     s, archiv, kontext = umgebung
     roh = (FIXTURES / "paypal_sonderfaelle.csv").read_bytes()
     (ergebnis,) = paypal(s, archiv, kontext, roh, "sonder.csv")
-    assert ergebnis.umsaetze == 7
+    assert ergebnis.umsaetze == 8
     nach_schluessel = {t.dublettenschluessel: t for t in lade_transaktionen(s)}
     pp = {
         code: nach_schluessel[hashlib.sha256(f"paypal|{code}".encode()).hexdigest()]
-        for code in (f"5{x}{x}0000000000000{i}" for i, x in enumerate("ABCDEFG", 1))
+        for code in (f"5{x}{x}0000000000000{i}" for i, x in enumerate("ABCDEFGH", 1))
     }
     buchungen = lade_buchungen(s)
 
@@ -288,6 +289,85 @@ def test_paypal_sonderfaelle(umgebung):
     assert [b.betrag_netto for b in buchungen if b.haben_konto == "8400"] == [
         D("100.00")
     ]
+    # Rückzahlung der Allgemeinen Zahlung: kein Verkauf, also keine Erlösminderung —
+    # sie bleibt wie die Zahlung selbst offen für opos zuordnen/classify
+    assert zu("5HH00000000000008") == []
+    assert pp["5HH00000000000008"].id in offen
+    assert not [b for b in buchungen if b.soll_konto == "8400"]
+    (rueckzahlung,) = [
+        b for b in ergebnis.abrechnung.befunde if b.code == "rueckzahlung_ohne_verkauf"
+    ]
+    assert rueckzahlung.schweregrad is Schweregrad.HINWEIS
+    assert "5EE00000000000005" in rueckzahlung.text
+
+
+def _pp_zeile(datum, code, typ, brutto, guthaben, zugehoerig=""):
+    return {
+        "Datum": datum,
+        "Uhrzeit": "10:00:00",
+        "Name": "Kunde",
+        "Typ": typ,
+        "Brutto": brutto,
+        "Netto": brutto,
+        "Transaktionscode": code,
+        "Zugehöriger Transaktionscode": zugehoerig,
+        "Guthaben": guthaben,
+        "Land": "Deutschland",
+    }
+
+
+def test_paypal_rueckzahlung_zu_verkauf_aus_frueherem_export(umgebung):
+    """Der Verkauf steht im Augustexport, die Rückzahlung im September."""
+    s, archiv, kontext = umgebung
+    august = paypal_bericht(
+        _pp_zeile(
+            "20.08.2026", "VK00000000000001", "Website-Zahlung", "119,00", "119,00"
+        )
+    )
+    september = paypal_bericht(
+        _pp_zeile(
+            "03.09.2026",
+            "RZ00000000000001",
+            "Rückzahlung",
+            "-119,00",
+            "0,00",
+            "VK00000000000001",
+        )
+    )
+    paypal(s, archiv, kontext, august, "aug.csv")
+    (ergebnis,) = paypal(s, archiv, kontext, september, "sep.csv")
+    assert [p.art for p in ergebnis.abrechnung.posten] == [Postenart.ERSTATTUNG]
+    (minderung,) = [b for b in lade_buchungen(s) if b.soll_konto == "8400"]
+    assert (minderung.betrag_netto, minderung.steuer_betrag) == (
+        D("100.00"),
+        D("19.00"),
+    )
+    assert minderung.status is BuchungStatus.AUTO_GEBUCHT
+
+
+def test_paypal_rueckzahlung_ohne_bekannte_zahlung(umgebung):
+    """Die zugehörige Zahlung ist nicht importiert: nicht raten, sondern Warnung."""
+    s, archiv, kontext = umgebung
+    roh = paypal_bericht(
+        _pp_zeile("01.09.2026", "EZ00000000000001", "Bankgutschrift", "50,00", "50,00"),
+        _pp_zeile(
+            "03.09.2026",
+            "RZ00000000000002",
+            "Rückzahlung",
+            "-30,00",
+            "20,00",
+            "ALT0000000000001",
+        ),
+    )
+    (ergebnis,) = paypal(s, archiv, kontext, roh, "sep.csv")
+    (posten,) = [p for p in ergebnis.abrechnung.posten if p.referenz.startswith("RZ")]
+    assert (posten.art, posten.betrag) == (Postenart.ZAHLUNG, D("-30.00"))
+    assert not [b for b in lade_buchungen(s) if b.soll_konto == "8400"]
+    (befund,) = [
+        b for b in ergebnis.abrechnung.befunde if b.code == "rueckzahlung_ohne_verkauf"
+    ]
+    assert befund.schweregrad is Schweregrad.WARNUNG
+    assert "§ 17 UStG" in befund.text and "ALT0000000000001" in befund.text
 
 
 # --- Fremdwährung und Einbehalt je Marktplatz ---------------------------------------
