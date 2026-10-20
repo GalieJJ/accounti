@@ -13,10 +13,16 @@ from accounti.elster.freigabe import FreigabeError, gib_frei
 from accounti.elster.konfiguration import lade_elster
 from accounti.elster.protokoll import pruefe_protokoll
 from accounti.elster.uebermittlung import AttrappenUebermittler, UebermittlungError
-from accounti.elster.ustva import Kontext, bereite_vor, uebermittle
+from accounti.elster.ustva import (
+    Kontext,
+    bereite_vor,
+    hat_testlauf,
+    uebermittle,
+)
 from accounti.konfiguration import Buchhaltung
-from accounti.models.elster import Modus
+from accounti.models.elster import Meldeart, Modus
 from accounti.steuer.zeitraum import Zeitraum
+from tests.elster_hilfe import EricDoppel
 from tests.test_cli_ustva import buchung, umgebung
 
 AUGUST = Zeitraum.lies("2026-08")
@@ -79,7 +85,7 @@ def test_testmodus_ohne_eric_und_ohne_hersteller_id(db):
 
 def test_echt_nur_mit_freigabe(db):
     make_session, einstellungen, archiv = db
-    attrappe = AttrappenUebermittler()
+    attrappe = EricDoppel()
     with make_session() as s:
         v = vorbereiten(s, einstellungen)
         with pytest.raises(UebermittlungError, match="nicht freigegeben"):
@@ -107,6 +113,8 @@ def _abgeben(s, einstellungen, archiv, attrappe, von="Erika Muster"):
     v = vorbereiten(s, einstellungen)
     gib_frei(s, v, von, jetzt=JETZT)
     s.commit()
+    if not hat_testlauf(s, Meldeart.USTVA, attrappe.weg):
+        _testlauf(s, einstellungen, archiv, attrappe)
     u = uebermittle(
         s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
         uebermittler=attrappe, archiv=archiv, jetzt=JETZT,
@@ -117,13 +125,14 @@ def _abgeben(s, einstellungen, archiv, attrappe, von="Erika Muster"):
 
 def test_akzeptanz_4_nach_uebermittlung_liegt_alles_unveraenderbar_vor(db):
     make_session, einstellungen, archiv = db
-    attrappe = AttrappenUebermittler()
+    attrappe = EricDoppel()
     with make_session() as s:
         u = _abgeben(s, einstellungen, archiv, attrappe)
     assert attrappe.gesendet == [u.datensatz]
     with make_session() as s:
-        (gespeichert,) = lade_uebermittlungen(s)
+        testlauf, gespeichert = lade_uebermittlungen(s)
         (freigabe,) = lade_freigaben(s)
+    assert testlauf.modus is Modus.PRUEFUNG  # Testmodus beim ersten Lauf
     assert gespeichert == u
     assert gespeichert.modus is Modus.ECHT and gespeichert.erfolgreich
     assert gespeichert.ticket == "attrappe-0001"  # Ticket
@@ -135,7 +144,7 @@ def test_akzeptanz_4_nach_uebermittlung_liegt_alles_unveraenderbar_vor(db):
     assert gespeichert.freigegeben_von == "Erika Muster"
     assert str(gespeichert.betrag) == "2145.18"
     assert archiv.lese(gespeichert.protokoll_pdf_hash).startswith(b"%PDF")
-    assert pruefe_protokoll([gespeichert], archiv) == []
+    assert pruefe_protokoll([testlauf, gespeichert], archiv) == []
 
 
 def test_freigabe_passt_nicht_mehr_nach_neuer_buchung(db):
@@ -147,7 +156,7 @@ def test_freigabe_passt_nicht_mehr_nach_neuer_buchung(db):
         with pytest.raises(UebermittlungError, match="geändert"):
             uebermittle(
                 s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
-                uebermittler=AttrappenUebermittler(), archiv=archiv,
+                uebermittler=EricDoppel(), archiv=archiv,
             )  # fmt: skip
 
 
@@ -155,7 +164,7 @@ def test_neuer_fehler_nach_der_freigabe_sperrt_die_abgabe(db):
     """Akzeptanz 2 auch nach der Freigabe: Die Werte bleiben gleich (die Buchung ohne
     Steuerschlüssel zählt in keine Kennziffer), die Abgabe ist trotzdem gesperrt."""
     make_session, einstellungen, archiv = db
-    attrappe = AttrappenUebermittler()
+    attrappe = EricDoppel()
     with make_session() as s:
         gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
         speichere_buchung(s, buchung("10001", "8200", "99.00", text="ohne BU"))
@@ -173,7 +182,7 @@ def test_neuer_fehler_nach_der_freigabe_sperrt_die_abgabe(db):
 
 def test_berichtigte_anmeldung_tritt_neben_die_alte(db):
     make_session, einstellungen, archiv = db
-    attrappe = AttrappenUebermittler()
+    attrappe = EricDoppel()
     with make_session() as s:
         erste = _abgeben(s, einstellungen, archiv, attrappe)
         speichere_buchung(s, buchung("10001", "8400", "100.00", 3, "19.00"))
@@ -182,7 +191,11 @@ def test_berichtigte_anmeldung_tritt_neben_die_alte(db):
         assert v.voranmeldung.berichtigt
         zweite = _abgeben(s, einstellungen, archiv, attrappe)
         alle = lade_uebermittlungen(s)
-    assert [x.nr for x in alle] == [1, 2]
+    assert [(x.nr, x.modus) for x in alle] == [
+        (1, Modus.PRUEFUNG),
+        (2, Modus.ECHT),
+        (3, Modus.ECHT),
+    ]
     assert not erste.berichtigt and zweite.berichtigt
     assert lies_kennzahlen(zweite.datensatz)["Kz10"] == "1"
     assert lies_kennzahlen(zweite.datensatz)["Kz83"] == "2164.18"
@@ -194,17 +207,17 @@ def test_fehlschlag_wird_protokolliert_und_verbraucht_die_freigabe_nicht(db):
     make_session, einstellungen, archiv = db
     with make_session() as s:
         gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
-        s.commit()
+        _testlauf(s, einstellungen, archiv, EricDoppel())
         u = uebermittle(
             s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
-            uebermittler=AttrappenUebermittler(fehler="Zertifikat abgelaufen"),
+            uebermittler=EricDoppel(fehler="Zertifikat abgelaufen"),
             archiv=archiv,
         )  # fmt: skip
         s.commit()
         assert not u.erfolgreich and "Zertifikat abgelaufen" in u.ergebnis
         zweiter = uebermittle(
             s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
-            uebermittler=AttrappenUebermittler(), archiv=archiv,
+            uebermittler=EricDoppel(), archiv=archiv,
         )  # fmt: skip
         assert zweiter.erfolgreich and zweiter.freigabe_id == u.freigabe_id
 
@@ -238,3 +251,109 @@ def test_testfall_braucht_eigene_hersteller_id_und_uebermittler(db):
         )  # fmt: skip
     assert u.erfolgreich and "<Testmerker>700000004" in attrappe.gesendet[0]
     assert u.aufbewahren_bis == date(2036, 12, 31)
+
+
+# --- Attrappe nie „echt“, Testmodus beim ersten Lauf (Spec 5) -------------------------
+
+
+def _testlauf(s, einstellungen, archiv, uebermittler):
+    u = uebermittle(
+        s, vorbereiten(s, einstellungen), modus=Modus.PRUEFUNG, kontext=KONTEXT,
+        uebermittler=uebermittler, archiv=archiv, jetzt=JETZT,
+    )  # fmt: skip
+    s.commit()
+    return u
+
+
+def test_attrappe_gibt_nie_echt_ab(db):
+    """Sonst stünde ein „echter“ Lauf im unveränderbaren Protokoll: Die erste
+    wirkliche Abgabe ginge als berichtigte (Kz 10) raus, die Zahllast nur als
+    Differenz."""
+    make_session, einstellungen, archiv = db
+    attrappe = AttrappenUebermittler()
+    with make_session() as s:
+        gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
+        _testlauf(s, einstellungen, archiv, attrappe)
+        with pytest.raises(UebermittlungError, match="Attrappe"):
+            uebermittle(
+                s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
+                uebermittler=attrappe, archiv=archiv,
+            )  # fmt: skip
+        assert [u.modus for u in lade_uebermittlungen(s)] == [Modus.PRUEFUNG]
+    assert attrappe.gesendet == []
+
+
+def test_echte_abgabe_erst_nach_einem_testlauf_auf_demselben_weg(db):
+    make_session, einstellungen, archiv = db
+    eric = EricDoppel()
+    with make_session() as s:
+        gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
+        s.commit()
+
+        def echt():
+            return uebermittle(
+                s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
+                uebermittler=eric, archiv=archiv, jetzt=JETZT,
+            )  # fmt: skip
+
+        with pytest.raises(UebermittlungError, match="Testmodus"):
+            echt()
+        _testlauf(s, einstellungen, archiv, None)  # nur intern: zählt nicht
+        _testlauf(s, einstellungen, archiv, AttrappenUebermittler())  # anderer Weg
+        with pytest.raises(UebermittlungError, match="Testmodus"):
+            echt()
+        _testlauf(s, einstellungen, archiv, eric)
+        u = echt()
+    assert u.erfolgreich and u.modus is Modus.ECHT and not u.berichtigt
+    assert eric.gesendet == [u.datensatz]
+
+
+class _Abbruch(EricDoppel):
+    """Sendet — und stürzt danach mit einem unerwarteten Fehler ab."""
+
+    def sende(self, xml, datenart_version):
+        super().sende(xml, datenart_version)
+        raise OSError("Verbindung nach dem Versand abgebrochen")
+
+
+def test_unerwarteter_fehler_beim_senden_wird_als_ungewiss_protokolliert(db):
+    make_session, einstellungen, archiv = db
+    with make_session() as s:
+        gib_frei(s, vorbereiten(s, einstellungen), "Erika Muster")
+        _testlauf(s, einstellungen, archiv, EricDoppel())
+        u = uebermittle(
+            s, vorbereiten(s, einstellungen), modus=Modus.ECHT, kontext=KONTEXT,
+            uebermittler=_Abbruch(), archiv=archiv, jetzt=JETZT,
+        )  # fmt: skip
+        s.commit()
+        alle = lade_uebermittlungen(s)
+    assert not u.erfolgreich and "ungewiss" in u.ergebnis
+    assert "Verbindung nach dem Versand abgebrochen" in u.ergebnis
+    assert [x.modus for x in alle] == [Modus.PRUEFUNG, Modus.ECHT]
+
+
+def test_eu_leistung_ueber_die_bank_findet_den_leistenden_am_beleg(db):
+    """Werbe- und SaaS-Rechnungen aus dem EU-Ausland, direkt über die Bank bezahlt:
+    Der Leistende steht nur am Beleg (Beleg.kontakt_id), nicht im offenen Posten."""
+    from decimal import Decimal
+
+    from accounti.db.repository import speichere_beleg, speichere_kontakt
+    from accounti.models import Beleg, Kontakt
+
+    make_session, einstellungen, _ = db
+    google = Kontakt(name="Google Ireland", land="IE", kreditor_konto="70010")
+    beleg = Beleg(
+        kontakt_id=google.id, datei_hash="g" * 64, dateiname="google.pdf",
+        kanal="ordner", herkunft="Test", aufbewahren_bis=date(2036, 12, 31),
+    )  # fmt: skip
+    with make_session() as s:
+        speichere_kontakt(s, google)
+        speichere_beleg(s, beleg)
+        speichere_buchung(
+            s, buchung("4600", "1200", "1000.00", 94, "190.00", beleg_id=beleg.id)
+        )
+        s.commit()
+        v = vorbereiten(s, einstellungen)
+    assert v.voranmeldung.wert(46) == Decimal("1800.00")  # 800 Agentur Wien + 1000
+    assert v.voranmeldung.wert(84) == 0
+    assert not any("Leistender unbekannt" in b.text for b in v.befunde)

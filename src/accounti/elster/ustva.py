@@ -8,6 +8,7 @@ und plausibilisieren (``steuer.plausibilitaet``) — mit den Daten aus der Daten
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -17,8 +18,9 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti import __version__
+from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
-from accounti.db.repo_elster import lade_uebermittlungen
+from accounti.db.repo_elster import lade_beleg_kontakte, lade_uebermittlungen
 from accounti.db.repository import (
     lade_bankkonten,
     lade_buchungen,
@@ -121,7 +123,12 @@ class _Daten:
     ) -> None:
         self.buchungen: list[Buchungssatz] = lade_buchungen(session)
         self.kontakte: list[Kontakt] = lade_kontakte(session)
-        self.beleg_kontakte = {p.beleg_id: p.kontakt_id for p in lade_posten(session)}
+        # Kontakt am Beleg (z. B. direkt über die Bank bezahlt), der offene Posten
+        # geht vor
+        self.beleg_kontakte = lade_beleg_kontakte(session)
+        self.beleg_kontakte.update(
+            {p.beleg_id: p.kontakt_id for p in lade_posten(session)}
+        )
         bank = {k.sachkonto for k in lade_bankkonten(session)}
         self.plan = kontenplan(buchhaltung, einstellungen, bank)
 
@@ -187,9 +194,12 @@ def letzte_betraege(session: Session, art: Meldeart) -> dict[str, Decimal]:
 def festgesetzte_svz(
     session: Session, jahr: int, einstellungen: ElsterEinstellungen
 ) -> Decimal | None:
-    """Sondervorauszahlung eines Jahres: Konfiguration vor Protokoll."""
-    if einstellungen.sondervorauszahlung is not None:
-        return einstellungen.sondervorauszahlung
+    """Sondervorauszahlung eines Jahres — die eine Quelle für Kz 39 im Dezember und
+    für die Berechnung des Folgejahres: ``elster.sondervorauszahlung`` für genau
+    dieses Jahr (festgesetzt, z. B. abweichend vom Finanzamt), sonst die zuletzt
+    abgegebene Anmeldung im Protokoll."""
+    if jahr in einstellungen.sondervorauszahlung:
+        return einstellungen.sondervorauszahlung[jahr]
     return letzte_betraege(session, Meldeart.DAUERFRIST).get(str(jahr))
 
 
@@ -208,12 +218,22 @@ def _sondervorauszahlung(
     if svz is None:
         text = (
             f"Sondervorauszahlung {z.jahr} unbekannt — Kz 39 fehlt "
-            "(elster.sondervorauszahlung oder accounti ustva dauerfrist)"
+            f"(elster.sondervorauszahlung: {{{z.jahr}: …}} oder accounti ustva "
+            "dauerfrist)"
         )
         return [Befund("sondervorauszahlung", Schweregrad.WARNUNG, text)]
+    befunde = []
+    angemeldet = letzte_betraege(session, Meldeart.DAUERFRIST).get(str(z.jahr))
+    if angemeldet is not None and angemeldet != svz:
+        text = (
+            f"Sondervorauszahlung {z.jahr}: elster.sondervorauszahlung "
+            f"{betrag_de(svz)} € weicht von der angemeldeten {betrag_de(angemeldet)} € "
+            "ab — Kz 39 nimmt die Konfiguration (Festsetzung des Finanzamts?)"
+        )
+        befunde.append(Befund("sondervorauszahlung", Schweregrad.WARNUNG, text))
     if svz:
         e.voranmeldung.addiere(39, svz)
-    return []
+    return befunde
 
 
 def abgegeben(session: Session, art: Meldeart, zeitraum: str) -> bool:
@@ -221,6 +241,50 @@ def abgegeben(session: Session, art: Meldeart, zeitraum: str) -> bool:
     return any(
         u.erfolgreich for u in lade_uebermittlungen(session, art, zeitraum, Modus.ECHT)
     )
+
+
+ATTRAPPE = "attrappe"
+
+
+def hat_testlauf(session: Session, art: Meldeart, weg: str) -> bool:
+    """Gab es für diese Meldeart schon einen erfolgreichen Prüf- oder Testfall-Lauf
+    über denselben Weg (z. B. ERiC)? Spec 5: Testmodus ist der Default beim ersten
+    Lauf eines Betriebs."""
+    return any(
+        u.erfolgreich and u.weg == weg and u.modus in (Modus.PRUEFUNG, Modus.TESTFALL)
+        for u in lade_uebermittlungen(session, art)
+    )
+
+
+def pruefe_weg(modus: Modus, uebermittler: Uebermittler | None) -> None:
+    """Darf dieser Lauf so stattfinden? Sonst ``UebermittlungError``.
+
+    - Ohne Übermittler gibt es nur den Testmodus (interne Prüfung).
+    - Die Attrappe gibt nie etwas ab — ein „echter“ Lauf über sie stünde sonst als
+      Abgabe im unveränderbaren Protokoll (Berichtigung, Zahllast, Sondervorauszahlung
+      bauen darauf auf).
+    """
+    if modus is Modus.PRUEFUNG:
+        return
+    if uebermittler is None:
+        raise UebermittlungError("Kein Übermittler: ERiC ist nicht eingerichtet")
+    if modus is Modus.ECHT and uebermittler.weg == ATTRAPPE:
+        msg = (
+            "Die Attrappe gibt nichts ab — echte Abgabe nur über ERiC; Probeläufe mit "
+            "--test oder --testfall"
+        )
+        raise UebermittlungError(msg)
+
+
+def pruefe_testlauf(
+    session: Session, art: Meldeart, uebermittler: Uebermittler
+) -> None:
+    if not hat_testlauf(session, art, uebermittler.weg):
+        msg = (
+            f"Erster Lauf über {uebermittler.weg}: erst im Testmodus prüfen "
+            "(--test oder --testfall) — danach wird abgegeben"
+        )
+        raise UebermittlungError(msg)
 
 
 @dataclass(frozen=True)
@@ -267,6 +331,23 @@ def _bericht(
     )
 
 
+def _sicher(
+    aufruf: Callable[[str, str], Ergebnis], xml: str, jahr: int, *, gesendet: bool
+) -> Ergebnis:
+    """Ein unerwarteter Fehler des Übermittlers wird ein gescheiterter Lauf im
+    Protokoll — beim Senden mit dem Hinweis, dass die Abgabe ungewiss ist."""
+    try:
+        return aufruf(xml, datenart_version(jahr))
+    except Exception as fehler:  # nichts darf am Protokoll vorbeigehen
+        grund = f"{type(fehler).__name__}: {fehler}"
+        if gesendet:
+            grund = (
+                f"Abgabe ungewiss ({grund}) — vor einem neuen Versuch in Mein ELSTER "
+                "prüfen, ob die Anmeldung angekommen ist"
+            )
+        return Ergebnis(False, fehler=grund)
+
+
 def fuehre_aus(
     session: Session,
     *,
@@ -295,12 +376,12 @@ def fuehre_aus(
         weg = "intern"
     elif modus is Modus.PRUEFUNG:
         if uebermittler is not None:
-            ergebnis = uebermittler.pruefe(xml, datenart_version(jahr))
+            ergebnis = _sicher(uebermittler.pruefe, xml, jahr, gesendet=False)
         erfolgreich = ergebnis is None or ergebnis.erfolgreich
         text = "Datensatz geprüft — nichts abgegeben"
     else:
         assert uebermittler is not None
-        ergebnis = uebermittler.sende(xml, datenart_version(jahr))
+        ergebnis = _sicher(uebermittler.sende, xml, jahr, gesendet=True)
         erfolgreich = ergebnis.erfolgreich
         text = (
             "Testfall übermittelt — ELSTER löscht ihn sofort"
@@ -345,13 +426,14 @@ def uebermittle(
 
     Abgegeben wird nur mit einer passenden, unverbrauchten Freigabe und ohne
     Fehler-Befund — auch einer, der erst nach der Freigabe entstanden ist, ohne die
-    Werte zu ändern (z. B. eine Buchung ohne Steuerschlüssel). Jeder Lauf landet im
-    Protokoll; der Aufrufer schreibt sofort fest.
+    Werte zu ändern (z. B. eine Buchung ohne Steuerschlüssel) —, nie über die
+    Attrappe und erst nach einem erfolgreichen Testlauf über denselben Weg. Jeder Lauf
+    landet im Protokoll; der Aufrufer schreibt sofort fest.
     """
     freigabe = None
-    if modus is not Modus.PRUEFUNG and uebermittler is None:
-        raise UebermittlungError("Kein Übermittler: ERiC ist nicht eingerichtet")
+    pruefe_weg(modus, uebermittler)
     if modus is Modus.ECHT:
+        assert uebermittler is not None
         if v.gesperrt:
             fehler = "; ".join(b.text for b in v.fehler)
             raise UebermittlungError(f"Abgabe gesperrt: {fehler}")
@@ -361,6 +443,7 @@ def uebermittle(
             )
         except FreigabeError as fehler:
             raise UebermittlungError(str(fehler)) from fehler
+        pruefe_testlauf(session, Meldeart.USTVA, uebermittler)
     kopf = kopf_fuer(kontext, modus)
     xml = ustva_xml(
         v.voranmeldung,

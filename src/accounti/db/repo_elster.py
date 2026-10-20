@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from sqlalchemy.orm import Session
 
+from accounti.db.tabellen import BelegRow
 from accounti.db.tabellen_elster import (
     SteuermeldungFreigabeRow,
     SteuermeldungProtokollRow,
@@ -77,3 +80,13 @@ def letzte_uebermittlung(session: Session) -> Uebermittlung | None:
         .first()
     )
     return _row_zu_uebermittlung(r) if r is not None else None
+
+
+def lade_beleg_kontakte(session: Session) -> dict[UUID, UUID]:
+    """Beleg → Kontakt für alle Belege mit Kontakt (ohne Positionen zu laden)."""
+    rows = (
+        session.query(BelegRow.id, BelegRow.kontakt_id)
+        .filter(BelegRow.kontakt_id.is_not(None))
+        .all()
+    )
+    return {UUID(beleg): UUID(kontakt) for beleg, kontakt in rows}

@@ -59,10 +59,36 @@ elster:
         "elster:\n  hersteller_id: 'abc'\n",
         "elster:\n  steuerrelevante_konten: ['8000-']\n",
         "elster:\n  kennziffern_konten: {'8150': 999}\n",
+        "elster:\n  kennziffern_konten: {'1790': 83}\n",  # berechnet
+        "elster:\n  kennziffern_konten: {'1781': 39}\n",  # aus der SVZ
+        "elster:\n  kennziffern_konten: {'8150': 10}\n",  # Merker
+        "elster:\n  sondervorauszahlung: 4000\n",  # ohne Jahr
     ],
 )
 def test_fehler_werden_benannt(tmp_path, inhalt):
     datei = tmp_path / "a.yaml"
     datei.write_text(inhalt, encoding="utf-8")
     with pytest.raises(KonfigurationError, match="elster"):
+        lade_elster(datei)
+
+
+def test_steuerkennziffern_und_sondervorauszahlung_je_jahr(tmp_path):
+    datei = tmp_path / "a.yaml"
+    datei.write_text(
+        """
+elster:
+  kennziffern_konten: {"1588": 62, "3550": 91, "1782": 65}
+  sondervorauszahlung: {2025: 5000, 2026: "4000.00"}
+""",
+        encoding="utf-8",
+    )
+    e = lade_elster(datei)
+    assert e.kennziffern_konten == {"1588": 62, "3550": 91, "1782": 65}
+    assert e.sondervorauszahlung == {2025: Decimal("5000"), 2026: Decimal("4000.00")}
+
+
+def test_sondervorauszahlung_ohne_jahr_wird_erklaert(tmp_path):
+    datei = tmp_path / "a.yaml"
+    datei.write_text("elster:\n  sondervorauszahlung: 4000\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError, match="je Jahr"):
         lade_elster(datei)

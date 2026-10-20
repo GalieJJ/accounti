@@ -172,3 +172,11 @@ def test_weitere_befunde_aus_anderen_bausteinen():
     befunde = pruefe([], weitere=[extern])
     assert befunde == [extern]
     assert freigabe_gesperrt(befunde)
+
+
+def test_warnungen_der_ermittlung_sind_warnungen():
+    """§ 13b ohne bekannten Leistenden: Der Mensch muss es vor der Freigabe sehen."""
+    befunde = pruefe([b("4600", "1200", "1000", 94, "190")], weitere=[])
+    assert regeln(befunde, Schweregrad.WARNUNG) == ["ermittlung"]
+    assert "Leistender unbekannt" in befunde[0].text
+    assert not freigabe_gesperrt(befunde)

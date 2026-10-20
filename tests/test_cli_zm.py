@@ -22,7 +22,7 @@ def test_zm_mit_bestaetigter_ustid_als_csv(tmp_path):
     assert "ATU12345678" in text(r) and "5.000" in text(r)
     assert "bis 25.09.2026" in text(r)
     assert datei.read_text(encoding="utf-8") == (
-        "#v3.0\n"
+        "#v3.0\n#ve3.2.1\n"
         "Umsatzsteuer-Identifikationsnummer (USt-IdNr.),Summe (Euro),Art der Leistung\n"
         "ATU12345678,5000,L\n"
     )

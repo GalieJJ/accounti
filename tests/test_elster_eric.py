@@ -74,7 +74,12 @@ int EricMtHoleFehlerText(void *i, int kode, void *p) {
 int EricMtBearbeiteVorgang(void *i, const char *xml, const char *datenart,
                            uint32_t flags, const Druck *druck, const Krypto *krypto,
                            void *transfer, void *rueckgabe, void *antwort) {
-    if (strcmp(datenart, "UStVA_2026") != 0) return 610001042;
+    if (strcmp(datenart, "UStVA_2026") != 0) {
+        /* ein anderer Fehlercode, und trotzdem kommen Hinweise zurück */
+        setze(rueckgabe, "<EricBearbeiteVorgang><Hinweis><Text>Hinweis trotz Fehler"
+                         "</Text></Hinweis></EricBearbeiteVorgang>");
+        return 610001042;
+    }
     if (strstr(xml, "<HerstellerID>74931<")) return 610301202;
     if (strstr(xml, "<Kz83>") == NULL) {
         setze(rueckgabe, "<EricBearbeiteVorgang><FehlerRegelpruefung>"
@@ -106,7 +111,7 @@ int EricMtBearbeiteVorgang(void *i, const char *xml, const char *datenart,
     if (flags & 128) {
         setze(rueckgabe, "<EricBearbeiteVorgang><Hinweis><Text>Hinweis der Attrappe"
                          "</Text></Hinweis></EricBearbeiteVorgang>");
-        return 610001851;
+        return 610001003; /* ERIC_GLOBAL_HINWEISE */
     }
     return 0;
 }
@@ -189,8 +194,18 @@ def test_gesperrte_test_hersteller_id(bibliothek, tmp_path):
 
 
 def test_unbekannte_datenartversion(bibliothek, tmp_path):
+    """Nur ERIC_GLOBAL_HINWEISE heißt „gültig mit Hinweisen“ — ein anderer
+    Fehlercode bleibt ein Fehler, auch wenn Hinweise zurückkommen."""
     e = eric(bibliothek, tmp_path).pruefe(datensatz(), "UStVA_2099")
     assert not e.erfolgreich and "Plugin" in e.fehler
+    assert e.hinweise == ("Hinweis trotz Fehler",)
+
+
+def test_plugin_verzeichnis_wie_im_eric_paket(tmp_path):
+    e = EricUebermittler(
+        bibliothek="/opt/eric/lib/libericapi.so", zertifikat="x.pfx", pin="1"
+    )
+    assert e.plugins == "/opt/eric/lib/plugins2"
 
 
 def test_bibliothek_nicht_ladbar(tmp_path):

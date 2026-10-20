@@ -14,6 +14,10 @@ Die Regeln ändern nie Daten.
 - ``verprobung``           gebuchte Umsatzsteuer weicht von der gemeldeten ab (warnung)
 - ``oss``                  EU-Privatkunde mit deutscher Umsatzsteuer trotz OSS (warnung)
 - ``vergleich``            Kz 83 weicht stark von Vormonat/Vorjahresmonat ab (hinweis)
+- ``ermittlung``           Auffälligkeiten der Kennziffernermittlung: § 13b ohne
+                           bekannten Leistenden, Steuerkonto ohne Kennziffer, EU-Kunde
+                           auf einem nicht steuerbaren Konto (warnung); fehlender
+                           Steuerbetrag (hinweis)
 - ``periode``              Periodenabschluss/Prüfbefunde (Baustein 7) ungeprüft
                            (hinweis)
 """
@@ -248,6 +252,7 @@ def plausibilisiere(
         [(vormonat, vorperiode), ("Vorjahreszeitraum", vorjahr)],
         schwellen,
     )
+    befunde += [Befund("ermittlung", Schweregrad.WARNUNG, w) for w in e.warnungen]
     befunde += [Befund("ermittlung", Schweregrad.HINWEIS, h) for h in e.hinweise]
     if weitere is None:
         befunde.append(

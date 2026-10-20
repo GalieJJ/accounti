@@ -152,3 +152,185 @@ def test_quartal():
         b("10001", "8400", "100", 3, "19", datum=date(2026, 10, 1)),
     ]
     assert ermittle(buchungen, q3, Kontenplan()).voranmeldung.werte == {81: D("200")}
+
+
+# --- Belegregel nur für echte Minderungen (Akzeptanz 2) ------------------------------
+
+
+def test_haben_buchung_ohne_schluessel_mindert_keine_rechnung():
+    """Eine Erlösbuchung im Haben ist keine Minderung — auch nicht auf einem Beleg
+    mit ig. Lieferung. Sonst fehlt die Umsatzsteuer, und Kz 41 und ZM sind zu hoch."""
+    beleg = uuid4()
+    buchungen = [
+        b("10002", "8125", "5000.00", beleg_id=beleg),
+        b("10002", "8200", "300.00", beleg_id=beleg, status=BuchungStatus.GEPRUEFT),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {41: D("5000.00")}
+    assert [x.haben_konto for x, _ in e.ohne_kennziffer] == ["8200"]
+    assert [u.betrag for u in e.eu] == [D("5000.00")]
+
+
+def test_steuerfreie_rechnung_mit_zweitem_erloes_ohne_schluessel():
+    beleg = uuid4()
+    buchungen = [
+        b("10001", "8100", "1000.00", beleg_id=beleg),
+        b("10001", "8400", "500.00", beleg_id=beleg),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {48: D("1000.00")}
+    assert [x.haben_konto for x, _ in e.ohne_kennziffer] == ["8400"]
+
+
+def test_umbuchung_vom_funktionskonto_auf_erloes_ohne_schluessel():
+    e = ermittle([b("8125", "8400", "1000.00")], AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {}
+    ((buchung, grund),) = e.ohne_kennziffer
+    assert "8400" in grund
+
+
+def test_umbuchung_zwischen_funktionskonten_zaehlt_beide_seiten():
+    e = ermittle([b("8120", "8125", "400.00")], AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {41: D("400.00"), 43: D("-400.00")}
+
+
+def test_minderungen_folgen_der_rechnung():
+    """Soll-Buchung auf einem Erlöskonto und Erlösschmälerungskonten (beide Seiten)."""
+    beleg = uuid4()
+    buchungen = [
+        b("10002", "8125", "5000.00", beleg_id=beleg),
+        b("8730", "10002", "100.00", beleg_id=beleg),  # Skonto
+        b("10002", "8730", "40.00", beleg_id=beleg),  # Skonto teilweise storniert
+        b("8200", "10002", "10.00", beleg_id=beleg),  # Gutschrift ohne Schlüssel
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {41: D("4930.00")}
+    assert e.ohne_kennziffer == []
+
+
+# --- Vorzeichen ohne Personen- oder Geldkonto ---------------------------------------
+
+
+def test_storno_ueber_zwischenkonten_mindert_den_umsatz():
+    plan = Kontenplan(kontenrahmen="SKR04")
+    buchungen = [
+        b("1460", "4400", "1000.00", 3, "190.00"),  # Geldtransit
+        b("4400", "1460", "1000.00", 3, "190.00"),  # Storno
+        b("1370", "4400", "500.00", 3, "95.00"),  # durchlaufende Posten
+        b("4400", "1370", "500.00", 3, "95.00"),
+        b("1500", "4400", "200.00", 3, "38.00"),  # sonstiges Konto: Erlöskonto zählt
+        b("4400", "1500", "200.00", 3, "38.00"),
+        b("6300", "1460", "100.00", 9, "19.00"),
+        b("1460", "6300", "100.00", 9, "19.00"),
+    ]
+    e = ermittle(buchungen, AUGUST, plan, KONTAKTE)
+    assert e.voranmeldung.wert(81) == 0 and e.voranmeldung.wert(66) == 0
+    assert e.gebuchte_umsatzsteuer == 0
+
+
+def test_storno_ueber_durchlaufende_posten_skr03():
+    buchungen = [
+        b("1590", "8400", "1000.00", 3, "190.00"),
+        b("8400", "1590", "1000.00", 3, "190.00"),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.wert(81) == 0 and e.gebuchte_umsatzsteuer == 0
+
+
+# --- eigene Kennzifferkonten: Seite je Kennziffer -----------------------------------
+
+
+def test_eingangsseite_ueber_kennzifferkonten_mit_richtigem_vorzeichen():
+    plan = Kontenplan(kennziffern_konten={"3550": 91, "3420": 90, "1588": 62})
+    buchungen = [
+        b("3550", "70001", "2000.00"),  # steuerfreier ig. Erwerb
+        b("3420", "70002", "1500.00"),  # ig. Erwerb 0 %
+        b("70001", "3550", "100.00"),  # Gutschrift darauf
+        b("1588", "1200", "1900.00"),  # Einfuhrumsatzsteuer
+    ]
+    e = ermittle(buchungen, AUGUST, plan, KONTAKTE)
+    assert e.voranmeldung.werte == {
+        91: D("1900.00"),
+        90: D("1500.00"),
+        62: D("1900.00"),
+    }
+    assert e.ohne_kennziffer == [] and e.warnungen == []
+
+
+def test_steuerkonto_ohne_kennziffer_ist_eine_warnung():
+    buchungen = [
+        b("1588", "1200", "1900.00"),  # EUSt ohne Zuordnung
+        b("1780", "70009", "500.00"),  # Zahllast: kein Befund
+        b("70009", "1200", "500.00"),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {}
+    (warnung,) = e.warnungen
+    assert "1588" in warnung and "kennziffern_konten" in warnung
+    skr04 = ermittle(
+        [b("1433", "1800", "50.00"), b("3820", "70009", "500.00")],
+        AUGUST,
+        Kontenplan(kontenrahmen="SKR04"),
+        KONTAKTE,
+    )
+    assert len(skr04.warnungen) == 1 and "1433" in skr04.warnungen[0]
+
+
+# --- nicht steuerbare Erträge sind keine Umsatzerlöse -------------------------------
+
+
+def test_nicht_steuerbare_ertraege_ohne_schluessel_sind_kein_fehler():
+    skr03 = [
+        b("7110", "8980", "1000.00"),  # Bestandsveränderung
+        b("0480", "8990", "500.00"),  # aktivierte Eigenleistung
+    ]
+    e = ermittle(skr03, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.ohne_kennziffer == [] and e.voranmeldung.werte == {}
+    skr04 = [
+        b("3070", "4930", "800.00"),  # Auflösung einer Rückstellung
+        b("1800", "4970", "250.00"),  # Versicherungsentschädigung
+    ]
+    e = ermittle(skr04, AUGUST, Kontenplan(kontenrahmen="SKR04"), KONTAKTE)
+    assert e.ohne_kennziffer == [] and e.voranmeldung.werte == {}
+
+
+# --- § 13b Abs. 1 über den Kontakt des Belegs ---------------------------------------
+
+GOOGLE = Kontakt(name="Google Ireland", land="IE", kreditor_konto="70010")
+
+
+def test_eu_leistung_ueber_die_bank_findet_den_leistenden_ueber_den_beleg():
+    beleg = uuid4()
+    buchung = b("4600", "1200", "1000.00", 94, "190.00", beleg_id=beleg)
+    e = ermittle(
+        [buchung],
+        AUGUST,
+        Kontenplan(),
+        [*KONTAKTE, GOOGLE],
+        beleg_kontakte={beleg: GOOGLE.id},
+    )
+    assert e.voranmeldung.werte == {46: D("1000.00"), 47: D("190.00"), 67: D("190.00")}
+    assert e.warnungen == []
+
+
+def test_unbekannter_leistender_bei_13b_ist_eine_warnung():
+    e = ermittle(
+        [b("4600", "1200", "1000.00", 94, "190.00")], AUGUST, Kontenplan(), KONTAKTE
+    )
+    assert e.voranmeldung.wert(84) == D("1000.00")
+    (warnung,) = e.warnungen
+    assert "Leistender unbekannt" in warnung
+
+
+# --- Altbuchungen von EU-Leistungen auf 8338/8339 -----------------------------------
+
+
+def test_nicht_steuerbar_an_eu_unternehmer_ist_eine_warnung():
+    buchungen = [
+        b("10002", "8338", "300.00"),  # Wien mit USt-IdNr.: gehört auf 8336
+        b("10001", "8339", "100.00"),  # Inlandskunde: kein Befund
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte == {45: D("400.00")}
+    (warnung,) = e.warnungen
+    assert "8338" in warnung and "8336" in warnung and "ATU12345678" in warnung

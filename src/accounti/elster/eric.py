@@ -34,6 +34,7 @@ ERIC_PRUEFE_HINWEISE = 1 << 7
 
 ERIC_OK = 0
 ERIC_GLOBAL_PRUEF_FEHLER = 610001002
+ERIC_GLOBAL_HINWEISE = 610001003  # gültig, nur Hinweise
 ERIC_GLOBAL_DATENARTVERSION_UNBEKANNT = 610001042
 ERIC_IO_TESTHERSTELLERID_GESPERRT = 610301202
 
@@ -148,7 +149,8 @@ class EricUebermittler:
         self.bibliothek = bibliothek
         self.zertifikat = zertifikat
         self._pin = pin
-        self.plugins = plugins or str(Path(bibliothek).parent / "plugins")
+        # das ERiC-Paket liefert die Plugins in lib/plugins2 (wie erica)
+        self.plugins = plugins or str(Path(bibliothek).parent / "plugins2")
         self.log = log
         self.druck_version = druck_version
         self.crypto_version = crypto_version
@@ -264,12 +266,10 @@ class EricUebermittler:
                     pdf_pfad.unlink(missing_ok=True)
             fehler_texte = _meldungen(bericht, "FehlerRegelpruefung")
             hinweise = tuple(_meldungen(bericht, "Hinweis"))
-            # nur Hinweise: ERIC_GLOBAL_HINWEISE — der Datensatz ist gültig
+            # nur Hinweise (ERIC_GLOBAL_HINWEISE): der Datensatz ist gültig; jeder
+            # andere Code bleibt ein Fehler, auch wenn Hinweise zurückkommen
             ok = kode == ERIC_OK or (
-                not senden
-                and kode != ERIC_GLOBAL_PRUEF_FEHLER
-                and bool(hinweise)
-                and not fehler_texte
+                not senden and kode == ERIC_GLOBAL_HINWEISE and not fehler_texte
             )
             meldung: str | None = None
             if not ok:

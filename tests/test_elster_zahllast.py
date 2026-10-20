@@ -10,20 +10,30 @@ from accounti.db import session_factory
 from accounti.db.repository import (
     lade_beleg,
     lade_belegbuchungen,
+    lade_buchungen,
+    lade_einen_posten,
     lade_kontakte,
     lade_posten,
     speichere_buchung,
+    speichere_transaktion,
 )
 from accounti.elster.freigabe import gib_frei
 from accounti.elster.konfiguration import lade_elster
-from accounti.elster.uebermittlung import AttrappenUebermittler
-from accounti.elster.ustva import bereite_vor, uebermittle
-from accounti.elster.zahllast import buche_zahllast
+from accounti.elster.ustva import bereite_vor, hat_testlauf, uebermittle
+from accounti.elster.zahllast import buche_fehlende, buche_zahllast
 from accounti.konfiguration import Buchhaltung
-from accounti.models import Belegart, PostenRichtung
-from accounti.models.elster import Modus
+from accounti.models import (
+    Belegart,
+    PostenRichtung,
+    PostenStatus,
+    Transaktion,
+    TransaktionQuelle,
+)
+from accounti.models.elster import Meldeart, Modus
 from accounti.opos.auswertung import faelligkeitsstaffel, offene_posten
+from accounti.opos.zahlungslauf import zuordne_zahlungen
 from accounti.steuer.zeitraum import Zeitraum
+from tests.elster_hilfe import EricDoppel
 from tests.test_cli_ustva import buchung, umgebung
 from tests.test_elster_ustva import KONTEXT
 
@@ -44,8 +54,10 @@ def abgeben(s, einstellungen, archiv, modus=Modus.ECHT, buchhaltung=None):
     v = bereite_vor(s, AUGUST, buchhaltung=buchhaltung, einstellungen=einstellungen)
     if modus is Modus.ECHT:
         gib_frei(s, v, "Erika Muster", jetzt=JETZT)
+        if not hat_testlauf(s, Meldeart.USTVA, "eric"):
+            abgeben(s, einstellungen, archiv, Modus.PRUEFUNG, buchhaltung)
     u = uebermittle(
-        s, v, modus=modus, kontext=KONTEXT, uebermittler=AttrappenUebermittler(),
+        s, v, modus=modus, kontext=KONTEXT, uebermittler=EricDoppel(),
         archiv=archiv, jetzt=JETZT,
     )  # fmt: skip
     s.commit()
@@ -108,7 +120,7 @@ def test_berichtigung_bucht_die_differenz(db):
     assert "berichtigt" in zweite.posten.belegnummer
 
 
-def test_erstattung_ist_ein_negativer_posten(db):
+def test_erstattung_ist_eine_forderung_gegen_das_finanzamt(db):
     make_session, einstellungen, archiv = db
     with make_session() as s:
         speichere_buchung(s, buchung("0420", "70001", "20000.00", 9, "3800.00"))
@@ -116,8 +128,116 @@ def test_erstattung_ist_ein_negativer_posten(db):
         z = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
         (b,) = lade_belegbuchungen(s, z.beleg.id)
     assert z.betrag == Decimal("-1654.82")  # 2.145,18 − 3.800,00
-    assert z.posten.betrag == Decimal("-1654.82")
+    assert z.posten.richtung is PostenRichtung.FORDERUNG
+    assert (z.posten.betrag, z.posten.restbetrag) == (Decimal("1654.82"),) * 2
     assert (b.soll_konto, b.haben_konto) == ("70003", "1780")
+
+
+# --- Ausgleich über den Kontoumsatz (Spec 4.6) --------------------------------------
+
+FA_IBAN = "DE12500105170648489890"
+
+
+def mit_iban(einstellungen):
+    finanzamt = einstellungen.finanzamt.model_copy(update={"iban": FA_IBAN})
+    return einstellungen.model_copy(update={"finanzamt": finanzamt})
+
+
+def kontoumsatz(s, betrag, zweck):
+    tx = Transaktion(
+        datum=date(2026, 9, 10),
+        betrag=Decimal(betrag),
+        verwendungszweck=zweck,
+        gegenkonto_name="Finanzamt München",
+        gegenkonto_iban=FA_IBAN,
+        quelle=TransaktionQuelle.BANK,
+        rohtext=zweck,
+    )
+    speichere_transaktion(s, tx)
+    s.commit()
+    lauf = zuordne_zahlungen(s, Buchhaltung())
+    s.commit()
+    return tx, lauf
+
+
+def test_lastschrift_gleicht_die_zahllast_aus(db):
+    make_session, einstellungen, archiv = db
+    einstellungen = mit_iban(einstellungen)
+    with make_session() as s:
+        z = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+        tx, lauf = kontoumsatz(
+            s, "-2145.18", "SEPA-Lastschrift USt 08/2026 9181081508155"
+        )
+        posten = lade_einen_posten(s, z.posten.id)
+        buchungen = [b for b in lade_buchungen(s) if b.transaktion_id == tx.id]
+    assert [t.id for t, _ in lauf.gebucht] == [tx.id]
+    assert posten.status is PostenStatus.AUSGEGLICHEN and posten.restbetrag == 0
+    assert [(b.soll_konto, b.haben_konto) for b in buchungen] == [("70003", "1200")]
+
+
+def test_erstattung_wird_ueber_den_kontoumsatz_ausgeglichen(db):
+    make_session, einstellungen, archiv = db
+    einstellungen = mit_iban(einstellungen)
+    with make_session() as s:
+        speichere_buchung(s, buchung("0420", "70001", "20000.00", 9, "3800.00"))
+        s.commit()
+        z = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+        tx, lauf = kontoumsatz(s, "1654.82", "Erstattung UStVA 2026-08")
+        posten = lade_einen_posten(s, z.posten.id)
+        buchungen = [b for b in lade_buchungen(s) if b.transaktion_id == tx.id]
+    assert [t.id for t, _ in lauf.gebucht] == [tx.id]
+    assert posten.status is PostenStatus.AUSGEGLICHEN
+    assert [(b.soll_konto, b.haben_konto) for b in buchungen] == [("1200", "70003")]
+
+
+def test_berichtigung_nach_unten_verrechnet_den_offenen_posten(db):
+    make_session, einstellungen, archiv = db
+    einstellungen = mit_iban(einstellungen)
+    with make_session() as s:
+        erste = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+        speichere_buchung(s, buchung("4930", "70001", "500.00", 9, "95.00"))
+        s.commit()
+        zweite = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+        alle = lade_posten(s)
+        _, lauf = kontoumsatz(s, "-2050.18", "SEPA-Lastschrift USt 08/2026")
+        nachher = lade_einen_posten(s, erste.posten.id)
+    assert zweite.betrag == Decimal("-95.00") and zweite.posten is None
+    assert zweite.verrechnet == Decimal("95.00")
+    (posten,) = alle  # kein negativer Posten daneben
+    assert posten.richtung is PostenRichtung.VERBINDLICHKEIT
+    assert posten.restbetrag == Decimal("2050.18")
+    assert len(lauf.gebucht) == 1 and nachher.status is PostenStatus.AUSGEGLICHEN
+
+
+def test_berichtigung_nach_unten_nach_der_zahlung_ist_eine_erstattung(db):
+    make_session, einstellungen, archiv = db
+    einstellungen = mit_iban(einstellungen)
+    with make_session() as s:
+        zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+        kontoumsatz(s, "-2145.18", "SEPA-Lastschrift USt 08/2026")
+        speichere_buchung(s, buchung("4930", "70001", "500.00", 9, "95.00"))
+        s.commit()
+        zweite = zahllast(s, abgeben(s, einstellungen, archiv), einstellungen)
+    assert zweite.verrechnet == 0
+    assert zweite.posten.richtung is PostenRichtung.FORDERUNG
+    assert zweite.posten.betrag == Decimal("95.00")
+
+
+def test_fehlende_zahllast_wird_nachgebucht(db):
+    make_session, einstellungen, archiv = db
+    with make_session() as s:
+        u = abgeben(s, einstellungen, archiv)  # Buchung danach gescheitert
+        nachgeholt = buche_fehlende(
+            s, buchhaltung=Buchhaltung(), einstellungen=einstellungen,
+            steuernummer=KONTEXT.steuernummer,
+        )  # fmt: skip
+        s.commit()
+        noch_einmal = buche_fehlende(
+            s, buchhaltung=Buchhaltung(), einstellungen=einstellungen,
+            steuernummer=KONTEXT.steuernummer,
+        )  # fmt: skip
+    assert [z.betrag for z in nachgeholt] == [Decimal("2145.18")]
+    assert u.nr == 2 and noch_einmal == []
 
 
 def test_nur_nach_echter_erfolgreicher_abgabe_und_nur_einmal(db):

@@ -1,4 +1,4 @@
-"""``accounti elster`` — Übermittlungsprotokoll und Zertifikats-PIN (Baustein 9)."""
+"""``accounti elster`` — Protokoll, Zahllast nachholen, Zertifikats-PIN (Baustein 9)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,9 @@ from rich.markup import escape
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 NAME = "elster"
-befehl = typer.Typer(help="ELSTER: Übermittlungsprotokoll, Zertifikats-PIN.")
+befehl = typer.Typer(
+    help="ELSTER: Übermittlungsprotokoll, Zahllast nachholen, Zertifikats-PIN."
+)
 
 
 @befehl.command("protokoll")
@@ -33,7 +35,7 @@ def protokoll(
     from accounti.db import init_db, session_factory
     from accounti.db.repo_elster import lade_uebermittlungen
     from accounti.elster.protokoll import pruefe_protokoll
-    from accounti.models.elster import Uebermittlung
+    from accounti.models.elster import Meldeart, Uebermittlung
 
     engine, make_session = session_factory(db)
     init_db(engine)
@@ -53,7 +55,8 @@ def protokoll(
             meldung = f"{u.art.value} {u.zeitraum}" + (
                 " (ber.)" if u.berichtigt else ""
             )
-            ergebnis = f"{u.ergebnis} · Kz 83 {betrag_de(u.betrag)} €"
+            kz = 83 if u.art is Meldeart.USTVA else 38  # Sondervorauszahlung
+            ergebnis = f"{u.ergebnis} · Kz {kz} {betrag_de(u.betrag)} €"
             if u.freigegeben_von:
                 ergebnis += f" · frei: {u.freigegeben_von}"
             tabelle.add_row(
@@ -89,6 +92,42 @@ def protokoll(
         "[green]Protokoll vollständig und unverändert[/green] — "
         f"{len(alle)} {'Eintrag' if len(alle) == 1 else 'Einträge'}, Hash-Kette geprüft"
     )
+
+
+@befehl.command("zahllast")
+def zahllast(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
+    """Fehlende Zahllast-Buchungen zu erfolgreichen Abgaben nachholen."""
+    from accounti.befehle.ustva import zeige_zahllast
+    from accounti.db import init_db, session_factory
+    from accounti.elster.konfiguration import KonfigurationError, lade_elster
+    from accounti.elster.ustva import kontext_aus
+    from accounti.elster.zahllast import buche_fehlende
+    from accounti.konfiguration import lade_buchhaltung
+
+    try:
+        einstellungen = lade_elster(config)
+        buchhaltung = lade_buchhaltung(config)
+        kontext = kontext_aus(config, einstellungen)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(2) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    try:
+        with make_session() as s:
+            gebucht = buche_fehlende(
+                s,
+                buchhaltung=buchhaltung,
+                einstellungen=einstellungen,
+                steuernummer=kontext.steuernummer,
+            )
+            s.commit()
+    finally:
+        engine.dispose()
+    if not gebucht:
+        console.print("[green]Alle Abgaben sind gebucht[/green] — nichts nachzubuchen")
+    for z in gebucht:
+        zeige_zahllast(z)
 
 
 @befehl.command("pin")

@@ -3,17 +3,26 @@
 Ein Buchungssatz trägt seine Steuer wie bei DATEV über den Steuerschlüssel
 (BU-Schlüssel) oder über ein Konto mit fester Funktion (z. B. 8125 „Steuerfreie
 innergemeinschaftliche Lieferungen“). Daraus folgt die Kennziffer; das Vorzeichen folgt
-aus der Seite, auf der das Sachkonto steht — Personen- und Geldkonten sind Gegenkonten:
+aus der Seite, auf der das Sachkonto steht — Personen-, Geld-, Transit- und
+Privatkonten sind Gegenkonten:
 
 - Umsatzsteuerschlüssel und Erlöskonten: Sachkonto im Haben = Umsatz, im Soll =
   Minderung (Gutschrift, Skonto).
 - Vorsteuer-, Erwerbs- und § 13b-Schlüssel: Sachkonto im Soll = Bezug, im Haben =
   Minderung.
+- Stehen beide Seiten (oder keine) auf Gegenkonten, entscheidet das Erlöskonto: bei
+  Umsatzsteuerschlüsseln ist es das Sachkonto, bei Vorsteuerschlüsseln die Gegenseite.
+- Konten mit fester Funktion buchen ihren Zugang auf der Seite ihrer Kennziffer:
+  Umsätze (Abschnitte A, B, E) und Umsatzsteuer im Haben, Erwerbe und § 13b-Bezüge
+  (Abschnitte C, D) und Vorsteuer im Soll.
 
 Ein Erlöskonto ohne Schlüssel und ohne feste Funktion hat keine Kennziffer — es sei
-denn, die Buchung mindert eine Rechnung desselben Belegs (Skonto auf eine steuerfreie
-Rechnung), dann folgt sie deren Kennziffer. Alles andere landet in
-``ohne_kennziffer`` und sperrt die Freigabe.
+denn, die Buchung mindert eine Rechnung desselben Belegs: Erlöskonto im Soll (Skonto,
+Gutschrift) oder ein Erlösschmälerungskonto (SKR03 87xx, SKR04 47xx, auch dessen
+Storno im Haben); dann folgt sie deren Kennziffer. Ein Erlös im Haben ohne Schlüssel
+mindert nichts. Alles andere landet in ``ohne_kennziffer`` und sperrt die Freigabe.
+Buchungen auf Steuerkonten ohne Kennziffer (z. B. Einfuhrumsatzsteuer) sind eine
+Warnung.
 
 DATEV-Schlüssel: 2/3 USt 7/19 %, 8/9 VSt 7/19 %, 18/19 ig. Erwerb 7/19 %,
 91/94 § 13b 7/19 %.
@@ -30,7 +39,7 @@ from uuid import UUID
 from accounti.models import Buchungssatz, BuchungStatus, Kontakt
 from accounti.steuer.eu_steuersaetze import ist_eu_land
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
-from accounti.steuer.voranmeldung import UStVoranmeldung
+from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art, UStVoranmeldung
 from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0.00")
@@ -116,18 +125,78 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
     },
 }
 
-# Erlöskonten: ohne Steuerschlüssel oder Funktion fehlt der Umsatz in der Voranmeldung
-STEUERRELEVANT: dict[str, tuple[tuple[int, int], ...]] = {
-    "SKR03": ((8000, 8999),),
-    "SKR04": ((4000, 4999),),
+Bereiche = tuple[tuple[int, int], ...]
+
+# Umsatzerlöse einschließlich Erlösschmälerungen und unentgeltlicher Wertabgaben: ohne
+# Steuerschlüssel oder Funktion fehlt der Umsatz in der Voranmeldung. Nicht dazu gehören
+# Bestandsveränderungen, aktivierte Eigenleistungen und sonstige Erträge (SKR03
+# 8960–8999, SKR04 4800–4999) — sie sind nicht steuerbar und tragen keinen Schlüssel.
+STEUERRELEVANT: dict[str, Bereiche] = {
+    "SKR03": ((8000, 8959),),
+    "SKR04": ((4000, 4799),),
 }
-# Geld-, Forderungs- und Verbindlichkeits-Sammelkonten: reine Gegenkonten
-_GEGENKONTEN: dict[str, tuple[tuple[int, int], ...]] = {
-    "SKR03": ((1000, 1499), (1600, 1699)),
-    "SKR04": ((1200, 1299), (1600, 1899), (3300, 3399)),
+# Erlösschmälerungen: mindern die Rechnung desselben Belegs, in beide Richtungen
+ERLOESSCHMAELERUNG: dict[str, Bereiche] = {
+    "SKR03": ((8700, 8799),),
+    "SKR04": ((4700, 4799),),
+}
+# Geld-, Transit-, Forderungs-, Verbindlichkeits- und Privatkonten: reine Gegenkonten
+_GEGENKONTEN: dict[str, Bereiche] = {
+    # 1000–1499 Kasse, Bank, Geldtransit 1360, Forderungen; 1590 durchlaufende Posten;
+    # 1600–1699 Verbindlichkeiten; 1800–1899 Privat
+    "SKR03": ((1000, 1499), (1590, 1590), (1600, 1699), (1800, 1899)),
+    # 1200–1299 Forderungen; 1370 durchlaufende Posten; 1460 Geldtransit; 1600–1899
+    # Kasse, Bank; 2100–2199 Privat; 3300–3399 Verbindlichkeiten
+    "SKR04": (
+        (1200, 1299),
+        (1370, 1370),
+        (1460, 1460),
+        (1600, 1899),
+        (2100, 2199),
+        (3300, 3399),
+    ),
+}
+# Vorsteuer- und Umsatzsteuerkonten, deren Buchung ohne Kennziffer auffallen soll —
+# ohne Vorauszahlungen, Sondervorauszahlung und USt laufendes Jahr/Vorjahr
+STEUERKONTEN: dict[str, Bereiche] = {
+    "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
+    "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
+}
+# Nicht steuerbare Umsätze, die bei einem EU-Unternehmer meist eine EU-Leistung sind
+_NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
+    "SKR03": (frozenset({"8338", "8339"}), "8336"),
+    "SKR04": (frozenset({"4338", "4339"}), "4336"),
 }
 
 EU_ARTEN = {41: "L", 42: "D", 21: "S"}  # Art der Leistung in der ZM
+
+# Vorsteuerfelder: ein Zugang steht im Soll
+_VORSTEUER_KZ = frozenset({66, 61, 62, 67, 63, 59, 64})
+# berechnet (83) oder aus der Sondervorauszahlung (39) — nie über ein Konto
+_NICHT_ZUORDENBAR = frozenset({83, 39})
+
+
+def zuordenbar(kz: int) -> bool:
+    """Kann ``elster.kennziffern_konten`` ein Konto auf diese Kennziffer legen?"""
+    k = KENNZIFFERN_2026.get(kz)
+    return k is not None and k.art is not Art.MERKER and kz not in _NICHT_ZUORDENBAR
+
+
+def zugangsseite(kz: int) -> Seite:
+    """Seite, auf der ein Konto mit dieser Kennziffer seinen Zugang bucht.
+
+    Umsätze (Abschnitte A, B, E), Umsatzsteuer und Kz 37 im Haben; Erwerbe und
+    § 13b-Bezüge (C, D), Vorsteuer und Kz 50 (Minderung der Bemessungsgrundlage) im
+    Soll.
+    """
+    k = KENNZIFFERN_2026[kz]
+    if k.art is Art.BMG:
+        return "soll" if k.abschnitt in ("C", "D") or kz == 50 else "haben"
+    return "soll" if kz in _VORSTEUER_KZ else "haben"
+
+
+def _im_bereich(konto: str, bereiche: Bereiche) -> bool:
+    return konto.isdigit() and any(von <= int(konto) <= bis for von, bis in bereiche)
 
 
 @dataclass(frozen=True)
@@ -163,18 +232,24 @@ class Kontenplan:
     def ist_gegenkonto(self, konto: str) -> bool:
         if konto in self.geldkonten or self.ist_personenkonto(konto):
             return True
-        nr = self._zahl(konto)
-        bereiche = _GEGENKONTEN.get(self.kontenrahmen, ())
-        return nr is not None and any(von <= nr <= bis for von, bis in bereiche)
+        return _im_bereich(konto, _GEGENKONTEN.get(self.kontenrahmen, ()))
 
     def ist_steuerrelevant(self, konto: str) -> bool:
-        nr = self._zahl(konto)
         bereiche = (
             self.steuerrelevant
             if self.steuerrelevant is not None
             else STEUERRELEVANT.get(self.kontenrahmen, ())
         )
-        return nr is not None and any(von <= nr <= bis for von, bis in bereiche)
+        return _im_bereich(konto, bereiche)
+
+    def ist_erloesschmaelerung(self, konto: str) -> bool:
+        return _im_bereich(konto, ERLOESSCHMAELERUNG.get(self.kontenrahmen, ()))
+
+    def ist_erloeskonto(self, konto: str) -> bool:
+        return self.ist_steuerrelevant(konto) or self.ist_erloesschmaelerung(konto)
+
+    def ist_steuerkonto(self, konto: str) -> bool:
+        return _im_bereich(konto, STEUERKONTEN.get(self.kontenrahmen, ()))
 
 
 @dataclass(frozen=True)
@@ -211,15 +286,26 @@ class Ermittlung:
     eu: list[EuUmsatz] = field(default_factory=list)
     gebuchte_umsatzsteuer: Decimal = NULL
     hinweise: list[str] = field(default_factory=list)
+    warnungen: list[str] = field(default_factory=list)
 
 
-def _sachseite(b: Buchungssatz, plan: Kontenplan, normal: Seite) -> Seite:
+def _andere(seite: Seite) -> Seite:
+    return "haben" if seite == "soll" else "soll"
+
+
+def _sachseite(
+    b: Buchungssatz, plan: Kontenplan, normal: Seite, umsatzsteuer: bool
+) -> Seite:
+    """Seite des Sachkontos: gegenüber dem Gegenkonto — sonst entscheidet das
+    Erlöskonto (Umsatzsteuer: das Erlöskonto selbst, Vorsteuer: die Gegenseite)."""
     soll_gegen = plan.ist_gegenkonto(b.soll_konto)
     haben_gegen = plan.ist_gegenkonto(b.haben_konto)
-    if haben_gegen and not soll_gegen:
-        return "soll"
-    if soll_gegen and not haben_gegen:
-        return "haben"
+    if soll_gegen != haben_gegen:
+        return "soll" if haben_gegen else "haben"
+    soll_erloes = plan.ist_erloeskonto(b.soll_konto)
+    if soll_erloes != plan.ist_erloeskonto(b.haben_konto):
+        erloes: Seite = "soll" if soll_erloes else "haben"
+        return erloes if umsatzsteuer else _andere(erloes)
     return normal
 
 
@@ -272,7 +358,7 @@ class _Ermittler:
 
     def schluessel(self, b: Buchungssatz, schluessel: int) -> None:
         r = STEUERSCHLUESSEL[schluessel]
-        seite = _sachseite(b, self.plan, r.seite)
+        seite = _sachseite(b, self.plan, r.seite, schluessel in _USTEUER_SCHLUESSEL)
         vz = 1 if seite == r.seite else -1
         netto = vz * b.betrag_netto
         steuer = vz * self._steuer(b, r.satz)
@@ -283,9 +369,11 @@ class _Ermittler:
         if r.eu_bmg is not None:
             kreditor = self._kontakt(_gegenkonto(b, seite), b.beleg_id)
             if kreditor is None:
-                self.e.hinweise.append(
-                    f"{_kurz(b)}: Leistender unbekannt — § 13b als „andere Leistung“ "
-                    "(Kz 84/85) gemeldet"
+                self.e.warnungen.append(
+                    f"{_kurz(b)}: Leistender unbekannt (kein Personenkonto, kein "
+                    "Kontakt am Beleg) — § 13b als „andere Leistung“ (Kz 84/85) "
+                    "gemeldet; ist es eine sonstige Leistung eines EU-Unternehmers, "
+                    "gehört sie in Kz 46/47"
                 )
             elif kreditor.land.upper() != "DE" and ist_eu_land(kreditor.land):
                 bmg, steuer_kz = r.eu_bmg, r.eu_steuer
@@ -298,51 +386,98 @@ class _Ermittler:
         self._buche(b, f"Steuerschlüssel {schluessel} ({r.bezeichnung})", beitraege)
 
     def _rechnungs_kz(self, b: Buchungssatz) -> set[int]:
-        """Kennziffern der Rechnungsbuchungen desselben Belegs (ohne Zahlungen)."""
+        """Umsatz-Kennziffern der Rechnungsbuchungen desselben Belegs (ohne
+        Zahlungen)."""
         return {
-            self.funktion[konto]
+            kz
             for andere in self.alle
             if andere.beleg_id == b.beleg_id
             and andere.id != b.id
             and andere.transaktion_id is None
             for konto in (andere.soll_konto, andere.haben_konto)
-            if konto in self.funktion
+            if (kz := self.funktion.get(konto)) is not None
+            and KENNZIFFERN_2026[kz].art is Art.BMG
+            and zugangsseite(kz) == "haben"
         }
 
+    def _minderung(self, b: Buchungssatz, konto: str, seite: Seite) -> Beitrag | str:
+        """Erlöskonto ohne Schlüssel: Minderung der Rechnung desselben Belegs — oder
+        der Grund, warum die Buchung keine Kennziffer hat."""
+        ohne = f"Erlöskonto {konto} ohne Steuerschlüssel und ohne Kennziffer"
+        if seite == "haben" and not self.plan.ist_erloesschmaelerung(konto):
+            return ohne  # ein Erlös im Haben mindert nichts
+        kandidaten = self._rechnungs_kz(b) if b.beleg_id else set()
+        if not kandidaten:
+            return ohne
+        if len(kandidaten) > 1:
+            return f"Erlöskonto {konto}: Rechnung mit mehreren Kennziffern"
+        (kz,) = kandidaten
+        return Beitrag(kz, b.betrag_netto if seite == "haben" else -b.betrag_netto)
+
+    def _steuerkonto(self, b: Buchungssatz, konto: str) -> None:
+        self.e.warnungen.append(
+            f"{_kurz(b)}: Steuerkonto {konto} ohne Kennziffer — z. B. "
+            "Einfuhrumsatzsteuer (Kz 62) oder Nachsteuer (Kz 65) über "
+            "elster.kennziffern_konten zuordnen, sonst fehlt der Betrag"
+        )
+
+    def _eu_pruefen(self, b: Buchungssatz, konto: str, kontakt: Kontakt | None) -> None:
+        konten, richtig = _NICHT_STEUERBAR_EU.get(
+            self.plan.kontenrahmen, (frozenset(), "")
+        )
+        if (
+            konto not in konten
+            or kontakt is None
+            or not kontakt.ust_id
+            or kontakt.land.upper() == "DE"
+            or not ist_eu_land(kontakt.land)
+        ):
+            return
+        self.e.warnungen.append(
+            f"{_kurz(b)}: Konto {konto} (Kz 45, nicht steuerbar) an {kontakt.name} "
+            f"({kontakt.land}, USt-IdNr. {kontakt.ust_id}) — eine EU-Leistung an einen "
+            f"Unternehmer (§ 3a Abs. 2 UStG) gehört auf {richtig} (Kz 21) und in die "
+            "Zusammenfassende Meldung"
+        )
+
     def konto(self, b: Buchungssatz) -> None:
-        if b.haben_konto in self.funktion or b.soll_konto in self.funktion:
-            haben = b.haben_konto in self.funktion
-            konto = b.haben_konto if haben else b.soll_konto
-            kz, regel = self.funktion[konto], f"Konto {konto}"
-        else:
-            relevant = next(
-                (
-                    k
-                    for k in (b.haben_konto, b.soll_konto)
-                    if self.plan.ist_steuerrelevant(k)
-                ),
-                None,
-            )
-            if relevant is None:
-                return  # Zahlung, Umbuchung, Aufwand ohne Vorsteuer
-            haben = relevant == b.haben_konto
-            kandidaten = self._rechnungs_kz(b) if b.beleg_id else set()
-            if len(kandidaten) != 1:
-                grund = (
-                    f"Erlöskonto {relevant} ohne Steuerschlüssel und ohne Kennziffer"
-                    if not kandidaten
-                    else f"Erlöskonto {relevant}: Rechnung mit mehreren Kennziffern"
-                )
-                self.e.ohne_kennziffer.append((b, grund))
-                return
-            (kz,) = kandidaten
-            regel = f"Konto {relevant} mindert die Rechnung (Kz {kz})"
-        betrag = b.betrag_netto if haben else -b.betrag_netto
-        self._buche(b, regel, [Beitrag(kz, betrag)])
-        if kz in EU_ARTEN:
-            seite: Seite = "haben" if haben else "soll"
+        """Buchung ohne Steuerschlüssel: jede Seite für sich."""
+        beitraege: list[tuple[Beitrag, Seite]] = []
+        regeln: list[str] = []
+        gruende: list[str] = []
+        seiten: tuple[tuple[Seite, str], ...] = (
+            ("soll", b.soll_konto),
+            ("haben", b.haben_konto),
+        )
+        for seite, konto in seiten:
+            if konto in self.funktion:
+                kz = self.funktion[konto]
+                vz = 1 if seite == zugangsseite(kz) else -1
+                beitraege.append((Beitrag(kz, vz * b.betrag_netto), seite))
+                regeln.append(f"Konto {konto}")
+            elif self.plan.ist_erloeskonto(konto):
+                ergebnis = self._minderung(b, konto, seite)
+                if isinstance(ergebnis, str):
+                    gruende.append(ergebnis)
+                    continue
+                beitraege.append((ergebnis, seite))
+                regeln.append(f"Konto {konto} mindert die Rechnung (Kz {ergebnis.kz})")
+            elif self.plan.ist_steuerkonto(konto):
+                self._steuerkonto(b, konto)
+        if gruende:
+            self.e.ohne_kennziffer.append((b, "; ".join(gruende)))
+            return
+        if not beitraege:
+            return  # Zahlung, Umbuchung, Aufwand ohne Vorsteuer
+        self._buche(b, "; ".join(regeln), [beitrag for beitrag, _ in beitraege])
+        for beitrag, seite in beitraege:
+            konto = b.soll_konto if seite == "soll" else b.haben_konto
             kontakt = self._kontakt(_gegenkonto(b, seite), b.beleg_id)
-            self.e.eu.append(EuUmsatz(b, kz, EU_ARTEN[kz], betrag, kontakt))
+            if beitrag.kz in EU_ARTEN:
+                art = EU_ARTEN[beitrag.kz]
+                self.e.eu.append(EuUmsatz(b, beitrag.kz, art, beitrag.betrag, kontakt))
+            elif beitrag.betrag > 0:
+                self._eu_pruefen(b, konto, kontakt)
 
     def __call__(self, b: Buchungssatz) -> None:
         schluessel = b.steuer_schluessel

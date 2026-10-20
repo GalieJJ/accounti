@@ -62,7 +62,7 @@ def test_je_ustid_und_art_summiert_in_vollen_euro():
 def test_csv_fuer_den_portal_import():
     m = zm([b("10002", "8125", "5000"), b("10003", "8336", "250.50")])
     assert m.als_csv() == (
-        "#v3.0\n"
+        "#v3.0\n#ve3.2.1\n"
         "Umsatzsteuer-Identifikationsnummer (USt-IdNr.),Summe (Euro),Art der Leistung\n"
         "ATU12345678,5000,L\n"
         "FR12345678901,250,S\n"

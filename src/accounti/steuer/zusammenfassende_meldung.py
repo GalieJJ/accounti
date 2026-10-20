@@ -7,7 +7,8 @@ Leistung nach § 3a Abs. 2 UStG (Kz 21). Minderungen (Gutschrift, Skonto) stehen
 Zeitraum, in dem sie eintreten (Anleitung ZM 1/2021).
 
 Abgegeben wird beim BZSt; accounti erzeugt die CSV-Datei für den Import im
-ELSTER-Portal (Version 3.0, UTF-8, Komma, höchstens 1500 Zeilen).
+ELSTER-Portal (Version 3.0 mit Excel-Version 3.2.1 wie im Beispiel der Hilfe, UTF-8,
+Komma, höchstens 1500 Zeilen).
 """
 
 from __future__ import annotations
@@ -20,7 +21,10 @@ from accounti.steuer.kennziffern import Ermittlung, EuUmsatz
 from accounti.steuer.voranmeldung import volle_euro
 from accounti.steuer.zeitraum import Zeitraum
 
+# Versionszeilen wie im Beispiel der ELSTER-Hilfe (zmdo_import_eop): CSV-Version 3.0
+# und Excel-Version 3.2.1 — ob die zweite Pflicht ist, sagt die Hilfe nicht
 CSV_VERSION = "#v3.0"
+EXCEL_VERSION = "#ve3.2.1"
 CSV_KOPF = (
     "Umsatzsteuer-Identifikationsnummer (USt-IdNr.),Summe (Euro),Art der Leistung"
 )
@@ -55,7 +59,7 @@ class ZusammenfassendeMeldung:
         if len(self.zeilen) > MAX_ZEILEN:
             msg = f"{len(self.zeilen)} Zeilen — der Import nimmt höchstens {MAX_ZEILEN}"
             raise ValueError(msg)
-        zeilen = [CSV_VERSION, CSV_KOPF]
+        zeilen = [CSV_VERSION, EXCEL_VERSION, CSV_KOPF]
         zeilen += [f"{z.ust_id},{int(z.betrag)},{z.art}" for z in self.zeilen]
         return "\n".join(zeilen) + "\n"
 

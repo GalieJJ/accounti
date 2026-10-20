@@ -10,6 +10,7 @@ from accounti.cli import app
 from accounti.db import init_db, session_factory
 from accounti.db.repository import speichere_buchung, speichere_kontakt
 from accounti.models import Buchungssatz, BuchungStatus, Kontakt
+from tests.elster_hilfe import als_eric
 from tests.test_ustid_protokoll import bestaetige
 
 D = Decimal
@@ -247,12 +248,57 @@ def test_akzeptanz_3_testmodus_per_cli(tmp_path):
     assert "pruefung" in p.output and "vollständig und unverändert" in text(p)
 
 
-def test_echte_abgabe_braucht_freigabe(tmp_path):
+def test_echte_abgabe_braucht_freigabe(tmp_path, monkeypatch):
     url, konfig = umgebung(tmp_path)
     mit_attrappe(konfig)
+    als_eric(monkeypatch)
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
     r = befehl(url, konfig, tmp_path, "uebermitteln")
     assert r.exit_code == 1
     assert "nicht freigegeben" in text(r)
+
+
+def test_attrappe_gibt_per_cli_nicht_echt_ab(tmp_path):
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
+    r = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert r.exit_code == 1
+    assert "Attrappe gibt nichts ab" in text(r)
+
+
+def test_erster_lauf_ist_der_testmodus(tmp_path, monkeypatch):
+    """Spec 5: „Testmodus — Default beim ersten Lauf“."""
+    from accounti.db.repository import lade_posten
+
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    eric = als_eric(monkeypatch)
+    assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    erster = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert erster.exit_code == 0, erster.output
+    assert "Erster Lauf" in text(erster) and "nichts abgegeben" in text(erster)
+    assert eric.gesendet == [] and len(eric.geprueft) == 1
+    zweiter = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert zweiter.exit_code == 0, zweiter.output
+    assert "Erster Lauf" not in text(zweiter)
+    assert "Modus echt" in text(zweiter) and len(eric.gesendet) == 1
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        assert len(lade_posten(s)) == 1
+    engine.dispose()
+
+
+def test_ein_jahr_wird_nicht_uebermittelt(tmp_path):
+    url, konfig = umgebung(tmp_path)
+    r = runner.invoke(
+        app,
+        ["ustva", "uebermitteln", "--period", "2026", "--test", "--db", url]
+        + ["--config", konfig, "--archiv", str(tmp_path / "archiv")],
+    )
+    assert r.exit_code == 1 and isinstance(r.exception, SystemExit)
+    assert "kein Voranmeldungszeitraum" in text(r)
 
 
 def test_freigabe_gesperrt_per_cli(tmp_path):
@@ -262,33 +308,37 @@ def test_freigabe_gesperrt_per_cli(tmp_path):
     assert "Freigabe gesperrt" in text(r) and "8200" in text(r)
 
 
-def test_akzeptanz_4_freigeben_und_uebermitteln_per_cli(tmp_path):
+def test_akzeptanz_4_freigeben_und_uebermitteln_per_cli(tmp_path, monkeypatch):
     url, konfig = umgebung(tmp_path)
     mit_attrappe(konfig)
+    als_eric(monkeypatch)
     f = befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika Muster")
     assert f.exit_code == 0, f.output
     assert "Freigegeben von Erika Muster" in text(f)
     assert "2.145,18" in text(f)
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
     u = befehl(url, konfig, tmp_path, "uebermitteln")
     assert u.exit_code == 0, u.output
     ausgabe = text(u)
-    assert "Attrappe" in ausgabe  # deutlich: nichts wurde wirklich abgegeben
+    assert "ERiC-Doppel im Test" in ausgabe
     assert "Ticket attrappe-0001" in ausgabe
-    assert "Protokoll Nr. 1" in ausgabe
+    assert "Protokoll Nr. 2" in ausgabe
     p = protokoll(url, tmp_path, "--csv", str(tmp_path / "protokoll.csv"))
     assert p.exit_code == 0, p.output
     assert "echt" in p.output and "vollständig und unverändert" in text(p)
     tabelle = (tmp_path / "protokoll.csv").read_text(encoding="utf-8")
-    assert tabelle.count("\n") == 2  # Kopf + ein Eintrag
+    assert tabelle.count("\n") == 3  # Kopf + Testlauf + Abgabe
     assert "attrappe-0001" in tabelle and "Erika Muster" in tabelle
 
 
-def test_akzeptanz_5_zahllast_per_cli_als_offener_posten(tmp_path):
+def test_akzeptanz_5_zahllast_per_cli_als_offener_posten(tmp_path, monkeypatch):
     from accounti.db.repository import lade_kontakte, lade_posten
 
     url, konfig = umgebung(tmp_path)
     mit_attrappe(konfig)
+    als_eric(monkeypatch)
     assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
     u = befehl(url, konfig, tmp_path, "uebermitteln")
     assert u.exit_code == 0, u.output
     assert "Zahllast 2.145,18 € als offener Posten bei Finanzamt München" in text(u)
@@ -303,3 +353,59 @@ def test_akzeptanz_5_zahllast_per_cli_als_offener_posten(tmp_path):
     assert liste.exit_code == 0, liste.output
     assert "Finanzamt" in text(liste)  # die Spalte bricht den Namen um
     assert "1 Posten · Rest 2.145,18 €" in text(liste)
+
+
+def test_gescheiterte_zahllast_wird_nachgeholt(tmp_path, monkeypatch):
+    import accounti.elster.zahllast as zahllast
+    from accounti.db.repository import lade_posten
+
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    als_eric(monkeypatch)
+    assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
+
+    def kaputt(*args, **kwargs):
+        raise ValueError("Personenkontenkreis 70000–99999 ist voll")
+
+    monkeypatch.setattr(zahllast, "buche_zahllast", kaputt)
+    u = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert u.exit_code == 1 and isinstance(u.exception, SystemExit)
+    assert "Ticket attrappe-0001" in text(u)  # die Abgabe wird trotzdem gezeigt
+    assert "Zahllast nicht gebucht" in text(u) and "elster zahllast" in text(u)
+    monkeypatch.undo()
+    nach = runner.invoke(app, ["elster", "zahllast", "--db", url, "--config", konfig])
+    assert nach.exit_code == 0, nach.output
+    assert "Zahllast 2.145,18 € als offener Posten" in text(nach)
+    leer = runner.invoke(app, ["elster", "zahllast", "--db", url, "--config", konfig])
+    assert leer.exit_code == 0 and "nichts nachzubuchen" in text(leer)
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        assert len(lade_posten(s)) == 1
+    engine.dispose()
+
+
+def test_protokoll_nennt_die_kennziffer_der_meldeart(tmp_path):
+    from accounti.elster.protokoll import neuer_eintrag, protokolliere
+    from accounti.models.elster import Meldeart, Modus
+
+    url, _ = umgebung(tmp_path)
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        protokolliere(
+            s,
+            neuer_eintrag(
+                None, art=Meldeart.DAUERFRIST, zeitraum="2026", modus=Modus.PRUEFUNG,
+                weg="intern", datensatz="<x/>", erfolgreich=True, ergebnis="geprüft",
+                pruefbericht="{}", betrag=D("4000.00"),
+            ),
+        )  # fmt: skip
+        s.commit()
+    engine.dispose()
+    r = runner.invoke(
+        app,
+        ["elster", "protokoll", "--db", url, "--archiv", "fehlt"],
+        env={"COLUMNS": "200"},
+    )
+    assert r.exit_code == 0, r.output
+    assert "Kz 38 4.000,00" in text(r) and "Kz 83" not in text(r)

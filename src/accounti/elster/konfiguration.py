@@ -88,8 +88,9 @@ class EricEinstellungen(BaseModel):
 class ElsterEinstellungen(BaseModel):
     voranmeldungszeitraum: Literal["monat", "quartal"] = "monat"
     dauerfristverlaengerung: bool = False
-    sondervorauszahlung: Decimal | None = Field(
-        default=None, description="festgesetzte SVZ (Kz 39 im letzten Zeitraum)"
+    sondervorauszahlung: dict[int, Decimal] = Field(
+        default_factory=dict,
+        description="festgesetzte SVZ je Jahr (Kz 39 im Dezember), vor dem Protokoll",
     )
     bundesland: str | None = None
     steuernummer: str | None = Field(
@@ -135,16 +136,29 @@ class ElsterEinstellungen(BaseModel):
         bereiche(wert)
         return wert
 
+    @field_validator("sondervorauszahlung", mode="before")
+    @classmethod
+    def _svz_je_jahr(cls, wert: Any) -> Any:
+        if wert is None:
+            return {}
+        if not isinstance(wert, dict):
+            msg = (
+                "Sondervorauszahlung je Jahr angeben, z.B. {2026: 4000.00} — ein Wert "
+                "ohne Jahr gälte sonst in jedem Folgejahr"
+            )
+            raise ValueError(msg)
+        return wert
+
     @field_validator("kennziffern_konten")
     @classmethod
     def _kennziffern(cls, wert: dict[str, int]) -> dict[str, int]:
-        from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art
+        from accounti.steuer.kennziffern import zuordenbar
 
         for konto, kz in wert.items():
-            k = KENNZIFFERN_2026.get(kz)
-            if k is None or k.art is not Art.BMG:
+            if not zuordenbar(kz):
                 msg = (
-                    f"Konto {konto}: Kz {kz} ist keine Bemessungsgrundlage im Vordruck"
+                    f"Konto {konto}: Kz {kz} ist keine Bemessungsgrundlage und kein "
+                    "Steuerfeld im Vordruck (Kz 83 und 39 rechnet accounti selbst)"
                 )
                 raise ValueError(msg)
         return {str(k): v for k, v in wert.items()}

@@ -19,10 +19,11 @@ if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
     from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.uebermittlung import Uebermittler
     from accounti.elster.ustva import Vorbereitung
     from accounti.elster.zahllast import Zahllastbuchung
     from accounti.konfiguration import Buchhaltung
-    from accounti.models.elster import Uebermittlung
+    from accounti.models.elster import Meldeart, Modus, Uebermittlung
     from accounti.steuer.plausibilitaet import Befund
     from accounti.steuer.zeitraum import Zeitraum
 
@@ -291,6 +292,65 @@ def zeige_uebermittlung(u: Uebermittlung, weg_grund: str) -> None:
         )
 
 
+def modus_fuer(
+    s: Session, art: Meldeart, modus: Modus, uebermittler: Uebermittler | None
+) -> Modus:
+    """Spec 5: Testmodus ist der Default beim ersten Lauf — ohne erfolgreichen
+    Prüf- oder Testfall-Lauf über diesen Weg wird nur geprüft."""
+    from accounti.elster.ustva import ATTRAPPE, hat_testlauf
+    from accounti.models.elster import Modus
+
+    if (
+        modus is not Modus.ECHT
+        or uebermittler is None
+        or uebermittler.weg == ATTRAPPE
+        or hat_testlauf(s, art, uebermittler.weg)
+    ):
+        return modus
+    console.print(
+        f"[yellow]Erster Lauf über {escape(uebermittler.weg)}: Testmodus (Default beim "
+        "ersten Lauf) — der Datensatz wird geprüft, nichts wird abgegeben. Zum "
+        "Abgeben danach erneut aufrufen.[/yellow]"
+    )
+    return Modus.PRUEFUNG
+
+
+def buche_zahllast_sicher(
+    s: Session,
+    u: Uebermittlung,
+    buchhaltung: Buchhaltung,
+    einstellungen: ElsterEinstellungen,
+    steuernummer: str,
+) -> tuple[Zahllastbuchung | None, str | None]:
+    """Zahllast nach dem festgeschriebenen Protokoll — scheitert sie, bleibt der
+    Nachweis, und ``accounti elster zahllast`` holt die Buchung nach."""
+    from accounti.elster.zahllast import buche_zahllast
+
+    try:
+        z = buche_zahllast(
+            s,
+            u,
+            buchhaltung=buchhaltung,
+            einstellungen=einstellungen,
+            steuernummer=steuernummer,
+        )
+        s.commit()
+    except Exception as fehler:  # die Abgabe steht, nur die Buchung fehlt
+        s.rollback()
+        return None, f"{type(fehler).__name__}: {fehler}"
+    return z, None
+
+
+def melde_zahllast_fehler(fehler: str | None) -> None:
+    if fehler is None:
+        return
+    console.print(
+        f"[red]Zahllast nicht gebucht: {escape(fehler)}[/red] — die Abgabe steht im "
+        "Protokoll; nachholen mit: accounti elster zahllast"
+    )
+    raise typer.Exit(1)
+
+
 @befehl.command("uebermitteln")
 def uebermitteln(
     period: str | None = PERIOD_OPTION,
@@ -310,12 +370,14 @@ def uebermitteln(
     """Voranmeldung übermitteln — nur mit Freigabe; ``--test`` gibt nichts ab."""
     from pathlib import Path
 
+    # Hinweis: ``elster.uebermittlung`` wird als Modul geladen, damit Tests die
+    # Auswahl des Übermittlers ersetzen können.
     from accounti.belege.archiv import BelegArchiv
+    from accounti.elster import uebermittlung
     from accounti.elster.konfiguration import KonfigurationError
-    from accounti.elster.uebermittlung import UebermittlungError, waehle_uebermittler
     from accounti.elster.ustva import kontext_aus, uebermittle
-    from accounti.elster.zahllast import buche_zahllast
-    from accounti.models.elster import Modus
+    from accounti.models.elster import Meldeart, Modus
+    from accounti.steuer.zeitraum import ZeitraumError
 
     if test and testfall:
         ende("--test und --testfall schließen sich aus")
@@ -325,9 +387,10 @@ def uebermitteln(
             kontext = kontext_aus(config, lauf.einstellungen)
         except KonfigurationError as fehler:
             ende(fehler)
-        uebermittler, grund = waehle_uebermittler(lauf.einstellungen)
+        uebermittler, grund = uebermittlung.waehle_uebermittler(lauf.einstellungen)
         if uebermittler is None:
             console.print(f"[dim]{escape(grund)}[/dim]")
+        modus = modus_fuer(s, Meldeart.USTVA, modus, uebermittler)
         v = lauf.vorbereiten(s)
         zeige_befunde(v.befunde)
         try:
@@ -339,40 +402,50 @@ def uebermitteln(
                 uebermittler=uebermittler,
                 archiv=BelegArchiv(archiv),
             )
-        except UebermittlungError as fehler:
+        except (uebermittlung.UebermittlungError, ZeitraumError) as fehler:
             ende(fehler, 1)
         s.commit()  # der Nachweis bleibt, was auch immer danach geschieht
-        z = buche_zahllast(
-            s,
-            u,
-            buchhaltung=lauf.buchhaltung,
-            einstellungen=lauf.einstellungen,
-            steuernummer=kontext.steuernummer,
+        z, zahllast_fehler = buche_zahllast_sicher(
+            s, u, lauf.buchhaltung, lauf.einstellungen, kontext.steuernummer
         )
-        s.commit()
     if ausgabe:
         Path(ausgabe).write_text(u.datensatz, encoding="utf-8")
         console.print(f"[dim]Datensatz → {escape(ausgabe)}[/dim]")
     zeige_uebermittlung(u, grund)
     if z is not None:
         zeige_zahllast(z)
+    melde_zahllast_fehler(zahllast_fehler)
     if not u.erfolgreich:
         raise typer.Exit(1)
 
 
 def zeige_zahllast(z: Zahllastbuchung) -> None:
     from accounti.anzeige import betrag_de, datum_de
+    from accounti.models import PostenRichtung
     from accounti.models.elster import Meldeart
 
     art = "Erstattung" if z.betrag < 0 else "Zahllast"
     if z.art is Meldeart.DAUERFRIST:
         art = "Sondervorauszahlung"
-    console.print(
-        f"{art} {betrag_de(z.betrag)} € als offener Posten bei "
-        f"{escape(z.kontakt.name)} (Kreditor {z.kontakt.kreditor_konto}), fällig "
-        f"{datum_de(z.posten.faellig_am)} — gebucht {z.buchung.soll_konto} an "
-        f"{z.buchung.haben_konto}"
-    )
+    text = f"{art} {betrag_de(z.betrag)} €"
+    if z.verrechnet:
+        text += (
+            f", davon {betrag_de(z.verrechnet)} € mit dem offenen Posten des Zeitraums "
+            "verrechnet"
+        )
+    if z.posten is not None:
+        richtung = (
+            "offener Posten"
+            if z.posten.richtung is PostenRichtung.VERBINDLICHKEIT
+            else "Forderung (offener Posten)"
+        )
+        if z.verrechnet:
+            text += f", Rest {betrag_de(z.posten.betrag)} €"
+        text += (
+            f" als {richtung} bei {escape(z.kontakt.name)} (Kreditor "
+            f"{z.kontakt.kreditor_konto}), fällig {datum_de(z.posten.faellig_am)}"
+        )
+    console.print(f"{text} — gebucht {z.buchung.soll_konto} an {z.buchung.haben_konto}")
 
 
 def _betrag(text: str | None, name: str) -> Decimal | None:
@@ -412,6 +485,7 @@ def dauerfrist(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
+    from accounti.elster import uebermittlung
     from accounti.elster.dauerfrist import (
         DauerfristError,
         berechne_svz,
@@ -420,11 +494,9 @@ def dauerfrist(
     )
     from accounti.elster.freigabe import FreigabeError
     from accounti.elster.konfiguration import KonfigurationError, lade_elster
-    from accounti.elster.uebermittlung import UebermittlungError, waehle_uebermittler
     from accounti.elster.ustva import kontext_aus
-    from accounti.elster.zahllast import buche_zahllast
     from accounti.konfiguration import lade_buchhaltung
-    from accounti.models.elster import Modus
+    from accounti.models.elster import Meldeart, Modus
     from accounti.steuer.fristen import sondervorauszahlung_frist
 
     if test and testfall:
@@ -473,10 +545,11 @@ def dauerfrist(
                 kontext = kontext_aus(config, einstellungen)
             except KonfigurationError as fehler:
                 ende(fehler)
-            uebermittler, grund = waehle_uebermittler(einstellungen)
+            uebermittler, grund = uebermittlung.waehle_uebermittler(einstellungen)
             modus = (
                 Modus.PRUEFUNG if test else Modus.TESTFALL if testfall else Modus.ECHT
             )
+            modus = modus_fuer(s, Meldeart.DAUERFRIST, modus, uebermittler)
             try:
                 u = uebermittle_dauerfrist(
                     s,
@@ -486,21 +559,17 @@ def dauerfrist(
                     uebermittler=uebermittler,
                     archiv=BelegArchiv(archiv),
                 )
-            except UebermittlungError as fehler:
+            except uebermittlung.UebermittlungError as fehler:
                 ende(fehler, 1)
             s.commit()
-            z = buche_zahllast(
-                s,
-                u,
-                buchhaltung=buchhaltung,
-                einstellungen=einstellungen,
-                steuernummer=kontext.steuernummer,
+            z, zahllast_fehler = buche_zahllast_sicher(
+                s, u, buchhaltung, einstellungen, kontext.steuernummer
             )
-            s.commit()
     finally:
         engine.dispose()
     zeige_uebermittlung(u, grund)
     if z is not None:
         zeige_zahllast(z)
+    melde_zahllast_fehler(zahllast_fehler)
     if not u.erfolgreich:
         raise typer.Exit(1)

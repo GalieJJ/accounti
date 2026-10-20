@@ -7,7 +7,9 @@ letzten Voranmeldung des Jahres (Kz 39). Quartalszahler stellen den Antrag ohne
 Sondervorauszahlung; er gilt fort.
 
 Die Vorauszahlungen des Vorjahres kommen aus dem Übermittlungsprotokoll (je Monat die
-zuletzt abgegebene Anmeldung); fehlt ein Monat, ist die Summe anzugeben.
+zuletzt abgegebene Anmeldung); fehlt ein Monat, ist die Summe anzugeben. Die im Vorjahr
+abgezogene Sondervorauszahlung kommt aus derselben Quelle wie Kz 39 im Dezember
+(``elster.ustva.festgesetzte_svz``).
 """
 
 from __future__ import annotations
@@ -32,9 +34,12 @@ from accounti.elster.uebermittlung import Uebermittler, UebermittlungError
 from accounti.elster.ustva import (
     Kontext,
     abgegeben,
+    festgesetzte_svz,
     fuehre_aus,
     kopf_fuer,
     letzte_betraege,
+    pruefe_testlauf,
+    pruefe_weg,
 )
 from accounti.models.elster import Freigabe, Meldeart, Modus, Uebermittlung
 from accounti.steuer.voranmeldung import sondervorauszahlung
@@ -80,15 +85,18 @@ def berechne_svz(
             raise DauerfristError(msg)
         summe_vorjahr = sum((vorjahr[m] for m in monate), NULL)
     if svz_vorjahr is None:
-        svz_vorjahr = letzte_betraege(session, Meldeart.DAUERFRIST).get(
-            str(jahr - 1), NULL
-        )
+        # dieselbe Quelle wie Kz 39 im Dezember des Vorjahres
+        svz_vorjahr = festgesetzte_svz(session, jahr - 1, einstellungen) or NULL
     betrag = sondervorauszahlung(summe_vorjahr, svz_vorjahr)
     return Sondervorauszahlung(jahr, summe_vorjahr, svz_vorjahr, betrag, fehlende)
 
 
-def _inhalt(svz: Sondervorauszahlung) -> dict[str, Any]:
+def _inhalt(svz: Sondervorauszahlung, berichtigt: bool) -> dict[str, Any]:
+    """Freigegeben werden Kz 38 und — wie bei der UStVA — das Berichtigt-Kennzeichen
+    (Kz 10): Eine vor der ersten Abgabe erteilte Freigabe deckt keine Berichtigung."""
     werte: dict[int, Any] = {38: svz.betrag} if svz.betrag is not None else {}
+    if berichtigt:
+        werte[10] = 1
     return inhalt(Meldeart.DAUERFRIST, svz.zeitraum, werte)
 
 
@@ -98,7 +106,9 @@ def gib_dauerfrist_frei(
     von: str,
     jetzt: datetime | None = None,
 ) -> Freigabe:
-    return speichere(session, Meldeart.DAUERFRIST, _inhalt(svz), von, (), jetzt)
+    berichtigt = abgegeben(session, Meldeart.DAUERFRIST, svz.zeitraum)
+    daten = _inhalt(svz, berichtigt)
+    return speichere(session, Meldeart.DAUERFRIST, daten, von, (), jetzt)
 
 
 def uebermittle_dauerfrist(
@@ -112,17 +122,18 @@ def uebermittle_dauerfrist(
     jetzt: datetime | None = None,
 ) -> Uebermittlung:
     """Dauerfristverlängerung (mit Sondervorauszahlung) prüfen, testen oder abgeben."""
-    if modus is not Modus.PRUEFUNG and uebermittler is None:
-        raise UebermittlungError("Kein Übermittler: ERiC ist nicht eingerichtet")
+    pruefe_weg(modus, uebermittler)
     freigabe = None
+    berichtigt = abgegeben(session, Meldeart.DAUERFRIST, svz.zeitraum)
     if modus is Modus.ECHT:
+        assert uebermittler is not None
         try:
             freigabe = offene_freigabe(
-                session, Meldeart.DAUERFRIST, svz.zeitraum, _inhalt(svz)
+                session, Meldeart.DAUERFRIST, svz.zeitraum, _inhalt(svz, berichtigt)
             )
         except FreigabeError as fehler:
             raise UebermittlungError(str(fehler)) from fehler
-    berichtigt = abgegeben(session, Meldeart.DAUERFRIST, svz.zeitraum)
+        pruefe_testlauf(session, Meldeart.DAUERFRIST, uebermittler)
     xml = dauerfrist_xml(
         svz.jahr,
         kontext.steuernummer,
