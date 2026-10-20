@@ -8,6 +8,7 @@ from rich.console import Console
 
 if TYPE_CHECKING:
     from datetime import date
+    from types import ModuleType
 
     from sqlalchemy.orm import Session, sessionmaker
 
@@ -2514,6 +2515,21 @@ def db_init(db: str = typer.Option("sqlite:///accounti.db", help="DB-URL")) -> N
     engine, _ = session_factory(db)
     init_db(engine)
     console.print(f"[green]Datenbank initialisiert:[/green] {db}")
+
+
+# ---------------------------------------------------------------------------
+# Befehlsgruppen der Bausteine (accounti.befehle.*) — automatisch eingehängt
+# ---------------------------------------------------------------------------
+def haenge_befehle_ein(
+    ziel: typer.Typer, module: "list[ModuleType] | None" = None
+) -> None:
+    from accounti.befehle import befehlsmodule
+
+    for modul in befehlsmodule() if module is None else module:
+        ziel.add_typer(modul.befehl, name=modul.NAME)
+
+
+haenge_befehle_ein(app)
 
 
 if __name__ == "__main__":

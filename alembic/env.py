@@ -16,7 +16,9 @@ if config.config_file_name is not None:
 
 # accounti-Modelle für autogenerate registrieren
 from accounti.db import Base  # noqa: E402
-from accounti.db import tabellen  # noqa: E402,F401  (registriert die Tabellen)
+from accounti.db import registriere_tabellen  # noqa: E402
+
+registriere_tabellen()  # tabellen.py und alle Module tabellen_*
 
 target_metadata = Base.metadata
 

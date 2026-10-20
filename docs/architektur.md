@@ -299,6 +299,21 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 
 ## Erweiterungspunkte
 
+### Neuen Baustein anschließen
+
+Bausteine bringen ihren Code in eigene Module mit, damit sie unabhängig voneinander entstehen
+können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen muss:
+
+| Was | Wohin | Eingebunden durch |
+|-----|-------|-------------------|
+| Domänenmodelle | `src/accounti/models/<bereich>.py` | Import im Baustein |
+| Tabellen | `src/accounti/db/tabellen_<bereich>.py` (Basis `accounti.db.Base`) | `registriere_tabellen()` — für `init_db` und Alembic |
+| Repository-Funktionen | `src/accounti/db/repo_<bereich>.py` | Import im Baustein |
+| CLI-Befehlsgruppe | `src/accounti/befehle/<bereich>.py` mit `NAME` und `befehl = typer.Typer(...)` | `haenge_befehle_ein()` in `cli.py` |
+| Konfiguration | eigener Abschnitt in `config/accounti.yaml`, eigener Lader im Baustein | — |
+
+Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`.
+
 ### Neues Bankformat hinzufügen
 
 Kein Code nötig — ein Profil in `config/banken.yaml` genügt:
