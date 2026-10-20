@@ -138,7 +138,7 @@ def gleiche_aus(
             msg = f"{kontakt.name} hat kein Personenkonto für diesen Posten."
             raise ValueError(msg)
         text = f"{posten.belegnummer or ''} {kontakt.name}".strip()
-        bank = einstellungen.bank_konto
+        bank = tx.sachkonto or einstellungen.bank_konto  # Konto des Umsatzes
         soll, haben = (personenkonto, bank) if eingang else (bank, personenkonto)
         zahlung = Buchungssatz(
             transaktion_id=tx.id,

@@ -60,10 +60,11 @@ an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
 ([Paket 2](plans/2026-10-21-kontakte-opos-paket-2-zahlungen.md)) sowie die qualifizierte
 USt-IdNr.-Bestätigung beim BZSt mit revisionssicherem Protokoll
 ([Paket 3](plans/2026-10-22-kontakte-opos-paket-3-ustid.md)).
-**Baustein 5 ist teilweise fertig,** weil der Belegabgleich vor der Kontierung steht
-([Paket 1](plans/2026-10-23-bankanbindung-paket-1-belegabgleich.md)) — was fehlt, sind Provider,
-Bankkonten mit verschlüsselten Zugängen und der geplante Abruf (Paket 2) sowie FinTS und
-Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
+**Baustein 5 ist teilweise fertig,** weil der Belegabgleich vor der Kontierung
+([Paket 1](plans/2026-10-23-bankanbindung-paket-1-belegabgleich.md)) sowie Bankkonten mit
+verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettenschutz und der geplante
+Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) stehen — was fehlt, sind
+FinTS und Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
 Kreditwirtschaft (10–15 Werktage).
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
