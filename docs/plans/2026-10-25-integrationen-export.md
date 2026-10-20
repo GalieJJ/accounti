@@ -35,7 +35,7 @@ DATEV-Übergabe:
   Transaktionen je Finanzkonto ──▶ export/kontoauszuege.py ──▶ MT940 + Saldenverlauf (CSV)
 ```
 
-## Recherche (Stand 20.10.2026)
+## Recherche (Stand 20.10.2026, ergänzt nach der Prüfung)
 
 | Thema | Ergebnis | Quelle (abgerufen 20.10.2026) |
 |-------|----------|-------------------------------|
@@ -54,6 +54,11 @@ DATEV-Übergabe:
 | PayPal | Aktivitäten-CSV mit 41 Spalten „Datum, Uhrzeit, Zeitzone, Name, Typ, Status, Währung, Brutto, Gebühr, Netto, …, Zugehöriger Transaktionscode, …, Guthaben, …, Land, …, Auswirkung auf Guthaben“ | StarMoney-Forum (Kopfzeile wörtlich); PayPal-Hilfe „Kontoauszüge und Berichte herunterladen“ |
 | Shopify | Auszahlungs-Transaktionen-CSV: Transaction Date, Type, Order, Card Brand, Card Source, Payout Status, Payout Date, Available On, Amount, Fee, Net | Shopify Help Center „View payout details“ |
 | OSS | Lieferschwelle 10 000 € (Vorjahr **und** laufendes Jahr, § 3c Abs. 4 UStG; Verzicht bindet zwei Jahre); Erklärung innerhalb eines Monats nach Ablauf des Quartals (§ 18j Abs. 4 UStG i. V. m. § 16 Abs. 1d) | gesetze-im-internet.de, §§ 3c, 18j UStG |
+| OSS-Korrekturen | Das BZSt-Online-Portal nimmt keine negativen Beträge an; Minderungen für frühere Quartale (z. B. Erstattungen) werden in einer späteren Meldung als Korrektur des ursprünglichen Meldezeitraums angegeben (Land, Jahr, Quartal, ursprünglicher und berichtigter Steuerbetrag) | Art. 61 MwSt-DVO (VO (EU) 282/2011); Lexware-Hilfe 548730 (Befund der Prüfer, nicht selbst abgerufen) |
+| Amazon-Gebühren | Seit 01.08.2024 stellt die Amazon EU S.à r.l. über ihre deutsche Niederlassung deutschen Händlern die meisten Verkaufs- und Fulfillment-Gebühren mit 19 % deutscher USt in Rechnung, statt § 13b; die USt wird von der Auszahlung einbehalten und ist Vorsteuer (Beleg: monatliche Gebührenrechnung). Werbegebühren rechnet nicht die AEU ab; Werbung auf ausländischen Marktplätzen kann § 13b sein | steuerberaten.de Blog 555 „Umstellung der Amazon-Abrechnungen“; whk-controlling.de „Amazon Vorsteuerabzug 2024“; Händlerbund „Amazon ändert Abrechnungspraxis“ (abgerufen 20.10.2026). Ob die Beträge im Abrechnungsbericht brutto stehen, sagt keine Quelle ausdrücklich — aus „von der Auszahlung einbehalten“ abgeleitet |
+| eBay-Gebühren | eBay berechnet gewerblichen Verkäufern aus Deutschland seit 01.05.2018 deutsche USt auf die Gebühren; mit hinterlegter USt-IdNr. laut eBay netto — hängt also vom Konto ab | eBay-Hilfe 4837 „Umsatzsteuer auf eBay-Gebühren für Verkäufer und Nutzer aus Deutschland“ (Suchtreffer, 20.10.2026) |
+| PayPal-Gebühren | Zahlungsabwicklung ist eine steuerfreie Finanzdienstleistung (§ 4 Nr. 8 UStG) | UStG |
+| Amazon-Länderdateien | Der Bestellbericht (`amazon-order-id`, `ship-country`, `fulfillment-channel`, `is-business-order`) kennt weder Abgangsland noch USt-IdNr. des Käufers; der USt-Transaktionsbericht hat `SALE_DEPART_COUNTRY`, `SALE_ARRIVAL_COUNTRY`, `BUYER_VAT_NUMBER` | Amazon Seller Central, Berichtsbeschreibungen (wie oben) |
 
 ## Schnitt in Pakete
 
@@ -73,32 +78,32 @@ DATEV-Übergabe:
 |-------|--------------|-------|
 | Code-Ort | Formate in `importers/{marktplatz,amazon,ebay,paypal,shopify}.py`; Buchung, Abgleich, Lauf, OSS und Einstellungen im neuen Paket `integrationen/`; Exporte in `export/{datev_format,datev_stammdaten,datev_belege,kontoauszuege}.py` | Importer kennen nur ihr Format (Architektur); Buchhaltungslogik bleibt außerhalb |
 | Einheit „Abrechnung“ | Amazon: eine Abrechnung = ein `settlement-id`; eBay: eine je „Auszahlung Nr.“; Shopify: eine je Payout (ID oder Datum); PayPal: Zeitraum der Datei | jede Abrechnung hat genau einen Abgleichspunkt gegen die Bank (PayPal: das Guthaben) |
-| Doppelter Import | Abrechnung eindeutig über (Marktplatz, Nummer); dieselbe Datei erkennt zusätzlich das Belegarchiv (Datei-Hash); PayPal-Zeilen über den Transaktionscode (Dublettenschlüssel) | ein zweiter Import bucht nichts doppelt |
+| Doppelter Import, Nachträge | Abrechnung eindeutig über (Marktplatz, Nummer); dieselbe Datei erkennt das Belegarchiv (Datei-Hash). Ein anderer Bericht zu einer bekannten Abrechnung wird **nicht** übersprungen: Posten werden als Multimenge über ihren Inhalt (Art, Datum, Betrag, Bestellnummer, Beschreibung, Referenz — ohne Zeilennummer) verglichen, fehlende nachgebucht; ein aus der Summe gebildeter, noch nicht abgeglichener Auszahlungsposten wird ersetzt, Summenprobe und Abgleich laufen über die ganze Abrechnung; ist er schon abgeglichen, gilt sein Betrag als bestätigt (abweichende Posten → `summe_abweichung`). eBay ohne Auszahlungszeile im Bericht: kein Auszahlungsposten, Hinweis `auszahlung_folgt`. PayPal: Zeilen immer über den Transaktionscode, ein zweiter Export desselben Zeitraums heißt `… (2)`. Jeder Bericht ist ein eigener Beleg (Inhalts-Hash in der Belegnummer, sonst hielte die Belegdublettenprüfung „Lieferant + Belegnummer“ ihn für eine Dublette) | eine Auszahlung verteilt sich über Monatsberichte; der Hinweis „nach der Auszahlung erneut importieren“ führt genau dahin; ein zweiter Import bucht nichts doppelt |
 | Beleg | Der Bericht wird über `belege/pipeline.nimm_auf` unverändert archiviert und als Beleg (Art „sonstiges“, ohne Betrag, Kanal `marktplatz`) erfasst; jede Buchung der Abrechnung trägt diese `beleg_id` | Prinzip 7 (Belegbezug); ohne Betrag schlägt der Bankabgleich den Bericht nicht als Quittung vor |
 | Buchungsweg | Alles gegen ein Verrechnungskonto je Marktplatz (SKR03-Vorgabe 1361 Amazon, 1362 eBay, 1363 Shopify; anzulegen); Auszahlung „Bank an Verrechnungskonto“ mit `transaktion_id` des Bankumsatzes | Spec 5: Auszahlung ist nur Differenz und Abgleichspunkt; `classify` lässt den Umsatz dann in Ruhe |
 | Erlöse | je Bestellung eine Buchung (Bruttosumme aller Preisbestandteile inkl. Versand, Geschenkverpackung und Rabatt), Netto/Steuer über `UStBerechner` aus Bestimmungsland und Satz; Belegfeld = Bestellnummer | Einzelaufzeichnung; OSS-Meldung zählt je Bestellung |
-| Gebühren | je Abrechnung und Gebührenart eine Summenbuchung (Verkaufs-, Versand-/Fulfillment-, Lager-, Werbe-, sonstige Gebühr) auf konfigurierbare Konten (SKR03: 4760, 4780, 4780, 4610, 4760; PayPal/Shopify 4970); ohne Steuerschlüssel, BU-Schlüssel je Marktplatz konfigurierbar | Gebühren sind netto im Bericht; § 13b-Behandlung hängt vom Vertragspartner ab (siehe Grenzen) |
+| Gebühren | je Abrechnung und Gebührenart eine Summenbuchung (Verkaufs-, Versand-/Fulfillment-, Lager-, Werbe-, sonstige Gebühr) auf konfigurierbare Konten (SKR03: 4760, 4780, 4780, 4610, 4760; PayPal/Shopify 4970). Umsatzsteuer je Marktplatz über `ust_gebuehren` und getrennt `ust_werbung`: `vorsteuer` (Betrag im Bericht brutto mit deutscher USt → netto + Vorsteuer, BU 9), `13b` (netto mit `bu_gebuehren`/`bu_werbung`), `ohne` (steuerfrei). Vorgabe: Amazon-Gebühren `vorsteuer`, PayPal `ohne`; nicht eingestellt (Amazon-Werbung, eBay, Shopify) → ohne Vorsteuer zur Prüfung, ein Befund `ust_gebuehren_offen` je Abrechnung | Amazon rechnet seit 01.08.2024 mit deutscher USt ab (Recherche); bei eBay hängt es am Konto, bei Werbung am Marktplatz — raten wäre falsch |
 | Erstattungen | eigene Buchung je Bestellung auf dasselbe Erlöskonto (Soll), Steuer negativ; zurückerstattete Provision als Gebühr mit umgekehrtem Vorzeichen | Erlöse und Erstattungen erscheinen getrennt (Akzeptanz 1); OSS-Meldung saldiert richtig |
 | Einbehalte | Reservebewegungen „Verrechnungskonto ↔ Einbehaltskonto“ (SKR03-Vorgabe 1500) | jeder Bestandteil gebucht; Einbehalt bleibt sichtbar |
 | Unbekanntes | unbekannte Posten, Ersatzleistungen (z. B. FBA-Erstattung) und Korrekturen werden gebucht, aber **zur Prüfung** mit Befund | nichts verschwindet, der Mensch entscheidet |
 | Summenprobe | Summe aller Posten = gemeldete Auszahlung, exakt auf den Cent; sonst Befund `summe_abweichung`, Buchungen der Abrechnung zur Prüfung, **keine** Differenzbuchung | Spec 5 „Differenzen“, Akzeptanz 2 |
-| Auszahlungsabgleich | Bankumsatz ohne Buchung/Zuordnung, Betrag exakt gleich, Datum Auszahlungsdatum −2/+`auszahlung_toleranz_tage` (10), eindeutig; Stichwort im Verwendungszweck bevorzugt. Gleicher Betrag mehrfach → Befund, kein Raten; anderer Betrag mit Abrechnungsnummer im Verwendungszweck → Befund `auszahlung_abweichung`; schon anderweitig gebuchter Umsatz → Befund mit Korrekturhinweis | Akzeptanz 2: Abweichung melden statt glätten |
-| PayPal | jede saldenwirksame EUR-Zeile wird ein Umsatz (`Transaktion`, Quelle `paypal`) auf dem PayPal-Konto (SKR03-Vorgabe 1210, Dublettenschlüssel = Transaktionscode); Verkäufe, Gebühren, Erstattungen, Abbuchungen/Einzahlungen bucht das Modul mit `transaktion_id`, alles andere (Einkäufe) läuft durch `opos zuordnen`/`classify` | Spec: „eigenes Konto mit Saldo, nicht bloß Zahlungsweg“ |
+| Auszahlungsabgleich | Bankumsatz ohne Buchung/Zuordnung, Betrag exakt gleich, Datum Auszahlungsdatum −2/+`auszahlung_toleranz_tage` (10), eindeutig; Stichwort im Verwendungszweck bevorzugt. Zwei Durchgänge: erst alle eindeutigen exakten Treffer (wiederholt), dann Befunde für den Rest — gleicher Betrag mehrfach → Befund, kein Raten; anderer Betrag mit Stichwort/Abrechnungsnummer → `auszahlung_abweichung`; schon anderweitig gebuchter Umsatz → Befund mit Korrekturhinweis; ein im selben Lauf zugeordneter Umsatz zählt für keinen Befund. Befunde lassen sich erledigen (bleiben sichtbar): ein späterer exakter Treffer erledigt die Abgleichsbefunde seines Postens; der Status richtet sich nur nach offenen Befunden | Akzeptanz 2: Abweichung melden statt glätten; Fehlalarme sind so schädlich wie übersehene Fehler |
+| PayPal | jede saldenwirksame EUR-Zeile wird ein Umsatz (`Transaktion`, Quelle `paypal`) auf dem PayPal-Konto (SKR03-Vorgabe 1210, Dublettenschlüssel = Transaktionscode); das Modul bucht mit `transaktion_id`: Verkäufe (nur eingehende Checkout-Zahlungen: Website-, Express-Checkout-, Handy-, Warenkorb-, eBay-Zahlung), deren Gebühren, Erstattungen (nur negative Rückzahlungen), Einbehaltungen und ihre Freigaben (Einbehaltskonto), Abbuchungen/Einzahlungen; Rückbuchungen, Zahlungsrückbuchungen und Chargebacks gehen auf das Klärungskonto zur Prüfung (Befund `rueckbuchung`, § 17 UStG). Alles andere — Einkäufe, „Allgemeine Zahlung“ eines Kunden (z. B. auf eine Ausgangsrechnung), Rückzahlungen an uns — bleibt für `opos zuordnen`/`classify` (Hinweis `eingehende_zahlung`) | Spec: „eigenes Konto mit Saldo, nicht bloß Zahlungsweg“; eine Zahlung auf eine schon gebuchte Forderung darf kein zweiter Erlös werden |
 | PayPal-Saldo | Guthabenkette je Währung: vorheriges Guthaben + Netto = Guthaben; Bruch → Befund `saldensprung` | fehlende Zeilen fallen auf |
 | PayPal-Fremdwährung | Erlös in EUR zum effektiven PayPal-Kurs der zugehörigen Währungsumrechnung (EUR-Zeile = Netto, Brutto anteilig); ohne Umrechnung bleibt der Posten zur Prüfung | EUR-Saldo bleibt exakt, keine erfundenen Kurse |
-| Fremdwährung sonst | Abrechnung in Fremdwährung nur mit `--kurs` (Einheiten je 1 EUR, wie EZB/DATEV); jeder Posten einzeln umgerechnet, Auszahlung = Summe; Bankeingang anderer Höhe → Befund | kein stiller Kursverlust |
-| Bestimmungsland | Amazon: aus einer Länderdatei (`--laender`: Bestellbericht mit `ship-country` oder Amazon-USt-Transaktionsbericht mit `SALE_ARRIVAL_COUNTRY`/`SALE_DEPART_COUNTRY`/`BUYER_VAT_NUMBER`); eBay/PayPal aus der Datei; Shopify aus dem Bestellexport (`Shipping Country`). Ländernamen deutsch/englisch über `steuer.EU_STEUERSAETZE`. Fehlt es: Erlöskonto 8200, zur Prüfung, Befund — **nie** aus dem Marktplatznamen geraten | Spec 5: Pflichtfeld; Amazon.fr liefert auch nach DE |
+| Fremdwährung sonst | Abrechnung in Fremdwährung nur mit `--kurs` (Einheiten je 1 EUR, wie EZB/DATEV); ohne Kurs bricht der Import **vor** dem Archivieren ab (`IntegrationError`); jeder Posten einzeln umgerechnet, Auszahlung = Summe; Bankeingang anderer Höhe → Befund; Nachträge nehmen den gespeicherten Kurs | kein stiller Kursverlust; eine gespeicherte, ungebuchte Abrechnung ließe sich nicht mehr buchen |
+| Bestimmungsland | Amazon: aus einer Länderdatei (`--laender`: Bestellbericht mit `ship-country` oder Amazon-USt-Transaktionsbericht mit `SALE_ARRIVAL_COUNTRY`/`SALE_DEPART_COUNTRY`/`BUYER_VAT_NUMBER`); eBay/PayPal aus der Datei; Shopify aus dem Bestellexport (`Shipping Country`). Ländernamen deutsch/englisch über `steuer.EU_STEUERSAETZE`. Fehlt es: Erlöskonto 8200, zur Prüfung, Befund — **nie** aus dem Marktplatznamen geraten. Aus dem Bestellbericht zusätzlich `fulfillment-channel` (sonst `fulfillment-id` AFN der Abrechnung) und `is-business-order`: Versand aus einem Marktplatzlager ohne bekanntes Abgangsland → zur Prüfung, Befund `abgangsland_fehlt` (außer `marktplaetze.<name>.lager_nur_inland`); Geschäftskunde im EU-Ausland ohne USt-IdNr. → zur Prüfung, Befund `geschaeftskunde_ohne_ust_id` | Spec 5: Pflichtfeld; Amazon.fr liefert auch nach DE; Pan-EU/CEE-Lager machen den Verkauf im Lagerland steuerbar |
 | Steuer je Bestellung | `UStBerechner.bestimme_vorfall` mit `mandant.oss`: Inland → 8400/BU 3 (7 %: 8300/BU 2); EU-B2C mit OSS → OSS-Erlöskonto + OSS-USt-Konto aus `steuer.umsatzsteuer` (zwei Buchungen, keine Steuerautomatik); EU-B2B mit USt-IdNr. → 8125 zur Prüfung; Drittland → 8120 zur Prüfung (Ausfuhrnachweis); Abgangsland ≠ DE → zur Prüfung | Steuerlogik nur über `accounti.steuer` |
-| Lieferschwelle | ohne OSS-Registrierung: EU-B2C-Netto des Jahres aus allen Marktplatz-Abrechnungen; ab Überschreiten von 10 000 € (`steuer.oss.OSS_SCHWELLE_EUR`) gehen EU-B2C-Erlöse zur Prüfung, Befund `lieferschwelle` | ab dem überschreitenden Umsatz gilt der Satz des Bestimmungslands |
-| Ermäßigter Satz | Artikel-SKUs mit ermäßigtem Satz über `integrationen.ermaessigte_artikel`; ermäßigte OSS-Verkäufe gehen zur Prüfung | die OSS-Engine rechnet nur den Normalsatz |
-| OSS-Meldung | `OSSEngine.erstelle_meldung` auf den Buchungen; Fix in `steuer/oss.py`: OSS-Erlöskonto im Soll (Erstattung) mindert Bemessungsgrundlage und Steuer, statt sie zu erhöhen | bisher zählte `abs()` Erstattungen doppelt |
+| Lieferschwelle | ohne OSS-Registrierung: EU-B2C-Netto je Kalenderjahr — jeder Posten in seinem Jahr, nicht im Jahr der Abrechnung — aus allen Marktplatz-Abrechnungen plus `integrationen.eu_fernverkaeufe_sonstige` (Jahr → Betrag, z. B. Vorjahr vor accounti); liegt das **Vorjahr** über 10 000 € (`steuer.oss.OSS_SCHWELLE_EUR`), gehen alle EU-B2C-Erlöse ab 1. Januar zur Prüfung, sonst ab dem Umsatz, der das laufende Jahr überschreitet; Befund `lieferschwelle` | § 3c Abs. 4 UStG: Vorjahr **und** laufendes Jahr; `OSSEngine.pruefe_schwelle` zählt nur OSS-Erlöskonten und ist ohne Registrierung leer |
+| Ermäßigter Satz | Artikel-SKUs mit ermäßigtem Satz über `integrationen.ermaessigte_artikel`; ermäßigte OSS-Verkäufe auf eigene Erlöskonten je Land (`integrationen.oss_erloes_ermaessigt`), die die OSS-Engine als ermäßigten Satz meldet; ohne Konto: Klärungskonto 8200, zur Prüfung, **nicht** in der Meldung (Befund `oss_ermaessigt`) | der Satz steckt nur im Erlöskonto; mit dem Normalsatz gemeldet wäre die Steuer zu hoch und nach der Prüfung nicht mehr korrigierbar |
+| OSS-Meldung | `OSSEngine.erstelle_meldung` auf den Buchungen bis Quartalsende; Änderungen in `steuer/oss.py`: OSS-Erlöskonto im Soll (Erstattung) mindert, statt zu erhöhen; eine Erstattung, deren Erlös (gleiche Belegnummer = Bestellnummer) in einem früheren Quartal liegt, wird `OSSKorrektur` dieses Quartals; Steuer je Land und Satz einmal aus der Summe der Bemessungsgrundlagen gerundet; die CSV lässt keine Zeile mehr weg (auch negative), die Länderzeilen ergeben GESAMT, Korrekturen stehen in einem eigenen Abschnitt. `accounti marktplatz oss` gleicht gebuchte gegen gemeldete OSS-Steuer je Steuerkonto ab (`integrationen.oss.steuerabgleich`) und warnt bei negativen Länderzeilen | das BZSt nimmt keine negativen Beträge an; gebuchte (Brutto − Netto je Bestellung) und gemeldete Steuer weichen centweise ab |
 | EXTF-Grundbausteine | eigener Kopfzeilen- und Feldschreiber (`export/datev_format.py`): 31 Kopffelder, Feldtyp bestimmt Quotierung, `""` verdoppelt, CRLF, Windows-1252; Zeichen außerhalb Windows-1252 → `DatevFormatError` statt stiller Ersetzung | der vorhandene Buchungsstapel-Export (`export/datev.py`) bleibt unverändert |
 | Stammdaten | alle Kontakte mit Personenkonto; Kontakt mit beiden Rollen = zwei Sätze mit gegenseitigem „Verknüpftes OPOS-Konto“; `--period` beschränkt auf Personenkonten mit Buchungen im Zeitraum; Kontakte „zur Prüfung“ werden mitgegeben und gezählt; „Nummer Fremdsystem“ = Kontakt-ID (15 Zeichen) | Buchungen und Stammdaten passen zusammen |
 | Belegexport | Belegpaket (ZIP) + Buchungsstapel mit Beleglink für denselben Zeitraum und dieselben freigegebenen Buchungen wie `export datev`; GUID = Beleg-ID (deterministisch); Dateiname = GUID ohne Bindestriche + Endung; `processID="2"`, Ablage `accounti / Belege JJJJ / MM`; Beleg über `beleg_id` oder über einen bestätigten Belegabgleich der Transaktion | Beleg hängt beim Empfänger am Buchungssatz (Akzeptanz 5); keine Doppelbuchung aus dem Posteingang |
 | Belegformate | PDF, JPG/JPEG, PNG, TIF/TIFF, XML; andere Formate, fehlende Archivdateien und Dateien > 20 MB → Befund, Buchung ohne Link; > 4999 Belege oder > 465 MB → `BelegexportError` | DATEV-Grenzen |
 | Kontoauszüge | je Finanzkonto (Sachkonto der Transaktion, sonst `buchhaltung.bank_konto`) ein Auszug je Kalendermonat, Nummer je Jahr ab 1 lückenlos, auch für Monate ohne Umsatz; Auszüge werden beim Erstellen festgeschrieben (Tabelle `kontoauszuege`, Zuordnung `kontoauszug_umsaetze`) und über eine Hash-Kette verbunden; später eingehende Umsätze eines abgeschlossenen Monats kommen in den nächsten neuen Auszug mit Befund `nachtrag`; der laufende Monat wird nicht festgeschrieben | Spec 4.6, Akzeptanz 6; ein ausgegebener Auszug ändert sich nicht |
 | Erster Auszug | beginnt mit dem Monat von `--period` oder einem früheren `--ab JJJJ-MM` (nur beim ersten Mal); Umsätze davor gehören in den Anfangssaldo und werden einmal als `vor_beginn` gemeldet; Fremdwährungsumsätze kommen in keinen EUR-Auszug (`fremdwaehrung`) | ein Anfangssaldo braucht einen Stichtag |
-| Saldenverlauf | Anfangssaldo des ersten Auszugs per `--anfangssaldo` (Pflicht beim ersten Mal), danach fest der Endsaldo des Vorgängers; `--kontrollsaldo` (Saldo laut Bank zum Monatsende) — weicht er ab, wird **nichts** festgeschrieben; `pruefe_auszuege` rechnet Nummern, Zeiträume, Salden, Summen und Hash-Kette nach | schlüssiger Verlauf statt behaupteter; ein falscher Auszug ließe sich nicht mehr ändern |
+| Saldenverlauf | Anfangssaldo des ersten Auszugs per `--anfangssaldo` (Pflicht beim ersten Mal), danach fest der Endsaldo des Vorgängers; `--kontrollsaldo` (Saldo laut Bank zum Monatsende) — weicht er ab, wird **nichts** festgeschrieben; ist der Monat schon festgeschrieben, wird er gegen den Endsaldo dieses Auszugs geprüft; `pruefe_auszuege` rechnet Nummern, Zeiträume, Salden, Summen und Hash-Kette nach (der Hash deckt je Umsatz auch Verwendungszweck, Name und IBAN ab, also alles aus `:86:`); hat die Prüfung Befunde, schreibt `datev kontoauszuege` keine Dateien | schlüssiger Verlauf statt behaupteter; ein falscher Auszug ließe sich nicht mehr ändern |
 | Belegfeld 1 | im Buchungsstapel mit Beleglink auf DATEVs Zeichenvorrat gekürzt (`datev_format.belegfeld1`), je Export ein Befund mit Beispielen | DATEV lehnt andere Zeichen ab; der OPOS-Ausgleich hängt an dem Feld |
 | Leeres Belegpaket | ohne verknüpfbaren Beleg kein ZIP (nur der Buchungsstapel) | die XSD verlangt mindestens ein Dokument |
 | Wirtschaftsjahr im Kopf | aus `datev.wirtschaftsjahr_beginn` nur Tag und Monat; Beginn des Wirtschaftsjahrs, in dem der Exportzeitraum liegt (abweichendes WJ nach § 4a EStG) | sonst stünde im Kopf ein falsches Jahr |
@@ -112,7 +117,7 @@ DATEV-Übergabe:
 
 - [x] **Modelle** (`models/integrationen.py`): `Postenart`, `Marktplatzposten`, `Abrechnung`, `Befund`, `Laenderangabe`; Tabellen `marktplatz_abrechnungen`, `marktplatz_posten`, `marktplatz_befunde`; Repository (`tests/test_integrationen_repo.py`).
 - [x] **Gemeinsame Parser** (`importers/marktplatz.py`): Beträge deutsch/englisch, Datumsformate, Ländernamen → ISO, Kopfzeile suchen, Länderdatei (`tests/test_marktplatz_parser.py`).
-- [x] **Fixtures** (`examples/marktplatz/`): anonymisiert, nach den recherchierten Formaten nachgebaut — Amazon-Abrechnung V2 + Bestellbericht, eBay-Transaktionsbericht, PayPal-Aktivitäten (mit USD-Umrechnung), Shopify-Auszahlung + Bestellexport, je mit Erstattung, Gebühr, Einbehalt.
+- [x] **Fixtures** (`examples/marktplatz/`): anonymisiert, nach den recherchierten Formaten nachgebaut — Amazon-Abrechnung V2 + Bestellbericht, eBay-Transaktionsbericht, PayPal-Aktivitäten (mit USD-Umrechnung), Shopify-Auszahlung + Bestellexport. Abdeckung (nach Runde 1 ergänzt, siehe unten): Erstattung und Gebühr je Marktplatz; Einbehalt bei Amazon (Reserve), eBay (Einbehalt), PayPal (`paypal_sonderfaelle.csv`: Einbehaltung und Freigabe, Rückbuchung) und Shopify (`shopify_auszahlung_gbp.csv`: Reserve); Währungsumrechnung bei PayPal (USD-Verkauf), eBay (`ebay_transaktionsbericht_gbp.csv`) und Shopify (GBP) über `--kurs`, bei Amazon nur durch Ersetzen von EUR durch GBP im Test.
 - [x] **Importer** Amazon, eBay, PayPal, Shopify (`tests/test_marktplatz_importer.py`).
 - [x] **Einstellungen** (`integrationen/einstellungen.py`, `tests/test_integrationen_einstellungen.py`).
 - [x] **Buchung und Summenprobe** (`integrationen/buchung.py`): Akzeptanz 1 und 2 (`tests/test_integrationen_buchung.py`).
@@ -140,13 +145,24 @@ DATEV-Übergabe:
 - [x] **MT940 und Saldenverlauf** (`tests/test_kontoauszuege.py`), CLI `accounti datev kontoauszuege` (`tests/test_cli_datev.py`).
 - [x] **Abschluss:** `pytest`, `ruff` (ohne Cache), `mypy` grün; Doku-Bausteine unten.
 
+### Nacharbeit nach der Prüfung (Runde 1)
+
+- [x] Lieferschwelle mit Vorjahr, Jahr je Posten, `eu_fernverkaeufe_sonstige` (`tests/test_integrationen_lieferschwelle.py`).
+- [x] Umsatzsteuer der Gebühren und der Werbung je Marktplatz, Amazon mit Vorsteuer (`tests/test_integrationen_buchung.py::test_amazon_gebuehren_mit_deutscher_vorsteuer` u. a.).
+- [x] OSS: Korrekturen früherer Quartale, keine still weggelassenen Zeilen, ermäßigte Sätze, Steuer je Land, Steuerabgleich in der CLI (`tests/test_integrationen_oss.py`).
+- [x] PayPal: nur Checkout-Zahlungen als Erlös, Rückbuchungen zur Prüfung, Einbehalt/Freigabe (`tests/test_integrationen_lauf.py::test_paypal_sonderfaelle`, `tests/test_marktplatz_importer.py::test_paypal_typen`).
+- [x] Fremdwährung ohne Kurs bricht vor dem Archivieren ab; eBay- und Shopify-Fremdwährung, Shopify-Reserve (`tests/test_integrationen_lauf.py`).
+- [x] Amazon: Versand aus Marktplatzlager ohne Abgangsland, Geschäftskunden ohne USt-IdNr. (`tests/test_integrationen_oss.py`, `tests/test_marktplatz_parser.py`).
+- [x] Nachträge zu bekannten Abrechnungen, PayPal-Export mit gleichem Zeitraum, Sammelabgleich in zwei Durchgängen, erledigte Befunde (`tests/test_integrationen_nachtrag.py`, `tests/test_cli_marktplatz.py`).
+- [x] Kontoauszüge: Kontrollsaldo für festgeschriebene Monate, keine Dateien bei kaputter Kette, Texte in der Hash-Kette (`tests/test_kontoauszuege.py`, `tests/test_cli_datev.py`).
+
 ## Akzeptanzkriterien → Tests
 
 | Nr. | Kriterium | Test |
 |-----|-----------|------|
-| 1 | Abrechnungszeitraum vollständig gebucht, Erlöse/Gebühren/Erstattungen getrennt | `test_integrationen_buchung.py::test_akzeptanz_1_abrechnungszeitraum_vollstaendig_gebucht`, `::test_akzeptanz_1_buchungen_tragen_den_beleg`; je Marktplatz `::test_ebay_buchung`, `::test_shopify_buchung`, `::test_paypal_buchung_je_umsatz` |
-| 2 | Summe der Einzelposten = Auszahlung, Abweichung gemeldet statt geglättet | `test_integrationen_buchung.py::test_akzeptanz_2_summenprobe_stimmt`, `::test_akzeptanz_2_abweichung_wird_gemeldet_nicht_geglaettet`; `test_integrationen_lauf.py::test_akzeptanz_2_auszahlung_weicht_von_der_bank_ab` |
-| 3 | Drei EU-Länder auf den richtigen OSS-Erlöskonten und in der Quartalsmeldung | `test_integrationen_oss.py::test_akzeptanz_3_drei_eu_laender_auf_oss_konten_und_in_der_meldung` (FR, IT, AT gegen handgerechnete Sollwerte) |
+| 1 | Abrechnungszeitraum vollständig gebucht, Erlöse/Gebühren/Erstattungen getrennt | `test_integrationen_buchung.py::test_akzeptanz_1_abrechnungszeitraum_vollstaendig_gebucht`, `::test_akzeptanz_1_buchungen_tragen_den_beleg`; je Marktplatz `::test_ebay_buchung`, `::test_shopify_buchung`, `::test_paypal_buchung_je_umsatz`; über zwei Berichte `test_integrationen_nachtrag.py::test_auszahlung_ueber_zwei_berichte*`; Fremdwährung `test_integrationen_lauf.py::test_fremdwaehrung_ohne_kurs_wird_gar_nicht_erst_importiert` |
+| 2 | Summe der Einzelposten = Auszahlung, Abweichung gemeldet statt geglättet | `test_integrationen_buchung.py::test_akzeptanz_2_summenprobe_stimmt`, `::test_akzeptanz_2_abweichung_wird_gemeldet_nicht_geglaettet`; `test_integrationen_lauf.py::test_akzeptanz_2_auszahlung_weicht_von_der_bank_ab`; `test_integrationen_nachtrag.py::test_nachtrag_nach_bankabgleich_ist_fehler`, `::test_sammelabgleich_ohne_fehlalarm` |
+| 3 | Drei EU-Länder auf den richtigen OSS-Erlöskonten und in der Quartalsmeldung | `test_integrationen_oss.py::test_akzeptanz_3_drei_eu_laender_auf_oss_konten_und_in_der_meldung` (FR, IT, AT gegen handgerechnete Sollwerte); Korrekturen und ermäßigte Sätze `::test_erstattung_aus_vorquartal_ist_korrektur_des_ursprungsquartals`, `::test_ermaessigter_oss_verkauf_mit_konto_in_der_meldung` |
 | 4 | Stammdatenexport in DATEV importierbar (Golden-Test) | `test_datev_stammdaten.py::test_akzeptanz_4_golden`, `::test_golden_ist_datev_format` |
 | 5 | Exportierte Belege hängen beim Empfänger am Buchungssatz | `test_datev_belege.py::test_akzeptanz_5_belege_haengen_am_buchungssatz` (Empfänger-Simulation), `::test_document_xml_nach_datev_vorgaben`, `::test_buchungsstapel_mit_beleglink` |
 | 6 | Kontoauszugsexport lückenlos nummeriert, Saldenverlauf schlüssig | `test_kontoauszuege.py::test_akzeptanz_6_lueckenlos_nummeriert_und_saldenverlauf_schluessig` (mit MT940-Empfänger-Simulation), `::test_pruefung_findet_*` |
@@ -170,23 +186,61 @@ DATEV-Übergabe:
   konfigurieren — der Importer kennt mehrere Namen, ein neuer Name ist ein Formatfehler, kein
   stiller Fehlimport.
 - Amazon liefert das Bestimmungsland nur mit Länderdatei (`--laender`); ohne sie gehen alle Erlöse
-  auf 8200 zur Prüfung. Die Amazon-Marktplätze UK (nach dem Brexit Drittland) und die
-  Lagerbewegungen zwischen Ländern (Pan-EU, innergemeinschaftliches Verbringen) behandelt das
-  Modul nicht eigens: Abgangsland ≠ DE geht zur Prüfung.
-- Gebühren werden ohne Steuerschlüssel gebucht. Die § 13b-Behandlung von Gebühren eines im
-  EU-Ausland ansässigen Marktplatzes (z. B. Amazon EU S.à r.l., Luxemburg) muss per
-  `marktplaetze.<name>.bu_gebuehren` eingestellt werden; Standard ist „ohne“.
+  auf 8200 zur Prüfung. Das Abgangsland kennt nur der USt-Transaktionsbericht; mit dem
+  Bestellbericht geht jeder FBA-Verkauf mit Befund `abgangsland_fehlt` zur Prüfung, bis
+  `lager_nur_inland` eingestellt ist — diese Einstellung ist eine Zusicherung des Händlers
+  (kein Pan-EU/CEE), accounti prüft sie nicht. Die Amazon-Marktplätze UK (nach dem Brexit
+  Drittland) und die Lagerbewegungen zwischen Ländern (innergemeinschaftliches Verbringen)
+  behandelt das Modul nicht eigens: Abgangsland ≠ DE geht zur Prüfung. Den
+  USt-Transaktionsbericht kennt der Importer nur aus der Spaltenbeschreibung, eine Fixture
+  dafür gibt es nicht.
+- Umsatzsteuer der Gebühren: Für Amazon wird angenommen, dass die Gebühren im
+  Abrechnungsbericht **brutto** mit 19 % deutscher USt stehen (Amazon behält die USt von der
+  Auszahlung ein). Das ist aus den Quellen abgeleitet, nicht an einer echten Abrechnung mit der
+  zugehörigen Gebührenrechnung bestätigt; bucht Amazon die Steuer in eigenen Zeilen aus,
+  landen diese als unbekannte Posten auf dem Klärungskonto. Die Vorsteuer wird aus dem
+  Abrechnungsbericht gebucht, Beleg ist aber die monatliche Gebührenrechnung — der Abgleich
+  beider fehlt. Für Amazon-Werbung, eBay und Shopify ist nichts voreingestellt; bis
+  `ust_gebuehren`/`ust_werbung` eingestellt sind, gehen deren Gebühren ohne Vorsteuer zur
+  Prüfung.
 - Ersatzleistungen, unbekannte Posten und Korrekturen werden gebucht, aber zur Prüfung vorgelegt;
   ihre steuerliche Behandlung entscheidet der Mensch.
 - PayPal: geführt wird nur das EUR-Guthaben; Fremdwährungsguthaben erscheinen nicht als Konto.
+  Erlös ist nur, was eine Checkout-Zahlungsart trägt (Typnamen aus der Dokumentation, nicht aus
+  echten Exporten); eine „Allgemeine Zahlung“ eines Kunden wird nicht gegen offene Posten
+  geprüft, sondern bleibt für `opos zuordnen`/`classify`. Rückbuchungen (Chargebacks) bucht
+  accounti nicht als Erlösminderung, sondern auf das Klärungskonto — ob Forderung oder
+  Erlösminderung mit USt-Berichtigung, entscheidet der Mensch.
+- Nachträge: Posten werden über ihren Inhalt verglichen. Ändert ein Marktplatz einen schon
+  gemeldeten Posten (anderer Betrag), gilt der geänderte als neuer Posten — die Summenprobe
+  meldet die Doppelung, gelöscht wird nichts. Zeilennummern in Befunden beziehen sich auf den
+  Bericht, aus dem der Posten kam. Wurde eine aus der Summe gebildete Auszahlung schon
+  abgeglichen, bleibt ein späterer Nachtrag ein Fehler-Befund, bis der Mensch klärt.
+- eBay: Ob eBay bei Transaktionen in einer anderen Währung als der Auszahlungswährung Brutto
+  und Gebühren in Transaktions- oder Auszahlungswährung ausweist, ist nicht geprüft; geht die
+  Zeile nicht auf, meldet die Zeilenprobe einen Fehler. Die GBP-Fixtures prüfen nur den Weg über
+  `--kurs` bei einer Auszahlung in Fremdwährung.
   Shopify: der Auszahlungsbetrag steht nicht in der Transaktionsdatei, er wird aus den Posten
   gebildet (oder mit `--auszahlung` vorgegeben).
 
 **OSS**
-- Ermäßigte Steuersätze nur über die SKU-Liste `integrationen.ermaessigte_artikel`; die OSS-Engine
-  rechnet nur den Normalsatz, ermäßigte OSS-Verkäufe gehen deshalb zur Prüfung.
-- Die Lieferschwelle zählt nur EU-B2C-Erlöse aus Marktplatz-Abrechnungen, nicht etwa Ausgangsrechnungen
-  aus Baustein 3.
+- Ermäßigte Steuersätze nur über die SKU-Liste `integrationen.ermaessigte_artikel` und je Land
+  nur der erste ermäßigte Satz aus `steuer.eu_steuersaetze` (FR 5,5 %, nicht 10 % oder 2,1 %).
+  Ohne `oss_erloes_ermaessigt` fehlen ermäßigte OSS-Verkäufe in der Meldung; die CLI zeigt die
+  Differenz der gebuchten OSS-Steuer, umbuchen muss der Mensch.
+- Die Lieferschwelle zählt EU-B2C-Erlöse aus Marktplatz-Abrechnungen und den eingestellten Wert
+  `eu_fernverkaeufe_sonstige`; Ausgangsrechnungen aus Baustein 3 zählen nur, wenn sie dort
+  eingetragen werden. Fehlt der Vorjahreswert, kann accounti ein überschrittenes Vorjahr nicht
+  erkennen.
+- OSS-Korrekturen: Eine Erstattung wird ihrem Ursprungsquartal nur zugeordnet, wenn der Erlös
+  mit derselben Belegnummer auf demselben OSS-Erlöskonto gebucht ist; sonst mindert sie das
+  laufende Quartal (die CLI warnt bei negativen Länderzeilen). Ausgewiesen wird die Änderung,
+  nicht der „ursprüngliche und berichtigte Steuerbetrag“ des Portals — die ursprünglich
+  gemeldete Steuer kennt accounti nicht. Die CSV ist eine Prüfliste, nicht das Upload-Format
+  des BZSt.
+- Gebuchte OSS-Steuer (Brutto − Netto je Bestellung) und gemeldete (je Land und Satz aus der
+  Summe) können centweise auseinanderliegen; die CLI zeigt die Differenz je Steuerkonto, eine
+  Ausgleichsbuchung gibt es nicht.
 - OSS-Erlöskonten gibt es in `steuer/umsatzsteuer.py` nur für acht Länder (FR, IT, ES, NL, SE, PL,
   AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuerkonten dort
   sind sechsstellig (`1777xx`) und teilen sich teils ein Konto (FR/AT `177720`) — sie passen nicht
@@ -196,7 +250,11 @@ DATEV-Übergabe:
 **DATEV**
 - Kein Import in ein echtes DATEV-Programm. Die Golden-Datei ist von accounti erzeugt und gegen die
   DATEV-Musterdatei (Kopf, Überschriften, Quotierung je Spalte) und die Formatbeschreibung des
-  Prüfprogramms abgeglichen; das DATEV-Format-Prüfprogramm (Windows) lief nicht.
+  Prüfprogramms abgeglichen; das DATEV-Format-Prüfprogramm (Windows) lief nicht. Die
+  Musterdatei liegt nicht im Repository: `test_golden_ist_datev_format` vergleicht die
+  Überschriften mit accountis eigener Feldliste — wird die Golden-Datei neu erzeugt, fällt eine
+  Abweichung vom DATEV-Format im Repository nicht auf (die Prüfer haben alle 254 Überschriften
+  gegen die Musterdatei nachgeprüft).
 - Stammdaten: alle Kontakte als Unternehmen (Adressattyp 2), weil Kontakte keine natürlichen Personen
   kennzeichnen; Bankverbindung nur als IBAN, keine Zahlungsbedingungs-Nummer.
 - Belege: `document.xml` ist gegen die DATEV-XSD validiert (Test läuft nur mit `ACCOUNTI_DATEV_XSD`
@@ -220,6 +278,8 @@ DATEV-Übergabe:
 - Nachträge behalten ihr Datum; im MT940 liegt ihr Buchungsdatum dann vor dem Auszugszeitraum.
 - Die Festschreibung ist eine Hash-Kette in der eigenen Datenbank: Sie macht unbemerkte Änderungen
   sichtbar, schützt aber nicht vor jemandem mit Schreibzugriff, der die Kette neu berechnet.
+  Auszüge, die vor dieser Runde festgeschrieben wurden, hätten einen Hash ohne Texte — es gibt
+  noch keine, weil der Baustein nicht zusammengeführt ist.
 - Mehrere Bankkonten auf demselben Sachkonto werden abgelehnt (ein Auszug je Finanzkonto).
   Die Reihenfolge am selben Tag ist die Ladereihenfolge der Datenbank, weil `transaktionen` den
   Importzeitpunkt nicht speichert; einmal festgeschrieben, steht sie fest.
@@ -239,7 +299,7 @@ DATEV-Übergabe:
 ### Marktplätze und DATEV-Übergabe
 
 ```bash
-accounti marktplatz import amazon ./abrechnung.txt --laender ./bestellungen.txt
+accounti marktplatz import amazon ./abrechnung.txt --laender ./ust_transaktionen.csv
 accounti marktplatz import paypal ./aktivitaeten.csv     # PayPal ist ein eigenes Konto (1210)
 accounti marktplatz import shopify ./auszahlung.csv --laender ./bestellungen.csv
 accounti marktplatz liste                                # Status und Befunde je Abrechnung
@@ -254,7 +314,11 @@ accounti datev kontoauszuege --period 2026-09 --kontrollsaldo 2.345,67
 
 Jede Abrechnung wird als Beleg archiviert und Bestandteil für Bestandteil gegen ein
 Verrechnungskonto gebucht; die Auszahlung ist nur der Abgleichspunkt gegen die Bank. Stimmt die
-Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet.
+Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Ein
+weiterer Bericht zu einer bekannten Abrechnung (Monatsberichte, erneuter Export) bucht nur die
+Posten nach, die noch fehlen. Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
+er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
+FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`.
 `datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel
 mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen festgeschrieben.
 ````
@@ -271,7 +335,9 @@ mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen f
   Verrechnungskonto gebucht, die Summenprobe meldet Abweichungen als Befund, die Auszahlung wird
   exakt gegen den Bankumsatz abgeglichen (`accounti marktplatz import|liste|zeigen|abgleichen`);
   Steuer je Bestimmungsland über `accounti.steuer` (Inland, OSS, ig. Lieferung, Ausfuhr,
-  Lieferschwelle), OSS-Quartalsmeldung (`accounti marktplatz oss`); DATEV-Debitoren/Kreditoren
+  Lieferschwelle aus Vorjahr und laufendem Jahr), Umsatzsteuer der Marktplatzgebühren
+  (Amazon mit Vorsteuer), OSS-Quartalsmeldung mit Korrekturen früherer Quartale und ermäßigten
+  Sätzen (`accounti marktplatz oss`); Nachträge zu bekannten Abrechnungen; DATEV-Debitoren/Kreditoren
   (EXTF Kategorie 16, Version 5), Belegpaket mit `document.xml` (Version 6.0) und Buchungsstapel
   mit Beleglink (`accounti datev stammdaten|belege`); Kontoauszüge je Finanzkonto, lückenlos
   nummeriert, festgeschrieben mit Hash-Kette, als MT940 mit Saldenverlauf
@@ -284,6 +350,9 @@ mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen f
 ### Behoben
 - OSS-Meldung und Schwellenprüfung (`steuer/oss.py`) zählten Erstattungen auf OSS-Erlöskonten
   als Umsatz statt als Minderung
+- OSS-Meldung (`steuer/oss.py`): Erstattungen früherer Quartale werden als Korrektur des
+  Ursprungsquartals ausgewiesen, die CSV lässt negative Zeilen nicht mehr weg, ermäßigte Sätze
+  über eigene Erlöskonten, Steuer je Land und Satz aus der Summe der Bemessungsgrundlagen
 ```
 
 ### docs/bauplan.md (ersetzt den Absatz „Baustein 11 ist teilweise fertig …“)
@@ -316,14 +385,17 @@ Bucht Marktplatz-Abrechnungen. Eine Abrechnung hat genau einen Abgleichspunkt ge
 (Amazon: Settlement-ID, eBay/Shopify: Auszahlung, PayPal: Zeitraum der Datei — PayPal ist ein
 eigenes Konto mit Guthaben).
 
-- `lauf.py` — Bericht archivieren (Beleg, Kanal `marktplatz`), Dubletten über (Marktplatz,
-  Nummer) und Datei-Hash, PayPal-Zeilen als Umsätze auf dem PayPal-Konto, Buchen, Abgleichen.
+- `lauf.py` — Bericht archivieren (Beleg, Kanal `marktplatz`), Dubletten über Datei-Hash,
+  Nachträge zu bekannten Abrechnungen (Marktplatz, Nummer) über den Inhalt der Posten,
+  PayPal-Zeilen als Umsätze auf dem PayPal-Konto, Lieferschwelle je Kalenderjahr, Buchen,
+  Abgleichen.
 - `buchung.py` — Summenprobe (Abweichung = Befund, keine Differenzbuchung); Erlös je Bestellung,
   Gebühren je Art, Erstattungen, Einbehalte gegen das Verrechnungskonto; Steuer je
   Bestimmungsland über `steuer.umsatzsteuer`; Lieferschwelle.
-- `auszahlung.py` — Auszahlung ↔ Bankumsatz exakt, sonst Befund; Buchung „Bank an
-  Verrechnungskonto“ mit `transaktion_id`.
-- `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`.
+- `auszahlung.py` — Auszahlung ↔ Bankumsatz exakt (erst alle eindeutigen Treffer, dann
+  Befunde), sonst Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`.
+- `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
+  gebuchten mit der gemeldeten OSS-Steuer.
 - `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03).
 - Tabellen `marktplatz_abrechnungen`, `marktplatz_posten`, `marktplatz_befunde`.
 ```
@@ -365,14 +437,18 @@ integrationen:
   erloes_unbekannt: "8200"      # Bestimmungsland fehlt (zur Prüfung)
   geldtransit_konto: "1360"
   auszahlung_toleranz_tage: 10  # Bankeingang bis so viele Tage nach dem Auszahlungsdatum
-  ermaessigte_artikel: []       # SKUs mit 7 %
+  ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
+  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8330" } (anlegen)
+  eu_fernverkaeufe_sonstige: {} # Jahr → EU-Fernverkäufe netto außerhalb der Marktplätze, z.B. { 2025: 12000 }
   paypal_kontobezeichnung: "PPLXLULL/PAYPAL"   # Feld :25: im MT940 des PayPal-Kontos
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
     amazon:
       verrechnungskonto: "1361"
       bank_stichworte: ["AMAZON"]
-      bu_gebuehren: null        # BU-Schlüssel der Gebühren, z.B. für § 13b UStG — mit dem Berater klären
-    ebay:    { verrechnungskonto: "1362" }
-    shopify: { verrechnungskonto: "1363", verkaufsgebuehr: "4970" }
-    paypal:  { verrechnungskonto: "1210", verkaufsgebuehr: "4970" }
+      ust_gebuehren: vorsteuer  # vorsteuer | 13b (mit bu_gebuehren) | ohne — Amazon seit 08/2024 mit deutscher USt
+      ust_werbung: null         # Werbung getrennt einstellen (nicht eingestellt → zur Prüfung)
+      lager_nur_inland: false   # true: FBA nur aus deutschen Lagern (kein Pan-EU/CEE)
+    ebay:    { verrechnungskonto: "1362", ust_gebuehren: null }   # mit dem Berater klären
+    shopify: { verrechnungskonto: "1363", verkaufsgebuehr: "4970", ust_gebuehren: null }
+    paypal:  { verrechnungskonto: "1210", verkaufsgebuehr: "4970", ust_gebuehren: ohne }
 ```
