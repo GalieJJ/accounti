@@ -5,6 +5,7 @@ Skonto- und Splitbuchungen."""
 import json
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 
@@ -146,7 +147,7 @@ def test_storno_ohne_neubuchung_und_kein_zweites_storno(make_session):
         with pytest.raises(StornoError, match="selbst ein Storno"):
             korrigiere(s, kurz(k.storno.id), "4930", "1200")
         # auch am ORM vorbei an der Funktion: der Vermerk lässt sich nicht überschreiben
-        s.get(BuchungssatzRow, str(b.id)).storniert_durch = str(k.storno.id)[:-1] + "0"
+        s.get(BuchungssatzRow, str(b.id)).storniert_durch = str(uuid4())
         with pytest.raises(BuchungFestgeschriebenError, match="schon storniert"):
             s.flush()
     assert len(lade_korrekturen(make_session())) == 1

@@ -12,6 +12,7 @@ from accounti.db.tabellen_pruefung import JournalRow
 from accounti.models import BuchungStatus
 from accounti.pruefung.journal import (
     GENESIS,
+    eintrag_hash,
     lade_journal,
     pruefe_journal,
     schreibe,
@@ -161,16 +162,22 @@ def test_veraenderter_eintrag_wird_gefunden(make_session):
 
 
 def test_neu_berechneter_hash_bricht_die_kette(make_session):
-    """Auch wer den Hash des geänderten Eintrags neu berechnet, fällt auf — der
-    Nachfolger verweist auf den alten Hash."""
+    """Auch wer den geänderten Eintrag mit neu berechnetem Hash zurückschreibt, fällt
+    auf — der Nachfolger verweist auf den alten Hash."""
     anlegen(make_session, buchung(), buchung())
+    with make_session() as s:
+        erster = lade_journal(s)[0]
+    gefaelscht = erster.model_copy(update={"person": "mallory"})
+    neuer_hash = eintrag_hash(gefaelscht)
+    assert neuer_hash != erster.hash
     _manipuliere(
         make_session,
-        "UPDATE journal SET hash = 'f' || substr(hash, 2) WHERE nr = 1",
+        f"UPDATE journal SET person = 'mallory', hash = '{neuer_hash}' WHERE nr = 1",
     )
     with make_session() as s:
-        arten = {b.art for b in pruefe_journal(s).befunde}
-    assert {"veraendert", "verkettung"} <= arten
+        befunde = pruefe_journal(s).befunde
+    assert [b.art for b in befunde] == ["verkettung"]
+    assert "Eintrag 2" in befunde[0].text
 
 
 def test_entfernter_eintrag_wird_gefunden(make_session):

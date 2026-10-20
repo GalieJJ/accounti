@@ -5,6 +5,11 @@
   ``after_create`` angelegt).
 * ``buchungskorrekturen`` — Storno (und Neubuchung) einer freigegebenen Buchung;
   ebenfalls nur anfügen.
+* ``periodenabschluesse`` — festgeschriebene Monate. Ein ORM-Ereignis auf
+  ``buchungssaetze`` verweigert wie die Jahressperre (``tabellen_abschluss``) Anlegen,
+  Ändern und Löschen von Buchungen in einem gesperrten Monat
+  (``PeriodeGesperrtError``, ein ``JahrGesperrtError``); angenommen wird nur der
+  Stornovermerk.
 
 Beim Import dieses Moduls werden die Journal-Ereignisse auf der Sitzung eingehängt
 (``accounti.pruefung.ereignisse``) — ``init_db`` und ``registriere_tabellen`` laden
@@ -15,12 +20,25 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Connection, Date, DateTime, Index, Integer, String, Text, event
+from sqlalchemy import (
+    Boolean,
+    Connection,
+    Date,
+    DateTime,
+    Index,
+    Integer,
+    String,
+    Text,
+    event,
+    inspect,
+    select,
+)
 from sqlalchemy import text as sql_text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Mapper, mapped_column
 
 from accounti.db import Base
-from accounti.db.tabellen import UnveraenderbarError
+from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
+from accounti.db.tabellen_abschluss import JahrGesperrtError, nur_stornovermerk
 
 
 class JournalRow(Base):
@@ -100,5 +118,80 @@ def _korrektur_trigger(_: object, verbindung: Connection, **__: object) -> None:
             verbindung.execute(sql_text(sql))
 
 
+# --- Monatssperre (Periodenabschluss) --------------------------------------------
+
+
+class PeriodeGesperrtError(JahrGesperrtError):
+    """Der Monat ist festgeschrieben — ändern erst nach ``accounti periode oeffnen``."""
+
+
+class PeriodenabschlussRow(Base):
+    """Ein festgeschriebener (oder wieder geöffneter) Monat."""
+
+    __tablename__ = "periodenabschluesse"
+
+    monat: Mapped[str] = mapped_column(String(7), primary_key=True)  # JJJJ-MM
+    gesperrt: Mapped[bool] = mapped_column(Boolean)
+    geschlossen_am: Mapped[datetime] = mapped_column(DateTime)
+    geschlossen_von: Mapped[str] = mapped_column(String(100))
+    geoeffnet_am: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    geoeffnet_von: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+def gesperrte_monate(verbindung: Connection) -> set[str]:
+    if not verbindung.dialect.has_table(verbindung, PeriodenabschlussRow.__tablename__):
+        return set()
+    return set(
+        verbindung.execute(
+            select(PeriodenabschlussRow.monat).where(
+                PeriodenabschlussRow.gesperrt.is_(True)
+            )
+        ).scalars()
+    )
+
+
+def monat_gesperrt(verbindung: Connection, monat: str) -> bool:
+    if not verbindung.dialect.has_table(verbindung, PeriodenabschlussRow.__tablename__):
+        return False
+    gesperrt = verbindung.execute(
+        select(PeriodenabschlussRow.gesperrt).where(PeriodenabschlussRow.monat == monat)
+    ).scalar()
+    return bool(gesperrt)
+
+
+def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
+    tage = {ziel.datum} if ziel.datum else set()
+    tage |= {d for d in inspect(ziel).attrs.datum.history.deleted if d is not None}
+    for monat in sorted({f"{d:%Y-%m}" for d in tage}):
+        if monat_gesperrt(verbindung, monat):
+            msg = (
+                f"Monat {monat} ist festgeschrieben — Buchungen sind gesperrt "
+                f"(Änderung nur nach accounti periode oeffnen {monat} --grund …)"
+            )
+            raise PeriodeGesperrtError(msg)
+
+
+@event.listens_for(BuchungssatzRow, "before_insert")
+@event.listens_for(BuchungssatzRow, "before_delete")
+def _buchung_im_gesperrten_monat(
+    _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
+) -> None:
+    _monatssperre(verbindung, ziel)
+
+
+@event.listens_for(BuchungssatzRow, "before_update")
+def _aenderung_im_gesperrten_monat(
+    _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
+) -> None:
+    if not nur_stornovermerk(ziel):
+        _monatssperre(verbindung, ziel)
+
+
 # Journal-Ereignisse auf der Sitzung einhängen (nach den Tabellen, die es braucht)
-import accounti.pruefung.ereignisse  # noqa: E402, F401
+import accounti.pruefung.ereignisse as _ereignisse  # noqa: E402
+
+# die Storno-Regel überlässt gesperrte Monate der Monatssperre
+_ereignisse.SPERREN.append(
+    lambda verbindung, tag: monat_gesperrt(verbindung, f"{tag:%Y-%m}")
+)

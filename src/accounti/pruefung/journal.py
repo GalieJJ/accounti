@@ -31,7 +31,8 @@ from sqlalchemy import Column, Connection, Float, Numeric, Table, insert, select
 from sqlalchemy.orm import Session
 
 from accounti.db.tabellen import BelegRow, BuchungssatzRow
-from accounti.db.tabellen_pruefung import JournalRow
+from accounti.db.tabellen_abschluss import AbschlussRow
+from accounti.db.tabellen_pruefung import JournalRow, PeriodenabschlussRow
 from accounti.models.pruefung import Journaleintrag
 from accounti.pruefung.person import aktuelle_person, kontext
 
@@ -366,6 +367,51 @@ def _pruefe_bestand(
                 )
 
 
+# Sperren: Vorgang im Journal → gesperrt?  (Objekt „periode“ bzw. „geschaeftsjahr“)
+_SPERRVORGAENGE = {
+    "periode_geschlossen": True,
+    "periode_geoeffnet": False,
+    "jahr_abgeschlossen": True,
+    "jahr_geoeffnet": False,
+}
+
+
+def _pruefe_sperren(
+    session: Session, eintraege: list[Journaleintrag], p: Journalpruefung
+) -> None:
+    """Monats- und Jahressperre müssen dem letzten Vorgang im Journal entsprechen."""
+    laut_journal: dict[tuple[str, str], bool] = {}
+    for e in eintraege:
+        if e.vorgang in _SPERRVORGAENGE:
+            laut_journal[(e.objekt_typ, e.objekt_id)] = _SPERRVORGAENGE[e.vorgang]
+    verbindung = session.connection()
+    tatsaechlich: dict[tuple[str, str], bool] = {}
+    for typ, tabelle, spalte in (
+        ("periode", PeriodenabschlussRow.__tablename__, "monat"),
+        ("geschaeftsjahr", AbschlussRow.__tablename__, "jahr"),
+    ):
+        if not verbindung.dialect.has_table(verbindung, tabelle):
+            continue
+        zeilen = verbindung.execute(
+            text(f"SELECT {spalte}, gesperrt FROM {tabelle}")  # feste Namen
+        )
+        for ident, gesperrt in zeilen:
+            tatsaechlich[(typ, str(ident))] = bool(gesperrt)
+    for (typ, ident), gesperrt in sorted(tatsaechlich.items()):
+        erwartet = laut_journal.get((typ, ident), False)
+        if gesperrt != erwartet:
+            was = "Monat" if typ == "periode" else "Geschäftsjahr"
+            p.befunde.append(
+                Journalbefund(
+                    "abweichung",
+                    f"{was} {ident} ist {'gesperrt' if gesperrt else 'offen'}, laut "
+                    f"Journal {'gesperrt' if erwartet else 'offen'} — an accounti "
+                    "vorbei geändert",
+                    objekt=ident,
+                )
+            )
+
+
 def pruefe_journal(session: Session, kopf: str | None = None) -> Journalpruefung:
     """Kette, optional Anker ``NR:HASH`` und Abgleich mit dem Bestand."""
     p = Journalpruefung()
@@ -380,6 +426,7 @@ def pruefe_journal(session: Session, kopf: str | None = None) -> Journalpruefung
     if kopf is not None:
         _pruefe_kopf(eintraege, kopf, p)
     _pruefe_bestand(session, eintraege, p)
+    _pruefe_sperren(session, eintraege, p)
     return p
 
 
