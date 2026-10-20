@@ -291,14 +291,19 @@ def _erloes(
         steuer_konto = berechner.berechne_ust(
             netto, land, ermaessigt=ermaessigt
         ).steuer_konto
-        erloeskonto = OSS_ERLOES_KONTEN_SKR03.get(land)
         if ermaessigt:
-            pruefen = True
-            lauf.sammle("oss_ermaessigt", bestellung)
-        if erloeskonto is None:
-            pruefen = True
-            erloeskonto = e.erloes_unbekannt
-            lauf.sammle("oss_konto_fehlt", f"{bestellung} ({land})")
+            # die OSS-Meldung kennt den Satz nur über das Erlöskonto
+            erloeskonto = e.oss_erloes_ermaessigt.get(land)
+            if erloeskonto is None:
+                pruefen = True
+                erloeskonto = e.erloes_unbekannt
+                lauf.sammle("oss_ermaessigt", f"{bestellung} ({land} {satz:f} %)")
+        else:
+            erloeskonto = OSS_ERLOES_KONTEN_SKR03.get(land)
+            if erloeskonto is None:
+                pruefen = True
+                erloeskonto = e.erloes_unbekannt
+                lauf.sammle("oss_konto_fehlt", f"{bestellung} ({land})")
         vorzeichen = 1 if brutto > 0 else -1
         bucht(
             vorzeichen * netto,
@@ -406,11 +411,14 @@ _BEFUNDTEXTE: dict[str, tuple[Schweregrad, str]] = {
     ),
     "oss_ermaessigt": (
         Schweregrad.WARNUNG,
-        "mit ermäßigtem OSS-Satz — die OSS-Meldung rechnet nur den Normalsatz",
+        "mit ermäßigtem OSS-Satz ohne Erlöskonto dafür "
+        "(integrationen.oss_erloes_ermaessigt) — Erlös auf dem Klärungskonto, "
+        "nicht in der OSS-Meldung; Konto einstellen und umbuchen",
     ),
     "oss_konto_fehlt": (
         Schweregrad.WARNUNG,
-        "ohne OSS-Erlöskonto in accounti.steuer — Konto anlegen und zuordnen",
+        "ohne OSS-Erlöskonto in accounti.steuer — nicht in der OSS-Meldung; "
+        "Konto anlegen und zuordnen",
     ),
     "ig_lieferung": (
         Schweregrad.WARNUNG,

@@ -248,34 +248,68 @@ def marktplatz_oss(
     quartal: str = typer.Option(..., help="Meldezeitraum, z.B. 2026-Q3"),
     db: str = DB_OPTION,
     csv: str | None = typer.Option(None, help="Meldung zusätzlich als CSV schreiben"),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """OSS-Quartalsmeldung aus den gebuchten EU-Fernverkäufen (steuer.oss)."""
     import re
 
     from accounti.db import init_db, session_factory
-    from accounti.integrationen.oss import oss_buchungen, oss_meldung, ungepruefte
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.integrationen.oss import (
+        oss_buchungen,
+        oss_meldung,
+        steuerabgleich,
+        ungepruefte,
+    )
+    from accounti.konfiguration import KonfigurationError
 
     treffer = re.fullmatch(r"(\d{4})-?Q([1-4])", quartal.strip().upper())
     if treffer is None:
         console.print(f"[red]Quartal {quartal!r}: Format JJJJ-Q1 … JJJJ-Q4[/red]")
         raise typer.Exit(1)
+    try:
+        kontext = lade_kontext(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    e = kontext.einstellungen
     jahr, nr = int(treffer[1]), int(treffer[2])
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
-        meldung = oss_meldung(s, jahr, nr)
-        offen = ungepruefte(oss_buchungen(s, jahr, nr))
+        meldung = oss_meldung(s, jahr, nr, kontext.firmen_land, e)
+        offen = ungepruefte(oss_buchungen(s, jahr, nr, e))
+        differenzen = steuerabgleich(s, meldung, kontext.firmen_land)
     tabelle = Table(title=f"OSS-Meldung {meldung.quartal}")
     for spalte in ("Land", "Satz", "Bemessungsgrundlage", "Steuer", "Anzahl"):
         tabelle.add_column(spalte)
+    negativ = []
     for land in sorted(meldung.laender, key=lambda x: x.land_code):
-        tabelle.add_row(
-            f"{land.land_code} {land.land_name}",
-            f"{land.steuersatz_normal.normalize():f} %",
-            _eur(land.bemessungsgrundlage_normal),
-            _eur(land.steuer_normal),
-            str(land.anzahl_normal),
-        )
+        for satz, basis, steuer, anzahl in (
+            (
+                land.steuersatz_normal,
+                land.bemessungsgrundlage_normal,
+                land.steuer_normal,
+                land.anzahl_normal,
+            ),
+            (
+                land.steuersatz_ermaessigt,
+                land.bemessungsgrundlage_ermaessigt,
+                land.steuer_ermaessigt,
+                land.anzahl_ermaessigt,
+            ),
+        ):
+            if not (anzahl or basis):
+                continue
+            if basis < 0:
+                negativ.append(land.land_code)
+            tabelle.add_row(
+                f"{land.land_code} {land.land_name}",
+                f"{satz.normalize():f} %",
+                _eur(basis),
+                _eur(steuer),
+                str(anzahl),
+            )
     tabelle.add_row(
         "Gesamt",
         "",
@@ -284,7 +318,37 @@ def marktplatz_oss(
         str(meldung.anzahl_transaktionen),
     )
     console.print(tabelle)
+    if meldung.korrekturen:
+        korrektur = Table(title="Korrekturen früherer Meldezeiträume")
+        for spalte in ("Zeitraum", "Land", "Satz", "Bemessungsgrundlage", "Steuer"):
+            korrektur.add_column(spalte)
+        for k in meldung.korrekturen:
+            korrektur.add_row(
+                k.zeitraum,
+                k.land_code,
+                f"{k.steuersatz.normalize():f} %",
+                _eur(k.bemessungsgrundlage),
+                _eur(k.steuer),
+            )
+        console.print(korrektur)
+        console.print(
+            "Korrekturen im BZSt-Portal beim ursprünglichen Meldezeitraum angeben "
+            "(ursprünglicher und berichtigter Steuerbetrag), nicht als Minusbetrag."
+        )
     console.print(f"Abgabe beim BZSt bis {meldung.abgabefrist:%d.%m.%Y} (§ 18j UStG).")
+    if negativ:
+        console.print(
+            f"[red]Negative Länderzeile ({', '.join(negativ)}): Erstattungen ohne "
+            "auffindbaren Erlös — Ursprungsquartal klären und als Korrektur melden, "
+            "das BZSt nimmt keine negativen Beträge an.[/red]"
+        )
+    for d in differenzen:
+        console.print(
+            f"[yellow]OSS-Steuerkonto {d.konto}: gebucht {_eur(d.gebucht)} €, "
+            f"gemeldet {_eur(d.gemeldet)} € (Differenz {_eur(d.differenz)} €) — "
+            "Rundung je Buchung oder OSS-Erlöse außerhalb der OSS-Erlöskonten "
+            "(Befunde oss_ermaessigt, oss_konto_fehlt) prüfen.[/yellow]"
+        )
     if offen:
         console.print(
             f"[yellow]{offen} OSS-Buchungen liegen noch zur Prüfung — Meldung "

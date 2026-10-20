@@ -15,6 +15,7 @@ Unter der Schwelle → Wahlrecht (DE-Steuersatz oder OSS).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -73,6 +74,29 @@ class OSSLand:
 
 
 @dataclass
+class OSSKorrektur:
+    """Berichtigung eines früheren Meldezeitraums (Art. 61 MwSt-DVO, § 18j UStG).
+
+    Eine Erlösminderung (z.B. Erstattung) zu einer Lieferung aus einem früheren
+    Quartal wird nicht mit dem laufenden Quartal verrechnet — das BZSt nimmt keine
+    negativen Beträge an —, sondern in der laufenden Meldung als Korrektur des
+    ursprünglichen Quartals angegeben.
+    """
+
+    land_code: str
+    jahr: int
+    quartal_nr: int
+    steuersatz: Decimal
+    bemessungsgrundlage: Decimal = Decimal("0.00")
+    steuer: Decimal = Decimal("0.00")
+    anzahl: int = 0
+
+    @property
+    def zeitraum(self) -> str:
+        return f"{self.jahr}-Q{self.quartal_nr}"
+
+
+@dataclass
 class OSSMeldung:
     """Vollständige OSS-Meldung für ein Quartal."""
 
@@ -83,6 +107,7 @@ class OSSMeldung:
     firmen_ust_id: str = ""
 
     laender: list[OSSLand] = field(default_factory=list)
+    korrekturen: list[OSSKorrektur] = field(default_factory=list)
     erstellt_am: date = field(default_factory=date.today)
 
     # Fristen
@@ -110,14 +135,15 @@ class OSSMeldung:
         zeilen = [
             "Land;Steuersatz;Bemessungsgrundlage;Steuer;Anzahl",
         ]
+        # jede Zeile mit Buchungen, auch negative — die Länderzeilen ergeben GESAMT
         for land in sorted(self.laender, key=lambda eintrag: eintrag.land_code):
-            if land.bemessungsgrundlage_normal > 0:
+            if land.anzahl_normal or land.bemessungsgrundlage_normal:
                 zeilen.append(
                     f"{land.land_code};{land.steuersatz_normal}%;"
                     f"{land.bemessungsgrundlage_normal:.2f};"
                     f"{land.steuer_normal:.2f};{land.anzahl_normal}"
                 )
-            if land.bemessungsgrundlage_ermaessigt > 0:
+            if land.anzahl_ermaessigt or land.bemessungsgrundlage_ermaessigt:
                 zeilen.append(
                     f"{land.land_code};{land.steuersatz_ermaessigt}%;"
                     f"{land.bemessungsgrundlage_ermaessigt:.2f};"
@@ -127,6 +153,15 @@ class OSSMeldung:
             f"GESAMT;;{self.bemessungsgrundlage_gesamt:.2f};"
             f"{self.steuer_gesamt:.2f};{self.anzahl_transaktionen}"
         )
+        if self.korrekturen:
+            zeilen.append("Korrektur;Land;Steuersatz;Bemessungsgrundlage;Steuer;Anzahl")
+            for k in sorted(
+                self.korrekturen, key=lambda x: (x.jahr, x.quartal_nr, x.land_code)
+            ):
+                zeilen.append(
+                    f"{k.zeitraum};{k.land_code};{k.steuersatz}%;"
+                    f"{k.bemessungsgrundlage:.2f};{k.steuer:.2f};{k.anzahl}"
+                )
         return zeilen
 
 
@@ -143,6 +178,11 @@ class OSSEngine:
 
     def _runde(self, betrag: Decimal) -> Decimal:
         return betrag.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+    def _steuer(self, basis: Decimal, satz: Decimal) -> Decimal:
+        """Steuer auf eine Bemessungsgrundlage (Vorzeichen bleibt erhalten)."""
+        betrag = self._runde(abs(basis) * satz / Decimal("100"))
+        return -betrag if basis < 0 else betrag
 
     def _quartal_fuer_datum(self, datum: date) -> tuple[int, int]:
         """Gibt (Jahr, Quartalsnummer) für ein Datum zurück."""
@@ -212,16 +252,23 @@ class OSSEngine:
         buchungen: list[Buchungssatz],
         jahr: int,
         quartal_nr: int,
+        erloes_konten_ermaessigt: Mapping[str, str] | None = None,
     ) -> OSSMeldung:
         """Erstellt eine OSS-Quartalsmeldung aus Buchungssätzen.
 
-        Gruppiert alle OSS-relevanten Buchungen nach Bestimmungsland
-        und Steuersatz.
+        Gruppiert die OSS-Buchungen des Quartals nach Bestimmungsland und
+        Steuersatz; die Steuer wird je Land und Satz einmal aus der Summe der
+        Bemessungsgrundlagen gerundet. Eine Erlösminderung (OSS-Erlöskonto im Soll),
+        deren Erlös mit derselben Belegnummer in einem früheren Quartal liegt, wird
+        als Korrektur dieses Quartals ausgewiesen.
 
         Args:
-            buchungen: Alle Buchungen (werden nach Quartal gefiltert)
+            buchungen: Alle Buchungen bis Quartalsende (frühere für die Zuordnung
+                von Erstattungen; nach Quartal wird hier gefiltert)
             jahr: Meldejahr
             quartal_nr: Quartalsnummer (1-4)
+            erloes_konten_ermaessigt: Land → Erlöskonto für Umsätze zum ermäßigten
+                Satz des Bestimmungslands
 
         Returns:
             Vollständige OSSMeldung
@@ -229,49 +276,90 @@ class OSSEngine:
         von, bis = self._quartal_zeitraum(jahr, quartal_nr)
         frist = self._abgabefrist(jahr, quartal_nr)
 
-        # Buchungen des Quartals filtern
-        quartal_buchungen = [b for b in buchungen if von <= b.datum <= bis]
-
-        # Nach Land gruppieren
         # TODO: Bestimmungsland muss als Metadatum auf dem Buchungssatz sein.
-        # Für jetzt: Ableitung aus dem Erlöskonto.
+        # Für jetzt: Ableitung aus dem Erlöskonto (ermäßigt: eigene Konten).
         from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
-        konto_zu_land = {v: k for k, v in OSS_ERLOES_KONTEN_SKR03.items()}
-        laender_daten: dict[str, OSSLand] = {}
+        konto_zu_land: dict[str, tuple[str, bool]] = {
+            konto: (land, False) for land, konto in OSS_ERLOES_KONTEN_SKR03.items()
+        }
+        for code, konto in (erloes_konten_ermaessigt or {}).items():
+            konto_zu_land[konto] = (code.upper(), True)
 
-        for b in quartal_buchungen:
-            # Bestimmungsland aus Erlöskonto ableiten; im Soll ist es eine
-            # Erlösminderung (Erstattung, Gutschrift) und mindert die Meldung
-            land_code = konto_zu_land.get(b.haben_konto)
-            vorzeichen = 1
-            if land_code is None:
-                land_code = konto_zu_land.get(b.soll_konto)
-                vorzeichen = -1
-            if land_code is None:
+        # Ursprung je Erlös: frühestes Datum je (Erlöskonto, Belegnummer)
+        ursprung: dict[tuple[str, str], date] = {}
+        for b in buchungen:
+            if b.beleg_nummer and b.haben_konto in konto_zu_land and b.datum <= bis:
+                schluessel = (b.haben_konto, b.beleg_nummer)
+                if schluessel not in ursprung or b.datum < ursprung[schluessel]:
+                    ursprung[schluessel] = b.datum
+
+        basen: dict[tuple[str, bool], list[Decimal]] = {}
+        korrekturen: dict[tuple[str, bool, int, int], list[Decimal]] = {}
+        for b in buchungen:
+            if not von <= b.datum <= bis:
+                continue
+            # Haben = Erlös; im Soll ist es eine Erlösminderung (Erstattung,
+            # Gutschrift) und mindert die Meldung
+            konto, vorzeichen = b.haben_konto, Decimal(1)
+            if konto not in konto_zu_land:
+                konto, vorzeichen = b.soll_konto, Decimal(-1)
+            if konto not in konto_zu_land:
                 continue  # Kein OSS-relevantes Konto
+            land_code, ermaessigt = konto_zu_land[konto]
+            if land_code not in EU_STEUERSAETZE:
+                continue
+            betrag = vorzeichen * abs(b.betrag_netto)
+            frueher = (
+                ursprung.get((konto, b.beleg_nummer))
+                if vorzeichen < 0 and b.beleg_nummer
+                else None
+            )
+            if frueher is not None and frueher < von:
+                j, q = self._quartal_fuer_datum(frueher)
+                summe = korrekturen.setdefault((land_code, ermaessigt, j, q), [])
+            else:
+                summe = basen.setdefault((land_code, ermaessigt), [])
+            summe.append(betrag)
 
-            if land_code not in laender_daten:
-                info = EU_STEUERSAETZE.get(land_code)
-                if info is None:
-                    continue
-                laender_daten[land_code] = OSSLand(
+        laender_daten: dict[str, OSSLand] = {}
+        for (land_code, ermaessigt), betraege in sorted(basen.items()):
+            info = EU_STEUERSAETZE[land_code]
+            land = laender_daten.setdefault(
+                land_code,
+                OSSLand(
                     land_code=land_code,
                     land_name=info.land_name,
                     steuersatz_normal=info.normal,
                     steuersatz_ermaessigt=info.ermaessigt,
-                )
-
-            land = laender_daten[land_code]
-
-            # TODO: Ermäßigt vs. Normal unterscheiden (braucht Metadaten)
-            # Für jetzt: alles als Normalsatz
-            land.bemessungsgrundlage_normal += vorzeichen * abs(b.betrag_netto)
-            steuer = self._runde(
-                abs(b.betrag_netto) * land.steuersatz_normal / Decimal("100")
+                ),
             )
-            land.steuer_normal += vorzeichen * steuer
-            land.anzahl_normal += 1
+            basis = sum(betraege, Decimal("0.00"))
+            if ermaessigt:
+                land.bemessungsgrundlage_ermaessigt = basis
+                land.steuer_ermaessigt = self._steuer(basis, info.ermaessigt)
+                land.anzahl_ermaessigt = len(betraege)
+            else:
+                land.bemessungsgrundlage_normal = basis
+                land.steuer_normal = self._steuer(basis, info.normal)
+                land.anzahl_normal = len(betraege)
+
+        korrektur_liste = []
+        for (land_code, ermaessigt, j, q), betraege in sorted(korrekturen.items()):
+            info = EU_STEUERSAETZE[land_code]
+            satz = info.ermaessigt if ermaessigt else info.normal
+            basis = sum(betraege, Decimal("0.00"))
+            korrektur_liste.append(
+                OSSKorrektur(
+                    land_code=land_code,
+                    jahr=j,
+                    quartal_nr=q,
+                    steuersatz=satz,
+                    bemessungsgrundlage=basis,
+                    steuer=self._steuer(basis, satz),
+                    anzahl=len(betraege),
+                )
+            )
 
         return OSSMeldung(
             quartal=f"{jahr}-Q{quartal_nr}",
@@ -279,6 +367,7 @@ class OSSEngine:
             quartal_nr=quartal_nr,
             firmen_land=self.firmen_land,
             laender=list(laender_daten.values()),
+            korrekturen=korrektur_liste,
             meldezeitraum_von=von,
             meldezeitraum_bis=bis,
             abgabefrist=frist,

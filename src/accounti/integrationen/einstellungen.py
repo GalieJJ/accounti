@@ -118,6 +118,13 @@ class Integrationen(BaseModel):
     ermaessigte_artikel: list[str] = Field(
         default_factory=list, description="SKUs mit ermäßigtem Steuersatz"
     )
+    oss_erloes_ermaessigt: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Land → Erlöskonto für OSS-Umsätze zum ermäßigten Satz (anzulegen); "
+            "ohne Konto gehen sie zur Prüfung und nicht in die OSS-Meldung"
+        ),
+    )
     eu_fernverkaeufe_sonstige: dict[int, Decimal] = Field(
         default_factory=dict,
         description=(
