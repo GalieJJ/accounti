@@ -7,7 +7,8 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
-from accounti.db.repo_zahlung import lade_lauf, lade_protokoll
+from accounti.db import init_db, session_factory
+from accounti.db.repo_zahlung import lade_laeufe, lade_lauf, lade_protokoll
 from accounti.db.repository import lade_kontakte, lade_posten
 from accounti.db.tabellen import UnveraenderbarError
 from accounti.db.tabellen_zahlung import LaufProtokollRow, ZahlungRow
@@ -15,10 +16,12 @@ from accounti.models.zahlung import LaufStatus
 from accounti.zahlung.freigabe import (
     LaufError,
     ZustandError,
+    betriebssystem_benutzer,
     entferne,
     freigeben,
     lege_an,
     markiere_eingereicht,
+    person_fuer_freigabe,
     storniere,
 )
 from accounti.zahlung.konfiguration import Auftraggeber, ZahlungEinstellungen
@@ -254,3 +257,42 @@ def test_vier_augen_prinzip(db):
         ("freigabe", "jan"),
         ("freigabe", "erika"),
     ]
+
+
+def test_vier_augen_person_kommt_aus_der_anmeldung(monkeypatch):
+    """Mit zahlung.vier_augen zählt nur der Anmeldename — kein --von, keine Variable."""
+    vier = E.model_copy(update={"vier_augen": True})
+    ich = betriebssystem_benutzer()
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "mallory")
+    monkeypatch.setenv("USER", "mallory")
+    monkeypatch.setenv("LOGNAME", "mallory")
+    assert person_fuer_freigabe(None, vier) == ich
+    assert person_fuer_freigabe(ich, vier) == ich
+    with pytest.raises(LaufError, match="--von ist mit zahlung.vier_augen nicht"):
+        person_fuer_freigabe("erika" if ich != "erika" else "jan", vier)
+    # ohne Vier-Augen bleibt alles wie bisher
+    assert person_fuer_freigabe("erika", E) == "erika"
+    assert person_fuer_freigabe(None, E) == "mallory"
+
+
+def test_nur_eingetragene_freigeber(db):
+    fabrik, *_ = db
+    e = E.model_copy(update={"freigeber": ["erika", "jan"]})
+    lauf = _anlegen(fabrik, e=e)
+    with fabrik() as s, pytest.raises(LaufError, match="mallory ist nicht als"):
+        freigeben(s, lauf.nr, "mallory", e, heute=STICHTAG)
+    assert _freigeben(fabrik, lauf.nr, "jan", e).status is LaufStatus.FREIGEGEBEN
+
+
+def test_anlage_wird_erst_mit_dem_commit_gespeichert(tmp_path):
+    """Kein Savepoint, der unter SQLite den Lauf vorzeitig festschreibt."""
+    engine, fabrik = session_factory(f"sqlite:///{(tmp_path / 'a.db').as_posix()}")
+    init_db(engine)
+    m = kreditor()
+    speichere(fabrik, [m], [posten(m, faellig=date(2026, 10, 19))])
+    with fabrik() as s:
+        lege_an(s, lade_vorschlag(s, STICHTAG, E), E, "erika")
+        s.rollback()
+    with fabrik() as s:
+        assert lade_laeufe(s) == []
+    engine.dispose()

@@ -12,6 +12,10 @@ _FORM = re.compile(r"[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}")
 # EPC409-09 „EPC List of SEPA Scheme Countries“ v8.0 vom 24.12.2025 — 27 EU-Staaten,
 # 3 EWR-Staaten, 11 Nicht-EWR-Länder, dazu Gibraltar (GI). Guernsey, Jersey und Isle
 # of Man führen GB-IBANs, die französischen Überseegebiete FR-IBANs.
+#
+# Nur innerhalb des EWR genügt die IBAN. Für Empfänger in den Nicht-EWR-Ländern
+# verlangt das SCT-Regelwerk zusätzlich den BIC der Empfängerbank und die Anschrift
+# des Auftraggebers (Bundesbank, FAQ SEPA) — accounti schreibt beides nicht.
 EU = frozenset(
     {
         *("AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR"),
@@ -39,6 +43,11 @@ def gueltig(iban: str | None) -> bool:
 
 def im_sepa_raum(iban: str | None) -> bool:
     return normalisiere(iban)[:2] in SEPA_LAENDER
+
+
+def im_ewr(iban: str | None) -> bool:
+    """IBAN-only reicht: Empfängerbank im Europäischen Wirtschaftsraum."""
+    return normalisiere(iban)[:2] in EWR
 
 
 def lesbar(iban: str | None) -> str:

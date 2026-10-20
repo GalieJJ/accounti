@@ -3,6 +3,8 @@
 import xml.etree.ElementTree as ET
 from datetime import date, timedelta
 
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session
 from typer.testing import CliRunner
 
 from accounti.cli import app
@@ -152,3 +154,46 @@ def test_ohne_auftraggeber_klare_meldung(tmp_path):
     r = _run("zahlung", "anlegen", "--db", url, "--config", str(tmp_path / "x.yaml"))
     assert r.exit_code == 1
     assert "Auftraggeber fehlt" in r.output
+
+
+def test_vier_augen_ohne_von(tmp_path):
+    """Eine Person kann sich nicht mit --von als zweite ausgeben."""
+    url, config = _umgebung(tmp_path)
+    with open(config, "a", encoding="utf-8") as f:
+        f.write("zahlung: {vier_augen: true}\n")
+    basis = ["--db", url, "--config", config]
+    assert _run("zahlung", "anlegen", *basis).exit_code == 0
+    r = _run("zahlung", "freigeben", "1", *basis, "--von", "eine-andere-person")
+    assert r.exit_code == 1
+    assert "--von ist mit zahlung.vier_augen nicht erlaubt" in r.output
+    r = _run("zahlung", "freigeben", "1", *basis)
+    assert r.exit_code == 0 and "Erste Freigabe" in r.output
+    r = _run("zahlung", "freigeben", "1", *basis)
+    assert r.exit_code == 1 and "zweite Person" in r.output
+
+
+def test_sepa_datei_erst_nach_dem_commit(tmp_path, monkeypatch):
+    """Scheitert das Speichern, gibt es keine Datei — sonst entstünde beim nächsten
+    Aufruf eine zweite mit neuer MsgId, und die Bank zahlte doppelt."""
+    url, config = _umgebung(tmp_path)
+    basis = ["--db", url, "--config", config]
+    assert _run("zahlung", "anlegen", *basis).exit_code == 0
+    assert _run("zahlung", "freigeben", "1", *basis).exit_code == 0
+    datei = tmp_path / "ueberweisung.xml"
+    commit = Session.commit
+
+    def gesperrt(self):
+        raise OperationalError("COMMIT", {}, Exception("database is locked"))
+
+    monkeypatch.setattr(Session, "commit", gesperrt)
+    r = _run("zahlung", "sepa", "1", "--datei", str(datei), *basis)
+    assert r.exit_code != 0 and not datei.exists()
+    monkeypatch.setattr(Session, "commit", commit)
+
+    falsch = tmp_path / "fehlt" / "x.xml"
+    r = _run("zahlung", "sepa", "1", "--datei", str(falsch), *basis)
+    assert r.exit_code == 1
+    assert "konnte nicht geschrieben werden" in r.output
+    assert "accounti zahlung sepa 1 --datei" in r.output
+    r = _run("zahlung", "sepa", "1", "--datei", str(datei), *basis)
+    assert r.exit_code == 0 and "unverändert" in r.output and datei.exists()

@@ -7,7 +7,13 @@ from decimal import Decimal
 from uuid import uuid4
 
 from accounti.db import init_db, session_factory
-from accounti.db.repository import speichere_beleg, speichere_kontakt, speichere_posten
+from accounti.db.repository import (
+    speichere_beleg,
+    speichere_kontakt,
+    speichere_posten,
+    speichere_transaktion,
+    speichere_zuordnung,
+)
 from accounti.models import (
     Beleg,
     Belegart,
@@ -18,6 +24,10 @@ from accounti.models import (
     OffenerPosten,
     PostenRichtung,
     PostenStatus,
+    Transaktion,
+    TransaktionQuelle,
+    Zahlungszuordnung,
+    ZuordnungStatus,
 )
 
 IBAN_MUELLER = "DE89370400440532013000"
@@ -144,3 +154,36 @@ def speichere(
         for p in alle_posten:
             speichere_posten(s, p)
         s.commit()
+
+
+def zahlung_vorschlagen(
+    make_session: object,
+    p: OffenerPosten,
+    betrag: str | None = None,
+    datum: date = date(2026, 10, 18),
+    status: ZuordnungStatus = ZuordnungStatus.VORGESCHLAGEN,
+) -> Zahlungszuordnung:
+    """Bankumsatz zum Posten, den ``opos zuordnen`` ihm als Zahlung vorschlägt."""
+    wert = Decimal(betrag) if betrag is not None else p.restbetrag
+    ausgang = p.richtung is PostenRichtung.VERBINDLICHKEIT
+    tx = Transaktion(
+        datum=datum,
+        betrag=-wert if ausgang else wert,
+        verwendungszweck=f"{p.belegnummer} Zahlung",
+        quelle=TransaktionQuelle.BANK,
+        rohtext="test",
+    )
+    zuordnung = Zahlungszuordnung(
+        transaktion_id=tx.id,
+        posten_id=p.id,
+        betrag=wert,
+        stufe="referenz",
+        status=status,
+        confidence=0.9,
+        begruendung="Test",
+    )
+    with make_session() as s:
+        speichere_transaktion(s, tx)
+        speichere_zuordnung(s, zuordnung)
+        s.commit()
+    return zuordnung

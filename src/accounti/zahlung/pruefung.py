@@ -23,8 +23,19 @@ from accounti.db.repo_zahlung import (
 from accounti.db.repository import lade_beleg, lade_einen_posten, lade_kontakte
 from accounti.models import Kontakt, KontaktStatus, OffenerPosten, PostenStatus
 from accounti.models.zahlung import AKTIVE_STATUS, Zahlung, Zahlungslauf
-from accounti.zahlung.iban import gueltig, im_sepa_raum, lesbar, normalisiere
+from accounti.zahlung.iban import (
+    gueltig,
+    im_ewr,
+    im_sepa_raum,
+    lesbar,
+    normalisiere,
+)
 from accounti.zahlung.konfiguration import ZahlungEinstellungen
+from accounti.zahlung.vorschlag import (
+    vorgeschlagene_zahlungen,
+    zahlung_vorgeschlagen_text,
+)
+from accounti.zahlung.zeichen import sepa_text
 
 HOECHSTER_SEPA_BETRAG = Decimal("999999999.99")
 
@@ -106,6 +117,13 @@ def _iban(
         befunde.append(f"IBAN {lesbar(stamm)} im Stammsatz ist ungültig (Prüfziffer)")
     elif not im_sepa_raum(stamm):
         befunde.append(f"IBAN {lesbar(stamm)} liegt nicht im SEPA-Raum ({stamm[:2]})")
+    elif not im_ewr(stamm):
+        befunde.append(
+            f"IBAN {lesbar(stamm)} liegt außerhalb des EWR ({stamm[:2]}) — dorthin "
+            "verlangt SEPA zusätzlich den BIC der Empfängerbank und die Anschrift des "
+            "Auftraggebers, die accounti nicht schreibt; Zahlung entfernen und im "
+            "Onlinebanking einzeln überweisen"
+        )
     if normalisiere(z.iban) != stamm:
         befunde.append(
             f"IBAN der Zahlung {lesbar(z.iban)} weicht vom Stammsatz {lesbar(stamm)} "
@@ -141,9 +159,13 @@ def _geklaert(session: Session, posten_id: UUID, rechnung: str, stamm: str) -> b
 
 def _lauf_befunde(lauf: Zahlungslauf, heute: date) -> list[Befund]:
     befunde = []
-    if not lauf.auftraggeber_name.strip():
+    if not sepa_text(lauf.auftraggeber_name, 70):
         befunde.append(
-            Befund(None, "Name des Auftraggebers fehlt (zahlung.auftraggeber.name)")
+            Befund(
+                None,
+                "Name des Auftraggebers fehlt oder enthält keine Zeichen aus dem "
+                "SEPA-Zeichensatz (zahlung.auftraggeber.name)",
+            )
         )
     if not gueltig(lauf.auftraggeber_iban):
         befunde.append(
@@ -176,6 +198,7 @@ def pruefe_lauf(
     ergebnis = Pruefergebnis(lauf.nr, _lauf_befunde(lauf, heute))
     kontakte = {k.id: k for k in lade_kontakte(session)}
     sperren = lade_zahlungssperren(session)
+    vorgeschlagen = vorgeschlagene_zahlungen(session)
     gesehen: dict[UUID, int] = {}
     for z in lauf.zahlungen:
         texte: list[str] = []
@@ -197,6 +220,18 @@ def pruefe_lauf(
                 f"{betrag_de(grenze)} € (zahlung.hoechstbetrag_zahlung)"
             )
         k = kontakte.get(z.kontakt_id)
+        if not sepa_text(z.empfaenger, 70):
+            konto = (k.kreditor_konto or str(k.id)[:8]) if k else "…"
+            texte.append(
+                f"Empfängername „{z.empfaenger}“ enthält keine Zeichen aus dem "
+                "SEPA-Zeichensatz — Namen im Stammsatz in lateinischer Schrift "
+                f"pflegen (accounti kontakte bearbeiten {konto} --name …), dann "
+                "Zahlung entfernen und neu anlegen"
+            )
+        if not sepa_text(z.verwendungszweck, 140):
+            texte.append(
+                "Verwendungszweck ist leer — Zahlung entfernen und neu anlegen"
+            )
         if k is None:
             texte.append("Der Kontakt existiert nicht mehr")
         else:
@@ -219,6 +254,12 @@ def pruefe_lauf(
                 f"(auch Zahlung {gesehen[p.id]})"
             )
         gesehen.setdefault(p.id, z.nr)
+        if p.id in vorgeschlagen:
+            texte.append(
+                zahlung_vorgeschlagen_text(
+                    vorgeschlagen[p.id], f"Posten {_bezeichnung(p)}"
+                )
+            )
         for _, nr, status in zahlungen_zum_posten(session, p.id):
             if nr != lauf.nr and status in AKTIVE_STATUS:
                 texte.append(

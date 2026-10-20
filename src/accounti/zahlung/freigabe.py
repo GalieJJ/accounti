@@ -7,7 +7,11 @@ Freigabe-Hash hält fest, was freigegeben wurde; wer korrigieren will, storniert
 
 Mit ``zahlung.vier_augen`` braucht die Freigabe zwei verschiedene Personen. Eine
 Freigabe gilt nur für den Inhalt, den sie gesehen hat — ändert sich der Entwurf
-danach, zählt sie nicht mehr.
+danach, zählt sie nicht mehr. Wer freigibt, ist dann der Anmeldename des
+Betriebssystems (über die Benutzerkennung, nicht über Umgebungsvariablen); ``--von``
+und ``ACCOUNTI_BENUTZER`` zählen nicht. Mit ``zahlung.freigeber`` dürfen nur die
+eingetragenen Personen freigeben. Das ist so stark wie die Anmeldung am Rechner:
+Wer zwei Konten hat oder die Datenbank direkt ändert, umgeht es.
 """
 
 from __future__ import annotations
@@ -16,12 +20,14 @@ import getpass
 import hashlib
 import json
 import os
+import sys
 from datetime import date, datetime
 
 from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
 from accounti.db.repo_zahlung import (
+    LaufVeraltetError,
     PostenImLaufError,
     aktualisiere_lauf,
     entferne_zahlung,
@@ -85,6 +91,33 @@ class LaufGesperrtError(LaufError):
 def person_standard() -> str:
     """Wer handelt: ``ACCOUNTI_BENUTZER``, sonst der Anmeldename."""
     return os.environ.get("ACCOUNTI_BENUTZER") or getpass.getuser()
+
+
+def betriebssystem_benutzer() -> str:
+    """Anmeldename über die Benutzerkennung des Prozesses.
+
+    ``getpass.getuser()`` liest zuerst ``LOGNAME``/``USER`` — die setzt jeder selbst.
+    """
+    if sys.platform == "win32":  # pragma: no cover - nur unter Windows
+        return os.getlogin()
+    import pwd
+
+    return pwd.getpwuid(os.getuid()).pw_name
+
+
+def person_fuer_freigabe(von: str | None, einstellungen: ZahlungEinstellungen) -> str:
+    """Wer freigibt — mit Vier-Augen-Prinzip nur der angemeldete Benutzer."""
+    if not einstellungen.vier_augen:
+        return von or person_standard()
+    angemeldet = betriebssystem_benutzer()
+    if von is not None and von != angemeldet:
+        msg = (
+            "--von ist mit zahlung.vier_augen nicht erlaubt — es gibt frei, wer am "
+            f"Rechner angemeldet ist ({angemeldet}). Die zweite Person meldet sich "
+            "selbst an."
+        )
+        raise LaufError(msg)
+    return angemeldet
 
 
 def pruefe_uebergang(lauf: Zahlungslauf, nach: LaufStatus) -> None:
@@ -163,7 +196,15 @@ def _wechsel(
     pruefe_uebergang(lauf, nach)
     von = lauf.status
     neu = lauf.model_copy(update={"status": nach, **felder})
-    aktualisiere_lauf(session, neu)
+    try:
+        aktualisiere_lauf(session, neu, von)
+    except LaufVeraltetError as fehler:
+        msg = (
+            f"Lauf {lauf.nr} wurde inzwischen geändert (gelesen: {von.value}) — "
+            "nichts geschrieben; Stand mit 'accounti zahlung zeigen "
+            f"{lauf.nr}' ansehen und neu entscheiden"
+        )
+        raise ZustandError(msg) from fehler
     if nach in (LaufStatus.STORNIERT, LaufStatus.AUSGEFUEHRT):
         gib_posten_frei(session, lauf.id)
     _protokoll(session, neu, person, aktion, text, von, nach)
@@ -298,6 +339,12 @@ def freigeben(
     """Prüft und gibt frei; mit Vier-Augen-Prinzip erst bei der zweiten Person."""
     lauf = lade_lauf(session, lauf_nr)
     pruefe_uebergang(lauf, LaufStatus.FREIGEGEBEN)
+    if einstellungen.freigeber and person not in einstellungen.freigeber:
+        msg = (
+            f"{person} ist nicht als Freigeber eingetragen (zahlung.freigeber: "
+            f"{', '.join(einstellungen.freigeber)})"
+        )
+        raise LaufError(msg)
     ergebnis = pruefe_lauf(session, lauf, einstellungen, heute)
     if not ergebnis.ok:
         raise LaufGesperrtError(ergebnis)

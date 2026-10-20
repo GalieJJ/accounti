@@ -57,7 +57,14 @@ class ZahlungEinstellungen(BaseModel):
     hoechstbetrag_zahlung: Decimal | None = Field(
         default=None, gt=0, description="Prüfung: größere Einzelzahlungen blockieren"
     )
-    vier_augen: bool = False
+    vier_augen: bool = Field(
+        default=False,
+        description="zwei verschiedene Personen (Anmeldename) geben frei",
+    )
+    freigeber: list[str] = Field(
+        default_factory=list,
+        description="nur diese Personen dürfen freigeben; leer = alle",
+    )
     einzelbuchung: bool = Field(
         default=True, description="BtchBookg=false — nur mit Bankvereinbarung"
     )

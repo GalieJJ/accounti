@@ -23,6 +23,7 @@ from accounti.zahlung.freigabe import (
     lege_an,
     setze_sperre,
 )
+from accounti.zahlung.iban import lesbar
 from accounti.zahlung.konfiguration import Auftraggeber, ZahlungEinstellungen
 from accounti.zahlung.pruefung import pruefe_lauf
 from accounti.zahlung.vorschlag import lade_vorschlag
@@ -36,6 +37,7 @@ from tests.zahlung_hilfe import (
     neue_db,
     posten,
     speichere,
+    zahlung_vorschlagen,
 )
 
 E = ZahlungEinstellungen(
@@ -257,4 +259,55 @@ def test_doppelter_posten_wird_auch_an_der_sperre_vorbei_erkannt():
     assert [b.text for b in _befunde(fabrik).befunde] == [
         "Posten RE-2026-0042 steht schon in Zahlungslauf 2 (freigegeben) — "
         "nie zweimal überweisen"
+    ]
+
+
+def test_vorgeschlagene_zahlung_blockiert_freigabe_und_datei():
+    """Zwischen Anlage und Freigabe taucht ein Bankumsatz zum Posten auf."""
+    fabrik, lauf, _, p = _lauf()
+    zahlung_vorschlagen(fabrik, p)
+    assert [b.text for b in _befunde(fabrik).befunde] == [
+        "Bankumsatz über 1.190,00 € ist Posten RE-2026-0042 als Zahlung "
+        "vorgeschlagen — vielleicht schon bezahlt; erst 'accounti opos bestaetigen' "
+        "oder 'accounti opos ablehnen'"
+    ]
+    with fabrik() as s, pytest.raises(LaufGesperrtError):
+        freigeben(s, 1, "erika", E, heute=STICHTAG)
+
+
+@pytest.mark.parametrize(
+    "iban",
+    ["CH9300762011623852957", "GB29NWBK60161331926819", "SM86U0322509800000000270100"],
+)
+def test_iban_ausserhalb_des_ewr_blockiert(iban):
+    """CH, GB, SM …: SEPA ja, aber nur mit BIC (und Auftraggeberanschrift)."""
+    fabrik, *_ = _lauf(kreditor(iban=iban), beleg_iban=None)
+    land = iban[:2]
+    assert [b.text for b in _befunde(fabrik).befunde] == [
+        f"IBAN {lesbar(iban)} liegt außerhalb des EWR ({land}) — dorthin verlangt "
+        "SEPA zusätzlich den BIC der Empfängerbank und die Anschrift des "
+        "Auftraggebers, die accounti nicht schreibt; Zahlung entfernen und im "
+        "Onlinebanking einzeln überweisen"
+    ]
+
+
+@pytest.mark.parametrize("name", ["Фирма ООД", "Ελληνική Εταιρεία"])
+def test_empfaengername_ohne_lateinische_zeichen_blockiert(name):
+    """Bereinigt bliebe ein leeres <Nm/> — die Bank wiese die ganze Datei ab."""
+    fabrik, *_ = _lauf(kreditor(name=name))
+    assert [b.text for b in _befunde(fabrik).befunde] == [
+        f"Empfängername „{name}“ enthält keine Zeichen aus dem SEPA-Zeichensatz — "
+        "Namen im Stammsatz in lateinischer Schrift pflegen (accounti kontakte "
+        "bearbeiten 70001 --name …), dann Zahlung entfernen und neu anlegen"
+    ]
+
+
+def test_auftraggebername_ohne_lateinische_zeichen_blockiert():
+    fabrik, *_ = _lauf()
+    with fabrik() as s:
+        s.execute(text("UPDATE zahlungslaeufe SET auftraggeber_name = '€€€'"))
+        s.commit()
+    assert [b.text for b in _befunde(fabrik).befunde] == [
+        "Name des Auftraggebers fehlt oder enthält keine Zeichen aus dem "
+        "SEPA-Zeichensatz (zahlung.auftraggeber.name)"
     ]

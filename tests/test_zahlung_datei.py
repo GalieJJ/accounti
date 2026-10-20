@@ -4,8 +4,9 @@ from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from accounti.db import init_db, session_factory
 from accounti.db.repo_zahlung import lade_lauf, lade_protokoll
 from accounti.db.repository import (
     aktualisiere_kontakt,
@@ -13,10 +14,13 @@ from accounti.db.repository import (
     lade_kontakt,
     speichere_transaktion,
 )
+from accounti.db.tabellen import UnveraenderbarError
+from accounti.db.tabellen_zahlung import ZahlungslaufRow
 from accounti.konfiguration import Buchhaltung
 from accounti.models import PostenStatus, Transaktion, TransaktionQuelle
 from accounti.models.zahlung import LaufStatus
 from accounti.opos.zahlungslauf import zuordne_zahlungen
+from accounti.zahlung import sepa
 from accounti.zahlung.freigabe import (
     LaufError,
     LaufGesperrtError,
@@ -47,7 +51,10 @@ JETZT = datetime(2026, 10, 20, 9, 30)
 
 @pytest.fixture
 def freigegeben():
-    fabrik = neue_db()
+    return _freigegeben(neue_db())
+
+
+def _freigegeben(fabrik):
     m = kreditor()
     a = posten(
         m,
@@ -160,3 +167,83 @@ def test_bankumsatz_gleicht_aus_und_der_lauf_wird_ausgefuehrt(freigegeben):
         assert lade_protokoll(s, fertig.id)[-1].aktion == "ausgefuehrt"
         with pytest.raises(ZustandError, match="ausgefuehrt → storniert"):
             storniere(s, 1, "erika", "zu spät")
+
+
+def test_gespeicherte_datei_wird_vor_der_ausgabe_mit_dem_hash_verglichen(freigegeben):
+    fabrik, _ = freigegeben
+    _datei(fabrik)
+    with fabrik() as s:
+        # am ORM vorbei: aus 1.166,20 € werden 9.166,20 €
+        s.execute(
+            text(
+                "UPDATE zahlungslaeufe SET datei = replace(datei, '1166.20', '9166.20')"
+            )
+        )
+        s.commit()
+    with pytest.raises(LaufError, match="weicht vom protokollierten SHA-256 ab"):
+        _datei(fabrik)
+
+
+def test_kopfsatz_nach_der_freigabe_am_orm_gesperrt(freigegeben):
+    fabrik, _ = freigegeben
+    with fabrik() as s:
+        zeile = s.scalars(select(ZahlungslaufRow)).one()
+        zeile.auftraggeber_iban = IBAN_BETRUG
+        with pytest.raises(UnveraenderbarError, match="Kopfsatz"):
+            s.flush()
+    _datei(fabrik)
+    with fabrik() as s:
+        zeile = s.scalars(select(ZahlungslaufRow)).one()
+        zeile.datei = "<Document/>"
+        with pytest.raises(UnveraenderbarError, match="Kopfsatz"):
+            s.flush()
+    with fabrik() as s:
+        zeile = s.scalars(select(ZahlungslaufRow)).one()
+        zeile.status = "freigegeben"
+        with pytest.raises(UnveraenderbarError, match="eingereicht → freigegeben"):
+            s.flush()
+
+
+def _datei_db(tmp_path):
+    engine, fabrik = session_factory(f"sqlite:///{(tmp_path / 'a.db').as_posix()}")
+    init_db(engine)
+    _freigegeben(fabrik)
+    return engine, fabrik
+
+
+def test_zwei_gleichzeitige_dateien_nur_eine_gewinnt(tmp_path, monkeypatch):
+    """Zwei Prozesse erzeugen gleichzeitig die Datei: Der zweite scheitert, statt
+    eine zweite Datei mit neuer MsgId zu schreiben."""
+    engine, fabrik = _datei_db(tmp_path)
+    original = sepa.schreibe_pain001
+    schon = []
+
+    def dazwischen(*args, **kw):
+        if not schon:  # während der langsame Prozess schreibt, ist der andere fertig
+            schon.append(True)
+            _datei(fabrik)
+        return original(*args, **kw)
+
+    monkeypatch.setattr(sepa, "schreibe_pain001", dazwischen)
+    with fabrik() as langsam, pytest.raises(ZustandError, match="inzwischen geändert"):
+        erzeuge_datei(langsam, 1, E, "jan", heute=STICHTAG, jetzt=datetime.now())
+    with fabrik() as s:
+        assert lade_lauf(s, 1).msg_id == "ACCOUNTI-1-20261020093000"
+        assert [e.aktion for e in lade_protokoll(s, lade_lauf(s, 1).id)][-1] == (
+            "eingereicht"
+        )
+    engine.dispose()
+
+
+def test_veralteter_kopfsatz_ueberschreibt_nichts(tmp_path):
+    """Wer den Lauf vor der Änderung eines anderen gelesen hat, schreibt nicht."""
+    engine, fabrik = _datei_db(tmp_path)
+    with fabrik() as alt:
+        zeile = alt.scalars(select(ZahlungslaufRow)).one()  # bleibt im Speicher
+        _datei(fabrik)  # ein anderer Prozess reicht ein
+        assert zeile.status == "freigegeben"
+        with pytest.raises(ZustandError, match="inzwischen geändert"):
+            storniere(alt, 1, "jan", "versehentlich")
+    with fabrik() as s:
+        assert lade_lauf(s, 1).status is LaufStatus.EINGEREICHT
+    engine.dispose()

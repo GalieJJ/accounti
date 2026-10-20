@@ -13,6 +13,7 @@ import pytest
 
 from accounti.models.zahlung import LaufStatus, Zahlung, Zahlungslauf
 from accounti.zahlung.sepa import (
+    leere_felder,
     referenz,
     schreibe_pain001,
     sepa_text,
@@ -122,12 +123,12 @@ def soll_lauf():
         _zahlung(
             lauf.id,
             3,
-            empfaenger="Atelier Genève SA",
-            iban="CH9300762011623852957",
-            strasse="Rue du Rhône 8",
-            plz="1204",
-            ort="Genève",
-            land="CH",
+            empfaenger="Atelier Évian SARL",
+            iban="FR1420041010050500013M02606",
+            strasse="Rue Nationale 8",
+            plz="74500",
+            ort="Évian-les-Bains",
+            land="FR",
             betrag=Decimal("0.01"),
             skonto=Decimal("0.00"),
             restbetrag_vorher=Decimal("0.01"),
@@ -172,7 +173,7 @@ def test_pain001_inhalt():
     assert [t.findtext("p:Cdtr/p:Nm", namespaces=NS) for t in tx] == [
         "Bürobedarf Müller GmbH",
         "Schulz & Söhne KG",
-        "Atelier Geneve SA",
+        "Atelier Evian SARL",
     ]
     erste = tx[0]
     assert erste.findtext("p:PmtId/p:EndToEndId", namespaces=NS) == "RE-200"
@@ -186,7 +187,10 @@ def test_pain001_inhalt():
         "RE-200 vom 10.10.2026, abzgl. 23,80 EUR Skonto"
     )
     assert tx[1].find("p:Cdtr/p:PstlAdr/p:BldgNb", NS) is None
-    assert tx[2].findtext("p:Cdtr/p:PstlAdr/p:Ctry", namespaces=NS) == "CH"
+    assert tx[2].findtext("p:Cdtr/p:PstlAdr/p:Ctry", namespaces=NS) == "FR"
+    assert tx[2].findtext("p:Cdtr/p:PstlAdr/p:TwnNm", namespaces=NS) == (
+        "Evian-les-Bains"
+    )
 
 
 def test_einzelbuchung_und_ohne_bic():
@@ -261,3 +265,13 @@ def test_pain001_ist_schemakonform_nach_dk_tvs_gbic_5(tmp_path):
     ], ergebnis.stdout + ergebnis.stderr
     assert any(z.startswith("kaputt.xml: ") and "CountryCode" in z for z in zeilen)
     assert ergebnis.returncode == 1
+
+
+def test_leere_pflichtfelder_werden_erkannt():
+    """Letzte Sicherung vor dem Statuswechsel: kein leeres Element in der Datei."""
+    assert leere_felder(SOLL.read_bytes()) == []
+    lauf = soll_lauf()
+    lauf.zahlungen[1] = lauf.zahlungen[1].model_copy(update={"empfaenger": "Фирма ООД"})
+    assert leere_felder(schreibe_pain001(lauf, ERSTELLT)) == [
+        "CstmrCdtTrfInitn/PmtInf/CdtTrfTxInf[2]/Cdtr/Nm"
+    ]

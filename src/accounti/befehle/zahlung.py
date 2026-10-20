@@ -28,7 +28,10 @@ befehl = typer.Typer(
 )
 
 VON_OPTION = typer.Option(
-    None, "--von", help="Wer handelt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
+    None,
+    "--von",
+    help="Wer handelt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename); beim Freigeben "
+    "mit zahlung.vier_augen nicht erlaubt",
 )
 STICHTAG_OPTION = typer.Option(None, help="Ausführungstag JJJJ-MM-TT (heute)")
 VORLAUF_OPTION = typer.Option(None, help="Planungshorizont in Tagen")
@@ -361,7 +364,10 @@ def freigeben(
     from accounti.zahlung import freigabe
 
     e = _einstellungen(config)
-    person = _person(von)
+    try:
+        person = freigabe.person_fuer_freigabe(von, e)
+    except freigabe.LaufError as fehler:
+        raise _fehler(str(fehler)) from fehler
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
@@ -406,8 +412,17 @@ def sepa(
             raise _befunde(fehler.ergebnis.zeilen(), nr) from fehler
         except LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
-        datei.write_bytes(xml)
+        # Erst festschreiben, dann die Datei: Ohne Commit darf es keine Datei geben,
+        # sonst entstünde beim nächsten Aufruf eine zweite mit neuer MsgId.
         s.commit()
+    try:
+        datei.write_bytes(xml)
+    except OSError as fehler:
+        raise _fehler(
+            f"SEPA-Datei konnte nicht geschrieben werden ({fehler}). Lauf {nr} ist "
+            f"{lauf.status.value}; dieselbe Datei mit 'accounti zahlung sepa {nr} "
+            "--datei …' erneut ausgeben."
+        ) from fehler
     if neu:
         _zeile(
             f"[green]SEPA-Datei geschrieben:[/green] {escape(str(datei))} "

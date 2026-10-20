@@ -16,6 +16,7 @@ from tests.zahlung_hilfe import (
     neue_db,
     posten,
     speichere,
+    zahlung_vorschlagen,
 )
 
 E = ZahlungEinstellungen()
@@ -207,3 +208,21 @@ def test_vorschlag_aus_der_datenbank():
         v = lade_vorschlag(s, STICHTAG, E)
     assert [x.posten.id for x in v.positionen] == [p.id]
     assert v.positionen[0].kontakt.name == "Bürobedarf Müller GmbH"
+
+
+def test_posten_mit_vorgeschlagener_zahlung_wird_ausgeschlossen():
+    """Schon bezahlt? Ein Bankumsatz wartet als Vorschlag auf Bestätigung."""
+    fabrik = neue_db()
+    m = kreditor()
+    p = posten(m, "RE-2026-0100", "500.00", faellig=date(2026, 10, 20))
+    speichere(fabrik, [m], [p])
+    zahlung_vorschlagen(fabrik, p)
+    with fabrik() as s:
+        v = lade_vorschlag(s, STICHTAG, E)
+    assert v.positionen == []
+    (aus,) = v.ausgeschlossen
+    assert aus.grund == (
+        "Bankumsatz über 500,00 € ist diesem Posten als Zahlung vorgeschlagen — "
+        "vielleicht schon bezahlt; erst 'accounti opos bestaetigen' oder "
+        "'accounti opos ablehnen'"
+    )

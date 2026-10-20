@@ -22,8 +22,14 @@ from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
 from accounti.db.repo_zahlung import lade_zahlungssperren, posten_in_aktiven_laeufen
-from accounti.db.repository import lade_kontakte, lade_posten
-from accounti.models import Kontakt, OffenerPosten, PostenRichtung, PostenStatus
+from accounti.db.repository import lade_kontakte, lade_posten, lade_zuordnungen
+from accounti.models import (
+    Kontakt,
+    OffenerPosten,
+    PostenRichtung,
+    PostenStatus,
+    ZuordnungStatus,
+)
 from accounti.models.zahlung import LaufStatus, Zahlungssperre
 from accounti.zahlung.konfiguration import ZahlungEinstellungen
 
@@ -143,11 +149,33 @@ def _position(
     )
 
 
+def vorgeschlagene_zahlungen(session: Session) -> dict[UUID, Decimal]:
+    """Posten → Summe der Bankumsätze, die ``opos zuordnen`` ihm nur vorschlägt.
+
+    Solange niemand bestätigt oder abgelehnt hat, ist offen, ob der Posten schon
+    bezahlt ist (Lastschrift des Lieferanten, Überweisung von Hand) — dann nicht
+    noch einmal überweisen.
+    """
+    summen: dict[UUID, Decimal] = {}
+    for z in lade_zuordnungen(session, status={ZuordnungStatus.VORGESCHLAGEN}):
+        summen[z.posten_id] = summen.get(z.posten_id, NULL) + z.betrag + z.skonto
+    return summen
+
+
+def zahlung_vorgeschlagen_text(betrag: Decimal, posten: str = "diesem Posten") -> str:
+    return (
+        f"Bankumsatz über {betrag_de(betrag)} € ist {posten} als Zahlung "
+        "vorgeschlagen — vielleicht schon bezahlt; erst 'accounti opos bestaetigen' "
+        "oder 'accounti opos ablehnen'"
+    )
+
+
 def _ausschluss(
     pos: Vorschlagsposition,
     e: ZahlungEinstellungen,
     in_laeufen: Mapping[UUID, tuple[int, LaufStatus]],
     sperren: Mapping[UUID, Zahlungssperre],
+    vorgeschlagen: Mapping[UUID, Decimal],
 ) -> str | None:
     p = pos.posten
     sperre = sperren.get(p.kontakt_id)
@@ -156,6 +184,8 @@ def _ausschluss(
     if p.id in in_laeufen:
         nr, status = in_laeufen[p.id]
         return f"bereits in Zahlungslauf {nr} ({status.value})"
+    if p.id in vorgeschlagen:
+        return zahlung_vorgeschlagen_text(vorgeschlagen[p.id])
     if p.restbetrag < 0:
         return (
             f"Gutschrift über {betrag_de(p.restbetrag)} € — wird verrechnet, "
@@ -177,6 +207,7 @@ def erstelle_vorschlag(
     in_laeufen: Mapping[UUID, tuple[int, LaufStatus]] | None = None,
     sperren: Mapping[UUID, Zahlungssperre] | None = None,
     kontakt_ids: set[UUID] | None = None,
+    zahlung_vorgeschlagen: Mapping[UUID, Decimal] | None = None,
 ) -> Zahlungsvorschlag:
     """Vorschlagsliste: Skonto nach Frist zuerst, dann nach Fälligkeit."""
     vorschlag = Zahlungsvorschlag(stichtag=stichtag)
@@ -194,7 +225,13 @@ def erstelle_vorschlag(
         pos = _position(p, k, stichtag, einstellungen)
         if pos is None:
             continue
-        grund = _ausschluss(pos, einstellungen, in_laeufen or {}, sperren or {})
+        grund = _ausschluss(
+            pos,
+            einstellungen,
+            in_laeufen or {},
+            sperren or {},
+            zahlung_vorgeschlagen or {},
+        )
         if grund is not None:
             vorschlag.ausgeschlossen.append(Ausgeschlossen(p, k, grund))
         else:
@@ -223,4 +260,5 @@ def lade_vorschlag(
         in_laeufen=posten_in_aktiven_laeufen(session),
         sperren=lade_zahlungssperren(session),
         kontakt_ids=kontakt_ids,
+        zahlung_vorgeschlagen=vorgeschlagene_zahlungen(session),
     )

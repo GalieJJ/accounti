@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.exc import StaleDataError
 
 from accounti.db.tabellen_zahlung import (
     IbanKlaerungRow,
@@ -30,6 +31,10 @@ from accounti.models.zahlung import (
 
 class PostenImLaufError(ValueError):
     """Ein Posten steht schon in einem aktiven Zahlungslauf."""
+
+
+class LaufVeraltetError(ValueError):
+    """Der Lauf wurde seit dem Lesen von jemand anderem geändert."""
 
 
 _ZAHLUNG_FELDER = (
@@ -108,22 +113,27 @@ def naechste_laufnummer(session: Session) -> int:
 
 
 def speichere_lauf(session: Session, lauf: Zahlungslauf) -> None:
-    """Legt Lauf und Zahlungen an; ein Posten in einem aktiven Lauf scheitert."""
+    """Legt Lauf und Zahlungen an; ein Posten in einem aktiven Lauf scheitert.
+
+    Bei einem Konflikt wird die ganze Transaktion zurückgerollt. Bewusst ohne
+    Savepoint: Unter SQLite (pysqlite) würde dessen RELEASE den Lauf schon vor dem
+    eigentlichen Commit festschreiben, wenn vorher nur gelesen wurde.
+    """
     aktiv = lauf.status in AKTIVE_STATUS
     try:
-        with session.begin_nested():
-            session.add(
-                ZahlungslaufRow(
-                    id=str(lauf.id),
-                    status=lauf.status.value,
-                    **{f: getattr(lauf, f) for f in _LAUF_FELDER},
-                )
+        session.add(
+            ZahlungslaufRow(
+                id=str(lauf.id),
+                status=lauf.status.value,
+                **{f: getattr(lauf, f) for f in _LAUF_FELDER},
             )
-            session.flush()
-            for z in lauf.zahlungen:
-                session.add(_zahlung_zeile(z, aktiv))
-            session.flush()
+        )
+        session.flush()
+        for z in lauf.zahlungen:
+            session.add(_zahlung_zeile(z, aktiv))
+        session.flush()
     except IntegrityError as fehler:
+        session.rollback()
         msg = "Ein Posten steht schon in einem aktiven Zahlungslauf."
         raise PostenImLaufError(msg) from fehler
 
@@ -149,13 +159,26 @@ def lade_laeufe(
     return [_lauf(session, r) for r in session.scalars(abfrage).all()]
 
 
-def aktualisiere_lauf(session: Session, lauf: Zahlungslauf) -> None:
-    """Schreibt Status und Kopfdaten (Freigabe, Datei); Zahlungen bleiben unberührt."""
+def aktualisiere_lauf(session: Session, lauf: Zahlungslauf, von: LaufStatus) -> None:
+    """Schreibt Status und Kopfdaten (Freigabe, Datei); Zahlungen bleiben unberührt.
+
+    Nur, wenn der Lauf noch im Status ``von`` ist. Die Versionsspalte macht daraus
+    zusätzlich ein ``UPDATE … WHERE version = <gelesen>``: Hat ein anderer Prozess
+    den Lauf inzwischen geändert, scheitert es mit ``LaufVeraltetError``, statt
+    dessen Stand zu überschreiben.
+    """
     zeile = _lauf_zeile(session, lauf.nr)
+    if zeile.status != von.value:
+        msg = f"Zahlungslauf {lauf.nr} ist inzwischen {zeile.status}."
+        raise LaufVeraltetError(msg)
     zeile.status = lauf.status.value
     for feld in _LAUF_FELDER:
         setattr(zeile, feld, getattr(lauf, feld))
-    session.flush()
+    try:
+        session.flush()
+    except StaleDataError as fehler:
+        msg = f"Zahlungslauf {lauf.nr} wurde inzwischen geändert."
+        raise LaufVeraltetError(msg) from fehler
 
 
 def entferne_zahlung(session: Session, zahlung_id: UUID) -> None:

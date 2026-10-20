@@ -97,18 +97,18 @@
           <InstdAmt Ccy="EUR">0.01</InstdAmt>
         </Amt>
         <Cdtr>
-          <Nm>Atelier Geneve SA</Nm>
+          <Nm>Atelier Evian SARL</Nm>
           <PstlAdr>
-            <StrtNm>Rue du Rhone</StrtNm>
+            <StrtNm>Rue Nationale</StrtNm>
             <BldgNb>8</BldgNb>
-            <PstCd>1204</PstCd>
-            <TwnNm>Geneve</TwnNm>
-            <Ctry>CH</Ctry>
+            <PstCd>74500</PstCd>
+            <TwnNm>Evian-les-Bains</TwnNm>
+            <Ctry>FR</Ctry>
           </PstlAdr>
         </Cdtr>
         <CdtrAcct>
           <Id>
-            <IBAN>CH9300762011623852957</IBAN>
+            <IBAN>FR1420041010050500013M02606</IBAN>
           </Id>
         </CdtrAcct>
         <RmtInf>

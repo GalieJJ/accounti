@@ -8,6 +8,9 @@ Zwei Sicherungen liegen bewusst in der Datenbankschicht statt nur im Ablauf:
 - Zahlungen eines Laufs, der kein Entwurf mehr ist, lassen sich über das ORM weder
   ändern (außer dem Freigeben der Sperre) noch löschen; das Protokoll ist nur
   anfügbar (unter SQLite zusätzlich per Trigger).
+- Der Kopfsatz eines freigegebenen Laufs ändert über das ORM nur noch seinen Status
+  in erlaubter Richtung, die Datei-Felder genau einmal (beim Einreichen). Eine
+  Versionsspalte verhindert, dass zwei Prozesse sich gegenseitig überschreiben.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm.exc import StaleDataError
 
 from accounti.db import Base
 from accounti.db.tabellen import UnveraenderbarError
@@ -54,6 +58,57 @@ class ZahlungslaufRow(Base):
     datei: Mapped[str | None] = mapped_column(Text, nullable=True)
     datei_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     eingereicht_am: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+
+    __mapper_args__ = {"version_id_col": version}
+
+
+_DATEI_FELDER = frozenset({"datei", "datei_hash", "msg_id", "eingereicht_am"})
+# Status vorher → (erlaubte neue Status, änderbare Felder)
+_KOPF_NACH_FREIGABE: dict[str, tuple[frozenset[str], frozenset[str]]] = {
+    "freigegeben": (
+        frozenset({"eingereicht", "storniert"}),
+        frozenset({"status", "version"}) | _DATEI_FELDER,
+    ),
+    "eingereicht": (
+        frozenset({"ausgefuehrt", "storniert"}),
+        frozenset({"status", "version"}),
+    ),
+    "ausgefuehrt": (frozenset(), frozenset()),
+    "storniert": (frozenset(), frozenset()),
+}
+
+
+@event.listens_for(ZahlungslaufRow, "before_update")
+def _kopf_aendern(_: Any, verbindung: Connection, zeile: ZahlungslaufRow) -> None:
+    gespeichert = verbindung.execute(
+        select(ZahlungslaufRow.status, ZahlungslaufRow.version).where(
+            ZahlungslaufRow.id == zeile.id
+        )
+    ).one_or_none()
+    if gespeichert is None:
+        return
+    vorher, version = gespeichert
+    if version != zeile.version:
+        # ein anderer Prozess war schneller — wie die Versionsprüfung selbst melden
+        msg = f"Zahlungslauf {zeile.nr}: Version {zeile.version} ist veraltet"
+        raise StaleDataError(msg)
+    if vorher not in _KOPF_NACH_FREIGABE:
+        return  # Entwurf: frei änderbar
+    ziele, felder = _KOPF_NACH_FREIGABE[vorher]
+    geaendert = {a.key for a in inspect(zeile).attrs if a.history.has_changes()}
+    if geaendert - felder:
+        msg = (
+            f"Der Kopfsatz des Zahlungslaufs ist {vorher} — "
+            f"{', '.join(sorted(geaendert - felder))} unveränderbar"
+        )
+        raise UnveraenderbarError(msg)
+    if "status" in geaendert and zeile.status not in ziele:
+        msg = f"Kopfsatz des Zahlungslaufs: {vorher} → {zeile.status} nicht erlaubt"
+        raise UnveraenderbarError(msg)
+    if geaendert & _DATEI_FELDER and zeile.status != "eingereicht":
+        msg = "Kopfsatz des Zahlungslaufs: Datei nur beim Einreichen"
+        raise UnveraenderbarError(msg)
 
 
 class ZahlungRow(Base):

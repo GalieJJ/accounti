@@ -12,6 +12,7 @@ byte-gleich ausgegeben — ein zweites Hochladen weist die Bank über die ``MsgI
 
 from __future__ import annotations
 
+import hashlib
 import re
 import xml.etree.ElementTree as ET
 from datetime import date, datetime
@@ -35,6 +36,7 @@ from accounti.zahlung.zeichen import referenz, sepa_text, verwendungszweck
 __all__ = [
     "PAIN_001",
     "erzeuge_datei",
+    "leere_felder",
     "msg_id",
     "referenz",
     "schreibe_pain001",
@@ -149,6 +151,28 @@ def schreibe_pain001(
     return ('<?xml version="1.0" encoding="UTF-8"?>\n' + text + "\n").encode("utf-8")
 
 
+def leere_felder(xml: bytes) -> list[str]:
+    """Pfade aller Elemente ohne Inhalt — das Schema verlangt überall mindestens ein
+    Zeichen. Letzte Sicherung, bevor eine Datei den Lauf auf „eingereicht“ setzt."""
+
+    def name(knoten: ET.Element) -> str:
+        return knoten.tag.rpartition("}")[2]
+
+    def suche(knoten: ET.Element, pfad: str) -> list[str]:
+        kinder = list(knoten)
+        if not kinder:
+            return [] if (knoten.text or "").strip() else [pfad]
+        leer = []
+        for kind in kinder:
+            gleiche = [k for k in kinder if k.tag == kind.tag]
+            stelle = f"[{gleiche.index(kind) + 1}]" if len(gleiche) > 1 else ""
+            unterpfad = f"{pfad}/{name(kind)}{stelle}" if pfad else name(kind) + stelle
+            leer += suche(kind, unterpfad)
+        return leer
+
+    return suche(ET.fromstring(xml), "")
+
+
 def erzeuge_datei(
     session: Session,
     lauf_nr: int,
@@ -168,7 +192,15 @@ def erzeuge_datei(
         LaufStatus.EINGEREICHT,
         LaufStatus.AUSGEFUEHRT,
     ):
-        return lauf, lauf.datei.encode("utf-8"), False
+        gespeichert = lauf.datei.encode("utf-8")
+        if hashlib.sha256(gespeichert).hexdigest() != lauf.datei_hash:
+            msg = (
+                f"Die gespeicherte SEPA-Datei von Lauf {lauf.nr} weicht vom "
+                f"protokollierten SHA-256 ab ({lauf.datei_hash}) — nicht hochladen, "
+                "die Datenbank wurde verändert"
+            )
+            raise LaufError(msg)
+        return lauf, gespeichert, False
     if lauf.status is LaufStatus.ENTWURF:
         msg = (
             f"Lauf {lauf.nr} ist ein Entwurf — erst freigeben "
@@ -189,6 +221,13 @@ def erzeuge_datei(
         raise LaufGesperrtError(ergebnis)
     erstellt = (jetzt or datetime.now()).replace(microsecond=0)
     xml = schreibe_pain001(lauf, erstellt, einstellungen.einzelbuchung)
+    leer = leere_felder(xml)
+    if leer:
+        msg = (
+            f"Lauf {lauf.nr}: SEPA-Datei unvollständig, leer: {', '.join(leer)} — "
+            "keine Datei, der Lauf bleibt freigegeben"
+        )
+        raise LaufError(msg)
     lauf = markiere_eingereicht(
         session, lauf, person, xml.decode("utf-8"), msg_id(lauf, erstellt), erstellt
     )
