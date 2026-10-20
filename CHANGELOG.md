@@ -7,6 +7,21 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Anlagenbuchhaltung & Jahresabschluss** (Baustein 12): Anlagegüter mit AfA linear
+  (monatsgenau, § 7 Abs. 1 Satz 4 EStG), degressiv (2,5-fach/25 % für 2020–2022, 2-fach/20 % für
+  04–12/2024, 3-fach/30 % für 07/2025–2027, automatischer Wechsel zur linearen AfA), GWG
+  (800 €/410 €/150 € je Anschaffungsjahr), Sammelposten (1/5 je Jahr, einheitliches Wahlrecht),
+  digitale Wirtschaftsgüter (BMF 22.02.2022) und E-Fahrzeuge (§ 7 Abs. 2a EStG); Grenzbeträge und
+  AfA-Tabelle als Rechtsstand mit Gültigkeitszeiträumen und Quellen; AfA-Lauf je Monat oder Jahr
+  als Vorschlag zur Freigabe, Abgang mit Restbuchwert, Erlös und Ergebnis, Anlagenspiegel
+  (`accounti anlagen …`). Kassenbuch mit laufender Nummer, Tagessaldo und Kassensturz, das einen
+  negativen Bestand ablehnt und nur Stornos statt Änderungen kennt (`accounti kasse …`).
+  Jahresabschluss: Kontoauszugssalden und Bank-Saldenabstimmung, Abschlussprüfungen mit Befunden,
+  Summen- und Saldenliste, ARAP/PRAP-Vorschläge mit Auflösung in den Folgejahren,
+  Einnahmenüberschussrechnung nach Anlage EÜR 2025 und 2026 (Gewerbesteuer als nicht abziehbare
+  Betriebsausgabe, Steuern vom Einkommen außerhalb), Eröffnungssalden, Saldovortrag mit
+  Jahressperre und Protokoll (`accounti abschluss …`). Neue, optionale Abschnitte `anlagen`,
+  `abschluss`, `kasse`
 - **Zahlungsverkehr & Mahnwesen** (Baustein 6): `accounti zahlung vorschlag` schlägt offene
   Verbindlichkeiten zum Stichtag vor — Skontofristen vor Nettofälligkeiten, mit Grund je Position
   und Liste der ausgeschlossenen Posten; Zahlungsläufe (`anlegen`, `entfernen`, `pruefen`,
@@ -165,6 +180,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- Buchungen in einem abgeschlossenen Jahr lassen sich nicht mehr anlegen, ändern oder löschen
+  (`JahrGesperrtError`); `accounti abschluss oeffnen` hebt die Sperre mit Begründung und Protokoll
+  auf. `classify`, `opos zuordnen` und `bank abgleich` lassen Umsätze in abgeschlossenen Jahren
+  aus; `opos verbuchen` lässt Rechnungen mit Belegdatum in einem abgeschlossenen Jahr liegen und
+  meldet sie unter „Nicht verbucht“, statt den ganzen Lauf abzubrechen
 - Offene Posten tragen jetzt ihre Mahnstufe aus dem Mahnwesen (Feld gab es schon, es wurde bisher
   nie gesetzt)
 - `accounti belege abholen` kennt `--kanal email|connector`, `--quelle` und `--config`; ein

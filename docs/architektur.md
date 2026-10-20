@@ -257,11 +257,41 @@ Die Rechenlogik der Meldungen liegt in `steuer/` und ist fertig; hier kommt der 
 
 Ein Testmodus erzeugt und prüft, ohne abzugeben. Die Freigabe durch einen Menschen ist nicht abkürzbar — eine Steuererklärung wird abgegeben, nicht ausgelöst.
 
-### `anlagen/` und `abschluss/` *(geplant — [Baustein 12](specs/2026-08-10-anlagen-jahresabschluss.md))*
+### `anlagen/` und `abschluss/` *(teilweise — [Baustein 12](specs/2026-08-10-anlagen-jahresabschluss.md))*
 
-`anlagen/` führt Anlagegüter und schreibt die AfA fort (linear zeitanteilig, GWG, Sammelposten), erstellt den Anlagenspiegel und rechnet Abgänge. Grenzbeträge sind Konfiguration **mit Gültigkeitszeitraum**, damit alte Jahre mit den damals gültigen Werten rechenbar bleiben.
+`anlagen/` führt Anlagegüter (`Anlagegut` in `models/anlagen.py`, Tabellen `anlagegueter`,
+`afa_vorgaenge`) und schreibt die AfA fort.
 
-`abschluss/` bildet Abgrenzungen und Rückstellungen als Vorschläge — Bewertungen werden bestätigt, nicht gesetzt —, führt das Kassenbuch (negativer Bestand wird abgelehnt, nicht gewarnt), erstellt EÜR oder Bilanz mit GuV und trägt die Salden ins neue Jahr vor.
+- `rechtsstand.py` + `rechtsstand.yaml` — Grenzbeträge mit Gültigkeitszeitraum und Quelle: GWG,
+  Verzeichnis, Sammelposten (2008/2009 Pflicht), degressive Fenster (Faktor, Höchstsatz),
+  E-Fahrzeug-Staffel, digitale Wirtschaftsgüter, RAP-Verzicht, AfA-Tabelle. Maßgeblich ist der
+  Anschaffungstag. Eigene Datei per `anlagen.rechtsstand`. *(vorhanden)*
+- `afa.py` — AfA-Plan, rein: linear monatsgenau über die Kumulierte (keine Rundungsdrift),
+  degressiv vom Restbuchwert mit Wechsel zur linearen AfA, GWG, Sammelposten (1/5 der Summe zum
+  Jahresende), digital, E-Fahrzeug; Prüfung der Wahlrechte (einheitlicher Sammelposten). *(vorhanden)*
+- `lauf.py` — AfA-Lauf: je Anlagegut Soll bis Monat minus schon gebucht, eine Buchung je
+  AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“. *(vorhanden)*
+- `abgang.py` — AfA bis Abgangsmonat, Restbuchwert auf 2310/2315, Erlös auf 8801/8820 mit USt aus
+  `steuer/`. `spiegel.py` — Anlagenspiegel aus dem Plan. *(vorhanden)*
+
+`abschluss/` arbeitet auf freigegebenen Buchungen.
+
+- `kontenrahmen.py` + `kontenrahmen_skr03.yaml`/`…_skr04.yaml` — Kontoarten, Geld- und
+  Steuerkonten, EÜR-Kennzahl je Kontenbereich. *(vorhanden)*
+- `salden.py` — Kontobewegungen mit Steueraufteilung (Nettoseite, Steuerkonto, Bruttoseite),
+  EB-Werte, Summen- und Saldenliste. *(vorhanden)*
+- `kassenbuch.py` — Kassenbuch (Tabelle `kassenbuch`, nur anfügen): laufende Nummer, Bestand nie
+  negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos. *(vorhanden)*
+- `pruefungen.py` — benannte Abschlussprüfungen mit Befunden (Fehler/Warnung/Hinweis): u. a.
+  Bank-Saldenabstimmung gegen `kontoauszugssalden`, Kassenbuch, AfA, offene Vorschläge. *(vorhanden)*
+- `abgrenzung.py` — ARAP/PRAP-Vorschläge aus dem Leistungszeitraum, Auflösung je Folgejahr gleich
+  mit (Tabelle `abgrenzungen`). *(vorhanden)*
+- `euer.py` + `euer_vordrucke.yaml` — EÜR nach Kennzahlen, Zeilen je Vordruckjahr. *(vorhanden)*
+- `vortrag.py` — Eröffnungssalden, Saldovortrag (EB gegen 9000/9008/9009), Jahressperre
+  (`abschluesse`, ORM-Ereignis auf `buchungssaetze` in `db/tabellen_abschluss.py`; die CLI lädt es
+  über `befehle/abschluss.py` beim Start). `protokoll.py` — Protokoll `abschlussprotokoll` (nur
+  anfügen, Hash-Kette, bei jeder Abschlussprüfung nachgerechnet). *(vorhanden)*
+- Bilanz/GuV, Rückstellungen und Übermittlung *(geplant)*.
 
 ### `export/`
 

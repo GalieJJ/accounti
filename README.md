@@ -105,8 +105,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Elektronische Übermittlung** | Voranmeldung, Dauerfristverlängerung, Zusammenfassende Meldung — mit Protokoll |
 | 🔲 | **Fristenkalender** | Abgabefristen berechnet, inkl. Wochenend- und Feiertagsverschiebung |
 | ✅ | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |
-| 🔲 | **Anlagenbuchhaltung** | AfA linear, GWG, Sammelposten, Anlagenspiegel, Abgänge |
-| 🔲 | **Jahresabschluss** | Abgrenzungen, Rückstellungen, Kassenbuch, EÜR oder Bilanz mit GuV, Saldovortrag |
+| ✅ | **Anlagenbuchhaltung** | Anlagegüter mit AfA linear (monatsgenau), degressiv (2020–2022, 2024, 07/2025–2027 mit Wechsel zur linearen AfA), GWG, Sammelposten, digitale Wirtschaftsgüter, E-Fahrzeuge — Grenzbeträge mit Gültigkeitszeitraum, AfA-Tabelle, AfA-Lauf je Monat oder Jahr, Abgang mit Ergebnis, Anlagenspiegel |
+| 🟨 | **Jahresabschluss** | Kassenbuch ohne negativen Bestand, Bank-Saldenabstimmung als Abschlusssperre, Abschlussprüfungen, Summen- und Saldenliste, ARAP/PRAP-Vorschläge mit Auflösung, Einnahmenüberschussrechnung nach Anlage EÜR 2025/2026, Saldovortrag mit Jahressperre; Bilanz/GuV, Rückstellungen und Übermittlung folgen |
 
 **Anbinden & Übergeben**
 
@@ -303,6 +303,43 @@ accounti kontakte ustid-protokoll ATU12345678 --csv ustid.csv
 Bestätigung aus den letzten 30 Tagen vorliegt (`ustid_pruefung.max_alter_tage`). Ist die
 Nummer ungültig oder stimmen Name/Ort nicht, wird die Rechnung nicht ausgestellt, und
 `opos verbuchen` legt solche Erlöse zur Prüfung vor.
+
+### Anlagen und Jahresabschluss
+
+```bash
+# Anlagegut aus einem Beleg anlegen — Nutzungsdauer aus der AfA-Tabelle, immer änderbar
+accounti anlagen tabelle                       # hinterlegte Nutzungsdauern mit Fundstelle
+accounti anlagen anlegen --beleg RE-4711 --typ notebook
+accounti anlagen anlegen --bezeichnung "Transporter" --datum 2026-09-15 \
+  --kosten 36000 --typ lkw --art degressiv     # 3-fach, höchstens 30 % (07/2025–2027)
+accounti anlagen plan 1                        # AfA-Plan bis zum Ende
+accounti anlagen afa --jahr 2026 --bis-monat 9 # monatlich oder am Jahresende — idempotent
+accounti anlagen freigeben --jahr 2026         # AfA-Vorschläge freigeben
+accounti anlagen abgang 1 --datum 2026-11-30 --erloes 500 --gegenkonto 1200
+accounti anlagen spiegel --jahr 2026 --csv anlagenspiegel.csv
+
+# Kassenbuch — ein Eintrag, der den Bestand negativ machen würde, wird abgelehnt
+accounti kasse anfangsbestand --betrag 300 --datum 2026-01-01
+accounti kasse buchen --betrag -24.90 --text "Porto" --konto 4910
+accounti kasse liste --jahr 2026               # laufende Nummer, Tagessaldo, Bestand
+accounti kasse bestand --gezaehlt 275.10       # Kassensturz
+
+# Jahresabschluss
+accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # nur im ersten Jahr
+accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
+accounti abschluss buchen --jahr 2026          # AfA + Abgrenzungsvorschläge
+accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
+accounti abschluss abgrenzen 3f2a9c1e --von 2026-11-01 --bis 2027-10-31   # Zeitraum nicht im Text
+accounti abschluss pruefen --jahr 2026         # Fehler blockieren den Vortrag
+accounti abschluss susa --jahr 2026
+accounti abschluss euer --jahr 2026            # Anlage EÜR nach Zeilen und Kennzahlen
+accounti abschluss vortrag --jahr 2026 --von "E. Muster"   # EB 01.01.2027, 2026 gesperrt
+accounti abschluss oeffnen --jahr 2026 --grund "Nachbuchung Beleg 4711" --von "E. Muster"
+```
+
+Grenzbeträge (GWG, Sammelposten, degressive Fenster) gelten **ab dem Anschaffungstag** — ein Zugang
+aus 2015 rechnet mit 410 €, einer aus 2026 mit 800 €. Abschlussbuchungen sind immer Vorschläge zur
+Freigabe; gezählt wird in Salden und Auswertungen nur, was freigegeben ist.
 
 ### Aufgaben und Rückfragen
 
@@ -605,7 +642,7 @@ kontieren will, braucht nur v0.1.
 ### v1.0 — Meldungen & Abschluss *(Bausteine 9, 12)*
 - [ ] Elektronische Übermittlung: Voranmeldung, Dauerfristverlängerung, ZM
 - [ ] Plausibilisierung vor Abgabe, Übermittlungsprotokolle, Fristenkalender
-- [ ] Anlagenbuchhaltung: AfA, GWG, Sammelposten, Anlagenspiegel
+- [x] Anlagenbuchhaltung: AfA, GWG, Sammelposten, Anlagenspiegel
 - [ ] Abgrenzungen, Rückstellungen, Kassenbuch
 - [ ] Jahresabschluss: EÜR oder Bilanz mit GuV, Saldovortrag
 - [ ] Umfassende Dokumentation + Tutorials
