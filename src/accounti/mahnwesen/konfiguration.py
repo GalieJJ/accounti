@@ -36,7 +36,11 @@ PLATZHALTER = frozenset(
 class MahnStufe(BaseModel):
     name: str
     ab_tagen: int = Field(ge=0, description="Tage nach Fälligkeit")
-    gebuehr: Decimal = Field(default=Decimal("0.00"), ge=0)
+    gebuehr: Decimal = Field(
+        default=Decimal("0.00"),
+        ge=0,
+        description="nur verlangt, wenn die Mahnung im Verzug hinausgeht",
+    )
     verzugszinsen: bool = False
     text: str | None = Field(default=None, description="eigener Brieftext")
 

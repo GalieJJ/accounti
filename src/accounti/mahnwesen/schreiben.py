@@ -61,7 +61,8 @@ def brieftext(m: Mahnung, kontakt: Kontakt, firma: Firma, e: MahnEinstellungen) 
     if stufe.text:
         vorlage = stufe.text
     elif not stufe.verzugszinsen:
-        vorlage = TEXT_ERINNERUNG
+        # verlangt die Stufe eine Gebühr, nennt der Text den Gesamtbetrag
+        vorlage = TEXT_ERINNERUNG if m.summe == m.restbetrag else TEXT_OHNE_VERZUG
     elif not im_verzug(m):
         vorlage = TEXT_OHNE_VERZUG  # nichts behaupten, was (noch) nicht gilt
     elif m.stufe == len(e.stufen):

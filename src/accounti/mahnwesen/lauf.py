@@ -5,6 +5,11 @@ nach § 288 BGB, der 40-€-Pauschale bei Unternehmern (§ 288 Abs. 5, mit Anrec
 der Mahngebühren nach Satz 3) und den Gebühren der Stufen. Erst das Versenden zählt
 die Mahnstufe am offenen Posten hoch; versendete Mahnungen sind die Historie.
 
+Mahngebühren sind Verzugsschaden (§§ 280 Abs. 2, 286 BGB): Verlangt werden nur die
+Gebühren der Mahnungen, die im Verzug hinausgehen — die dieser Mahnung, wenn der
+Verzug am Mahndatum schon besteht, und die früheren, deren Versandtag nicht vor dem
+Verzugsbeginn liegt. Die Mahnung, die den Verzug erst begründet, kostet nichts.
+
 Verzug (§ 286 BGB) beginnt am frühesten dieser Tage — Zinsen und Pauschale gibt es
 erst ab da: am Tag nach Fälligkeit nur bei vertraglich vereinbartem Zahlungsziel
 (Abs. 2 Nr. 1, ``mahnwesen.zahlungsziel_vereinbart``); durch die erste versendete
@@ -165,6 +170,31 @@ def verzugsbeginn(
     return min(kandidaten)
 
 
+def gebuehren_im_verzug(
+    e: MahnEinstellungen,
+    stufe_nr: int,
+    stichtag: date,
+    verzug_ab: date | None,
+    fruehere: Sequence[tuple[int, date]] = (),
+) -> Decimal:
+    """Erstattungsfähige Mahngebühren bis zur Stufe ``stufe_nr`` (vor der Anrechnung).
+
+    ``fruehere``: (Stufe, Versandtag) der schon versendeten Mahnungen des Postens.
+    Ohne Verzug am Mahndatum gibt es keine — auch nicht die früherer Stufen.
+    """
+    if verzug_ab is None or verzug_ab > stichtag:
+        return NULL
+    bisher = sum(
+        (
+            e.stufen[nr - 1].gebuehr
+            for nr, versandtag in fruehere
+            if nr < stufe_nr and versandtag >= verzug_ab
+        ),
+        NULL,
+    )
+    return bisher + e.stufen[stufe_nr - 1].gebuehr
+
+
 def berechne(
     p: OffenerPosten,
     stufe_nr: int,
@@ -175,21 +205,29 @@ def berechne(
     zahlungen: Sequence[tuple[date, Decimal]] = (),
     saetze: Sequence[Basiszins] | None = None,
     erste_mahnung: ErsteMahnung | None = None,
+    fruehere: Sequence[tuple[int, date]] = (),
 ) -> Mahnung:
-    """Beträge einer Mahnung — ohne Datenbank."""
+    """Beträge einer Mahnung — ohne Datenbank.
+
+    ``fruehere``: (Stufe, Versandtag) der schon versendeten Mahnungen des Postens.
+    Den Verzug ermittelt nur eine Stufe, die etwas verlangt, das ihn voraussetzt:
+    Zinsen und Pauschale (``verzugszinsen``) oder Gebühren.
+    """
     stufe = e.stufen[stufe_nr - 1]
     abschnitte = []
     verzug_ab: date | None = None
     verzug_grund: str | None = None
-    if stufe.verzugszinsen:
+    gebuehr_moeglich = any(s.gebuehr > 0 for s in e.stufen[:stufe_nr])
+    if stufe.verzugszinsen or gebuehr_moeglich:
         verzug_ab, verzug_grund = verzugsbeginn(p, e, unternehmer, erste_mahnung)
     im_verzug = verzug_ab is not None and verzug_ab <= stichtag
-    if im_verzug and verzug_ab is not None:
+    folgen = stufe.verzugszinsen and im_verzug  # Zinsen und Pauschale
+    if folgen and verzug_ab is not None:
         abschnitte = verzugszinsen(
             p.restbetrag, zahlungen, verzug_ab, stichtag, unternehmer, saetze
         )
-    pauschale = e.pauschale_b2b if unternehmer and im_verzug else NULL
-    kumuliert = sum((s.gebuehr for s in e.stufen[:stufe_nr]), NULL)
+    pauschale = e.pauschale_b2b if unternehmer and folgen else NULL
+    kumuliert = gebuehren_im_verzug(e, stufe_nr, stichtag, verzug_ab, fruehere)
     gebuehren = kumuliert
     if pauschale > 0 and e.pauschale_anrechnen:
         gebuehren = max(NULL, kumuliert - pauschale)
@@ -262,6 +300,7 @@ def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf
     letzte: dict[UUID, date] = {}  # Versandtag der letzten Mahnung
     frist: dict[UUID, date] = {}  # die Frist, die sie gesetzt hat
     erste: dict[UUID, ErsteMahnung] = {}
+    fruehere: dict[UUID, list[tuple[int, date]]] = {}  # (Stufe, Versandtag)
     for posten_id, liste in versendet.items():
         liste.sort(key=lambda m: (_versandtag(m), m.stufe))
         letzte[posten_id] = _versandtag(liste[-1])
@@ -269,6 +308,7 @@ def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf
         erste[posten_id] = ErsteMahnung(
             liste[0].stufe_name, _versandtag(liste[0]), liste[0].zahlungsfrist
         )
+        fruehere[posten_id] = [(m.stufe, _versandtag(m)) for m in liste]
     vorgeschlagen = _zahlung_vorgeschlagen(session)
     faellig, lauf.ausnahmen = ermittle(
         posten,
@@ -301,6 +341,7 @@ def mahnlauf(session: Session, stichtag: date, e: MahnEinstellungen) -> Mahnlauf
                 zahlungen_auf(session, f.posten.id),
                 saetze,
                 erste.get(f.posten.id),
+                fruehere.get(f.posten.id, ()),
             )
         except BasiszinsUnbekanntError as fehler:
             lauf.ausnahmen.append(Ausnahme(f.posten, f.kontakt, str(fehler)))

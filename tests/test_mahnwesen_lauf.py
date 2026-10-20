@@ -238,7 +238,9 @@ def test_verzug_beginnt_mit_dem_zugang_der_erinnerung():
 
 def test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug():
     """Erste Stufe gleich mit Zinsen: B2B erst nach 30 Tagen (§ 286 Abs. 3), B2C
-    ohne Hinweis auf der Rechnung gar nicht — weder Zinsen noch Pauschale."""
+    ohne Hinweis auf der Rechnung gar nicht — weder Zinsen noch Pauschale noch
+    Gebühren: Mahnkosten sind Verzugsschaden (§§ 280 Abs. 2, 286 BGB), die Mahnung,
+    die den Verzug erst begründet, ist nicht erstattungsfähig."""
     e = MahnEinstellungen(
         stufen=[
             {"name": "Mahnung", "ab_tagen": 14, "gebuehr": 5, "verzugszinsen": True}
@@ -253,12 +255,18 @@ def test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug():
     assert (b2b.zinsen, b2b.pauschale, b2b.gebuehren, b2b.summe) == (
         D("0.00"),
         D("0.00"),
-        D("5.00"),
-        D("1195.00"),
+        D("0.00"),
+        D("1190.00"),
     )
+    assert b2b.gebuehren_kumuliert == 0
     fabrik, k, p = _umgebung(ust_id=None)
     (b2c,) = _lauf(fabrik, date(2026, 8, 31), e).mahnungen
     assert b2c.verzug_ab is None and b2c.zinsen == 0
+    assert (b2c.gebuehren, b2c.gebuehren_kumuliert, b2c.summe) == (
+        D("0.00"),
+        D("0.00"),
+        D("1190.00"),
+    )
     assert b2c.verzug_grund == (
         "kein Verzug: weder Zahlungsziel vereinbart noch Mahnung zugegangen"
     )
@@ -268,6 +276,74 @@ def test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug():
         s.commit()
     (b2c,) = _lauf(fabrik, date(2026, 8, 31), mit_hinweis).mahnungen
     assert b2c.verzug_ab == date(2026, 7, 16) and b2c.zinsen > 0
+    assert b2c.gebuehren == D("5.00")  # im Verzug gemahnt: erstattungsfähig
+
+
+def test_gebuehren_nur_fuer_mahnungen_im_verzug():
+    """Die erste Stufe kostet etwas, begründet aber erst den Verzug: ihre Gebühr
+    verlangt weder sie selbst noch die nächste Stufe.
+
+    B2C, kein Hinweis auf § 286 Abs. 3: 1. Mahnung am 29.06. versendet, Frist bis
+    09.07. → Verzug ab 10.07. 2. Mahnung am 13.07.: 10.–13.07. 4 Tage × 6,52 % auf
+    1.190 → 0,8503 → 0,85; Gebühren nur die eigenen 10,00; Summe 1.200,85.
+    """
+    e = MahnEinstellungen(
+        stufen=[
+            {"name": "1. Mahnung", "ab_tagen": 14, "gebuehr": 5, "verzugszinsen": True},
+            {
+                "name": "2. Mahnung",
+                "ab_tagen": 28,
+                "gebuehr": 10,
+                "verzugszinsen": True,
+            },
+        ]
+    )
+    fabrik, k, p = _umgebung(ust_id=None)
+    (erste,) = _lauf(fabrik, date(2026, 6, 29), e).mahnungen
+    assert (erste.verzug_ab, erste.gebuehren_kumuliert, erste.gebuehren) == (
+        None,
+        D("0.00"),
+        D("0.00"),
+    )
+    assert erste.summe == D("1190.00")
+    _versende(fabrik, erste.nr, date(2026, 6, 29), e)
+
+    (zweite,) = _lauf(fabrik, date(2026, 7, 13), e).mahnungen
+    assert zweite.verzug_ab == date(2026, 7, 10)
+    assert zweite.zinsen == D("0.85")
+    assert (zweite.gebuehren_kumuliert, zweite.gebuehren) == (D("10.00"), D("10.00"))
+    assert zweite.summe == D("1200.85")
+
+
+def test_gebuehr_einer_stufe_ohne_zinsen_nur_im_verzug():
+    """Eine Stufe ohne Verzugszinsen, aber mit Gebühr: Die Gebühr gibt es nur im
+    Verzug — dann stehen Verzugsbeginn und Grund in der Mahnung, Zinsen und Pauschale
+    verlangt die Stufe trotzdem nicht. Spätere Stufen verlangen sie mit."""
+    e = MahnEinstellungen(
+        stufen=[
+            {"name": "Zahlungserinnerung", "ab_tagen": 5, "gebuehr": "2.50"},
+            {"name": "1. Mahnung", "ab_tagen": 14, "gebuehr": 5, "verzugszinsen": True},
+        ]
+    )
+    fabrik, k, p = _umgebung(ust_id="DE888888888")
+    (ohne,) = _lauf(fabrik, date(2026, 6, 20), e).mahnungen
+    assert ohne.verzug_ab == date(2026, 7, 16)  # erst nach 30 Tagen (§ 286 Abs. 3)
+    assert (ohne.gebuehren, ohne.summe) == (D("0.00"), D("1190.00"))
+
+    vereinbart = e.model_copy(update={"zahlungsziel_vereinbart": True})
+    fabrik, k, p = _umgebung(ust_id="DE888888888")
+    (erinnerung,) = _lauf(fabrik, date(2026, 6, 20), vereinbart).mahnungen
+    assert erinnerung.verzug_ab == date(2026, 6, 16)
+    assert (erinnerung.zinsen, erinnerung.pauschale, erinnerung.gebuehren) == (
+        D("0.00"),
+        D("0.00"),
+        D("2.50"),
+    )
+    assert erinnerung.summe == D("1192.50")
+    _versende(fabrik, erinnerung.nr, date(2026, 6, 20), vereinbart)
+    (erste,) = _lauf(fabrik, date(2026, 7, 1), vereinbart).mahnungen
+    assert erste.gebuehren_kumuliert == D("7.50")  # Erinnerung im Verzug versendet
+    assert (erste.pauschale, erste.gebuehren) == (D("40.00"), D("0.00"))  # angerechnet
 
 
 def test_einstufung_aus_ausgangsrechnung_und_kontakt():

@@ -2,6 +2,7 @@
 
 import io
 from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -194,7 +195,8 @@ def test_email_erst_wenn_alles_lokale_geklappt_hat(erste_mahnung, tmp_path):
 
 
 def test_mahnung_ohne_verzug_behauptet_keinen_verzug():
-    """Stufe mit Zinsen, aber (noch) kein Verzug: kein „Sie befinden sich in Verzug“."""
+    """Stufe mit Zinsen und Gebühr, aber (noch) kein Verzug: kein „Sie befinden sich
+    in Verzug“ und keine Mahngebühr — sie wäre Verzugsschaden."""
     fabrik = neue_db()
     k = debitor()
     p = posten(
@@ -208,7 +210,9 @@ def test_mahnung_ohne_verzug_behauptet_keinen_verzug():
     speichere(fabrik, [k], [p])
     e = MahnEinstellungen(
         stufen=[
-            MahnStufe(name="Mahnung", ab_tagen=14, verzugszinsen=True),
+            MahnStufe(
+                name="Mahnung", ab_tagen=14, gebuehr=Decimal("5"), verzugszinsen=True
+            ),
             MahnStufe(name="Letzte Mahnung", ab_tagen=28, verzugszinsen=True),
         ]
     )
@@ -217,4 +221,35 @@ def test_mahnung_ohne_verzug_behauptet_keinen_verzug():
         s.commit()
     text = _text(fabrik, k, m.nr, e)
     assert "Verzug" not in text and "Verzugszinsen" not in text
+    assert "Mahngebühren" not in text
     assert "Gesamtbetrag von 1.190,00 €" in text
+
+
+def test_erinnerung_mit_gebuehr_nennt_den_gesamtbetrag():
+    """Stufe ohne Zinsen, aber mit Gebühr im Verzug: Der Text fordert denselben
+    Betrag wie Aufstellung und Zahlungshinweis, nicht nur den offenen Rest."""
+    fabrik = neue_db()
+    k = debitor(ust_id="DE888888888")
+    p = posten(
+        k,
+        "2026-0042",
+        "1190.00",
+        faellig=date(2026, 6, 15),
+        belegdatum=date(2026, 6, 1),
+        richtung=PostenRichtung.FORDERUNG,
+    )
+    speichere(fabrik, [k], [p])
+    e = MahnEinstellungen(
+        zahlungsziel_vereinbart=True,
+        stufen=[
+            MahnStufe(name="Zahlungserinnerung", ab_tagen=5, gebuehr=Decimal("2.50")),
+            MahnStufe(name="Mahnung", ab_tagen=14, verzugszinsen=True),
+        ],
+    )
+    with fabrik() as s:
+        (m,) = mahnlauf(s, date(2026, 6, 20), e).mahnungen
+        s.commit()
+    text = " ".join(_text(fabrik, k, m.nr, e).split())
+    assert "Bitte überweisen Sie ihn" not in text
+    assert "Gesamtbetrag von 1.192,50 €" in text
+    assert "In Verzug seit 16.06.2026" in text
