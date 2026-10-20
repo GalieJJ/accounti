@@ -434,6 +434,27 @@ class _Ermittler:
         }
         return ueber_konto, ueber_schluessel
 
+    def _rest_eines_aufgeteilten_ausgleichs(
+        self, b: Buchungssatz, ueber_konto: set[int], ueber_schluessel: set[int]
+    ) -> bool:
+        """Ist ``b`` der schlüssellose Teil einer nach Steuersätzen aufgeteilten
+        Minderung (Skonto aus dem Ausgleich) einer Rechnung mit genau einer
+        steuerfreien Kennziffer?"""
+        if b.transaktion_id is None or len(ueber_konto) != 1 or not ueber_schluessel:
+            return False
+        if ueber_konto & ueber_schluessel:
+            return False
+        mit_schluessel = {
+            kz
+            for andere in self.alle
+            if andere.id != b.id
+            and andere.transaktion_id == b.transaktion_id
+            and andere.beleg_id == b.beleg_id
+            and andere.steuer_schluessel in _USTEUER_SCHLUESSEL
+            and (kz := STEUERSCHLUESSEL[andere.steuer_schluessel].bmg) is not None
+        }
+        return ueber_schluessel <= mit_schluessel
+
     def _minderung(self, b: Buchungssatz, konto: str, seite: Seite) -> Beitrag | str:
         """Erlöskonto ohne Schlüssel: Minderung der Rechnung desselben Belegs — oder
         der Grund, warum die Buchung keine Kennziffer hat."""
@@ -452,6 +473,13 @@ class _Ermittler:
         kandidaten = ueber_konto | ueber_schluessel
         if not kandidaten:
             return ohne
+        if len(kandidaten) > 1 and self._rest_eines_aufgeteilten_ausgleichs(
+            b, ueber_konto, ueber_schluessel
+        ):
+            # opos/ausgleich hat die Minderung nach Steuersätzen aufgeteilt: der
+            # steuerpflichtige Teil steht mit Schlüssel in derselben Transaktion,
+            # dieser Rest ohne Schlüssel gehört zur einzigen steuerfreien Kennziffer
+            kandidaten = set(ueber_konto)
         if len(kandidaten) > 1:
             liste = ", ".join(str(kz) for kz in sorted(kandidaten))
             return f"Erlöskonto {konto}: Rechnung mit mehreren Kennziffern ({liste})"

@@ -460,3 +460,36 @@ def test_minderung_nur_gegen_personen_oder_geldkonto():
     assert e.voranmeldung.werte == {41: D("4970.00")}
     ((buchung, grund),) = e.ohne_kennziffer
     assert buchung.id == umbuchung.id and "2700" in grund
+
+
+def test_skonto_aus_dem_ausgleich_einer_mischrechnung():
+    """opos/ausgleich teilt das Skonto nach Steuersätzen: Der steuerpflichtige Teil
+    steht mit Schlüssel in derselben Transaktion, der Rest ohne Schlüssel gehört zur
+    einzigen steuerfreien Kennziffer der Rechnung (Kz 41)."""
+    beleg, tx = uuid4(), uuid4()
+    buchungen = [
+        b("10002", "8125", "5000.00", beleg_id=beleg),
+        b("10002", "8400", "1000.00", 3, "190.00", beleg_id=beleg),
+        b("1200", "10002", "6066.20", transaktion_id=tx, beleg_id=beleg),
+        b("8730", "10002", "100.00", transaktion_id=tx, beleg_id=beleg),
+        b("8736", "10002", "20.00", 3, "3.80", transaktion_id=tx, beleg_id=beleg),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.ohne_kennziffer == []
+    assert e.voranmeldung.werte[41] == D("4900.00")
+    assert e.voranmeldung.werte[81] == D("980.00")
+    assert sum(u.betrag for u in e.eu) == D("4900.00")
+
+
+def test_manuelle_minderung_einer_mischrechnung_bleibt_mehrdeutig():
+    """Ohne die aufgeteilte Ausgleichsbuchung lässt sich nicht sagen, welchen Teil
+    der Rechnung die Minderung trifft — die Freigabe bleibt gesperrt."""
+    beleg = uuid4()
+    buchungen = [
+        b("10002", "8125", "5000.00", beleg_id=beleg),
+        b("10002", "8400", "1000.00", 3, "190.00", beleg_id=beleg),
+        b("8730", "10002", "100.00", beleg_id=beleg),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    ((buchung, grund),) = e.ohne_kennziffer
+    assert buchung.soll_konto == "8730" and "mehreren Kennziffern" in grund
