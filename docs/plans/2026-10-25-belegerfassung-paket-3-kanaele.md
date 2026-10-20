@@ -117,11 +117,11 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 
 ### Paket B — E-Mail
 
-- [ ] **Anhänge** (`tests/test_kanaele_email.py`): PDF-Anhang byte-genau (Base64, Quoted-Printable), mehrere Anhänge, Anhang in weitergeleiteter Nachricht, eingebettetes Logo übersprungen, Textkörper übersprungen, unerlaubter Typ und zu große Datei als Hinweis, RFC-2231-Dateiname, fehlender Dateiname.
-- [ ] **IMAP-Attrappe** (`tests/imap_attrappe.py`): LOGIN, CAPABILITY, SELECT/EXAMINE mit UIDVALIDITY, UID SEARCH (ALL, SINCE), UID FETCH (RFC822.SIZE, BODY.PEEK[]), UID STORE, UID MOVE, LOGOUT, STARTTLS; Protokoll der Befehle.
-- [ ] **EmailKanal gegen die Attrappe:** holt Anhänge mit Herkunft „E-Mail … von …“; zweiter Lauf holt nichts; neue UIDVALIDITY mit gleicher Message-ID → nichts doppelt; Abbruch vor Bestätigung → erneut geholt, Dublette protokolliert; `belassen` nutzt EXAMINE und ändert keine Flags; `gelesen` setzt `\Seen`; `verschieben` nutzt MOVE; falsches Passwort → `KanalError` ohne Passwort im Text; Nachricht über der Größengrenze wird gemerkt, nicht geholt; `ab` → SEARCH SINCE; Nachricht ohne Anhang gemerkt mit Hinweis.
-- [ ] **TLS:** `ssl` und `starttls` gegen die Attrappe mit eigener CA (`ca_datei`), falscher Hostname scheitert.
-- [ ] **CLI:** `belege abholen --kanal email --config … ` (Akzeptanz 1 Ende-zu-Ende), `--quelle`, ohne Postfach klare Meldung, Verbindungsfehler → Exit 1; `kanaele zugang email NAME` (verdeckte Eingabe, verschlüsselt); `kanaele nachrichten` zeigt Absender (`tests/test_cli_kanaele.py`).
+- [x] **Anhänge** (`tests/test_kanaele_email.py`): PDF-Anhang byte-genau (Base64, Quoted-Printable), mehrere Anhänge, Anhang in weitergeleiteter Nachricht, eingebettetes Logo übersprungen, Textkörper übersprungen, unerlaubter Typ und zu große Datei als Hinweis, RFC-2231-Dateiname, fehlender Dateiname.
+- [x] **IMAP-Attrappe** (`tests/imap_attrappe.py`): LOGIN, CAPABILITY, SELECT/EXAMINE mit UIDVALIDITY, UID SEARCH (ALL, SINCE), UID FETCH (RFC822.SIZE, BODY.PEEK[]), UID STORE, UID MOVE, LOGOUT, STARTTLS; Protokoll der Befehle.
+- [x] **EmailKanal gegen die Attrappe:** holt Anhänge mit Herkunft „E-Mail … von …“; zweiter Lauf holt nichts; neue UIDVALIDITY mit gleicher Message-ID → nichts doppelt; Abbruch vor Bestätigung → erneut geholt, Dublette protokolliert; `belassen` nutzt EXAMINE und ändert keine Flags; `gelesen` setzt `\Seen`; `verschieben` nutzt MOVE; falsches Passwort → `KanalError` ohne Passwort im Text; Nachricht über der Größengrenze wird gemerkt, nicht geholt; `ab` → SEARCH SINCE; Nachricht ohne Anhang gemerkt mit Hinweis.
+- [x] **TLS:** `ssl` und `starttls` gegen die Attrappe mit eigener CA (`ca_datei`), falscher Hostname scheitert.
+- [x] **CLI:** `belege abholen --kanal email --config …` (Akzeptanz 1 Ende-zu-Ende), `--quelle`, ohne Postfach klare Meldung, Verbindungsfehler → Exit 1; `kanaele zugang email NAME` (verdeckte Eingabe, verschlüsselt); `kanaele nachrichten` zeigt Absender (`tests/test_cli_kanaele.py`).
 
 ### Paket C — Webhook
 
