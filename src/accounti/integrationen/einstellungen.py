@@ -66,6 +66,14 @@ class Marktplatzkonten(BaseModel):
     bank_stichworte: list[str] = Field(
         default_factory=list, description="Merkmale des Bankeingangs der Auszahlung"
     )
+    lager_nur_inland: bool = Field(
+        default=False,
+        description=(
+            "Versand durch den Marktplatz (FBA) nur aus Lagern im Land des "
+            "Firmensitzes, kein Pan-EU/CEE — dann gilt ein fehlendes Abgangsland "
+            "als Inland"
+        ),
+    )
 
     def konto_fuer_gebuehr(self, art: str) -> str:
         return {

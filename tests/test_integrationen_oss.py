@@ -144,8 +144,23 @@ def test_ohne_oss_registrierung_inland_mit_deutscher_steuer(tmp_path):
     assert not [b for b in e.buchungen if b.haben_konto.startswith("832")]
 
 
+def nur_inlandslager(tmp_path):
+    pfad = tmp_path / "inland.yaml"
+    pfad.write_text(
+        "integrationen:\n  marktplaetze:\n    amazon:\n      lager_nur_inland: true\n",
+        encoding="utf-8",
+    )
+    return lade_integrationen(pfad)
+
+
 def test_lieferschwelle_ueberschritten(tmp_path):
-    e = buche(amazon(), tmp_path, oss=False, eu_b2c_bisher={2026: D("9990.00")})
+    e = buche(
+        amazon(),
+        tmp_path,
+        oss=False,
+        eu_b2c_bisher={2026: D("9990.00")},
+        einstellungen=nur_inlandslager(tmp_path),
+    )
     (befund,) = [b for b in e.befunde if b.code == "lieferschwelle"]
     assert "10.000" in befund.text
     # FR-Bestellung 2 (50,42 netto) überschreitet die Schwelle — sie und alle
@@ -439,3 +454,57 @@ def test_cli_oss_mit_korrektur_und_steuerdifferenz(cli_db, tmp_path):
     assert "Differenz" not in text  # gebuchte Steuer = gemeldete Korrektur
     inhalt = csv.read_text(encoding="utf-8")
     assert "GESAMT;;0.00;0.00;0" in inhalt and "2026-Q3;FR;20%;-30.00;-6.00;1" in inhalt
+
+
+# --- Abgangsland und Geschäftskunden aus dem Amazon-Bestellbericht -----------------
+
+
+def test_fba_ohne_abgangsland_zur_pruefung(tmp_path):
+    """Der Bestellbericht nennt das Lager nicht: Pan-EU/CEE-Lager in PL oder CZ
+    machen den Verkauf dort steuerbar — ohne Abgangsland nicht raten."""
+    e = buche(amazon(), tmp_path)
+    (befund,) = [b for b in e.befunde if b.code == "abgangsland_fehlt"]
+    assert "302-1000001-0000001" in befund.text
+    assert "USt-Transaktionsbericht" in befund.text
+    (de,) = mit_beleg(e, "302-1000001-0000001")
+    assert de.status is BuchungStatus.ZUR_PRUEFUNG
+
+
+def test_fba_nur_aus_inlandslagern_eingestellt(tmp_path):
+    e = buche(amazon(), tmp_path, einstellungen=nur_inlandslager(tmp_path))
+    assert not [b for b in e.befunde if b.code == "abgangsland_fehlt"]
+    (de,) = mit_beleg(e, "302-1000001-0000001")
+    assert de.status is BuchungStatus.AUTO_GEBUCHT
+
+
+def test_versand_durch_amazon_aus_der_abrechnung(tmp_path):
+    """Auch ohne Bestellbericht: fulfillment-id AFN im Abrechnungsbericht."""
+    a = amazon(
+        {
+            "302-1000001-0000001": Laenderangabe(
+                bestellnummer="302-1000001-0000001", bestimmungsland="DE"
+            )
+        }
+    )
+    e = buche(a, tmp_path)
+    (de,) = mit_beleg(e, "302-1000001-0000001")
+    assert de.status is BuchungStatus.ZUR_PRUEFUNG
+    assert any(b.code == "abgangsland_fehlt" for b in e.befunde)
+
+
+def test_geschaeftskunde_ohne_ust_id_zur_pruefung(tmp_path):
+    a = amazon(
+        {
+            "302-1000002-0000002": Laenderangabe(
+                bestellnummer="302-1000002-0000002",
+                bestimmungsland="FR",
+                abgangsland="DE",
+                geschaeftskunde=True,
+            )
+        }
+    )
+    e = buche(a, tmp_path)
+    fr = mit_beleg(e, "302-1000002-0000002")
+    assert {b.status for b in fr} == {BuchungStatus.ZUR_PRUEFUNG}
+    (befund,) = [b for b in e.befunde if b.code == "geschaeftskunde_ohne_ust_id"]
+    assert "302-1000002-0000002" in befund.text

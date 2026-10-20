@@ -148,3 +148,19 @@ def test_laenderdatei_shopify():
 def test_laenderdatei_ohne_passende_spalten():
     with pytest.raises(MarktplatzFormatError):
         lies_laenderdatei(b"a,b\n1,2\n")
+
+
+def test_laenderdatei_bestellbericht_versandweg_und_geschaeftskunde():
+    from pathlib import Path
+
+    fixtures = Path(__file__).resolve().parents[1] / "examples" / "marktplatz"
+    roh = (fixtures / "amazon_bestellungen.txt").read_bytes()
+    roh = roh.replace(
+        b"\tFR\t\tfalse\t\t\r\n302-1000003", b"\tFR\t\ttrue\t\t\r\n302-1000003", 1
+    )
+    angaben = lies_laenderdatei(roh)
+    erste = angaben["302-1000001-0000001"]
+    # der Bestellbericht kennt das Abgangsland nicht, aber den Versand durch Amazon
+    assert (erste.abgangsland, erste.versand_durch_marktplatz) == (None, True)
+    assert erste.geschaeftskunde is False
+    assert angaben["302-1000002-0000002"].geschaeftskunde is True

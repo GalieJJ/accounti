@@ -243,6 +243,17 @@ def _erloes(
     if p.abgangsland and p.abgangsland != k.firmen_land:
         lauf.sammle("abgangsland", f"{bestellung} ({p.abgangsland})")
         pruefen = True
+    elif (
+        not p.abgangsland
+        and p.versand_durch_marktplatz
+        and not lauf.konten.lager_nur_inland
+    ):
+        # aus einem Marktplatzlager unbekannten Landes (Pan-EU/CEE?) — nicht raten
+        lauf.sammle("abgangsland_fehlt", bestellung)
+        pruefen = True
+    if p.geschaeftskunde and not p.kaeufer_ust_id and land != k.firmen_land:
+        lauf.sammle("geschaeftskunde_ohne_ust_id", f"{bestellung} ({land})")
+        pruefen = True
     b2b = bool(p.kaeufer_ust_id)
     berechner = UStBerechner(
         firmen_land=k.firmen_land,
@@ -402,6 +413,18 @@ _BEFUNDTEXTE: dict[str, tuple[Schweregrad, str]] = {
     "abgangsland": (
         Schweregrad.WARNUNG,
         "aus einem Lager im Ausland versandt — Steuerpflicht im Abgangsland prüfen",
+    ),
+    "abgangsland_fehlt": (
+        Schweregrad.WARNUNG,
+        "aus einem Lager des Marktplatzes ohne bekanntes Abgangsland — liegt die "
+        "Ware in einem Lager im Ausland (Pan-EU, CEE), ist der Verkauf dort "
+        "steuerbar; USt-Transaktionsbericht als Länderdatei nehmen oder "
+        "marktplaetze.<name>.lager_nur_inland einstellen",
+    ),
+    "geschaeftskunde_ohne_ust_id": (
+        Schweregrad.WARNUNG,
+        "als Unternehmer bestellt, aber ohne USt-IdNr. in der Länderdatei — "
+        "ig. Lieferung oder Fernverkauf? USt-IdNr. klären",
     ),
     "lieferschwelle": (
         Schweregrad.FEHLER,

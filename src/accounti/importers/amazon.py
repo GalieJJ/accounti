@@ -128,6 +128,12 @@ class AmazonImporter(MarktplatzImporter):
                 bestimmungsland=angabe.bestimmungsland if angabe else None,
                 abgangsland=angabe.abgangsland if angabe else None,
                 kaeufer_ust_id=angabe.kaeufer_ust_id if angabe else None,
+                versand_durch_marktplatz=(
+                    angabe.versand_durch_marktplatz
+                    if angabe and angabe.versand_durch_marktplatz is not None
+                    else w.get("fulfillment-id", "").upper() == "AFN"
+                ),
+                geschaeftskunde=bool(angabe and angabe.geschaeftskunde),
                 auszahlungs_nr=abrechnung.nummer,
             )
             abrechnung.posten.append(posten)

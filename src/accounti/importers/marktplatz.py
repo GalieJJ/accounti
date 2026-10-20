@@ -264,14 +264,23 @@ _BESTIMMUNG = (
 )
 _ABGANG = ("SALE_DEPART_COUNTRY", "DEPARTURE_COUNTRY", "ship-from-country")
 _UST_ID = ("BUYER_VAT_NUMBER", "buyer-vat-number", "buyer-tax-registration")
+_VERSAND = ("fulfillment-channel",)  # Amazon (FBA) oder Merchant
+_GESCHAEFT = ("is-business-order",)
+
+
+def _ja_nein(text: str, ja: set[str], nein: set[str]) -> bool | None:
+    wert = text.strip().casefold()
+    return True if wert in ja else False if wert in nein else None
 
 
 def lies_laenderdatei(inhalt: bytes) -> dict[str, Laenderangabe]:
     """Liest einen Zusatzbericht mit Bestellnummer und Lieferland.
 
-    Unterstützt den Amazon-Bestellbericht (``amazon-order-id``, ``ship-country``),
-    den Amazon-USt-Transaktionsbericht (``TRANSACTION_EVENT_ID``,
-    ``SALE_ARRIVAL_COUNTRY``, ``SALE_DEPART_COUNTRY``, ``BUYER_VAT_NUMBER``) und den
+    Unterstützt den Amazon-USt-Transaktionsbericht (``TRANSACTION_EVENT_ID``,
+    ``SALE_ARRIVAL_COUNTRY``, ``SALE_DEPART_COUNTRY``, ``BUYER_VAT_NUMBER`` —
+    empfohlen, weil er das Abgangsland kennt), den Amazon-Bestellbericht
+    (``amazon-order-id``, ``ship-country``, ``fulfillment-channel``,
+    ``is-business-order`` — ohne Abgangsland und USt-IdNr.) und den
     Shopify-Bestellexport (``Name``, ``Shipping Country``).
     """
     text = dekodiere(inhalt)
@@ -288,6 +297,8 @@ def lies_laenderdatei(inhalt: bytes) -> dict[str, Laenderangabe]:
     kopf, zeilen = lies_tabelle(text, {nummer, bestimmung})
     abgang = spalte(kopf, *_ABGANG)
     ust_id = spalte(kopf, *_UST_ID)
+    versand = spalte(kopf, *_VERSAND)
+    geschaeft = spalte(kopf, *_GESCHAEFT)
     ergebnis: dict[str, Laenderangabe] = {}
     for _nr, werte in zeilen:
         schluessel = werte[nummer].strip()
@@ -298,6 +309,16 @@ def lies_laenderdatei(inhalt: bytes) -> dict[str, Laenderangabe]:
             bestimmungsland=land_iso(werte[bestimmung]),
             abgangsland=land_iso(werte[abgang]) if abgang else None,
             kaeufer_ust_id=(werte[ust_id].replace(" ", "") or None) if ust_id else None,
+            versand_durch_marktplatz=(
+                _ja_nein(werte[versand], {"amazon", "afn"}, {"merchant", "mfn"})
+                if versand
+                else None
+            ),
+            geschaeftskunde=(
+                _ja_nein(werte[geschaeft], {"true", "ja", "1"}, {"false", "nein", "0"})
+                if geschaeft
+                else None
+            ),
         )
     return ergebnis
 

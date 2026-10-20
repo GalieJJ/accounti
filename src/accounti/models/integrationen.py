@@ -73,6 +73,12 @@ class Laenderangabe(BaseModel):
     bestimmungsland: str | None = None
     abgangsland: str | None = None
     kaeufer_ust_id: str | None = None
+    versand_durch_marktplatz: bool | None = Field(
+        default=None, description="Versand aus einem Lager des Marktplatzes (FBA)"
+    )
+    geschaeftskunde: bool | None = Field(
+        default=None, description="Bestellung als Unternehmer (Amazon Business)"
+    )
 
 
 class Marktplatzposten(BaseModel):
@@ -94,6 +100,12 @@ class Marktplatzposten(BaseModel):
     bestimmungsland: str | None = Field(default=None, min_length=2, max_length=2)
     abgangsland: str | None = Field(default=None, min_length=2, max_length=2)
     kaeufer_ust_id: str | None = None
+    versand_durch_marktplatz: bool = Field(
+        default=False, description="aus einem Lager des Marktplatzes versandt (FBA)"
+    )
+    geschaeftskunde: bool = Field(
+        default=False, description="als Unternehmer bestellt (z.B. Amazon Business)"
+    )
     auszahlungs_nr: str | None = None
     referenz: str | None = Field(
         default=None, description="PayPal: Transaktionscode der Guthabenbewegung"

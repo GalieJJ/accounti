@@ -6,6 +6,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
@@ -62,6 +63,8 @@ class MarktplatzPostenRow(Base):
     bestimmungsland: Mapped[str | None] = mapped_column(String(2), nullable=True)
     abgangsland: Mapped[str | None] = mapped_column(String(2), nullable=True)
     kaeufer_ust_id: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    versand_durch_marktplatz: Mapped[bool] = mapped_column(Boolean, default=False)
+    geschaeftskunde: Mapped[bool] = mapped_column(Boolean, default=False)
     auszahlungs_nr: Mapped[str | None] = mapped_column(String(80), nullable=True)
     referenz: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     gegenpartei: Mapped[str | None] = mapped_column(String(200), nullable=True)
