@@ -63,7 +63,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
-| 🟨 | **Belegeingang** | Überwachter Ordner und Upload vorhanden; E-Mail-Weiterleitung, Webhook, Beleg-Connectoren folgen |
+| ✅ | **Belegeingang** | Überwachter Ordner, Upload, IMAP-Postfach (Anhänge, Absender als Hinweis, verarbeitete Nachrichten gemerkt), tokengeschützter Webhook für Fremdsysteme und Messenger-Weiterleitungen, Connectoren für Belegportale (generisch per JSON/HTTP-Konfiguration); Typ- und Größenprüfung am Inhalt, Dublettenschutz über alle Kanäle |
 | ✅ | **Belegerkennung** | PDF-Textebene, OCR mit lokaler Engine (Tesseract), Belegart per Regelwerk + optionalem LLM, Dublettenerkennung, Rechenprobe |
 | ✅ | **Positionssplit** | Eine Rechnung auf mehrere Konten aufteilen; Kreditkartenabrechnung in Einzelumsätze zerlegen |
 | ✅ | **E-Rechnung Eingang** | XRechnung (UBL/CII) und ZUGFeRD/Factur-X ohne OCR übernehmen, fachlich validieren (EN-16931-Regeln, § 14 UStG), `accounti rechnung pruefen` |
@@ -182,6 +182,22 @@ accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 # Belege aus dem Watch-Ordner holen und lesen (PDF, Scan, XRechnung, ZUGFeRD)
 accounti belege abholen --kanal ordner --ordner ./eingang/belege
 accounti belege liste --status pruefung
+
+# Belege aus dem Postfach holen (Abschnitt belegkanaele.email; Passwort per ${VAR} oder Tresor)
+accounti kanaele zugang email rechnungen         # Passwort verschlüsselt ablegen (ACCOUNTI_SCHLUESSEL)
+accounti belege abholen --kanal email            # alle Postfächer, oder --quelle rechnungen
+accounti kanaele nachrichten --kanal email       # verarbeitete Nachrichten mit Absender
+
+# Webhook für Fremdsysteme und Messenger-Weiterleitungen (n8n, Make, Zapier, curl)
+accounti kanaele webhook token n8n               # Token wird nur jetzt angezeigt
+accounti kanaele webhook starten                 # 127.0.0.1:8410 — TLS über einen Reverse-Proxy
+curl -H "Authorization: Bearer $TOKEN" -F datei=@rechnung.pdf -F absender="Telegram Erika" \
+  http://127.0.0.1:8410/belege
+
+# Belegportal über seine API (Abschnitt belegkanaele.connectoren)
+accounti kanaele connectoren                     # Typen und Prüfung der Konfiguration
+accounti kanaele zugang connector getmyinvoices  # API-Schlüssel verschlüsselt ablegen
+accounti belege abholen --kanal connector
 
 # Eingehende E-Rechnung prüfen, ohne zu importieren — fachlich und mit dem KoSIT-Prüftool
 accounti rechnung pruefen ./eingang/rechnung.xml --kosit
