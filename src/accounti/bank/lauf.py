@@ -15,8 +15,18 @@ from sqlalchemy.orm import Session
 from accounti.bank.abgleich import Abgleichsergebnis
 from accounti.bank.abgleichslauf import gleiche_belege_ab
 from accounti.bank.dubletten import mit_schluessel
-from accounti.bank.provider import BANK_PROVIDER, FreigabeNoetigError, ProviderError
-from accounti.bank.tresor import TresorError, entschluessele, lade_schluessel
+from accounti.bank.provider import (
+    BANK_PROVIDER,
+    Freigabe,
+    FreigabeNoetigError,
+    ProviderError,
+)
+from accounti.bank.tresor import (
+    TresorError,
+    entschluessele,
+    lade_schluessel,
+    verschluessele,
+)
 from accounti.buchung.kontierung import Kontierungslauf, kontiere_umsaetze
 from accounti.db.repository import (
     aktualisiere_bankkonto,
@@ -71,12 +81,18 @@ def rufe_ab(
     schluessel: str | None = None,
     konten: list[Bankkonto] | None = None,
     jetzt: datetime | None = None,
+    freigabe: Freigabe | None = None,
 ) -> list[KontoAbruf]:
-    """Holt neue Umsätze aller (oder der genannten) Konten."""
+    """Holt neue Umsätze aller (oder der genannten) Konten.
+
+    Ohne ``freigabe`` (Cron, ``bank lauf``) wird eine verlangte Freigabe zum Zustand
+    am Konto; mit ihr fragt der Provider nach (``accounti fints freigeben``).
+    """
     ergebnisse = []
     for konto in konten if konten is not None else lade_bankkonten(session):
         ergebnis = KontoAbruf(konto, KontoZustand.BEREIT)
         stand = konto.abrufstand
+        neuer_zugang: dict[str, str] | None = None
         try:
             klasse = BANK_PROVIDER.get(konto.provider)
             if klasse is None:
@@ -86,7 +102,8 @@ def rufe_ab(
                 schluessel = schluessel or lade_schluessel()
                 zugang = entschluessele(konto.zugang, schluessel, str(konto.id))
             ab = konto.abrufstand - UEBERLAPPUNG if konto.abrufstand else None
-            abruf = klasse().abrufen(konto, zugang, ab)
+            abruf = klasse(freigabe=freigabe).abrufen(konto, zugang, ab)
+            neuer_zugang = abruf.zugang
             with session.begin_nested():
                 ergebnis.neu, ergebnis.doppelt = speichere_neue(
                     session, abruf.transaktionen, konto.iban, konto
@@ -95,16 +112,28 @@ def rufe_ab(
                 neuester = max(t.datum for t in abruf.transaktionen)
                 stand = max(stand, neuester) if stand else neuester
         except FreigabeNoetigError as fehler:
+            neuer_zugang = fehler.zugang
             ergebnis.zustand, ergebnis.meldung = (
                 KontoZustand.FREIGABE_NOETIG,
                 str(fehler),
             )
         except (ProviderError, TresorError, OSError, ValueError) as fehler:
             ergebnis.zustand, ergebnis.meldung = KontoZustand.FEHLER, str(fehler)
+        aenderung: dict[str, object] = {
+            "abrufstand": stand,
+            "letzter_abruf": jetzt or datetime.now(),
+        }
+        if neuer_zugang is not None:  # z.B. Sitzung der Bank — nur verschlüsselt
+            try:
+                schluessel = schluessel or lade_schluessel()
+                aenderung["zugang"] = verschluessele(
+                    neuer_zugang, schluessel, str(konto.id)
+                )
+            except TresorError as fehler:
+                ergebnis.zustand, ergebnis.meldung = KontoZustand.FEHLER, str(fehler)
         konto = konto.model_copy(
             update={
-                "abrufstand": stand,
-                "letzter_abruf": jetzt or datetime.now(),
+                **aenderung,
                 "zustand": ergebnis.zustand,
                 "meldung": ergebnis.meldung,
             }

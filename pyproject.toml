@@ -43,6 +43,9 @@ dependencies = [
     "pillow>=10,<13",
     # Bankzugänge verschlüsselt ablegen (AES-GCM)
     "cryptography>=50.0.2,<51",
+    # FinTS-Direktabruf (LGPL-3.0-or-later, als Bibliothek eingebunden); 5.0.1 vom
+    # 09.10.2026 erst nach Erprobung — sie erlaubt dann auch lxml 6.1 (CVE-2026-41066)
+    "fints==5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -83,6 +86,11 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# python-fints bringt keine Typinformationen mit
+module = ["fints.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

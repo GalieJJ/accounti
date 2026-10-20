@@ -193,3 +193,74 @@ def test_kontierung_mit_beleg_nutzt_das_sachkonto_des_umsatzes():
         RegelwerkEngine([TANKEN]),
     )
     assert (x.soll_konto, x.haben_konto) == ("4530", "1800")
+
+
+class Sitzungsbank(BankProvider):
+    """Gibt eine aktualisierte Sitzung zurück (wie FinTS) und merkt sich die
+    Rückfrage, mit der er erzeugt wurde."""
+
+    name = "sitzungsbank"
+    geheime_felder = ("pin",)
+    erzeugt: list[object] = []
+    freigabe_noetig = False
+
+    def __init__(self, freigabe=None):
+        super().__init__(freigabe)
+        Sitzungsbank.erzeugt.append(freigabe)
+
+    def abrufen(self, konto, zugang, ab):
+        neu = {**zugang, "sitzung": zugang.get("sitzung", "geheime-sitzung") + "+"}
+        if Sitzungsbank.freigabe_noetig:
+            raise FreigabeNoetigError("Bitte freigeben", zugang=neu)
+        return Abruf([umsatz()], zugang=neu)
+
+
+@pytest.fixture
+def sitzungsbank():
+    BANK_PROVIDER["sitzungsbank"] = Sitzungsbank
+    Sitzungsbank.erzeugt, Sitzungsbank.freigabe_noetig = [], False
+    yield
+    del BANK_PROVIDER["sitzungsbank"]
+
+
+def _zugang(make_session):
+    from accounti.bank.tresor import entschluessele
+
+    with make_session() as s:
+        (k,) = lade_bankkonten(s)
+    return entschluessele(k.zugang, SCHLUESSEL, str(k.id)), k
+
+
+def test_rueckfrage_wird_an_den_provider_gereicht(make_session, sitzungsbank):
+    _konto(make_session, provider="sitzungsbank")
+
+    def frage(anfrage):
+        return "123456"
+
+    _abruf(make_session)
+    _abruf(make_session, freigabe=frage)
+    assert Sitzungsbank.erzeugt == [None, frage]
+
+
+def test_geaenderter_zugang_wird_neu_verschluesselt(
+    make_session, sitzungsbank, tmp_path
+):
+    _konto(make_session, provider="sitzungsbank", pin="0815-geheim")
+    _abruf(make_session)
+    zugang, konto = _zugang(make_session)
+    assert zugang == {"pin": "0815-geheim", "sitzung": "geheime-sitzung+"}
+    assert konto.zustand is KontoZustand.BEREIT
+    _abruf(make_session)
+    assert _zugang(make_session)[0]["sitzung"] == "geheime-sitzung++"
+    roh = (tmp_path / "l.db").read_bytes()
+    assert b"0815-geheim" not in roh and b"geheime-sitzung" not in roh
+
+
+def test_zugang_auch_bei_noetiger_freigabe_gesichert(make_session, sitzungsbank):
+    _konto(make_session, provider="sitzungsbank")
+    Sitzungsbank.freigabe_noetig = True
+    (ergebnis,) = _abruf(make_session)
+    assert ergebnis.zustand is KontoZustand.FREIGABE_NOETIG
+    zugang, konto = _zugang(make_session)
+    assert zugang["sitzung"] == "geheime-sitzung+"
+    assert konto.meldung == "Bitte freigeben"
