@@ -1,0 +1,142 @@
+# accounti — Abschlusszuordnung SKR04 (Abschlussgliederungsprinzip)
+#
+# Grundlage: DATEV-Kontenrahmen SKR 04, „Gültig für 2026“ (Art.-Nr. 11175). Wie beim SKR03
+# ist die EÜR-Zuordnung eine Bereichsregel von accounti; die engste Spanne gewinnt.
+# Kontennamen der Einzelregeln abgeglichen mit der SKR04-Kontenliste
+# (steuerschroeder.de/Kontenrahmen-SKR04-Bilanzgliederungsprinzip.html, 20.10.2026).
+# kz: null  — keine Zeile bekannt: zählt als „nicht zugeordnet“ mit (Warnung)
+# kz: "-"   — gehört nicht in die EÜR (z. B. Steuern vom Einkommen)
+
+name: SKR04
+quelle: "DATEV-Kontenrahmen SKR 04, Gültig für 2026 (Art.-Nr. 11175)"
+
+arten:
+  - {von: "0000", bis: "1999", art: bestand}  # Anlage- und Umlaufvermögen, ARAP
+  - {von: "1400", bis: "1439", art: steuer}   # abziehbare und aufzuteilende Vorsteuer
+  - {von: "1420", bis: "1430", art: bestand}  # USt-Forderungen, Verbrauchsteuern
+  - {von: "1435", bis: "1435", art: bestand}  # Forderungen aus Gewerbesteuerüberzahlungen
+  - {von: "2000", bis: "3999", art: bestand}  # Eigenkapital, Rückstellungen, Verbindlichkeiten
+  - {von: "2100", bis: "2399", art: privat}   # Privat Vollhafter: Entnahmen, Sonderausgaben,
+                                              # Spenden, agB, Grundstücksaufwand/-ertrag
+  - {von: "2500", bis: "2799", art: privat}   # dasselbe für Teilhafter
+  - {von: "3800", bis: "3849", art: steuer}   # Umsatzsteuer, USt-Vorauszahlungen
+  - {von: "4000", bis: "8999", art: erfolg}
+  - {von: "9000", bis: "9999", art: vortrag}
+
+geldkonten:
+  - {von: "1200", bis: "1299"}   # Forderungen aus Lieferungen und Leistungen
+  - {von: "1460", bis: "1460"}   # Geldtransit
+  - {von: "1600", bis: "1899"}   # Kasse, Bank
+  - {von: "3300", bis: "3399"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+
+# Bankkonten (Postbank, LZB, Bundesbank, Bank 1800–1850) — ohne Kasse 1600–1699 und
+# Finanzmittelanlagen/Verbindlichkeiten ggü. Kreditinstituten 1890/1895
+bankkonten:
+  - {von: "1700", bis: "1889"}
+
+vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
+
+# DATEV-BU-Schlüssel → Steuerkonto
+steuerkonten: {2: "3801", 3: "3806", 8: "1401", 9: "1406"}
+
+euer:
+  # Betriebseinnahmen
+  - {von: "4000", bis: "4599", kz: "112"}
+  - {von: "4100", bis: "4199", kz: "103"}   # steuerfreie Umsätze
+  - {von: "4180", bis: "4180", kz: "104"}   # Durchschnittssätze § 24 UStG
+  - {von: "4185", bis: "4185", kz: "111"}   # Kleinunternehmer § 19 Abs. 1 UStG
+  - {von: "4186", bis: "4186", kz: "112"}   # Geldspielautomaten 19 % USt
+  - {von: "4320", bis: "4320", kz: "103"}   # im anderen EG-Land steuerpflichtig
+  - {von: "4335", bis: "4339", kz: "103"}   # § 13b, im Inland nicht steuerbar
+  - {von: "4600", bis: "4699", kz: "108"}   # unentgeltliche Wertabgaben
+  - {von: "4639", bis: "4639", kz: "106"}   # Verwendung von Gegenständen (Fahrzeug)
+  - {von: "4645", bis: "4645", kz: "106"}
+  - {von: "4700", bis: "4999", kz: "103"}   # sonstige Erträge
+  - {von: "4845", bis: "4849", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchgewinn)
+  - {von: "4855", bis: "4859", kz: "135"}   # Restbuchwert (Buchgewinn)
+  - {von: "6885", bis: "6892", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchverlust)
+  - {von: "6895", bis: "6899", kz: "135"}   # Restbuchwert (Buchverlust)
+  - {von: "7000", bis: "7199", kz: "103"}   # Beteiligungs- und Zinserträge
+  - {von: "3800", bis: "3819", kz: "140"}   # vereinnahmte Umsatzsteuer
+  - {von: "3820", bis: "3849", kz: "186", kz_haben: "141"}
+  # Betriebsausgaben
+  - {von: "1400", bis: "1439", kz: "185"}   # Vorsteuer
+  - {von: "5000", bis: "5999", kz: "100"}   # Material, Waren
+  - {von: "5900", bis: "5999", kz: "110"}   # Fremdleistungen
+  - {von: "6000", bis: "6199", kz: "120"}   # Personal
+  - {von: "6200", bis: "6219", kz: "131"}   # AfA immaterielle Wirtschaftsgüter
+  - {von: "6220", bis: "6239", kz: "130"}   # AfA Sachanlagen
+  - {von: "6221", bis: "6221", kz: "136"}   # AfA Gebäude
+  - {von: "6240", bis: "6249", kz: "134"}   # Sonderabschreibungen
+  - {von: "6243", bis: "6244", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
+  - {von: "6250", bis: "6250", kz: "222"}   # Kaufleasing
+  - {von: "6260", bis: "6263", kz: "132"}   # GWG
+  - {von: "6264", bis: "6265", kz: "137"}   # Sammelposten
+  - {von: "6266", bis: "6269", kz: "132"}
+  - {von: "6300", bis: "6999", kz: "183"}   # übrige Betriebsausgaben
+  - {von: "6310", bis: "6319", kz: "150"}   # Miete, Pacht
+  - {von: "6320", bis: "6359", kz: "151"}   # sonstige Raum-/Grundstückskosten
+  - {von: "6400", bis: "6439", kz: "223"}   # Versicherungen, Beiträge, Abgaben
+  - {von: "6437", bis: "6437", kz: "168"}   # nicht abzugsfähige Verspätungszuschläge
+  - {von: "6450", bis: "6494", kz: "225"}   # Reparaturen und Instandhaltung
+  - {von: "6495", bis: "6499", kz: "228"}   # Wartung Hard- und Software
+  - {von: "6500", bis: "6519", kz: "146"}
+  - {von: "6520", bis: "6529", kz: "145"}   # Kfz-Versicherung
+  - {von: "6530", bis: "6559", kz: "146"}
+  - {von: "6560", bis: "6569", kz: "144"}   # Leasing Kfz
+  - {von: "6570", bis: "6579", kz: "146"}
+  - {von: "6580", bis: "6589", kz: "145"}   # Maut
+  - {von: "6590", bis: "6594", kz: "147"}
+  - {von: "6595", bis: "6599", kz: "146"}
+  - {von: "6600", bis: "6609", kz: "224"}   # Werbung
+  - {von: "6610", bis: "6619", kz: "174"}   # Geschenke abzugsfähig
+  - {von: "6620", bis: "6629", kz: "164"}   # Geschenke nicht abzugsfähig
+  - {von: "6625", bis: "6625", kz: "174"}   # Geschenke ausschließlich betrieblich genutzt
+  - {von: "6640", bis: "6643", kz: "175"}   # Bewirtung
+  - {von: "6644", bis: "6644", kz: "165"}   # Bewirtung nicht abzugsfähig
+  - {von: "6650", bis: "6669", kz: "120"}   # Reisekosten Arbeitnehmer
+  - {von: "6670", bis: "6679", kz: "221"}   # Reisekosten Unternehmer
+  - {von: "6700", bis: "6799", kz: "227"}   # Verpackung, Fracht
+  - {von: "6800", bis: "6800", kz: "229"}   # Porto
+  - {von: "6805", bis: "6810", kz: "280"}   # Telefon, Internet
+  - {von: "6815", bis: "6820", kz: "229"}   # Bürobedarf, Fachliteratur
+  - {von: "6821", bis: "6821", kz: "281"}   # Fortbildung
+  - {von: "6825", bis: "6830", kz: "194"}   # Beratung, Abschluss, Buchführung
+  - {von: "6835", bis: "6844", kz: "222"}   # Miete/Leasing bewegliche WG
+  - {von: "6845", bis: "6850", kz: "229"}   # Werkzeuge, Betriebsbedarf
+  - {von: "7300", bis: "7399", kz: "234"}   # Zinsen
+  - {von: "7600", bis: "7609", kz: "-"}     # KSt, SolZ — keine Betriebsausgabe
+  - {von: "7610", bis: "7610", kz: "168"}   # Gewerbesteuer — nicht abziehbar, § 4 Abs. 5b
+  - {von: "7630", bis: "7639", kz: "-"}     # Kapitalertragsteuer, Quellensteuer
+  - {von: "7640", bis: "7644", kz: "168"}   # Gewerbesteuer Vorjahre
+  - {von: "7645", bis: "7649", kz: "-"}     # latente Steuern, Steuerstundung
+  - {von: "7650", bis: "7699", kz: "183"}   # sonstige Betriebssteuern, Verbrauchsteuern
+  - {von: "7685", bis: "7685", kz: "145"}   # Kfz-Steuer
+
+namen:
+  "0135": "EDV-Software"
+  "0520": "Pkw"
+  "0540": "Lkw"
+  "0650": "Büroeinrichtung"
+  "0670": "Geringwertige Wirtschaftsgüter"
+  "0675": "Wirtschaftsgüter (Sammelposten)"
+  "0690": "Sonstige Betriebs- und Geschäftsausstattung"
+  "1401": "Abziehbare Vorsteuer 7 %"
+  "1406": "Abziehbare Vorsteuer 19 %"
+  "1600": "Kasse"
+  "1800": "Bank"
+  "1900": "Aktive Rechnungsabgrenzung"
+  "2010": "Variables Kapital"
+  "2100": "Privatentnahmen allgemein"
+  "2180": "Privateinlagen"
+  "3801": "Umsatzsteuer 7 %"
+  "3806": "Umsatzsteuer 19 %"
+  "3820": "Umsatzsteuer-Vorauszahlungen"
+  "3900": "Passive Rechnungsabgrenzung"
+  "6220": "Abschreibungen auf Sachanlagen"
+  "6260": "Sofortabschreibungen geringwertiger Wirtschaftsgüter"
+  "6264": "Abschreibungen auf den Sammelposten Wirtschaftsgüter"
+  "7610": "Gewerbesteuer"
+  "9000": "Saldenvorträge, Sachkonten"
+  "9008": "Saldenvorträge, Debitoren"
+  "9009": "Saldenvorträge, Kreditoren"

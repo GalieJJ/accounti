@@ -40,34 +40,39 @@ Tatsachen.
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
 | 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` | 🔲 geplant | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
 | 11 | Integrationen & Export | `importers/` `export/` `api/` | 🟨 teilweise | [Spec](specs/2026-08-10-integrationen-export.md) |
-| 12 | Anlagenbuchhaltung & Jahresabschluss | `anlagen/` `abschluss/` | 🔲 geplant | [Spec](specs/2026-08-10-anlagen-jahresabschluss.md) |
+| 12 | Anlagenbuchhaltung & Jahresabschluss | `anlagen/` `abschluss/` | 🟨 teilweise | [Spec](specs/2026-08-10-anlagen-jahresabschluss.md) |
 
 Legende: ✅ fertig · 🟨 Grundlage vorhanden, Baustein nicht abgeschlossen · 🔲 geplant
 
 **Baustein 9 ist teilweise fertig,** weil `steuer/umsatzsteuer.py`, `steuer/oss.py` und
 `steuer/voranmeldung.py` die Kennziffern bereits berechnen — was fehlt, ist die Übermittlung.
+
 **Baustein 2 ist fertig:** Ordner- und Upload-Kanal, Archiv, Dublettenprüfung, Eingangsprotokoll
 ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)), Erkennung, OCR und Positionssplit
 ([Paket 2](plans/2026-10-19-belegerfassung-paket-2.md)) sowie die Kanäle E-Mail (IMAP),
 Webhook und Connector für Belegportale ([Paket 3](plans/2026-10-20-belegerfassung-paket-3-kanaele.md)).
 Offen als Erweiterungen: OAuth2 für Microsoft 365 und Gmail, IMAP IDLE statt Abruf per Timer,
 HEIC-Fotos, Rechnungen im E-Mail-Text und eigene Connector-Typen für einzelne Portale.
+
 **Baustein 3 ist fertig:** Eingang ([Paket 1](plans/2026-10-19-erechnung-paket-1-eingang.md)),
 Ausstellen als XRechnung mit lückenlosen Nummernkreisen ([Paket 2](plans/2026-10-19-erechnung-paket-2-ausgang.md))
 sowie ZUGFeRD-PDF und E-Mail-Versand ([Paket 3](plans/2026-10-20-erechnung-paket-3-zugferd-versand.md)),
 jeweils formal geprüft. Offen als Erweiterungen: Storno/Korrekturrechnung (Typ 384), Dienstleistungen
 an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
+
 **Baustein 4 ist fertig:** Kontakte mit Personenkonten und offene Posten aus Belegen
 ([Paket 1](plans/2026-10-20-kontakte-opos-paket-1.md)), Zahlungszuordnung und Ausgleich mit Skonto
 ([Paket 2](plans/2026-10-21-kontakte-opos-paket-2-zahlungen.md)) sowie die qualifizierte
 USt-IdNr.-Bestätigung beim BZSt mit revisionssicherem Protokoll
 ([Paket 3](plans/2026-10-22-kontakte-opos-paket-3-ustid.md)).
+
 **Baustein 5 ist teilweise fertig,** weil der Belegabgleich vor der Kontierung
 ([Paket 1](plans/2026-10-23-bankanbindung-paket-1-belegabgleich.md)) sowie Bankkonten mit
 verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettenschutz und der geplante
 Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) stehen — was fehlt, sind
 FinTS und Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
 Kreditwirtschaft (10–15 Werktage).
+
 **Baustein 6 ist fertig:** Zahlungsvorschlag mit Skonto-Vorrang, Zahlungslauf mit blockierender
 Prüfung, Freigabe (optional Vier-Augen) und Storno mit Protokoll, SEPA-Sammelüberweisung als
 `pain.001.001.09` nach DK-TVS GBIC_5 sowie Mahnwesen mit Stufen, Verzugszinsen nach § 288 BGB,
@@ -75,6 +80,7 @@ B2B-Pauschale und Mahnschreiben ([Plan](plans/2026-10-25-zahlungsverkehr-mahnwes
 als Erweiterungen: Einreichung über den Bank-Provider (braucht FinTS aus Baustein 5),
 Sammelmahnung je Kunde, Verrechnung von Gutschriften im Zahlungslauf, Zahlungen außerhalb des
 EWR (BIC am Kontakt). Annahme der SEPA-Datei durch eine Bank vom Nutzer zu bestätigen.
+
 **Baustein 8 ist fertig** ([Plan](plans/2026-10-25-aufgaben-rueckfragen.md)): Aufgaben mit
 Bezug auf ein beliebiges Objekt, idempotent über (Art, Objekt), mit Zuständigkeit (Benutzer,
 Rolle oder gemeinsame Liste), Fälligkeit, Verlauf und Selbstabschluss als `hinfaellig`;
@@ -83,8 +89,17 @@ Bankfreigaben; Rückfragen am Beleg; Erinnerungsstufen und eine gebündelte Tage
 E-Mail oder Webhook. Die Bausteine 7 und 9 melden ihre Aufgaben über `accounti.aufgaben`.
 Offen: Einhängen in `bank lauf` (bis dahin `accounti aufgaben lauf` im selben Cron-Eintrag),
 Benutzerkonten und Rechte (Baustein 10).
+
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
+
+**Baustein 12 ist teilweise fertig,** weil die Anlagenbuchhaltung (AfA linear, degressiv, GWG,
+Sammelposten, digitale Wirtschaftsgüter, E-Fahrzeuge, Abgang, Anlagenspiegel — Grenzbeträge mit
+Gültigkeitszeitraum), das Kassenbuch, die Abschlussprüfungen mit Bank-Saldenabstimmung, Summen- und
+Saldenliste, Abgrenzungsvorschläge, die Einnahmenüberschussrechnung und der Saldovortrag mit
+Jahressperre stehen ([Plan](plans/2026-10-25-anlagen-jahresabschluss.md)) — was fehlt, sind Bilanz
+und GuV nach HGB, Rückstellungen und die elektronische Übermittlung (braucht die Schicht aus
+Baustein 9).
 
 ---
 

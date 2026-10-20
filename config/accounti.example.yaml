@@ -120,6 +120,40 @@ belegkanaele:
         parameter: {includeDocument: "true"}
         inhalt: fileContent    # Base64 in der JSON-Antwort
 
+# Anlagenbuchhaltung (optional — ohne diesen Abschnitt gelten die Standards des Kontenrahmens
+# aus buchhaltung.kontenrahmen; hier SKR03)
+anlagen:
+  # rechtsstand: config/rechtsstand.yaml   # eigene Grenzbeträge/AfA-Tabelle (ergänzt den Stand)
+  konten:
+    afa: "4830"                  # Abschreibungen auf Sachanlagen
+    afa_kfz: "4832"
+    afa_immateriell: "4822"
+    gwg_afa: "4855"              # Sofortabschreibung GWG
+    sammelposten_afa: "4862"
+    gwg: "0480"                  # Anlagekonto GWG
+    sammelposten: "0485"         # Anlagekonto Sammelposten
+    abgang_buchverlust: "2310"   # Restbuchwert
+    abgang_buchgewinn: "2315"
+    erloes_buchverlust: "8801"   # 19 % USt
+    erloes_buchgewinn: "8820"
+    erloes_buchverlust_ohne_ust: "8800"
+    erloes_buchgewinn_ohne_ust: "8829"
+  kfz_konten: ["0320", "0350"]       # AfA auf afa_kfz
+  immaterielle_konten: [["0010", "0049"]]   # AfA auf afa_immateriell
+  anlagekonten: [["0010", "0499"]]   # Buchungen hierauf ohne Anlagegut → anlagen vorschlaege
+
+# Jahresabschluss (optional)
+abschluss:
+  gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP)
+  ergebnis_konto: "0880"         # Kapitalkonto für Ergebnis und Privatkonten (SKR04: 2010)
+  rap_verzicht_bis_gwg: false    # § 5 Abs. 5 Satz 2 EStG, einheitlich für alle
+  verrechnungskonten: ["1360", "1590", "1792"]   # sollen zum Stichtag ausgeglichen sein
+  # kontenzuordnung: config/kontenzuordnung.yaml   # eigene Kontoarten/EÜR-Zuordnung
+
+# Kassenbuch (optional)
+kasse:
+  konto: "1000"                  # SKR04: 1600
+
 # Zahlungsverkehr (optional — ohne diesen Abschnitt gelten die Standards)
 zahlung:
   vorlauf_tage: 3              # Skontofristen und Fälligkeiten so weit voraus einplanen
