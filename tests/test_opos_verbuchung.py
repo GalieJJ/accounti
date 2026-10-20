@@ -339,7 +339,7 @@ VORTAG = datetime(2026, 3, 9, 10, 0)
         (
             kunde(land="AT", ust_id="ATU12345678"),
             pos("Hängung", "90", "8", sonstige_leistung=True),
-            "8338",
+            "8336",  # SKR03: EU-Leistung, Empfänger schuldet (8338 = Drittland)
         ),
         (kunde(land="FR", ust_id="FR12345678901"), pos("Rahmen", "100"), "8125"),
         (kunde(land="CH", ust_id=None), pos("Rahmen", "100"), "8120"),

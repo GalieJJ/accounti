@@ -54,7 +54,7 @@ _UST_SCHLUESSEL = {Decimal("19"): 3, Decimal("7"): 2}
 # Erlöskonten (SKR03) je EN-16931-Steuerkategorie
 _ERLOES_STEUERPFLICHTIG = {Decimal("19"): "8400", Decimal("7"): "8300"}
 _ERLOES_STEUERFREI = {
-    "AE": "8338",  # sonstige Leistung im EU-Ausland, Steuerschuld beim Empfänger
+    "AE": "8336",  # sonstige Leistung im EU-Ausland, Steuerschuld beim Empfänger
     "K": "8125",  # steuerfreie innergemeinschaftliche Lieferung
     "G": "8120",  # steuerfreie Ausfuhr
     "E": "8100",  # steuerfreie Umsätze § 4 Nr. 8 ff.
