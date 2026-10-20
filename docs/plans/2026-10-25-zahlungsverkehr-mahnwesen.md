@@ -54,7 +54,7 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 | Pflichtfelder | `DbtrAgt` ist Pflicht: BIC oder `Othr/Id = NOTPROVIDED`; `CdtrAgt` (BIC des Empfängers) optional |
 | Sammelbuchung | `BtchBookg` `false` = Einzelbuchung je Überweisung auf dem Kontoauszug — **nur mit Vereinbarung** mit der Bank, sonst bucht sie immer als Sammelposten (Anlage 3, Kap. 2.2.1, BatchBooking) |
 | Adressen | `PstlAdr` des Empfängers optional; wenn angegeben, sind `TwnNm` und `Ctry` Pflicht, seit GBIC_5 hybrid mit bis zu 2 `AdrLine`. Für den Zahler empfiehlt die DK, keine Adresse anzugeben. SWIFT/EPC dulden unstrukturierte Adressen über 11/2026 hinaus (Hinweis Format-LifeCycle) |
-| SEPA-Raum | 27 EU-Staaten, 3 EWR-Staaten (IS, LI, NO) und 11 Nicht-EWR-Länder (AL, AD, MD, MC, ME, MK, SM, RS, CH, GB, VA) laut EPC409-09 *EPC List of SEPA Scheme Countries* v8.0 vom 24.12.2025; IBAN-Präfixe zusätzlich GI (Gibraltar); Guernsey/Jersey/Isle of Man führen GB-IBANs, die französischen Überseegebiete FR-IBANs |
+| SEPA-Raum | 27 EU-Staaten, 3 EWR-Staaten (IS, LI, NO) und 11 Nicht-EWR-Länder (AL, AD, MD, MC, ME, MK, SM, RS, CH, GB, VA) laut EPC409-09 *EPC List of SEPA Scheme Countries* v8.0 vom 24.12.2025; IBAN-Präfixe zusätzlich GI (Gibraltar); Guernsey/Jersey/Isle of Man führen GB-IBANs, die französischen Überseegebiete FR-IBANs. **IBAN-only nur innerhalb des EWR** — für Zahlungen in die Schweiz, nach Monaco, San Marino, Andorra, in den Vatikan und ins Vereinigte Königreich ist „weiterhin der BIC zusätzlich zur IBAN anzugeben“ (Deutsche Bundesbank, FAQ SEPA); das SCT-Regelwerk verlangt dort zusätzlich die Anschrift des Auftraggebers |
 | Empfängerüberprüfung | Seit 09.10.2025 prüft die Bank bei Überweisungen Name ↔ IBAN (Verification of Payee); für Sammler bietet die DK eigene Auftragsarten (CTV) — das geschieht beim Hochladen in der Bank, nicht in accounti |
 
 ### Verzugszinsen und Basiszinssatz
@@ -64,10 +64,10 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 | § 288 Abs. 1 BGB | Verzugszinssatz für das Jahr **5 Prozentpunkte** über dem Basiszinssatz |
 | § 288 Abs. 2 BGB | Rechtsgeschäfte ohne Verbraucher, Entgeltforderungen: **9 Prozentpunkte** |
 | § 288 Abs. 5 BGB | Schuldner kein Verbraucher: **Pauschale 40 €**; sie ist auf einen Schadensersatz für Kosten der Rechtsverfolgung **anzurechnen** (Satz 3) — Mahngebühren werden also nur verlangt, soweit sie 40 € übersteigen |
-| § 286 BGB | Verzug durch Mahnung nach Fälligkeit, ohne Mahnung bei kalendermäßig bestimmter Zeit (Abs. 2 Nr. 1), spätestens 30 Tage nach Fälligkeit und Zugang der Rechnung (Abs. 3; bei Verbrauchern nur mit Hinweis in der Rechnung) |
+| § 286 BGB | Verzug durch Mahnung nach Fälligkeit (eine Mahnung vor Fälligkeit ist unwirksam), ohne Mahnung bei kalendermäßig bestimmter Zeit (Abs. 2 Nr. 1 — die Zeit muss vereinbart sein; ein einseitig auf der Rechnung gesetztes Zahlungsziel genügt nicht, BGH III ZR 91/07), spätestens 30 Tage nach Fälligkeit und Zugang der Rechnung (Abs. 3; bei Verbrauchern nur mit Hinweis in der Rechnung). IHK-Merkblätter („Mahnung und Verzug“, z.B. IHK Bonn): eine Frist in der Mahnung ist nicht nötig; ob eine gesetzte Frist den Verzug hinausschiebt, ließ sich nicht verbindlich klären |
 | § 247 BGB | Basiszinssatz ändert sich zum 1. Januar und 1. Juli; die Bundesbank gibt ihn im Bundesanzeiger bekannt |
 | Quelle Gesetzestexte | [gesetze-im-internet.de §§ 247, 286, 288 BGB](https://www.gesetze-im-internet.de/bgb/__288.html), abgerufen 20.10.2026 |
-| Basiszinssätze | Tabelle der Deutschen Bundesbank, [Basiszinssatz nach § 247 BGB](https://www.bundesbank.de/de/bundesbank/basiszinssatz-nach---247-bgb-607820), abgerufen 20.10.2026: 01.07.2026 **1,52 %** · 01.01.2026 1,27 % · 01.07.2025 1,27 % · 01.01.2025 2,27 % · 01.07.2024 3,37 % · 01.01.2024 3,62 % · 01.07.2023 3,12 % · 01.01.2023 1,62 % · 01.07.2016–01.07.2022 −0,88 % · … zurück bis 01.07.2002 2,47 % (vollständig in `mahnwesen/basiszins.py`). Der Satz ab 01.01.2027 ist noch nicht bekannt |
+| Basiszinssätze | Tabelle der Deutschen Bundesbank, [Basiszinssatz nach § 247 BGB](https://www.bundesbank.de/de/bundesbank/basiszinssatz-nach---247-bgb-607820), abgerufen 20.10.2026: 01.07.2026 **1,52 %** · 01.01.2026 1,27 % · 01.07.2025 1,27 % · 01.01.2025 2,27 % · 01.07.2024 3,37 % · 01.01.2024 3,62 % · 01.07.2023 3,12 % · 01.01.2023 1,62 % · 01.07.2016–01.07.2022 −0,88 % · … zurück bis 01.07.2002 2,47 % (vollständig in `mahnwesen/basiszins.py`; einmalig von Hand abgeglichen, kein automatischer Abgleich). Der Satz ab 01.01.2027 ist noch nicht bekannt |
 | Zinstage | taggenau; ob das Jahr in Schaltjahren 365 oder 366 Tage hat, wird in Ratgebern und Prüfungsunterlagen unterschiedlich gehandhabt (z.B. IHK München „act/act“, andere durchgängig 365) — eine verbindliche Quelle war nicht zu finden, siehe Entscheidung |
 
 ## Entscheidungen
@@ -78,34 +78,35 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 | Schemaprüfung | im Test gegen das unveränderte offizielle XSD mit `javax.xml.validation` (Java ist durch KoSIT/Mustang ohnehin Pflicht in der CI; Quelltextmodus `java XsdPruefung.java`, keine neue Python-Abhängigkeit); ohne Java übersprungen, in der CI (`ACCOUNTI_PRUEFWERKZEUGE_PFLICHT=1`) Pflicht. Zusätzlich Golden-Test gegen `pain001_soll.xml` | Spec 6; die Standardbibliothek kann kein XSD |
 | Zeichen | Namen und Verwendungszweck auf den DK-Zeichensatz (Latin + Umlaute, ß, `& * $ %`), andere Buchstaben ohne Akzent (é → e), Rest → Leerzeichen; Referenzen nur Latin-Pattern, ohne führendes/abschließendes `/` und ohne `//` | Banken müssen den DK-Satz annehmen; nichts geht verloren, was eine Bank nicht lesen kann |
 | Sammelbuchung | `zahlung.einzelbuchung: true` (Standard) schreibt `BtchBookg=false` | Jede Überweisung erscheint einzeln mit Empfänger und Rechnungsnummer auf dem Kontoauszug — nur so kann `opos zuordnen` sie dem Posten zuordnen. Ohne Vereinbarung bucht die Bank trotzdem als Sammler (Grenzen) |
-| BIC | Empfänger ohne BIC (IBAN-only); Auftraggeber-BIC aus `zahlung.auftraggeber.bic` bzw. `mandant.bank.bic`, sonst `NOTPROVIDED` | SEPA braucht seit 2016 keinen BIC; `DbtrAgt` ist laut TVS Pflicht |
+| BIC | Empfänger ohne BIC (IBAN-only) — deshalb **nur Empfänger im EWR**: IBANs aus den Nicht-EWR-Ländern des SEPA-Raums (CH, GB, GI, MC, SM, AD, VA, AL, MD, ME, MK, RS) blockiert die Prüfung („Zahlung entfernen und im Onlinebanking einzeln überweisen“). Auftraggeber-BIC aus `zahlung.auftraggeber.bic` bzw. `mandant.bank.bic`, sonst `NOTPROVIDED` | IBAN-only gilt nur im EWR; für Nicht-EWR-Länder verlangen SCT-Regelwerk und Bundesbank (FAQ SEPA) den BIC der Empfängerbank und die Anschrift des Auftraggebers — Kontakte haben kein BIC-Feld (Runde 1, Befund 8); `DbtrAgt` ist laut TVS Pflicht |
 | Empfängeradresse | `PstlAdr` nur, wenn Ort und Land bekannt: `StrtNm`/`BldgNb` (Hausnummer abgetrennt), `PstCd`, `TwnNm`, `Ctry` | strukturiert ist der empfohlene Weg; optional im SEPA-Raum |
 | IDs | `MsgId` = `ACCOUNTI-<Lauf>-<JJJJMMTThhmmss>`, `PmtInfId` = `ACCOUNTI-<Lauf>`, `EndToEndId` = Rechnungsnummer des Lieferanten (bereinigt), sonst `ACCOUNTI-<Lauf>-<Pos>` | MsgId muss je Datei neu sein (Dublettenschutz der Bank); die Rechnungsnummer hilft dem Lieferanten |
 | Verwendungszweck | `<Rechnungsnummer> vom <Belegdatum>`, bei Skonto `abzgl. <x> EUR Skonto` (max. 140) | Spec 4.3; damit trifft `opos zuordnen` Stufe A (Referenz) |
 | Vorschlag | Stichtag = geplanter Ausführungstag; Planungshorizont `vorlauf_tage` (Standard 3). Skontoposten (Skonto > 0, Frist ≥ Stichtag, Posten unberührt) werden vorgeschlagen, sobald ihre **Skontofrist** in den Horizont fällt — auch wenn das Nettoziel Wochen entfernt ist; andere, sobald sie fällig sind. Reihenfolge: Skonto nach Frist, dann Fälligkeit. Grund je Position („Skontofrist endet morgen: 2 % = 3,45 € sparen; netto fällig am …“) | Spec 4.1: Skonto hat Vorrang; nicht früher zahlen als nötig |
-| Ausgeschlossen | mit Grund gelistet: Zahlungssperre, schon in einem Lauf, Gutschrift (Betrag < 0), Betragsfilter | Nachvollziehbarkeit; Gutschriften verrechnet der Mensch |
+| Ausgeschlossen | mit Grund gelistet: Zahlungssperre, schon in einem Lauf, **Bankumsatz als Zahlung vorgeschlagen** (`opos zuordnen`, noch nicht bestätigt), Gutschrift (Betrag < 0), Betragsfilter | Nachvollziehbarkeit; Gutschriften verrechnet der Mensch; ein vorgeschlagener Umsatz kann heißen, dass schon bezahlt ist (Lastschrift, Überweisung von Hand) |
 | Lauf | `zahlungslaeufe` + `zahlungen` + `zahlungslauf_protokoll`; laufende Nummer je Lauf (`zahlung pruefen 42`). Zahlung friert Empfänger, IBAN, Adresse, Betrag, Skonto, Restbetrag und Verwendungszweck bei der Anlage ein | was freigegeben wird, ist genau das, was in der Datei steht |
-| Zustände | Entwurf → freigegeben → eingereicht → ausgeführt; storniert aus Entwurf, freigegeben, eingereicht; alles andere `ZustandError` | Spec 4.4 |
-| Eingereicht | mit dem Schreiben der Datei; die XML wird im Lauf gespeichert und bei erneutem `zahlung sepa` byte-gleich ausgegeben (gleiche `MsgId`) | ab der Datei kann Geld fließen; ein erneutes Hochladen weist die Bank über die `MsgId` ab |
+| Zustände | Entwurf → freigegeben → eingereicht → ausgeführt; storniert aus Entwurf, freigegeben, eingereicht; alles andere `ZustandError`. Ein Wechsel schreibt nur, wenn der Lauf noch im gelesenen Status ist; die Versionsspalte `zahlungslaeufe.version` macht daraus ein `UPDATE … WHERE version = …` — ein zweiter, gleichzeitiger Prozess scheitert mit `ZustandError`. Der Kopfsatz ist nach der Freigabe am ORM gesperrt (nur Status in erlaubter Richtung, Datei-Felder nur beim Einreichen) | Spec 4.4; zwei gleichzeitige `zahlung sepa` dürfen nicht zwei Dateien erzeugen |
+| Eingereicht | mit dem Schreiben der Datei; die XML wird im Lauf gespeichert und bei erneutem `zahlung sepa` byte-gleich ausgegeben (gleiche `MsgId`), nachdem sie mit dem protokollierten SHA-256 verglichen wurde. Die CLI schreibt die Datei **erst nach dem Commit**; vor dem Statuswechsel wird die erzeugte Datei auf leere Elemente geprüft | ab der Datei kann Geld fließen; ein erneutes Hochladen weist die Bank über die `MsgId` ab; ohne Commit darf es keine Datei geben, sonst entstünde beim nächsten Aufruf eine zweite mit neuer `MsgId` |
 | Ausgeführt | `zahlung abgleichen`: ein Lauf ist ausgeführt, wenn bei jedem Posten der Rest um mindestens den gezahlten Betrag gesunken ist. accounti gleicht **nicht** selbst aus — das macht der Bankumsatz über `opos zuordnen` | Auftrag: Ausgleich nur über den Bankumsatz; keine Doppelbuchung |
 | Doppelzahlung | dreifach: Vorschlag lässt Posten aktiver Läufe weg; Anlage lehnt sie ab; **eindeutiger Index** `zahlungen.sperre` (= Posten-ID, solange der Lauf nicht storniert oder ausgeführt ist) — hält auch bei parallelen Prozessen. Die Prüfung meldet zusätzlich doppelte Posten im selben Lauf | Akzeptanz 3 |
-| Prüfung | blockierend, Grund je Befund: Auftraggeber-IBAN; Ausführungsdatum nicht in der Vergangenheit; Posten offen und unverändert; Betrag = Rest oder Rest − Skonto mit Frist ≥ Ausführung; Höchstbetrag je Zahlung (`hoechstbetrag_zahlung`); Kontakt bestätigt (nicht „zur Prüfung“); Zahlungssperre; IBAN im Stammsatz vorhanden und mit gültiger Prüfziffer; **IBAN der Zahlung = Stammsatz**; **IBAN auf der Rechnung = Stammsatz**; IBAN-Land im SEPA-Raum; Währung EUR; Posten in keinem anderen aktiven Lauf | Spec 4.2, Akzeptanz 4 |
+| Prüfung | blockierend, Grund je Befund: Auftraggeber-IBAN und -Name; Ausführungsdatum nicht in der Vergangenheit; Posten offen und unverändert; Betrag = Rest oder Rest − Skonto mit Frist ≥ Ausführung; Höchstbetrag je Zahlung (`hoechstbetrag_zahlung`); Kontakt bestätigt (nicht „zur Prüfung“); Zahlungssperre; IBAN im Stammsatz vorhanden und mit gültiger Prüfziffer; **IBAN der Zahlung = Stammsatz**; **IBAN auf der Rechnung = Stammsatz**; IBAN-Land im **EWR**; Währung EUR; Posten in keinem anderen aktiven Lauf; **kein Bankumsatz als Zahlung vorgeschlagen**; Empfängername, Auftraggebername und Verwendungszweck nach der Bereinigung auf den DK-Zeichensatz **nicht leer** (kyrillische/griechische Namen → „im Stammsatz in lateinischer Schrift pflegen“) | Spec 4.2, Akzeptanz 4; ein leeres `<Nm/>` ist schemawidrig, die Bank wiese die ganze Sammeldatei ab (Runde 1, Befunde 5/9, 6/17) |
 | IBAN-Abweichung | Meldung nennt Rechnung, beide IBANs und was zu tun ist („beim Lieferanten auf bekanntem Weg bestätigen …“). Ausweg: Stammsatz nach Rückruf ändern (`kontakte bearbeiten --iban`) **oder** `zahlung iban-klaeren <Lauf> <Pos> --grund … --von …` — dann wird an die Stammsatz-IBAN gezahlt, die Klärung gilt nur für genau dieses IBAN-Paar und steht im Protokoll | genau so funktionieren gefälschte Rechnungen; ein Mensch entscheidet, dokumentiert |
 | Freigabe | prüft erneut; speichert einen SHA-256 über Auftraggeber, Ausführungsdatum und alle Zahlungen (`freigabe_hash`); `zahlung sepa` prüft erneut und vergleicht den Hash | freigegeben = unveränderbar; auch direkte DB-Änderungen fallen auf |
-| Vier-Augen | `zahlung.vier_augen: true` verlangt zwei verschiedene Personen; eine Freigabe gilt nur für den Inhalt (Hash), den sie gesehen hat | Spec 4.4; im Einpersonenbetrieb aus |
+| Vier-Augen | `zahlung.vier_augen: true` verlangt zwei verschiedene Personen; eine Freigabe gilt nur für den Inhalt (Hash), den sie gesehen hat. Wer freigibt, ist dann der **Anmeldename über die Benutzerkennung des Prozesses** (`pwd`, nicht `USER`/`LOGNAME`); `--von` mit einem anderen Namen wird abgelehnt, `ACCOUNTI_BENUTZER` zählt nicht. Optional `zahlung.freigeber`: nur diese Personen dürfen freigeben | Spec 4.4; im Einpersonenbetrieb aus. Freitext-Namen hätten eine Person zweimal freigeben lassen (Runde 1, Befunde 7/12) |
 | Unveränderbar | Zahlungen eines nicht mehr entworfenen Laufs: Änderungen (außer der Freigabe der Sperre) und Löschen scheitern am ORM; Protokoll nur anfügen (ORM-Sperre, SQLite-Trigger wie beim USt-IdNr.-Protokoll) | Akzeptanz 5, Prinzip 6 |
-| Person | `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename | bis Baustein 10 echte Benutzer bringt |
+| Person | `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename — außer beim Freigeben mit Vier-Augen (siehe dort) | bis Baustein 10 echte Benutzer bringt |
 | Einreichung über Provider | nicht in diesem Paket — `bank/` bleibt unverändert, der Dateiweg ist der einzige | Auftrag; Spec: Dateiweg immer verfügbar |
 | Konfiguration | Abschnitte `zahlung` und `mahnwesen` in `config/accounti.yaml` mit eigenen Ladern (`accounti.zahlung.konfiguration.lade_zahlung`, `accounti.mahnwesen.konfiguration.lade_mahnwesen`); ohne Abschnitt gelten Standards | Projektregel; die Spec nannte `config/mahnwesen.yaml` |
 | Befehlsgruppen | `accounti zahlung …` und `accounti mahnwesen …` | Bereichsname; die Spec schrieb `accounti mahnen …` |
 | Basiszinssatz | Tabelle mit **ab/bis** je Halbjahr in `mahnwesen/basiszins.py` (Bundesbank, Stand 20.10.2026), letzter Zeitraum bis 31.12.2026; neue Sätze per `mahnwesen.basiszinssaetze` (`ab`, `satz`, optional `bis`) ergänzbar, sie gehen vor. Zinstage ohne bekannten Satz → `BasiszinsUnbekanntError` mit Hinweis, statt still mit dem alten Satz zu rechnen | halbjährliche Änderung; alte Zeiträume bleiben rechenbar |
-| Zinsen | ab dem Tag nach Fälligkeit + `verzug_nach_tagen` (Standard 0) bis einschließlich Mahndatum; Abschnitte an jedem Basiszinswechsel und jeder Zahlung (Kapital = heutiger Rest + später gezahlte Beträge laut Zahlungszuordnung); je Abschnitt `Kapital × Satz × Tage / 365`, kaufmännisch auf Cent gerundet, Summe der Abschnitte | handrechenbar, Teilzahlungen werden zeitanteilig berücksichtigt; act/365 ist die verbreitete Praxis |
-| B2B/B2C | Reihenfolge: Einstufung am Kontakt (`mahnwesen kunde --unternehmer/--verbraucher`) → Ausgangsrechnung aus accounti (`kunde.privat`) → USt-IdNr. im Stammsatz → sonst `mahnwesen.unbekannt_als` (Standard `verbraucher`); der Grund steht in der Mahnung | zu hohe Zinsen gegenüber Verbrauchern wären eine unberechtigte Forderung; zu niedrige schaden nicht |
+| Verzugsbeginn | erster Zinstag = frühester von: (a) Tag nach Fälligkeit, nur mit `mahnwesen.zahlungsziel_vereinbart: true` (§ 286 Abs. 2 Nr. 1 — ein Zahlungsziel nur auf der Rechnung reicht nicht, BGH III ZR 91/07); (b) erste **versendete** Mahnung nach Fälligkeit (§ 286 Abs. 1): Tag nach dem Zugang (Versand + `zugang_tage`, Standard 3), setzt sie eine Zahlungsfrist, erst Tag nach deren Ablauf; (c) 31. Tag nach Fälligkeit bzw. Zugang der Rechnung (Belegdatum + `zugang_tage`) (§ 286 Abs. 3) — bei Verbrauchern nur mit `hinweis_30_tage: true`. Kein Kandidat → kein Verzug: keine Zinsen, keine Pauschale, und der Brief behauptet keinen Verzug. Der Grund steht in der Mahnung („In Verzug seit …: …“) | Runde 1, Befund 2. Ob eine in der Mahnung gesetzte Frist den Verzug hinausschiebt, ist nicht eindeutig (IHK-Merkblätter: Frist nicht nötig) — accounti rechnet konservativ erst ab Fristablauf |
+| Zinsen | ab dem Verzugsbeginn bis einschließlich Mahndatum; Abschnitte an jedem Basiszinswechsel und jeder Zahlung (Kapital = heutiger Rest + später gezahlte Beträge laut Zahlungszuordnung); je Abschnitt `Kapital × Satz × Tage / 365`, kaufmännisch auf Cent gerundet, Summe der Abschnitte | handrechenbar, Teilzahlungen werden zeitanteilig berücksichtigt; act/365 ist die verbreitete Praxis |
+| B2B/B2C | Reihenfolge: Einstufung am Kontakt (`mahnwesen kunde --unternehmer/--verbraucher`) → Ausgangsrechnung aus accounti: `kunde.privat` → Verbraucher, USt-IdNr. oder Leitweg-ID des Empfängers → Unternehmer bzw. öffentlicher Auftraggeber; eine Rechnung **ohne** `privat` sagt nichts (das ist ihr Standard) → USt-IdNr. im Stammsatz → sonst `mahnwesen.unbekannt_als` (Standard `verbraucher`); der Grund steht in der Mahnung | zu hohe Zinsen gegenüber Verbrauchern wären eine unberechtigte Forderung; zu niedrige schaden nicht (Runde 1, Befund 3) |
 | Pauschale | 40 € (`pauschale_b2b`) bei Unternehmern ab der ersten Stufe mit `verzugszinsen: true`, je Posten einmal; Mahngebühren werden nach § 288 Abs. 5 S. 3 angerechnet (`pauschale_anrechnen: true`): verlangt wird `max(0, Gebühren − 40)` zusätzlich | Gesetzeswortlaut |
 | Gebühren | `gebuehr` je Stufe; eine Mahnung verlangt die Summe der Gebühren aller Stufen bis zu ihrer | bisherige Mahngebühren bleiben geschuldet |
-| Stufen | eine Stufe je Lauf, keine wird übersprungen: Stufe *n+1* greift, wenn Tage seit Fälligkeit ≥ `ab_tagen` der Stufe **und** > `karenztage` **und** seit der letzten versendeten Mahnung ≥ `stufenabstand_tage` (Standard 7). Rest < `mindestbetrag` → keine Mahnung (Grund). Nach der letzten Stufe: Hinweis, keine weitere | Spec 4.5; „durchläuft die Stufen“ |
-| Mahnung | je Posten eine Mahnung (Entwurf → versendet / verworfen); beim Versenden: Mahnstufe am Posten hochgezählt (`repo_mahnwesen.setze_mahnstufe`), PDF ins Belegarchiv, Hash und Weg an der Mahnung — die versendeten Mahnungen sind die Historie | Spec 4.5 [4]; Entwurf zählt nicht |
-| Ausnahmen | Mahnsperre am Kontakt, offener Mahnentwurf, Zahlung vorgeschlagen (`opos vorschlaege`), letzte Stufe erreicht, Mindestbetrag — jeweils mit Grund | nicht mahnen, was gerade bezahlt wurde |
+| Stufen | eine Stufe je Lauf, keine wird übersprungen: Stufe *n+1* greift, wenn Tage seit Fälligkeit ≥ `ab_tagen` der Stufe **und** > `karenztage` **und** seit dem **Versand** der letzten Mahnung ≥ `stufenabstand_tage` (Standard 7) **und** die Zahlungsfrist dieser Mahnung abgelaufen ist. Rest < `mindestbetrag` → keine Mahnung (Grund). Nach der letzten Stufe: Hinweis, keine weitere | Spec 4.5; „durchläuft die Stufen“; keine 1. Mahnung, solange die Frist der Erinnerung läuft (Runde 1, Befunde 4/11) |
+| Mahnung | je Posten eine Mahnung (Entwurf → versendet / verworfen); beim Versenden: Mahnstufe am Posten hochgezählt (`repo_mahnwesen.setze_mahnstufe`), PDF ins Belegarchiv, Hash und Weg an der Mahnung — die versendeten Mahnungen sind die Historie. Versendet wird nur am Mahndatum oder bis `entwurf_gueltig_tage` (Standard 3, < `zahlungsfrist_tage`) danach, sonst „veraltet — verwerfen und Lauf wiederholen“; `mahnwesen versenden --am` hält den tatsächlichen Versandtag fest (nicht in der Zukunft, bei `--email` nur heute). Reihenfolge: Dateien und Archiv, dann die E-Mail, direkt danach der Status | Spec 4.5 [4]; Entwurf zählt nicht; ein spät versendeter Brief wäre rückdatiert; eine E-Mail lässt sich nicht zurückholen (Runde 1, Befunde 4, 10) |
+| Ausnahmen | Mahnsperre am Kontakt, offener Mahnentwurf, Zahlung vorgeschlagen (`opos vorschlaege`), letzte Stufe erreicht, Mindestbetrag — jeweils mit Grund; Mahnsperre und vorgeschlagene Zahlung werden **beim Versand erneut** geprüft | nicht mahnen, was gerade bezahlt wurde oder inzwischen gesperrt ist (Runde 1, Befund 13) |
 | Mahnschreiben | PDF mit fpdf2 und den Liberation-Schriften aus `erechnung/schriften` (kein PDF/A nötig) oder Text; Absender aus `mandant` (`lade_firma`); Texte je Stufe mit Standard, überschreibbar (`text` mit Platzhaltern) | wie `accounti.erechnung`; Text für eigene Vorlagen |
 | E-Mail | `mahnwesen versenden --email` nutzt Abschnitt `versand` und den SMTP-Versandweg aus `erechnung/versand.py` (nur importiert) | ein SMTP-Zugang für alles |
 
@@ -129,7 +130,7 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 
 ### Paket 3 — Mahnwesen
 
-- [x] **Basiszinssatz** `mahnwesen/basiszins.py`: Tabelle lückenlos (mit der Bundesbank-Seite abgeglichen), Satz am Stichtag, Ergänzung/Korrektur aus der Konfiguration, Überschneidung, unbekannter Zeitraum → Fehler (`tests/test_mahnwesen_basiszins.py`).
+- [x] **Basiszinssatz** `mahnwesen/basiszins.py`: Tabelle lückenlos (einmalig am 20.10.2026 von Hand mit der Bundesbank-Seite abgeglichen — einen automatischen Abgleich gibt es nicht), Satz am Stichtag, Ergänzung/Korrektur aus der Konfiguration, Überschneidung, unbekannter Zeitraum → Fehler (`tests/test_mahnwesen_basiszins.py`).
 - [x] **Verzugszinsen** `mahnwesen/zinsen.py`: handgerechnete Fälle B2B/B2C, über den Wechsel am 01.07.2026, Teilzahlung im Verzug, Zahlung nach dem Stichtag (`tests/test_mahnwesen_zinsen.py`).
 - [x] **Konfiguration** `mahnwesen/konfiguration.py`: Stufen, Karenz, Mindestbetrag, Abstand, Pauschale, Texte mit geprüften Platzhaltern, Basiszins-Ergänzungen nur zum 1.1./1.7. (`tests/test_mahnwesen_konfiguration.py`).
 - [x] **Modelle, Tabellen, Repository** `models/mahnwesen.py`, `db/tabellen_mahnwesen.py` (versendete Mahnungen am ORM gesperrt), `db/repo_mahnwesen.py` (`setze_mahnstufe` am offenen Posten).
@@ -142,24 +143,84 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 
 - [x] `pytest` (744 bestanden, 1 übersprungen), `ruff check`, `ruff format --check` (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine unten aktuell; Probelauf beider Befehlsgruppen unter `/tmp` (SEPA-Datei gegen das XSD geprüft, Mahn-PDF angesehen).
 
+### Runde 1 — Befunde der Prüfung (20.10.2026)
+
+Jede Behebung testgetrieben (Test zeigt den Fehler, dann der Fix).
+
+- [x] **Doppelzahlung trotz vorgeschlagenem Bankumsatz** (Befunde 5, 9): `vorschlag.vorgeschlagene_zahlungen`; Vorschlag schließt aus, Prüfung blockiert (`test_zahlung_vorschlag.py::test_posten_mit_vorgeschlagener_zahlung_wird_ausgeschlossen`, `test_zahlung_pruefung.py::test_vorgeschlagene_zahlung_blockiert_freigabe_und_datei`).
+- [x] **Nicht-EWR ohne BIC** (Befund 8): `iban.im_ewr`, Prüfung blockiert CH/GB/SM …; Soll-Datei mit FR- statt CH-Empfänger neu erzeugt, XSD-Prüfung grün (`test_zahlung_pruefung.py::test_iban_ausserhalb_des_ewr_blockiert`).
+- [x] **Leeres `<Nm/>`** (Befunde 6, 17): Prüfung blockiert Namen/Verwendungszweck ohne erlaubte Zeichen; `sepa.leere_felder` prüft die fertige Datei vor dem Statuswechsel (`test_empfaengername_ohne_lateinische_zeichen_blockiert`, `test_auftraggebername_ohne_lateinische_zeichen_blockiert`, `test_zahlung_sepa.py::test_leere_pflichtfelder_werden_erkannt`).
+- [x] **Vier-Augen umgehbar** (Befunde 7, 12): `freigabe.person_fuer_freigabe`, `betriebssystem_benutzer`, `zahlung.freigeber` (`test_zahlung_freigabe.py::test_vier_augen_person_kommt_aus_der_anmeldung`, `::test_nur_eingetragene_freigeber`, `test_cli_zahlung.py::test_vier_augen_ohne_von`).
+- [x] **Datei vor dem Commit, Statuswechsel ohne Sperre** (Befund 18): Datei erst nach dem Commit, Wechsel nur aus dem gelesenen Status, Versionsspalte (`test_cli_zahlung.py::test_sepa_datei_erst_nach_dem_commit`, `test_zahlung_datei.py::test_zwei_gleichzeitige_dateien_nur_eine_gewinnt`, `::test_veralteter_kopfsatz_ueberschreibt_nichts`).
+- [x] **Datei ohne Hash-Abgleich, Kopfsatz ohne ORM-Sperre** (Befund 14): (`test_zahlung_datei.py::test_gespeicherte_datei_wird_vor_der_ausgabe_mit_dem_hash_verglichen`, `::test_kopfsatz_nach_der_freigabe_am_orm_gesperrt`).
+- [x] **Savepoint committet unter pysqlite** (Befund 19): `speichere_lauf` ohne Savepoint, bei Konflikt Rollback der Transaktion (`test_zahlung_freigabe.py::test_anlage_wird_erst_mit_dem_commit_gespeichert`). Dasselbe Muster in `db/repository.py`, `opos/verbuchung.py` und `bank/lauf.py` (außerhalb des Bausteins) → eigenes Ticket, siehe Grenzen.
+- [x] **Verzugsbeginn nach § 286 BGB** (Befund 2): `lauf.verzugsbeginn`, Einstellungen `zahlungsziel_vereinbart`, `zugang_tage`, `hinweis_30_tage` statt `verzug_nach_tagen`; Brief ohne Verzug behauptet keinen (`test_mahnwesen_lauf.py::test_verzug_beginnt_mit_dem_zugang_der_erinnerung`, `::test_vereinbartes_zahlungsziel_verzug_ab_faelligkeit`, `::test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug`, `test_mahnwesen_schreiben.py::test_mahnung_ohne_verzug_behauptet_keinen_verzug`).
+- [x] **B2B aus `privat=False`** (Befund 3): (`test_mahnwesen_lauf.py::test_ausgangsrechnung_ohne_privat_und_ohne_ust_idnr_gilt_nicht_als_b2b`, `::test_ausgangsrechnung_mit_ust_idnr_oder_leitweg_id`).
+- [x] **Folgestufe vor Fristablauf, Abstand ab Berechnung, veraltete Entwürfe** (Befunde 4, 11): (`test_mahnwesen_stufen.py::test_naechste_stufe_erst_nach_ablauf_der_frist`, `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_…` am 30.06./11.07., `::test_veralteter_entwurf_wird_nicht_versendet`, `test_cli_mahnwesen.py::test_versanddatum_und_dateifehler`).
+- [x] **Mahnsperre nach dem Lauf** (Befund 13): (`test_mahnwesen_lauf.py::test_mahnsperre_nach_dem_lauf_stoppt_den_versand`, `::test_vorgeschlagene_zahlung_nach_dem_lauf_stoppt_den_versand`).
+- [x] **E-Mail vor den Dateien** (Befund 10): (`test_mahnwesen_schreiben.py::test_email_erst_wenn_alles_lokale_geklappt_hat`).
+- [x] Basiszins-Abgleich ehrlich beschrieben (Befund 15); Akzeptanzkriterium 2 ausdrücklich „teilweise erfüllt“ mit Prüfanleitung (Befunde 1, 8).
+- [ ] Befund 16 (Dateiname des Plans) **nicht umgesetzt**: Die Pläne sind fortlaufend je Tag nummeriert (`2026-10-21-…` bis `2026-10-24-…` wurden ebenfalls am 20.10. angelegt); `2026-10-25` setzt diese Reihe fort.
+- [x] `pytest` (775 bestanden, 1 übersprungen), `ruff check`, `ruff format --check`, `mypy` grün.
+
 ### Akzeptanzkriterien → Tests
 
 | # | Kriterium | Beleg |
 |---|-----------|-------|
 | 1 | Skontoposten zuerst, Grund je Position | `test_zahlung_vorschlag.py::test_skontoposten_zuerst_mit_grund` |
-| 2 | Sammelüberweisung schemakonform | `test_zahlung_sepa.py::test_pain001_ist_schemakonform_nach_dk_tvs_gbic_5`, `::test_pain001_entspricht_der_soll_datei` — Annahme durch eine Bank **nicht** belegt (Grenzen) |
+| 2 | Sammelüberweisung schemakonform **und von der Bank angenommen** — **teilweise erfüllt** | 2a schemakonform: `test_zahlung_sepa.py::test_pain001_ist_schemakonform_nach_dk_tvs_gbic_5`, `::test_pain001_entspricht_der_soll_datei`, `::test_leere_pflichtfelder_werden_erkannt`. 2b Annahme durch die Bank: **offen** — nicht durch einen Test belegbar; Prüfung durch den Nutzer vor dem Merge, siehe „Vor dem Merge“ |
 | 3 | Posten nie zweimal in einem eingereichten Lauf | `test_zahlung_freigabe.py::test_posten_nie_zweimal_in_einem_aktiven_lauf`, `test_zahlung_pruefung.py::test_doppelter_posten_wird_auch_an_der_sperre_vorbei_erkannt`, `test_zahlung_datei.py::test_datei_macht_den_lauf_eingereicht_und_bleibt_byte_gleich` |
 | 4 | Abweichende IBAN blockiert mit klarer Meldung | `test_zahlung_pruefung.py::test_abweichende_iban_auf_der_rechnung_blockiert_mit_klarer_meldung`, `::test_stammsatz_nach_anlage_geaendert_blockiert`, `test_cli_zahlung.py::test_abweichende_iban_blockiert_mit_klarer_meldung` |
 | 5 | Freigegebener Lauf nur stornierbar, mit Protokoll | `test_zahlung_freigabe.py::test_freigegebener_lauf_nur_stornierbar_mit_protokoll`, `::test_uebergaenge_in_falscher_reihenfolge_werden_abgelehnt`, `test_zahlung_datei.py::test_aenderung_nach_der_freigabe_wird_erkannt` |
-| 6 | Stufen mit korrekten Verzugszinsen und Gebühren | `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_die_stufen_mit_zinsen_pauschale_und_gebuehren`, `::test_b2c_ohne_pauschale_mit_gebuehren`, `test_mahnwesen_zinsen.py::test_ueber_den_wechsel_des_basiszinssatzes_am_1_juli_2026` |
+| 6 | Stufen mit korrekten Verzugszinsen und Gebühren | `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_die_stufen_mit_zinsen_pauschale_und_gebuehren`, `::test_b2c_ohne_pauschale_mit_gebuehren`, `::test_verzug_beginnt_mit_dem_zugang_der_erinnerung`, `::test_vereinbartes_zahlungsziel_verzug_ab_faelligkeit`, `::test_ohne_mahnung_und_ohne_vereinbarung_kein_verzug`, `test_mahnwesen_zinsen.py::test_ueber_den_wechsel_des_basiszinssatzes_am_1_juli_2026` — „korrekt“ unter den Annahmen zum Verzugsbeginn (Entscheidungen, Grenzen) |
 | 7 | Ohne Live-Bankanbindung bis zur Datei | `test_cli_zahlung.py::test_von_vorschlag_bis_zur_sepa_datei`, `test_cli_mahnwesen.py::test_mahnstufen_bis_zum_versendeten_schreiben` |
+
+## Vor dem Merge — vom Nutzer zu prüfen (Akzeptanzkriterium 2b)
+
+accounti darf keine Bank mit echten Daten ansprechen; ob die Hausbank die Datei annimmt, kann
+nur der Nutzer prüfen:
+
+1. Mit echten Stammdaten einen kleinen Lauf anlegen, freigeben und die Datei erzeugen
+   (`accounti zahlung sepa <Lauf> --datei ueberweisung.xml`).
+2. Die Datei im Onlinebanking bzw. EBICS-Client der Hausbank als SEPA-Sammelüberweisung
+   hochladen, Vorprüfung und Auftragsvorschau abwarten (Empfänger, Beträge, Summe,
+   Ausführungstag, Einzel-/Sammelbuchung, Empfängerüberprüfung).
+3. **Den Auftrag nicht unterschreiben/freigeben**, sondern verwerfen; den Lauf in accounti
+   stornieren (`accounti zahlung stornieren <Lauf> --grund "Probe Bankannahme"`).
+4. Ergebnis hier festhalten: Bank, Zugang (Onlinebanking/EBICS, Auftragsart), Datum, angenommen
+   ja/nein, Meldungen der Vorprüfung.
+
+Ergebnis: _noch offen_. Ohne diesen Schritt ist Akzeptanzkriterium 2 nur **teilweise erfüllt**
+(schemakonform, Annahme unbelegt) und so abzunehmen.
 
 ## Grenzen
 
-- **Annahme durch eine Bank nicht geprüft.** Die Datei besteht das offizielle DK-Schema (GBIC_5) und
-  folgt den Belegungsregeln der Anlage 3, wurde aber bei keiner Bank eingereicht (Auftrag: keine
-  echten Bankdaten). Bankindividuelle Zusatzprüfungen (z.B. Ausführungstermin nur an
-  TARGET2-Geschäftstagen, Limits) kann accounti nicht vorwegnehmen.
+- **Annahme durch eine Bank nicht geprüft** (Akzeptanzkriterium 2b offen, siehe oben). Die Datei
+  besteht das offizielle DK-Schema (GBIC_5) und folgt den Belegungsregeln der Anlage 3 für
+  Empfänger im EWR, wurde aber bei keiner Bank eingereicht. Bankseitige Prüfungen kann accounti
+  nicht vorwegnehmen: Ausführungstermin nur an TARGET2-Geschäftstagen, Limits je Auftrag oder
+  Tag, `BtchBookg=false` ohne Vereinbarung, Ergebnis der Empfängerüberprüfung (VOP).
+- **Nur Empfänger im EWR.** Kontakte haben kein BIC-Feld; Zahlungen in die Nicht-EWR-Länder
+  des SEPA-Raums (Schweiz, Vereinigtes Königreich samt Kanalinseln und Isle of Man, Gibraltar,
+  Monaco, San Marino, Andorra, Vatikan, Albanien, Moldau, Montenegro, Nordmazedonien, Serbien)
+  blockiert die Prüfung — sie gehen einzeln über das Onlinebanking. Für sie bräuchte es BIC
+  (`CdtrAgt`) und Auftraggeberanschrift.
+- **Namen ohne lateinische Schrift** (Kyrillisch, Griechisch …) werden nicht transliteriert,
+  sondern blockiert; der Name muss im Stammsatz in lateinischer Schrift stehen. Gemischte Namen
+  verlieren die fremden Zeichen (Bereinigung), was die Empfängerüberprüfung der Bank bemängeln
+  kann.
+- **Vier-Augen nur so stark wie die Anmeldung am Rechner:** Die freigebende Person ist der
+  Anmeldename des Betriebssystems, nicht authentisiert gegenüber accounti. Wer zwei Konten hat,
+  per `sudo`/`su` wechselt oder die Datenbank direkt ändert, umgeht es — es ist ein
+  organisatorisches Prinzip, bis Baustein 10 echte Benutzer bringt. Ohne `vier_augen` bleibt
+  die Person Freitext (`--von`, `ACCOUNTI_BENUTZER`).
+- **Savepoints unter SQLite:** Der pysqlite-Treiber eröffnet keine Transaktion vor einem
+  Savepoint; dessen RELEASE schreibt dann alles fest. `speichere_lauf` verzichtet deshalb auf
+  den Savepoint (bei Konflikt Rollback der ganzen Transaktion). Dasselbe Muster steht schon in
+  `db/repository.py` (Z. 661, 1141), `opos/verbuchung.py` (Z. 379) und `bank/lauf.py` (Z. 90) —
+  außerhalb dieses Bausteins;
+  **eigenes Ticket**: projektweit den von SQLAlchemy dokumentierten pysqlite-Workaround setzen
+  (BEGIN selbst senden).
 - **Keine Einreichung über den Bank-Provider.** `bank/` blieb unverändert; `--einreichen` aus der
   Spec fehlt. Der Dateiweg (`zahlung sepa --datei`) ist der einzige Weg.
 - **Sammelbuchung:** `BtchBookg=false` wirkt nur mit Vereinbarung mit der Bank. Bucht die Bank den
@@ -172,9 +233,10 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 - **Storno nach dem Einreichen** gibt die Posten wieder frei. Ob die Datei schon bei der Bank
   hochgeladen wurde, weiß accounti nicht; die CLI weist darauf hin, den Auftrag dann bei der
   Bank zurückzurufen — sonst droht beim nächsten Lauf eine Doppelzahlung.
-- **Unveränderbarkeit:** ORM-Sperren und (unter SQLite) Trigger schützen vor Änderungen über
-  accounti; wer die Datenbank direkt mit SQL ändert, wird vom Freigabe-Hash beim Erzeugen der
-  Datei aufgehalten, nicht vorher.
+- **Unveränderbarkeit:** ORM-Sperren (Zahlungen und Kopfsatz) und (unter SQLite) Trigger
+  schützen vor Änderungen über accounti; wer die Datenbank direkt mit SQL ändert, wird vom
+  Freigabe-Hash beim Erzeugen der Datei bzw. vom Datei-Hash bei der erneuten Ausgabe
+  aufgehalten, nicht vorher.
 - **Empfängerüberprüfung (VOP)** findet bei der Bank statt; accounti vergleicht nur die IBAN mit
   dem Stammsatz und der Rechnung, nicht den Kontoinhabernamen.
 - **Nicht im Umfang (Spec 8):** Lastschrift (`pain.008`), Echtzeitüberweisung, Fremdwährung (wird
@@ -185,16 +247,24 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
   als Testdatei im Repository (Quelle und Prüfsumme in `tests/daten/zahlung/QUELLE.txt`). Vor
   einer Veröffentlichung sollte das geklärt werden; notfalls wird die Datei wie die Prüfwerkzeuge
   per Skript mit Prüfsumme geladen statt eingecheckt.
-- **Verzugsbeginn vereinfacht:** Zinsen laufen ab dem Tag nach Fälligkeit (+ `verzug_nach_tagen`).
-  Ob tatsächlich Verzug besteht (kalendermäßige Zahlungsfrist vereinbart, Mahnung zugegangen,
-  30-Tage-Regel, Hinweis an Verbraucher), prüft accounti nicht. Wer konservativ sein will, setzt
-  `verzug_nach_tagen: 30` oder schaltet Zinsen erst ab der 1. Mahnung ein.
+- **Verzugsbeginn mit Annahmen:** Den Zugang einer Mahnung kennt accounti nicht, es nimmt
+  Versand + `zugang_tage` (Standard 3) an — auch bei E-Mail. Setzt die Mahnung eine Frist,
+  rechnet accounti Verzug erst nach deren Ablauf (konservativ; ob die Frist den Verzug
+  hinausschiebt, ist nicht eindeutig geklärt). `zahlungsziel_vereinbart` und `hinweis_30_tage`
+  gelten für alle Kunden gleich; ob das Zahlungsziel im Einzelfall vertraglich vereinbart ist
+  oder die Rechnung an einen Verbraucher den Hinweis nach § 286 Abs. 3 trug, prüft accounti
+  nicht. Bei der 30-Tage-Regel gilt die Rechnung als Belegdatum + `zugang_tage` zugegangen.
+- **Versandtag:** Ein Mahnentwurf geht nur bis `entwurf_gueltig_tage` nach dem Mahndatum
+  hinaus; der Brief trägt das Mahndatum, nicht den Versandtag. `--am` nimmt die Angabe des
+  Nutzers ungeprüft (nur nicht in der Zukunft).
 - **Zinsmethode:** act/365 auch im Schaltjahr; act/act ergäbe 2024/2028 minimal weniger.
 - **Basiszinssatz ab 01.01.2027 fehlt** zwangsläufig; er muss nach der Bekanntgabe Ende Dezember
   in `mahnwesen.basiszinssaetze` nachgetragen werden (oder per Code-Update), sonst bricht die
   Zinsberechnung für Zeiten ab 2027 mit klarer Meldung ab.
 - **B2B/B2C** ist eine Heuristik, solange der Kontakt nicht ausdrücklich eingestuft ist; ohne
-  Hinweis gilt „Verbraucher“ (niedrigerer Zins, keine Pauschale).
+  Hinweis (USt-IdNr., Leitweg-ID, `privat` auf der Rechnung) gilt „Verbraucher“ (niedrigerer
+  Zins, keine Pauschale). Unternehmer ohne USt-IdNr. müssen mit `mahnwesen kunde --unternehmer`
+  eingestuft werden.
 - **Mahnkosten sind Konfiguration, keine Rechtsberatung** — z.B. sind die Kosten der
   verzugsbegründenden Erstmahnung nach Rechtsprechung nicht ersatzfähig; die Standardwerte (0 / 5 /
   10 €) folgen dem Beispiel der Spec.
@@ -204,7 +274,9 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
   (nur je Kontakt). Die Pauschale gilt je Forderung (Posten) und steht in jeder Mahnung mit Verzug
   erneut als dieselbe Forderung, nicht zusätzlich.
 - **E-Mail-Versand** ist nur gegen einen Test-Versandweg geprüft, nicht gegen einen echten
-  SMTP-Server (Auftrag); er nutzt den bereits erprobten SMTP-Weg der E-Rechnung.
+  SMTP-Server (Auftrag); er nutzt den bereits erprobten SMTP-Weg der E-Rechnung. Scheitert nach
+  einer erfolgreichen E-Mail noch der Commit der Datenbank, bleibt die Mahnung ein Entwurf
+  (sehr kleines Fenster, da vorher alles geprüft und geschrieben ist).
 - **Gebühren kumuliert:** Eine Mahnung verlangt die Gebühren aller Stufen bis zu ihrer (Annahme:
   frühere Mahngebühren bleiben geschuldet). Wer das anders will, setzt die Gebühren je Stufe
   entsprechend.
@@ -233,7 +305,7 @@ accounti zahlung vorschlag --stichtag 2026-10-21      # Skonto zuerst, Grund je 
 accounti zahlung anlegen --stichtag 2026-10-21        # Entwurf = Lauf 1
 accounti zahlung entfernen 1 3                         # Position 3 nicht zahlen (nur im Entwurf)
 accounti zahlung pruefen 1                             # blockierend: IBAN, Betrag, Sperre, Dubletten
-accounti zahlung freigeben 1 --von "Erika Muster"      # mit zahlung.vier_augen: zweite Person nötig
+accounti zahlung freigeben 1                           # mit zahlung.vier_augen: zweite Person (eigene Anmeldung)
 accounti zahlung sepa 1 --datei ueberweisung.xml      # pain.001.001.09 → im Onlinebanking hochladen
 accounti opos zuordnen                                 # Kontoumsätze gleichen die Posten aus
 accounti zahlung abgleichen                            # Lauf → ausgeführt
@@ -242,7 +314,9 @@ accounti zahlung sperre 70003 --grund "Reklamation"   # Kreditor vom Zahlungsver
 ```
 
 Weicht die IBAN der Rechnung vom Stammsatz ab, stoppt der Lauf — so funktionieren gefälschte
-Rechnungen. Nach einem Rückruf beim Lieferanten auf bekanntem Weg: Stammsatz ändern
+Rechnungen. Überweisungen gehen nur an Empfänger im EWR (für die Schweiz oder das Vereinigte
+Königreich verlangt SEPA den BIC). Mit `zahlung.vier_augen` gibt frei, wer am Rechner angemeldet
+ist — das ist so stark wie diese Anmeldung, nicht mehr. Nach einem Rückruf beim Lieferanten auf bekanntem Weg: Stammsatz ändern
 (`accounti kontakte bearbeiten 70003 --iban …`) oder mit `accounti zahlung iban-klaeren 1 2
 --grund "…"` festhalten, dass an die Stammsatz-IBAN gezahlt wird.
 
@@ -252,6 +326,7 @@ Rechnungen. Nach einem Rückruf beim Lieferanten auf bekanntem Weg: Stammsatz ä
 accounti mahnwesen lauf --stichtag 2026-10-21          # Mahnentwürfe mit Zinsen, Pauschale, Gebühren
 accounti mahnwesen zeigen 7                            # Mahnschreiben als Text
 accounti mahnwesen versenden 7 --pdf mahnung-7.pdf     # oder --text, --email; Mahnstufe am Posten +1
+accounti mahnwesen versenden 8 --text m.txt --am 2026-10-20   # Brief ging gestern zur Post
 accounti mahnwesen kunde 10001 --unternehmer           # B2B: 9 Prozentpunkte + 40 € Pauschale
 accounti mahnwesen sperre 10002 --grund "Ratenzahlung" # Kunde vom Mahnlauf ausnehmen
 accounti mahnwesen basiszins                           # Basiszinssätze mit Gültigkeitszeitraum
@@ -269,13 +344,16 @@ accounti mahnwesen historie 10001                      # versendete Mahnungen ei
   `freigeben`, `stornieren`) mit Zustandsautomat Entwurf → freigegeben → eingereicht → ausgeführt,
   optionalem Vier-Augen-Prinzip, Freigabe-Hash und Protokoll, das nur wachsen kann; harte Prüfung
   vor Freigabe und Datei: IBAN abweichend vom Stammsatz oder von der Rechnung, Prüfziffer,
-  Zahlungssperre, unbestätigter Kontakt, Betrag/Skontofrist, Höchstbetrag, SEPA-Land, Währung,
-  Doppelzahlung (auch per eindeutigem Index); `accounti zahlung sepa --datei` schreibt die
+  Zahlungssperre, unbestätigter Kontakt, Betrag/Skontofrist, Höchstbetrag, Empfänger im EWR,
+  Währung, Namen im SEPA-Zeichensatz, Doppelzahlung (auch per eindeutigem Index und bei
+  vorgeschlagenem, noch unbestätigtem Bankumsatz); `accounti zahlung sepa --datei` schreibt die
   SEPA-Sammelüberweisung als `pain.001.001.09` nach DK-TVS GBIC_5 (DFÜ-Abkommen Anlage 3 V3.9/26.11),
   im Test gegen das offizielle Schema geprüft; `zahlung abgleichen` erkennt ausgeführte Läufe,
   sobald `opos zuordnen` die Posten ausgeglichen hat; `zahlung sperre`, `zahlung iban-klaeren`.
   `accounti mahnwesen lauf` mahnt überfällige Forderungen in konfigurierbaren Stufen (Karenz,
-  Mindestbetrag, Stufenabstand, Mahnsperre) mit Verzugszinsen nach § 288 BGB (Basiszinssatz-Tabelle
+  Mindestbetrag, Stufenabstand ab Versand und Fristablauf, Mahnsperre) mit Verzugszinsen nach
+  § 288 BGB ab dem Verzugsbeginn nach § 286 BGB (Mahnung, vereinbartes Zahlungsziel oder
+  30-Tage-Regel, mit Grund im Schreiben) (Basiszinssatz-Tabelle
   der Bundesbank mit Gültigkeitszeiträumen, Teilzahlungen zeitanteilig), 40-€-Pauschale bei
   Unternehmern mit Anrechnung der Mahngebühren; Mahnschreiben als PDF, Text oder E-Mail
   (`mahnwesen versenden`), Mahnstufe am offenen Posten, Historie (`mahnwesen historie`),
@@ -297,7 +375,8 @@ Prüfung, Freigabe (optional Vier-Augen) und Storno mit Protokoll, SEPA-Sammelü
 `pain.001.001.09` nach DK-TVS GBIC_5 sowie Mahnwesen mit Stufen, Verzugszinsen nach § 288 BGB,
 B2B-Pauschale und Mahnschreiben ([Plan](plans/2026-10-25-zahlungsverkehr-mahnwesen.md)). Offen
 als Erweiterungen: Einreichung über den Bank-Provider (braucht FinTS aus Baustein 5),
-Sammelmahnung je Kunde, Verrechnung von Gutschriften im Zahlungslauf.
+Sammelmahnung je Kunde, Verrechnung von Gutschriften im Zahlungslauf, Zahlungen außerhalb des
+EWR (BIC am Kontakt). Annahme der SEPA-Datei durch eine Bank vom Nutzer zu bestätigen.
 ```
 
 ### docs/architektur.md — Modulabschnitt (ersetzt „`zahlung/` und `mahnwesen/` *(geplant …)*“)
@@ -314,7 +393,9 @@ werden mit Grund ausgeschlossen. `zahlung/freigabe.py` führt den Zahlungslauf a
 Zahlungen frieren Empfänger, IBAN, Betrag und Verwendungszweck ein und sind nach der Freigabe am
 ORM gesperrt; ein eindeutiger Index auf `zahlungen.sperre` lässt einen Posten nie in zwei aktive
 Läufe. `zahlung/pruefung.py` prüft blockierend — eine IBAN, die vom Stammsatz oder von der Rechnung
-abweicht, stoppt den Lauf, bis der Stammsatz geändert oder die Abweichung mit Grund geklärt ist.
+abweicht, stoppt den Lauf, bis der Stammsatz geändert oder die Abweichung mit Grund geklärt ist;
+ebenso ein Posten, dem `opos zuordnen` schon einen Bankumsatz vorschlägt, und Empfänger außerhalb
+des EWR (dort verlangt SEPA den BIC).
 `zahlung/sepa.py` schreibt `pain.001.001.09` nach DK-TVS GBIC_5 (DFÜ-Abkommen Anlage 3), speichert
 die Datei im Lauf und gibt sie nur noch byte-gleich aus. Ausgeglichen wird nie hier, sondern über
 den Bankumsatz (`opos zuordnen`); `zahlung abgleichen` setzt danach „ausgeführt“. Die Einreichung
@@ -322,8 +403,10 @@ den Bankumsatz (`opos zuordnen`); `zahlung abgleichen` setzt danach „ausgefüh
 
 `mahnwesen/` liest Stufen aus dem Abschnitt `mahnwesen` (Karenz, Mindestbetrag, Stufenabstand,
 Gebühr und Zinsen je Stufe), ermittelt je überfälligem Posten die nächste Stufe (keine wird
-übersprungen), stuft Kunden als Unternehmer oder Verbraucher ein (Kontakt → Ausgangsrechnung →
-USt-IdNr. → Standard Verbraucher) und rechnet Verzugszinsen nach § 288 BGB taggenau (act/365)
+übersprungen, die nächste erst nach Ablauf der Frist der letzten), stuft Kunden als Unternehmer
+oder Verbraucher ein (Kontakt → Ausgangsrechnung → USt-IdNr. → Standard Verbraucher), bestimmt
+den Verzugsbeginn nach § 286 BGB (erste versendete Mahnung, vereinbartes Zahlungsziel,
+30-Tage-Regel) und rechnet ab da Verzugszinsen nach § 288 BGB taggenau (act/365)
 mit der Basiszinssatz-Tabelle aus `mahnwesen/basiszins.py` — jeder Satz mit Gültigkeitszeitraum,
 Teilzahlungen aus den Zahlungszuordnungen zeitanteilig, die 40-€-Pauschale mit Anrechnung der
 Mahngebühren. Mahnungen sind Entwürfe, bis sie versendet werden (PDF mit fpdf2, Text oder E-Mail
@@ -336,7 +419,7 @@ Zusätzlich in der Tabelle „Datenmodell“ die Zeile `Zahlung` ergänzen:
 ```markdown
 | `Zahlungslauf` | Nr., Status (Entwurf → freigegeben → eingereicht → ausgeführt / storniert), Ausführungstag, Auftraggeber, Freigabe-Hash, SEPA-Datei | → `Zahlung`, Protokoll |
 | `Zahlung` | Lauf, Posten, Empfänger, IBAN, Betrag, Skonto, Verwendungszweck, EndToEndId | → `OffenerPosten`, `Kontakt` |
-| `Mahnung` | Nr., Stufe, Datum, Rest, Zinsen mit Abschnitten, Pauschale, Gebühren, Frist, B2B/B2C mit Grund, Status, Datei-Hash | → `OffenerPosten`, `Kontakt` |
+| `Mahnung` | Nr., Stufe, Datum, Rest, Verzugsbeginn mit Grund, Zinsen mit Abschnitten, Pauschale, Gebühren, Frist, B2B/B2C mit Grund, Status, Versandtag und -weg, Datei-Hash | → `OffenerPosten`, `Kontakt` |
 ```
 
 ### config/accounti.example.yaml — neue Abschnitte
@@ -349,7 +432,8 @@ zahlung:
   # mindestbetrag: 1.00        # Vorschlag: kleinere Posten weglassen
   # hoechstbetrag: 50000.00    # Vorschlag: größere Posten weglassen
   # hoechstbetrag_zahlung: 25000.00   # Prüfung: größere Einzelzahlungen blockieren
-  vier_augen: false            # true: zwei verschiedene Personen geben frei
+  vier_augen: false            # true: zwei verschiedene Personen (Anmeldename) geben frei
+  # freigeber: [erika, jan]    # nur diese Anmeldenamen dürfen freigeben
   einzelbuchung: true          # BtchBookg=false — wirkt nur mit Vereinbarung mit der Bank
   # auftraggeber:              # Standard: mandant.name und mandant.bank
   #   name: "Meine Firma GmbH"
@@ -360,9 +444,12 @@ zahlung:
 mahnwesen:
   karenztage: 3                # so lange nach Fälligkeit wird nicht gemahnt
   mindestbetrag: 10.00         # kleinere Reste nicht mahnen
-  stufenabstand_tage: 7        # Mindestabstand zur letzten Mahnung
+  stufenabstand_tage: 7        # Mindestabstand zum Versand der letzten Mahnung (und deren Frist abgelaufen)
   zahlungsfrist_tage: 10       # neue Frist im Mahnschreiben
-  verzug_nach_tagen: 0         # Verzugszinsen ab Fälligkeit + n Tagen (§ 286 Abs. 3: 30)
+  entwurf_gueltig_tage: 3      # so lange nach dem Mahndatum darf ein Entwurf noch raus
+  zahlungsziel_vereinbart: false  # true: Zahlungsziele vertraglich vereinbart → Verzug ab Fälligkeit
+  zugang_tage: 3               # Versand → Zugang einer Mahnung (Verzug durch Mahnung)
+  hinweis_30_tage: false       # true: Rechnungen an Verbraucher weisen auf § 286 Abs. 3 BGB hin
   unbekannt_als: verbraucher   # oder unternehmer — wenn weder Kontakt noch Rechnung es sagen
   pauschale_b2b: 40.00         # § 288 Abs. 5 BGB
   pauschale_anrechnen: true    # Mahngebühren nur, soweit sie die Pauschale übersteigen
