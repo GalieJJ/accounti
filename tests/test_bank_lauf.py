@@ -10,6 +10,7 @@ from accounti.bank.provider import (
     BankProvider,
     FreigabeNoetigError,
     ProviderError,
+    ZugangAbgelehntError,
 )
 from accounti.bank.tresor import neuer_schluessel, verschluessele
 from accounti.buchung.mit_beleg import kontiere_mit_beleg
@@ -128,6 +129,55 @@ def test_freigabe_noetig_ist_ein_zustand_und_haelt_andere_nicht_auf(make_session
         "DE12": KontoZustand.FREIGABE_NOETIG,
         "DE34": KontoZustand.BEREIT,
     }
+
+
+def test_freigabe_noetig_wird_ohne_rueckfrage_nicht_erneut_angefragt(make_session):
+    """Jeder Abruf öffnet bei der Bank einen Dialog und löst eine neue
+    Freigabe-Anforderung aus (Push, SMS), die niemand bestätigen kann — der Cron
+    wartet deshalb auf `accounti fints freigeben`."""
+    _konto(make_session)
+    Attrappe.antworten["DE12"] = FreigabeNoetigError("Bitte in der App freigeben")
+    _abruf(make_session, jetzt=datetime(2026, 3, 20, 8, 0))
+    (zweiter,) = _abruf(make_session, jetzt=datetime(2026, 3, 20, 12, 0))
+    (dritter,) = _abruf(make_session)
+    assert len(Attrappe.gesehen) == 1
+    assert dritter.zustand is KontoZustand.FREIGABE_NOETIG and dritter.uebersprungen
+    assert "Bitte in der App freigeben" in (dritter.meldung or "")
+    with make_session() as s:
+        (konto,) = lade_bankkonten(s)
+    assert konto.letzter_abruf == datetime(2026, 3, 20, 8, 0)  # nichts versucht
+    assert konto.meldung == "Bitte in der App freigeben"
+
+    Attrappe.antworten["DE12"] = Abruf([umsatz()])
+    (frei,) = _abruf(make_session, freigabe=lambda anfrage: "123456")
+    assert (frei.zustand, frei.neu, frei.uebersprungen) == (
+        KontoZustand.BEREIT,
+        1,
+        False,
+    )
+    assert len(Attrappe.gesehen) == 2
+    (danach,) = _abruf(make_session)  # wieder bereit: der Cron ruft ab
+    assert (danach.zustand, len(Attrappe.gesehen)) == (KontoZustand.BEREIT, 3)
+
+
+def test_abgelehnter_zugang_wird_ohne_rueckfrage_nicht_wiederholt(make_session):
+    """PIN falsch oder Zugang gesperrt: jeder weitere Anmeldeversuch kann den
+    Zugang bei der Bank sperren — erst ein erneuerter Zugang wird wieder versucht."""
+    _konto(make_session)
+    _konto(make_session, iban="DE34")
+    Attrappe.antworten["DE12"] = ZugangAbgelehntError("Die Bank lehnt die PIN ab")
+    Attrappe.antworten["DE34"] = Abruf([umsatz()])
+    eins, zwei = _abruf(make_session)
+    assert eins.zustand is KontoZustand.ZUGANG_ABGELEHNT
+    assert zwei.zustand is KontoZustand.BEREIT
+    _abruf(make_session)
+    eins, zwei = _abruf(make_session)
+    assert [iban for iban, _, _ in Attrappe.gesehen].count("DE12") == 1
+    assert [iban for iban, _, _ in Attrappe.gesehen].count("DE34") == 3
+    assert eins.uebersprungen and "PIN" in (eins.meldung or "")
+    with make_session() as s:
+        zustaende = {k.iban: k.zustand for k in lade_bankkonten(s)}
+    assert zustaende["DE12"] is KontoZustand.ZUGANG_ABGELEHNT
 
 
 def test_providerfehler_und_falscher_schluessel(make_session):

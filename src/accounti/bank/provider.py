@@ -8,6 +8,9 @@ das als ``FreigabeNoetigError`` — ein Zustand, kein Absturz. Wer interaktiv
 abruft, gibt dem Provider eine Rückfrage (``freigabe``) mit; dann fragt er nach der
 TAN bzw. wartet auf die Bestätigung in der App, statt aufzugeben.
 
+Lehnt die Bank die Anmeldung ab, meldet der Provider ``ZugangAbgelehntError``;
+ein automatischer Lauf versucht es dann nicht wieder, bis der Zugang erneuert ist.
+
 Ändern sich Zugangsdaten beim Abruf (Sitzung der Bank, Tokens), gibt der Provider
 sie in ``Abruf.zugang`` bzw. ``FreigabeNoetigError.zugang`` zurück; der Abruf
 verschlüsselt sie neu.
@@ -34,6 +37,14 @@ class FreigabeNoetigError(RuntimeError):
 
 class ProviderError(RuntimeError):
     """Der Abruf ist gescheitert (Verbindung, Format, Einstellungen)."""
+
+
+class ZugangAbgelehntError(ProviderError):
+    """Die Bank lehnt die Anmeldung ab (PIN falsch, Zugang gesperrt).
+
+    Ein unbeaufsichtigter Abruf versucht es nicht erneut — jeder weitere Versuch
+    mit denselben Zugangsdaten kann den Zugang bei der Bank sperren.
+    """
 
 
 @dataclass

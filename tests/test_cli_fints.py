@@ -245,3 +245,120 @@ def test_akzeptanz_6_dateiimport_wenn_fints_ausfaellt(umgebung, tmp_path):
     bank.verbindung_weg = None
     r = _run("bank", "abrufen", "--db", url)
     assert "0 neu, 6 schon vorhanden" in _text(r)
+
+
+def test_abgelehnter_zugang_wird_mit_fints_zugang_erneuert(umgebung):
+    """Nach einer geänderten PIN versucht der Cron es nicht weiter; `fints zugang`
+    nimmt die neue PIN, wählt das TAN-Verfahren und gibt frei."""
+    bank, url = umgebung
+    assert _einrichten(url, "kunde-4711\n1234\n2\n123456\n").exit_code == 0
+    bank.pin = "5678"  # im Online-Banking geändert
+    r = _run("bank", "abrufen", "--db", url)
+    assert "zugang_abgelehnt" in _text(r)
+    assert f"accounti fints zugang --konto {IBAN}" in _text(r)
+    versuche = len(bank.clients)
+    r = _run("bank", "abrufen", "--db", url)
+    assert "nicht abgerufen" in _text(r)
+    r = _run("fints", "freigeben", "--db", url)
+    assert "fints zugang" in _text(r)
+    assert len(bank.clients) == versuche  # kein weiterer Anmeldeversuch
+
+    # Benutzerkennung leer = unverändert, neue PIN, TAN-Verfahren, TAN
+    r = _run(
+        "fints", "zugang", "--konto", IBAN, "--db", url, eingabe="\n5678\n2\n123456\n"
+    )
+    assert r.exit_code == 0, r.output
+    assert "erneuert" in _text(r)
+    (konto,) = _konten(url)
+    assert (konto.zustand, konto.meldung) == (KontoZustand.BEREIT, None)
+    assert bank.clients[-1]["benutzerkennung"] == "kunde-4711"
+    r = _run("bank", "abrufen", "--db", url)
+    assert "1 neu" in _text(r)
+
+
+def test_zugang_nur_fuer_fints_konten(umgebung):
+    _, url = umgebung
+    r = _run("fints", "zugang", "--konto", IBAN, "--db", url)
+    assert r.exit_code == 1
+
+
+def test_einrichten_eines_vorhandenen_kontos_nennt_fints_zugang(umgebung):
+    _, url = umgebung
+    assert _einrichten(url, "kunde-4711\n1234\n2\n123456\n").exit_code == 0
+    r = _einrichten(url, "")
+    assert r.exit_code == 1
+    assert "schon eingerichtet" in _text(r) and "fints zugang" in _text(r)
+
+
+def test_format_nur_ausdruecklich_wechseln(umgebung):
+    bank, url = umgebung
+    bank.sca_bei_init, bank.camt = None, False
+    bank.verfahren = {"921": "pushTAN 2.0"}
+    assert _einrichten(url, "kunde-4711\n1234\n").exit_code == 0
+    r = _run("bank", "abrufen", "--db", url)
+    assert "6 neu" in _text(r)
+    bank.camt = True  # die Bank bietet jetzt camt an — der Abruf bleibt bei MT940
+    r = _run("bank", "abrufen", "--db", url)
+    assert "0 neu, 6 schon vorhanden" in _text(r)
+    assert [a[0] for a in bank.abrufe] == ["mt940", "mt940"]
+
+    r = _run("fints", "format", "--konto", IBAN, "camt", "--db", url)
+    assert r.exit_code == 0, r.output
+    assert "camt" in _text(r) and "31.03.2026" in _text(r)
+    r = _run("bank", "abrufen", "--db", url)
+    assert "0 neu" in _text(r)
+    assert bank.abrufe[-1][0] == "camt"
+    r = _run("fints", "format", "--konto", IBAN, "pdf", "--db", url)
+    assert r.exit_code == 1
+
+
+def test_einrichten_nur_mit_https(umgebung):
+    bank, url = umgebung
+    r = _run(
+        "fints",
+        "einrichten",
+        "--iban",
+        IBAN,
+        "--bezeichnung",
+        "Giro",
+        "--blz",
+        "12030000",
+        "--server",
+        "http://fints.example.invalid/fints30",
+        "--db",
+        url,
+        eingabe="kunde-4711\n1234\n",
+    )
+    assert r.exit_code == 1
+    assert "https" in _text(r)
+    assert bank.clients == [] and _konten(url) == []
+
+
+def test_kunden_id_liegt_verschluesselt_im_zugang(umgebung, tmp_path):
+    bank, url = umgebung
+    bank.sca_bei_init = None
+    bank.verfahren = {"921": "pushTAN 2.0"}
+    r = _run(
+        "fints",
+        "einrichten",
+        "--iban",
+        IBAN,
+        "--bezeichnung",
+        "Giro",
+        "--blz",
+        "12030000",
+        "--server",
+        SERVER,
+        "--kunden-id",
+        "KD-4711-ID",
+        "--db",
+        url,
+        eingabe="kunde-4711\n1234\n",
+    )
+    assert r.exit_code == 0, r.output
+    (konto,) = _konten(url)
+    assert "kunden_id" not in konto.einstellungen
+    assert bank.clients[-1]["kunden_id"] == "KD-4711-ID"
+    assert b"KD-4711-ID" not in (tmp_path / "f.db").read_bytes()
+    _run("bank", "abrufen", "--db", url)
+    assert bank.clients[-1]["kunden_id"] == "KD-4711-ID"

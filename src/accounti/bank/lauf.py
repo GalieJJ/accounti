@@ -3,6 +3,11 @@
 Idempotent: Ein zweiter Lauf erzeugt keine doppelten Umsätze (Dublettenschutz) und
 bucht nichts doppelt (jeder Schritt nimmt nur Offenes). Ein Konto, das eine Freigabe
 braucht oder scheitert, hält die anderen nicht auf.
+
+Ohne Rückfrage (Cron, ``bank abrufen``) bleiben Konten liegen, die auf einen
+Menschen warten: ``freigabe_noetig`` (jeder Versuch löste bei der Bank eine neue
+Freigabe-Anforderung aus, die niemand bestätigt) und ``zugang_abgelehnt`` (jeder
+Versuch mit derselben PIN kann den Zugang sperren).
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from accounti.bank.provider import (
     Freigabe,
     FreigabeNoetigError,
     ProviderError,
+    ZugangAbgelehntError,
 )
 from accounti.bank.tresor import (
     TresorError,
@@ -42,6 +48,8 @@ from accounti.models import Bankkonto, KontoZustand, Transaktion
 from accounti.opos.zahlungslauf import Zahlungslauf, zuordne_zahlungen
 
 UEBERLAPPUNG = timedelta(days=14)  # Banken buchen nach; Dubletten fängt der Schutz
+# warten auf einen Menschen — ohne Rückfrage wird nicht erneut abgerufen
+WARTET = frozenset({KontoZustand.FREIGABE_NOETIG, KontoZustand.ZUGANG_ABGELEHNT})
 
 
 def speichere_neue(
@@ -76,6 +84,7 @@ class KontoAbruf:
     neu: int = 0
     doppelt: int = 0
     meldung: str | None = None
+    uebersprungen: bool = False  # wartet auf einen Menschen, nichts versucht
 
 
 def rufe_ab(
@@ -88,10 +97,17 @@ def rufe_ab(
     """Holt neue Umsätze aller (oder der genannten) Konten.
 
     Ohne ``freigabe`` (Cron, ``bank lauf``) wird eine verlangte Freigabe zum Zustand
-    am Konto; mit ihr fragt der Provider nach (``accounti fints freigeben``).
+    am Konto; mit ihr fragt der Provider nach (``accounti fints freigeben``). Konten,
+    die auf einen Menschen warten (``WARTET``), ruft nur ein Abruf mit Rückfrage ab.
     """
     ergebnisse = []
     for konto in konten if konten is not None else lade_bankkonten(session):
+        if freigabe is None and konto.zustand in WARTET:
+            meldung = f"nicht abgerufen — {konto.meldung or konto.zustand.value}"
+            ergebnisse.append(
+                KontoAbruf(konto, konto.zustand, meldung=meldung, uebersprungen=True)
+            )
+            continue
         ergebnis = KontoAbruf(konto, KontoZustand.BEREIT)
         stand = konto.abrufstand
         neuer_zugang: dict[str, str] | None = None
@@ -119,6 +135,9 @@ def rufe_ab(
                 KontoZustand.FREIGABE_NOETIG,
                 str(fehler),
             )
+        except ZugangAbgelehntError as fehler:
+            ergebnis.zustand = KontoZustand.ZUGANG_ABGELEHNT
+            ergebnis.meldung = str(fehler)
         except (ProviderError, TresorError, OSError, ValueError) as fehler:
             ergebnis.zustand, ergebnis.meldung = KontoZustand.FEHLER, str(fehler)
         aenderung: dict[str, object] = {

@@ -11,12 +11,20 @@ from fints.exceptions import FinTSConnectionError
 
 from accounti.bank import fints as fints_modul
 from accounti.bank.einstellungen import FinTSEinstellungen
-from accounti.bank.fints import SITZUNG, FinTSProvider, TanVerfahren, richte_fints_ein
+from accounti.bank.fints import (
+    ABRUFFORMAT,
+    FORMAT_AB,
+    SITZUNG,
+    FinTSProvider,
+    TanVerfahren,
+    richte_fints_ein,
+)
 from accounti.bank.lauf import rufe_ab
 from accounti.bank.provider import (
     BANK_PROVIDER,
     FreigabeNoetigError,
     ProviderError,
+    ZugangAbgelehntError,
 )
 from accounti.bank.tresor import neuer_schluessel, verschluessele
 from accounti.db import init_db, session_factory
@@ -159,6 +167,75 @@ def test_format_einstellung(bank):
         _provider().abrufen(_konto(format="pdf"), ZUGANG, None)
 
 
+def test_auto_bleibt_beim_einmal_gewaehlten_format(bank):
+    """Bietet die Bank camt neu an, wechselt der Abruf nicht still: Der
+    Überlappungszeitraum käme sonst mit anderen Dublettenschlüsseln ein zweites
+    Mal herein (MT940 ohne Bankreferenz, Name gekürzt)."""
+    bank.sca_bei_init, bank.camt = None, False
+    erster = _provider().abrufen(_konto(), ZUGANG, None)
+    assert erster.zugang is not None and erster.zugang[ABRUFFORMAT] == "mt940"
+    bank.camt = True  # die Bank stellt um
+    zweiter = _provider().abrufen(_konto(), erster.zugang, date(2026, 3, 17))
+    assert [a[0] for a in bank.abrufe] == ["mt940", "mt940"]
+    assert zweiter.zugang is not None and zweiter.zugang[ABRUFFORMAT] == "mt940"
+
+
+def test_camt_faellt_weg_kein_stiller_wechsel(bank):
+    bank.sca_bei_init, bank.camt = None, False
+    zugang = {**ZUGANG, ABRUFFORMAT: "camt"}
+    with pytest.raises(ProviderError, match="fints format") as fehler:
+        _provider().abrufen(_konto(), zugang, None)
+    assert IBAN in str(fehler.value)
+    assert bank.abrufe == []
+
+
+def test_ausdruecklicher_formatwechsel_ohne_ueberlappung(bank):
+    bank.sca_bei_init, bank.camt = None, False
+    erster = _provider().abrufen(_konto(), ZUGANG, date(2026, 3, 1))
+    assert erster.zugang is not None
+    bank.camt = True
+    konto = _konto(format="camt").model_copy(update={"abrufstand": date(2026, 3, 31)})
+    abruf = _provider().abrufen(konto, erster.zugang, date(2026, 3, 17))
+    assert bank.abrufe[-1][:3] == ("camt", IBAN, date(2026, 4, 1))
+    assert abruf.transaktionen == []  # 19.03. liegt vor der Grenze: schon da (MT940)
+    assert abruf.zugang is not None
+    assert (abruf.zugang[ABRUFFORMAT], abruf.zugang[FORMAT_AB]) == (
+        "camt",
+        "2026-04-01",
+    )
+    # die Grenze bleibt, auch wenn der Abrufstand noch nicht weiter ist
+    _provider().abrufen(konto, abruf.zugang, date(2026, 3, 17))
+    assert bank.abrufe[-1][2] == date(2026, 4, 1)
+
+
+@pytest.mark.parametrize(
+    "server",
+    [
+        "http://fints.example.invalid/fints30",
+        "fints.example.invalid/fints30",
+        "ftp://fints.example.invalid",
+    ],
+)
+def test_nur_https_damit_die_pin_nicht_im_klartext_reist(bank, server):
+    with pytest.raises(ProviderError, match="https"):
+        _provider().abrufen(_konto(server=server), ZUGANG, None)
+    assert bank.clients == []
+
+
+def test_http_nur_fuer_die_lokale_testbank(bank):
+    bank.sca_bei_init = None
+    _provider().abrufen(_konto(server="http://127.0.0.1:8080/fints"), ZUGANG, None)
+    assert bank.clients[-1]["server"] == "http://127.0.0.1:8080/fints"
+
+
+def test_kunden_id_aus_dem_zugang(bank):
+    bank.sca_bei_init = None
+    _provider().abrufen(_konto(), {**ZUGANG, "kunden_id": "KD-0815"}, None)
+    assert bank.clients[-1]["kunden_id"] == "KD-0815"
+    _provider().abrufen(_konto(kunden_id="ALT-1"), ZUGANG, None)
+    assert bank.clients[-1]["kunden_id"] == "ALT-1"
+
+
 def test_freigabe_ohne_rueckfrage_wird_zum_zustand(bank):
     with pytest.raises(FreigabeNoetigError) as fehler:
         _provider().abrufen(_konto(), ZUGANG, None)
@@ -233,10 +310,11 @@ def test_falsche_tan(bank):
 
 def test_falsche_pin_ohne_wiederholung_und_ohne_geheimnisse(bank):
     zugang = {"benutzerkennung": "kunde-4711", "pin": "falsch-0815"}
-    with pytest.raises(ProviderError, match="PIN") as fehler:
+    with pytest.raises(ZugangAbgelehntError, match="PIN") as fehler:
         _provider(Rueckfrage("123456")).abrufen(_konto(), zugang, None)
     assert "falsch-0815" not in str(fehler.value)
     assert "sperren" in str(fehler.value)
+    assert f"accounti fints zugang --konto {IBAN}" in str(fehler.value)
     assert len(bank.clients) == 1
 
 
@@ -331,6 +409,7 @@ def test_einrichtung_waehlt_verfahren_und_medium_und_gibt_frei(bank):
     assert konto.einstellungen["tan_verfahren"] == "942"
     assert konto.einstellungen["tan_medium"] == "Handy B"
     assert _sitzung(zugang)["system_id"] in bank.freigegeben
+    assert zugang[ABRUFFORMAT] == "camt"  # auto: bei der Einrichtung festgelegt
     assert bank.abrufe == []  # Einrichten holt noch keine Umsätze
 
 
@@ -416,3 +495,49 @@ def test_abruf_aller_konten_mit_freigabe_und_tresor(
     roh = (tmp_path / "f.db").read_bytes()
     for geheim in (b"kunde-4711", b"SYS-1", PRODUKT_ID.encode()):
         assert geheim not in roh
+
+
+def _gespeichert(make_session, schluessel, zugang):
+    konto = _konto()
+    konto = konto.model_copy(
+        update={"zugang": verschluessele(zugang, schluessel, str(konto.id))}
+    )
+    with make_session() as s:
+        speichere_bankkonto(s, konto)
+        s.commit()
+    return konto
+
+
+def _cronlaeufe(make_session, schluessel, anzahl):
+    for _ in range(anzahl):
+        with make_session() as s:
+            (ergebnis,) = rufe_ab(s, schluessel)
+            s.commit()
+    return ergebnis
+
+
+def test_cron_meldet_sich_nach_abgelehnter_pin_nicht_erneut_an(
+    bank, make_session, monkeypatch
+):
+    """Viele Banken sperren den Zugang nach wenigen Fehlversuchen — und der Cron
+    läuft mehrmals täglich (z.B. nach einer geänderten Online-Banking-PIN)."""
+    monkeypatch.setenv("ACCOUNTI_FINTS_PRODUKT_ID", PRODUKT_ID)
+    schluessel = neuer_schluessel()
+    _gespeichert(make_session, schluessel, {**ZUGANG, "pin": "9999"})
+    ergebnis = _cronlaeufe(make_session, schluessel, 3)
+    assert len(bank.clients) == 1  # genau ein Anmeldeversuch
+    assert ergebnis.zustand is KontoZustand.ZUGANG_ABGELEHNT
+    assert "accounti fints zugang" in (ergebnis.meldung or "")
+
+
+def test_cron_loest_keine_neuen_freigabe_anforderungen_aus(
+    bank, make_session, monkeypatch
+):
+    """Jeder Dialog schickt eine Push-Nachricht oder SMS-TAN, die accounti sofort
+    verwirft — der Cron wartet auf `accounti fints freigeben`."""
+    monkeypatch.setenv("ACCOUNTI_FINTS_PRODUKT_ID", PRODUKT_ID)
+    schluessel = neuer_schluessel()
+    _gespeichert(make_session, schluessel, ZUGANG)
+    ergebnis = _cronlaeufe(make_session, schluessel, 3)
+    assert len(bank.clients) == 1
+    assert ergebnis.zustand is KontoZustand.FREIGABE_NOETIG

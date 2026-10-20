@@ -15,7 +15,13 @@ Verlangt die Bank eine Freigabe, fragt der Provider über ``freigabe`` nach (TAN
 eingeben oder in der App bestätigen, dann Statusabfrage) — oder er meldet
 ``FreigabeNoetigError``, wenn niemand gefragt werden kann (Cron, ``bank lauf``).
 Umsätze kommen als camt.052 (HKCAZ), wenn die Bank es anbietet, sonst als MT940
-(HKKAZ), und laufen durch dieselben Parser wie Dateien.
+(HKKAZ), und laufen durch dieselben Parser wie Dateien. Das Format wird einmal
+festgelegt (Einrichtung bzw. erster Abruf) und wechselt nur ausdrücklich — dann
+ohne Überlappungszeitraum, weil MT940 und camt für denselben Umsatz verschiedene
+Dublettenschlüssel ergeben.
+
+Lehnt die Bank die Anmeldung ab (PIN falsch, Zugang gesperrt), meldet der Provider
+``ZugangAbgelehntError``; der Cron versucht es dann nicht weiter.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Protocol
+from urllib.parse import urlsplit
 
 from accounti.bank.einstellungen import (
     UMGEBUNG_PRODUKT_ID,
@@ -43,6 +50,7 @@ from accounti.bank.provider import (
     Freigabeanfrage,
     FreigabeNoetigError,
     ProviderError,
+    ZugangAbgelehntError,
     registriere,
 )
 from accounti.importers.camt import lies_camt
@@ -55,7 +63,11 @@ from accounti.models import Bankkonto
 logging.getLogger("fints").addHandler(logging.NullHandler())
 
 SITZUNG = "sitzung"  # Schlüssel im Zugang: Sitzungsdaten der Bank (Base64)
+ABRUFFORMAT = "abrufformat"  # im Zugang: festgelegtes Format (camt oder mt940)
+FORMAT_AB = "format_ab"  # im Zugang: nach einem Formatwechsel erst ab diesem Tag
+KUNDEN_ID = "kunden_id"  # im Zugang: oft gleich der Benutzerkennung, daher geheim
 FORMATE = ("auto", "camt", "mt940")
+_LOKAL = frozenset({"127.0.0.1", "localhost", "::1"})  # Testbank ohne TLS
 REGISTRIERUNG = "https://www.fints.org/de/hersteller/produktregistrierung"
 _MAX_TAN_RUNDEN = 3
 
@@ -165,6 +177,31 @@ def erzeuge_client(
     return client  # type: ignore[no-any-return]
 
 
+def pruefe_server(adresse: str) -> None:
+    """Nur https — sonst gingen Benutzerkennung und PIN im Klartext über das Netz.
+    Ausnahme: ``http`` zu dieser Maschine (lokale Testbank)."""
+    teile = urlsplit(adresse.strip())
+    lokal = teile.scheme == "http" and teile.hostname in _LOKAL
+    if not lokal and (teile.scheme != "https" or not teile.hostname):
+        msg = (
+            f"FinTS-Adresse muss mit https:// beginnen (nicht '{adresse}') — sonst "
+            "gingen Benutzerkennung und PIN unverschlüsselt über das Netz"
+        )
+        raise ProviderError(msg)
+
+
+def _formatgrenze(konto: Bankkonto, zugang: dict[str, str], format: str) -> date | None:
+    """Nach einem Formatwechsel: erst ab dem Tag nach dem Abrufstand, sonst kämen
+    die schon gespeicherten Umsätze mit anderen Schlüsseln noch einmal."""
+    bisher = zugang.get(ABRUFFORMAT)
+    if bisher and bisher != format and konto.abrufstand:
+        return konto.abrufstand + timedelta(days=1)
+    try:
+        return date.fromisoformat(zugang.get(FORMAT_AB) or "")
+    except ValueError:
+        return None
+
+
 def _braucht_freigabe(antwort: Any) -> bool:
     from fints.client import NeedTANResponse
 
@@ -203,16 +240,18 @@ def _fehler_uebersetzt(konto: Bankkonto, zugang: dict[str, str]) -> Iterator[Non
     except FinTSClientPINError as f:
         msg = (
             "Die Bank lehnt die Anmeldung ab (PIN oder Benutzerkennung falsch?) — "
-            "Zugang neu einrichten (accounti fints einrichten); weitere Versuche "
-            "mit diesem Zugang können ihn sperren"
+            "accounti versucht es nicht erneut, weitere Versuche mit diesem Zugang "
+            "können ihn sperren; Zugang erneuern: accounti fints zugang --konto "
+            f"{konto.iban}"
         )
-        raise fehler(msg) from f
+        raise ZugangAbgelehntError(_ohne_geheimnisse(msg, zugang)) from f
     except FinTSClientTemporaryAuthError as f:
         msg = (
-            "Der Zugang ist bei der Bank vorübergehend gesperrt — "
-            "im Onlinebanking entsperren"
+            "Der Zugang ist bei der Bank vorübergehend gesperrt — im Online-Banking "
+            "entsperren, dann accounti fints freigeben --konto "
+            f"{konto.iban} (oder accounti fints zugang bei neuer PIN)"
         )
-        raise fehler(msg) from f
+        raise ZugangAbgelehntError(_ohne_geheimnisse(msg, zugang)) from f
     except FinTSSCARequiredError as f:
         raise FreigabeNoetigError(_hinweis(konto)) from f
     except (FinTSConnectionError, requests.RequestException) as f:
@@ -303,6 +342,7 @@ class FinTSProvider(BankProvider):
         if fehlend:
             msg = f"FinTS-Zugang unvollständig, es fehlt: {', '.join(fehlend)}"
             raise ProviderError(msg)
+        pruefe_server(e["server"])
         if (e.get("format") or "auto") not in FORMATE:
             msg = f"Unbekanntes format '{e['format']}' (erlaubt: {', '.join(FORMATE)})"
             raise ProviderError(msg)
@@ -311,7 +351,7 @@ class FinTSProvider(BankProvider):
             benutzerkennung=zugang["benutzerkennung"],
             pin=zugang["pin"],
             server=e["server"],
-            kunden_id=e.get("kunden_id"),
+            kunden_id=zugang.get(KUNDEN_ID) or e.get("kunden_id"),
             produkt_id=produkt_id,
             produkt_version=self.einstellungen.produkt_version,
             daten=_sitzung_lesen(zugang) if mit_sitzung else None,
@@ -397,14 +437,34 @@ class FinTSProvider(BankProvider):
 
     # --- Abruf ------------------------------------------------------------------
 
-    def _auszuege(
-        self, client: FinTSClient, konto: Bankkonto, sepa: Any, von: date
-    ) -> list[Auszug]:
-        format = konto.einstellungen.get("format") or "auto"
+    def _format(
+        self, client: FinTSClient, konto: Bankkonto, zugang: dict[str, str]
+    ) -> str:
+        """camt oder mt940: ausdrücklich eingestellt, sonst das einmal festgelegte,
+        sonst camt, wenn die Bank es anbietet. Kein stiller Wechsel."""
+        wunsch = konto.einstellungen.get("format") or "auto"
+        bisher = zugang.get(ABRUFFORMAT)
         camt = client.bietet_camt()
+        if wunsch != "auto":
+            format = wunsch
+        elif bisher in ("camt", "mt940"):
+            format = bisher
+        else:
+            format = "camt" if camt else "mt940"
         if format == "camt" and not camt:
-            raise ProviderError("Die Bank bietet Umsätze als camt (HKCAZ) nicht an")
-        if format == "camt" or (format == "auto" and camt):
+            msg = "Die Bank bietet Umsätze als camt (HKCAZ) nicht an"
+            if wunsch == "auto":
+                msg += (
+                    " (mehr) — das Format wechselt nur ausdrücklich: accounti fints "
+                    f"format --konto {konto.iban} mt940"
+                )
+            raise ProviderError(msg)
+        return format
+
+    def _auszuege(
+        self, client: FinTSClient, konto: Bankkonto, sepa: Any, von: date, format: str
+    ) -> list[Auszug]:
+        if format == "camt":
             antwort = client.get_transactions_xml(sepa, start_date=von, end_date=None)
             gebucht, _vorgemerkt = self._freigeben(client, antwort, konto)
             return [a for xml in gebucht for a in lies_camt(bytes(xml))]
@@ -422,18 +482,28 @@ class FinTSProvider(BankProvider):
             with _fehler_uebersetzt(konto, zugang), client:
                 self._initialisiere(client, konto)
                 sepa = self._sepa_konto(client, konto)
-                auszuege = self._auszuege(client, konto, sepa, von)
+                format = self._format(client, konto, zugang)
+                grenze = _formatgrenze(konto, zugang, format)
+                if grenze is not None:
+                    von = min(max(von, grenze), date.today())
+                auszuege = self._auszuege(client, konto, sepa, von, format)
         except FreigabeNoetigError as fehler:
             # auch ohne Freigabe die Sitzung sichern: die Kundensystem-ID bleibt
             with _fehler_uebersetzt(konto, zugang):
                 fehler.zugang = self._zugang_mit_sitzung(client, zugang)
             raise
         with _fehler_uebersetzt(konto, zugang):
-            abruf = Abruf(zugang=self._zugang_mit_sitzung(client, zugang))
+            neuer_zugang = self._zugang_mit_sitzung(client, zugang)
+        neuer_zugang[ABRUFFORMAT] = format
+        if grenze is not None:
+            neuer_zugang[FORMAT_AB] = grenze.isoformat()
+        abruf = Abruf(zugang=neuer_zugang)
         for auszug in auszuege:
             if not auszug.gehoert_zu(konto.iban):
                 continue
-            abruf.transaktionen.extend(auszug.umsaetze)
+            abruf.transaktionen.extend(
+                t for t in auszug.umsaetze if grenze is None or t.datum >= grenze
+            )
             if auszug.endsaldo is not None:
                 abruf.saldo, abruf.saldo_datum = auszug.endsaldo, auszug.endsaldo_datum
         return abruf
@@ -450,8 +520,10 @@ def richte_fints_ein(
     warte: Callable[[float], None] = time.sleep,
 ) -> tuple[Bankkonto, dict[str, str]]:
     """Erste Verbindung: TAN-Verfahren (und -Medium) wählen, erste Freigabe,
-    prüfen, dass es das Konto unter dem Zugang gibt. Liefert das Konto mit den
-    gewählten Einstellungen und den Zugang samt Sitzung (noch unverschlüsselt)."""
+    prüfen, dass es das Konto unter dem Zugang gibt, Format festlegen. Liefert das
+    Konto mit den gewählten Einstellungen und den Zugang samt Sitzung (noch
+    unverschlüsselt). Auch zum Erneuern eines Zugangs (``accounti fints zugang``):
+    ein schon festgelegtes Format im Zugang bleibt."""
     provider = FinTSProvider(freigabe, einstellungen, warte)
     einstellungen_neu = dict(konto.einstellungen)
     with _fehler_uebersetzt(konto, zugang):
@@ -481,15 +553,24 @@ def richte_fints_ein(
         with client:
             provider._initialisiere(client, konto)
             provider._sepa_konto(client, konto)
+            format = provider._format(client, konto, zugang)
         neuer_zugang = provider._zugang_mit_sitzung(client, zugang)
+    neuer_zugang[ABRUFFORMAT] = format
+    grenze = _formatgrenze(konto, zugang, format)
+    if grenze is not None:
+        neuer_zugang[FORMAT_AB] = grenze.isoformat()
     return konto.model_copy(update={"einstellungen": einstellungen_neu}), neuer_zugang
 
 
 __all__ = [
+    "ABRUFFORMAT",
+    "FORMAT_AB",
+    "KUNDEN_ID",
     "SITZUNG",
     "FinTSClient",
     "FinTSProvider",
     "TanVerfahren",
     "erzeuge_client",
+    "pruefe_server",
     "richte_fints_ein",
 ]
