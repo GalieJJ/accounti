@@ -267,6 +267,20 @@ def test_kontrollsaldo(s):
     assert lauf.neu[0].kontrollsaldo == D("10")
 
 
+def test_kontrollsaldo_auch_fuer_festgeschriebenen_monat(s):
+    """Ist der Monat schon festgeschrieben, prüft --kontrollsaldo den vorhandenen
+    Auszug, statt still nichts zu tun."""
+    _tx(s, date(2026, 7, 3), "10.00")
+    _erstelle(s, date(2026, 8, 31), anfangssaldo=D("0"), ab=date(2026, 7, 1))
+    with pytest.raises(KontoauszugError, match="Kontrollsaldo.*Auszugs 1/2026"):
+        _erstelle(s, date(2026, 7, 31), kontrollsaldo=D("11"))
+    assert _erstelle(s, date(2026, 7, 31), kontrollsaldo=D("10")).neu == []
+    with pytest.raises(KontoauszugError, match="Kontrollsaldo.*Auszugs 2/2026"):
+        _erstelle(s, date(2026, 8, 31), kontrollsaldo=D("0"))
+    with pytest.raises(KontoauszugError, match="Kein festgeschriebener Auszug"):
+        _erstelle(s, date(2026, 6, 30), kontrollsaldo=D("0"))
+
+
 def test_fremdwaehrung_bleibt_draussen(s):
     _tx(s, date(2026, 7, 3), "10.00", waehrung="USD")
     lauf = _erstelle(s, date(2026, 7, 31), anfangssaldo=D("0"))
@@ -333,6 +347,24 @@ def test_pruefung_findet_verschobenes_datum(s, drei):
     )
     codes = {b.code for b in pruefe_auszuege(s)}
     assert {"zeitraum", "hash"} <= codes
+
+
+@pytest.mark.parametrize(
+    ("feld", "wert"),
+    [
+        ("verwendungszweck", "anderer Text"),
+        ("gegenkonto_name", "Jemand Anderes"),
+        ("gegenkonto_iban", "DE02120300000000202051"),
+    ],
+)
+def test_pruefung_findet_geaenderten_text(s, drei, feld, wert):
+    """Was ins Feld :86: geht, ist festgeschrieben wie Datum und Betrag."""
+    s.execute(
+        update(TransaktionRow)
+        .where(TransaktionRow.id == str(drei.id))
+        .values(**{feld: wert})
+    )
+    assert "hash" in {b.code for b in pruefe_auszuege(s)}
 
 
 def test_pruefung_findet_geloeschten_umsatz(s, drei):

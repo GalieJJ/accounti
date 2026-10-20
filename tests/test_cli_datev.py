@@ -250,6 +250,31 @@ def test_kontoauszuege_kontrollsaldo_falsch(bank):
         assert lade_kontoauszuege(s) == []
 
 
+def test_kontoauszuege_bei_kaputter_kette_keine_dateien(bank):
+    """Hat die Prüfung der Auszugskette Befunde, wird kein MT940 geschrieben."""
+    from sqlalchemy import update
+
+    from accounti.db.tabellen import TransaktionRow
+
+    make, aus, basis = bank
+    r = _auszug(basis, aus, "--period", "2025-07", "--anfangssaldo", "1000")
+    assert r.exit_code == 0, r.output
+    mt = aus / "MT940_1200_202507.sta"
+    mt.unlink()
+    with make() as s:
+        s.execute(
+            update(TransaktionRow)
+            .where(TransaktionRow.betrag == Decimal("-59.50"))
+            .values(betrag=Decimal("-60.00"))
+        )
+        s.commit()
+    r = _auszug(basis, aus, "--period", "2025-07")
+    assert r.exit_code == 1
+    text = _text(r)
+    assert "Prüfung der Auszugskette" in text and "keine Dateien" in text
+    assert not mt.exists()
+
+
 def test_kontoauszuege_ohne_bankkonto(bank):
     _, aus, basis = bank
     r = _auszug(

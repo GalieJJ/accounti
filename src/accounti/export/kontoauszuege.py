@@ -16,6 +16,7 @@ meldet Lücken, Nummernsprünge, Saldensprünge und nachträgliche Änderungen.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import unicodedata
 from calendar import monthrange
@@ -62,7 +63,11 @@ def _euro(betrag: Decimal) -> str:
 
 
 def auszugs_hash(a: Kontoauszug, umsaetze: list[Transaktion]) -> str:
-    """SHA-256 über Kopf, Salden und Umsätze — verkettet mit dem Vorgänger."""
+    """SHA-256 über Kopf, Salden und Umsätze — verkettet mit dem Vorgänger.
+
+    Je Umsatz gehen auch die Texte ein, die das MT940 im Feld ``:86:`` ausgibt
+    (Verwendungszweck, Name, IBAN): ein ausgegebener Auszug ändert sich nicht.
+    """
     nachtraege = set(a.nachtraege)
     teile = [
         a.vorgaenger_hash,
@@ -77,7 +82,11 @@ def auszugs_hash(a: Kontoauszug, umsaetze: list[Transaktion]) -> str:
     ]
     teile += [
         f"{tx.id}:{tx.datum.isoformat()}:{tx.betrag:.2f}:"
-        f"{'N' if tx.id in nachtraege else ''}"
+        f"{'N' if tx.id in nachtraege else ''}:"
+        + json.dumps(
+            [tx.verwendungszweck, tx.gegenkonto_name, tx.gegenkonto_iban],
+            ensure_ascii=False,
+        )
         for tx in umsaetze
     ]
     return hashlib.sha256("|".join(teile).encode("utf-8")).hexdigest()
@@ -157,6 +166,9 @@ def erstelle_auszuege(
         erster_beginn = beginn
     lauf = Auszugslauf()
     if beginn > bis:
+        # alles bis ``bis`` steht fest — der Kontrollsaldo prüft dann den Auszug
+        if kontrollsaldo is not None:
+            _pruefe_kontrollsaldo(vorhanden, bis, kontrollsaldo)
         return lauf
 
     zugeordnet = zugeordnete_transaktion_ids(session)
@@ -254,6 +266,24 @@ def erstelle_auszuege(
     for auszug in lauf.neu:
         speichere_kontoauszug(session, auszug)
     return lauf
+
+
+def _pruefe_kontrollsaldo(
+    vorhanden: list[Kontoauszug], bis: date, kontrollsaldo: Decimal
+) -> None:
+    """Kontrollsaldo gegen den Endsaldo des festgeschriebenen Auszugs zum ``bis``."""
+    auszug = next((a for a in vorhanden if a.bis == bis), None)
+    if auszug is None:
+        msg = f"Kein festgeschriebener Auszug endet am {bis:%d.%m.%Y} — Kontrollsaldo?"
+        raise KontoauszugError(msg)
+    if auszug.endsaldo != kontrollsaldo:
+        msg = (
+            f"Kontrollsaldo {_euro(kontrollsaldo)} weicht vom Endsaldo "
+            f"{_euro(auszug.endsaldo)} des festgeschriebenen Auszugs "
+            f"{auszug.nummer}/{auszug.jahr} ab (Differenz "
+            f"{_euro(kontrollsaldo - auszug.endsaldo)}) — fehlen Umsätze?"
+        )
+        raise KontoauszugError(msg)
 
 
 def _befund(a: Kontoauszug, code: str, text: str) -> Auszugsbefund:

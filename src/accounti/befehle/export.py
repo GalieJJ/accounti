@@ -273,6 +273,17 @@ def datev_kontoauszuege(
             raise _fehler(fehler) from fehler
         verlauf = saldenverlauf_csv(jahr, umsaetze)
 
+    if pruefung:
+        # eine Datei mit geänderten Umsätzen zwischen festen Salden wäre
+        # inkonsistent — dann lieber gar keine
+        for befund in lauf.befunde:
+            console.print(f"  [yellow]{escape(befund.text)}[/yellow]")
+        console.print("[red]Prüfung der Auszugskette:[/red]")
+        for befund in pruefung:
+            console.print(f"  [red]{escape(befund.text)}[/red]")
+        console.print("[red]Es wurden keine Dateien geschrieben.[/red]")
+        raise typer.Exit(1)
+
     ordner = Path(ausgabe)
     ordner.mkdir(parents=True, exist_ok=True)
     spanne = f"{auszuege[0].von:%Y%m}"
@@ -294,9 +305,4 @@ def datev_kontoauszuege(
     console.print(f"[green]Saldenverlauf:[/green] {csv_pfad}")
     for befund in lauf.befunde:
         console.print(f"  [yellow]{escape(befund.text)}[/yellow]")
-    if pruefung:
-        console.print("[red]Prüfung der Auszugskette:[/red]")
-        for befund in pruefung:
-            console.print(f"  [red]{escape(befund.text)}[/red]")
-        raise typer.Exit(1)
     console.print("Prüfung der Auszugskette: keine Befunde.")
