@@ -80,7 +80,7 @@ def test_abholen_leert_ordner_und_liste_zeigt_belege(tmp_path):
 
 
 def test_abholen_unbekannter_kanal(tmp_path):
-    r = runner.invoke(app, ["belege", "abholen", "--kanal", "email", *_args(tmp_path)])
+    r = runner.invoke(app, ["belege", "abholen", "--kanal", "fax", *_args(tmp_path)])
     assert r.exit_code == 1
     assert "ordner" in r.output
 

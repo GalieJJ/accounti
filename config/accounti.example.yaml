@@ -79,6 +79,47 @@ ustid_pruefung:
   timeout_sekunden: 60         # Rückfragen beim Mitgliedstaat können dauern
   # url: https://api.evatr.vies.bzst.de/app/v1/abfrage   # oder ACCOUNTI_EVATR_URL
 
+# Beleg-Kanäle (optional — ohne diesen Abschnitt gibt es nur Ordner und Upload)
+belegkanaele:
+  max_groesse_mb: 25           # je Datei; der Typ wird am Inhalt geprüft
+  dateitypen: [pdf, xml, jpeg, png, tiff]
+  email:                       # accounti belege abholen --kanal email
+    - name: rechnungen
+      host: "imap.meine-firma.example"
+      port: 993
+      verschluesselung: ssl    # ssl, starttls oder keine (nur localhost)
+      benutzer: "rechnungen@meine-firma.example"
+      passwort: "${ACCOUNTI_IMAP_PASSWORT}"   # oder: accounti kanaele zugang email rechnungen
+      ordner: INBOX
+      # ab: 2026-01-01          # ältere Nachrichten nicht abholen
+      nach_abholen: belassen   # belassen, gelesen oder verschieben (dann ziel_ordner)
+      # ziel_ordner: "Belege/abgeholt"
+      # ca_datei: /etc/ssl/firma-ca.pem   # eigene CA des Mailservers
+  webhook:                     # accounti kanaele webhook starten
+    host: "127.0.0.1"          # TLS über einen Reverse-Proxy davor
+    port: 8410
+    max_dateien: 10
+    max_anfrage_mb: 60
+  connectoren:                 # accounti belege abholen --kanal connector
+    # Beispiel nach der OpenAPI-Doku von GetMyInvoices (v3) — nicht gegen ein Konto geprüft
+    - name: getmyinvoices
+      typ: json
+      basis_url: "https://api.getmyinvoices.com/accounts/v3"
+      kopfzeilen:
+        X-API-KEY: "{zugang}"  # accounti kanaele zugang connector getmyinvoices
+        User-Agent: "accounti (Konto 12345)"   # verlangt einen eindeutigen User-Agent
+      liste:
+        pfad: /documents
+        parameter: {perPage: "100", archivedFilter: "1"}
+        eintraege: records
+        seite_parameter: pageNumber
+        # max_seiten: 50       # mehr Seiten → Fehler (Exit 1), dann erhöhen
+      felder: {id: documentUid, dateiname: filename, absender: companyName}
+      datei:
+        pfad: "/documents/{id}"
+        parameter: {includeDocument: "true"}
+        inhalt: fileContent    # Base64 in der JSON-Antwort
+
 # Aufgaben & Rückfragen (optional — ohne diesen Abschnitt gelten die Standards)
 aufgaben:
   ich: "jan"                     # für --zustaendig ich (sonst ACCOUNTI_BENUTZER bzw. Login-Name)

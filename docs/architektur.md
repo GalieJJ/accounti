@@ -48,7 +48,7 @@ Bank-CSVs laufen **konfigurationsgetrieben** über `profil.py`: Ein `BankProfil`
 
 Geplant (eigene Importer, kein Bank-CSV): `mt940.py`, `camt.py` (XML), `jtl.py`, `amazon.py`, `ebay.py`, `paypal.py`.
 
-### `belege/` *(teilweise — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
+### `belege/` *(vorhanden — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
 
 Bringt Belege ins System und macht Daten daraus. Kanäle folgen demselben Registry-Muster wie die Bank-Importer: `ordner`, `email`, `upload`, `webhook`, `connector` — jeder liefert nur Rohdatei plus Herkunft, keiner kennt Buchhaltungslogik.
 
@@ -59,7 +59,8 @@ Bringt Belege ins System und macht Daten daraus. Kanäle folgen demselben Regist
 - `positionen.py` — Positionssplit. Eine Rechnung kann mehrere Konten betreffen; eine Kreditkartenabrechnung ist eine Datei mit vielen Umsätzen. *(vorhanden: eine Position je Steuersatz, Kreditkartenumsätze einzeln)*
 - `dubletten.py` — Datei-Hash, dann Lieferant + Rechnungsnummer, dann Betrag + Datum im engen Fenster. *(vorhanden)*
 - `archiv.py` — Originaldatei unverändert, content-adressiert, mit Aufbewahrungsfrist. Kein Löschpfad. *(vorhanden)*
-- `kanaele/` — `BELEG_KANAELE`-Registry; vorhanden sind `ordner` und `upload`. *(vorhanden)*
+- `kanaele/` — `BELEG_KANAELE`-Registry: `ordner`, `upload`, `email`, `webhook`, `connector`. Alle liefern nur Rohdatei plus Herkunft; `pruefung.py` prüft für alle Typ am Inhalt (PDF, XML ohne DTD, JPEG, PNG, TIFF) und Größe. `email.py` holt Anhänge per IMAP (UID-Befehle, `BODY.PEEK[]`, Ordner nur lesend, TLS mit Zertifikatsprüfung), Absender als Hinweis; `gedaechtnis.py` merkt verarbeitete Nachrichten in `kanal_nachrichten` (Ordner + UIDVALIDITY + UID, Message-ID) erst, wenn alle Anhänge aufgenommen sind; gelesen markiert oder verschoben wird eine Nachricht nur, wenn nichts abgelehnt wurde. `connector.py` ist Basisklasse und Registry `BELEG_CONNECTOREN` für Belegportale, `json_http.py` der generische JSON/HTTP-Connector. Geheimnisse nur als `${VAR}` oder im Tresor (`zugaenge.py`, AES-GCM wie `bank/tresor.py`). Konfiguration: Abschnitt `belegkanaele` (`einstellungen.py`). *(vorhanden)*
+- `webhook/` — FastAPI-Endpunkt `POST /belege` für Fremdsysteme und Messenger-Weiterleitungen: Bearer-Token (gespeichert nur als SHA-256), Rohdaten/multipart/JSON, Größe und Typ werden geprüft, bevor etwas gespeichert wird; Aufnahmen je Prozess serialisiert. Start mit `accounti kanaele webhook starten`, TLS über einen Reverse-Proxy. *(vorhanden)*
 - `pipeline.py` — `nimm_auf`: archivieren, Dubletten prüfen, optionalen Erkenner aufrufen, `Beleg` und Eingangsprotokoll speichern. Ein Fehler im Erkenner schickt den Beleg in die Prüfung, statt die Pipeline abzubrechen. *(vorhanden)*
 
 ### `erechnung/` *(teilweise — [Baustein 3](specs/2026-08-10-erechnung.md))*
@@ -282,6 +283,7 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 |---------|-----------|-------|
 | `Beleg` | Belegart, Richtung, Belegnummer, Beleg-/Leistungsdatum, Netto/Steuer/Brutto, Zahlungsziel, Skonto, Datei-Hash, Kanal, Status | → `Kontakt` |
 | `Belegposition` | Bezeichnung, Menge, Netto, Steuersatz, Steuerbetrag, Kontovorschlag | → `Beleg`; `Buchungssatz.beleg_position_id` |
+| `AbgeholteNachricht` | Kanal, Quelle, Schlüssel (UIDVALIDITY/UID, Dokument-ID), Message-ID, Absender, Betreff, Dateien (Hash), Hinweis | → `Beleg` über den Datei-Hash |
 | `Kontakt` | Name, Anschrift, Land, USt-IdNr., IBAN, Zahlungsbedingungen, Personenkonto | → `Beleg`, `OffenerPosten` |
 | `OffenerPosten` | Richtung, Betrag, Restbetrag, Fälligkeit, Skontofrist, Status, Mahnstufe | → `Kontakt`, `Beleg` |
 | `UstIdPruefung` | Nr., Zeitpunkt, USt-IdNr., Art, Anfrage/Antwort roh, BZSt-Status und -ID, Ergebnisse A–D, Vorgänger-Hash, Hash | → `Kontakt` (nur anfügen) |
@@ -364,7 +366,7 @@ Danach: `accounti import bank auszug.csv --format meinebank` (oder `--format aut
 Für Betragsspalten mit getrennten Soll/Haben-Feldern: `betrag_modus: soll_haben`
 plus `soll_spalte`/`haben_spalte`.
 
-### Neuen Beleg-Kanal hinzufügen *(geplant)*
+### Neuen Beleg-Kanal hinzufügen
 
 Ein Kanal implementiert die Basisklasse aus `belege/kanaele/` und trägt sich in die Registry
 `BELEG_KANAELE` ein — dasselbe Muster wie `BANK_IMPORTERS`. Er liefert Rohdatei plus
@@ -372,12 +374,20 @@ Herkunftsmetadaten, sonst nichts: Erkennung, OCR, Dublettenprüfung und Archivie
 dahinter und sind für alle Kanäle identisch.
 
 Wer nur ein anderes Postfach oder Verzeichnis anbinden will, braucht keinen neuen Kanal, sondern
-nur einen Eintrag in `config/belege.yaml`.
+nur einen Eintrag im Abschnitt `belegkanaele` der `config/accounti.yaml`.
 
-### Neuen Bank-Provider hinzufügen *(geplant)*
+Ein Belegportal braucht meist keinen neuen Kanal, sondern nur einen Eintrag unter
+`belegkanaele.connectoren` mit `typ: json`. Reicht das nicht (OAuth, POST-Abfragen, eigene
+Formate), implementiert ein Connector `BelegConnector` (`dokumente()`, `lade()`, eigenes
+Einstellungsmodell) und trägt sich mit `registriere_connector` in `BELEG_CONNECTOREN` ein —
+Dateiprüfung, Gedächtnis, Dublettenprüfung und Archiv bleiben dieselben.
 
-Ein Provider implementiert die Schnittstelle aus `bank/provider.py`: Konten auflisten, Umsätze ab
-einem Zeitpunkt abrufen, Saldo melden — und optional Zahlungen einreichen. Alles dahinter
+### Neuen Bank-Provider hinzufügen
+
+Ein Provider erbt von `BankProvider` aus `bank/provider.py`, nennt seine Einstellungen (`felder`)
+und Zugangsdaten (`geheime_felder`, landen verschlüsselt im Tresor), liefert mit `abrufen(konto,
+zugang, ab)` Umsätze und optional den Saldo und trägt sich mit `registriere` in `BANK_PROVIDER`
+ein; eine Freigabe der Bank meldet er als `FreigabeNoetigError`. Alles dahinter
 (Normalisierung, Dublettenschutz, Abgleich, Kontierung) ist providerunabhängig.
 
 Weil der bestehende Dateiimport selbst als Provider eingehängt ist, bleibt accounti auch dann

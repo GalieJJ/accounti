@@ -245,8 +245,14 @@ def belege_import(
 
 @belege_app.command("abholen")
 def belege_abholen(
-    kanal: str = typer.Option(..., help="Kanal, z.B. 'ordner'"),
+    kanal: str = typer.Option(..., help="Kanal: ordner, email oder connector"),
     ordner: str = typer.Option("eingang/belege", help="Ordner für den Kanal 'ordner'"),
+    quelle: str | None = typer.Option(
+        None, help="Nur dieses Postfach bzw. diesen Connector (Name)"
+    ),
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration (belegkanaele)"
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     erkennen: bool = ERKENNEN_OPTION,
@@ -261,12 +267,24 @@ def belege_abholen(
     from accounti.belege.kanaele.ordner import OrdnerKanal
 
     if kanal != OrdnerKanal.name:
-        console.print(
-            f"[red]Kanal '{kanal}' kann nicht abgeholt werden. "
-            f"Verfügbar: {OrdnerKanal.name} "
-            "(Einzeldateien: accounti belege import)[/red]"
+        from accounti.befehle.kanaele import eigene_firma_vorgabe, hole_ab
+
+        eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
+            config, eigene_ust_id, eigene_firma
         )
-        raise typer.Exit(1)
+        erkenner = (
+            _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
+            if erkennen
+            else None
+        )
+        hole_ab(
+            kanal,
+            quelle,
+            config,
+            db,
+            lambda k: _belege_aufnehmen(k, db, archiv, erkenner),
+        )
+        return
     if not Path(ordner).is_dir():
         console.print(f"[red]Ordner nicht gefunden: {ordner}[/red]")
         raise typer.Exit(1)

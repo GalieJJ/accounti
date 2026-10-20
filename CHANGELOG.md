@@ -7,6 +7,25 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Belegerfassung, Paket 3 – Kanäle E-Mail, Webhook, Connector** (Baustein 2 damit fertig):
+  `accounti belege abholen --kanal email` holt die Anhänge neuer Nachrichten aus IMAP-Postfächern
+  (TLS mit Zertifikatsprüfung, eigene CA möglich; Ordner nur lesend, `BODY.PEEK[]`; danach
+  wahlweise gelesen markieren oder verschieben — nur, wenn alle Anhänge übernommen sind; sonst
+  bleibt die Nachricht ungelesen im Posteingang), speichert Absender, Betreff und Message-ID als
+  Hinweis (bei weitergeleiteten Rechnungen den ursprünglichen Absender) und merkt sich
+  verarbeitete Nachrichten (`accounti kanaele nachrichten`); in den Text eingefügte Fotos von
+  Quittungen werden Belege, kleine Logos mit Hinweis übersprungen. Passwörter nur
+  per `${UMGEBUNGSVARIABLE}` oder verschlüsselt im Tresor (`accounti kanaele zugang`).
+  Tokengeschützter Webhook für Fremdsysteme und Messenger-Weiterleitungen
+  (`accounti kanaele webhook token|tokens|widerrufen|starten`, FastAPI): Rohdaten,
+  multipart/form-data und JSON mit Base64, Tokens nur als SHA-256 gespeichert, Größe (413) und
+  Typ am Inhalt (415) geprüft, bevor etwas gespeichert wird. Connectoren für Belegportale mit
+  Registry `BELEG_CONNECTOREN` und generischem JSON/HTTP-Connector (`typ: json`, Seiten,
+  Base64-Inhalte, Zugangsdaten nur an den eigenen Host, nur https, abgebrochene Downloads werden
+  erneut versucht, mehr Seiten als `max_seiten` sind ein Fehler) — `accounti belege abholen --kanal
+  connector`, `accounti kanaele connectoren`. Neuer, optionaler Abschnitt `belegkanaele`; neue
+  Tabellen `kanal_nachrichten`, `kanal_nachricht_dateien`, `webhook_tokens`, `kanal_zugaenge`.
+  Keine neue Abhängigkeit
 - **Aufgaben & Rückfragen** (Baustein 8): Aufgaben mit Bezug auf ein beliebiges Objekt
   (Buchung, Beleg, Umsatz, offener Posten, Kontakt, Bankkonto, eigene Typen anderer Bausteine),
   Zuständigkeit an Benutzer oder Rolle per Regel, unzugewiesen in der gemeinsamen Liste,
@@ -124,6 +143,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- `accounti belege abholen` kennt `--kanal email|connector`, `--quelle` und `--config`; ein
+  unbekannter Kanal nennt alle abholbaren Kanäle, `--kanal webhook` verweist auf
+  `accounti kanaele webhook starten`. Bei `email|connector` gilt `mandant` (Name, USt-IdNr.) aus
+  der Konfiguration als Vorgabe für `--eigene-firma`/`--eigene-ust-id`
 - **Umsätze mehrerer Bankkonten** werden gegen das Sachkonto ihres Kontos gebucht (Kontierung,
   Ausgleich offener Posten, Kontierung mit Beleg) statt pauschal gegen `buchhaltung.bank_konto`
 - **`classify`** kontiert über den neuen Kontierungslauf: abgeglichene Umsätze aus dem Beleg,
