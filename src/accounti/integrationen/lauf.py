@@ -184,6 +184,22 @@ def importiere(
     if auszahlung is not None and len(abrechnungen) != 1:
         msg = "--auszahlung geht nur bei einer Auszahlung je Datei"
         raise IntegrationError(msg)
+    ohne_kurs = [
+        a
+        for a in abrechnungen
+        if a.waehrung != "EUR"
+        and kurs is None
+        and not abrechnung_vorhanden(session, markt, a.nummer)
+    ]
+    if ohne_kurs:
+        # vor dem Archivieren abbrechen: eine gespeicherte Abrechnung ohne Kurs
+        # ließe sich nicht mehr buchen
+        nummern = ", ".join(f"{a.nummer} ({a.waehrung})" for a in ohne_kurs)
+        msg = (
+            f"Abrechnung {nummern} in Fremdwährung: ohne Kurs (--kurs, Einheiten je "
+            "1 EUR) wird nichts importiert"
+        )
+        raise IntegrationError(msg)
 
     eingang = nimm_auf(
         session,

@@ -3,3 +3,5 @@ Name,Email,Financial Status,Paid at,Fulfillment Status,Currency,Subtotal,Shippin
 #1002,k2@kunden.example,paid,2026-08-18 14:03:10 +0200,fulfilled,EUR,121.00,0.00,21.00,121.00,NL,K. Twee,Utrecht,3511,NL
 #1003,k3@kunden.example,paid,2026-08-19 08:40:55 +0200,fulfilled,EUR,24.20,0.00,4.20,24.20,ES,K. Tres,Sevilla,41001,ES
 #1004,k4@kunden.example,paid,2026-08-21 11:11:11 +0200,unfulfilled,EUR,35.00,0.00,5.59,35.00,DE,K. Vier,Musterstadt,12345,DE
+#2001,k5@kunden.example,paid,2026-09-01 10:05:00 +0100,fulfilled,GBP,40.00,0.00,0.00,40.00,GB,K. Five,Leeds,LS1 1AA,GB
+#2002,k6@kunden.example,paid,2026-09-02 15:30:00 +0100,fulfilled,GBP,25.00,0.00,4.34,25.00,NL,K. Zes,Delft,2611,NL

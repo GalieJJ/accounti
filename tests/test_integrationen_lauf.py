@@ -288,3 +288,43 @@ def test_paypal_sonderfaelle(umgebung):
     assert [b.betrag_netto for b in buchungen if b.haben_konto == "8400"] == [
         D("100.00")
     ]
+
+
+# --- Fremdwährung und Einbehalt je Marktplatz ---------------------------------------
+
+
+def test_fremdwaehrung_ohne_kurs_wird_gar_nicht_erst_importiert(umgebung):
+    """Sonst wäre die Abrechnung gespeichert und ließe sich nie mehr buchen."""
+    s, archiv, kontext = umgebung
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    with pytest.raises(IntegrationError, match="GBP.*--kurs"):
+        importiere(s, archiv, kontext, "ebay", roh, "gbp.csv")
+    assert lade_abrechnungen(s) == []
+    assert lade_belege(s) == []
+    eingang = bank(s, date(2026, 9, 11), "60.80", "EBAY 6009990001")
+    (ergebnis,) = importiere(s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.85"))
+    assert ergebnis.neu and ergebnis.buchungen == 2  # Erlös, Verkaufsgebühren
+    buchungen = lade_buchungen(s)
+    # 60,00 GBP / 0,85 = 70,59 EUR brutto; Gebühren einzeln umgerechnet
+    (erloes,) = [b for b in buchungen if b.haben_konto == "8120"]
+    assert erloes.betrag_netto == D("70.59")
+    assert eingang.id in {b.transaktion_id for b in buchungen}
+    assert saldo(buchungen, "1362") == 0
+    assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABGEGLICHEN
+
+
+def test_shopify_reserve_in_fremdwaehrung(umgebung):
+    s, archiv, kontext = umgebung
+    roh = (FIXTURES / "shopify_auszahlung_gbp.csv").read_bytes()
+    laender = lies_laenderdatei((FIXTURES / "shopify_bestellungen.csv").read_bytes())
+    bank(s, date(2026, 9, 5), "62.30", "SHOPIFY PAYOUT")
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "shopify", roh, "s.csv", laender=laender, kurs=D("0.85")
+    )
+    buchungen = lade_buchungen(s)
+    # Reserve 10,00 GBP / 0,85 → 11,76 EUR auf dem Einbehaltskonto
+    assert saldo(buchungen, "1500") == D("11.76")
+    (nl,) = [b for b in buchungen if b.haben_konto == "8323"]
+    assert nl.betrag_netto == D("24.31")  # 25,00 GBP = 29,41 EUR / 1,21
+    assert saldo(buchungen, "1363") == 0
+    assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABGEGLICHEN
