@@ -274,11 +274,28 @@ Transaktion
   + ELSTER-Kennziffer
 ```
 
-### `elster/` *(geplant — [Baustein 9](specs/2026-08-10-steuermeldungen-elster.md))*
+### `elster/` *(teilweise — [Baustein 9](specs/2026-08-10-steuermeldungen-elster.md))*
 
-Die Rechenlogik der Meldungen liegt in `steuer/` und ist fertig; hier kommt der letzte Schritt dazu: Plausibilisierung vor der Abgabe, Übermittlung von Voranmeldung, Dauerfristverlängerung und Zusammenfassender Meldung, sowie das unveränderbare Protokoll aus Datensatz, Ticket, Zeitpunkt und Prüfbericht.
+Die Rechenlogik liegt in `steuer/`; hier kommen Datensatz, Abgabe und Nachweis dazu.
 
-Ein Testmodus erzeugt und prüft, ohne abzugeben. Die Freigabe durch einen Menschen ist nicht abkürzbar — eine Steuererklärung wird abgegeben, nicht ausgelöst.
+- `konfiguration.py` — Abschnitt `elster` (`lade_elster`), alles optional. *(vorhanden)*
+- `steuernummer.py` — Steuernummer des Landes → 13-stelliges ELSTER-Format, Finanzamtsnummer. *(vorhanden)*
+- `datensatz.py` — ELSTER-XML (TransferHeader/NutzdatenHeader v11, Nutzdaten `ustva/v2026`, Kz09 = Hersteller-ID) für Voranmeldung und Dauerfristverlängerung; interne Prüfung inkl. nachgerechneter Kz 83. *(vorhanden)*
+- `uebermittlung.py` — Schnittstelle `Uebermittler` (`pruefe`, `sende`), `AttrappenUebermittler`, Auswahl: ERiC nur mit Bibliothek, Zertifikat und PIN-Datei. *(vorhanden)*
+- `eric.py` — ERiC über ctypes (Mt-API: Instanz, Zertifikat, `EricMtBearbeiteVorgang` mit EBV-8 zum Prüfen und EBV-6 zum Senden, Transferticket und PDF; Plugins aus `plugins2`). *(vorhanden, nicht gegen ELSTER erprobt)*
+- `pin.py` — Zertifikats-PIN mit dem Tresor aus `bank/` verschlüsselt in einer Datei außerhalb der Datenbank. *(vorhanden)*
+- `freigabe.py` — Freigabe durch einen Menschen, gebunden an den Hash der Formularwerte, einmal verwendbar. *(vorhanden)*
+- `protokoll.py` — Tabelle `steuermeldung_protokolle`: Datensatz, Ticket, Zeitpunkt, Ergebnis, Prüfbericht, Serverantwort; nur anfügen, Hash-Kette, SQLite-Trigger, Datensatz und PDF im Belegarchiv; `pruefe_protokoll()` findet Lücken, Änderungen und veränderte Archivdateien. Eine berichtigte Anmeldung tritt daneben. *(vorhanden)*
+- `zahllast.py` — Zahllast als Eigenbeleg, Buchung 1780 (SKR04 3820) an Kreditor „Finanzamt“ und offener Posten zur Abgabefrist, Erstattung als Forderung; Berichtigung bucht die Differenz und verrechnet sie mit dem offenen Posten; Sondervorauszahlung auf 1781/3830; `buche_fehlende` holt gescheiterte Buchungen nach. *(vorhanden)*
+- `ustva.py` — Ablauf vorbereiten → freigeben → übermitteln (Testmodus, Testfall, echt; Testmodus beim ersten Lauf, Attrappe nie echt). *(vorhanden)*
+
+Ergänzungen in `steuer/`:
+
+- **`voranmeldung.py`** — Vordruck 2026: alle Kennziffern mit Zeile und Art, Bemessungsgrundlagen in vollen Euro, Steuer zu 81/86/89/93 wie ELSTER, Kz 83.
+- **`kennziffern.py`** — Ermittlung aus Buchungssätzen: DATEV-Schlüssel und Kennzifferkonten (SKR03/SKR04), Vorzeichen über die Sachkontoseite bzw. die Zugangsseite der Kennziffer, Erlösschmälerungen über den Beleg, Warnungen (§ 13b ohne Leistenden, Steuerkonto ohne Kennziffer).
+- **`plausibilitaet.py`** — Befunde mit Schweregrad vor der Abgabe; Fehler sperren die Freigabe.
+- **`zeitraum.py`**, **`feiertage.py`**, **`fristen.py`** — Meldezeiträume, Feiertage je Land, Fristen nach § 108 Abs. 3 AO.
+- **`zusammenfassende_meldung.py`** — ZM je USt-IdNr. (L/D/S) mit CSV für den Portal-Import.
 
 ### `anlagen/` und `abschluss/` *(teilweise — [Baustein 12](specs/2026-08-10-anlagen-jahresabschluss.md))*
 

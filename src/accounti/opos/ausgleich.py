@@ -134,6 +134,11 @@ def gleiche_aus(
         kontakt = lade_kontakt(session, str(posten.kontakt_id))
         eingang = posten.richtung is PostenRichtung.VERBINDLICHKEIT
         personenkonto = kontakt.kreditor_konto if eingang else kontakt.debitor_konto
+        # Erstattung eines Kreditors (z. B. Finanzamt) bzw. Rückzahlung an einen
+        # Debitor: der Posten steht auf dem einzigen Personenkonto des Kontakts
+        personenkonto = personenkonto or (
+            kontakt.debitor_konto if eingang else kontakt.kreditor_konto
+        )
         if personenkonto is None:
             msg = f"{kontakt.name} hat kein Personenkonto für diesen Posten."
             raise ValueError(msg)

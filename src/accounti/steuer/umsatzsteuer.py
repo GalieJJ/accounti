@@ -105,9 +105,9 @@ DATEV_BU_SCHLUESSEL = {
     "vst_19": 9,
     "vst_7": 8,
     "ig_lieferung": 40,  # Innergemeinschaftliche Lieferung
-    "ig_erwerb_19": 10,  # ig. Erwerb 19% VSt + USt
-    "ig_erwerb_7": 11,  # ig. Erwerb 7% VSt + USt
-    "reverse_charge": 19,  # Reverse Charge § 13b
+    "ig_erwerb_19": 19,  # ig. Erwerb 19% VSt + USt
+    "ig_erwerb_7": 18,  # ig. Erwerb 7% VSt + USt
+    "reverse_charge": 94,  # § 13b 19% VSt + USt (91: 7%)
     "ausfuhr": 1,  # Steuerfreie Ausfuhr
     "oss": None,  # OSS hat keinen Standard-BU-Schlüssel
 }
@@ -123,7 +123,8 @@ ELSTER_KENNZIFFERN = {
     "eu_sonstige_leistung": 21,  # Nicht steuerbare sonstige Leistungen (§ 18b)
     "ig_erwerb": 89,  # Innergemeinschaftliche Erwerbe
     "abziehbare_vst": 66,  # Vorsteuerbeträge
-    "oss_nicht_de": None,  # OSS wird separat gemeldet (nicht in USt-VA)
+    # OSS: Steuer über die OSS-Meldung, Nettoumsatz in Kz 45 (USt 1 E 2026, Zeile 36)
+    "oss_nicht_de": 45,
 }
 
 
@@ -243,7 +244,7 @@ class UStBerechner:
             steuersatz = info.ermaessigt if ermaessigt else info.normal
             steuer_konto = OSS_UST_KONTEN_SKR03.get(land, "1779")
             datev_schluessel = DATEV_BU_SCHLUESSEL.get("oss")
-            kennziffer = None  # OSS wird separat gemeldet
+            kennziffer = ELSTER_KENNZIFFERN["oss_nicht_de"]  # nur der Nettoumsatz
 
         elif vorfall == Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH:
             steuersatz = Decimal("0")
