@@ -34,7 +34,7 @@ Tatsachen.
 | 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | ✅ fertig | [Spec](specs/2026-08-10-erechnung.md) |
 | 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | ✅ fertig | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🟨 teilweise | [Spec](specs/2026-08-10-bankanbindung-live.md) |
-| 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | 🔲 geplant | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
+| 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | ✅ fertig | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
 | 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
@@ -68,6 +68,13 @@ verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettensch
 Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) stehen — was fehlt, sind
 FinTS und Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
 Kreditwirtschaft (10–15 Werktage).
+**Baustein 6 ist fertig:** Zahlungsvorschlag mit Skonto-Vorrang, Zahlungslauf mit blockierender
+Prüfung, Freigabe (optional Vier-Augen) und Storno mit Protokoll, SEPA-Sammelüberweisung als
+`pain.001.001.09` nach DK-TVS GBIC_5 sowie Mahnwesen mit Stufen, Verzugszinsen nach § 288 BGB,
+B2B-Pauschale und Mahnschreiben ([Plan](plans/2026-10-25-zahlungsverkehr-mahnwesen.md)). Offen
+als Erweiterungen: Einreichung über den Bank-Provider (braucht FinTS aus Baustein 5),
+Sammelmahnung je Kunde, Verrechnung von Gutschriften im Zahlungslauf, Zahlungen außerhalb des
+EWR (BIC am Kontakt). Annahme der SEPA-Datei durch eine Bank vom Nutzer zu bestätigen.
 **Baustein 8 ist fertig** ([Plan](plans/2026-10-25-aufgaben-rueckfragen.md)): Aufgaben mit
 Bezug auf ein beliebiges Objekt, idempotent über (Art, Objekt), mit Zuständigkeit (Benutzer,
 Rolle oder gemeinsame Liste), Fälligkeit, Verlauf und Selbstabschluss als `hinfaellig`;

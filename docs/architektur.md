@@ -137,11 +137,36 @@ Offene Posten mit Fälligkeit, Skontofrist und Restbetrag. `verbuchung.py` macht
 
 `zuordnung.py` ordnet Banktransaktionen dreistufig zu — Referenz (Belegnummer im Verwendungszweck), exakt (einziger Posten des Kontakts über den Betrag), unscharf (Skonto ohne Referenz, Sammelzahlung als Teilmengensumme, Teilbetrag, Betrag ohne Kontakt). Automatisch gebucht wird nur Eindeutiges; der Rest wird Vorschlag. `ausgleich.py` bucht Zahlung und Skonto — das Skonto anteilig nach den Bruttoanteilen der Rechnung auf ihre Steuersätze verteilt, Netto und Steuer je Anteil aus `steuer/`, also immer mit Vorsteuer- bzw. Umsatzsteuerkorrektur. `zahlungslauf.py` verbindet beides, reserviert vorgeschlagene Posten und speichert jede Zuordnung in `zahlungszuordnungen`; `classify` kontiert nur noch Transaktionen ohne Buchung und ohne Zuordnung. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
 
-### `zahlung/` und `mahnwesen/` *(geplant — [Baustein 6](specs/2026-08-10-zahlungsverkehr-mahnwesen.md))*
+### `zahlung/` und `mahnwesen/` *(vorhanden — [Baustein 6](specs/2026-08-10-zahlungsverkehr-mahnwesen.md))*
 
-`zahlung/` erzeugt die Vorschlagsliste (Skontofristen vor Nettofälligkeiten), prüft blockierend — eine vom Stammsatz abweichende IBAN stoppt den Lauf —, verwaltet die Freigabe als Zustandsautomaten und schreibt SEPA-Sammelüberweisungen. Einreichung über den Bank-Provider oder als Datei; der Dateiweg bleibt immer verfügbar.
+`zahlung/vorschlag.py` erzeugt aus offenen Verbindlichkeiten die Vorschlagsliste zum Stichtag:
+Skontoposten, sobald ihre Skontofrist in den Planungshorizont (`zahlung.vorlauf_tage`) fällt, vor
+fälligen Posten, mit Grund je Position; Gutschriften, gesperrte Kontakte und Posten aktiver Läufe
+werden mit Grund ausgeschlossen. `zahlung/freigabe.py` führt den Zahlungslauf als Zustandsautomaten
+(Entwurf → freigegeben → eingereicht → ausgeführt, Storno aus den ersten drei) mit Protokoll
+(`zahlungslauf_protokoll`, nur anfügen), optionalem Vier-Augen-Prinzip und Freigabe-Hash; die
+Zahlungen frieren Empfänger, IBAN, Betrag und Verwendungszweck ein und sind nach der Freigabe am
+ORM gesperrt; ein eindeutiger Index auf `zahlungen.sperre` lässt einen Posten nie in zwei aktive
+Läufe. `zahlung/pruefung.py` prüft blockierend — eine IBAN, die vom Stammsatz oder von der Rechnung
+abweicht, stoppt den Lauf, bis der Stammsatz geändert oder die Abweichung mit Grund geklärt ist;
+ebenso ein Posten, dem `opos zuordnen` schon einen Bankumsatz vorschlägt, und Empfänger außerhalb
+des EWR (dort verlangt SEPA den BIC).
+`zahlung/sepa.py` schreibt `pain.001.001.09` nach DK-TVS GBIC_5 (DFÜ-Abkommen Anlage 3), speichert
+die Datei im Lauf und gibt sie nur noch byte-gleich aus. Ausgeglichen wird nie hier, sondern über
+den Bankumsatz (`opos zuordnen`); `zahlung abgleichen` setzt danach „ausgeführt“. Die Einreichung
+über den Bank-Provider fehlt noch — der Dateiweg funktioniert ohne jede Bankverbindung.
 
-`mahnwesen/` führt Mahnstufen aus `config/mahnwesen.yaml`, berechnet Verzugszinsen mit datiertem Basiszinssatz und zählt die Stufe am offenen Posten hoch.
+`mahnwesen/` liest Stufen aus dem Abschnitt `mahnwesen` (Karenz, Mindestbetrag, Stufenabstand,
+Gebühr und Zinsen je Stufe), ermittelt je überfälligem Posten die nächste Stufe (keine wird
+übersprungen, die nächste erst nach Ablauf der Frist der letzten), stuft Kunden als Unternehmer
+oder Verbraucher ein (Kontakt → Ausgangsrechnung → USt-IdNr. → Standard Verbraucher), bestimmt
+den Verzugsbeginn nach § 286 BGB (erste versendete Mahnung, vereinbartes Zahlungsziel,
+30-Tage-Regel) und rechnet ab da Verzugszinsen nach § 288 BGB taggenau (act/365)
+mit der Basiszinssatz-Tabelle aus `mahnwesen/basiszins.py` — jeder Satz mit Gültigkeitszeitraum,
+Teilzahlungen aus den Zahlungszuordnungen zeitanteilig, die 40-€-Pauschale mit Anrechnung der
+Mahngebühren; Gebühren verlangt eine Mahnung nur für Mahnungen im Verzug. Mahnungen sind Entwürfe, bis sie versendet werden (PDF mit fpdf2, Text oder E-Mail
+über den Versandweg aus `erechnung/versand.py`); dann zählt die Mahnstufe am offenen Posten hoch,
+das PDF liegt im Belegarchiv, und die versendeten Mahnungen sind die Historie.
 
 ### `pruefung/` *(geplant — [Baustein 7](specs/2026-08-10-belegvollstaendigkeit-gobd.md))*
 
@@ -288,7 +313,9 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `OffenerPosten` | Richtung, Betrag, Restbetrag, Fälligkeit, Skontofrist, Status, Mahnstufe | → `Kontakt`, `Beleg` |
 | `UstIdPruefung` | Nr., Zeitpunkt, USt-IdNr., Art, Anfrage/Antwort roh, BZSt-Status und -ID, Ergebnisse A–D, Vorgänger-Hash, Hash | → `Kontakt` (nur anfügen) |
 | `Belegabgleich` | Stufe, Status (vorgeschlagen → bestätigt/abgelehnt), Confidence, Begründung, Differenz | → `Transaktion`, `Beleg` |
-| `Zahlung` | Lauf, Betrag, Ausführungsdatum, Status (Entwurf → freigegeben → eingereicht → ausgeführt) | → `OffenerPosten` |
+| `Zahlungslauf` | Nr., Status (Entwurf → freigegeben → eingereicht → ausgeführt / storniert), Ausführungstag, Auftraggeber, Freigabe-Hash, SEPA-Datei | → `Zahlung`, Protokoll |
+| `Zahlung` | Lauf, Posten, Empfänger, IBAN, Betrag, Skonto, Verwendungszweck, EndToEndId | → `OffenerPosten`, `Kontakt` |
+| `Mahnung` | Nr., Stufe, Datum, Rest, Verzugsbeginn mit Grund, Zinsen mit Abschnitten, Pauschale, Gebühren, Frist, B2B/B2C mit Grund, Status, Versandtag und -weg, Datei-Hash | → `OffenerPosten`, `Kontakt` |
 | `Aufgabe` | Art, Titel, Objektbezug, Zuständigkeit, Fälligkeit, Status, Idempotenzschlüssel | → beliebiges Objekt |
 | `Kommentar` | Art (Kommentar, Rückfrage, Ereignis), Autor, Text, Zeitpunkt, Anhang-Beleg | → `Aufgabe` und/oder beliebiges Objekt (nur anfügen) |
 | `Anlagegut` | Anschaffungsdatum und -kosten, Nutzungsdauer, AfA-Art, Restbuchwert, Abgang | → `Beleg`, `Buchungssatz` |

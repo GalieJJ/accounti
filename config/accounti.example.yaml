@@ -120,6 +120,53 @@ belegkanaele:
         parameter: {includeDocument: "true"}
         inhalt: fileContent    # Base64 in der JSON-Antwort
 
+# Zahlungsverkehr (optional — ohne diesen Abschnitt gelten die Standards)
+zahlung:
+  vorlauf_tage: 3              # Skontofristen und Fälligkeiten so weit voraus einplanen
+  skonto_ziehen: true          # Skonto nutzen, solange die Frist läuft
+  # mindestbetrag: 1.00        # Vorschlag: kleinere Posten weglassen
+  # hoechstbetrag: 50000.00    # Vorschlag: größere Posten weglassen
+  # hoechstbetrag_zahlung: 25000.00   # Prüfung: größere Einzelzahlungen blockieren
+  vier_augen: false            # true: zwei verschiedene Personen (Anmeldename) geben frei
+  # freigeber: [erika, jan]    # nur diese Anmeldenamen dürfen freigeben
+  einzelbuchung: true          # BtchBookg=false — wirkt nur mit Vereinbarung mit der Bank
+  # auftraggeber:              # Standard: mandant.name und mandant.bank
+  #   name: "Meine Firma GmbH"
+  #   iban: "DE89 3704 0044 0532 0130 00"
+  #   bic: "COBADEFFXXX"
+
+# Mahnwesen (optional — Mahngebühren sind Konfiguration, keine Rechtsberatung)
+mahnwesen:
+  karenztage: 3                # so lange nach Fälligkeit wird nicht gemahnt
+  mindestbetrag: 10.00         # kleinere Reste nicht mahnen
+  stufenabstand_tage: 7        # Mindestabstand zum Versand der letzten Mahnung (und deren Frist abgelaufen)
+  zahlungsfrist_tage: 10       # neue Frist im Mahnschreiben
+  entwurf_gueltig_tage: 3      # so lange nach dem Mahndatum darf ein Entwurf noch raus
+  zahlungsziel_vereinbart: false  # true: Zahlungsziele vertraglich vereinbart → Verzug ab Fälligkeit
+  zugang_tage: 3               # Versand → Zugang einer Mahnung (Verzug durch Mahnung)
+  hinweis_30_tage: false       # true: Rechnungen an Verbraucher weisen auf § 286 Abs. 3 BGB hin
+  unbekannt_als: verbraucher   # oder unternehmer — wenn weder Kontakt noch Rechnung es sagen
+  pauschale_b2b: 40.00         # § 288 Abs. 5 BGB
+  pauschale_anrechnen: true    # Mahngebühren nur, soweit sie die Pauschale übersteigen
+  stufen:
+    - name: Zahlungserinnerung
+      ab_tagen: 5
+      gebuehr: 0.00
+      verzugszinsen: false
+    - name: 1. Mahnung
+      ab_tagen: 14
+      gebuehr: 5.00              # nur verlangt, wenn die Mahnung im Verzug hinausgeht
+      verzugszinsen: true
+    - name: 2. Mahnung
+      ab_tagen: 28
+      gebuehr: 10.00
+      verzugszinsen: true
+      # text: "…{nummer} … {summe} … bis zum {frist} …"   # eigener Brieftext; Platzhalter:
+      #   {kunde} {nummer} {datum} {faellig} {betrag} {summe} {frist} {firma} {stufe}
+  # basiszinssaetze:           # neue Sätze nach Bekanntgabe der Bundesbank
+  #   - ab: 2027-01-01
+  #     satz: 1.52
+
 # Aufgaben & Rückfragen (optional — ohne diesen Abschnitt gelten die Standards)
 aufgaben:
   ich: "jan"                     # für --zustaendig ich (sonst ACCOUNTI_BENUTZER bzw. Login-Name)
