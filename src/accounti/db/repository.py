@@ -22,6 +22,7 @@ from accounti.db.tabellen import (
     OffenerPostenRow,
     TransaktionRow,
     VersandprotokollRow,
+    ZahlungszuordnungRow,
 )
 from accounti.models import (
     AusgangsPosition,
@@ -45,6 +46,8 @@ from accounti.models import (
     Transaktion,
     TransaktionQuelle,
     Versandprotokoll,
+    Zahlungszuordnung,
+    ZuordnungStatus,
 )
 
 # ---------------------------------------------------------------------------
@@ -856,3 +859,112 @@ def lade_posten_fuer_beleg(session: Session, beleg_id: UUID) -> OffenerPosten | 
         .one_or_none()
     )
     return _row_zu_posten(row) if row is not None else None
+
+
+def lade_einen_posten(session: Session, posten_id: UUID) -> OffenerPosten:
+    row = session.get(OffenerPostenRow, str(posten_id))
+    if row is None:
+        msg = f"Offener Posten {posten_id} nicht gefunden."
+        raise ValueError(msg)
+    return _row_zu_posten(row)
+
+
+def aktualisiere_posten(
+    session: Session, posten_id: UUID, restbetrag: Decimal, status: PostenStatus
+) -> None:
+    row = session.get(OffenerPostenRow, str(posten_id))
+    if row is None:
+        msg = f"Offener Posten {posten_id} nicht gefunden."
+        raise ValueError(msg)
+    row.restbetrag = restbetrag
+    row.status = status.value
+    session.flush()
+
+
+def lade_belegbuchungen(session: Session, beleg_id: UUID) -> list[Buchungssatz]:
+    """Die Buchungen aus der Verbuchung eines Belegs (ohne Zahlungsbuchungen)."""
+    rows = (
+        session.query(BuchungssatzRow)
+        .filter(
+            BuchungssatzRow.beleg_id == str(beleg_id),
+            BuchungssatzRow.transaktion_id.is_(None),
+        )
+        .all()
+    )
+    return [_row_zu_buchung(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Zahlungszuordnungen
+# ---------------------------------------------------------------------------
+
+
+def _row_zu_zuordnung(r: ZahlungszuordnungRow) -> Zahlungszuordnung:
+    return Zahlungszuordnung(
+        id=UUID(r.id),
+        transaktion_id=UUID(r.transaktion_id),
+        posten_id=UUID(r.posten_id),
+        betrag=Decimal(str(r.betrag)),
+        skonto=Decimal(str(r.skonto)),
+        stufe=r.stufe,
+        status=ZuordnungStatus(r.status),
+        confidence=r.confidence,
+        begruendung=r.begruendung,
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def speichere_zuordnung(session: Session, z: Zahlungszuordnung) -> None:
+    session.add(
+        ZahlungszuordnungRow(
+            id=str(z.id),
+            transaktion_id=str(z.transaktion_id),
+            posten_id=str(z.posten_id),
+            betrag=z.betrag,
+            skonto=z.skonto,
+            stufe=z.stufe,
+            status=z.status.value,
+            confidence=z.confidence,
+            begruendung=z.begruendung[:500],
+            erstellt_am=z.erstellt_am,
+        )
+    )
+    session.flush()
+
+
+def lade_zuordnungen(
+    session: Session,
+    status: set[ZuordnungStatus] | None = None,
+    transaktion_praefix: str | None = None,
+) -> list[Zahlungszuordnung]:
+    query = session.query(ZahlungszuordnungRow).order_by(
+        ZahlungszuordnungRow.erstellt_am
+    )
+    if status is not None:
+        query = query.filter(ZahlungszuordnungRow.status.in_([s.value for s in status]))
+    if transaktion_praefix is not None:
+        query = query.filter(
+            ZahlungszuordnungRow.transaktion_id.like(f"{transaktion_praefix}%")
+        )
+    return [_row_zu_zuordnung(r) for r in query.all()]
+
+
+def setze_zuordnungen_status(
+    session: Session, transaktion_id: UUID, status: ZuordnungStatus
+) -> None:
+    session.query(ZahlungszuordnungRow).filter(
+        ZahlungszuordnungRow.transaktion_id == str(transaktion_id),
+        ZahlungszuordnungRow.status == ZuordnungStatus.VORGESCHLAGEN.value,
+    ).update({"status": status.value})
+    session.flush()
+
+
+def gebuchte_transaktion_ids(session: Session) -> set[UUID]:
+    """Transaktionen, zu denen schon eine Buchung existiert."""
+    rows = (
+        session.query(BuchungssatzRow.transaktion_id)
+        .filter(BuchungssatzRow.transaktion_id.is_not(None))
+        .distinct()
+        .all()
+    )
+    return {UUID(t) for (t,) in rows if t}

@@ -79,7 +79,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
 | 🟨 | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung; USt-IdNr.-Prüfung mit Protokoll folgt |
-| 🟨 | **Offene Posten** | Beleg → Buchung auf Personenkonto + offener Posten mit Fälligkeit und Skontofrist, OPOS-Liste, Fälligkeitsstaffel; Zahlungszuordnung, Teilzahlung, Skonto folgen |
+| ✅ | **Offene Posten** | Beleg → Buchung auf Personenkonto + offener Posten, OPOS-Liste, Fälligkeitsstaffel, Zahlungszuordnung (Referenz → exakt → Vorschlag), Teil- und Sammelzahlung, Skonto mit Vorsteuer-/Umsatzsteuerkorrektur |
 | 🔲 | **Zahlungsverkehr** | Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe-Workflow |
 | 🔲 | **Mahnwesen** | Mehrstufig, mit Verzugszinsen und Mahngebühren |
 | ✅ | **Lernschleife** | Korrekturen werden zu Regeln — das System fragt mit der Zeit seltener |
@@ -206,10 +206,14 @@ accounti kontakte bestaetigen 70000
 accounti kontakte bearbeiten 70000 --sachkonto 4930 --zahlungsziel 30
 accounti opos liste --richtung eingang --faellig
 accounti opos staffel
-```
 
-> Bis die Zahlungszuordnung (Baustein 4, Paket 2) steht: Bankzahlungen zu verbuchten Rechnungen
-> nicht zusätzlich mit `accounti classify` kontieren — sonst entsteht der Aufwand doppelt.
+# Bankzahlungen den Posten zuordnen — vor 'classify', damit nichts doppelt gebucht wird
+accounti import bank ./umsaetze.csv
+accounti opos zuordnen                         # Eindeutiges wird sofort ausgeglichen
+accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen ohne Referenz
+accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
+accounti classify                              # kontiert nur, was übrig bleibt
+```
 
 ---
 
@@ -457,7 +461,7 @@ kontieren will, braucht nur v0.1.
 - [x] Debitoren/Kreditoren-Stammdaten mit Personenkonten und Kontakterkennung
 - [ ] USt-IdNr.-Prüfung mit Protokoll
 - [x] Offene Posten aus Belegen, OPOS-Liste, Fälligkeitsstaffel
-- [ ] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
+- [x] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
 - [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
 - [ ] Belegabgleich vor der Kontierung, geplanter Abruf
 

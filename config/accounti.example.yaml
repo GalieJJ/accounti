@@ -69,6 +69,9 @@ buchhaltung:
   bank_konto: "1200"
   standard_aufwand: "4900"     # wenn weder Kontakt noch Regelwerk ein Sachkonto kennt (→ Prüfung)
   standard_zahlungsziel_tage: 14
+  skonto_karenz_tage: 3        # Skonto gilt noch, wenn die Bank bis zu 3 Tage später bucht
+  skonto_erhalten: {"19": "3736", "7": "3731", "0": "3730"}   # SKR03
+  skonto_gewaehrt: {"19": "8736", "7": "8731", "0": "8730"}
 
 # Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
 versand:

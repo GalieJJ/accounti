@@ -33,3 +33,22 @@ def test_import_classify_export(tmp_path):
     assert e.exit_code == 0
     dateien = list(out.glob("EXTF_*.csv"))
     assert len(dateien) == 1
+
+
+def test_zweiter_classify_lauf_bucht_nichts_doppelt(tmp_path):
+    import sqlite3
+
+    url = f"sqlite:///{(tmp_path / 'a.db').as_posix()}"
+    runner.invoke(app, ["db", "init", "--db", url])
+    runner.invoke(app, ["import", "bank", str(BEISPIEL), "--db", url])
+    erst = runner.invoke(app, ["classify", "--db", url, "--no-llm"])
+    zweit = runner.invoke(app, ["classify", "--db", url, "--no-llm"])
+    assert zweit.exit_code == 0, zweit.output
+    assert "0 kontiert" in zweit.output
+    verbindung = sqlite3.connect(tmp_path / "a.db")
+    doppelt = verbindung.execute(
+        "select count(*) from (select transaktion_id from buchungssaetze "
+        "group by transaktion_id having count(*) > 1)"
+    ).fetchone()[0]
+    assert doppelt == 0
+    assert "8 kontiert" in erst.output

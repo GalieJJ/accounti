@@ -237,3 +237,20 @@ class OffenerPostenRow(Base):
     status: Mapped[str] = mapped_column(String(20))
     mahnstufe: Mapped[int] = mapped_column(Integer, default=0)
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
+class ZahlungszuordnungRow(Base):
+    __tablename__ = "zahlungszuordnungen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    transaktion_id: Mapped[str] = mapped_column(String(36), index=True)
+    posten_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("offene_posten.id"), index=True
+    )
+    betrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    skonto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    stufe: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    confidence: Mapped[float] = mapped_column(Float)
+    begruendung: Mapped[str] = mapped_column(String(500))
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
