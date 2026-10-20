@@ -3,9 +3,11 @@
 Jedes erfolgswirksame Konto der Summen- und Saldenliste (bei EÜR auch Vorsteuer,
 Umsatzsteuer und USt-Vorauszahlungen) geht über seine Kennzahl in eine Zeile des
 Vordrucks des jeweiligen Jahres. Konten ohne Zeile erscheinen als „nicht zugeordnet“
-und zählen trotzdem mit — so ist der Gewinn immer der Saldo der Erfolgskonten.
-Nicht abziehbare Betriebsausgaben (Kz 164, 165) stehen in eigener Spalte und mindern
-die Summe der Betriebsausgaben nicht; die Überleitung dazu ist ausgewiesen.
+und zählen trotzdem mit. Nicht abziehbare Betriebsausgaben (Kz 164, 165, 168 — dort
+auch die Gewerbesteuer, § 4 Abs. 5b EStG) stehen in eigener Spalte und mindern die
+Summe der Betriebsausgaben nicht. Konten mit der Kennzahl „-“ (Steuern vom Einkommen)
+gehören gar nicht in die EÜR. Die Überleitung zum Ergebnis der SuSa ist ausgewiesen:
+Ergebnis = Gewinn − nicht abziehbare Betriebsausgaben − Konten außerhalb der EÜR.
 
 Die Zeilen ab „Ermittlung des Gewinns“ (Hinzurechnungen, Kürzungen, § 7g, § 4 Abs. 4a)
 berechnet accounti nicht.
@@ -24,11 +26,12 @@ from typing import Any
 
 import yaml
 
-from accounti.abschluss.kontenrahmen import Kontenart, Kontenrahmen
+from accounti.abschluss.kontenrahmen import NICHT_IN_EUER, Kontenart, Kontenrahmen
 from accounti.abschluss.salden import Susa
 from accounti.anzeige import betrag_de
 
 NULL = Decimal("0")
+AUSSERHALB_TEXT = "Nicht in der EÜR (keine Betriebseinnahme/-ausgabe)"
 
 
 class EuerError(ValueError):
@@ -56,6 +59,7 @@ class Euer:
     ausgaben: list[EuerZeile] = field(default_factory=list)
     nicht_abziehbar: list[EuerZeile] = field(default_factory=list)
     nicht_zugeordnet: list[EuerZeile] = field(default_factory=list)
+    ausserhalb: list[EuerZeile] = field(default_factory=list)  # Saldo Soll − Haben
     entnahmen: Decimal = NULL
     einlagen: Decimal = NULL
     summe_einnahmen_zeile: int = 0
@@ -93,6 +97,10 @@ class Euer:
     @property
     def summe_nicht_abziehbar(self) -> Decimal:
         return sum((z.betrag for z in self.nicht_abziehbar), NULL)
+
+    @property
+    def summe_ausserhalb(self) -> Decimal:
+        return sum((z.betrag for z in self.ausserhalb), NULL)
 
     @property
     def gewinn(self) -> Decimal:
@@ -145,7 +153,11 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
     def buche(gruppe: str, kz: str | None, konto: str, betrag: Decimal) -> None:
         if betrag == 0:
             return
-        if kz is not None and kz in v.get(gruppe, {}):
+        if gruppe == "ausserhalb":
+            z = zeilen.setdefault(
+                ("ausserhalb", NICHT_IN_EUER), EuerZeile(None, None, AUSSERHALB_TEXT)
+            )
+        elif kz is not None and kz in v.get(gruppe, {}):
             nr, text = v[gruppe][kz]
             z = zeilen.setdefault((gruppe, kz), EuerZeile(kz, nr, text))
         else:
@@ -171,7 +183,8 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
         if kz_soll != kz_haben:
             # Konten mit Richtung (USt-Vorauszahlungen): Soll- und Habenverkehr getrennt
             buche(_gruppe(v, kz_soll, ausgabe=True), kz_soll, z.konto, soll)
-            buche(_gruppe(v, kz_haben, ausgabe=False), kz_haben, z.konto, haben)
+            gruppe = _gruppe(v, kz_haben, ausgabe=False)
+            buche(gruppe, kz_haben, z.konto, haben if gruppe == "einnahmen" else -haben)
             continue
         kz = kz_soll
         gruppe = _gruppe(v, kz, ausgabe=z.saldo > 0)
@@ -194,7 +207,9 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
 
 
 def _gruppe(v: dict[str, Any], kz: str | None, ausgabe: bool) -> str:
-    """Einnahme-, Ausgabe- oder nicht-abziehbar-Gruppe der Kennzahl."""
+    """Einnahme-, Ausgabe-, nicht-abziehbar- oder Außerhalb-Gruppe der Kennzahl."""
+    if kz == NICHT_IN_EUER:
+        return "ausserhalb"
     for gruppe in ("einnahmen", "ausgaben", "nicht_abziehbar"):
         if kz is not None and kz in v.get(gruppe, {}):
             return gruppe
@@ -252,6 +267,8 @@ def euer_csv(euer: Euer) -> str:
             "",
         ]
     )
+    for z in euer.ausserhalb:
+        zeile(z)
     w.writerow([euer.entnahmen_zeile, "122", "Entnahmen", zahl(euer.entnahmen), ""])
     w.writerow([euer.einlagen_zeile, "123", "Einlagen", zahl(euer.einlagen), ""])
     return puffer.getvalue()

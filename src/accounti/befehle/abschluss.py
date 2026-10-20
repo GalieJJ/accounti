@@ -290,7 +290,7 @@ def bestaetigen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,  # noqa: ARG001
 ) -> None:
-    """Abgrenzung bestätigen: bucht Abgrenzung (31.12.) und Auflösung (01.01.)."""
+    """Abgrenzung bestätigen: bucht Abgrenzung (31.12.) und Auflösung(en) (01.01.)."""
     from accounti.abschluss.abgrenzung import AbgrenzungError, bestaetige_abgrenzung
     from accounti.db.repository import lade_buchungen
     from accounti.db.tabellen_abschluss import JahrGesperrtError
@@ -301,9 +301,10 @@ def bestaetigen(
         except (AbgrenzungError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
-        ids = {a.abgrenzung_buchung_id, a.aufloesung_buchung_id}
+        beleg = f"RAP-{a.jahr}-{a.nr}"
         gebucht = sorted(
-            (b for b in lade_buchungen(s) if b.id in ids), key=lambda b: b.datum
+            (b for b in lade_buchungen(s) if b.beleg_nummer == beleg),
+            key=lambda b: b.datum,
         )
     console.print(f"[green]Abgrenzung Nr. {a.nr} bestätigt[/green]")
     for b in gebucht:
@@ -402,9 +403,15 @@ def euer(
             f"Nicht abziehbare Betriebsausgaben (nicht in der Summe): "
             f"{betrag_de(e.summe_nicht_abziehbar)} €"
         )
+    for z in e.ausserhalb:
+        console.print(
+            f"{escape(z.text)}: {betrag_de(z.betrag)} € (Konten "
+            f"{', '.join(sorted(z.konten))})"
+        )
     console.print(
         f"Ergebnis laut Summen- und Saldenliste: {betrag_de(liste.ergebnis)} € "
-        f"(= Gewinn − nicht abziehbare Betriebsausgaben)"
+        "(= Gewinn − nicht abziehbare Betriebsausgaben"
+        + (" − Konten außerhalb der EÜR)" if e.ausserhalb else ")")
     )
     console.print(
         f"Entnahmen (Zeile {e.entnahmen_zeile}): {betrag_de(e.entnahmen)} € · "

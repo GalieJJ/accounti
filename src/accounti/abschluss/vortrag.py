@@ -8,13 +8,12 @@ ein erneuter Vortrag nach dem Wiederöffnen korrigiert, statt etwas zu löschen.
 
 Ein Fehler-Befund der Abschlussprüfung verhindert den Vortrag. Danach ist das Jahr
 gesperrt (``JahrGesperrtError`` bei jeder Buchung); geöffnet wird es nur mit Grund,
-und jede Aktion steht im Abschlussprotokoll (nur anfügen, Hash-Kette).
+und jede Aktion steht im Abschlussprotokoll (``protokoll.py``: nur anfügen,
+Hash-Kette).
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -23,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from accounti.abschluss.konfiguration import AbschlussEinstellungen
 from accounti.abschluss.kontenrahmen import Kontenart, Kontenrahmen
+from accounti.abschluss.protokoll import hash_von, protokolliere
 from accounti.abschluss.pruefungen import (
     Abschlusskontext,
     Befund,
@@ -35,14 +35,12 @@ from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import (
     ist_gesperrt,
     lade_jahresabschluss,
-    lade_protokoll,
     pruefe_jahr_offen,
     setze_jahresabschluss,
-    speichere_protokolleintrag,
 )
 from accounti.db.repository import speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
-from accounti.models.abschluss import Jahresabschluss, Protokolleintrag
+from accounti.models.abschluss import Jahresabschluss
 
 NULL = Decimal("0")
 
@@ -101,52 +99,6 @@ def schlusssalden(
     if gesamt:
         salden[einst.ergebnis_konto] = gesamt
     return salden
-
-
-def _hash(daten: dict[str, object]) -> str:
-    return hashlib.sha256(
-        json.dumps(daten, sort_keys=True, ensure_ascii=False, default=str).encode()
-    ).hexdigest()
-
-
-def protokolliere(
-    session: Session,
-    jahr: int,
-    aktion: str,
-    von: str,
-    grund: str | None = None,
-    details: dict[str, object] | None = None,
-) -> Protokolleintrag:
-    bisher = lade_protokoll(session)
-    e = Protokolleintrag(
-        nr=(bisher[-1].nr if bisher else 0) + 1,
-        jahr=jahr,
-        aktion=aktion,
-        von=von,
-        grund=grund,
-        details=json.dumps(
-            details or {}, sort_keys=True, ensure_ascii=False, default=str
-        ),
-        vorgaenger_hash=bisher[-1].hash if bisher else "",
-    )
-    e = e.model_copy(update={"hash": _hash(e.model_dump(exclude={"hash"}))})
-    speichere_protokolleintrag(session, e)
-    return e
-
-
-def pruefe_protokoll(session: Session) -> list[str]:
-    """Lücken, geänderte oder umsortierte Einträge im Abschlussprotokoll."""
-    fehler = []
-    vorgaenger = ""
-    for erwartet, e in enumerate(lade_protokoll(session), start=1):
-        if e.nr != erwartet:
-            fehler.append(f"Eintrag {erwartet} fehlt (gefunden: {e.nr})")
-        if e.vorgaenger_hash != vorgaenger:
-            fehler.append(f"Eintrag {e.nr}: Verkettung unterbrochen")
-        if _hash(e.model_dump(exclude={"hash"})) != e.hash:
-            fehler.append(f"Eintrag {e.nr} wurde verändert")
-        vorgaenger = e.hash
-    return fehler
 
 
 def _eb_buchung(
@@ -257,7 +209,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
         {
             "ergebnis": betrag_de(ergebnis),
             "gewinnermittlung": einst.gewinnermittlung,
-            "schlusssalden": _hash({k: str(v) for k, v in ziel.items()}),
+            "schlusssalden": hash_von({k: str(v) for k, v in ziel.items()}),
             "eb_buchungen": len(vortrag.buchungen),
             "korrektur": bool(vorhanden),
         },

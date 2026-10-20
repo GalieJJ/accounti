@@ -44,14 +44,14 @@ def speichere_kassenvorgang(session: Session, v: Kassenvorgang) -> None:
             betrag=v.betrag,
             art=v.art.value,
             text=v.text[:200],
-            belegnummer=v.belegnummer,
+            belegnummer=v.belegnummer[:60] if v.belegnummer else None,
             gegenkonto=v.gegenkonto,
             steuersatz=v.steuersatz,
             transaktion_id=str(v.transaktion_id) if v.transaktion_id else None,
             buchung_id=str(v.buchung_id) if v.buchung_id else None,
             storno_von=v.storno_von,
             erfasst_am=v.erfasst_am,
-            erfasst_von=v.erfasst_von,
+            erfasst_von=v.erfasst_von[:50] if v.erfasst_von else None,
         )
     )
     session.flush()

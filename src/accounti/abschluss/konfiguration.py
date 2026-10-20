@@ -23,13 +23,14 @@ _STANDARDS: dict[str, dict[str, Any]] = {
         "ergebnis_konto": "0880",  # Variables Kapital
         "arap_konto": "0980",
         "prap_konto": "0990",
-        "verrechnungskonten": ["1360", "1590"],  # Geldtransit, Durchlaufende Posten
+        # Geldtransit, Durchlaufende Posten, Sonstige Verrechnungskonten (Interim)
+        "verrechnungskonten": ["1360", "1590", "1792"],
     },
     "SKR04": {
         "ergebnis_konto": "2010",
         "arap_konto": "1900",
         "prap_konto": "3900",
-        "verrechnungskonten": ["1460", "1370"],
+        "verrechnungskonten": ["1460", "1370", "3630"],
     },
 }
 _KASSE = {"SKR03": "1000", "SKR04": "1600"}

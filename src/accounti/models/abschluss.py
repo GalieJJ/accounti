@@ -33,7 +33,7 @@ class AbgrenzungStatus(str, enum.Enum):
 
 
 class Abgrenzung(BaseModel):
-    """Vorschlag einer Rechnungsabgrenzung — mit der Auflösung im Folgejahr."""
+    """Vorschlag einer Rechnungsabgrenzung — mit den Auflösungen der Folgejahre."""
 
     id: UUID = Field(default_factory=uuid4)
     nr: int = 0
@@ -48,7 +48,9 @@ class Abgrenzung(BaseModel):
     rechenweg: str
     status: AbgrenzungStatus = AbgrenzungStatus.VORGESCHLAGEN
     abgrenzung_buchung_id: UUID | None = None
-    aufloesung_buchung_id: UUID | None = None
+    aufloesung_buchung_id: UUID | None = Field(
+        default=None, description="erste Auflösung (01.01. des Folgejahres)"
+    )
     erstellt_am: datetime = Field(default_factory=datetime.now)
     entschieden_am: datetime | None = None
     entschieden_von: str | None = None

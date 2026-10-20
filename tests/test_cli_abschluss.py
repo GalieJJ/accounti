@@ -282,3 +282,18 @@ def test_buchen_und_abgrenzungen(umgebung, tmp_path):
 
     r = run("abschluss", "euer", "--jahr", "2026")
     assert r.exit_code == 1 and "keine EÜR" in _text(r)
+
+
+def test_euer_gewerbesteuer_und_steuern_vom_einkommen(umgebung):
+    run, factory = umgebung
+    buche(factory, date(2026, 5, 1), "1200", "8400", "1000")
+    buche(factory, date(2026, 5, 2), "4320", "1200", "300")  # Gewerbesteuer
+    buche(factory, date(2026, 5, 3), "2213", "1200", "25")  # Kapitalertragsteuer
+    r = run("abschluss", "euer", "--jahr", "2026")
+    assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "Gewinn (Zeile 77/78): 1.000,00 €" in text
+    assert "Nicht abziehbare Betriebsausgaben (nicht in der Summe): 300,00 €" in text
+    assert "Nicht in der EÜR (keine Betriebseinnahme/-ausgabe): 25,00 €" in text
+    assert "Ergebnis laut Summen- und Saldenliste: 675,00 €" in text
+    assert "außerhalb der EÜR" in text

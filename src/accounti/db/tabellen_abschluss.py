@@ -132,6 +132,16 @@ def jahr_gesperrt(verbindung: Connection, jahr: int) -> bool:
     return bool(gesperrt)
 
 
+def gesperrte_jahre(verbindung: Connection) -> set[int]:
+    if not verbindung.dialect.has_table(verbindung, AbschlussRow.__tablename__):
+        return set()
+    return set(
+        verbindung.execute(
+            select(AbschlussRow.jahr).where(AbschlussRow.gesperrt.is_(True))
+        ).scalars()
+    )
+
+
 def _sperre_pruefen(verbindung: Connection, ziel: BuchungssatzRow) -> None:
     jahre = {ziel.datum.year} if ziel.datum else set()
     alt = inspect(ziel).attrs.datum.history.deleted

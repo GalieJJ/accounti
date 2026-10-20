@@ -14,7 +14,8 @@ def test_ohne_datei(tmp_path):
         "0980",
         "0990",
     )
-    assert a.verrechnungskonten == ["1360", "1590"]
+    # Geldtransit, Durchlaufende Posten, Sonstige Verrechnungskonten (Interimskonten)
+    assert a.verrechnungskonten == ["1360", "1590", "1792"]
     assert a.kreditoren == (70000, 99999)
     assert a.lade_kontenrahmen().name == "SKR03"
     assert lade_kasse(tmp_path / "fehlt.yaml").konto == "1000"
@@ -36,6 +37,7 @@ def test_skr04_und_eigene_werte(tmp_path):
         "1900",
     )
     assert a.rap_verzicht_bis_gwg
+    assert a.verrechnungskonten == ["1460", "1370", "3630"]
     assert a.lade_kontenrahmen().name == "SKR04"
     assert lade_kasse(datei).konto == "1610"
 

@@ -3,6 +3,8 @@
 # Grundlage: DATEV-Kontenrahmen SKR 03, „Gültig für 2026“ (Art.-Nr. 11174). Die Zuordnung
 # zu Kennzahlen der Anlage EÜR ist eine Bereichsregel von accounti, keine DATEV-Tabelle:
 # Die engste passende Spanne gewinnt. Eigene Zuordnung: abschluss.kontenzuordnung.
+# Kontennamen der Einzelregeln abgeglichen mit der SKR03-Kontenliste
+# (steuerschroeder.de/Kontenrahmen-SKR03-Prozessgliederungsprinzip.html, 20.10.2026).
 #
 # Kontoarten:
 #   bestand  — wird vorgetragen
@@ -20,6 +22,9 @@ arten:
   - {von: "1548", bis: "1548", art: steuer}   # Vorsteuer in Folgeperiode
   - {von: "1570", bis: "1589", art: steuer}   # abziehbare Vorsteuer, EUSt
   - {von: "1770", bis: "1799", art: steuer}   # Umsatzsteuer, USt-Vorauszahlungen
+  - {von: "1788", bis: "1788", art: bestand}  # Einfuhrumsatzsteuer aufgeschoben
+  - {von: "1792", bis: "1793", art: bestand}  # Interimskonten, Verrechnung Anzahlungen
+  - {von: "1795", bis: "1799", art: bestand}  # Verbindl. soziale Sicherheit, Gutscheine
   - {von: "1800", bis: "1999", art: privat}
   - {von: "2000", bis: "6999", art: erfolg}
   - {von: "3970", bis: "3999", art: bestand}  # Bestände
@@ -33,17 +38,32 @@ geldkonten:
   - {von: "1400", bis: "1499"}   # Forderungen aus Lieferungen und Leistungen
   - {von: "1600", bis: "1699"}   # Verbindlichkeiten aus Lieferungen und Leistungen
 
+# Bankkonten (Postbank, LZB, Bank 1200–1250): mit Bestand oder Verkehr müssen sie als
+# Bankkonto eingerichtet und mit dem Kontoauszug abgestimmt sein (ohne Kasse 1000–1099,
+# Finanzmittelanlagen 1290, Verbindlichkeiten ggü. Kreditinstituten 1295, Geldtransit)
+bankkonten:
+  - {von: "1100", bis: "1289"}
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # leer: SKR03-Steuerkonten kommen aus accounti.steuer
 steuerkonten: {}
 
-# Anlage EÜR: Kennzahl je Kontenbereich; kz_haben gilt bei Haben-Saldo
+# Anlage EÜR: Kennzahl je Kontenbereich; kz_haben gilt bei Haben-Saldo.
+# kz: null  — keine Zeile bekannt: zählt als „nicht zugeordnet“ mit (Warnung)
+# kz: "-"   — gehört nicht in die EÜR (weder Betriebseinnahme noch -ausgabe, z. B.
+#             Steuern vom Einkommen); erscheint nur in der Überleitung zur SuSa
 euer:
   # Betriebseinnahmen
   - {von: "8000", bis: "8999", kz: "112"}   # umsatzsteuerpflichtige BE
   - {von: "8100", bis: "8199", kz: "103"}   # steuerfrei (§ 4 UStG, Ausfuhr, ig. Lieferung)
+  - {von: "8190", bis: "8190", kz: "104"}   # Durchschnittssätze § 24 UStG
+  - {von: "8191", bis: "8191", kz: "112"}   # §§ 25, 25a UStG 19 % USt
+  - {von: "8195", bis: "8195", kz: "111"}   # Kleinunternehmer § 19 Abs. 1 UStG
+  - {von: "8196", bis: "8196", kz: "112"}   # Geldspielautomaten 19 % USt
   - {von: "8320", bis: "8349", kz: "103"}   # im Inland nicht steuerbar, § 13b
+  - {von: "8330", bis: "8330", kz: "112"}   # im Inland steuerpflichtige EG-Lieferungen
+  - {von: "8340", bis: "8349", kz: "112"}   # Erlöse 16 % USt
   - {von: "8800", bis: "8859", kz: "102"}   # Erlöse aus Anlagenverkäufen
   - {von: "8900", bis: "8949", kz: "108"}   # unentgeltliche Wertabgaben
   - {von: "8921", bis: "8921", kz: "106"}   # private Fahrzeugnutzung 19 %
@@ -51,12 +71,14 @@ euer:
   - {von: "2600", bis: "2799", kz: "103"}   # Zinserträge, sonstige Erträge
   - {von: "1770", bis: "1779", kz: "140"}   # vereinnahmte Umsatzsteuer
   - {von: "1780", bis: "1799", kz: "186", kz_haben: "141"}   # an das FA gezahlt / erstattet
+  - {von: "1794", bis: "1794", kz: "140"}   # USt Dreiecksgeschäft (letzter Abnehmer)
   # Betriebsausgaben
   - {von: "1548", bis: "1548", kz: "185"}   # Vorsteuer
   - {von: "1570", bis: "1589", kz: "185"}
   - {von: "2000", bis: "2599", kz: "183"}   # übrige (neutrale) Aufwendungen
   - {von: "2100", bis: "2149", kz: "234"}   # Zinsen
-  - {von: "2200", bis: "2299", kz: null}    # Steuern vom Einkommen — keine Betriebsausgabe
+  - {von: "2200", bis: "2279", kz: "-"}     # KSt, SolZ, KapESt, latente Steuern — keine BA
+  - {von: "2280", bis: "2284", kz: "168"}   # Gewerbesteuer Vorjahre (§ 4 Abs. 5b EStG)
   - {von: "2310", bis: "2319", kz: "135"}   # Restbuchwert ausgeschiedener Anlagegüter
   - {von: "3000", bis: "3969", kz: "100"}   # Waren, Roh-, Hilfs- und Betriebsstoffe
   - {von: "3100", bis: "3199", kz: "110"}   # Fremdleistungen
@@ -64,7 +86,9 @@ euer:
   - {von: "4100", bis: "4199", kz: "120"}   # Personal
   - {von: "4200", bis: "4229", kz: "150"}   # Miete, Pacht
   - {von: "4230", bis: "4299", kz: "151"}   # sonstige Raum-/Grundstückskosten
+  - {von: "4320", bis: "4320", kz: "168"}   # Gewerbesteuer — nicht abziehbar, § 4 Abs. 5b
   - {von: "4360", bis: "4399", kz: "223"}   # Versicherungen, Beiträge, Abgaben
+  - {von: "4397", bis: "4397", kz: "168"}   # nicht abzugsfähige Verspätungszuschläge
   - {von: "4500", bis: "4509", kz: "146"}   # Fahrzeugkosten
   - {von: "4510", bis: "4529", kz: "145"}   # Kfz-Steuer, Kfz-Versicherung
   - {von: "4530", bis: "4559", kz: "146"}   # laufende Kosten, Reparaturen, Garage
@@ -76,18 +100,21 @@ euer:
   - {von: "4600", bis: "4629", kz: "224"}   # Werbung
   - {von: "4630", bis: "4634", kz: "174"}   # Geschenke abzugsfähig
   - {von: "4635", bis: "4639", kz: "164"}   # Geschenke nicht abzugsfähig
+  - {von: "4638", bis: "4638", kz: "174"}   # Geschenke ausschließlich betrieblich genutzt
   - {von: "4650", bis: "4653", kz: "175"}   # Bewirtung (abziehbarer Teil)
   - {von: "4654", bis: "4654", kz: "165"}   # Bewirtung nicht abzugsfähig
   - {von: "4660", bis: "4669", kz: "120"}   # Reisekosten Arbeitnehmer
   - {von: "4670", bis: "4679", kz: "221"}   # Reisekosten Unternehmer
   - {von: "4674", bis: "4674", kz: "171"}   # Verpflegungsmehraufwand
-  - {von: "4800", bis: "4819", kz: "225"}   # Reparaturen und Instandhaltung
+  - {von: "4800", bis: "4809", kz: "225"}   # Reparaturen und Instandhaltung
+  - {von: "4810", bis: "4819", kz: "222"}   # Miet-/Kaufleasing bewegliche WG
   - {von: "4806", bis: "4806", kz: "228"}   # Wartung Hard- und Software
   - {von: "4820", bis: "4829", kz: "131"}   # AfA immaterielle Wirtschaftsgüter
   - {von: "4830", bis: "4849", kz: "130"}   # AfA bewegliche Wirtschaftsgüter
   - {von: "4831", bis: "4831", kz: "136"}   # AfA Gebäude
   - {von: "4833", bis: "4833", kz: "136"}
   - {von: "4850", bis: "4854", kz: "134"}   # Sonderabschreibungen
+  - {von: "4853", bis: "4854", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
   - {von: "4855", bis: "4861", kz: "132"}   # GWG
   - {von: "4862", bis: "4864", kz: "137"}   # Sammelposten
   - {von: "4865", bis: "4869", kz: "132"}
@@ -123,11 +150,13 @@ namen:
   "1771": "Umsatzsteuer 7 %"
   "1776": "Umsatzsteuer 19 %"
   "1780": "Umsatzsteuer-Vorauszahlungen"
+  "1792": "Sonstige Verrechnungskonten (Interimskonten)"
   "1800": "Privatentnahmen allgemein"
   "1890": "Privateinlagen"
   "2310": "Anlagenabgänge Sachanlagen (Restbuchwert bei Buchverlust)"
   "2315": "Anlagenabgänge Sachanlagen (Restbuchwert bei Buchgewinn)"
   "4210": "Miete"
+  "4320": "Gewerbesteuer"
   "4360": "Versicherungen"
   "4822": "Abschreibungen auf immaterielle Vermögensgegenstände"
   "4830": "Abschreibungen auf Sachanlagen"

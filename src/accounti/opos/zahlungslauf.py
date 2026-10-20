@@ -13,6 +13,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from accounti.db.repo_abschluss import lade_gesperrte_jahre
 from accounti.db.repository import (
     gebuchte_transaktion_ids,
     lade_abgleiche,
@@ -59,6 +60,9 @@ def offene_transaktionen(
 
     Für die Kontierung zählen abgelehnte Vorschläge als frei; für die Zuordnung
     nicht — eine abgelehnte Zuordnung wird nicht immer wieder vorgeschlagen.
+    Umsätze in abgeschlossenen Geschäftsjahren (Baustein 12) bleiben draußen: Dort
+    ließe sich nichts buchen, und ein einziger solcher Umsatz bräche sonst den ganzen
+    Lauf ab. ``accounti abschluss pruefen`` meldet sie.
     """
     belegt = {
         z.transaktion_id
@@ -74,8 +78,13 @@ def offene_transaktionen(
         or (a.status is AbgleichStatus.BESTAETIGT and not fuer_kontierung)
     }
     belegt |= gebuchte_transaktion_ids(session)
+    gesperrt = lade_gesperrte_jahre(session)
     return sorted(
-        (t for t in lade_transaktionen(session) if t.id not in belegt),
+        (
+            t
+            for t in lade_transaktionen(session)
+            if t.id not in belegt and t.datum.year not in gesperrt
+        ),
         key=lambda t: t.datum,
     )
 

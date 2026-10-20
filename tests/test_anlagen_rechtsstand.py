@@ -123,3 +123,11 @@ def test_kaputte_datei(tmp_path):
         lade_rechtsstand(datei)
     with pytest.raises(RechtsstandError, match="fehlt"):
         lade_rechtsstand(tmp_path / "gibtsnicht.yaml")
+
+
+def test_quelle_des_corona_fensters(stand):
+    """2,5-fach/25 %: Zweites Corona-Steuerhilfegesetz, verlängert durch das Vierte."""
+    quelle = stand.degressiv_am(date(2021, 6, 1)).quelle
+    assert "29.06.2020" in quelle and "Zweiten Corona-Steuerhilfegesetzes" in quelle
+    assert "19.06.2022" in quelle and "Vierte Corona-Steuerhilfegesetz" in quelle
+    assert "27.03.2024" not in quelle

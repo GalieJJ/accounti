@@ -195,3 +195,19 @@ def test_anfangsbestand_nur_einmal(make_session):
     _start(make_session)
     with make_session() as s, pytest.raises(KassenbuchError, match="Anfangsbestand"):
         anfangsbestand(s, D("10"), date(2026, 4, 1), KASSE)
+
+
+def test_lange_freitexte_passen_in_die_spalten(make_session):
+    """Postgres prüft die Spaltenlänge — gekürzt wird vorher, nicht abgelehnt."""
+    _start(make_session)
+    _buche(
+        make_session,
+        "-10",
+        date(2026, 3, 2),
+        text="T" * 300,
+        belegnummer="B" * 80,
+        von="V" * 80,
+    )
+    with make_session() as s:
+        v = lade_kassenbuch(s)[-1]
+    assert (len(v.text), v.belegnummer, v.erfasst_von) == (200, "B" * 60, "V" * 50)

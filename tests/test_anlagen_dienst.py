@@ -202,3 +202,38 @@ def test_vorschlaege_aus_buchungen_auf_anlagekonten(make_session, einst):
         s.commit()
         treffer = vorschlaege(s, einst, 2026)
     assert [b.buchungstext for b in treffer] == ["Regal"]
+
+
+def test_ausdrueckliche_nutzungsdauer_schlaegt_digitale_art_der_tabelle(
+    make_session, einst
+):
+    """BMF 22.02.2022: ND 1 Jahr „kann“ — wer 3 Jahre angibt, schreibt linear ab."""
+    from accounti.anlagen.afa import plane
+
+    with make_session() as s:
+        e = lege_an(
+            s,
+            einst,
+            bezeichnung="Notebook",
+            datum=date(2026, 9, 15),
+            kosten=D("1500"),
+            typ="notebook",
+            nutzungsdauer=3,
+        )
+    nb = e.anlage
+    assert (nb.afa_art, nb.nutzungsdauer, nb.konto) == (AfaArt.LINEAR, 3, "0410")
+    assert plane(nb, einst.rechtsstand()).afa_im_jahr(2026) == D("166.67")  # 4/36
+    assert not any("Nutzungsdauer 1 Jahre" in h for h in e.hinweise)
+    assert any("3 Jahre" in h and "angegeben" in h for h in e.hinweise)
+    with make_session() as s:
+        # ausdrücklich 1 Jahr: die digitale Art der Tabelle bleibt
+        digital = lege_an(
+            s,
+            einst,
+            bezeichnung="Tablet",
+            datum=date(2026, 9, 15),
+            kosten=D("900"),
+            typ="computer",
+            nutzungsdauer=1,
+        ).anlage
+    assert (digital.afa_art, digital.nutzungsdauer) == (AfaArt.DIGITAL, 1)

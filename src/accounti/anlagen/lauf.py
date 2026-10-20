@@ -14,7 +14,6 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -37,6 +36,17 @@ from accounti.db.repo_anlagen import (
 from accounti.db.repository import lade_buchungen, setze_status, speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.anlagen import AfaArt, AfaVorgang, Anlagegut, sammelposten_objekt
+
+_SAMMELPOSTEN = "sammelposten:"
+
+
+def _sammelposten_aus_objekt(objekt: str) -> tuple[str, int] | None:
+    """(Anlagekonto, Anschaffungsjahr) aus dem Schlüssel eines Sammelpostens."""
+    if not objekt.startswith(_SAMMELPOSTEN):
+        return None
+    konto, _, jahr = objekt.removeprefix(_SAMMELPOSTEN).rpartition(":")
+    return (konto, int(jahr)) if konto and jahr.isdigit() else None
+
 
 NULL = Decimal("0")
 
@@ -81,7 +91,12 @@ def afa_positionen(
     bis_monat: int = 12,
     rechtsstand: Rechtsstand | None = None,
 ) -> list[AfaPosition]:
-    """Alle Anlagegüter und Sammelposten mit Soll und Gebuchtem für das Jahr."""
+    """Alle Anlagegüter und Sammelposten mit Soll und Gebuchtem für das Jahr.
+
+    Auch ein Sammelposten ohne Mitglied gehört dazu, wenn für ihn im Jahr schon AfA
+    gebucht ist — sein einziges Gut schied noch im Anschaffungsjahr aus (BMF
+    30.09.2010, Rz. 10); das Soll ist dann 0 und der Lauf nimmt die AfA zurück.
+    """
     rs = rechtsstand or einstellungen.rechtsstand()
     anlagen = lade_anlagen(session)
     gebucht: dict[str, Decimal] = defaultdict(lambda: NULL)
@@ -112,20 +127,36 @@ def afa_positionen(
                 _rechenweg(plan, jahr),
             )
         )
+    gruppen |= {
+        sp
+        for objekt, betrag in gebucht.items()
+        if betrag and (sp := _sammelposten_aus_objekt(objekt)) is not None
+    }
     for konto, anschaffungsjahr in sorted(gruppen):
         objekt = sammelposten_objekt(konto, anschaffungsjahr)
         plan = plane_sammelposten(konto, anschaffungsjahr, anlagen, rs)
         soll = plan.afa_im_jahr(jahr, bis_monat)
         if soll == 0 and gebucht[objekt] == 0:
             continue
-        mitglied = sammelposten_mitglieder(konto, anschaffungsjahr, anlagen)[0]
+        # das AfA-Konto eines (auch ausgeschiedenen) Guts des Jahrgangs
+        jahrgang = [
+            a
+            for a in anlagen
+            if a.afa_art is AfaArt.SAMMELPOSTEN
+            and a.konto == konto
+            and a.anschaffungsdatum.year == anschaffungsjahr
+        ]
+        mitglieder = sammelposten_mitglieder(konto, anschaffungsjahr, anlagen)
+        mitglied = next(iter(mitglieder or jahrgang), None)
         positionen.append(
             AfaPosition(
                 objekt,
                 f"Sammelposten {konto}/{anschaffungsjahr}",
                 None,
                 konto,
-                einstellungen.afa_konto(mitglied),
+                einstellungen.afa_konto(mitglied)
+                if mitglied
+                else einstellungen.konten.sammelposten_afa,
                 soll,
                 gebucht[objekt],
                 _rechenweg(plan, jahr),
@@ -139,10 +170,13 @@ def afa_lauf(
     jahr: int,
     einstellungen: AnlagenEinstellungen,
     bis_monat: int = 12,
-    nur: set[UUID] | None = None,
+    nur: set[str] | None = None,
     rechtsstand: Rechtsstand | None = None,
 ) -> AfaLaufErgebnis:
-    """Bucht die noch fehlende AfA des Jahres bis einschließlich ``bis_monat``."""
+    """Bucht die noch fehlende AfA des Jahres bis einschließlich ``bis_monat``.
+
+    ``nur``: Objektschlüssel (``Anlagegut.objekt``, ``sammelposten_objekt``).
+    """
     if not 1 <= bis_monat <= 12:
         raise ValueError(f"Monat {bis_monat} gibt es nicht")
     pruefe_jahr_offen(session, jahr)
@@ -150,7 +184,7 @@ def afa_lauf(
     for p in afa_positionen(session, jahr, einstellungen, bis_monat, rechtsstand):
         if p.differenz == 0:
             continue
-        if nur is not None and (p.anlage is None or p.anlage.id not in nur):
+        if nur is not None and p.objekt not in nur:
             continue
         ergebnis.positionen.append(p)
 

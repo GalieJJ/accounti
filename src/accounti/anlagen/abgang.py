@@ -22,10 +22,14 @@ from accounti.anlagen.lauf import AfaLaufErgebnis, afa_lauf
 from accounti.anlagen.rechtsstand import Rechtsstand
 from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import pruefe_jahr_offen
-from accounti.db.repo_anlagen import aktualisiere_anlage, lade_anlage
+from accounti.db.repo_anlagen import (
+    aktualisiere_anlage,
+    lade_afa_vorgaenge,
+    lade_anlage,
+)
 from accounti.db.repository import speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
-from accounti.models.anlagen import AbgangArt, AfaArt, Anlagegut
+from accounti.models.anlagen import AbgangArt, AfaArt, Anlagegut, sammelposten_objekt
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 NULL = Decimal("0")
@@ -77,17 +81,31 @@ def buche_abgang(
     )
     aktualisiere_anlage(session, anlage)
     # AfA bis einschließlich Abgangsmonat (bucht nach oder korrigiert)
-    afa = afa_lauf(session, datum.year, einstellungen, datum.month, {anlage.id}, rs)
+    afa = afa_lauf(session, datum.year, einstellungen, datum.month, {anlage.objekt}, rs)
 
     im_sammelposten = anlage.afa_art is AfaArt.SAMMELPOSTEN and bool(
         sammelposten_mitglieder(anlage.konto, anlage.anschaffungsdatum.year, [anlage])
     )
+    hinweise: list[str] = []
+    if anlage.afa_art is AfaArt.SAMMELPOSTEN and not im_sammelposten:
+        # im Anschaffungsjahr ausgeschieden: gehört nicht in den Sammelposten — eine
+        # schon gebuchte Jahres-AfA des Jahrgangs wird ohne das Gut neu gerechnet
+        objekt = sammelposten_objekt(anlage.konto, anlage.anschaffungsdatum.year)
+        if any(v.objekt == objekt for v in lade_afa_vorgaenge(session, datum.year)):
+            sp = afa_lauf(session, datum.year, einstellungen, 12, {objekt}, rs)
+            afa.positionen += sp.positionen
+            afa.buchungen += sp.buchungen
+            if sp.buchungen:
+                hinweise.append(
+                    f"Sammelposten {anlage.konto}/{anlage.anschaffungsdatum.year} "
+                    f"ohne dieses Gut neu gerechnet: AfA {betrag_de(sp.summe)}"
+                )
     rbw = (
         NULL
         if im_sammelposten
         else plane(anlage, rs).restbuchwert(datum.year, datum.month)
     )
-    ergebnis = Abgangsergebnis(anlage, afa, rbw, erloes or NULL)
+    ergebnis = Abgangsergebnis(anlage, afa, rbw, erloes or NULL, hinweise=hinweise)
     text = f"Abgang {anlage.bezeichnung} (Nr. {anlage.nr})"
     if im_sammelposten:
         ergebnis.hinweise.append(

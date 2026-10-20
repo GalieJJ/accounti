@@ -145,3 +145,56 @@ def test_fehler(make_session, einst):
     _abgang(make_session, einst, g.nr, datum=date(2028, 1, 31))
     with pytest.raises(AbgangError, match="schon"):
         _abgang(make_session, einst, g.nr, datum=date(2028, 2, 1))
+
+
+def _jahreslauf(make_session, einst, jahr=2026):
+    with make_session() as s:
+        lauf = afa_lauf(s, jahr, einst)
+        s.commit()
+    return lauf
+
+
+def test_sammelposten_abgang_im_anschaffungsjahr_nach_jahreslauf(make_session, einst):
+    """Schon gebuchte Sammelposten-AfA wird zurückgenommen (BMF 30.09.2010, Rz. 10)."""
+    from accounti.anlagen.lauf import afa_positionen
+
+    g = anlegen(make_session, 500, date(2026, 2, 1), AfaArt.SAMMELPOSTEN)
+    assert _jahreslauf(make_session, einst).summe == D("100.00")
+    e = _abgang(make_session, einst, g.nr, datum=date(2026, 11, 15))
+    assert e.restbuchwert == D("500")
+    assert e.afa.summe == D("-100.00")
+    assert [(b.soll_konto, b.haben_konto, b.betrag_netto) for b in e.afa.buchungen] == [
+        ("0485", "4862", D("100.00"))
+    ]
+    with make_session() as s:
+        assert afa_lauf(s, 2026, einst).buchungen == []
+        assert all(p.differenz == 0 for p in afa_positionen(s, 2026, einst))
+
+
+def test_sammelposten_abgang_im_anschaffungsjahr_mit_weiteren_guetern(
+    make_session, einst
+):
+    anlegen(make_session, 500, date(2026, 2, 1), AfaArt.SAMMELPOSTEN)
+    g = anlegen(make_session, 500, date(2026, 3, 1), AfaArt.SAMMELPOSTEN)
+    assert _jahreslauf(make_session, einst).summe == D("200.00")
+    e = _abgang(make_session, einst, g.nr, datum=date(2026, 11, 15))
+    assert e.afa.summe == D("-100.00")  # Sammelposten jetzt 500 €, 1/5 = 100 €
+    with make_session() as s:
+        assert afa_lauf(s, 2026, einst).buchungen == []
+
+
+def test_verwaister_sammelposten_wird_im_lauf_korrigiert(make_session, einst):
+    """Auch ohne Abgangsbuchung: der nächste Lauf nimmt die AfA zurück."""
+    from accounti.db.repo_anlagen import aktualisiere_anlage
+
+    g = anlegen(make_session, 500, date(2026, 2, 1), AfaArt.SAMMELPOSTEN)
+    _jahreslauf(make_session, einst)
+    with make_session() as s:
+        aktualisiere_anlage(
+            s,
+            lade_anlage(s, str(g.nr)).model_copy(
+                update={"abgang_datum": date(2026, 6, 30)}
+            ),
+        )
+        s.commit()
+    assert _jahreslauf(make_session, einst).summe == D("-100.00")

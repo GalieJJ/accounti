@@ -25,6 +25,10 @@ from accounti.steuer.umsatzsteuer import (
 
 Gewinnermittlung = Literal["euer", "bilanz"]
 
+# EÜR-Kennzahl „gehört nicht in die EÜR“ (weder Betriebseinnahme noch -ausgabe, z. B.
+# Steuern vom Einkommen) — anders als ``None`` (Zuordnung fehlt, zählt mit)
+NICHT_IN_EUER = "-"
+
 
 class KontenrahmenError(ValueError):
     """Die Kontenzuordnung fehlt oder ist nicht lesbar."""
@@ -83,6 +87,7 @@ class Kontenrahmen(BaseModel):
     quelle: str = ""
     arten: list[_Art] = Field(default_factory=list)
     geldkonten: list[_Spanne] = Field(default_factory=list)
+    bankkonten: list[_Spanne] = Field(default_factory=list)
     vortragskonten: Vortragskonten = Field(default_factory=Vortragskonten)
     steuerkonten: dict[int, str] = Field(default_factory=dict)
     euer: list[_EuerRegel] = Field(default_factory=list)
@@ -119,6 +124,12 @@ class Kontenrahmen(BaseModel):
         if self.ist_personenkonto(konto):
             return True
         return self._engste(self.geldkonten, konto) is not None
+
+    def ist_bankkonto(self, konto: str) -> bool:
+        """Bankkonto laut Kontenrahmen — wird mit dem Kontoauszug abgestimmt."""
+        if self.ist_personenkonto(konto):
+            return False
+        return self._engste(self.bankkonten, konto) is not None
 
     def steuerkonto(self, schluessel: int | None) -> str | None:
         if schluessel is None or schluessel not in STEUERSCHLUESSEL:

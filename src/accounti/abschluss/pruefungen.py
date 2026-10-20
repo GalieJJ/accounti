@@ -25,6 +25,7 @@ from accounti.abschluss.konfiguration import (
     lade_kasse,
 )
 from accounti.abschluss.kontenrahmen import Kontenart, Kontenrahmen
+from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.salden import VORSCHLAG, Susa, summen_und_salden
 from accounti.anlagen.konfiguration import AnlagenEinstellungen, lade_anlagen
 from accounti.anlagen.lauf import afa_positionen
@@ -33,6 +34,7 @@ from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import (
     kontoauszugssaldo,
     lade_abgrenzungen,
+    lade_gesperrte_jahre,
     speichere_kontoauszugssaldo,
 )
 from accounti.db.repo_anlagen import lade_anlagen as lade_anlagegueter
@@ -143,19 +145,28 @@ def _unfreigegeben(k: Abschlusskontext) -> list[Befund]:
 
 def _ungebucht(k: Abschlusskontext) -> list[Befund]:
     gebucht = gebuchte_transaktion_ids(k.session)
-    offen = [
-        t
-        for t in lade_transaktionen(k.session)
-        if t.datum.year == k.jahr and t.id not in gebucht
-    ]
-    if not offen:
-        return []
-    summe = sum((t.betrag for t in offen), NULL)
-    text = (
-        f"{len(offen)} Umsätze im Jahr {k.jahr} ohne Buchung (Summe {_euro(summe)}) — "
-        "accounti opos zuordnen, bank abgleich, classify"
-    )
-    return [Befund("ungebucht", Schwere.FEHLER, text)]
+    ungebucht = [t for t in lade_transaktionen(k.session) if t.id not in gebucht]
+    befunde: list[Befund] = []
+    offen = [t for t in ungebucht if t.datum.year == k.jahr]
+    if offen:
+        summe = sum((t.betrag for t in offen), NULL)
+        text = (
+            f"{len(offen)} Umsätze im Jahr {k.jahr} ohne Buchung (Summe "
+            f"{_euro(summe)}) — accounti opos zuordnen, bank abgleich, classify"
+        )
+        befunde.append(Befund("ungebucht", Schwere.FEHLER, text))
+    # in abgeschlossenen Jahren überspringen classify & Co. die Umsätze
+    gesperrt = lade_gesperrte_jahre(k.session) - {k.jahr}
+    for jahr in sorted({t.datum.year for t in ungebucht} & gesperrt):
+        alt = [t for t in ungebucht if t.datum.year == jahr]
+        summe = sum((t.betrag for t in alt), NULL)
+        text = (
+            f"{len(alt)} Umsätze im abgeschlossenen Jahr {jahr} ohne Buchung (Summe "
+            f"{_euro(summe)}) — sie werden nicht kontiert; buchen nur nach accounti "
+            f"abschluss oeffnen --jahr {jahr}"
+        )
+        befunde.append(Befund("ungebucht", Schwere.WARNUNG, text))
+    return befunde
 
 
 def _bank(k: Abschlusskontext) -> list[Befund]:
@@ -163,12 +174,19 @@ def _bank(k: Abschlusskontext) -> list[Befund]:
     nach_sachkonto = defaultdict(list)
     for konto in lade_bankkonten(k.session):
         nach_sachkonto[konto.sachkonto].append(konto)
-    standard = k.einstellungen.bank_konto
-    if standard not in nach_sachkonto and k.susa.zeile(standard) is not None:
+    # das Standard-Bankkonto und jedes Bankkonto des Kontenrahmens mit Bestand oder
+    # Verkehr braucht ein eingerichtetes Bankkonto, sonst gibt es keinen Kontoauszug
+    bank_sachkonten = {k.einstellungen.bank_konto} | {
+        z.konto for z in k.susa.zeilen if k.kontenrahmen.ist_bankkonto(z.konto)
+    }
+    for sachkonto in sorted(bank_sachkonten - set(nach_sachkonto)):
+        z = k.susa.zeile(sachkonto)
+        if z is None or not (z.eb or z.soll or z.haben):
+            continue
         text = (
-            f"Bankkonto {standard} hat Buchungen, ist aber nicht eingerichtet — der "
+            f"Bankkonto {sachkonto} hat Buchungen, ist aber nicht eingerichtet — der "
             "Saldo lässt sich nicht mit dem Kontoauszug abstimmen (accounti bank "
-            "verbinde …, dann accounti abschluss saldo …)"
+            f"verbinde … --sachkonto {sachkonto}, dann accounti abschluss saldo …)"
         )
         befunde.append(Befund("bank", Schwere.FEHLER, text))
     for sachkonto, konten in sorted(nach_sachkonto.items()):
@@ -316,6 +334,20 @@ def _euer_zuordnung(k: Abschlusskontext) -> list[Befund]:
     return [Befund("euer_zuordnung", Schwere.WARNUNG, text)]
 
 
+def _protokoll(k: Abschlusskontext) -> list[Befund]:
+    """Hash-Kette des Abschlussprotokolls — eine Warnung, kein Fehler: Ein einmal
+    gebrochenes Protokoll lässt sich (nur anfügen) nicht mehr heilen und sperrte sonst
+    jeden künftigen Abschluss."""
+    fehler = pruefe_protokoll(k.session)
+    if not fehler:
+        return []
+    text = (
+        f"Abschlussprotokoll an accounti vorbei geändert: {_liste(fehler)} — "
+        "Datenbestand prüfen (GoBD: Unveränderbarkeit)"
+    )
+    return [Befund("protokoll", Schwere.WARNUNG, text)]
+
+
 PRUEFUNGEN: dict[str, Callable[[Abschlusskontext], list[Befund]]] = {
     "unfreigegeben": _unfreigegeben,
     "ungebucht": _ungebucht,
@@ -327,6 +359,7 @@ PRUEFUNGEN: dict[str, Callable[[Abschlusskontext], list[Befund]]] = {
     "vortragskonten": _vortragskonten,
     "euer_personenkonten": _euer_personenkonten,
     "euer_zuordnung": _euer_zuordnung,
+    "protokoll": _protokoll,
 }
 
 

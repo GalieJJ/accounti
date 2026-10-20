@@ -372,3 +372,84 @@ def test_gesperrtes_jahr(make_session, bilanz):
         schlage_abgrenzungen_vor(s, 2026, bilanz, STAND)
     with make_session() as s, pytest.raises(JahrGesperrtError):
         grenze_ab(s, str(b.id)[:8], date(2026, 12, 1), date(2027, 11, 30), bilanz)
+
+
+def _rap_bestand(make_session, konto, bis):
+    with make_session() as s:
+        return sum(
+            (
+                (b.betrag_netto if b.soll_konto == konto else -b.betrag_netto)
+                for b in lade_buchungen(s)
+                if konto in (b.soll_konto, b.haben_konto) and b.datum <= bis
+            ),
+            D("0"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("text", "betrag", "rap", "aufwand"),
+    [
+        (
+            "Wartung 01.12.2026 - 30.11.2028",
+            "2400",
+            "2300.00",
+            {2026: "100.00", 2027: "1200.00", 2028: "1100.00"},
+        ),
+        (
+            "Versicherung 01.12.2026 - 30.11.2029",
+            "3600",
+            "3500.00",
+            {2026: "100.00", 2027: "1200.00", 2028: "1200.00", 2029: "1100.00"},
+        ),
+        (
+            "Lizenz 15.12.2026 - 14.12.2028",  # 731 Tage zu je 10 €
+            "7310",
+            "7140.00",
+            {2026: "170.00", 2027: "3650.00", 2028: "3490.00"},
+        ),
+    ],
+)
+def test_mehrjaehriger_zeitraum_wird_je_jahr_aufgeloest(
+    make_session, bilanz, text, betrag, rap, aufwand
+):
+    """§ 250 HGB: aufgelöst wird je Folgejahr nur dessen Anteil, der Rest bleibt."""
+    buche(make_session, date(2026, 12, 10), "4360", "1200", betrag, text)
+    (v,) = vorschlagen(make_session, bilanz).vorschlaege
+    assert v.betrag == D(rap)
+    assert "2027" in v.rechenweg and str(max(aufwand)) in v.rechenweg
+    with make_session() as s:
+        bestaetige_abgrenzung(s, str(v.nr), "pruefer")
+        s.commit()
+    kr = bilanz.lade_kontenrahmen()
+    with make_session() as s:
+        for jahr, soll in aufwand.items():
+            saldo = summen_und_salden(s, jahr, kr, "bilanz").saldo("4360")
+            assert saldo == D(soll), jahr
+    rest = D(rap)
+    for jahr, soll in aufwand.items():
+        if jahr > 2026:
+            rest -= D(soll)
+        assert _rap_bestand(make_session, "0980", date(jahr, 12, 31)) == rest, jahr
+    assert rest == 0
+    # die Folgejahre schlagen die Auflösungen nicht erneut vor
+    for jahr in aufwand:
+        if jahr > 2026:
+            assert vorschlagen(make_session, bilanz, jahr).vorschlaege == []
+
+
+def test_entscheider_wird_auf_die_spaltenlaenge_gekuerzt(make_session, bilanz):
+    buche(
+        make_session,
+        date(2026, 12, 1),
+        "4360",
+        "1200",
+        "1200",
+        "Versicherung 01.01.2027-31.12.2027",
+    )
+    (v,) = vorschlagen(make_session, bilanz).vorschlaege
+    with make_session() as s:
+        lehne_abgrenzung_ab(s, str(v.nr), "X" * 80)
+        s.commit()
+    with make_session() as s:
+        (a,) = lade_abgrenzungen(s, 2026)
+    assert a.entschieden_von == "X" * 50

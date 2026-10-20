@@ -1,4 +1,4 @@
-"""Rechnungsabgrenzung (ARAP/PRAP) — Vorschlag mit Auflösung im Folgejahr.
+"""Rechnungsabgrenzung (ARAP/PRAP) — Vorschlag mit Auflösung in den Folgejahren.
 
 Gesucht werden freigegebene Buchungen des Jahres auf ein Erfolgskonto, deren
 Leistungszeitraum über den Stichtag reicht — erkennbar an Text wie
@@ -7,8 +7,10 @@ Belegpositionen oder Verwendungszweck. Der Anteil nach dem Stichtag wird bei gan
 Monaten monatsgenau, sonst taggenau gerechnet.
 
 Ein Vorschlag bucht nichts. Bestätigt der Mensch, entstehen Abgrenzung (31.12.) und
-Auflösung (01.01. des Folgejahres) zusammen, damit die Umkehrung nicht vergessen
-wird. Nur bei Bilanzierung (§ 5 Abs. 5 EStG, § 250 HGB) — die EÜR folgt dem
+Auflösung zusammen, damit die Umkehrung nicht vergessen wird: je Folgejahr eine
+Auflösung zum 01.01. in Höhe des Anteils dieses Jahres. Bei einem Zeitraum über mehr
+als ein Folgejahr bleibt der Rest so im Abgrenzungsposten, bis sein Jahr kommt. Nur
+bei Bilanzierung (§ 5 Abs. 5 EStG, § 250 HGB) — die EÜR folgt dem
 Zufluss-/Abflussprinzip (§ 11 EStG).
 """
 
@@ -106,6 +108,25 @@ def anteil_nach(zeitraum: Zeitraum, stichtag: date) -> tuple[int, int, str]:
     return nach, (bis - von).days + 1, "Tage"
 
 
+def aufloesungen(a: Abgrenzung) -> list[tuple[int, Decimal]]:
+    """(Jahr, Betrag) der Auflösung je Folgejahr — jeweils der Anteil dieses Jahres.
+
+    Gerechnet über den Rest nach jedem Stichtag (kaufmännisch gerundet), damit die
+    Summe der Auflösungen genau den abgegrenzten Betrag ergibt.
+    """
+    zeitraum = Zeitraum(a.von, a.bis)
+    nach_jahr = anteil_nach(zeitraum, date(a.jahr, 12, 31))[0]
+    ergebnis: list[tuple[int, Decimal]] = []
+    rest = a.betrag
+    for jahr in range(a.jahr + 1, max(a.bis.year, a.jahr + 1) + 1):
+        nach = anteil_nach(zeitraum, date(jahr, 12, 31))[0] if nach_jahr else 0
+        neuer_rest = runde(a.betrag * nach / nach_jahr) if nach else NULL
+        if rest != neuer_rest:
+            ergebnis.append((jahr, rest - neuer_rest))
+        rest = neuer_rest
+    return ergebnis
+
+
 @dataclass
 class AbgrenzungsLauf:
     vorschlaege: list[Abgrenzung] = field(default_factory=list)
@@ -143,7 +164,7 @@ def _vorschlag(
         f"{stichtag:%d.%m.%Y} "
         f"(Zeitraum {zeitraum.von:%d.%m.%Y}–{zeitraum.bis:%d.%m.%Y})"
     )
-    return Abgrenzung(
+    a = Abgrenzung(
         jahr=jahr,
         buchung_id=b.id,
         art=art,
@@ -154,6 +175,11 @@ def _vorschlag(
         bis=zeitraum.bis,
         rechenweg=rechenweg,
     )
+    teile = aufloesungen(a)
+    if len(teile) > 1:
+        je_jahr = " · ".join(f"{j} {betrag_de(t)}" for j, t in teile)
+        a = a.model_copy(update={"rechenweg": f"{rechenweg}; Auflösung {je_jahr}"})
+    return a
 
 
 def schlage_abgrenzungen_vor(
@@ -254,22 +280,25 @@ def _offen(session: Session, schluessel: str) -> Abgrenzung:
 
 
 def bestaetige_abgrenzung(session: Session, schluessel: str, von: str) -> Abgrenzung:
-    """Bucht Abgrenzung zum 31.12. und Auflösung zum 01.01. des Folgejahres."""
+    """Bucht die Abgrenzung zum 31.12. und je Folgejahr die Auflösung zum 01.01."""
     a = _offen(session, schluessel)
-    pruefe_jahr_offen(session, a.jahr)
-    pruefe_jahr_offen(session, a.jahr + 1)
+    teile = aufloesungen(a)
+    for jahr in [a.jahr, *(j for j, _ in teile)]:
+        pruefe_jahr_offen(session, jahr)
     name = a.art.value.upper()
     if a.art is AbgrenzungArt.ARAP:
         soll, haben = a.rap_konto, a.konto
     else:
         soll, haben = a.konto, a.rap_konto
 
-    def buchung(datum: date, soll: str, haben: str, text: str) -> Buchungssatz:
+    def buchung(
+        datum: date, soll: str, haben: str, text: str, betrag: Decimal
+    ) -> Buchungssatz:
         return Buchungssatz(
             datum=datum,
             soll_konto=soll,
             haben_konto=haben,
-            betrag_netto=a.betrag,
+            betrag_netto=betrag,
             buchungstext=text[:60],
             beleg_nummer=f"RAP-{a.jahr}-{a.nr}",
             status=BuchungStatus.GEPRUEFT,
@@ -278,15 +307,19 @@ def bestaetige_abgrenzung(session: Session, schluessel: str, von: str) -> Abgren
         )
 
     text = f"{name} {a.jahr} {a.konto} (Nr. {a.nr})"
-    abgrenzung = buchung(date(a.jahr, 12, 31), soll, haben, text)
-    aufloesung = buchung(date(a.jahr + 1, 1, 1), haben, soll, f"Auflösung {text}")
+    abgrenzung = buchung(date(a.jahr, 12, 31), soll, haben, text, a.betrag)
     speichere_buchung(session, abgrenzung)
-    speichere_buchung(session, aufloesung)
+    gebucht = [
+        buchung(date(jahr, 1, 1), haben, soll, f"Auflösung {jahr} {text}", betrag)
+        for jahr, betrag in teile
+    ]
+    for aufloesung in gebucht:
+        speichere_buchung(session, aufloesung)
     a = a.model_copy(
         update={
             "status": AbgrenzungStatus.BESTAETIGT,
             "abgrenzung_buchung_id": abgrenzung.id,
-            "aufloesung_buchung_id": aufloesung.id,
+            "aufloesung_buchung_id": gebucht[0].id if gebucht else None,
             "entschieden_am": datetime.now(),
             "entschieden_von": von,
         }

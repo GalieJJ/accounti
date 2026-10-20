@@ -8,6 +8,7 @@ from sqlalchemy import update
 
 from accounti.abschluss.kassenbuch import anfangsbestand, buche_kasse
 from accounti.abschluss.konfiguration import KassenEinstellungen
+from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.pruefungen import (
     erfasse_kontoauszugssaldo,
     kontext,
@@ -19,7 +20,6 @@ from accounti.abschluss.vortrag import (
     erfasse_eroeffnung,
     eroeffnungssalden,
     oeffne,
-    pruefe_protokoll,
     schlusssalden,
     trage_vor,
 )
@@ -328,3 +328,156 @@ def test_sperre_gilt_fuer_jeden_cli_befehl():
         check=True,
     )
     assert ergebnis.stdout.strip() == "True"
+
+
+def test_interimskonten_im_ust_bereich_werden_vorgetragen(make_session, config):
+    buche(make_session, date(2026, 3, 2), "1792", "1200", "500")
+    buche(make_session, date(2026, 3, 3), "1200", "1795", "300")
+    with make_session() as s:
+        k = _k(s, config)
+        schluss = schlusssalden(s, 2026, k.einstellungen, k.kontenrahmen)
+    assert schluss == {"1200": D("-200"), "1792": D("500"), "1795": D("-300")}
+
+
+def test_skr04_privatkonten_und_gewerbesteuerforderung(make_session, tmp_path):
+    from accounti.abschluss.euer import erstelle_euer
+
+    config = tmp_path / "skr04.yaml"
+    config.write_text("buchhaltung:\n  kontenrahmen: SKR04\n", encoding="utf-8")
+    buche(make_session, date(2026, 3, 1), "1800", "4400", "1000")
+    buche(make_session, date(2026, 3, 2), "2250", "1800", "100")  # Spende
+    buche(make_session, date(2026, 3, 3), "2200", "1800", "40")  # Sonderausgabe
+    buche(make_session, date(2026, 3, 4), "2500", "1800", "50")  # Entnahme Teilhafter
+    buche(make_session, date(2026, 3, 5), "1435", "1800", "200")  # GewSt-Überzahlung
+    with make_session() as s:
+        k = _k(s, config)
+        schluss = schlusssalden(s, 2026, k.einstellungen, k.kontenrahmen)
+        euer = erstelle_euer(k.susa, k.kontenrahmen)
+    assert schluss == {"1435": D("200"), "1800": D("610"), "2010": D("-810")}
+    assert euer.entnahmen == D("190")
+    assert euer.zeile("185") is None  # keine Vorsteuer
+    assert euer.gewinn == D("1000")
+
+
+def _sperre(make_session, jahr):
+    from datetime import datetime
+
+    from accounti.db.repo_abschluss import setze_jahresabschluss
+    from accounti.models.abschluss import Jahresabschluss
+
+    with make_session() as s:
+        setze_jahresabschluss(
+            s,
+            Jahresabschluss(
+                jahr=jahr,
+                gesperrt=True,
+                gewinnermittlung="euer",
+                ergebnis=D("0"),
+                abgeschlossen_am=datetime.now(),
+                von="test",
+            ),
+        )
+        s.commit()
+
+
+def test_classify_ueberspringt_umsaetze_im_gesperrten_jahr(tmp_path):
+    """Ein spät importierter Dezember-Umsatz hält die Kontierung 2027 nicht auf."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_transaktion
+    from accounti.models import Transaktion, TransaktionQuelle
+
+    url = f"sqlite:///{(tmp_path / 'c.db').as_posix()}"
+    engine, factory = session_factory(url)
+    init_db(engine)
+    _sperre(factory, 2026)
+    with factory() as s:
+        for tag in (date(2026, 12, 30), date(2027, 1, 5)):
+            speichere_transaktion(
+                s,
+                Transaktion(
+                    datum=tag,
+                    betrag=D("-800"),
+                    verwendungszweck=f"Miete Büro {tag:%m/%Y}",
+                    quelle=TransaktionQuelle.BANK,
+                    rohtext="test",
+                ),
+            )
+        s.commit()
+    r = CliRunner().invoke(
+        app,
+        ["classify", "--db", url, "--no-llm", "--config", str(tmp_path / "x.yaml")],
+    )
+    assert r.exit_code == 0, r.output
+    with factory() as s:
+        assert [b.datum for b in lade_buchungen(s)] == [date(2027, 1, 5)]
+    engine.dispose()
+
+
+def test_ungebuchte_umsaetze_in_gesperrten_vorjahren_werden_gemeldet(
+    make_session, config
+):
+    from accounti.abschluss.pruefungen import Schwere
+    from accounti.db.repository import speichere_transaktion
+    from accounti.models import Transaktion, TransaktionQuelle
+
+    _sperre(make_session, 2026)
+    with make_session() as s:
+        speichere_transaktion(
+            s,
+            Transaktion(
+                datum=date(2026, 12, 30),
+                betrag=D("-800"),
+                verwendungszweck="Miete",
+                quelle=TransaktionQuelle.BANK,
+                rohtext="test",
+            ),
+        )
+        s.commit()
+    with make_session() as s:
+        (b,) = pruefe_abschluss(_k(s, config, 2027), nur=["ungebucht"])
+    assert b.schwere is Schwere.WARNUNG
+    assert "2026" in b.text and "abgeschlossen" in b.text and "oeffnen" in b.text
+
+
+def test_lange_freitexte_kuerzen_ohne_die_hash_kette_zu_brechen(
+    make_session, config, jahr_2026
+):
+    from accounti.db.repo_abschluss import kontoauszugssaldo, lade_jahresabschluss
+
+    with make_session() as s:
+        k = erfasse_kontoauszugssaldo(s, IBAN, date(2026, 12, 31), D("13750"), "E" * 80)
+        trage_vor(s, _k(s, config), "V" * 80)
+        s.commit()
+    with make_session() as s:
+        oeffne(s, 2026, "O" * 80, "G" * 600)
+        s.commit()
+    with make_session() as s:
+        eintraege = lade_protokoll(s)
+        assert pruefe_protokoll(s) == []
+        assert lade_jahresabschluss(s, 2026).von == "V" * 50
+        gespeichert = kontoauszugssaldo(s, k.bankkonto_id, date(2026, 12, 31))
+    assert gespeichert.erfasst_von == "E" * 50
+    assert (eintraege[-1].von, eintraege[-1].grund) == ("O" * 50, "G" * 500)
+
+
+def test_pruefung_protokoll_meldet_manipulation(make_session, config, jahr_2026):
+    from sqlalchemy import text
+
+    from accounti.abschluss.pruefungen import Schwere
+
+    with make_session() as s:
+        trage_vor(s, _k(s, config), "E. Muster")
+        s.commit()
+    with make_session() as s:
+        assert pruefe_abschluss(_k(s, config, 2027), nur=["protokoll"]) == []
+    with make_session() as s:  # an ORM und Trigger vorbei, wie rohes SQL unter Postgres
+        s.execute(text("DROP TRIGGER abschlussprotokoll_kein_update"))
+        s.execute(text("UPDATE abschlussprotokoll SET von = 'jemand' WHERE nr = 1"))
+        s.commit()
+    with make_session() as s:
+        (b,) = pruefe_abschluss(_k(s, config, 2027), nur=["protokoll"])
+    assert b.schwere is Schwere.WARNUNG
+    assert "Eintrag 1 wurde verändert" in b.text

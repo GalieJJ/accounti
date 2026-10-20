@@ -97,15 +97,28 @@ def lege_an(
     if typ and eintrag is None:
         raise AnlageError(f"Typ '{typ}' steht nicht in der AfA-Tabelle")
     if eintrag is not None:
+        angegeben = nutzungsdauer
         nutzungsdauer = nutzungsdauer or eintrag.nutzungsdauer
         immateriell = immateriell or eintrag.immateriell
         konto = konto or eintrag.konto.get(einstellungen.kontenrahmen)
-        if art is None and eintrag.afa_art is not None:
+        # die Art der Tabelle (digital: ND 1 Jahr) gilt nur mit deren Nutzungsdauer —
+        # eine angegebene Nutzungsdauer hat Vorrang (BMF 22.02.2022: „kann“)
+        if (
+            art is None
+            and eintrag.afa_art is not None
+            and nutzungsdauer == eintrag.nutzungsdauer
+        ):
             art = eintrag.afa_art
-        hinweise.append(
-            f"Nutzungsdauer {eintrag.nutzungsdauer} Jahre laut {eintrag.fundstelle}"
-            " — Vorschlag, änderbar"
-        )
+        if angegeben and angegeben != eintrag.nutzungsdauer:
+            hinweise.append(
+                f"Nutzungsdauer {angegeben} Jahre angegeben (AfA-Tabelle: "
+                f"{eintrag.nutzungsdauer} Jahre laut {eintrag.fundstelle})"
+            )
+        else:
+            hinweise.append(
+                f"Nutzungsdauer {eintrag.nutzungsdauer} Jahre laut "
+                f"{eintrag.fundstelle} — Vorschlag, änderbar"
+            )
     bestand = lade_anlagen(session)
     if art is None:
         sammelposten_jahr = any(
@@ -116,6 +129,11 @@ def lege_an(
         art = vorschlag.art
         hinweise.append(f"AfA-Art {art.value}: {vorschlag.begruendung}")
     if art is AfaArt.DIGITAL:
+        if nutzungsdauer not in (None, 1):
+            hinweise.append(
+                f"AfA-Art digital: Nutzungsdauer 1 Jahr statt {nutzungsdauer} Jahren "
+                "(BMF 22.02.2022) — für eine längere Nutzungsdauer --art linear"
+            )
         nutzungsdauer = 1
     if art in (AfaArt.LINEAR, AfaArt.DEGRESSIV) and not nutzungsdauer:
         raise AnlageError("Nutzungsdauer fehlt (--nutzungsdauer oder --typ)")

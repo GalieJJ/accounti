@@ -65,6 +65,8 @@
   nicht_abziehbar:
     "164": [62, "Geschenke (nicht abziehbar)"]
     "165": [63, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    # u. a. Gewerbesteuer (§ 4 Abs. 5b EStG; Anleitung zur Anlage EÜR 2025, S. 9)
+    "168": [67, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [75, "199", "Summe Betriebsausgaben"]
   gewinn: [76, 77]
   entnahmen: [106, "122"]
@@ -128,6 +130,7 @@
   nicht_abziehbar:
     "164": [63, "Geschenke (nicht abziehbar)"]
     "165": [64, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    "168": [68, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [76, "199", "Summe Betriebsausgaben"]
   gewinn: [77, 78]
   entnahmen: [107, "122"]

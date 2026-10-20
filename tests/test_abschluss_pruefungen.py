@@ -112,6 +112,37 @@ def test_bank_nicht_eingerichtet(make_session, config):
     assert b.schwere is Schwere.FEHLER and "nicht eingerichtet" in b.text
 
 
+def test_weiteres_bank_sachkonto_ohne_einrichtung_blockiert(make_session, config):
+    """Jedes Bankkonto des Kontenrahmens mit Bestand/Verkehr wird abgestimmt."""
+    k = bankkonto(make_session)
+    eb(make_session, "1200", "1000")
+    auszug(make_session, k, "1000")
+    eb(make_session, "1210", "5000")
+    buche(make_session, date(J, 3, 1), "4930", "1210", "100")
+    buche(make_session, date(J, 4, 1), "1210", "8400", "300")
+    buche(make_session, date(J, 5, 1), "1360", "1210", "200")
+    (b,) = befunde(make_session, config, "bank")
+    assert b.schwere is Schwere.FEHLER
+    assert "1210" in b.text and "nicht eingerichtet" in b.text
+    assert "--sachkonto 1210" in b.text
+    # Kasse, Geldtransit und Finanzmittelanlagen sind keine Bankkonten
+    buche(make_session, date(J, 6, 1), "1000", "1290", "50")
+    assert ["1210" in x.text for x in befunde(make_session, config, "bank")] == [True]
+    # eingerichtet und abgestimmt: kein Befund mehr
+    zweites = bankkonto(make_session, "DE02500105170137075030", sachkonto="1210")
+    auszug(make_session, zweites, "5000")
+    assert befunde(make_session, config, "bank") == []
+
+
+def test_bankkonten_skr04(make_session, tmp_path):
+    datei = tmp_path / "skr04.yaml"
+    datei.write_text("buchhaltung:\n  kontenrahmen: SKR04\n", encoding="utf-8")
+    buche(make_session, date(J, 3, 1), "1810", "4400", "100")
+    buche(make_session, date(J, 3, 2), "1600", "4400", "100")  # Kasse
+    (b,) = befunde(make_session, datei, "bank")
+    assert "1810" in b.text and "nicht eingerichtet" in b.text
+
+
 # --- übrige Prüfungen -------------------------------------------------------------
 
 
@@ -204,11 +235,12 @@ def test_vortragskonten_ausgeglichen(make_session, config):
 
 def test_euer_offene_personenkonten_und_zuordnung(make_session, config, tmp_path):
     buche(make_session, date(J, 3, 1), "4930", "70001", "100")
-    buche(make_session, date(J, 3, 1), "2200", "1200", "10")
+    buche(make_session, date(J, 3, 1), "2200", "1200", "10")  # bewusst außerhalb
+    buche(make_session, date(J, 3, 1), "5900", "1200", "10")  # ohne Zuordnung
     (p,) = befunde(make_session, config, "euer_personenkonten")
     assert p.schwere is Schwere.WARNUNG and "70001" in p.text
     (z,) = befunde(make_session, config, "euer_zuordnung")
-    assert z.schwere is Schwere.WARNUNG and "2200" in z.text
+    assert z.schwere is Schwere.WARNUNG and "5900" in z.text and "2200" not in z.text
     bilanz = tmp_path / "bilanz.yaml"
     bilanz.write_text("abschluss:\n  gewinnermittlung: bilanz\n", encoding="utf-8")
     assert befunde(make_session, bilanz, "euer_personenkonten") == []
@@ -266,3 +298,20 @@ def test_abgrenzungen_entschieden(make_session, tmp_path):
         lehne_abgrenzung_ab(s, str(v.nr), "test")
         s.commit()
     assert befunde(make_session, bilanz, "abgrenzungen") == []
+
+
+def test_gebaeudekonto_ohne_anlagegut_und_ausnahme_per_konfiguration(
+    make_session, config, tmp_path
+):
+    """Gebäude-AfA (§ 7 Abs. 4) fehlt: ein Gebäudekonto sperrt, bis es aus
+    ``anlagen.anlagekonten`` genommen wird (Grenze im Plan)."""
+    buche(make_session, date(J, 2, 1), "0080", "1200", "300000")  # Bauten
+    buche(make_session, date(J, 12, 31), "4831", "0080", "9000")  # 3 % AfA
+    (b,) = befunde(make_session, config, "anlagen")
+    assert b.schwere is Schwere.FEHLER and "0080" in b.text
+    ohne_bauten = tmp_path / "ohne_bauten.yaml"
+    ohne_bauten.write_text(
+        "anlagen:\n  anlagekonten: [['0010', '0049'], ['0200', '0499']]\n",
+        encoding="utf-8",
+    )
+    assert befunde(make_session, ohne_bauten, "anlagen") == []

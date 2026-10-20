@@ -15,6 +15,7 @@ from accounti.db.tabellen_abschluss import (
     JahrGesperrtError,
     KontoauszugssaldoRow,
     ProtokollRow,
+    gesperrte_jahre,
     jahr_gesperrt,
 )
 from accounti.models.abschluss import (
@@ -31,6 +32,11 @@ def _uuid(wert: str | None) -> UUID | None:
     return UUID(wert) if wert else None
 
 
+def _kurz(wert: str | None, laenge: int) -> str | None:
+    """Freitext auf die Spaltenlänge kürzen — Postgres lehnte ihn sonst ab."""
+    return wert[:laenge] if wert is not None else None
+
+
 # --- Kontoauszugssalden -----------------------------------------------------------
 
 
@@ -42,7 +48,7 @@ def speichere_kontoauszugssaldo(session: Session, k: Kontoauszugssaldo) -> None:
             stichtag=k.stichtag,
             saldo=k.saldo,
             erfasst_am=k.erfasst_am,
-            erfasst_von=k.erfasst_von,
+            erfasst_von=_kurz(k.erfasst_von, 50),
         )
     )
     session.flush()
@@ -77,6 +83,11 @@ def ist_gesperrt(session: Session, jahr: int) -> bool:
     return jahr_gesperrt(session.connection(), jahr)
 
 
+def lade_gesperrte_jahre(session: Session) -> set[int]:
+    """Abgeschlossene Geschäftsjahre — dort lässt sich nichts mehr buchen."""
+    return gesperrte_jahre(session.connection())
+
+
 def pruefe_jahr_offen(session: Session, jahr: int) -> None:
     if ist_gesperrt(session, jahr):
         msg = (
@@ -109,7 +120,7 @@ def setze_jahresabschluss(session: Session, a: Jahresabschluss) -> None:
     row.gewinnermittlung = a.gewinnermittlung
     row.ergebnis = a.ergebnis
     row.abgeschlossen_am = a.abgeschlossen_am
-    row.von = a.von
+    row.von = a.von[:50]
     session.flush()
 
 
@@ -147,7 +158,7 @@ def _row_zu_abgrenzung(r: AbgrenzungRow) -> Abgrenzung:
 
 def speichere_abgrenzung(session: Session, a: Abgrenzung) -> Abgrenzung:
     letzte = session.query(func.max(AbgrenzungRow.nr)).scalar() or 0
-    a = a.model_copy(update={"nr": letzte + 1})
+    a = a.model_copy(update={"nr": letzte + 1, "rechenweg": a.rechenweg[:500]})
     werte = {feld: getattr(a, feld) for feld in _ABGRENZUNG_FELDER}
     session.add(
         AbgrenzungRow(
@@ -174,7 +185,7 @@ def aktualisiere_abgrenzung(session: Session, a: Abgrenzung) -> None:
         str(a.aufloesung_buchung_id) if a.aufloesung_buchung_id else None
     )
     row.entschieden_am = a.entschieden_am
-    row.entschieden_von = a.entschieden_von
+    row.entschieden_von = _kurz(a.entschieden_von, 50)
     session.flush()
 
 

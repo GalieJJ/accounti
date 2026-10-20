@@ -50,9 +50,9 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 | Computerhardware/Software | betriebsgewöhnliche Nutzungsdauer **1 Jahr** kann zugrunde gelegt werden; keine Sofortabschreibung, aber „es wird nicht beanstandet“, wenn die AfA im Anschaffungsjahr in voller Höhe vorgenommen wird (Rz. 1.4). Gilt für Wirtschaftsjahre, die nach dem 31.12.2020 enden. | BMF 22.02.2022, IV C 3 - S 2190/21/10002 :025 (ersetzt BMF 26.02.2021); [FGS](https://www.fgs.de/news-and-insights/blog/detail/praezisierung-des-bmf-schreibens-zur-nutzungsdauer-von-computerhardware-und-software-zur-dateneingabe-und-verarbeitung) |
 | AfA-Tabelle AV | BMF 15.12.2000, IV D 2 - S 1551 - 188/00, BStBl I 2000 S. 1532; gilt für Anschaffungen nach dem 31.12.2000. Hinterlegt (Fundstelle → Jahre): Pkw 4.2.1 → 6, Motorräder/Fahrräder 4.2.2 → 7, Lkw 4.2.3 → 9, Stapler 4.5 → 8, Mobilfunkendgeräte 6.13.2.2 → 5, Telefonanlagen 6.13.1 → 10, Faxgeräte 6.13.3 → 6, PC/Notebook/Peripherie 6.14.3.2 → 3 (überholt: 1 Jahr nach BMF 2022), Foto/Video/Audio 6.14.4 → 7, Präsentationsgeräte 6.14.6 → 8, Registrierkassen 6.14.7 → 6, Kopierer 6.14.10 → 7, Aktenvernichter 6.14.13 → 8, Büromöbel 6.15 → 13, Klimageräte mobil 6.5 → 11, Ladeneinbauten 3.7 → 8, Container 3.6 → 10, Tresore 6.19.2 → 23, Werkstatt-/Lagereinrichtung 6.1 → 14, Messestände 6.3 → 6, Photovoltaik 3.1.6 → 20. | [AfA-Tabelle AV (IHK München, Originalabdruck)](https://www.ihk-muenchen.de/ihk/documents/Recht-Steuern/Steuerrecht/Einkommensteuer/AfA-Tabelle-AV.pdf) |
 | RAP-Verzicht | § 5 Abs. 5 Satz 2 EStG: Auf aktive/passive RAP kann verzichtet werden, wenn die einzelne Ausgabe/Einnahme die GWG-Grenze nicht übersteigt; einheitlich für alle. Erstmals für Wirtschaftsjahre, die nach dem 31.12.2021 enden (JStG 2022). | [§ 5 EStG](https://www.gesetze-im-internet.de/estg/__5.html); [BT-Drs. 20/4229](https://xpert.digital/wp-content/uploads/2022/12/Drucksache-20-4229.pdf) |
-| Anlage EÜR 2025 | BMF 29.08.2025, IV C 6 - S 2142/00023/010/001, BStBl I 2025 S. 1652. Zeilen (Kennzahl): 12 (111) Kleinunternehmer · 15 (112) USt-pflichtige BE · 16 (103) steuerfreie/nicht steuerbare BE · 17 (140) vereinnahmte USt · 18 (141) erstattete USt · 19 (102) Veräußerung/Entnahme AV · 20 (106) private Kfz-Nutzung · 21 (108) sonstige Entnahmen · 23 (159) Summe BE · 27 (100) Waren · 29 (110) Fremdleistungen · 30 (120) Personal · 31 (136) AfA Grundstücke · 32 (131) AfA immateriell · 33 (130) AfA beweglich · 34 (134) Sonder-AfA · 36 (132) GWG · 37 (137) Sammelposten · 38 (135) Restbuchwerte · 39 (150) Miete · 41 (151) sonstige Grundstücksaufwendungen · 43 (280) Telekommunikation · 44 (221) Reisekosten · 45 (281) Fortbildung · 46 (194) Beratung/Buchführung · 47 (222) Miete/Leasing bewegl. WG · 48 (225) Erhaltung · 49 (223) Beiträge/Versicherungen · 50 (228) EDV · 51 (229) Arbeitsmittel · 52 (226) Entsorgung · 53 (227) Verpackung/Transport · 54 (224) Werbung · 55 (232)/56 (234) Schuldzinsen · 57 (185) Vorsteuer · 58 (186) an das FA gezahlte USt · 60 (183) übrige · 62 (174) Geschenke · 63 (175) Bewirtung · 68 (144) Kfz-Leasing · 69 (145) Kfz-Steuern/Versicherung/Maut · 70 (146) sonstige Fahrtkosten · 71 (147) fremde Fahrzeuge · 75 (199) Summe BA · 76/77 Gewinnermittlung · 106 (122) Entnahmen · 107 (123) Einlagen. | [BMF-Schreiben mit Vordruck (Abdruck)](https://www.steuerschroeder.de/blog/wp-content/uploads/2025/09/2025-08-29-anlage-EUER-2025.pdf) — Zeilen aus Vordruck und Anleitung abgeglichen |
-| Anlage EÜR 2026 | BMF 01.09.2026, IV C 6 - S 2142/00024/010/001. Neue Zeile 27 (Rücklage Tierbewertung LuF); Waren rücken nach 29, ab da **alle Zeilen +1** (z. B. AfA beweglich 34, GWG 37, Sammelposten 38, RBW 39, Vorsteuer 58, Summe BA 76, Entnahmen 107, Einlagen 108). Kennzahlen unverändert. Zeilen 12–23, 24–62, 62–78, 107/108 am 20.10.2026 gegen den Vordruck im BMF-PDF (GZ IV C 6 - S 2142/00024/010/001, Seiten 3–6) nachgezählt. | [BMF, Anlage EÜR 2026 (PDF)](https://www.bundesfinanzministerium.de/Content/DE/Downloads/BMF_Schreiben/Steuerarten/Einkommensteuer/2026-09-01-anlage-EUER-2026.pdf?__blob=publicationFile&v=4) |
-| Kontenrahmen | DATEV SKR 03 und SKR 04, „Gültig für 2026“ (Art.-Nr. 11174/11175). SKR03: 0027 EDV-Software, 0320 Pkw, 0350 Lkw, 0400–0440 BGA, 0480 GWG, 0485 Sammelposten, 0490 sonstige BGA, 0880 Variables Kapital, 0980 ARAP, 0990 PRAP, 1000 Kasse, 1360 Geldtransit, 1590 Durchlaufende Posten, 1780 USt-Vorauszahlungen, 1800 Privatentnahmen, 1890 Privateinlagen, 2310/2315 Anlagenabgänge RBW bei Buchverlust/-gewinn, 4822 AfA immateriell, 4830 AfA Sachanlagen, 4832 AfA Fahrzeuge, 4855 Sofortabschreibung GWG, 4862 AfA Sammelposten, 8801/8820 Erlöse Anlagenverkäufe 19 % bei Buchverlust/-gewinn, 8800/8829 ohne USt, 9000/9008/9009 Saldenvorträge. SKR04: 0135, 0520, 0540, 0630–0690, 0670 GWG, 0675 Sammelposten, 1401/1406 VSt, 1460 Geldtransit, 1600 Kasse, 1800 Bank, 1900 ARAP, 2010 Variables Kapital, 2100/2180 Privat, 3801/3806 USt, 3820 USt-Vorauszahlungen, 3900 PRAP, 4845/4849 Erlöse Anlagenverkäufe bei Buchgewinn, 4855 RBW bei Buchgewinn, 6200/6220/6222 AfA, 6260 GWG, 6264 Sammelposten, 6885/6889 Erlöse bei Buchverlust, 6895 RBW bei Buchverlust. **2320/2720 sind im SKR03 2026 reserviert**, **4800 ist „Reparaturen und Instandhaltungen“** (nicht AfA). | [DATEV SKR 03 2026](https://www.datev.de/content/dam/markenassets/themen-und-produktgruppen/zielgruppen/mandant/unternehmer/branche/bau/11174%20SKR03%20BilrUg.pdf), [DATEV SKR 04 2026](https://www.datev.de/content/dam/markenassets/themen-und-produktgruppen/zielgruppen/mandant/unternehmer/branche/bau/11175%20SKR04%20BilrUg.pdf) |
+| Anlage EÜR 2025 | BMF 29.08.2025, IV C 6 - S 2142/00023/010/001, BStBl I 2025 S. 1652. Zeilen (Kennzahl): 12 (111) Kleinunternehmer · 15 (112) USt-pflichtige BE · 16 (103) steuerfreie/nicht steuerbare BE · 17 (140) vereinnahmte USt · 18 (141) erstattete USt · 19 (102) Veräußerung/Entnahme AV · 20 (106) private Kfz-Nutzung · 21 (108) sonstige Entnahmen · 23 (159) Summe BE · 27 (100) Waren · 29 (110) Fremdleistungen · 30 (120) Personal · 31 (136) AfA Grundstücke · 32 (131) AfA immateriell · 33 (130) AfA beweglich · 34 (134) Sonder-AfA · 36 (132) GWG · 37 (137) Sammelposten · 38 (135) Restbuchwerte · 39 (150) Miete · 41 (151) sonstige Grundstücksaufwendungen · 43 (280) Telekommunikation · 44 (221) Reisekosten · 45 (281) Fortbildung · 46 (194) Beratung/Buchführung · 47 (222) Miete/Leasing bewegl. WG · 48 (225) Erhaltung · 49 (223) Beiträge/Versicherungen · 50 (228) EDV · 51 (229) Arbeitsmittel · 52 (226) Entsorgung · 53 (227) Verpackung/Transport · 54 (224) Werbung · 55 (232)/56 (234) Schuldzinsen · 57 (185) Vorsteuer · 58 (186) an das FA gezahlte USt · 60 (183) übrige · 62 (174/164) Geschenke · 63 (175/165) Bewirtung · 67 (177 abziehbar / **168 nicht abziehbar**) sonstige beschränkt abziehbare BA — dort die **Gewerbesteuer** (§ 4 Abs. 5b EStG; Anleitung S. 9: „in der Spalte ‚nicht abziehbar‘ zu erklären“, nicht in Kz 199) · 68 (144) Kfz-Leasing · 69 (145) Kfz-Steuern/Versicherung/Maut · 70 (146) sonstige Fahrtkosten · 71 (147) fremde Fahrzeuge · 75 (199) Summe BA · 76/77 Gewinnermittlung · 106 (122) Entnahmen · 107 (123) Einlagen. | [BMF-Schreiben mit Vordruck (Abdruck)](https://www.steuerschroeder.de/blog/wp-content/uploads/2025/09/2025-08-29-anlage-EUER-2025.pdf) — Zeilen aus Vordruck und Anleitung abgeglichen |
+| Anlage EÜR 2026 | BMF 01.09.2026, IV C 6 - S 2142/00024/010/001. Neue Zeile 27 (Rücklage Tierbewertung LuF); Waren rücken nach 29, ab da **alle Zeilen +1** (z. B. AfA beweglich 34, GWG 37, Sammelposten 38, RBW 39, Vorsteuer 58, Summe BA 76, Entnahmen 107, Einlagen 108). Kennzahlen unverändert (Kz 168 also Zeile 68). Zeilen 12–23, 24–62, 62–78, 107/108 am 20.10.2026 gegen den Vordruck im BMF-PDF (GZ IV C 6 - S 2142/00024/010/001, Seiten 3–6) nachgezählt; Kz 168 und der Gewerbesteuer-Satz der Anleitung am 20.10.2026 in beiden PDFs (2025, 2026) nachgelesen. | [BMF, Anlage EÜR 2026 (PDF)](https://www.bundesfinanzministerium.de/Content/DE/Downloads/BMF_Schreiben/Steuerarten/Einkommensteuer/2026-09-01-anlage-EUER-2026.pdf?__blob=publicationFile&v=4) |
+| Kontenrahmen | DATEV SKR 03 und SKR 04, „Gültig für 2026“ (Art.-Nr. 11174/11175). SKR03: 0027 EDV-Software, 0320 Pkw, 0350 Lkw, 0400–0440 BGA, 0480 GWG, 0485 Sammelposten, 0490 sonstige BGA, 0880 Variables Kapital, 0980 ARAP, 0990 PRAP, 1000 Kasse, 1360 Geldtransit, 1590 Durchlaufende Posten, 1780 USt-Vorauszahlungen, 1800 Privatentnahmen, 1890 Privateinlagen, 2310/2315 Anlagenabgänge RBW bei Buchverlust/-gewinn, 4822 AfA immateriell, 4830 AfA Sachanlagen, 4832 AfA Fahrzeuge, 4855 Sofortabschreibung GWG, 4862 AfA Sammelposten, 8801/8820 Erlöse Anlagenverkäufe 19 % bei Buchverlust/-gewinn, 8800/8829 ohne USt, 9000/9008/9009 Saldenvorträge. SKR04: 0135, 0520, 0540, 0630–0690, 0670 GWG, 0675 Sammelposten, 1401/1406 VSt, 1460 Geldtransit, 1600 Kasse, 1800 Bank, 1900 ARAP, 2010 Variables Kapital, 2100/2180 Privat, 3801/3806 USt, 3820 USt-Vorauszahlungen, 3900 PRAP, 4845/4849 Erlöse Anlagenverkäufe bei Buchgewinn, 4855 RBW bei Buchgewinn, 6200/6220/6222 AfA, 6260 GWG, 6264 Sammelposten, 6885/6889 Erlöse bei Buchverlust, 6895 RBW bei Buchverlust. **2320/2720 sind im SKR03 2026 reserviert**, **4800 ist „Reparaturen und Instandhaltungen“** (nicht AfA). Einzelregeln der Abschlusszuordnung (20.10.2026 gegen die Kontenlisten abgeglichen): SKR03 1788 EUSt aufgeschoben, 1792 Interimskonten, 1793 Verrechnung Anzahlungen, 1795 Verbindlichkeiten soziale Sicherheit (§ 4/3), 1796 Geschenkgutscheine — **keine** Steuerkonten; 2200–2219 KSt/SolZ/KapESt, 2280–2284 und 4320 Gewerbesteuer, 4397 nicht abzugsfähige Verspätungszuschläge, 4638 Geschenke ausschließlich betrieblich genutzt, 4810/4815 Leasing, 4853/4854 Kürzung § 7g Abs. 2, 8190 § 24 UStG, 8195 Kleinunternehmer, 8340–49 Erlöse 16 %. SKR04 2100–2399 und 2500–2799 Privat (Voll-/Teilhafter: Entnahmen, Sonderausgaben, Spenden, agB, Grundstücksaufwand/-ertrag), 1435 Forderungen aus GewSt-Überzahlungen, 1420–1427 USt-/Verbrauchsteuerforderungen, 7600–7609 KSt/SolZ, 7610 und 7640–7644 Gewerbesteuer, 7630–7639 KapESt, 7650–7699 sonstige Steuern. | [DATEV SKR 03 2026](https://www.datev.de/content/dam/markenassets/themen-und-produktgruppen/zielgruppen/mandant/unternehmer/branche/bau/11174%20SKR03%20BilrUg.pdf), [DATEV SKR 04 2026](https://www.datev.de/content/dam/markenassets/themen-und-produktgruppen/zielgruppen/mandant/unternehmer/branche/bau/11175%20SKR04%20BilrUg.pdf); Kontennamen: [SKR03-Liste](https://www.steuerschroeder.de/Kontenrahmen-SKR03-Prozessgliederungsprinzip.html), [SKR04-Liste](https://www.steuerschroeder.de/Kontenrahmen-SKR04-Bilanzgliederungsprinzip.html) |
 
 ## Schnitt in Pakete
 
@@ -69,12 +69,12 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 | Thema | Entscheidung | Grund |
 |-------|--------------|-------|
 | Grenzbeträge | `anlagen/rechtsstand.yaml` im Paket: Zeiträume mit `von`/`bis` und Quelle für GWG, Verzeichnis, Sammelposten (inkl. Pflicht 2008/2009), degressive Fenster (Faktor, Höchstsatz), E-Fahrzeug-Staffel, digitale WG, RAP-Verzicht. Eigene Datei per `anlagen.rechtsstand` ersetzt/ergänzt Einträge. Maßgeblich ist das **Anschaffungsdatum** | Spec 5: Konfiguration mit Gültigkeitszeitraum; ein Zugang 2015 rechnet mit 410 €, ohne dass Code geändert wird |
-| AfA-Tabelle | im selben Rechtsstand: Schlüssel → Bezeichnung, Jahre, Fundstelle, Vorschlagskonto je Kontenrahmen, ggf. AfA-Art; `--typ pkw` schlägt ND und Konto vor, `--nutzungsdauer` gewinnt immer | Spec: Vorschlag, immer änderbar |
+| AfA-Tabelle | im selben Rechtsstand: Schlüssel → Bezeichnung, Jahre, Fundstelle, Vorschlagskonto je Kontenrahmen, ggf. AfA-Art; `--typ pkw` schlägt ND und Konto vor, `--nutzungsdauer` gewinnt immer — auch über die AfA-Art der Tabelle: `--typ notebook --nutzungsdauer 3` schreibt linear über 3 Jahre ab, die Art `digital` (ND 1) gilt nur mit der Tabellen-ND; ein ausdrückliches `--art digital` setzt ND 1 mit Hinweis | Spec: Vorschlag, immer änderbar; BMF 22.02.2022: ND 1 Jahr „kann“ zugrunde gelegt werden |
 | Anschaffungskosten | netto (ohne abziehbare Vorsteuer, § 9b EStG) | GWG-/Sammelpostengrenzen sind Nettogrenzen |
 | Linear | monatsgenau: AfA kumuliert bis Monat k = AK · k / (12 · ND), kaufmännisch gerundet, gedeckelt auf AK; Jahresbetrag = Differenz der Kumulierten. Anschaffungsmonat zählt voll, Abgangsmonat auch | § 7 Abs. 1 Satz 4; keine Rundungsdrift, Summe = AK exakt |
 | Degressiv | Satz = min(Faktor/ND, Höchstsatz) des Fensters am Anschaffungstag; vom Restbuchwert, im ersten und im Abgangsjahr zeitanteilig; automatischer Wechsel zur linearen AfA, sobald linear ≥ degressiv (§ 7 Abs. 3), abschaltbar (`wechsel_linear=False`). Außerhalb eines Fensters, für immaterielle WG oder ohne ND: Fehler | Wahlrecht bleibt beim Menschen (Art wird gewählt, nicht gesetzt), die Rechnung ist mechanisch |
 | GWG | ganze AK im Anschaffungsmonat; nur bis zur GWG-Grenze des Anschaffungstags, sonst Fehler | § 6 Abs. 2 |
-| Sammelposten | je Anlagekonto und Anschaffungsjahr ein Posten; 1/5 der Summe je Jahr **zum Jahresende** (Monatsläufe buchen ihn erst mit Monat 12), Rest im fünften Jahr; Abgang mindert nicht, außer im Anschaffungsjahr (dann normaler Abgang zum vollen Wert) | BMF 30.09.2010 Rz. 10, 14, 15 |
+| Sammelposten | je Anlagekonto und Anschaffungsjahr ein Posten; 1/5 der Summe je Jahr **zum Jahresende** (Monatsläufe buchen ihn erst mit Monat 12), Rest im fünften Jahr; Abgang mindert nicht, außer im Anschaffungsjahr (dann normaler Abgang zum vollen Wert). War die Jahres-AfA des Jahrgangs schon gebucht, rechnet der Abgang den Sammelposten ohne das Gut neu und bucht die Korrektur; ein Jahrgang ohne Mitglied, für den im Jahr AfA gebucht ist, bleibt im AfA-Lauf (Soll 0) | BMF 30.09.2010 Rz. 10, 14, 15 |
 | Wahlrecht einheitlich | Ein Sammelposten im Jahr verlangt, dass alle Zugänge > Untergrenze bis 1.000 € des Jahres Sammelposten sind; 2008/2009 sind Sofortabzug und Sammelposten Pflicht. Verstöße: Fehler beim Anlegen | § 6 Abs. 2a Satz 5 |
 | Digitale WG | Art `digital`: ND 1 Jahr, volle AfA im Anschaffungsjahr, ab Anschaffung 2021 | BMF 22.02.2022 Rz. 1.4 |
 | E-Fahrzeuge | Art `e_fahrzeug`: Staffel aus dem Rechtsstand, Jahr 1 voll ab Anschaffungsmonat, Folgejahre (und Abgangsjahr) zeitanteilig | § 7 Abs. 2a |
@@ -84,18 +84,21 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 | Anlagenspiegel | aus dem AfA-Plan (Sollrechnung), je Anlagekonto bzw. Sammelposten-Jahrgang: AK Beginn, Zugang, Abgang, AK Ende, AfA kumuliert Beginn, AfA Jahr, AfA auf Abgänge, AfA kumuliert Ende, RBW Beginn/Ende; kein fiktiver Abgang für GWG/Sammelposten | Akzeptanz 2; die gebuchte AfA prüft `abschluss pruefen` gegen den Plan |
 | Zählende Buchungen | Salden, SuSa, EÜR und Vortrag zählen nur freigegebene Buchungen (auto, geprüft, korrigiert, exportiert — wie der DATEV-Export); Vorschläge im Jahr sind ein Fehler-Befund | eine Bewertung wird bestätigt, nicht gesetzt |
 | Steueraufteilung | Buchung mit BU 2/3/8/9 und Steuerbetrag: Nettoseite = die Seite, die kein Geld-/Personenkonto ist (sonst: VSt-Schlüssel → Soll, USt-Schlüssel → Haben); Steuer auf derselben Seite auf das Steuerkonto, die Gegenseite brutto. SKR03-Steuerkonten aus `accounti.steuer`, SKR04 aus der Kontenrahmendatei | genau so buchen Mapper, Belegkontierung, OPOS und Skonto; SuSa bleibt ausgeglichen |
-| Kontenrahmen | `abschluss/kontenrahmen_skr03.yaml` und `…_skr04.yaml`: Kontoarten (Bestand, Erfolg, Steuer, Privat, Vortrag), Geldkonten, Steuerkonten, EÜR-Kennzahl je Kontenbereich (die engste Spanne gewinnt; Steuer- und USt-Vorauszahlungskonten nach Saldorichtung), Namen; eigene Datei per `abschluss.kontenzuordnung` | Spec 4.6: Zuordnung als Konfiguration wie die BWA-Zuordnung in `config/skr03.yaml` |
-| EÜR | Kennzahl je Konto, Zeile und Text je Vordruckjahr (`abschluss/euer_vordrucke.yaml`, 2025 und 2026); fehlt das Jahr, gilt der jüngste ältere Vordruck mit Hinweis. Konten ohne Zuordnung erscheinen als „nicht zugeordnet“ (Warnung) und zählen mit — Gewinn = Saldo aller EÜR-Konten der SuSa | Akzeptanz 6; Zeilen verschieben sich (2026: +1), Kennzahlen nicht |
+| Kontenrahmen | `abschluss/kontenrahmen_skr03.yaml` und `…_skr04.yaml`: Kontoarten (Bestand, Erfolg, Steuer, Privat, Vortrag), Geldkonten, Bankkonten, Steuerkonten, EÜR-Kennzahl je Kontenbereich (die engste Spanne gewinnt; Steuer- und USt-Vorauszahlungskonten nach Saldorichtung), Namen; eigene Datei per `abschluss.kontenzuordnung`. Kennzahl `null` = Zuordnung fehlt (zählt als „nicht zugeordnet“ mit, Warnung), `"-"` = gehört nicht in die EÜR (Steuern vom Einkommen: weder Betriebseinnahme noch -ausgabe). Nicht-Steuerkonten mitten in Steuerbereichen (SKR03 1788, 1792/1793, 1795–1799; SKR04 1420–1430, 1435) sind einzeln als Bestand geführt | Spec 4.6: Zuordnung als Konfiguration wie die BWA-Zuordnung in `config/skr03.yaml` |
+| EÜR | Kennzahl je Konto, Zeile und Text je Vordruckjahr (`abschluss/euer_vordrucke.yaml`, 2025 und 2026); fehlt das Jahr, gilt der jüngste ältere Vordruck mit Hinweis. Konten ohne Zuordnung erscheinen als „nicht zugeordnet“ (Warnung) und zählen mit. Nicht abziehbare Betriebsausgaben (Kz 164, 165, **168** — dort die Gewerbesteuer, SKR03 4320/2280–2284, SKR04 7610/7640–7644) stehen in eigener Spalte und nicht in Kz 199; Konten mit `"-"` stehen außerhalb. Überleitung: Ergebnis SuSa = Gewinn − nicht abziehbar − außerhalb der EÜR | Akzeptanz 6; Zeilen verschieben sich (2026: +1), Kennzahlen nicht; § 4 Abs. 5b EStG |
 | EÜR-Steuerkonten | bei `gewinnermittlung: euer` sind Vorsteuer, Umsatzsteuer und USt-Vorauszahlungen Erfolgskonten (Kz 185, 140, 186/141), bei `bilanz` Bestandskonten | Zufluss-/Abflussprinzip |
-| Abgrenzung | nur bei `gewinnermittlung: bilanz`. Kandidat: freigegebene Buchung des Jahres auf ein Erfolgskonto mit Leistungszeitraum im Text (Positionen, Belegnummer, Verwendungszweck, Buchungstext; Formen `01.12.2026–30.11.2027`, `… bis …`, `12/2026–11/2027`), der über den Stichtag reicht; Anteil monatsgenau bei ganzen Monaten, sonst taggenau; ARAP 0980/1900, PRAP 0990/3900. Vorschlag speichert Abgrenzung **und** Auflösung (01.01.J+1); Bestätigen bucht beide, Ablehnen keine; Vorschlag je Buchung genau einmal; manuell `abschluss abgrenzen <BUCHUNG> --von --bis`. RAP-Verzicht bis GWG-Grenze nur mit `rap_verzicht_bis_gwg: true` | Akzeptanz 3, Spec 4.2; EÜR kennt keine RAP (§ 11 EStG) |
+| Abgrenzung | nur bei `gewinnermittlung: bilanz`. Kandidat: freigegebene Buchung des Jahres auf ein Erfolgskonto mit Leistungszeitraum im Text (Positionen, Belegnummer, Verwendungszweck, Buchungstext; Formen `01.12.2026–30.11.2027`, `… bis …`, `12/2026–11/2027`), der über den Stichtag reicht; Anteil monatsgenau bei ganzen Monaten, sonst taggenau; ARAP 0980/1900, PRAP 0990/3900. Vorschlag speichert Abgrenzung **und** Auflösung; Bestätigen bucht die Abgrenzung zum 31.12. und **je Folgejahr** eine Auflösung zum 01.01. in Höhe des Anteils dieses Jahres (Rest nach jedem Stichtag kaufmännisch gerundet, Summe = Abgrenzung; mehrjährige Verträge bleiben so mit ihrem Rest im RAP), Ablehnen keine; Vorschlag je Buchung genau einmal; manuell `abschluss abgrenzen <BUCHUNG> --von --bis`. RAP-Verzicht bis GWG-Grenze nur mit `rap_verzicht_bis_gwg: true` | Akzeptanz 3, Spec 4.2; EÜR kennt keine RAP (§ 11 EStG) |
 | Kassenbuch | eigene Tabelle `kassenbuch`: laufende Nummer, Datum, Betrag (+/−), Text, Beleg, Gegenkonto, Steuersatz, Erfassungszeitpunkt; nur anfügen (ORM-Sperre, Storno als Gegeneintrag). Vor jedem Eintrag wird der Bestandsverlauf ab dem Buchungstag nachgerechnet — fällt er an irgendeinem Tag unter 0, **wird abgelehnt** (`KasseNegativError`), auch bei Rückdatierung und Storno | Akzeptanz 4, § 146 Abs. 1 AO |
 | Kasse → Buchung | jeder Kassenvorgang wird eine Transaktion mit dem Kassenkonto als Sachkonto (dann kontiert `classify`, gleicht `opos zuordnen`/`bank abgleich` ab); mit `--konto` sofort ein geprüfter Buchungssatz, Steuer über `accounti.steuer` | ein Pfad für alle Geldbewegungen |
-| Bank-Abstimmung | Tabelle `kontoauszugssalden` (Bankkonto, Stichtag, Saldo, Erfasser); Prüfung je Sachkonto: Summe der Kontoauszugssalden zum 31.12. = Buchbestand (inkl. EB); fehlender Saldo, Abweichung oder ein nicht eingerichtetes Bankkonto mit Buchungen sind **Fehler** und blockieren den Vortrag | Akzeptanz 5 |
-| Abschlussprüfungen | benannte Prüfungen, je einzeln aufrufbar, Befund mit Schwere (Fehler/Warnung/Hinweis): unfreigegeben, ungebucht, Bank, Kasse, Anlagen (AfA gebucht, RBW = Anlagekonto), Abgrenzungen offen, Verrechnungskonten, Vortragskonten ausgeglichen, EÜR: offene Personenkonten, EÜR: nicht zugeordnete Konten | Spec 4.5; Baustein 7 existiert noch nicht, deshalb eigene schlanke Befunde |
+| Bank-Abstimmung | Tabelle `kontoauszugssalden` (Bankkonto, Stichtag, Saldo, Erfasser); Prüfung je Sachkonto: Summe der Kontoauszugssalden zum 31.12. = Buchbestand (inkl. EB); fehlender Saldo, Abweichung oder ein nicht eingerichtetes Bankkonto mit Bestand/Verkehr sind **Fehler** und blockieren den Vortrag. „Bankkonto“ = `buchhaltung.bank_konto` und jedes Konto der Spanne `bankkonten` des Kontenrahmens (SKR03 1100–1289, SKR04 1700–1889; ohne Kasse, Geldtransit, Finanzmittelanlagen) — eingerichtet wird es mit `accounti bank verbinde … --sachkonto` | Akzeptanz 5 |
+| Abschlussprüfungen | benannte Prüfungen, je einzeln aufrufbar, Befund mit Schwere (Fehler/Warnung/Hinweis): unfreigegeben, ungebucht (dazu Warnung für ungebuchte Umsätze in abgeschlossenen Jahren), Bank, Kasse, Anlagen (AfA gebucht, RBW = Anlagekonto), Abgrenzungen offen, Verrechnungskonten (Standard SKR03 1360, 1590, 1792; SKR04 1460, 1370, 3630), Vortragskonten ausgeglichen, EÜR: offene Personenkonten, EÜR: nicht zugeordnete Konten, Protokoll (Hash-Kette nachgerechnet) | Spec 4.5; Baustein 7 existiert noch nicht, deshalb eigene schlanke Befunde |
 | Saldovortrag | Schlusssalden = Bestandskonten, Erfolgs- und Privatkonten (bei EÜR auch Steuerkonten) auf das Kapitalkonto (`ergebnis_konto`, SKR03 0880 / SKR04 2010); EB-Buchungen am 01.01.J+1 gegen 9000 (Debitoren 9008, Kreditoren 9009), gebucht wird nur die Differenz zu schon vorhandenen EB-Werten (erneuter Vortrag nach Wiederöffnen = Korrektur, keine Löschung). Nur ohne Fehler-Befund | Akzeptanz 7 |
 | Jahressperre | Tabelle `abschluesse`; ein ORM-Ereignis auf `buchungssaetze` (in `tabellen_abschluss.py`, ohne Änderung an bestehendem Code) verweigert Anlegen, Ändern und Löschen von Buchungen in gesperrten Jahren (`JahrGesperrtError`); Kassenbuch und AfA-Lauf prüfen vorher. `abschluss oeffnen --grund` hebt die Sperre auf, nur wenn das Folgejahr offen ist; jede Aktion steht in `abschlussprotokoll` (nur anfügen, Hash-Kette) | Spec 4.8: Änderung nur mit erneutem Abschluss und Protokoll |
 | Sperre an allen Eingängen | Neben dem ORM-Ereignis prüfen Kassenbuch, AfA-Lauf, Abgang, `anlagen anlegen` (Zugang im gesperrten Jahr änderte dessen Anlagenspiegel) und Abgrenzungsvorschläge die Sperre vorher und melden sie als Fehler. `befehle/abschluss.py` importiert `db/tabellen_abschluss.py` auf Modulebene, damit die Sperre auch in CLI-Befehlen gilt, die `init_db` nicht aufrufen | Spec 4.8; sonst schlüge die Sperre erst beim `commit` mit Traceback zu oder gar nicht |
 | Abgrenzungen offen | Prüfung `abgrenzungen`: ein nicht entschiedener Vorschlag des Jahres ist ein Fehler-Befund | Bewertungsentscheidung wird bestätigt, nicht übergangen (Spec 5) |
+| Protokollprüfung | Prüfung `protokoll` rechnet die Hash-Kette des Abschlussprotokolls nach; ein Bruch ist eine **Warnung**, kein Fehler | das Protokoll ist nur anfügbar — ein einmal gebrochenes ließe sich nicht heilen und sperrte als Fehler jeden künftigen Abschluss; sichtbar bleibt der Befund bei jeder Prüfung und jedem Vortrag |
+| Sammelläufe und Sperre | `offene_transaktionen` (Grundlage von `classify`, `opos zuordnen`, `bank abgleich`) lässt Umsätze in abgeschlossenen Jahren aus — ein einziger spät importierter Dezember-Umsatz bräche sonst den ganzen Lauf ab; `abschluss pruefen` meldet sie als Warnung | einzige Änderung an fremdem Code dafür: drei Zeilen in `opos/zahlungslauf.py` |
+| Freitexte | Freitexte des Nutzers werden auf die Spaltenlänge gekürzt (Protokoll `von` 50 / `grund` 500 vor dem Hash, Abschluss `von`, Kontoauszugssaldo und Kassenbuch `erfasst_von` 50, Kassenbuch `belegnummer` 60, Abgrenzung `entschieden_von` 50, `rechenweg` 500) | Postgres lehnt zu lange Werte ab; SQLite nicht |
 | Eröffnungssalden | `abschluss eroeffnung --jahr J --konto K --saldo S` für das erste Jahr in accounti (EB gegen 9000/9008/9009, geprüft) | ohne EB-Werte kann der Bankabgleich nicht stimmen |
 | Konfiguration | Abschnitte `anlagen`, `abschluss`, `kasse` mit eigenen Ladern (`lade_anlagen`, `lade_abschluss`, `lade_kasse`); Standards je Kontenrahmen aus `buchhaltung.kontenrahmen` (SKR03/SKR04); alles läuft ohne die Abschnitte | Auftrag |
 | Abhängigkeiten | keine neuen | Standardbibliothek, pydantic, sqlalchemy, pyyaml, typer, rich reichen |
@@ -132,6 +135,17 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - [x] **CLI:** `abschluss eroeffnung|buchen|abgrenzungen|abgrenzen|bestaetigen|ablehnen|euer [--csv]|vortrag|oeffnen`; `kasse …` und `anlagen …` melden ein gesperrtes Jahr ohne Traceback (`tests/test_cli_abschluss.py`).
 - [x] **Abschluss:** `pytest`, `ruff check`, `ruff format --check`, `mypy` grün; Checkboxen abgehakt; Doku-Bausteine vollständig (Beispielabschnitt `anlagen`/`abschluss`/`kasse` mit `lade_anlagen`, `lade_abschluss`, `lade_kasse` geladen und gegen die Standards geprüft).
 
+### Runde 1 — Befunde der Prüfer
+
+- [x] **EÜR Gewerbesteuer:** Kz 168 (2025 Zeile 67, 2026 Zeile 68) in `nicht_abziehbar`, SKR03 4320/2280–2284/4397, SKR04 7610/7640–7644/6437 → 168; Kennzahl `"-"` für Steuern vom Einkommen (SKR03 2200–2279, SKR04 7600–7609/7630–7639/7645–7649), Überleitung inkl. „außerhalb“ (`tests/test_abschluss_euer.py`, `tests/test_abschluss_kontenrahmen.py`, `tests/test_cli_abschluss.py`).
+- [x] **Kontenrahmen:** SKR03 1788/1792/1793/1795–1799 Bestand, 1794 USt; SKR04 2100–2399 und 2500–2799 Privat, 1420–1430 und 1435 Bestand; Einzelkennzahlen 4638, 4810–4819, 4853/4854, 8190/8191/8195/8196, 8330, 8340–8349 (SKR04 analog); 1792/3630 als Standard-Verrechnungskonto (`tests/test_abschluss_kontenrahmen.py`, `tests/test_abschluss_vortrag.py`, `tests/test_abschluss_konfiguration.py`).
+- [x] **Abgrenzung mehrjährig:** je Folgejahr eine Auflösung mit dessen Anteil (24/36 Monate, taggenau) (`tests/test_abschluss_abgrenzung.py`).
+- [x] **Nutzungsdauer vor Tabellen-Art:** `--typ notebook --nutzungsdauer 3` → linear (`tests/test_anlagen_dienst.py`).
+- [x] **Bank:** jedes Bankkonto des Kontenrahmens mit Bestand/Verkehr ohne Einrichtung ist ein Fehler (SKR03/SKR04) (`tests/test_abschluss_pruefungen.py`).
+- [x] **Sperre in Sammelläufen:** `classify` u. a. überspringen Umsätze in gesperrten Jahren, Warnung in `ungebucht` (`tests/test_abschluss_vortrag.py`).
+- [x] **Sammelposten-Abgang im Anschaffungsjahr** nach gebuchter Jahres-AfA: Korrektur, auch mit weiteren Gütern und im nächsten Lauf (`tests/test_anlagen_abgang.py`).
+- [x] **Niedrig:** Quelle Corona-Fenster, Prüfung `protokoll` (eigenes Modul `abschluss/protokoll.py`), Freitexte gekürzt, Gebäudekonten als Grenze mit Ausweg (`tests/test_anlagen_rechtsstand.py`, `tests/test_abschluss_vortrag.py`, `tests/test_kassenbuch.py`, `tests/test_abschluss_pruefungen.py`).
+
 ---
 
 ## Grenzen
@@ -142,10 +156,17 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   aber nicht übermittelt. `abschluss bilanz` und `abschluss uebermitteln` aus Spec 4.9 gibt es nicht.
 - Die **EÜR endet bei „Summe Betriebseinnahmen − Summe Betriebsausgaben“** (Zeilen 76/77 bzw.
   77/78). Hinzurechnungen und Kürzungen der Zeilen ab 78 (steuerfreie Einnahmen, § 3c, IAB § 7g,
-  § 4 Abs. 4a, nicht abziehbare Beträge wie Gewerbesteuer, 30 % Bewirtung) werden nicht berechnet;
-  nicht abziehbare Aufwendungen stehen in der Zeile, auf die ihr Konto zeigt. Kleinunternehmer
-  (Zeile 12), Land- und Forstwirte, Anlage AVEÜR als Formular und die EÜR-Zuordnung für jedes
-  einzelne SKR-Konto (es gibt Bereichsregeln, keine DATEV-Zuordnungstabelle) fehlen.
+  § 4 Abs. 4a) werden nicht berechnet. Nicht abziehbare Betriebsausgaben (Geschenke, Bewirtung,
+  Gewerbesteuer und sonstige — Kz 164, 165, 168) stehen in der Spalte „nicht abziehbar“, wenn ihr
+  Konto dorthin zeigt; die **Aufteilung** gemischter Konten (z. B. Bewirtung 70/30, Arbeitszimmer
+  Kz 162/172) rechnet accounti nicht, sie folgt allein dem Konto. Steuern vom Einkommen
+  (Kennzahl `"-"`) stehen außerhalb der EÜR; dass z. B. einbehaltene Kapitalertragsteuer
+  eigentlich eine Entnahme ist, berücksichtigt Zeile 107 (Kz 122) nicht. Kleinunternehmer und
+  § 24 UStG haben jetzt eine Kennzahl (8195/8190 bzw. 4185/4180), weitere Sonderregeln dazu
+  fehlen; Land- und Forstwirte, Anlage AVEÜR als Formular und die EÜR-Zuordnung für jedes
+  einzelne SKR-Konto (es gibt Bereichsregeln mit Einzelregeln für die bekannten Ausreißer, keine
+  DATEV-Zuordnungstabelle) fehlen. SKR03 1556–1569 (aufzuteilende/§ 15a-Vorsteuer) ist Bestand,
+  SKR04 1410–1419 Steuerkonto — wer damit eine EÜR rechnet, prüft die Zeile 58 selbst.
 - **EÜR mit offenen Posten:** Bucht man Rechnungen über Personenkonten (Baustein 4), stehen offene
   Rechnungen am Stichtag schon in der EÜR. accounti erkennt das (Warnung „offene Personenkonten“),
   korrigiert es aber nicht (DATEV-Verfahren „EÜR mit OPOS“ fehlt).
@@ -155,6 +176,12 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   Verwendungszweck, Buchungstext); der Rechnungszeitraum einer E-Rechnung (BT-73/74) wird nicht aus
   dem Archiv gelesen, weil der Beleg nur BT-74 trägt. Ohne erkennbaren Zeitraum gibt es keinen
   Vorschlag — dann bleibt `abschluss abgrenzen <BUCHUNG> --von --bis`.
+- **Gebäude:** Die Nutzungsdauer ist ganzzahlig, 3 % (§ 7 Abs. 4 Nr. 1 EStG, ND 33⅓) lassen sich
+  nicht abbilden (ND 33 ergäbe 3,03 %). Ein Gebäudekonto mit Saldo ohne passendes Anlagegut
+  meldet die Prüfung `anlagen` als **Fehler** — der Vortrag ist dann gesperrt. Ausweg: die
+  Gebäudekonten aus `anlagen.anlagekonten` nehmen (SKR03 z. B.
+  `[["0010", "0049"], ["0200", "0499"]]` ohne 0050–0199), dann prüft accounti sie nicht und die
+  Gebäude-AfA wird von Hand gebucht; Grund und Boden lässt sich als Art `keine` führen.
 - **Degressive AfA vor 2020** (z. B. 2009/2010) und Sonderabschreibungen (§ 7g, § 7b), Gebäude-AfA
   nach festen Prozentsätzen (§ 7 Abs. 4/5), Teilwertabschreibungen, außerplanmäßige AfA,
   Investitionsabzugsbetrag, nachträgliche AK, Einlagen zum Teilwert und Rumpfwirtschaftsjahre /
@@ -167,6 +194,8 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   Wirtschaftsgut „selbständig nutzbar“ ist, entscheidet der Mensch.
 - **Kontoauszugssalden** werden erfasst (`abschluss saldo`); den Saldo, den ein Provider im
   `Abruf` meldet, übernimmt der Bankabruf noch nicht (der Datei-Provider liefert keinen).
+  Bankkonten außerhalb der Spanne `bankkonten` (z. B. ein Kreditkartenkonto unter den
+  Verbindlichkeiten) prüft die Abstimmung nur, wenn sie als Bankkonto eingerichtet sind.
 - **Steueraufteilung in der SuSa** kennt die BU-Schlüssel 2, 3, 8, 9. Andere Schlüssel (ig. Erwerb,
   § 13b) bucht accounti bisher ohne Steuerbetrag; ein Steuerbetrag bei einem anderen Schlüssel
   bliebe unberücksichtigt.
@@ -175,8 +204,15 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - **Jahressperre:** Das ORM-Ereignis greift für jeden Code, der `accounti.db.tabellen_abschluss`
   geladen hat (`init_db`/`registriere_tabellen` tun das; die CLI lädt es beim Start über
   `befehle/abschluss.py`, also auch für `bestaetige`, `korrigiere`, `classify`). Rohes SQL und
-  Massen-`insert()`/`update()` an der ORM-Einheit vorbei sperrt es nicht (kein Datenbanktrigger). Ein `classify`-Lauf, der einen Umsatz in ein gesperrtes Jahr
-  buchen will, bricht mit `JahrGesperrtError` ab.
+  Massen-`insert()`/`update()` an der ORM-Einheit vorbei sperrt es nicht (kein Datenbanktrigger).
+  `classify`, `opos zuordnen` und `bank abgleich` überspringen Umsätze in gesperrten Jahren; die
+  Ausgabe von `classify` („kontiert/offen“) zählt sie nicht mit (die Ausgabe steht in `cli.py`,
+  nicht in diesem Baustein) — gemeldet werden sie von `abschluss pruefen` als Warnung. Einzelne
+  Befehle außerhalb des Bausteins (`bestaetige`, `korrigiere`) auf eine Buchung im gesperrten
+  Jahr scheitern weiterhin mit einem rohen `JahrGesperrtError` (gesperrt bleibt es).
+- **Abschlussprotokoll:** Die Prüfung `protokoll` erkennt eine geänderte Hash-Kette als Warnung;
+  wer Protokoll **und** Hashes konsistent neu schreibt, fällt nicht auf (kein externer Anker,
+  keine Signatur).
 - **Bestehende Kontenrahmendatei:** `config/skr03.yaml` (Auszug, von keinem Code gelesen) nennt
   4800 „Abschreibungen auf Sachanlagen“ und 0650 „Büromaschinen, EDV-Anlagen“; im DATEV SKR03 2026
   ist 4800 „Reparaturen und Instandhaltungen“ und 0650 ein Verbindlichkeiten-Davon-Konto. Auch das
@@ -196,6 +232,8 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   `anlagen/rechtsstand.yaml` (Paketdaten) und wird über `anlagen.rechtsstand` durch eine eigene
   Datei ergänzt/ersetzt — `config/` gehört nicht zu den Dateien dieses Bausteins.
 - **Postgres:** Getestet ist unter SQLite; die Tabellen sind portabel, die Sperre ist ORM-seitig.
+  Freitexte werden auf die Spaltenlänge gekürzt (siehe Entscheidungen); Texte aus anderen
+  Bausteinen (Transaktion, Buchung) prüft dieser Baustein nicht.
 
 ## Doku-Bausteine
 
@@ -262,8 +300,9 @@ Freigabe; gezählt wird in Salden und Auswertungen nur, was freigegeben ist.
   (`accounti anlagen …`). Kassenbuch mit laufender Nummer, Tagessaldo und Kassensturz, das einen
   negativen Bestand ablehnt und nur Stornos statt Änderungen kennt (`accounti kasse …`).
   Jahresabschluss: Kontoauszugssalden und Bank-Saldenabstimmung, Abschlussprüfungen mit Befunden,
-  Summen- und Saldenliste, ARAP/PRAP-Vorschläge mit Auflösung im Folgejahr,
-  Einnahmenüberschussrechnung nach Anlage EÜR 2025 und 2026, Eröffnungssalden, Saldovortrag mit
+  Summen- und Saldenliste, ARAP/PRAP-Vorschläge mit Auflösung in den Folgejahren,
+  Einnahmenüberschussrechnung nach Anlage EÜR 2025 und 2026 (Gewerbesteuer als nicht abziehbare
+  Betriebsausgabe, Steuern vom Einkommen außerhalb), Eröffnungssalden, Saldovortrag mit
   Jahressperre und Protokoll (`accounti abschluss …`). Neue, optionale Abschnitte `anlagen`,
   `abschluss`, `kasse`
 ```
@@ -273,7 +312,8 @@ Freigabe; gezählt wird in Salden und Auswertungen nur, was freigegeben ist.
 ```markdown
 - Buchungen in einem abgeschlossenen Jahr lassen sich nicht mehr anlegen, ändern oder löschen
   (`JahrGesperrtError`); `accounti abschluss oeffnen` hebt die Sperre mit Begründung und Protokoll
-  auf
+  auf. `classify`, `opos zuordnen` und `bank abgleich` lassen Umsätze in abgeschlossenen Jahren
+  aus
 ```
 
 **Behoben**
@@ -324,13 +364,13 @@ Baustein 9).
   negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos. *(vorhanden)*
 - `pruefungen.py` — benannte Abschlussprüfungen mit Befunden (Fehler/Warnung/Hinweis): u. a.
   Bank-Saldenabstimmung gegen `kontoauszugssalden`, Kassenbuch, AfA, offene Vorschläge. *(vorhanden)*
-- `abgrenzung.py` — ARAP/PRAP-Vorschläge aus dem Leistungszeitraum, Auflösung im Folgejahr gleich
+- `abgrenzung.py` — ARAP/PRAP-Vorschläge aus dem Leistungszeitraum, Auflösung je Folgejahr gleich
   mit (Tabelle `abgrenzungen`). *(vorhanden)*
 - `euer.py` + `euer_vordrucke.yaml` — EÜR nach Kennzahlen, Zeilen je Vordruckjahr. *(vorhanden)*
 - `vortrag.py` — Eröffnungssalden, Saldovortrag (EB gegen 9000/9008/9009), Jahressperre
   (`abschluesse`, ORM-Ereignis auf `buchungssaetze` in `db/tabellen_abschluss.py`; die CLI lädt es
-  über `befehle/abschluss.py` beim Start), Protokoll `abschlussprotokoll` (nur anfügen,
-  Hash-Kette). *(vorhanden)*
+  über `befehle/abschluss.py` beim Start). `protokoll.py` — Protokoll `abschlussprotokoll` (nur
+  anfügen, Hash-Kette, bei jeder Abschlussprüfung nachgerechnet). *(vorhanden)*
 - Bilanz/GuV, Rückstellungen und Übermittlung *(geplant)*.
 ```
 
@@ -364,7 +404,7 @@ abschluss:
   gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP)
   ergebnis_konto: "0880"         # Kapitalkonto für Ergebnis und Privatkonten (SKR04: 2010)
   rap_verzicht_bis_gwg: false    # § 5 Abs. 5 Satz 2 EStG, einheitlich für alle
-  verrechnungskonten: ["1360", "1590"]   # sollen zum Stichtag ausgeglichen sein
+  verrechnungskonten: ["1360", "1590", "1792"]   # sollen zum Stichtag ausgeglichen sein
   # kontenzuordnung: config/kontenzuordnung.yaml   # eigene Kontoarten/EÜR-Zuordnung
 
 # Kassenbuch (optional)
