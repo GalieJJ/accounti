@@ -36,7 +36,7 @@ Tatsachen.
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🟨 teilweise | [Spec](specs/2026-08-10-bankanbindung-live.md) |
 | 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | 🔲 geplant | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
-| 8 | Aufgaben & Rückfragen | `aufgaben/` | 🔲 geplant | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
+| 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
 | 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` | 🔲 geplant | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
 | 11 | Integrationen & Export | `importers/` `export/` `api/` | 🟨 teilweise | [Spec](specs/2026-08-10-integrationen-export.md) |
@@ -66,6 +66,14 @@ verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettensch
 Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) stehen — was fehlt, sind
 FinTS und Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
 Kreditwirtschaft (10–15 Werktage).
+**Baustein 8 ist fertig** ([Plan](plans/2026-10-25-aufgaben-rueckfragen.md)): Aufgaben mit
+Bezug auf ein beliebiges Objekt, idempotent über (Art, Objekt), mit Zuständigkeit (Benutzer,
+Rolle oder gemeinsame Liste), Fälligkeit, Verlauf und Selbstabschluss als `hinfaellig`;
+Prüfläufe für unsichere Kontierung, fehlende Belege, Belege und Kontakte zur Prüfung und
+Bankfreigaben; Rückfragen am Beleg; Erinnerungsstufen und eine gebündelte Tagesübersicht per
+E-Mail oder Webhook. Die Bausteine 7 und 9 melden ihre Aufgaben über `accounti.aufgaben`.
+Offen: Einhängen in `bank lauf` (bis dahin `accounti aufgaben lauf` im selben Cron-Eintrag),
+Benutzerkonten und Rechte (Baustein 10).
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

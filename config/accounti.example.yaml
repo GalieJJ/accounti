@@ -79,6 +79,43 @@ ustid_pruefung:
   timeout_sekunden: 60         # Rückfragen beim Mitgliedstaat können dauern
   # url: https://api.evatr.vies.bzst.de/app/v1/abfrage   # oder ACCOUNTI_EVATR_URL
 
+# Aufgaben & Rückfragen (optional — ohne diesen Abschnitt gelten die Standards)
+aufgaben:
+  ich: "jan"                     # für --zustaendig ich (sonst ACCOUNTI_BENUTZER bzw. Login-Name)
+  rollen:
+    buchhaltung: [jan, erika]
+  zustaendigkeit:                # erste passende Regel gewinnt; ohne Treffer: gemeinsame Liste
+    - wenn: {art: bank_freigabe}
+      an: jan
+    - wenn: {art: "beleg_*", bankkonto: "DE12*"}   # Merkmale: bankkonto, gegenpartei, kanal, …
+      rolle: buchhaltung
+  fristen:                       # Tage bis zur Fälligkeit je Art
+    standard: 7
+    beleg_fehlt: 10              # ab Umsatzdatum (GoBD Rz. 47: zehn Tage unbedenklich)
+    kontierung_pruefen: 10
+    bank_freigabe: 0
+  erinnerung:
+    stufen: [0, 3, 7]            # Tage nach Fälligkeit: fällig, 1. Erinnerung, letzte Stufe
+    eskalation_an: "@leitung"    # optional: Benutzer oder @rolle bekommt die letzte Stufe in Kopie
+    arten:
+      beleg_fehlt: {stufen: [0, 7, 14]}
+  pruefung:
+    kontierung_schwelle: 0.95    # darunter wird eine Buchung zur Aufgabe
+    beleg_fehlt_ab_betrag: 0.00
+    beleg_fehlt_nach_tagen: 0
+    abgeschaltet: []             # z.B. [kontakt_pruefen]
+  benachrichtigung:
+    kanaele: [email]             # email (SMTP aus 'versand'), webhook
+    neue_melden: true            # neue Aufgaben in die Tagesübersicht
+    # absender: "accounti <accounti@meine-firma.example>"   # sonst versand.absender
+    empfaenger:                  # ohne Adresse landet alles in 'gemeinsam'
+      jan: "jan@meine-firma.example"
+      "@leitung": "chefin@meine-firma.example"
+      gemeinsam: "buchhaltung@meine-firma.example"
+    # webhook:
+    #   url: "${ACCOUNTI_AUFGABEN_WEBHOOK}"   # http(s); Slack/Mattermost-kompatibel (Feld "text")
+    #   timeout_sekunden: 10
+
 # Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
 versand:
   absender: "Meine Firma GmbH <rechnung@meine-firma.example>"

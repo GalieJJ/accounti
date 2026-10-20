@@ -148,11 +148,38 @@ Die Mechanik hinter den Prinzipien 6 und 7. Benannte Prüfregeln mit Schweregrad
 
 `journal.py` führt das hashverkettete, append-only Journal. `perioden.py` schließt Zeiträume ab. `verfahrensdoku.py` generiert die Verfahrensdokumentation aus dem tatsächlichen Systemzustand statt aus einem Textbaustein, der nach der ersten Konfigurationsänderung nicht mehr stimmt.
 
-### `aufgaben/` *(geplant — [Baustein 8](specs/2026-08-10-aufgaben-rueckfragen.md))*
+### `aufgaben/` *(vorhanden — [Baustein 8](specs/2026-08-10-aufgaben-rueckfragen.md))*
 
-Alles, was ein Mensch entscheiden muss, an einem Ort: unsichere Buchung, unlesbarer Beleg, fehlender Beleg, ausstehende Freigabe. Erzeugung ist idempotent über (Art, Objekt), sonst entstünde bei jedem Prüflauf dieselbe Aufgabe neu. Entfällt der Anlass, schließt sich die Aufgabe selbst — Listen, die nur wachsen, werden ignoriert.
+Alles, was ein Mensch entscheiden muss, an einem Ort. Eine `Aufgabe` (`models/aufgaben.py`)
+zeigt auf `Objekt(typ, id)` — Buchung, Beleg, Transaktion, offener Posten, Kontakt, Bankkonto
+oder einen Typ, den ein anderer Baustein mitbringt (z.B. `frist`). Art und Objekttyp sind
+freie Bezeichner; `objekte.py` beschreibt und löst die bekannten Typen auf
+(`registriere_objekttyp`).
 
-Kommentare hängen an einer Aufgabe **oder** direkt am Beleg. Intern gedacht: kein Portal für externe Nutzer.
+- `erzeugung.py` — die Schnittstelle für andere Bausteine: `melde_aufgabe` ist idempotent über
+  den Schlüssel `art|objekt_typ|objekt_id` (eindeutiger Index, auch bei parallelen Läufen);
+  ein zweiter Aufruf aktualisiert; ein Versionszähler verhindert, dass ein Lauf die Änderung
+  eines Menschen überschreibt. `schliesse_wenn_erledigt` setzt `hinfaellig` (System),
+  `erledige` setzt `erledigt` (Mensch) — erledigt bleibt erledigt, hinfällig öffnet sich wieder,
+  wenn der Anlass zurückkehrt. Kommentare und Rückfragen hängen an Aufgabe und/oder Objekt;
+  der Verlauf ist nur anfügbar. *(vorhanden)*
+- `prueflaeufe.py` — Registry `PRUEFLAEUFE`: `kontierung_pruefen`, `beleg_fehlt` (über
+  `bank/abgleichslauf.offen_in_der_bank`), `beleg_pruefen`, `kontakt_pruefen`, `bank_freigabe`.
+  Prüfläufe lesen nur; `gleiche_ab` meldet die Anlässe und schließt Aufgaben ohne Anlass im
+  geprüften Umfang. *(vorhanden)*
+- `zustaendigkeit.py` — Regeln `wenn → an | rolle` aus `aufgaben.zustaendigkeit`; ohne Treffer
+  unzugewiesen = gemeinsame Liste. *(vorhanden)*
+- `erinnerung.py` — Stufen in Tagen nach Fälligkeit (Standard 0/3/7, je Art), die letzte
+  eskaliert. *(vorhanden)*
+- `benachrichtigung.py` — Tagesübersicht je Empfänger statt Einzelmeldungen, Kanal-Registry
+  `KANAELE`: `email` (SMTP aus `versand`, `Auto-Submitted` nach RFC 3834), `webhook` (JSON mit
+  `text`); Protokoll `aufgaben_benachrichtigungen`, höchstens eine Übersicht je Empfänger, Kanal
+  und Tag, als gemeldet gilt nur Zugestelltes; der Webhook-Text ist gegen fremdes Markup
+  entschärft. *(vorhanden)*
+- `anbindung.py` — lädt `accounti.<baustein>.aufgaben_anbindung` aller Bausteine, bevor
+  Prüfläufe, Objekttypen oder Kanäle gelesen werden. *(vorhanden)*
+
+Intern gedacht: kein Portal für externe Nutzer.
 
 ### `steuer/`
 
@@ -261,6 +288,7 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `Belegabgleich` | Stufe, Status (vorgeschlagen → bestätigt/abgelehnt), Confidence, Begründung, Differenz | → `Transaktion`, `Beleg` |
 | `Zahlung` | Lauf, Betrag, Ausführungsdatum, Status (Entwurf → freigegeben → eingereicht → ausgeführt) | → `OffenerPosten` |
 | `Aufgabe` | Art, Titel, Objektbezug, Zuständigkeit, Fälligkeit, Status, Idempotenzschlüssel | → beliebiges Objekt |
+| `Kommentar` | Art (Kommentar, Rückfrage, Ereignis), Autor, Text, Zeitpunkt, Anhang-Beleg | → `Aufgabe` und/oder beliebiges Objekt (nur anfügen) |
 | `Anlagegut` | Anschaffungsdatum und -kosten, Nutzungsdauer, AfA-Art, Restbuchwert, Abgang | → `Beleg`, `Buchungssatz` |
 | `Journaleintrag` | Laufende Nummer, Zeitpunkt, Benutzer, Vorgang, Vorher/Nachher, Hash des Vorgängers | → alles Buchungsrelevante |
 
@@ -360,6 +388,20 @@ vollständig nutzbar, wenn kein einziger Live-Provider eingerichtet ist.
 Prüfregeln aus `pruefung/regeln/` sind benannt, tragen einen Schweregrad und liefern Befunde —
 sie ändern nie Daten. Schwellenwerte (ab welchem Betrag ein fehlender Beleg auffällt, wie viele
 Tage Zeitgerechtheit bedeutet) gehören in die Konfiguration, nicht in den Code.
+
+### Aufgaben aus einem anderen Baustein melden
+
+Direkt: `melde_aufgabe(session, art, Objekt(typ, id), titel=…, erzeugt_von=…)` und
+`schliesse_wenn_erledigt(…)`, sobald der Anlass entfällt — mit einer eigenen Art. Als
+Prüflauf: eine Klasse mit `name`, `beschreibung`, `grund_entfallen` und `finde(session,
+einstellungen, stichtag, zeitraum) -> Pruefergebnis`, eingetragen mit `registriere_prueflauf`
+in einem Modul `accounti.<baustein>.aufgaben_anbindung` — das Modul wird von selbst geladen,
+der Lauf läuft mit `accounti aufgaben pruefen` und schließt Entfallenes selbst. Jeder
+Prüflauf besitzt genau eine Aufgabenart, auch Aufgaben, die andere mit dieser Art angelegt
+haben; wer die Regeln eines eingebauten Laufs ändern will, registriert einen Lauf gleichen
+Namens. Eigene Objekttypen (`registriere_objekttyp`) und Benachrichtigungskanäle
+(`adresse()` und `sende()`, eingetragen in `KANAELE`, in der Konfiguration unter
+`benachrichtigung.kanaele` genannt) gehören in dasselbe Modul.
 
 ### Neue Kontierungsregel hinzufügen
 

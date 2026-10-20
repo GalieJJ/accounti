@@ -92,7 +92,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Ordnungsmäßigkeit** | § 14 UStG-Pflichtangaben, Rechenprobe, Steuerschlüssel ./. Konto, Adressat |
 | 🔲 | **Belegnachforderung** | Fehlende Belege werden selbstständig angefordert und erinnert |
 | 🔲 | **Unveränderbares Journal** | Hashverkettet, Storno statt Änderung, Verfahrensdokumentation generiert |
-| 🔲 | **Aufgaben & Rückfragen** | Kommentare am Beleg statt E-Mail, Zuständigkeiten, Fristen, Erinnerungen |
+| ✅ | **Aufgaben & Rückfragen** | Aufgaben mit Bezug auf Buchung, Beleg, Umsatz, Kontakt oder Bankkonto; Prüfläufe (unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe) idempotent und mit Selbstabschluss; Zuständigkeit an Person oder Rolle, sonst gemeinsame Liste; Rückfragen am Beleg; gebündelte Tagesübersicht per E-Mail oder Webhook |
 | 🔲 | **Supervisionsansicht** | Web-UI: Beleg links, Vorschlag rechts, Korrektur in einem Schritt |
 
 **Steuer & Abschluss**
@@ -252,6 +252,31 @@ accounti kontakte ustid-protokoll ATU12345678 --csv ustid.csv
 Bestätigung aus den letzten 30 Tagen vorliegt (`ustid_pruefung.max_alter_tage`). Ist die
 Nummer ungültig oder stimmen Name/Ort nicht, wird die Rechnung nicht ausgestellt, und
 `opos verbuchen` legt solche Erlöse zur Prüfung vor.
+
+### Aufgaben und Rückfragen
+
+Alles, was ein Mensch entscheiden muss, steht an einem Ort. Prüfläufe werten vorhandene Daten
+aus — eine zweite Ausführung verdoppelt nichts, und eine Aufgabe ohne Anlass schließt sich
+selbst als `hinfaellig` (z.B. sobald der fehlende Beleg abgeglichen ist).
+
+```bash
+accounti aufgaben pruefen                      # unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe
+accounti aufgaben liste                        # offene Aufgaben; unzugewiesen = gemeinsame Liste
+accounti aufgaben liste --zustaendig ich       # eigene und die der eigenen Rollen
+accounti aufgaben zeige 42                     # mit Bezugsobjekt und Verlauf
+accounti aufgaben zuweisen 42 --an jan         # oder --rolle buchhaltung, --frei
+accounti aufgaben kommentieren 42 --text "Beim Lieferanten angefragt"
+accounti aufgaben erledigen 42 --text "Kontoführungsgebühr, belegfrei"
+accounti aufgaben rueckfrage 3fa2c1 --text "Wer war beim Essen dabei?" --an erika
+accounti aufgaben objekt beleg 3fa2c1          # Rückfragen, Kommentare, Aufgaben am Beleg
+accounti aufgaben erinnern --vorschau          # Tagesübersicht ansehen, nichts senden
+accounti aufgaben erinnern                     # je Empfänger eine Übersicht (E-Mail über 'versand')
+accounti aufgaben lauf                         # Cron: prüfen + erinnern, z.B. nach 'accounti bank lauf'
+```
+
+Erledigt bleibt erledigt: Wer eine Aufgabe mit Begründung schließt, bekommt sie vom nächsten
+Prüflauf nicht wieder. „Beleg fehlt“ lässt sich nur mit Begründung (`--text`) erledigen. Erinnerungen kommen am Fälligkeitstag, nach drei und nach sieben Tagen
+(einstellbar je Art, die letzte Stufe eskaliert auf Wunsch) — gebündelt, nicht als Einzelmail.
 
 ---
 
@@ -514,7 +539,7 @@ kontieren will, braucht nur v0.1.
 - [ ] Generierte Verfahrensdokumentation
 
 ### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
-- [ ] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
+- [x] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
 - [ ] Web-UI: Supervisions-Queue mit Belegansicht, BWA mit Vorjahresvergleich
 - [ ] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, DE/EN
 - [ ] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
