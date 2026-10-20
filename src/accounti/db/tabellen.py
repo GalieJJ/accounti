@@ -260,6 +260,22 @@ class ZahlungszuordnungRow(Base):
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
 
 
+class BelegabgleichRow(Base):
+    __tablename__ = "belegabgleiche"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    transaktion_id: Mapped[str] = mapped_column(String(36), index=True)
+    beleg_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("belege.id"), index=True
+    )
+    stufe: Mapped[str] = mapped_column(String(20))
+    status: Mapped[str] = mapped_column(String(20))
+    confidence: Mapped[float] = mapped_column(Float)
+    begruendung: Mapped[str] = mapped_column(String(500))
+    differenz: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
 class UnveraenderbarError(RuntimeError):
     """Ein Protokolleintrag soll geändert oder gelöscht werden."""
 

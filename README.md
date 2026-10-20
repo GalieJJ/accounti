@@ -75,7 +75,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 |--------|---------|-------------|
 | ✅ | **Bank-Import** | CSV mehrerer Banken, konfigurationsgetriebene Profile mit Auto-Erkennung |
 | 🔲 | **Live-Bankanbindung** | FinTS/HBCI direkt, PSD2-Aggregator optional, Kreditkarten |
-| 🔲 | **Belegabgleich** | Beleg ↔ Kontoumsatz automatisch zusammenführen, bevor kontiert wird |
+| ✅ | **Belegabgleich** | Quittungen und sonstige Belege ↔ Kontoumsatz (Referenz → exakt → Vorschlag), bevor kontiert wird; `classify` bucht abgeglichene Umsätze aus dem Beleg mit dessen Vorsteuer |
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
 | ✅ | **Kreditoren & Debitoren** | Personenkonten (SKR03/04-Kreise), Stammdaten, Erkennung aus Belegen (IBAN → USt-IdNr. → Name), Neuanlage zur Prüfung, qualifizierte USt-IdNr.-Bestätigung beim BZSt (eVatR-REST-API) mit revisionssicherem Protokoll |
@@ -212,7 +212,11 @@ accounti import bank ./umsaetze.csv
 accounti opos zuordnen                         # Eindeutiges wird sofort ausgeglichen
 accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen ohne Referenz
 accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
-accounti classify                              # kontiert nur, was übrig bleibt
+accounti bank abgleich                         # Quittungen & Co. ↔ Umsätze
+accounti bank vorschlaege                      # mehrdeutig, Rundung, Trinkgeld
+accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <ID>
+accounti classify                              # kontiert aus dem Beleg, sonst Regelwerk/LLM
+accounti bank offen                            # Umsätze ohne Beleg, Belege ohne Umsatz
 ```
 
 ### USt-IdNr.-Prüfung
@@ -483,7 +487,8 @@ kontieren will, braucht nur v0.1.
 - [x] Offene Posten aus Belegen, OPOS-Liste, Fälligkeitsstaffel
 - [x] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
 - [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
-- [ ] Belegabgleich vor der Kontierung, geplanter Abruf
+- [x] Belegabgleich vor der Kontierung
+- [ ] Geplanter Abruf über Provider (Datei, FinTS — braucht eine FinTS-Produktregistrierung)
 
 ### v0.4 — Zahlung & Prüfung *(Bausteine 6, 7)*
 - [ ] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe

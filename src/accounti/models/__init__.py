@@ -350,6 +350,28 @@ class Zahlungszuordnung(BaseModel):
     erstellt_am: datetime = Field(default_factory=datetime.now)
 
 
+class AbgleichStatus(str, enum.Enum):
+    VORGESCHLAGEN = "vorgeschlagen"  # wartet auf Bestätigung
+    BESTAETIGT = "bestaetigt"  # Beleg gehört zum Umsatz (automatisch oder bestätigt)
+    ABGELEHNT = "abgelehnt"  # Paar wird nicht wieder vorgeschlagen
+
+
+class Belegabgleich(BaseModel):
+    """Ein Bankumsatz und der Beleg, der zu ihm gehört (Baustein 5)."""
+
+    id: UUID = Field(default_factory=uuid4)
+    transaktion_id: UUID
+    beleg_id: UUID
+    stufe: str = Field(description="referenz, exakt, unscharf")
+    status: AbgleichStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    begruendung: str
+    differenz: Decimal = Field(
+        default=Decimal("0"), description="gezahlt minus Belegbetrag"
+    )
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
 class UstIdPruefart(str, enum.Enum):
     EINFACH = "einfach"  # nur Gültigkeit
     QUALIFIZIERT = "qualifiziert"  # Gültigkeit + Name/Anschrift

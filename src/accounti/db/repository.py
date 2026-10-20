@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from accounti.db.tabellen import (
     AusgangspositionRow,
     AusgangsrechnungRow,
+    BelegabgleichRow,
     BelegEingangRow,
     BelegpositionRow,
     BelegRow,
@@ -26,10 +27,12 @@ from accounti.db.tabellen import (
     ZahlungszuordnungRow,
 )
 from accounti.models import (
+    AbgleichStatus,
     AusgangsPosition,
     Ausgangsrechnung,
     AusgangsrechnungStatus,
     Beleg,
+    Belegabgleich,
     Belegart,
     BelegEingang,
     Belegposition,
@@ -1004,3 +1007,71 @@ def lade_ustid_pruefungen(
 def letzte_ustid_pruefung(session: Session) -> UstIdPruefung | None:
     r = session.query(UstIdPruefungRow).order_by(UstIdPruefungRow.nr.desc()).first()
     return _row_zu_ustid(r) if r is not None else None
+
+
+# --- Belegabgleich (Baustein 5) -------------------------------------------------
+
+
+def _row_zu_abgleich(r: BelegabgleichRow) -> Belegabgleich:
+    return Belegabgleich(
+        id=UUID(r.id),
+        transaktion_id=UUID(r.transaktion_id),
+        beleg_id=UUID(r.beleg_id),
+        stufe=r.stufe,
+        status=AbgleichStatus(r.status),
+        confidence=r.confidence,
+        begruendung=r.begruendung,
+        differenz=Decimal(str(r.differenz)),
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def speichere_abgleich(session: Session, a: Belegabgleich) -> None:
+    session.add(
+        BelegabgleichRow(
+            id=str(a.id),
+            transaktion_id=str(a.transaktion_id),
+            beleg_id=str(a.beleg_id),
+            stufe=a.stufe,
+            status=a.status.value,
+            confidence=a.confidence,
+            begruendung=a.begruendung[:500],
+            differenz=a.differenz,
+            erstellt_am=a.erstellt_am,
+        )
+    )
+    session.flush()
+
+
+def lade_abgleiche(
+    session: Session,
+    status: set[AbgleichStatus] | None = None,
+    praefix: str | None = None,
+) -> list[Belegabgleich]:
+    query = session.query(BelegabgleichRow).order_by(BelegabgleichRow.erstellt_am)
+    if status is not None:
+        query = query.filter(BelegabgleichRow.status.in_([s.value for s in status]))
+    if praefix is not None:
+        query = query.filter(BelegabgleichRow.id.like(f"{praefix}%"))
+    return [_row_zu_abgleich(r) for r in query.all()]
+
+
+def setze_abgleich_status(
+    session: Session, abgleich_id: UUID, status: AbgleichStatus
+) -> None:
+    row = session.get(BelegabgleichRow, str(abgleich_id))
+    if row is None:
+        raise ValueError(f"Abgleich {abgleich_id} nicht gefunden")
+    row.status = status.value
+    session.flush()
+
+
+def gebuchte_beleg_ids(session: Session) -> set[UUID]:
+    """Belege, auf die schon ein Buchungssatz zeigt."""
+    rows = (
+        session.query(BuchungssatzRow.beleg_id)
+        .filter(BuchungssatzRow.beleg_id.is_not(None))
+        .distinct()
+        .all()
+    )
+    return {UUID(b) for (b,) in rows if b}

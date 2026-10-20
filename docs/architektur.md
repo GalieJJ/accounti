@@ -79,12 +79,13 @@ Liest und schreibt strukturierte Rechnungen. Alle Formate werden auf ein gemeins
 - `versand.py` — versendet die archivierte Datei (nie neu erzeugt) per SMTP; Versandweg als Schnittstelle, damit Peppol später andocken kann; jeder Versuch steht in `versandprotokolle`. Zugangsdaten aus dem Abschnitt `versand`, Passwort per `${UMGEBUNGSVARIABLE}`. *(vorhanden)*
 - `erzeuger/` — Ausgangsrechnungen. Die Steuer kommt vollständig aus `steuer/`; es gibt keine zweite Steuerlogik im Rechnungsschreiber.
 
-### `bank/` *(geplant — [Baustein 5](specs/2026-08-10-bankanbindung-live.md))*
+### `bank/` *(teilweise — [Baustein 5](specs/2026-08-10-bankanbindung-live.md))*
 
 Holt Kontoumsätze selbst ab und führt sie mit Belegen zusammen.
 
 - `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar.
-- `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender.
+- `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender. Abgeglichen werden Quittungen und sonstige Belege; Rechnungen laufen über offene Posten. Automatisch nur, was auf beiden Seiten eindeutig ist; zwei gleiche Belege werden zwei Vorschläge. *(vorhanden)*
+- `abgleichslauf.py` — Tabelle `belegabgleiche` (vorgeschlagen/bestätigt/abgelehnt), Bestätigen verwirft konkurrierende Vorschläge, Bericht „Umsätze ohne Beleg / Belege ohne Umsatz“. *(vorhanden)*
 - `konten.py` — Bankkonten und Zugänge; Zugangsdaten verschlüsselt, nie in Logs, nie im LLM-Prompt.
 
 ### `klassifikation/`
@@ -115,6 +116,8 @@ Transaktion
 ### `buchung/`
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
+
+`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg. Alle anderen Umsätze gehen wie bisher durch Regelwerk und LLM. *(vorhanden)*
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
@@ -252,6 +255,7 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `Kontakt` | Name, Anschrift, Land, USt-IdNr., IBAN, Zahlungsbedingungen, Personenkonto | → `Beleg`, `OffenerPosten` |
 | `OffenerPosten` | Richtung, Betrag, Restbetrag, Fälligkeit, Skontofrist, Status, Mahnstufe | → `Kontakt`, `Beleg` |
 | `UstIdPruefung` | Nr., Zeitpunkt, USt-IdNr., Art, Anfrage/Antwort roh, BZSt-Status und -ID, Ergebnisse A–D, Vorgänger-Hash, Hash | → `Kontakt` (nur anfügen) |
+| `Belegabgleich` | Stufe, Status (vorgeschlagen → bestätigt/abgelehnt), Confidence, Begründung, Differenz | → `Transaktion`, `Beleg` |
 | `Zahlung` | Lauf, Betrag, Ausführungsdatum, Status (Entwurf → freigegeben → eingereicht → ausgeführt) | → `OffenerPosten` |
 | `Aufgabe` | Art, Titel, Objektbezug, Zuständigkeit, Fälligkeit, Status, Idempotenzschlüssel | → beliebiges Objekt |
 | `Anlagegut` | Anschaffungsdatum und -kosten, Nutzungsdauer, AfA-Art, Restbuchwert, Abgang | → `Beleg`, `Buchungssatz` |
