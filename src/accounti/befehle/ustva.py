@@ -246,8 +246,12 @@ def freigeben(
 ) -> None:
     """Werte des Zeitraums zur Abgabe freigeben — immer durch einen Menschen."""
     from accounti.anzeige import betrag_de
+    from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.elster.freigabe import FreigabeError, gib_frei
+    from accounti.models.auth import Recht
 
+    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10)
+    befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
     with sitzung(period, db, config) as (s, lauf):
         v = lauf.vorbereiten(s)
         zeige_kennziffern(v)
@@ -501,6 +505,11 @@ def dauerfrist(
 
     if test and testfall:
         ende("--test und --testfall schließen sich aus")
+    if freigeben and von:
+        from accounti.auth.cli import befehlsrecht_oder_ende
+        from accounti.models.auth import Recht
+
+        befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
     try:
         einstellungen = lade_elster(config)
         buchhaltung = lade_buchhaltung(config)

@@ -360,6 +360,8 @@ def freigeben(
 ) -> None:
     """Lauf prüfen und freigeben (mit zahlung.vier_augen: zwei Personen)."""
     from accounti.anzeige import betrag_de
+    from accounti.auth.cli import befehlsrecht_oder_ende
+    from accounti.models.auth import Recht
     from accounti.models.zahlung import LaufStatus
     from accounti.zahlung import freigabe
 
@@ -368,6 +370,8 @@ def freigeben(
         person = freigabe.person_fuer_freigabe(von, e)
     except freigabe.LaufError as fehler:
         raise _fehler(str(fehler)) from fehler
+    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10)
+    befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:

@@ -38,6 +38,24 @@ app = typer.Typer(
 console = Console()
 
 
+@app.callback()
+def gesellschaft_waehlen(
+    ctx: typer.Context,
+    gesellschaft: str | None = typer.Option(
+        None,
+        "--gesellschaft",
+        "-g",
+        envvar="ACCOUNTI_GESELLSCHAFT",
+        help="Gesellschaft aus der Registry (Abschnitt gesellschaften): setzt "
+        "--db, --archiv und --config aller Befehle",
+    ),
+) -> None:
+    """Gesellschaft und Umgebung (ACCOUNTI_DB/ARCHIV/KONFIG) für alle Befehle."""
+    from accounti.betrieb.cli import richte_kontext_ein
+
+    richte_kontext_ein(ctx, gesellschaft)
+
+
 @app.command()
 def version() -> None:
     """Zeigt die aktuelle Version an."""
