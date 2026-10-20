@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.09">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>ACCOUNTI-7-20261020093000</MsgId>
+      <CreDtTm>2026-10-20T09:30:00</CreDtTm>
+      <NbOfTxs>3</NbOfTxs>
+      <CtrlSum>1416.21</CtrlSum>
+      <InitgPty>
+        <Nm>Galerie Muster GmbH</Nm>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>ACCOUNTI-7</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>false</BtchBookg>
+      <NbOfTxs>3</NbOfTxs>
+      <CtrlSum>1416.21</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+      </PmtTpInf>
+      <ReqdExctnDt>
+        <Dt>2026-10-21</Dt>
+      </ReqdExctnDt>
+      <Dbtr>
+        <Nm>Galerie Muster GmbH</Nm>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE12500105170648489890</IBAN>
+        </Id>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BICFI>COBADEFFXXX</BICFI>
+        </FinInstnId>
+      </DbtrAgt>
+      <ChrgBr>SLEV</ChrgBr>
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>RE-200</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">1166.20</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Bürobedarf Müller GmbH</Nm>
+          <PstlAdr>
+            <StrtNm>Hauptstraße</StrtNm>
+            <BldgNb>12a</BldgNb>
+            <PstCd>24103</PstCd>
+            <TwnNm>Kiel</TwnNm>
+            <Ctry>DE</Ctry>
+          </PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>DE89370400440532013000</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>RE-200 vom 10.10.2026, abzgl. 23,80 EUR Skonto</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>SK-77</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">250.00</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Schulz &amp; Söhne KG</Nm>
+          <PstlAdr>
+            <StrtNm>Am Markt</StrtNm>
+            <PstCd>20095</PstCd>
+            <TwnNm>Hamburg</TwnNm>
+            <Ctry>DE</Ctry>
+          </PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>DE02120300000000202051</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>SK-77 vom 01.10.2026</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+      <CdtTrfTxInf>
+        <PmtId>
+          <EndToEndId>ACCOUNTI-7-3</EndToEndId>
+        </PmtId>
+        <Amt>
+          <InstdAmt Ccy="EUR">0.01</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>Atelier Geneve SA</Nm>
+          <PstlAdr>
+            <StrtNm>Rue du Rhone</StrtNm>
+            <BldgNb>8</BldgNb>
+            <PstCd>1204</PstCd>
+            <TwnNm>Geneve</TwnNm>
+            <Ctry>CH</Ctry>
+          </PstlAdr>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>CH9300762011623852957</IBAN>
+          </Id>
+        </CdtrAcct>
+        <RmtInf>
+          <Ustrd>Rechnung</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>

@@ -1,0 +1,23 @@
+Testdaten Zahlungsverkehr (Baustein 6)
+======================================
+
+pain.001.001.09_GBIC_5.xsd
+  Technical Validation Subset (TVS) der Deutschen Kreditwirtschaft für
+  SEPA-Überweisungen nach Anlage 3 des DFÜ-Abkommens, ab Version 3.9
+  (für SEPA ab 05.10.2025; unverändert in Version 26.11, gültig ab 15.11.2026).
+  Quelle:  https://www.ebics.de/de/datenformate/ergaenzende-dokumente
+           Archiv "DK-TVS_SEPA_GBIC_5zzglISO_Originale.zip",
+           Eintrag pain.001.001.09_GBIC_5.xsd (Dateistand 01.04.2025)
+  Abruf:   20.10.2026
+  SHA-256: d64da6e1553cf8dd38f98818fe3234fb79daec792d0a69483a1ab8e90dec8b8c
+  Urheber: Die Deutsche Kreditwirtschaft / SIZ GmbH. Unverändert übernommen,
+           nur zur Schemaprüfung in den Tests. Keine ausdrückliche Lizenz.
+
+XsdPruefung.java
+  Eigenes Hilfsprogramm: prüft eine XML-Datei mit javax.xml.validation gegen
+  ein XSD (Java 11+ im Quelltextmodus).
+
+pain001_soll.xml
+  Soll-Datei für den Golden-Test, von accounti erzeugt und gegen das XSD oben
+  geprüft. Ändert sich der Erzeuger, muss die Änderung hier bewusst
+  nachgezogen werden.

@@ -27,6 +27,7 @@ from accounti.db.repo_zahlung import (
     entferne_zahlung,
     gib_posten_frei,
     hebe_zahlungssperre_auf,
+    lade_laeufe,
     lade_lauf,
     lade_protokoll,
     naechste_laufnummer,
@@ -48,8 +49,8 @@ from accounti.models.zahlung import (
 from accounti.zahlung.iban import lesbar, normalisiere
 from accounti.zahlung.konfiguration import ZahlungEinstellungen
 from accounti.zahlung.pruefung import Pruefergebnis, pruefe_lauf
-from accounti.zahlung.sepa import referenz, verwendungszweck
 from accounti.zahlung.vorschlag import Zahlungsvorschlag
+from accounti.zahlung.zeichen import referenz, verwendungszweck
 
 UEBERGAENGE: dict[LaufStatus, frozenset[LaufStatus]] = {
     LaufStatus.ENTWURF: frozenset({LaufStatus.FREIGEGEBEN, LaufStatus.STORNIERT}),
@@ -360,6 +361,33 @@ def markiere_eingereicht(
         msg_id=msg_id,
         eingereicht_am=zeitpunkt or datetime.now().replace(microsecond=0),
     )
+
+
+def angekommen(session: Session, z: Zahlung) -> bool:
+    """Ist die Zahlung beim Posten angekommen (durch einen Bankumsatz ausgeglichen)?"""
+    p = lade_einen_posten(session, z.posten_id)
+    return p.restbetrag <= z.restbetrag_vorher - z.betrag
+
+
+def pruefe_ausfuehrung(session: Session, person: str) -> list[Zahlungslauf]:
+    """Setzt eingereichte Läufe auf „ausgeführt“, sobald alle Zahlungen angekommen sind.
+
+    Ausgeglichen wird hier nichts — das macht der Bankumsatz über ``opos zuordnen``.
+    """
+    fertig = []
+    for lauf in lade_laeufe(session, {LaufStatus.EINGEREICHT}):
+        if lauf.zahlungen and all(angekommen(session, z) for z in lauf.zahlungen):
+            fertig.append(
+                _wechsel(
+                    session,
+                    lauf,
+                    LaufStatus.AUSGEFUEHRT,
+                    person,
+                    "ausgefuehrt",
+                    f"alle {len(lauf.zahlungen)} Posten durch Bankumsätze ausgeglichen",
+                )
+            )
+    return fertig
 
 
 def storniere(session: Session, lauf_nr: int, person: str, grund: str) -> Zahlungslauf:
