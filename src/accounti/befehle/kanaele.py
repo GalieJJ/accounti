@@ -154,3 +154,144 @@ def nachrichten(
             escape(n.hinweis or ""),
         )
     console.print(tabelle)
+
+
+# ---------------------------------------------------------------------------
+# Webhook
+# ---------------------------------------------------------------------------
+webhook = typer.Typer(help="Tokengeschützter HTTP-Endpunkt für Fremdsysteme.")
+befehl.add_typer(webhook, name="webhook")
+
+ARCHIV_STANDARD = "archiv/belege"
+
+
+@webhook.command("token")
+def webhook_token(
+    name: str = typer.Argument(help="Wer das Token nutzt, z.B. n8n oder telegram"),
+    db: str = DB_OPTION,
+) -> None:
+    """Neues Token erzeugen — der Klartext wird nur dieses eine Mal angezeigt."""
+    from accounti.belege.webhook.token import lege_token_an
+
+    with _sitzungen(db)() as s:
+        try:
+            token = lege_token_an(s, name)
+        except ValueError as fehler:
+            _ende(str(fehler))
+            return
+        s.commit()
+    console.print(
+        "Token — jetzt sicher ablegen, gespeichert wird nur sein Hash:", soft_wrap=True
+    )
+    console.print(token, soft_wrap=True, markup=False, highlight=False)
+    console.print(
+        "[dim]Aufruf: curl -H 'Authorization: Bearer <TOKEN>' "
+        "-F datei=@rechnung.pdf http://127.0.0.1:8410/belege[/dim]",
+        soft_wrap=True,
+    )
+
+
+@webhook.command("tokens")
+def webhook_tokens(db: str = DB_OPTION) -> None:
+    """Tokens mit Status und letzter Nutzung (ohne Klartext)."""
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.db.repo_kanaele import lade_webhook_tokens
+
+    with _sitzungen(db)() as s:
+        tokens = lade_webhook_tokens(s)
+    if not tokens:
+        console.print("[dim]Keine Tokens — accounti kanaele webhook token NAME[/dim]")
+        return
+    tabelle = Table(title="Webhook-Tokens")
+    for spalte in ("Name", "Erstellt", "Zuletzt genutzt", "Status"):
+        tabelle.add_column(spalte)
+    for t in tokens:
+        tabelle.add_row(
+            escape(t.name),
+            f"{t.erstellt_am:%d.%m.%Y %H:%M}",
+            f"{t.zuletzt_genutzt_am:%d.%m.%Y %H:%M}" if t.zuletzt_genutzt_am else "—",
+            "aktiv"
+            if t.aktiv
+            else f"widerrufen {t.widerrufen_am:%d.%m.%Y}"
+            if t.widerrufen_am
+            else "widerrufen",
+        )
+    console.print(tabelle)
+
+
+@webhook.command("widerrufen")
+def webhook_widerrufen(
+    name: str = typer.Argument(help="Name des Tokens"),
+    db: str = DB_OPTION,
+) -> None:
+    """Token sofort sperren."""
+    from rich.markup import escape
+
+    from accounti.db.repo_kanaele import widerrufe_webhook_token
+
+    with _sitzungen(db)() as s:
+        try:
+            widerrufe_webhook_token(s, name)
+        except ValueError as fehler:
+            _ende(str(fehler))
+            return
+        s.commit()
+    console.print(f"[green]Widerrufen:[/green] {escape(name)}")
+
+
+@webhook.command("starten")
+def webhook_starten(
+    host: str | None = typer.Option(None, help="Standard: belegkanaele.webhook.host"),
+    port: int | None = typer.Option(None, help="Standard: belegkanaele.webhook.port"),
+    db: str = DB_OPTION,
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = KONFIG_OPTION,
+    erkennen: bool = typer.Option(
+        True, "--erkennen/--ohne-erkennung", help="Belege direkt lesen"
+    ),
+    ocr_sprache: str = typer.Option("deu", help="Tesseract-Sprache(n)"),
+) -> None:
+    """Webhook-Dienst starten (POST /belege, GET /gesund)."""
+    import uvicorn
+
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.belege.erkennung import BelegErkenner
+    from accounti.belege.kanaele.einstellungen import lade_belegkanaele
+    from accounti.belege.ocr.tesseract import TesseractEngine
+    from accounti.belege.webhook import erstelle_app
+    from accounti.db.repo_kanaele import lade_webhook_tokens
+    from accounti.konfiguration import KonfigurationError, lade_eigene_firma
+
+    try:
+        einstellungen = lade_belegkanaele(config)
+        firma = lade_eigene_firma(config)
+    except KonfigurationError as fehler:
+        _ende(str(fehler))
+        return
+    make_session = _sitzungen(db)
+    with make_session() as s:
+        if not any(t.aktiv for t in lade_webhook_tokens(s)):
+            console.print(
+                "[yellow]Noch kein aktives Token — jede Anfrage wird abgewiesen. "
+                "accounti kanaele webhook token NAME[/yellow]"
+            )
+    erkenner = None
+    if erkennen:
+        erkenner = BelegErkenner(
+            ocr=TesseractEngine(sprache=ocr_sprache),
+            eigene_ust_ids={firma.ust_id} if firma and firma.ust_id else set(),
+            eigene_firma=firma.name if firma else None,
+        )
+    app = erstelle_app(
+        make_session,
+        BelegArchiv(archiv),
+        einstellungen.webhook,
+        einstellungen.pruefung(),
+        erkenner,
+    )
+    adresse = host or einstellungen.webhook.host
+    nummer = port or einstellungen.webhook.port
+    console.print(f"Beleg-Webhook auf http://{adresse}:{nummer}/belege")
+    uvicorn.run(app, host=adresse, port=nummer, log_level="info")

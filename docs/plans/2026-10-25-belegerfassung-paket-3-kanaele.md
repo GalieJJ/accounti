@@ -125,9 +125,9 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 
 ### Paket C — Webhook
 
-- [ ] **Token** (`tests/test_kanaele_webhook.py`): erzeugen (Präfix, Länge), nur Hash gespeichert, prüfen, widerrufen, doppelter Name abgelehnt, „zuletzt genutzt“.
-- [ ] **App mit TestClient:** ohne/falscher/widerrufener Token → 401 mit `WWW-Authenticate`; Rohdaten-PDF → 200 `neu`, Beleg mit Herkunft und Absender; Multipart mit zwei Dateien und Feld `absender`; JSON mit Base64; zu groß (Content-Length und gestreamt) → 413; falscher Typ → 415; kaputtes JSON/Multipart → 400; zu viele Dateien → 413; gleiche Datei zweimal → `dublette`; Erkenner-Fehler → 200 mit Status `pruefung`; `/gesund` ohne Token.
-- [ ] **CLI:** `kanaele webhook token NAME` zeigt Token einmal; `tokens` zeigt keinen Klartext; `widerrufen`; `starten` übergibt App, Host und Port an uvicorn (uvicorn ersetzt).
+- [x] **Token** (`tests/test_kanaele_webhook.py`): erzeugen (Präfix, Länge), nur Hash gespeichert, prüfen, widerrufen, doppelter Name abgelehnt, „zuletzt genutzt“.
+- [x] **App mit TestClient:** ohne/falscher/widerrufener Token → 401 mit `WWW-Authenticate`; Rohdaten-PDF → 200 `neu`, Beleg mit Herkunft und Absender; Multipart mit zwei Dateien und Feld `absender`; JSON mit Base64; zu groß (Content-Length und gestreamt) → 413; falscher Typ → 415; kaputtes JSON/Multipart → 400; zu viele Dateien → 413; gleiche Datei zweimal → `dublette`; Erkenner-Fehler → 200 mit Status `pruefung`; `/gesund` ohne Token.
+- [x] **CLI:** `kanaele webhook token NAME` zeigt Token einmal; `tokens` zeigt keinen Klartext; `widerrufen`; `starten` übergibt App, Host und Port an uvicorn (uvicorn ersetzt).
 
 ### Paket D — Connector
 

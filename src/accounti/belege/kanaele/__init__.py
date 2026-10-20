@@ -40,4 +40,4 @@ def registriere(kanal: type[BelegKanal]) -> type[BelegKanal]:
     return kanal
 
 
-from accounti.belege.kanaele import email, ordner, upload  # noqa: E402, F401
+from accounti.belege.kanaele import email, ordner, upload, webhook  # noqa: E402, F401

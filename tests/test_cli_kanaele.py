@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -202,3 +203,82 @@ def test_nachrichten_ohne_eintraege(tmp_path):
     r = runner.invoke(app, ["kanaele", "nachrichten", "--db", _db(tmp_path)])
     assert r.exit_code == 0
     assert "Keine" in r.output
+
+
+# ---------------------------------------------------------------------------
+# Webhook
+# ---------------------------------------------------------------------------
+
+
+def test_webhook_token_tokens_widerrufen(tmp_path):
+    db = ["--db", _db(tmp_path)]
+    r = runner.invoke(app, ["kanaele", "webhook", "token", "n8n", *db])
+    assert r.exit_code == 0, r.output
+    (token,) = re.findall(r"accounti_wh_[A-Za-z0-9_-]+", r.output)
+    doppelt = runner.invoke(app, ["kanaele", "webhook", "token", "n8n", *db])
+    assert doppelt.exit_code == 1
+    liste = runner.invoke(app, ["kanaele", "webhook", "tokens", *db])
+    assert "n8n" in liste.output
+    assert "aktiv" in liste.output
+    assert token not in liste.output
+    r = runner.invoke(app, ["kanaele", "webhook", "widerrufen", "n8n", *db])
+    assert r.exit_code == 0
+    liste = runner.invoke(app, ["kanaele", "webhook", "tokens", *db])
+    assert "widerrufen" in liste.output
+    r = runner.invoke(app, ["kanaele", "webhook", "widerrufen", "gibtsnicht", *db])
+    assert r.exit_code == 1
+
+
+def test_webhook_starten_uebergibt_app_an_uvicorn(tmp_path, monkeypatch):
+    import uvicorn
+    from fastapi.testclient import TestClient
+
+    gestartet = {}
+    monkeypatch.setattr(
+        uvicorn, "run", lambda app, **kw: gestartet.update(app=app, **kw)
+    )
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text("belegkanaele:\n  webhook:\n    port: 9123\n", encoding="utf-8")
+    db = ["--db", _db(tmp_path)]
+    r = runner.invoke(
+        app,
+        [
+            "kanaele",
+            "webhook",
+            "starten",
+            "--config",
+            str(konfig),
+            "--archiv",
+            str(tmp_path / "archiv"),
+            "--ohne-erkennung",
+            *db,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert "kein aktives Token" in r.output
+    assert (gestartet["host"], gestartet["port"]) == ("127.0.0.1", 9123)
+    neu = runner.invoke(app, ["kanaele", "webhook", "token", "erp", *db])
+    (token,) = re.findall(r"accounti_wh_[A-Za-z0-9_-]+", neu.output)
+    antwort = TestClient(gestartet["app"]).post(
+        "/belege",
+        content=pdf_mit_text(RECHNUNG),
+        headers={"Authorization": f"Bearer {token}", "X-Dateiname": "r.pdf"},
+    )
+    assert antwort.status_code == 200, antwort.text
+    liste = runner.invoke(app, ["belege", "liste", "--db", _db(tmp_path)])
+    assert "r.pdf" in liste.output
+    r = runner.invoke(
+        app,
+        [
+            "kanaele",
+            "webhook",
+            "starten",
+            "--port",
+            "9999",
+            "--config",
+            str(tmp_path / "fehlt.yaml"),
+            *db,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert gestartet["port"] == 9999
