@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import binascii
 import functools
+import logging
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -48,6 +49,10 @@ from accounti.importers.camt import lies_camt
 from accounti.importers.kontoauszug import Auszug, KontoauszugError
 from accounti.importers.mt940 import lies_mt940
 from accounti.models import Bankkonto
+
+# python-fints protokolliert jede Rückmeldung der Bank (3040, 3076 …) als Warnung;
+# accounti meldet Ergebnisse selbst — ohne eigene Logging-Einrichtung bleibt es still
+logging.getLogger("fints").addHandler(logging.NullHandler())
 
 SITZUNG = "sitzung"  # Schlüssel im Zugang: Sitzungsdaten der Bank (Base64)
 FORMATE = ("auto", "camt", "mt940")
