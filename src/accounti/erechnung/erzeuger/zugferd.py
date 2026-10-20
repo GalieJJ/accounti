@@ -16,6 +16,7 @@ from xml.sax.saxutils import escape
 
 from fpdf import FPDF
 
+from accounti.anzeige import betrag_de
 from accounti.erechnung.modell import Partei, Rechnung
 
 ANHANG = "xrechnung.xml"
@@ -35,13 +36,6 @@ _EINHEITEN = {
     "LS": "pauschal",
     "SET": "Satz",
 }
-
-
-def betrag_de(wert: Decimal | None) -> str:
-    if wert is None:
-        return "—"
-    text = f"{wert.quantize(Decimal('0.01')):,.2f}"
-    return text.replace(",", "§").replace(".", ",").replace("§", ".")
 
 
 def _zahl(wert: Decimal | None) -> str:

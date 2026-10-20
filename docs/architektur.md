@@ -116,17 +116,17 @@ Transaktion
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
 
-Geplant: ein zweiter Pfad über Personenkonten. Liegt ein Beleg mit Kontakt vor, wird gegen Debitor bzw. Kreditor gebucht und ein offener Posten erzeugt. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig.
+Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
-### `kontakte/` *(geplant — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
+### `kontakte/` *(teilweise — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
 
-Debitoren- und Kreditorenstammdaten mit Personenkontonummern aus den Nummernkreisen des Kontenrahmens. Erkennung aus Belegdaten über IBAN, dann USt-IdNr., dann Name — greift nichts, geht die Neuanlage zur Prüfung, statt still zu passieren.
+Debitoren- und Kreditorenstammdaten mit Personenkontonummern aus den Nummernkreisen des Kontenrahmens (Abschnitt `buchhaltung`, Standard 10000–69999 / 70000–99999). `erkennung.py` findet Kontakte über IBAN, dann USt-IdNr., dann den normalisierten Namen (Rechtsform, Satzzeichen, Umlaut-Schreibweisen egal) — greift nichts, geht die Neuanlage zur Prüfung, statt still zu passieren. `dienst.py` legt an, vergibt das Personenkonto der Rolle und ergänzt fehlende Angaben, ohne vorhandene zu überschreiben. *(vorhanden)*
 
 `ustid.py` führt die qualifizierte Bestätigungsabfrage durch und protokolliert sie revisionssicher. Erst damit steht die in `steuer/umsatzsteuer.py` implementierte Regel „EU + B2B mit USt-ID → 0 %" auf einer belastbaren Grundlage.
 
-### `opos/` *(geplant — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
+### `opos/` *(teilweise — [Baustein 4](specs/2026-08-10-kreditoren-debitoren-opos.md))*
 
-Offene Posten mit Fälligkeit, Skontofrist und Restbetrag; Fälligkeitsstaffel. `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
+Offene Posten mit Fälligkeit, Skontofrist und Restbetrag. `verbuchung.py` macht aus einem erfassten Beleg die Buchungen je Steuersatz (Eingang: Sachkonto aus Kontakt-Vorschlag, Regelwerk oder Standard zur Prüfung; Ausgang: Erlöskonto nach Steuerkategorie der E-Rechnung) und den Posten; jeder Beleg genau einmal, jeder in eigenem Savepoint. `auswertung.py` liefert OPOS-Liste, Fälligkeitsstaffel und Summen je Kontakt. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
 
 ### `zahlung/` und `mahnwesen/` *(geplant — [Baustein 6](specs/2026-08-10-zahlungsverkehr-mahnwesen.md))*
 

@@ -163,6 +163,7 @@ def zu_beleg(
             "leistungsdatum": r.leistungsdatum or r.leistungszeitraum_bis,
             "lieferant_name": r.verkaeufer.name,
             "lieferant_ust_id": r.verkaeufer.ust_id,
+            "iban": r.iban,
             "netto": betrag(r.summen.netto),
             "steuer": betrag(r.summen.steuer),
             "brutto": betrag(r.summen.brutto),

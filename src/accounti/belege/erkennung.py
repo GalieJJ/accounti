@@ -355,6 +355,7 @@ class BelegErkenner:
             "leistungsdatum": extrakt.leistungsdatum,
             "lieferant_name": extrakt.lieferant_name,
             "lieferant_ust_id": extrakt.lieferant_ust_id,
+            "iban": extrakt.iban,
             "netto": extrakt.netto,
             "steuer": extrakt.steuer,
             "brutto": extrakt.brutto,

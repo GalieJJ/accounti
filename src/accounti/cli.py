@@ -1,5 +1,6 @@
 """accounti CLI — Kommandozeilenschnittstelle."""
 
+from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated
 
 import typer
@@ -8,13 +9,15 @@ from rich.console import Console
 if TYPE_CHECKING:
     from datetime import date
 
+    from sqlalchemy.orm import Session
+
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
     from accounti.konfiguration import Firma
-    from accounti.models import Beleg
+    from accounti.models import Beleg, Buchungssatz, Kontakt, PostenRichtung
 
 app = typer.Typer(
     name="accounti",
@@ -893,6 +896,404 @@ def rechnung_pruefen(
 
 
 # ---------------------------------------------------------------------------
+# Kontakte (Debitoren und Kreditoren)
+# ---------------------------------------------------------------------------
+kontakte_app = typer.Typer(help="Debitoren und Kreditoren verwalten.")
+app.add_typer(kontakte_app, name="kontakte")
+
+
+def _kontakt_oder_ende(session: "Session", schluessel: str) -> "Kontakt":
+    from rich.markup import escape
+
+    from accounti.db.repository import lade_kontakt
+
+    try:
+        return lade_kontakt(session, schluessel)
+    except ValueError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
+
+def _konten(k: "Kontakt") -> str:
+    return " / ".join(filter(None, [k.kreditor_konto, k.debitor_konto]))
+
+
+@kontakte_app.command("liste")
+def kontakte_liste(
+    typ: str | None = typer.Option(None, help="kreditor oder debitor"),
+    status: str | None = typer.Option(None, help="geprueft oder pruefung"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Kontakte mit Personenkonten anzeigen."""
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_kontakte
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        kontakte = lade_kontakte(s)
+    if typ == "kreditor":
+        kontakte = [k for k in kontakte if k.ist_kreditor]
+    elif typ == "debitor":
+        kontakte = [k for k in kontakte if k.ist_debitor]
+    elif typ is not None:
+        console.print("[red]--typ: kreditor oder debitor[/red]")
+        raise typer.Exit(1)
+    if status is not None:
+        kontakte = [k for k in kontakte if k.status.value == status]
+    if not kontakte:
+        console.print("[dim]Keine Kontakte.[/dim]")
+        return
+    tabelle = Table(title="Kontakte")
+    for spalte in ("Konto", "Name", "Ort", "USt-IdNr.", "Sachkonto", "Status"):
+        tabelle.add_column(spalte, overflow="fold")
+    for k in kontakte:
+        tabelle.add_row(
+            _konten(k),
+            escape(k.name),
+            escape(" ".join(filter(None, [k.plz, k.ort]))),
+            k.ust_id or "—",
+            k.sachkonto or "—",
+            k.status.value,
+        )
+    console.print(tabelle)
+
+
+@kontakte_app.command("zeigen")
+def kontakte_zeigen(
+    schluessel: str = typer.Argument(help="Personenkonto oder Anfang der ID"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Stammdaten und offene Posten eines Kontakts."""
+    from rich.markup import escape
+
+    from accounti.anzeige import betrag_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_posten
+    from accounti.opos.auswertung import offene_posten
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        k = _kontakt_oder_ende(s, schluessel)
+        posten = [p for p in offene_posten(lade_posten(s)) if p.kontakt_id == k.id]
+
+    def zeile(label: str, wert: object) -> None:
+        text = "—" if wert in (None, "") else escape(str(wert))
+        console.print(f"  {label:18} {text}")
+
+    console.print(f"[bold]{escape(k.name)}[/bold] ({_konten(k)})")
+    zeile("Status", k.status.value + (f" — {k.pruef_grund}" if k.pruef_grund else ""))
+    zeile(
+        "Anschrift",
+        ", ".join(
+            filter(None, [k.strasse, f"{k.plz or ''} {k.ort or ''}".strip(), k.land])
+        ),
+    )
+    zeile("USt-IdNr.", k.ust_id)
+    zeile("Steuernummer", k.steuernummer)
+    zeile("IBAN", k.iban)
+    zeile("E-Mail", k.email)
+    zeile("Sachkonto", k.sachkonto)
+    zeile(
+        "Zahlungsziel", f"{k.zahlungsziel_tage} Tage" if k.zahlungsziel_tage else None
+    )
+    if k.skonto_prozent is not None:
+        zeile("Skonto", f"{k.skonto_prozent.normalize()} % in {k.skonto_tage} Tagen")
+    summe = sum((p.restbetrag for p in posten), start=Decimal(0))
+    zeile("Offene Posten", f"{len(posten)} · {betrag_de(summe)} €")
+
+
+@kontakte_app.command("bestaetigen")
+def kontakte_bestaetigen(
+    schluessel: str = typer.Argument(help="Personenkonto oder Anfang der ID"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Automatisch angelegten Kontakt nach Prüfung freigeben."""
+    from rich.markup import escape
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import aktualisiere_kontakt
+    from accounti.models import KontaktStatus
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        k = _kontakt_oder_ende(s, schluessel)
+        aktualisiere_kontakt(
+            s,
+            k.model_copy(
+                update={"status": KontaktStatus.GEPRUEFT, "pruef_grund": None}
+            ),
+        )
+        s.commit()
+    console.print(f"[green]Bestätigt:[/green] {escape(k.name)} ({_konten(k)})")
+
+
+@kontakte_app.command("bearbeiten")
+def kontakte_bearbeiten(
+    schluessel: str = typer.Argument(help="Personenkonto oder Anfang der ID"),
+    name: str | None = typer.Option(None),
+    sachkonto: str | None = typer.Option(None, help="Vorschlag für Buchungen"),
+    zahlungsziel: int | None = typer.Option(None, help="Zahlungsziel in Tagen"),
+    skonto_prozent: float | None = typer.Option(None),
+    skonto_tage: int | None = typer.Option(None),
+    ust_id: str | None = typer.Option(None),
+    steuernummer: str | None = typer.Option(None),
+    iban: str | None = typer.Option(None),
+    email: str | None = typer.Option(None),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Stammdaten eines Kontakts ändern."""
+    from rich.markup import escape
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import aktualisiere_kontakt
+
+    aenderungen: dict[str, object] = {
+        feld: wert
+        for feld, wert in (
+            ("name", name),
+            ("sachkonto", sachkonto),
+            ("zahlungsziel_tage", zahlungsziel),
+            ("skonto_tage", skonto_tage),
+            ("ust_id", ust_id),
+            ("steuernummer", steuernummer),
+            ("iban", iban.replace(" ", "").upper() if iban else None),
+            ("email", email),
+        )
+        if wert is not None
+    }
+    if skonto_prozent is not None:
+        aenderungen["skonto_prozent"] = Decimal(str(skonto_prozent))
+    if not aenderungen:
+        console.print("[yellow]Nichts zu ändern.[/yellow]")
+        return
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        k = _kontakt_oder_ende(s, schluessel)
+        aktualisiere_kontakt(s, k.model_copy(update=aenderungen))
+        s.commit()
+    console.print(
+        f"[green]Geändert:[/green] {escape(k.name)} — " + ", ".join(sorted(aenderungen))
+    )
+
+
+# ---------------------------------------------------------------------------
+# Offene Posten
+# ---------------------------------------------------------------------------
+opos_app = typer.Typer(help="Offene Posten: verbuchen, Liste, Fälligkeitsstaffel.")
+app.add_typer(opos_app, name="opos")
+
+_RICHTUNGEN = {
+    "eingang": "verbindlichkeit",
+    "verbindlichkeit": "verbindlichkeit",
+    "verbindlichkeiten": "verbindlichkeit",
+    "ausgang": "forderung",
+    "forderung": "forderung",
+    "forderungen": "forderung",
+}
+
+
+def _richtung_option(wert: str | None) -> "PostenRichtung | None":
+    from accounti.models import PostenRichtung
+
+    if wert is None:
+        return None
+    if wert.lower() not in _RICHTUNGEN:
+        console.print(
+            "[red]--richtung: eingang (Verbindlichkeiten) "
+            "oder ausgang (Forderungen)[/red]"
+        )
+        raise typer.Exit(1)
+    return PostenRichtung(_RICHTUNGEN[wert.lower()])
+
+
+@opos_app.command("verbuchen")
+def opos_verbuchen(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Erfasste Rechnungen auf Personenkonten buchen und offene Posten anlegen."""
+    from rich.markup import escape
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.klassifikation.engine import STANDARD_REGELN, RegelwerkEngine
+    from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.konfiguration import (
+        KonfigurationError,
+        lade_buchhaltung,
+        lade_eigene_firma,
+    )
+    from accounti.models import BuchungStatus, PostenRichtung
+    from accounti.opos.verbuchung import verbuche_belege
+
+    try:
+        einstellungen = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    regelwerk = RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        lauf = verbuche_belege(
+            s,
+            einstellungen,
+            BelegArchiv(archiv),
+            regelwerk,
+            eigene_firma=lade_eigene_firma(config),
+        )
+        s.commit()
+    for v in lauf.verbucht:
+        k = v.treffer.kontakt
+        rolle = (
+            f"Kreditor {k.kreditor_konto}"
+            if v.posten.richtung is PostenRichtung.VERBINDLICHKEIT
+            else f"Debitor {k.debitor_konto}"
+        )
+        herkunft = "neu" if v.kontakt_neu else f"erkannt über {v.merkmal}"
+        if v.kontakt_neu and k.status.value == "pruefung":
+            herkunft += ", zur Prüfung"
+        pruefen = sum(b.status is BuchungStatus.ZUR_PRUEFUNG for b in v.buchungen)
+        console.print(
+            f"[green]{escape(v.beleg.belegnummer or v.beleg.dateiname)}[/green] → "
+            f"{rolle} {escape(k.name)} ({herkunft}) · "
+            f"{betrag_de(v.posten.betrag)} € fällig {datum_de(v.posten.faellig_am)} · "
+            f"{len(v.buchungen)} Buchungen"
+            + (f", [yellow]{pruefen} zur Prüfung[/yellow]" if pruefen else "")
+        )
+    for beleg, grund in lauf.fehler:
+        console.print(
+            "[red]Nicht verbucht:[/red] "
+            f"{escape(beleg.belegnummer or beleg.dateiname)} — {escape(grund)}"
+        )
+    if not lauf.verbucht and not lauf.fehler:
+        console.print("[dim]Nichts zu verbuchen.[/dim]")
+    elif lauf.verbucht:
+        console.print(
+            "[dim]Bankzahlungen zu diesen Posten nicht zusätzlich mit 'classify' "
+            "kontieren — die Zahlungszuordnung folgt mit 'opos zuordnen'.[/dim]"
+        )
+
+
+@opos_app.command("liste")
+def opos_liste(
+    richtung: str | None = typer.Option(None, help="eingang oder ausgang"),
+    faellig: bool = typer.Option(False, "--faellig", help="nur fällige Posten"),
+    stichtag: str | None = typer.Option(None, help="JJJJ-MM-TT (heute)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Offene Posten anzeigen."""
+    from datetime import date
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_kontakte, lade_posten
+    from accounti.opos.auswertung import offene_posten, ueberfaellig_tage
+
+    filter_richtung = _richtung_option(richtung)
+    tag = _datum_option(stichtag, "--stichtag") or date.today()
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        posten = offene_posten(
+            lade_posten(s),
+            faellig_bis=tag if faellig else None,
+            richtung=filter_richtung,
+        )
+        kontakte = {k.id: k for k in lade_kontakte(s)}
+    if not posten:
+        console.print("[dim]Keine offenen Posten.[/dim]")
+        return
+    tabelle = Table(title=f"Offene Posten zum {datum_de(tag)}")
+    tabelle.add_column("Fällig", no_wrap=True)
+    tabelle.add_column("Tage", justify="right", no_wrap=True)
+    tabelle.add_column("Konto", no_wrap=True)
+    tabelle.add_column("Kontakt", overflow="fold")
+    tabelle.add_column("Beleg", no_wrap=True)
+    tabelle.add_column("Rest", justify="right", no_wrap=True)
+    tabelle.add_column("Skonto bis", no_wrap=True)
+    for p in posten:
+        k = kontakte.get(p.kontakt_id)
+        tage = ueberfaellig_tage(p, tag)
+        konto = (
+            (
+                k.kreditor_konto
+                if p.richtung.value == "verbindlichkeit"
+                else k.debitor_konto
+            )
+            if k
+            else None
+        )
+        tabelle.add_row(
+            f"{p.faellig_am:%d.%m.%y}",
+            f"[red]{tage}[/red]" if tage > 0 else str(tage),
+            konto or "—",
+            escape(k.name if k else "?"),
+            escape(p.belegnummer or "—"),
+            betrag_de(p.restbetrag),
+            f"{p.skonto_bis:%d.%m.%y}" if p.skonto_bis else "—",
+        )
+    console.print(tabelle)
+    summe = sum((p.restbetrag for p in posten), start=Decimal(0))
+    console.print(f"  {len(posten)} Posten · Rest {betrag_de(summe)} €")
+
+
+@opos_app.command("staffel")
+def opos_staffel(
+    stichtag: str | None = typer.Option(None, help="JJJJ-MM-TT (heute)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Fälligkeitsstaffel für Verbindlichkeiten und Forderungen."""
+    from datetime import date
+
+    from rich.table import Table
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_posten
+    from accounti.models import PostenRichtung
+    from accounti.opos.auswertung import STAFFELN, faelligkeitsstaffel
+
+    tag = _datum_option(stichtag, "--stichtag") or date.today()
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        posten = lade_posten(s)
+    verbindlichkeiten = faelligkeitsstaffel(
+        [p for p in posten if p.richtung is PostenRichtung.VERBINDLICHKEIT], tag
+    )
+    forderungen = faelligkeitsstaffel(
+        [p for p in posten if p.richtung is PostenRichtung.FORDERUNG], tag
+    )
+    tabelle = Table(title=f"Fälligkeitsstaffel zum {datum_de(tag)}")
+    tabelle.add_column("Überfällig")
+    tabelle.add_column("Verbindlichkeiten", justify="right")
+    tabelle.add_column("Forderungen", justify="right")
+    for stufe in STAFFELN:
+        tabelle.add_row(
+            stufe, betrag_de(verbindlichkeiten[stufe]), betrag_de(forderungen[stufe])
+        )
+    tabelle.add_row(
+        "[bold]Summe[/bold]",
+        f"[bold]{betrag_de(sum(verbindlichkeiten.values(), start=Decimal(0)))}[/bold]",
+        f"[bold]{betrag_de(sum(forderungen.values(), start=Decimal(0)))}[/bold]",
+    )
+    console.print(tabelle)
+
+
+# ---------------------------------------------------------------------------
 # Klassifikation
 # ---------------------------------------------------------------------------
 @app.command()
@@ -1115,6 +1516,32 @@ def bestaetige(
     console.print(f"[green]Freigegeben:[/green] {str(b.id)[:8]} → geprüft")
 
 
+def _lerne_sachkonto(
+    session: "Session", buchung: "Buchungssatz", soll: str, haben: str
+) -> str | None:
+    """Lernschleife für Belegbuchungen: das Sachkonto wird zum Vorschlag am Kontakt."""
+    from accounti.db.repository import (
+        aktualisiere_kontakt,
+        lade_kontakt,
+        lade_posten_fuer_beleg,
+    )
+
+    if buchung.beleg_id is None:
+        return None
+    posten = lade_posten_fuer_beleg(session, buchung.beleg_id)
+    if posten is None:
+        return None
+    kontakt = lade_kontakt(session, str(posten.kontakt_id))
+    if kontakt.kreditor_konto == haben:
+        sachkonto = soll  # Eingang: Aufwand an Kreditor
+    elif kontakt.debitor_konto == soll:
+        sachkonto = haben  # Ausgang: Debitor an Erlös
+    else:
+        return None
+    aktualisiere_kontakt(session, kontakt.model_copy(update={"sachkonto": sachkonto}))
+    return f"Sachkonto {sachkonto} als Vorschlag für {kontakt.name}"
+
+
 @app.command()
 def korrigiere(
     buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
@@ -1142,6 +1569,34 @@ def korrigiere(
         except ValueError as fehler:
             console.print(f"[red]{fehler}[/red]")
             raise typer.Exit(1) from fehler
+        if original.transaktion_id is None:
+            # Belegbuchung: Beträge und Steuer kommen aus dem Beleg, korrigiert
+            # werden nur die Konten.
+            if steuer is not None:
+                console.print(
+                    "[red]Die Steuer einer Belegbuchung kommt aus dem Beleg — "
+                    "nur Konten korrigieren.[/red]"
+                )
+                raise typer.Exit(1)
+            neu = original.model_copy(
+                update={
+                    "soll_konto": soll,
+                    "haben_konto": haben,
+                    "status": BuchungStatus.KORRIGIERT,
+                    "geprueft_von": von,
+                }
+            )
+            aktualisiere_buchung(s, buchung_id, neu)
+            gelernt = _lerne_sachkonto(s, original, soll, haben) if lernen else None
+            s.commit()
+            console.print(
+                f"[green]Korrigiert:[/green] {str(original.id)[:8]} → "
+                f"Soll {soll} / Haben {haben}"
+            )
+            if gelernt:
+                console.print(f"[green]Gelernt:[/green] {gelernt}")
+            return
+
         tx = lade_transaktion(s, original.transaktion_id)
         if tx is None:
             console.print("[red]Zugehörige Transaktion nicht gefunden.[/red]")

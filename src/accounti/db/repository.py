@@ -17,7 +17,9 @@ from accounti.db.tabellen import (
     BelegpositionRow,
     BelegRow,
     BuchungssatzRow,
+    KontaktRow,
     NummernkreisRow,
+    OffenerPostenRow,
     TransaktionRow,
     VersandprotokollRow,
 )
@@ -34,6 +36,11 @@ from accounti.models import (
     Buchungssatz,
     BuchungStatus,
     Eingangsergebnis,
+    Kontakt,
+    KontaktStatus,
+    OffenerPosten,
+    PostenRichtung,
+    PostenStatus,
     Rechnungsempfaenger,
     Transaktion,
     TransaktionQuelle,
@@ -74,7 +81,8 @@ def _row_zu_transaktion(r: TransaktionRow) -> Transaktion:
 def _row_zu_buchung(r: BuchungssatzRow) -> Buchungssatz:
     return Buchungssatz(
         id=UUID(r.id),
-        transaktion_id=UUID(r.transaktion_id),
+        transaktion_id=_uuid(r.transaktion_id),
+        beleg_id=_uuid(r.beleg_id),
         datum=r.datum,
         soll_konto=r.soll_konto,
         haben_konto=r.haben_konto,
@@ -82,6 +90,7 @@ def _row_zu_buchung(r: BuchungssatzRow) -> Buchungssatz:
         steuer_schluessel=r.steuer_schluessel,
         steuer_betrag=_dec(r.steuer_betrag),
         buchungstext=r.buchungstext,
+        beleg_nummer=r.beleg_nummer,
         beleg_position_id=_uuid(r.beleg_position_id),
         status=BuchungStatus(r.status),
         confidence=r.confidence,
@@ -128,7 +137,8 @@ def speichere_buchung(session: Session, b: Buchungssatz) -> None:
     session.add(
         BuchungssatzRow(
             id=str(b.id),
-            transaktion_id=str(b.transaktion_id),
+            transaktion_id=_str(b.transaktion_id),
+            beleg_id=_str(b.beleg_id),
             datum=b.datum,
             soll_konto=b.soll_konto,
             haben_konto=b.haben_konto,
@@ -136,6 +146,7 @@ def speichere_buchung(session: Session, b: Buchungssatz) -> None:
             steuer_schluessel=b.steuer_schluessel,
             steuer_betrag=b.steuer_betrag,
             buchungstext=b.buchungstext,
+            beleg_nummer=b.beleg_nummer,
             beleg_position_id=_str(b.beleg_position_id),
             status=b.status.value,
             confidence=b.confidence,
@@ -165,7 +176,9 @@ def lade_pruefliste(
     )
     ergebnis: list[tuple[Buchungssatz, Transaktion | None]] = []
     for r in rows:
-        tx_row = session.get(TransaktionRow, r.transaktion_id)
+        tx_row = (
+            session.get(TransaktionRow, r.transaktion_id) if r.transaktion_id else None
+        )
         tx = _row_zu_transaktion(tx_row) if tx_row is not None else None
         ergebnis.append((_row_zu_buchung(r), tx))
     return ergebnis
@@ -216,6 +229,7 @@ def aktualisiere_buchung(
     row.steuer_schluessel = neu.steuer_schluessel
     row.steuer_betrag = neu.steuer_betrag
     row.buchungstext = neu.buchungstext
+    row.beleg_nummer = neu.beleg_nummer
     row.status = neu.status.value
     row.confidence = neu.confidence
     row.geprueft_von = neu.geprueft_von
@@ -252,6 +266,7 @@ def _row_zu_beleg(r: BelegRow, positionen: list[Belegposition]) -> Beleg:
         kontakt_id=_uuid(r.kontakt_id),
         lieferant_name=r.lieferant_name,
         lieferant_ust_id=r.lieferant_ust_id,
+        iban=r.iban,
         netto=_dec(r.netto),
         steuer=_dec(r.steuer),
         brutto=_dec(r.brutto),
@@ -284,6 +299,7 @@ def speichere_beleg(session: Session, b: Beleg) -> None:
             kontakt_id=_str(b.kontakt_id),
             lieferant_name=b.lieferant_name,
             lieferant_ust_id=b.lieferant_ust_id,
+            iban=b.iban,
             netto=b.netto,
             steuer=b.steuer,
             brutto=b.brutto,
@@ -330,6 +346,7 @@ _ERKANNTE_FELDER = (
     "leistungsdatum",
     "lieferant_name",
     "lieferant_ust_id",
+    "iban",
     "netto",
     "steuer",
     "brutto",
@@ -679,3 +696,163 @@ def lade_versandprotokolle(session: Session, schluessel: str) -> list[Versandpro
         )
         for z in zeilen
     ]
+
+
+# ---------------------------------------------------------------------------
+# Kontakte
+# ---------------------------------------------------------------------------
+
+_KONTAKT_FELDER = (
+    "name",
+    "strasse",
+    "plz",
+    "ort",
+    "land",
+    "ust_id",
+    "steuernummer",
+    "iban",
+    "email",
+    "kreditor_konto",
+    "debitor_konto",
+    "zahlungsziel_tage",
+    "skonto_prozent",
+    "skonto_tage",
+    "sachkonto",
+    "pruef_grund",
+)
+
+
+def _row_zu_kontakt(r: KontaktRow) -> Kontakt:
+    return Kontakt(
+        id=UUID(r.id),
+        **{f: getattr(r, f) for f in _KONTAKT_FELDER if f != "skonto_prozent"},
+        skonto_prozent=_dec(r.skonto_prozent),
+        status=KontaktStatus(r.status),
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def speichere_kontakt(session: Session, k: Kontakt) -> None:
+    session.add(
+        KontaktRow(
+            id=str(k.id),
+            **{f: getattr(k, f) for f in _KONTAKT_FELDER},
+            status=k.status.value,
+            erstellt_am=k.erstellt_am,
+        )
+    )
+    session.flush()
+
+
+def lade_kontakte(session: Session) -> list[Kontakt]:
+    rows = session.query(KontaktRow).order_by(KontaktRow.erstellt_am).all()
+    return [_row_zu_kontakt(r) for r in rows]
+
+
+def _finde_kontakt_zeile(session: Session, schluessel: str) -> KontaktRow:
+    """Sucht über Personenkontonummer oder den Anfang der ID."""
+    treffer = (
+        session.query(KontaktRow)
+        .filter(
+            (KontaktRow.kreditor_konto == schluessel)
+            | (KontaktRow.debitor_konto == schluessel)
+        )
+        .all()
+    ) or session.query(KontaktRow).filter(KontaktRow.id.like(f"{schluessel}%")).all()
+    if not treffer:
+        msg = f"Kein Kontakt mit Konto oder ID '{schluessel}' gefunden."
+        raise ValueError(msg)
+    if len(treffer) > 1:
+        msg = f"'{schluessel}' ist mehrdeutig ({len(treffer)} Treffer)."
+        raise ValueError(msg)
+    return treffer[0]
+
+
+def lade_kontakt(session: Session, schluessel: str) -> Kontakt:
+    return _row_zu_kontakt(_finde_kontakt_zeile(session, schluessel))
+
+
+def aktualisiere_kontakt(session: Session, k: Kontakt) -> Kontakt:
+    row = session.get(KontaktRow, str(k.id))
+    if row is None:
+        msg = f"Kontakt {k.id} nicht gefunden."
+        raise ValueError(msg)
+    for feld in _KONTAKT_FELDER:
+        setattr(row, feld, getattr(k, feld))
+    row.status = k.status.value
+    session.flush()
+    return _row_zu_kontakt(row)
+
+
+# ---------------------------------------------------------------------------
+# Offene Posten
+# ---------------------------------------------------------------------------
+
+
+def _row_zu_posten(r: OffenerPostenRow) -> OffenerPosten:
+    return OffenerPosten(
+        id=UUID(r.id),
+        kontakt_id=UUID(r.kontakt_id),
+        beleg_id=UUID(r.beleg_id),
+        richtung=PostenRichtung(r.richtung),
+        belegnummer=r.belegnummer,
+        belegdatum=r.belegdatum,
+        betrag=Decimal(str(r.betrag)),
+        restbetrag=Decimal(str(r.restbetrag)),
+        faellig_am=r.faellig_am,
+        skonto_bis=r.skonto_bis,
+        skonto_prozent=_dec(r.skonto_prozent),
+        skonto_betrag=_dec(r.skonto_betrag),
+        status=PostenStatus(r.status),
+        mahnstufe=r.mahnstufe,
+        erstellt_am=r.erstellt_am,
+    )
+
+
+def speichere_posten(session: Session, p: OffenerPosten) -> None:
+    session.add(
+        OffenerPostenRow(
+            id=str(p.id),
+            kontakt_id=str(p.kontakt_id),
+            beleg_id=str(p.beleg_id),
+            richtung=p.richtung.value,
+            belegnummer=p.belegnummer,
+            belegdatum=p.belegdatum,
+            betrag=p.betrag,
+            restbetrag=p.restbetrag,
+            faellig_am=p.faellig_am,
+            skonto_bis=p.skonto_bis,
+            skonto_prozent=p.skonto_prozent,
+            skonto_betrag=p.skonto_betrag,
+            status=p.status.value,
+            mahnstufe=p.mahnstufe,
+            erstellt_am=p.erstellt_am,
+        )
+    )
+    session.flush()
+
+
+def lade_posten(
+    session: Session,
+    richtung: PostenRichtung | None = None,
+    status: set[PostenStatus] | None = None,
+) -> list[OffenerPosten]:
+    query = session.query(OffenerPostenRow).order_by(OffenerPostenRow.faellig_am)
+    if richtung is not None:
+        query = query.filter(OffenerPostenRow.richtung == richtung.value)
+    if status is not None:
+        query = query.filter(OffenerPostenRow.status.in_([s.value for s in status]))
+    return [_row_zu_posten(r) for r in query.all()]
+
+
+def verbuchte_beleg_ids(session: Session) -> set[UUID]:
+    return {UUID(b) for (b,) in session.query(OffenerPostenRow.beleg_id).all()}
+
+
+def lade_posten_fuer_beleg(session: Session, beleg_id: UUID) -> OffenerPosten | None:
+    row = (
+        session.query(OffenerPostenRow)
+        .filter(OffenerPostenRow.beleg_id == str(beleg_id))
+        .one_or_none()
+    )
+    return _row_zu_posten(row) if row is not None else None
