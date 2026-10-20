@@ -9,6 +9,7 @@ alle Konten zu überschreiben.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +91,14 @@ class Integrationen(BaseModel):
     auszahlung_toleranz_tage: int = Field(default=10, ge=0, le=60)
     ermaessigte_artikel: list[str] = Field(
         default_factory=list, description="SKUs mit ermäßigtem Steuersatz"
+    )
+    eu_fernverkaeufe_sonstige: dict[int, Decimal] = Field(
+        default_factory=dict,
+        description=(
+            "EU-Fernverkäufe an Privatkunden (netto) je Kalenderjahr, die nicht aus "
+            "Marktplatz-Abrechnungen stammen — z.B. das Vorjahr vor accounti oder "
+            "eigene Rechnungen; zählen für die Lieferschwelle (§ 3c Abs. 4 UStG)"
+        ),
     )
     paypal_kontobezeichnung: str = Field(
         default="PPLXLULL/PAYPAL", description="Feld :25: im MT940 (BIC/Konto)"

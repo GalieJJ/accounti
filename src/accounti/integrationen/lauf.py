@@ -94,29 +94,37 @@ def _erkenner(markt: str, abrechnungen: list[Abrechnung]) -> Erkenner:
     return erkenne
 
 
-def eu_fernverkaeufe(session: Session, jahr: int, firmen_land: str) -> Decimal:
-    """EU-Fernverkäufe an Privatkunden (netto zum Inlandssatz) aus allen Abrechnungen.
+def eu_fernverkaeufe(
+    session: Session, firmen_land: str, sonstige: dict[int, Decimal] | None = None
+) -> dict[int, Decimal]:
+    """EU-Fernverkäufe an Privatkunden (netto zum Inlandssatz) je Kalenderjahr.
 
     Grundlage der Lieferschwelle (§ 3c Abs. 4 UStG), solange keine OSS-Registrierung
-    besteht — dann werden diese Erlöse mit dem Inlandssatz gebucht.
+    besteht — dann werden diese Erlöse mit dem Inlandssatz gebucht. Gezählt wird jeder
+    Posten in seinem Jahr (nicht im Jahr der Abrechnung), dazu ``sonstige``
+    (``integrationen.eu_fernverkaeufe_sonstige``).
     """
     berechner = UStBerechner(firmen_land=firmen_land)
     satz = EU_STEUERSAETZE[firmen_land].normal
-    summe = NULL
+    summen: dict[int, Decimal] = defaultdict(lambda: NULL)
+    for jahr, betrag in (sonstige or {}).items():
+        summen[jahr] += betrag
     for a in lade_abrechnungen(session):
         for p in a.posten:
             land = p.bestimmungsland
             if (
                 p.art in (Postenart.ERLOES, Postenart.ERSTATTUNG)
-                and p.datum.year == jahr
                 and land
                 and land != firmen_land
                 and ist_eu_land(land)
                 and not p.kaeufer_ust_id
             ):
-                netto = berechner.brutto_zu_netto(abs(p.betrag), satz)
-                summe += netto if p.betrag > 0 else -netto
-    return summe
+                betrag = p.betrag
+                if a.waehrung != "EUR" and a.kurs:
+                    betrag = betrag / a.kurs
+                netto = berechner.brutto_zu_netto(abs(betrag), satz)
+                summen[p.datum.year] += netto if betrag > 0 else -netto
+    return dict(summen)
 
 
 def _paypal_umsaetze(
@@ -215,9 +223,13 @@ def importiere(
             oss_registriert=kontext.oss_registriert,
             firmen_land=kontext.firmen_land,
             eu_b2c_bisher=(
-                NULL
+                {}
                 if kontext.oss_registriert
-                else eu_fernverkaeufe(session, a.von.year, kontext.firmen_land)
+                else eu_fernverkaeufe(
+                    session,
+                    kontext.firmen_land,
+                    kontext.einstellungen.eu_fernverkaeufe_sonstige,
+                )
             ),
         )
         gebucht = buche_abrechnung(a, buchungskontext, umsaetze)

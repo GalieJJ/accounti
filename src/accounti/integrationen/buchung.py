@@ -57,9 +57,8 @@ class Buchungskontext:
     einstellungen: Integrationen
     oss_registriert: bool = False
     firmen_land: str = "DE"
-    eu_b2c_bisher: Decimal = (
-        NULL  # EU-Fernverkäufe (netto) des Jahres vor dieser Abrechnung
-    )
+    # EU-Fernverkäufe an Privatkunden (netto) je Kalenderjahr vor dieser Abrechnung
+    eu_b2c_bisher: dict[int, Decimal] = field(default_factory=dict)
 
 
 @dataclass
@@ -256,11 +255,18 @@ def _erloes(
         satz = info.ermaessigt if ermaessigt else info.normal
         netto = berechner.brutto_zu_netto(abs(brutto), satz)
         if land != k.firmen_land and ist_eu_land(land):
-            # Fernverkauf ohne OSS: Lieferschwelle § 3c Abs. 4 UStG beobachten
-            k.eu_b2c_bisher += netto if brutto > 0 else -netto
-            if k.eu_b2c_bisher > OSS_SCHWELLE_EUR:
+            # Fernverkauf ohne OSS: Lieferschwelle § 3c Abs. 4 UStG — sie gilt nur,
+            # wenn sie im Vorjahr nicht überschritten wurde und im laufenden Jahr
+            # nicht überschritten wird; gezählt wird je Posten in seinem Jahr
+            jahr = p.datum.year
+            bisher = k.eu_b2c_bisher.get(jahr, NULL) + (netto if brutto > 0 else -netto)
+            k.eu_b2c_bisher[jahr] = bisher
+            if k.eu_b2c_bisher.get(jahr - 1, NULL) > OSS_SCHWELLE_EUR:
                 pruefen = True
-                lauf.sammle("lieferschwelle", bestellung)
+                lauf.sammle("lieferschwelle", f"{bestellung} (Vorjahr {jahr - 1})")
+            elif bisher > OSS_SCHWELLE_EUR:
+                pruefen = True
+                lauf.sammle("lieferschwelle", f"{bestellung} ({jahr})")
         schluessel = e.bu_inland.get(f"{satz.normalize():f}")
         konto = e.erloes_inland.get(f"{satz.normalize():f}", e.erloes_unbekannt)
         vorzeichen = 1 if brutto > 0 else -1
@@ -346,8 +352,9 @@ _BEFUNDTEXTE: dict[str, tuple[Schweregrad, str]] = {
     ),
     "lieferschwelle": (
         Schweregrad.FEHLER,
-        "nach Überschreiten der Lieferschwelle von 10.000 € (§ 3c Abs. 4 UStG) — "
-        "Steuersatz des Bestimmungslands, OSS-Registrierung prüfen",
+        "nach Überschreiten der Lieferschwelle von 10.000 € im Vorjahr oder im "
+        "laufenden Jahr (§ 3c Abs. 4 UStG) — steuerbar im Bestimmungsland, "
+        "OSS-Registrierung prüfen",
     ),
     "oss_ermaessigt": (
         Schweregrad.WARNUNG,

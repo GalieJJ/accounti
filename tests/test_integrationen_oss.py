@@ -145,7 +145,7 @@ def test_ohne_oss_registrierung_inland_mit_deutscher_steuer(tmp_path):
 
 
 def test_lieferschwelle_ueberschritten(tmp_path):
-    e = buche(amazon(), tmp_path, oss=False, eu_b2c_bisher=D("9990.00"))
+    e = buche(amazon(), tmp_path, oss=False, eu_b2c_bisher={2026: D("9990.00")})
     (befund,) = [b for b in e.befunde if b.code == "lieferschwelle"]
     assert "10.000" in befund.text
     # FR-Bestellung 2 (50,42 netto) überschreitet die Schwelle — sie und alle
