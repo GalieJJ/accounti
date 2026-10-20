@@ -241,3 +241,55 @@ def marktplatz_abgleichen(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> N
     for e in ergebnisse:
         if e.befund is not None:
             _befunde([e.befund])
+
+
+@befehl.command("oss")
+def marktplatz_oss(
+    quartal: str = typer.Option(..., help="Meldezeitraum, z.B. 2026-Q3"),
+    db: str = DB_OPTION,
+    csv: str | None = typer.Option(None, help="Meldung zusätzlich als CSV schreiben"),
+) -> None:
+    """OSS-Quartalsmeldung aus den gebuchten EU-Fernverkäufen (steuer.oss)."""
+    import re
+
+    from accounti.db import init_db, session_factory
+    from accounti.integrationen.oss import oss_buchungen, oss_meldung, ungepruefte
+
+    treffer = re.fullmatch(r"(\d{4})-?Q([1-4])", quartal.strip().upper())
+    if treffer is None:
+        console.print(f"[red]Quartal {quartal!r}: Format JJJJ-Q1 … JJJJ-Q4[/red]")
+        raise typer.Exit(1)
+    jahr, nr = int(treffer[1]), int(treffer[2])
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        meldung = oss_meldung(s, jahr, nr)
+        offen = ungepruefte(oss_buchungen(s, jahr, nr))
+    tabelle = Table(title=f"OSS-Meldung {meldung.quartal}")
+    for spalte in ("Land", "Satz", "Bemessungsgrundlage", "Steuer", "Anzahl"):
+        tabelle.add_column(spalte)
+    for land in sorted(meldung.laender, key=lambda x: x.land_code):
+        tabelle.add_row(
+            f"{land.land_code} {land.land_name}",
+            f"{land.steuersatz_normal.normalize():f} %",
+            _eur(land.bemessungsgrundlage_normal),
+            _eur(land.steuer_normal),
+            str(land.anzahl_normal),
+        )
+    tabelle.add_row(
+        "Gesamt",
+        "",
+        _eur(meldung.bemessungsgrundlage_gesamt),
+        _eur(meldung.steuer_gesamt),
+        str(meldung.anzahl_transaktionen),
+    )
+    console.print(tabelle)
+    console.print(f"Abgabe beim BZSt bis {meldung.abgabefrist:%d.%m.%Y} (§ 18j UStG).")
+    if offen:
+        console.print(
+            f"[yellow]{offen} OSS-Buchungen liegen noch zur Prüfung — Meldung "
+            "vorläufig.[/yellow]"
+        )
+    if csv:
+        Path(csv).write_text("\n".join(meldung.als_csv_zeilen()) + "\n", "utf-8")
+        console.print(f"CSV: {csv}")

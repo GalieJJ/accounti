@@ -201,7 +201,9 @@ class OSSEngine:
             if b.datum.year == jahr and (
                 b.haben_konto in oss_konten or b.soll_konto in oss_konten
             ):
-                summe += abs(b.betrag_netto)
+                # Haben = Erlös, Soll = Erlösminderung (Erstattung, Gutschrift)
+                vorzeichen = 1 if b.haben_konto in oss_konten else -1
+                summe += vorzeichen * abs(b.betrag_netto)
 
         return summe > OSS_SCHWELLE_EUR, summe
 
@@ -239,10 +241,13 @@ class OSSEngine:
         laender_daten: dict[str, OSSLand] = {}
 
         for b in quartal_buchungen:
-            # Bestimmungsland aus Erlöskonto ableiten
+            # Bestimmungsland aus Erlöskonto ableiten; im Soll ist es eine
+            # Erlösminderung (Erstattung, Gutschrift) und mindert die Meldung
             land_code = konto_zu_land.get(b.haben_konto)
+            vorzeichen = 1
             if land_code is None:
                 land_code = konto_zu_land.get(b.soll_konto)
+                vorzeichen = -1
             if land_code is None:
                 continue  # Kein OSS-relevantes Konto
 
@@ -261,11 +266,11 @@ class OSSEngine:
 
             # TODO: Ermäßigt vs. Normal unterscheiden (braucht Metadaten)
             # Für jetzt: alles als Normalsatz
-            land.bemessungsgrundlage_normal += abs(b.betrag_netto)
+            land.bemessungsgrundlage_normal += vorzeichen * abs(b.betrag_netto)
             steuer = self._runde(
                 abs(b.betrag_netto) * land.steuersatz_normal / Decimal("100")
             )
-            land.steuer_normal += steuer
+            land.steuer_normal += vorzeichen * steuer
             land.anzahl_normal += 1
 
         return OSSMeldung(
