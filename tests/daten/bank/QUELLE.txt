@@ -1,0 +1,13 @@
+Beispiel-Kontoauszüge für die Tests von Baustein 5, Paket 3.
+
+Alle Dateien sind von Hand für accounti geschrieben — keine echten Kontodaten, keine Kopien
+aus anderen Projekten. Die IBANs sind gängige Beispielwerte mit gültiger Prüfziffer.
+
+- auszug.sta       MT940 (zwei Auszüge, CRLF, cp1252) nach der Belegung der Deutschen
+                   Kreditwirtschaft: :61: mit Bankreferenz, :86: mit ?00/?10/?20…/?30–?34
+                   und SEPA-Schlüsseln, Rückbuchung (RD), Saldenprobe geht auf.
+- camt053_v08.xml  camt.053.001.08: Sts/Cd, RltdPties/…/Pty/Nm, AcctSvcrRef, PRCD/CLBD.
+- camt053_v02.xml  camt.053.001.02: Sts als Code, RltdPties/…/Nm, Sammler mit zwei TxDtls,
+                   Rücklastschrift (RvslInd), strukturierte Referenz, OPBD/CLBD (Soll).
+- camt052_v08.xml  camt.052.001.08 wie aus FinTS (HKCAZ): ein gebuchter Eintrag und ein
+                   Vormerkposten (PDNG), keine Salden.

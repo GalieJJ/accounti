@@ -361,6 +361,7 @@ class Zahlungszuordnung(BaseModel):
 class KontoZustand(str, enum.Enum):
     BEREIT = "bereit"
     FREIGABE_NOETIG = "freigabe_noetig"  # Bank verlangt eine TAN-Freigabe (SCA)
+    ZUGANG_ABGELEHNT = "zugang_abgelehnt"  # PIN falsch/gesperrt: nicht wiederholen
     FEHLER = "fehler"
 
 

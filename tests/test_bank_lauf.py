@@ -10,6 +10,7 @@ from accounti.bank.provider import (
     BankProvider,
     FreigabeNoetigError,
     ProviderError,
+    ZugangAbgelehntError,
 )
 from accounti.bank.tresor import neuer_schluessel, verschluessele
 from accounti.buchung.mit_beleg import kontiere_mit_beleg
@@ -130,6 +131,55 @@ def test_freigabe_noetig_ist_ein_zustand_und_haelt_andere_nicht_auf(make_session
     }
 
 
+def test_freigabe_noetig_wird_ohne_rueckfrage_nicht_erneut_angefragt(make_session):
+    """Jeder Abruf öffnet bei der Bank einen Dialog und löst eine neue
+    Freigabe-Anforderung aus (Push, SMS), die niemand bestätigen kann — der Cron
+    wartet deshalb auf `accounti fints freigeben`."""
+    _konto(make_session)
+    Attrappe.antworten["DE12"] = FreigabeNoetigError("Bitte in der App freigeben")
+    _abruf(make_session, jetzt=datetime(2026, 3, 20, 8, 0))
+    (zweiter,) = _abruf(make_session, jetzt=datetime(2026, 3, 20, 12, 0))
+    (dritter,) = _abruf(make_session)
+    assert len(Attrappe.gesehen) == 1
+    assert dritter.zustand is KontoZustand.FREIGABE_NOETIG and dritter.uebersprungen
+    assert "Bitte in der App freigeben" in (dritter.meldung or "")
+    with make_session() as s:
+        (konto,) = lade_bankkonten(s)
+    assert konto.letzter_abruf == datetime(2026, 3, 20, 8, 0)  # nichts versucht
+    assert konto.meldung == "Bitte in der App freigeben"
+
+    Attrappe.antworten["DE12"] = Abruf([umsatz()])
+    (frei,) = _abruf(make_session, freigabe=lambda anfrage: "123456")
+    assert (frei.zustand, frei.neu, frei.uebersprungen) == (
+        KontoZustand.BEREIT,
+        1,
+        False,
+    )
+    assert len(Attrappe.gesehen) == 2
+    (danach,) = _abruf(make_session)  # wieder bereit: der Cron ruft ab
+    assert (danach.zustand, len(Attrappe.gesehen)) == (KontoZustand.BEREIT, 3)
+
+
+def test_abgelehnter_zugang_wird_ohne_rueckfrage_nicht_wiederholt(make_session):
+    """PIN falsch oder Zugang gesperrt: jeder weitere Anmeldeversuch kann den
+    Zugang bei der Bank sperren — erst ein erneuerter Zugang wird wieder versucht."""
+    _konto(make_session)
+    _konto(make_session, iban="DE34")
+    Attrappe.antworten["DE12"] = ZugangAbgelehntError("Die Bank lehnt die PIN ab")
+    Attrappe.antworten["DE34"] = Abruf([umsatz()])
+    eins, zwei = _abruf(make_session)
+    assert eins.zustand is KontoZustand.ZUGANG_ABGELEHNT
+    assert zwei.zustand is KontoZustand.BEREIT
+    _abruf(make_session)
+    eins, zwei = _abruf(make_session)
+    assert [iban for iban, _, _ in Attrappe.gesehen].count("DE12") == 1
+    assert [iban for iban, _, _ in Attrappe.gesehen].count("DE34") == 3
+    assert eins.uebersprungen and "PIN" in (eins.meldung or "")
+    with make_session() as s:
+        zustaende = {k.iban: k.zustand for k in lade_bankkonten(s)}
+    assert zustaende["DE12"] is KontoZustand.ZUGANG_ABGELEHNT
+
+
 def test_providerfehler_und_falscher_schluessel(make_session):
     _konto(make_session, iban="DE12")
     _konto(make_session, iban="DE34", provider="gibtsnicht")
@@ -193,3 +243,74 @@ def test_kontierung_mit_beleg_nutzt_das_sachkonto_des_umsatzes():
         RegelwerkEngine([TANKEN]),
     )
     assert (x.soll_konto, x.haben_konto) == ("4530", "1800")
+
+
+class Sitzungsbank(BankProvider):
+    """Gibt eine aktualisierte Sitzung zurück (wie FinTS) und merkt sich die
+    Rückfrage, mit der er erzeugt wurde."""
+
+    name = "sitzungsbank"
+    geheime_felder = ("pin",)
+    erzeugt: list[object] = []
+    freigabe_noetig = False
+
+    def __init__(self, freigabe=None):
+        super().__init__(freigabe)
+        Sitzungsbank.erzeugt.append(freigabe)
+
+    def abrufen(self, konto, zugang, ab):
+        neu = {**zugang, "sitzung": zugang.get("sitzung", "geheime-sitzung") + "+"}
+        if Sitzungsbank.freigabe_noetig:
+            raise FreigabeNoetigError("Bitte freigeben", zugang=neu)
+        return Abruf([umsatz()], zugang=neu)
+
+
+@pytest.fixture
+def sitzungsbank():
+    BANK_PROVIDER["sitzungsbank"] = Sitzungsbank
+    Sitzungsbank.erzeugt, Sitzungsbank.freigabe_noetig = [], False
+    yield
+    del BANK_PROVIDER["sitzungsbank"]
+
+
+def _zugang(make_session):
+    from accounti.bank.tresor import entschluessele
+
+    with make_session() as s:
+        (k,) = lade_bankkonten(s)
+    return entschluessele(k.zugang, SCHLUESSEL, str(k.id)), k
+
+
+def test_rueckfrage_wird_an_den_provider_gereicht(make_session, sitzungsbank):
+    _konto(make_session, provider="sitzungsbank")
+
+    def frage(anfrage):
+        return "123456"
+
+    _abruf(make_session)
+    _abruf(make_session, freigabe=frage)
+    assert Sitzungsbank.erzeugt == [None, frage]
+
+
+def test_geaenderter_zugang_wird_neu_verschluesselt(
+    make_session, sitzungsbank, tmp_path
+):
+    _konto(make_session, provider="sitzungsbank", pin="0815-geheim")
+    _abruf(make_session)
+    zugang, konto = _zugang(make_session)
+    assert zugang == {"pin": "0815-geheim", "sitzung": "geheime-sitzung+"}
+    assert konto.zustand is KontoZustand.BEREIT
+    _abruf(make_session)
+    assert _zugang(make_session)[0]["sitzung"] == "geheime-sitzung++"
+    roh = (tmp_path / "l.db").read_bytes()
+    assert b"0815-geheim" not in roh and b"geheime-sitzung" not in roh
+
+
+def test_zugang_auch_bei_noetiger_freigabe_gesichert(make_session, sitzungsbank):
+    _konto(make_session, provider="sitzungsbank")
+    Sitzungsbank.freigabe_noetig = True
+    (ergebnis,) = _abruf(make_session)
+    assert ergebnis.zustand is KontoZustand.FREIGABE_NOETIG
+    zugang, konto = _zugang(make_session)
+    assert zugang["sitzung"] == "geheime-sitzung+"
+    assert konto.meldung == "Bitte freigeben"

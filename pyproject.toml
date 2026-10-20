@@ -46,6 +46,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# FinTS-Direktabruf (LGPL-3.0-or-later, als Bibliothek eingebunden), optional: fints 5.0.0
+# verlangt lxml < 6.1 (CVE-2026-41066 — accounti ruft den betroffenen Pfad nicht auf).
+# Auf fints 5.0.1 mit lxml >= 6.1 wechseln, sobald sie zwei Wochen alt ist (23.10.2026).
+fints = ["fints==5.0.0"]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.1",
@@ -83,6 +87,11 @@ python_version = "3.11"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+# python-fints bringt keine Typinformationen mit
+module = ["fints.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -48,8 +48,19 @@ Bank-CSVs laufen **konfigurationsgetrieben** über `profil.py`: Ein `BankProfil`
 
 Marktplätze (Baustein 11) haben eigene Importer, die eine *Abrechnung* mit Posten liefern statt
 Transaktionen — `marktplatz.py` (gemeinsame Parser, Länderdatei, Registry
-`MARKTPLATZ_IMPORTER`), `amazon.py`, `ebay.py`, `paypal.py`, `shopify.py`. Geplant: `mt940.py`,
-`camt.py` (XML), `jtl.py`.
+`MARKTPLATZ_IMPORTER`), `amazon.py`, `ebay.py`, `paypal.py`, `shopify.py`. Geplant: `jtl.py`.
+
+Kontoauszüge in Bankformaten:
+
+- `mt940.py` — SWIFT MT940 nach DK-Belegung (`:61:`, `:86:` mit ?00/?20–?29/?30–?34/?60–?63,
+  SEPA-Schlüssel), Saldenprobe je Auszug. *(vorhanden)*
+- `camt.py` — camt.052/053/054 (.02 und .08), nur gebuchte Einträge, Bankreferenz, Storno
+  (`RvslInd`), DTD/Entities im Parser abgelehnt (auch UTF-16), Saldenprobe. *(vorhanden)*
+- `kontoauszug.py` — gemeinsames `Auszug`-Modell, Formaterkennung am Inhalt, Kontozuordnung
+  (IBAN oder BLZ/Kontonummer; ein Konto ohne IBAN nimmt keine Auszüge eines Bankkontos an),
+  `AuszugImporter` mit Kontoprüfung für `import bank --konto`.
+  Registry-Einträge `mt940` und `camt`; `--format auto` erkennt sie vor den CSV-Profilen.
+  *(vorhanden)*
 
 ### `belege/` *(vorhanden — [Baustein 2](specs/2026-08-10-belegerfassung.md))*
 
@@ -83,17 +94,50 @@ Liest und schreibt strukturierte Rechnungen. Alle Formate werden auf ein gemeins
 - `versand.py` — versendet die archivierte Datei (nie neu erzeugt) per SMTP; Versandweg als Schnittstelle, damit Peppol später andocken kann; jeder Versuch steht in `versandprotokolle`. Zugangsdaten aus dem Abschnitt `versand`, Passwort per `${UMGEBUNGSVARIABLE}`. *(vorhanden)*
 - `erzeuger/` — Ausgangsrechnungen. Die Steuer kommt vollständig aus `steuer/`; es gibt keine zweite Steuerlogik im Rechnungsschreiber.
 
-### `bank/` *(teilweise — [Baustein 5](specs/2026-08-10-bankanbindung-live.md))*
+### `bank/` *(vorhanden — [Baustein 5](specs/2026-08-10-bankanbindung-live.md))*
 
 Holt Kontoumsätze selbst ab und führt sie mit Belegen zusammen.
 
-- `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle, `datei.py`). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar. Verlangt die Bank eine Freigabe, meldet der Provider das als Zustand am Konto. *(vorhanden: Schnittstelle und `datei`)*
+- `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle, `datei.py`). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar. Verlangt die Bank eine Freigabe, meldet der Provider das als Zustand am Konto. *(vorhanden: Schnittstelle, `datei`, `fints`; `psd2` folgt)*
 - `tresor.py` — Zugangsdaten mit AES-GCM verschlüsselt, Schlüssel aus `ACCOUNTI_SCHLUESSEL`, das Chiffrat an das Konto gebunden. *(vorhanden)*
 - `dubletten.py` — Dublettenschlüssel aus Konto, Datum, Betrag, Verwendungszweck, Gegenpartei und laufender Nummer gleicher Umsätze; gilt für Abruf und `import bank`. *(vorhanden)*
 - `lauf.py` — Abruf aller Konten (ab Stand minus 14 Tage) und der geplante Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren; idempotent. Umsätze tragen das Sachkonto ihres Bankkontos. *(vorhanden)*
 - `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender. Abgeglichen werden Quittungen und sonstige Belege; Rechnungen laufen über offene Posten. Automatisch nur, was auf beiden Seiten eindeutig ist; zwei gleiche Belege werden zwei Vorschläge. *(vorhanden)*
 - `abgleichslauf.py` — Tabelle `belegabgleiche` (vorgeschlagen/bestätigt/abgelehnt), Bestätigen verwirft konkurrierende Vorschläge, Bericht „Umsätze ohne Beleg / Belege ohne Umsatz“. *(vorhanden)*
 - Bankkonten (`Bankkonto` in `models/`, Tabelle `bankkonten`) — IBAN, Sachkonto, Provider, Einstellungen, verschlüsselter Zugang, Abrufstand, Zustand; Zugangsdaten nie in Logs, nie im LLM-Prompt. *(vorhanden)*
+- `fints.py` — Provider `fints` über python-fints (FinTS 3.0, PIN/TAN). Produkt-ID der
+  Installation (Konto-Einstellung → `ACCOUNTI_FINTS_PRODUKT_ID` → `bank.fints.produkt_id`), Konto
+  über die IBAN aus HKSPA, Umsätze als camt.052 (HKCAZ) oder MT940 (HKKAZ, roh) durch die eigenen
+  Parser; das Format bleibt nach dem ersten Abruf fest (Wechsel nur ausdrücklich, ohne
+  Überlappung), nur https. PIN abgelehnt → `ZugangAbgelehntError`, Zustand `zugang_abgelehnt`. Die Sitzung (Kundensystem-ID, BPD/UPD, TAN-Verfahren) liegt verschlüsselt im Zugang,
+  sonst verlöre die Bank die 180-Tage-Ausnahme. Freigaben: ohne Rückfrage `FreigabeNoetigError`
+  (Zustand `freigabe_noetig`), mit Rückfrage TAN-Eingabe bzw. Statusabfrage für die App.
+  `richte_fints_ein` wählt TAN-Verfahren und -Medium. *(vorhanden)*
+- `einstellungen.py` — Abschnitt `bank` (`fints`, `kreditkarte`) mit Standardwerten. *(vorhanden)*
+- `kreditkarte.py` — Kreditkarte = eigenes Bankkonto mit eigenem Sachkonto plus Tabelle
+  `kreditkarten` (Girokonto, Muster, Endziffern, Abrechnungstag). Umsätze per Provider oder aus
+  der PDF-Abrechnung (Positionssplit aus `belege/`, Provider `abrechnung`); Abrechnungen
+  (`kreditkartenabrechnungen`, `kreditkartenumsaetze`) mit Summe der Einzelumsätze; die
+  Sammelbelastung auf dem Girokonto wird centgenau dagegen geprüft — Abweichung = Befund und
+  Buchung zur Prüfung, nie ein Rundungsposten; solche Zuordnungen sind vorläufig und werden bei
+  jedem Lauf neu bewertet (exakter Treffer gewinnt auch über Läufe), spät gelieferte
+  Kartenumsätze werden nachgetragen, alte PDF-Abrechnungen mit schon gebuchter Belastung nicht
+  von selbst übernommen; „mehrdeutig“ entscheidet ein Mensch (`trenne_belastung`). Gebucht wird
+  „Kreditkarte an Bank“ (PDF-Karten) bzw. über Geldtransit (Karten mit Abruf; der Ausgleich nur
+  gegen eine gleich hohe, bestätigte Belastung automatisch). Läuft in `bank lauf` vor den offenen
+  Posten.
+  *(vorhanden)*
+- `abrechnung.py` — Provider `abrechnung` für Konten, deren Umsätze aus übernommenen
+  Abrechnungen kommen (PDF-Kreditkarten); liefert beim Abruf nichts. *(vorhanden)*
+- `dubletten.py` — … mit Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`) besteht der
+  Schlüssel aus Konto, Datum, Betrag und Referenz (ohne laufende Nummer und Zweck); ohne sie zählt
+  die laufende Nummer je Auszug bzw. Datei (`Abruf.abschnitte`, Folgeseiten gehören dazu).
+  *(vorhanden)*
+- `lauf.py` — … Konten auf `freigabe_noetig` oder `zugang_abgelehnt` ruft ein Abruf ohne
+  Rückfrage nicht ab. *(vorhanden)*
+- `provider.py` — … Rückfrage für Freigaben (`BankProvider(freigabe=…)`, `Freigabeanfrage`);
+  geänderte Zugänge (Sitzung, Tokens) gibt der Provider in `Abruf.zugang` bzw.
+  `FreigabeNoetigError.zugang` zurück, `rufe_ab` verschlüsselt sie neu. *(vorhanden)*
 
 ### `integrationen/` *(teilweise — [Baustein 11](specs/2026-08-10-integrationen-export.md))*
 
@@ -489,11 +533,12 @@ Dateiprüfung, Gedächtnis, Dublettenprüfung und Archiv bleiben dieselben.
 
 ### Neuen Bank-Provider hinzufügen
 
-Ein Provider erbt von `BankProvider` aus `bank/provider.py`, nennt seine Einstellungen (`felder`)
-und Zugangsdaten (`geheime_felder`, landen verschlüsselt im Tresor), liefert mit `abrufen(konto,
-zugang, ab)` Umsätze und optional den Saldo und trägt sich mit `registriere` in `BANK_PROVIDER`
-ein; eine Freigabe der Bank meldet er als `FreigabeNoetigError`. Alles dahinter
-(Normalisierung, Dublettenschutz, Abgleich, Kontierung) ist providerunabhängig.
+Ein Provider implementiert die Schnittstelle aus `bank/provider.py`: `felder` (Einstellungen),
+`geheime_felder` (landen im Tresor) und `abrufen(konto, zugang, ab)` — Umsätze ab einem Stand,
+optional Saldo. Verlangt die Bank eine Freigabe, fragt er über die mitgegebene Rückfrage nach
+oder meldet `FreigabeNoetigError`; ändern sich Zugangsdaten (Sitzung, Tokens), gibt er sie in
+`Abruf.zugang` zurück. Alles dahinter (Normalisierung, Dublettenschutz, Abgleich, Kontierung) ist
+providerunabhängig. Vorbild: `bank/fints.py`.
 
 Weil der bestehende Dateiimport selbst als Provider eingehängt ist, bleibt accounti auch dann
 vollständig nutzbar, wenn kein einziger Live-Provider eingerichtet ist.

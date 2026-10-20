@@ -238,6 +238,11 @@ def waehle_importer(
     profile = lade_banken_profile(eigene)
     registriere_profile(profile)
     if format == "auto":
+        from accounti.importers.kontoauszug import erkenne_auszugsformat
+
+        auszugsformat = erkenne_auszugsformat(Path(pfad).read_bytes())
+        if auszugsformat is not None:  # MT940/CAMT bringen ihr Format selbst mit
+            return BANK_IMPORTERS[auszugsformat]
         return importer_fuer_datei(pfad, {**EINGEBAUTE_PROFILE, **profile})
     if format in BANK_IMPORTERS:
         return BANK_IMPORTERS[format]

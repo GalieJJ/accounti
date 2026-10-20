@@ -84,6 +84,24 @@ import:
   # Duplikaterkennung
   duplikat_check: true
 
+# Live-Bankanbindung (optional — ohne diesen Abschnitt gelten die Standards)
+bank:
+  fints:
+    # Produkt-ID der eigenen Registrierung bei der Deutschen Kreditwirtschaft —
+    # nie ins Repo; alternativ ACCOUNTI_FINTS_PRODUKT_ID oder Einstellung am Konto
+    produkt_id: "${ACCOUNTI_FINTS_PRODUKT_ID}"
+    produkt_version: "0.1"       # höchstens 5 Zeichen
+    erster_abruf_tage: 90        # erster Abruf ohne Stand: so weit zurück (SCA-Ausnahme: 90 Tage)
+    freigabe_wartezeit_sekunden: 300   # so lange auf die Freigabe in der App warten
+    freigabe_intervall_sekunden: 3     # Abstand der Statusabfragen
+    zeitlimit_sekunden: 120      # je Anfrage an die Bank — ein hängender Server hält den Cron nicht auf
+  kreditkarte:
+    geldtransit_konto: "1360"    # SKR04: 1460; leer = nach buchhaltung.kontenrahmen
+    belastung_fenster_tage: 30   # Sammelbelastung so viele Tage nach dem Abrechnungsstichtag
+    # belastung_muster: "kreditkart|kartenabrechnung|visa|master ?card|american express|amex"
+    # belastung_ausnahme: "debit"  # Debitkartenzahlungen sind keine Sammelbelastung
+    # ausgleich_muster: "ihre zahlung|zahlung erhalten|zahlung.{0,3}danke|zahlungseingang|ausgleich|lastschrift|einzug|begleich|abbuchung"
+
 # Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
 buchhaltung:
   debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)

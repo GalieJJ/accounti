@@ -61,3 +61,67 @@ def test_original_bleibt_unveraendert():
     original = tx()
     (neu,) = mit_schluessel([original], "DE12")
     assert original.dublettenschluessel is None and neu.dublettenschluessel
+
+
+def test_ohne_bankreferenz_bleibt_der_schluessel_wie_bisher():
+    import hashlib
+
+    basis = "DE12|2026-03-12|-5|parkhaus altstadt||apcoa"
+    erwartet = hashlib.sha256(f"{basis}|1".encode()).hexdigest()
+    assert _schluessel([tx()]) == [erwartet]
+    assert _schluessel([tx(quelle_referenz="NONREF")]) == [erwartet]
+    assert _schluessel([tx(quelle_referenz=" notprovided ")]) == [erwartet]
+
+
+def test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze():
+    a, b = tx(quelle_referenz="2026031300003"), tx(quelle_referenz="2026031300004")
+    hin = _schluessel([a, b])
+    zurueck = _schluessel([b, a])
+    assert len(set(hin)) == 2
+    assert set(hin) == set(zurueck)  # Reihenfolge des Abrufs egal
+    # nur einer der beiden kommt im nächsten Abruf noch einmal: keine neue Dublette
+    assert _schluessel([b]) == [hin[1]]
+    assert _schluessel([tx()]) not in ([hin[0]], [hin[1]])
+
+
+def test_mit_bankreferenz_zaehlt_die_wiederholung_nicht():
+    """Derselbe Umsatz aus zwei Dateien eines Abrufs (z.B. „auszug (1).xml“) ist
+    einer — die Referenz der Bank unterscheidet, nicht die laufende Nummer."""
+    a = tx(quelle_referenz="2026031300003")
+    assert len(set(_schluessel([a, a]))) == 1
+    assert _schluessel([a, a])[0] == _schluessel([a])[0]
+
+
+def test_mit_bankreferenz_zaehlt_der_verwendungszweck_nicht():
+    """camt.053 nennt beim Sammler die Zusatzinfo, camt.054 die Einzelzwecke —
+    dieselbe Buchung (gleiche AcctSvcrRef) bleibt eine."""
+    sammler = tx("-300.00", zweck="SAMMLER-UEBERWEISUNG 3 POSTEN", name=None)
+    einzeln = tx("-300.00", zweck="RE 1; RE 2; RE 3", name=None)
+    ref = {"quelle_referenz": "2026031200007"}
+    assert _schluessel([sammler.model_copy(update=ref)]) == _schluessel(
+        [einzeln.model_copy(update=ref)]
+    )
+    assert _schluessel([sammler]) != _schluessel([einzeln])  # ohne Referenz: zwei
+
+
+def test_laufende_nummer_je_auszug():
+    """Tages- und Monatsauszug im selben Abruf: derselbe Umsatz ohne Bankreferenz
+    steht in beiden und bleibt einer. Zwei gleiche Umsätze in einem Auszug bleiben
+    zwei — gezählt wird je Auszug bzw. Datei, nicht über den ganzen Abruf."""
+    tag = [tx(tag=13)]
+    monat = [tx(tag=12), tx(tag=13), tx(betrag="-3.50", zweck="ENTGELT")]
+    beide = [
+        t.dublettenschluessel
+        for t in mit_schluessel(tag + monat, "DE12", abschnitte=[0, 1])
+    ]
+    assert beide[0] == beide[2] == _schluessel(tag)[0]
+    assert len(set(beide)) == 3
+    zwei = [
+        t.dublettenschluessel
+        for t in mit_schluessel([tx(), tx(), tx()], "DE12", abschnitte=[0, 2])
+    ]
+    assert zwei[0] != zwei[1] and zwei[2] == zwei[0]
+    # ohne Abschnitte: ein Abschnitt wie bisher
+    assert _schluessel([tx(), tx()]) == [
+        t.dublettenschluessel for t in mit_schluessel([tx(), tx()], "DE12", [0])
+    ]

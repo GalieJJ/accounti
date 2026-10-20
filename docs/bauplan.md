@@ -33,7 +33,7 @@ Tatsachen.
 | 2 | Belegerfassung & Dokumentenmanagement | `belege/` | ✅ fertig | [Spec](specs/2026-08-10-belegerfassung.md) |
 | 3 | E-Rechnung — Eingang & Ausgang | `erechnung/` | ✅ fertig | [Spec](specs/2026-08-10-erechnung.md) |
 | 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | ✅ fertig | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
-| 5 | Live-Bankanbindung & Belegabgleich | `bank/` | 🟨 teilweise | [Spec](specs/2026-08-10-bankanbindung-live.md) |
+| 5 | Live-Bankanbindung & Belegabgleich | `bank/` | ✅ fertig | [Spec](specs/2026-08-10-bankanbindung-live.md) |
 | 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | ✅ fertig | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
 | 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
@@ -73,12 +73,14 @@ an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
 USt-IdNr.-Bestätigung beim BZSt mit revisionssicherem Protokoll
 ([Paket 3](plans/2026-10-22-kontakte-opos-paket-3-ustid.md)).
 
-**Baustein 5 ist teilweise fertig,** weil der Belegabgleich vor der Kontierung
-([Paket 1](plans/2026-10-23-bankanbindung-paket-1-belegabgleich.md)) sowie Bankkonten mit
-verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettenschutz und der geplante
-Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) stehen — was fehlt, sind
-FinTS und Kreditkarten (Paket 3). FinTS braucht vorher eine Produktregistrierung bei der Deutschen
-Kreditwirtschaft (10–15 Werktage).
+**Baustein 5 ist fertig:** Belegabgleich vor der Kontierung
+([Paket 1](plans/2026-10-23-bankanbindung-paket-1-belegabgleich.md)), Bankkonten mit
+verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider, Dublettenschutz und geplanter
+Lauf ([Paket 2](plans/2026-10-24-bankanbindung-paket-2-provider.md)) sowie FinTS mit Freigabe als
+Zustand, MT940/CAMT und Kreditkarten mit Abgleich der Sammelbelastung
+([Paket 3](plans/2026-10-25-bankanbindung-paket-3-fints-kreditkarte.md)). FinTS braucht je
+Installation eine Produktregistrierung bei der Deutschen Kreditwirtschaft (10–15 Werktage).
+Offen als Erweiterung: der PSD2-Provider (opt-in) und Kreditkarten per FinTS.
 
 **Baustein 6 ist fertig:** Zahlungsvorschlag mit Skonto-Vorrang, Zahlungslauf mit blockierender
 Prüfung, Freigabe (optional Vier-Augen) und Storno mit Protokoll, SEPA-Sammelüberweisung als

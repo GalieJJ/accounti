@@ -74,7 +74,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
 | ✅ | **Bank-Import** | CSV mehrerer Banken, konfigurationsgetriebene Profile mit Auto-Erkennung |
-| 🟨 | **Live-Bankanbindung** | Bankkonten mit verschlüsselten Zugängen, Provider-Schnittstelle, Datei-Provider (Ordner mit Kontoauszügen), Dublettenschutz, geplanter Lauf `bank lauf`; FinTS und Kreditkarten folgen |
+| ✅ | **Live-Bankanbindung** | Bankkonten mit verschlüsselten Zugängen, FinTS-Direktabruf (python-fints, eigene Produkt-ID, TAN/App-Freigabe als Zustand oder interaktiv), Datei-Provider, MT940 und CAMT (camt.052/053/054) mit Bankreferenz im Dublettenschutz, Kreditkarten als eigene Konten mit Abgleich der Sammelbelastung, geplanter Lauf `bank lauf`; PSD2 folgt |
 | ✅ | **Belegabgleich** | Quittungen und sonstige Belege ↔ Kontoumsatz (Referenz → exakt → Vorschlag), bevor kontiert wird; `classify` bucht abgeglichene Umsätze aus dem Beleg mit dessen Vorsteuer |
 | ✅ | **KI-Kontierung** | SKR03/SKR04-Zuordnung per Regelwerk + LLM, mit Confidence und Begründung |
 | ✅ | **Buchungssätze** | Soll/Haben mit Steuer, Kostenstelle, Belegnummer |
@@ -284,6 +284,60 @@ accounti bank lauf                             # abrufen → zuordnen → abglei
 
 Auch `accounti import bank` überspringt jetzt Umsätze, die schon da sind; mit `--konto IBAN`
 landen sie beim eingerichteten Konto und dessen Sachkonto.
+
+### FinTS und Kreditkarten
+
+FinTS ist ein Zusatzpaket: `pip install "accounti[fints]"` (bzw. `pip install -e ".[fints]"` im
+Quellordner).
+
+FinTS braucht eine **Produkt-ID**, die jede Installation selbst bei der Deutschen Kreditwirtschaft
+registriert (https://www.fints.org/de/hersteller/produktregistrierung, 10–15 Werktage). Sie gehört
+in die Umgebung oder in `config/accounti.yaml`, nie ins Repo.
+
+```bash
+export ACCOUNTI_FINTS_PRODUKT_ID=…             # oder bank.fints.produkt_id
+accounti fints einrichten --iban DE12… --bezeichnung "Giro Sparkasse" \
+  --blz 12345678 --server https://fints.example-bank.de/fints30
+                                               # Benutzerkennung, PIN, TAN-Verfahren, erste Freigabe
+accounti bank abrufen                          # danach ohne Eingabe (Cron); verlangt die Bank
+                                               # wieder eine Freigabe, steht das Konto auf
+                                               # freigabe_noetig:
+accounti fints freigeben                       # TAN eingeben oder in der App bestätigen
+accounti fints zugang --konto DE12…            # neue PIN: der Cron versucht es nach einer
+                                               # Ablehnung nicht weiter (Sperrgefahr)
+accounti fints format --konto DE12… camt       # Format nur ausdrücklich wechseln
+
+accounti import bank auszug.sta                # MT940 und CAMT werden am Inhalt erkannt
+accounti import bank camt053.xml --konto DE12…
+
+accounti kreditkarte einrichten --kennung VISA1234 --bezeichnung "Visa Firma" \
+  --sachkonto 1730 --girokonto DE12… --endziffern 1234
+                                               # eigenes Sachkonto der Karte (SKR03 1730 /
+                                               # SKR04 3610 „Kreditkartenabrechnung“, mit der
+                                               # Steuerberatung abstimmen), keine Kartennummer
+accounti kreditkarte einrichten --konto AMEX01 --girokonto DE12… --abrechnungstag 20
+                                               # Karte mit Abruf (z.B. Datei-Provider): Ausgleich
+                                               # über Geldtransit 1360/1460
+accounti belege import abrechnung-maerz.pdf    # PDF-Abrechnung wird in Umsätze zerlegt …
+accounti kreditkarte uebernehmen <BELEG-ID>    # … und landet am Kartenkonto
+accounti kreditkarte abgleich                  # Sammelbelastung ./. Summe der Einzelumsätze
+accounti kreditkarte liste                     # Karten, Abrechnungen, Befunde
+accounti kreditkarte loesen <ABRECHNUNG>       # falsche vorläufige Zuordnung lösen
+accounti kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>
+                                               # „mehrdeutig“: diese Belastung gehört nicht
+                                               # zu dieser Abrechnung
+```
+
+Stimmt die Sammelbelastung auf dem Girokonto nicht centgenau mit der Summe der Einzelumsätze
+überein, bucht accounti sie zur Prüfung und nennt die Differenz als Befund — es gibt keinen
+Rundungsposten. Diese Zuordnung bleibt vorläufig: Kommt später die centgenaue Belastung, löst
+accounti sie selbst. Passen mehrere Belastungen ungefähr (etwa eine Jahresgebühr und die
+Abrechnung), ordnet accounti nichts zu und meldet „mehrdeutig“ mit dem Befehl, der eine davon
+abtrennt. `accounti bank lauf` erledigt den Kartenabgleich vor dem Kontieren und
+nennt sein Ergebnis; ist genau eine Karte mit PDF-Abrechnung eingerichtet, übernimmt er erfasste
+Abrechnungen auch von selbst — nicht aber Abrechnungen, deren Sammelbelastung schon anders
+gebucht ist (sonst stünde der Aufwand doppelt da). Die Einzelumsätze kontiert `classify` gegen
+das Sachkonto der Karte.
 
 ### USt-IdNr.-Prüfung
 
@@ -666,7 +720,8 @@ kontieren will, braucht nur v0.1.
 - [x] USt-IdNr.-Prüfung mit Protokoll
 - [x] Offene Posten aus Belegen, OPOS-Liste, Fälligkeitsstaffel
 - [x] Zahlungszuordnung, Skonto mit Steuerkorrektur, Teil- und Sammelzahlung
-- [ ] Live-Bankanbindung: FinTS/HBCI, PSD2 optional, Kreditkarten
+- [x] Live-Bankanbindung: FinTS/HBCI, Kreditkarten (PSD2 optional folgt)
+- [x] FinTS-Provider und Kreditkarten (FinTS braucht eine Produktregistrierung)
 - [x] Belegabgleich vor der Kontierung
 - [x] Bankkonten, Provider-Schnittstelle, Datei-Provider, Dublettenschutz, geplanter Lauf
 - [ ] FinTS-Provider und Kreditkarten (FinTS braucht eine Produktregistrierung)

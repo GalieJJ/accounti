@@ -68,6 +68,7 @@ def import_bank(
     from accounti.bank.lauf import speichere_neue
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonto
+    from accounti.importers.kontoauszug import importiere_fuer_konto
     from accounti.importers.profil import waehle_importer
 
     try:
@@ -76,17 +77,20 @@ def import_bank(
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
 
-    transaktionen = importer.importiere(datei)
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
         bankkonto = None
-        if konto is not None:
-            try:
+        try:
+            if konto is not None:
                 bankkonto = lade_bankkonto(s, konto)
-            except ValueError as fehler:
-                console.print(f"[red]{escape(str(fehler))}[/red]")
-                raise typer.Exit(1) from fehler
+            # MT940/CAMT: nur Auszüge dieses Kontos; Saldo, der nicht aufgeht → Fehler
+            transaktionen = importiere_fuer_konto(
+                importer, datei, bankkonto.iban if bankkonto else None
+            )
+        except ValueError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
         neu, doppelt = speichere_neue(
             s, transaktionen, f"datei:{importer.name}", bankkonto
         )
@@ -2119,6 +2123,7 @@ def bank_lauf_befehl(
     from rich.markup import escape
 
     from accounti.bank.lauf import bank_lauf
+    from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.db import init_db, session_factory
     from accounti.klassifikation.engine import (
         STANDARD_REGELN,
@@ -2144,6 +2149,7 @@ def bank_lauf_befehl(
         ergebnis = bank_lauf(s, engine, einstellungen)
         s.commit()
     _abruf_ausgabe(ergebnis.abrufe)
+    zeige_kartenabgleich(ergebnis.kreditkarten, still=True)
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung
     console.print(
         f"Offene Posten: {len(z.gebucht)} ausgeglichen, {len(z.vorgeschlagen)} "
