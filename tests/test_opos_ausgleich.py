@@ -2,7 +2,6 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from accounti.opos.ausgleich import gleiche_aus
 
 from accounti.belege.archiv import BelegArchiv
 from accounti.db import init_db, session_factory
@@ -14,6 +13,7 @@ from accounti.models import (
     Transaktion,
     TransaktionQuelle,
 )
+from accounti.opos.ausgleich import gleiche_aus
 from accounti.opos.zuordnung import Anteil
 from tests.test_erechnung_aufbau import entwurf, kunde, pos
 from tests.test_opos_verbuchung import (
