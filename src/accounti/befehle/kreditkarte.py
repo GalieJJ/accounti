@@ -3,7 +3,8 @@
 Die Sammelbelastung auf dem Girokonto muss centgenau der Summe der Einzelumsätze
 entsprechen; eine Abweichung ist ein Befund, kein Rundungsposten. `accounti bank
 lauf` gleicht die Karten vor dem Kontieren selbst ab. Eine falsche vorläufige
-Zuordnung löst `accounti kreditkarte loesen`.
+Zuordnung löst `accounti kreditkarte loesen`; bei „mehrdeutig“ trennt
+`accounti kreditkarte loesen <ABRECHNUNG> --belastung <UMSATZ>` einen Kandidaten ab.
 """
 
 from __future__ import annotations
@@ -302,15 +303,34 @@ def zeige_kartenabgleich(ergebnis: Kartenabgleich, *, still: bool = False) -> No
             "einstellen"
         )
     for tx in ergebnis.mehrdeutig:
+        bei = ergebnis.mehrdeutig_bei.get(tx.id, [])
+        abrechnungen = ", ".join(
+            f"{str(a.id)[:8]} ({name(a.kreditkarte_id)}, {datum_de(a.stichtag)})"
+            for a in bei
+        )
+        grund = (
+            f"konkurriert mit einer anderen Belastung um Abrechnung {abrechnungen}"
+            if len(bei) == 1
+            else f"passt zu mehreren Abrechnungen: {abrechnungen}"
+        )
+        abrechnung = str(bei[0].id)[:8] if len(bei) == 1 else "<ABRECHNUNG>"
         console.print(
             f"[yellow]mehrdeutig[/yellow] {datum_de(tx.datum)} "
-            f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} — passt zu "
-            "mehreren Abrechnungen oder konkurriert mit einer anderen Belastung, "
-            "nichts zugeordnet"
+            f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} (Umsatz "
+            f"{str(tx.id)[:8]}) — {grund}; nichts zugeordnet. Gehört sie nicht "
+            f"dazu: accounti kreditkarte loesen {abrechnung} --belastung "
+            f"{str(tx.id)[:8]}"
         )
     if ergebnis.ausgleich_gebucht:
         console.print(
             f"{ergebnis.ausgleich_gebucht} Ausgleichszeile(n) über Geldtransit gebucht"
+        )
+    for tx in ergebnis.ausgleich_vorlaeufig:
+        console.print(
+            f"[yellow]Ausgleich zur Prüfung[/yellow] {datum_de(tx.datum)} "
+            f"{betrag_de(tx.betrag)} € {escape(tx.verwendungszweck)} — die gleich "
+            "hohe Sammelbelastung ist nur vorläufig zugeordnet (Befund); bestätigt "
+            "wird der Ausgleich zusammen mit ihr"
         )
     for tx in ergebnis.ausgleich_ohne_belastung:
         console.print(
@@ -332,6 +352,7 @@ def zeige_kartenabgleich(ergebnis: Kartenabgleich, *, still: bool = False) -> No
             ergebnis.mehrdeutig,
             ergebnis.ausgleich_gebucht,
             ergebnis.ausgleich_ohne_belastung,
+            ergebnis.ausgleich_vorlaeufig,
             ergebnis.hinweise,
         ]
     ):
@@ -360,13 +381,23 @@ def abgleich(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
 @befehl.command("loesen")
 def loesen(
     abrechnung: str = typer.Argument(help="ID (Anfang) der Abrechnung, siehe liste"),
+    belastung: str | None = typer.Option(
+        None,
+        help="ID (Anfang) eines Umsatzes, der nicht die Sammelbelastung dieser "
+        "Abrechnung ist — bei „mehrdeutig“ (die ID steht in der Meldung)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Falsche vorläufige Zuordnung lösen (Buchung entfällt, kein neuer Vorschlag)."""
+    """Falsche Zuordnung lösen (Buchung entfällt, kein neuer Vorschlag) — mit
+    --belastung auch einen Kandidaten, der noch gar nicht zugeordnet ist."""
     from accounti.anzeige import betrag_de, datum_de
     from accounti.bank.einstellungen import lade_bank_einstellungen
-    from accounti.bank.kreditkarte import KreditkartenError, loese_zuordnung
+    from accounti.bank.kreditkarte import (
+        KreditkartenError,
+        loese_zuordnung,
+        trenne_belastung,
+    )
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     try:
@@ -377,15 +408,32 @@ def loesen(
         return
     with _sitzung(db) as s:
         try:
-            a, tx = loese_zuordnung(s, abrechnung, buchhaltung, einst)
+            if belastung is None:
+                a, tx = loese_zuordnung(s, abrechnung, buchhaltung, einst)
+                war_zugeordnet = True
+            else:
+                a, tx, war_zugeordnet = trenne_belastung(
+                    s, abrechnung, belastung, buchhaltung, einst
+                )
         except KreditkartenError as fehler:
             _ende(str(fehler))
             return
         s.commit()
+    if war_zugeordnet:
+        console.print(
+            f"[green]Zuordnung gelöst:[/green] Abrechnung zum {datum_de(a.stichtag)} "
+            f"und Belastung {betrag_de(tx.betrag)} € vom {datum_de(tx.datum)} — die "
+            "Abrechnung ist wieder offen, die Belastung kontiert accounti classify"
+        )
+    else:
+        console.print(
+            f"[green]Getrennt:[/green] Belastung {betrag_de(tx.betrag)} € vom "
+            f"{datum_de(tx.datum)} gehört nicht zur Abrechnung zum "
+            f"{datum_de(a.stichtag)} — accounti schlägt das Paar nicht wieder vor"
+        )
     console.print(
-        f"[green]Zuordnung gelöst:[/green] Abrechnung zum {datum_de(a.stichtag)} "
-        f"und Belastung {betrag_de(tx.betrag)} € vom {datum_de(tx.datum)} — die "
-        "Abrechnung ist wieder offen, die Belastung kontiert accounti classify"
+        "[dim]Nächster Schritt: accounti kreditkarte abgleich "
+        "(oder accounti bank lauf)[/dim]"
     )
 
 

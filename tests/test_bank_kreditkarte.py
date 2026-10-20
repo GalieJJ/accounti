@@ -14,6 +14,7 @@ from accounti.bank.kreditkarte import (
     letzter_stichtag,
     loese_zuordnung,
     richte_karte_ein,
+    trenne_belastung,
     uebernimm_abrechnung,
 )
 from accounti.bank.lauf import speichere_neue
@@ -913,3 +914,163 @@ def test_ausgleich_nur_mit_gleich_hoher_sammelbelastung_automatisch(make_session
         ) == ("1732", "1360", BuchungStatus.AUTO_GEBUCHT, 1.0)
         (vorperiode,) = _buchungen_zu(s, "ZAHLUNG ERHALTEN")
         assert vorperiode.status is BuchungStatus.ZUR_PRUEFUNG
+
+
+def _saldo_freigegeben(s, konto):
+    """Saldo eines Kontos über die freigegebenen Buchungen (nicht zur Prüfung)."""
+    saldo = Decimal("0")
+    for b in lade_buchungen(s):
+        if b.status in {BuchungStatus.ZUR_PRUEFUNG, BuchungStatus.ENTWURF}:
+            continue
+        saldo += b.betrag_netto if b.soll_konto == konto else Decimal("0")
+        saldo -= b.betrag_netto if b.haben_konto == konto else Decimal("0")
+    return saldo
+
+
+def test_ausgleich_gegen_vorlaeufige_belastung_nur_zur_pruefung(make_session):
+    """Ist die gleich hohe Sammelbelastung nur vorläufig zugeordnet (Befund), wird
+    der Ausgleich nicht freigegeben: Löst ein späterer Lauf die Zuordnung (zweiter
+    Kandidat), entfällt die Buchung der Belastung — ein freigegebener Ausgleich
+    ließe Geldtransit offen."""
+    with make_session() as s:
+        _nur_abrufkarte(
+            s,
+            _umsatz("-100.00", 2, "HOTEL KIEL", monat=3),
+            _umsatz("150.00", 27, "LASTSCHRIFT AUSGLEICH", monat=3),
+        )
+        _belastung(s, "-150.00", tag=25, text="VISA DKB ABRECHNUNG", monat=3)
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert len(erster.abweichungen) == 1
+        (giro,) = _buchungen_zu(s, "VISA DKB")
+        assert giro.status is BuchungStatus.ZUR_PRUEFUNG
+        (ausgleich,) = _buchungen_zu(s, "LASTSCHRIFT AUSGLEICH")
+        assert (ausgleich.status, ausgleich.confidence) == (
+            BuchungStatus.ZUR_PRUEFUNG,
+            0.5,
+        )
+        assert [t.betrag for t in erster.ausgleich_vorlaeufig] == [Decimal("150.00")]
+        assert erster.ausgleich_ohne_belastung == []
+
+        _belastung(s, "-20.00", tag=28, text="VISA DKB JAHRESGEBUEHR", monat=3)
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert len(zweiter.mehrdeutig) == 2
+        assert _buchungen_zu(s, "VISA DKB") == []  # vorläufige Buchung gelöst
+        (ausgleich,) = _buchungen_zu(s, "LASTSCHRIFT AUSGLEICH")
+        assert ausgleich.status is BuchungStatus.ZUR_PRUEFUNG
+        assert _saldo_freigegeben(s, "1360") == Decimal("0")
+
+
+def test_ausgleich_wird_mit_der_gepruefen_belastung_bestaetigt(make_session):
+    with make_session() as s:
+        _nur_abrufkarte(
+            s,
+            _umsatz("-100.00", 2, "HOTEL KIEL", monat=3),
+            _umsatz("150.00", 27, "LASTSCHRIFT AUSGLEICH", monat=3),
+        )
+        _belastung(s, "-150.00", tag=25, text="VISA DKB ABRECHNUNG", monat=3)
+        gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (giro,) = _buchungen_zu(s, "VISA DKB")
+        setze_status(s, str(giro.id), BuchungStatus.GEPRUEFT, geprueft_von="mensch")
+        zweiter = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert zweiter.ausgleich_vorlaeufig == zweiter.ausgleich_ohne_belastung == []
+        (ausgleich,) = _buchungen_zu(s, "LASTSCHRIFT AUSGLEICH")
+        assert (ausgleich.status, ausgleich.confidence) == (
+            BuchungStatus.AUTO_GEBUCHT,
+            1.0,
+        )
+        assert _saldo_freigegeben(s, "1360") == Decimal("0")
+
+
+# --- Mehrdeutig: von Hand entscheiden ----------------------------------------------
+
+
+def test_mehrdeutig_wird_von_hand_entschieden(make_session):
+    """Eine Jahresgebühr passt zum Muster und wird vorläufig zugeordnet; dann kommt
+    die echte Sammelbelastung mit Abweichung. Beide sind ab da in jedem Lauf
+    mehrdeutig — ohne Entscheidung von Hand bliebe die Abrechnung für immer offen."""
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-29.00", tag=2, text="VISA JAHRESGEBUEHR")
+        assert len(gleiche_sammelbelastungen_ab(s, SKR03, EINST).abweichungen) == 1
+        _belastung(s, "-703.65", tag=5)
+        for _ in range(2):  # bleibt so, Lauf für Lauf
+            lauf = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+            assert sorted(t.betrag for t in lauf.mehrdeutig) == [
+                Decimal("-703.65"),
+                Decimal("-29.00"),
+            ]
+        (a,) = lade_abrechnungen(s)
+        assert a.status is AbrechnungStatus.OFFEN
+        gebuehr = next(t for t in lauf.mehrdeutig if t.betrag == Decimal("-29.00"))
+        assert [x.id for x in lauf.mehrdeutig_bei[gebuehr.id]] == [a.id]
+
+        abrechnung, tx, war_zugeordnet = trenne_belastung(
+            s, str(a.id)[:8], str(gebuehr.id)[:8], SKR03, EINST
+        )
+        assert (abrechnung.id, tx.id, war_zugeordnet) == (a.id, gebuehr.id, False)
+        danach = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (a,) = danach.abweichungen
+        assert a.belastung_betrag == Decimal("-703.65")
+        assert "Differenz -5,00 €" in (a.befund or "")
+        assert danach.mehrdeutig == danach.ohne_abrechnung == []
+        (b,) = _buchungen_zu(s, "KREDITKARTENABRECHNUNG")
+        assert b.status is BuchungStatus.ZUR_PRUEFUNG
+        assert _buchungen_zu(s, "JAHRESGEBUEHR") == []  # kontiert classify
+        stabil = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert stabil.abweichungen == stabil.mehrdeutig == stabil.geloest == []
+
+
+def test_mehrdeutig_zwischen_zwei_karten_wird_von_hand_abgeglichen(make_session):
+    with make_session() as s:
+        visa = _karte(s)
+        mc = _karte(s, kennung="MC5678")
+        uebernimm_abrechnung(s, str(_beispielbeleg(s).id), visa, EINST)
+        zweite = _beispielbeleg(s, BEISPIEL.read_text(encoding="utf-8") + "\n")
+        uebernimm_abrechnung(s, str(zweite.id), mc, EINST)
+        _belastung(s)  # centgenau für beide Karten
+        erster = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        (tx,) = erster.mehrdeutig
+        assert len(erster.mehrdeutig_bei[tx.id]) == 2
+        assert lade_buchungen(s) == []
+        von_mc = next(a for a in lade_abrechnungen(s) if a.kreditkarte_id == mc.id)
+        trenne_belastung(s, str(von_mc.id), str(tx.id), SKR03, EINST)
+        (a,) = gleiche_sammelbelastungen_ab(s, SKR03, EINST).abgeglichen
+        assert (a.kreditkarte_id, a.belastung_id) == (visa.id, tx.id)
+        (b,) = _buchungen_zu(s, "KREDITKARTENABRECHNUNG")
+        assert b.status is BuchungStatus.AUTO_GEBUCHT
+
+
+def test_trennen_einer_vorlaeufigen_zuordnung_loest_sie(make_session):
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s, "-29.00", tag=2, text="VISA JAHRESGEBUEHR")
+        (a,) = gleiche_sammelbelastungen_ab(s, SKR03, EINST).abweichungen
+        abrechnung, tx, war_zugeordnet = trenne_belastung(
+            s, str(a.id), str(a.belastung_id), SKR03, EINST
+        )
+        assert war_zugeordnet and tx.betrag == Decimal("-29.00")
+        assert (abrechnung.status, abrechnung.belastung_id) == (
+            AbrechnungStatus.OFFEN,
+            None,
+        )
+        assert lade_buchungen(s) == []
+        wieder = gleiche_sammelbelastungen_ab(s, SKR03, EINST)
+        assert wieder.abweichungen == wieder.ohne_abrechnung == []
+
+
+def test_trennen_prueft_abrechnung_und_umsatz(make_session):
+    with make_session() as s:
+        _uebernommen(s)
+        _belastung(s)
+        (a,) = gleiche_sammelbelastungen_ab(s, SKR03, EINST).abgeglichen
+        with pytest.raises(KreditkartenError, match="automatisch"):
+            trenne_belastung(s, str(a.id), str(a.belastung_id), SKR03, EINST)
+        with pytest.raises(KreditkartenError, match="Kein Umsatz"):
+            trenne_belastung(s, str(a.id), "ffffffff", SKR03, EINST)
+        with pytest.raises(KreditkartenError, match="Keine Abrechnung"):
+            trenne_belastung(s, "ffffffff", str(a.belastung_id), SKR03, EINST)
+        kartenumsatz = next(
+            t for t in lade_transaktionen(s) if t.id in abgerechnete_transaktion_ids(s)
+        )
+        with pytest.raises(KreditkartenError, match="keine Belastung des Girokontos"):
+            trenne_belastung(s, str(a.id), str(kartenumsatz.id), SKR03, EINST)

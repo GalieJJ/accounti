@@ -15,13 +15,16 @@ PDF-Karten kennen keine Ausgleichszeile, die Sammelbelastung wird direkt
 Kartenkonto; dann laufen beide Seiten über Geldtransit (SKR03 1360, SKR04 1460):
 „Geldtransit an Bank“ und „Kreditkarte an Geldtransit“ — die Ausgleichszeile
 automatisch nur, wenn eine gleich hohe Sammelbelastung der Karte über Geldtransit
-gebucht ist. Die Einzelumsätze kontiert ``classify`` gegen das Sachkonto der Karte.
+gebucht und bestätigt (abgeglichen oder geprüft) ist. Die Einzelumsätze kontiert
+``classify`` gegen das Sachkonto der Karte.
 
 Streng vor großzügig, auch über mehrere Läufe: Eine Zuordnung mit Abweichung ist
 vorläufig (Buchung zur Prüfung). Solange niemand sie bestätigt hat, wird sie bei
 jedem Lauf neu bewertet — kommt später ein centgenauer Treffer oder ein zweiter
-Kandidat, wird sie gelöst. Bei Karten mit Abruf kommen später gelieferte
-Kartenumsätze in die offene Abrechnung ihres Zeitraums (oder die nächste).
+Kandidat, wird sie gelöst. Konkurrieren Kandidaten („mehrdeutig“), entscheidet ein
+Mensch, welcher nicht dazugehört (``trenne_belastung``). Bei Karten mit Abruf kommen
+später gelieferte Kartenumsätze in die offene Abrechnung ihres Zeitraums (oder die
+nächste).
 PDF-Abrechnungen aus der Zeit vor der Karte übernimmt der Lauf nicht von selbst,
 wenn ihre Sammelbelastung schon anders gebucht ist oder fehlt.
 """
@@ -526,10 +529,16 @@ class Kartenabgleich:
     abweichungen: list[Kreditkartenabrechnung] = field(default_factory=list)
     ohne_abrechnung: list[Transaktion] = field(default_factory=list)
     mehrdeutig: list[Transaktion] = field(default_factory=list)
+    # Belastung → Abrechnungen, um die sie konkurriert (für die Entscheidung von Hand)
+    mehrdeutig_bei: dict[UUID, list[Kreditkartenabrechnung]] = field(
+        default_factory=dict
+    )
     geloest: list[Transaktion] = field(default_factory=list)  # vorläufig, überholt
     nachgetragen: int = 0  # spät gelieferte Kartenumsätze in offenen Abrechnungen
     ausgleich_gebucht: int = 0
     ausgleich_ohne_belastung: list[Transaktion] = field(default_factory=list)
+    # gleich hohe Sammelbelastung nur vorläufig zugeordnet: Ausgleich zur Prüfung
+    ausgleich_vorlaeufig: list[Transaktion] = field(default_factory=list)
     hinweise: list[str] = field(default_factory=list)
     namen: dict[UUID, str] = field(default_factory=dict)  # Karte → Bezeichnung
 
@@ -840,6 +849,7 @@ class _Abgleich:
                 ziel[a.id] = (tx, k, a, AbrechnungStatus.ABGEGLICHEN)
             elif exakt:
                 mehrdeutig.append(tx)
+                self.ergebnis.mehrdeutig_bei[tx.id] = [a for _, a in exakt]
             else:
                 rest.append(tx)
         moeglich = {tx.id: paare(tx, ziel) for tx in rest}
@@ -856,6 +866,7 @@ class _Abgleich:
                 ziel[a.id] = (tx, k, a, AbrechnungStatus.ABWEICHUNG)
             else:
                 mehrdeutig.append(tx)
+                self.ergebnis.mehrdeutig_bei[tx.id] = [a for _, a in eigene]
 
         # vorläufige Zuordnungen: bleiben, wenn sich nichts ändert, sonst gelöst
         geloest = []
@@ -953,20 +964,37 @@ class _Abgleich:
             if b.soll_konto == soll and b.haben_konto == self.geldtransit
         ]
 
+    def _belastungen_ueber_geldtransit(
+        self,
+        k: _Karte,
+        buchungen: dict[UUID, list[Buchungssatz]],
+        transaktionen: dict[UUID, Transaktion],
+    ) -> tuple[Counter[Decimal], Counter[Decimal]]:
+        """Beträge der über Geldtransit gebuchten Sammelbelastungen dieser Karte:
+        (bestätigt, nur vorläufig). Vorläufig heißt: Der Abgleich darf die Buchung
+        noch lösen — ein Ausgleich dagegen bleibt deshalb zur Prüfung."""
+        bestaetigt: Counter[Decimal] = Counter()
+        vorlaeufig: Counter[Decimal] = Counter()
+        for a in lade_abrechnungen(self.session, kreditkarte_id=k.karte.id):
+            tx = transaktionen.get(a.belastung_id) if a.belastung_id else None
+            eigene = self._eigene(k, tx, buchungen) if tx is not None else []
+            if tx is None or not eigene:
+                continue
+            fest = any(b.status not in _VORLAEUFIG for b in eigene)
+            (bestaetigt if fest else vorlaeufig)[-tx.betrag] += 1
+        return bestaetigt, vorlaeufig
+
     def _ausgleichszeilen(self) -> None:
         """Karten mit Abruf: Begleichung auf dem Kartenkonto über Geldtransit —
-        automatisch nur gegen eine gleich hohe, über Geldtransit gebuchte
-        Sammelbelastung dieser Karte, sonst zur Prüfung."""
+        automatisch nur gegen eine gleich hohe, über Geldtransit gebuchte und
+        bestätigte Sammelbelastung dieser Karte, sonst zur Prüfung."""
         buchungen = _buchungen_je_umsatz(self.session)
         transaktionen = {t.id: t for t in lade_transaktionen(self.session)}
         for k in self.karten:
             if k.direkt:
                 continue
-            offen: Counter[Decimal] = Counter(
-                -transaktionen[a.belastung_id].betrag
-                for a in lade_abrechnungen(self.session, kreditkarte_id=k.karte.id)
-                if a.belastung_id in transaktionen
-                and self._eigene(k, transaktionen[a.belastung_id], buchungen)
+            offen, vorlaeufig = self._belastungen_ueber_geldtransit(
+                k, buchungen, transaktionen
             )
             ausgleiche = sorted(
                 (
@@ -995,6 +1023,9 @@ class _Abgleich:
                 passend = offen[t.betrag] > 0
                 if passend:
                     offen[t.betrag] -= 1
+                gegen_vorlaeufig = not passend and vorlaeufig[t.betrag] > 0
+                if gegen_vorlaeufig:
+                    vorlaeufig[t.betrag] -= 1
                 if vorhanden:  # vorläufig gebucht: jetzt mit Belastung bestätigen
                     for b in vorhanden if passend else []:
                         aktualisiere_buchung(
@@ -1026,7 +1057,9 @@ class _Abgleich:
                     ),
                 )
                 self.ergebnis.ausgleich_gebucht += 1
-                if not passend:
+                if gegen_vorlaeufig:
+                    self.ergebnis.ausgleich_vorlaeufig.append(t)
+                elif not passend:
                     self.ergebnis.ausgleich_ohne_belastung.append(t)
             self.session.flush()
 
@@ -1045,18 +1078,7 @@ def gleiche_sammelbelastungen_ab(
     return _Abgleich(session, einstellungen, einst).lauf()
 
 
-def loese_zuordnung(
-    session: Session,
-    schluessel: str,
-    einstellungen: Buchhaltung,
-    einst: KreditkartenEinstellungen | None = None,
-) -> tuple[Kreditkartenabrechnung, Transaktion]:
-    """Zuordnung von Hand lösen: die vorläufige Buchung der Belastung entfällt, und
-    der Abgleich ordnet diese Belastung der Abrechnung nicht wieder zu."""
-    if einst is None:
-        from accounti.bank.einstellungen import lade_bank_einstellungen
-
-        einst = lade_bank_einstellungen().kreditkarte
+def _finde_abrechnung(session: Session, schluessel: str) -> Kreditkartenabrechnung:
     treffer = [
         a
         for a in lade_abrechnungen(session)
@@ -1069,7 +1091,22 @@ def loese_zuordnung(
             else f"'{schluessel}' ist nicht eindeutig"
         )
         raise KreditkartenError(msg)
-    a = treffer[0]
+    return treffer[0]
+
+
+def loese_zuordnung(
+    session: Session,
+    schluessel: str,
+    einstellungen: Buchhaltung,
+    einst: KreditkartenEinstellungen | None = None,
+) -> tuple[Kreditkartenabrechnung, Transaktion]:
+    """Zuordnung von Hand lösen: die vorläufige Buchung der Belastung entfällt, und
+    der Abgleich ordnet diese Belastung der Abrechnung nicht wieder zu."""
+    if einst is None:
+        from accounti.bank.einstellungen import lade_bank_einstellungen
+
+        einst = lade_bank_einstellungen().kreditkarte
+    a = _finde_abrechnung(session, schluessel)
     abgleich = _Abgleich(session, einstellungen, einst)
     k = abgleich.karte_von.get(a.kreditkarte_id)
     transaktionen = {t.id: t for t in lade_transaktionen(session)}
@@ -1096,3 +1133,48 @@ def loese_zuordnung(
         }
     )
     return geloest, tx
+
+
+def trenne_belastung(
+    session: Session,
+    abrechnung: str,
+    umsatz: str,
+    einstellungen: Buchhaltung,
+    einst: KreditkartenEinstellungen | None = None,
+) -> tuple[Kreditkartenabrechnung, Transaktion, bool]:
+    """Von Hand entscheiden: Dieser Umsatz ist nicht die Sammelbelastung dieser
+    Abrechnung — vor allem bei „mehrdeutig“, wo es keine Zuordnung zum Lösen gibt.
+    Der Abgleich schlägt das Paar nie wieder vor; die übrigen Kandidaten ordnet der
+    nächste Lauf zu (centgenau → abgeglichen, sonst Befund). Ist der Umsatz der
+    Abrechnung vorläufig zugeordnet, wird die Zuordnung gelöst wie mit
+    ``loese_zuordnung``. Liefert (Abrechnung, Umsatz, war zugeordnet)."""
+    if einst is None:
+        from accounti.bank.einstellungen import lade_bank_einstellungen
+
+        einst = lade_bank_einstellungen().kreditkarte
+    a = _finde_abrechnung(session, abrechnung)
+    k = _Abgleich(session, einstellungen, einst).karte_von.get(a.kreditkarte_id)
+    if k is None:
+        raise KreditkartenError(f"Abrechnung {str(a.id)[:8]}: Karte oder Konto fehlt")
+    treffer = [
+        t for t in lade_transaktionen(session) if str(t.id).startswith(umsatz.lower())
+    ]
+    if len(treffer) != 1:
+        msg = (
+            f"Kein Umsatz '{umsatz}'"
+            if not treffer
+            else f"'{umsatz}' ist nicht eindeutig"
+        )
+        raise KreditkartenError(msg)
+    tx = treffer[0]
+    if tx.bankkonto_id != k.giro.id or tx.betrag >= 0:
+        msg = (
+            f"Umsatz {str(tx.id)[:8]} ist keine Belastung des Girokontos "
+            f"{k.giro.iban} dieser Karte"
+        )
+        raise KreditkartenError(msg)
+    if a.belastung_id == tx.id:
+        geloest, tx = loese_zuordnung(session, str(a.id), einstellungen, einst)
+        return geloest, tx, True
+    lehne_belastung_ab(session, a.id, tx.id)
+    return a, tx, False

@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 from accounti.cli import app
 from accounti.db import init_db, session_factory
 from accounti.db.repo_bank import lade_abrechnungen
-from accounti.db.repository import lade_belege, lade_buchungen
+from accounti.db.repository import lade_belege, lade_buchungen, lade_transaktionen
 from tests.pdf_hilfe import pdf_mit_text
 from tests.test_bank_kreditkarte import BEISPIEL, GIRO, GIRO_APRIL
 
@@ -323,3 +323,52 @@ def test_bank_lauf_nennt_das_ergebnis_des_kartenabgleichs(umgebung):
     r = _run("bank", "lauf", "--db", url)  # ohne config/regeln.yaml: Standardregeln
     assert r.exit_code == 0, r.output
     assert "Befund" in _text(r) and "Differenz -0,10 €" in _text(r)
+
+
+def test_mehrdeutig_von_hand_entscheiden(umgebung):
+    """Erst eine Jahresgebühr (vorläufig zugeordnet), dann die echte
+    Sammelbelastung mit Abweichung: beide mehrdeutig. Die Meldung nennt den
+    Befehl, mit dem ein Mensch die Gebühr abtrennt."""
+    url, ordner, tmp_path = umgebung
+    beleg = _karte_und_pdf(url, tmp_path)
+    assert _run("kreditkarte", "uebernehmen", beleg, "--db", url).exit_code == 0
+    (ordner / "gebuehr.sta").write_bytes(
+        GIRO_APRIL.replace("DR698,65", "DR29,00")
+        .replace("4301,35", "4971,00")
+        .replace("KREDITKARTENABRECHNUNG", "KARTENJAHRESGEBUEHR VISA")
+        .replace("2604050000099", "2604050000098")
+        .encode("cp1252")
+    )
+    _run("bank", "abrufen", "--db", url)
+    assert "Befund" in _text(_run("kreditkarte", "abgleich", "--db", url))
+    (ordner / "april.sta").write_bytes(
+        GIRO_APRIL.replace("DR698,65", "DR703,65")
+        .replace("4301,35", "4296,35")
+        .encode("cp1252")
+    )
+    _run("bank", "abrufen", "--db", url)
+    r = _run("kreditkarte", "abgleich", "--db", url)
+    assert r.exit_code == 0, r.output
+    engine, make_session = _db(url)
+    with make_session() as s:
+        (a,) = lade_abrechnungen(s)
+        gebuehr = next(t for t in lade_transaktionen(s) if t.betrag == -29)
+    engine.dispose()
+    abrechnung, umsatz = str(a.id)[:8], str(gebuehr.id)[:8]
+    text = _text(r)
+    assert text.count("mehrdeutig") == 2
+    assert f"accounti kreditkarte loesen {abrechnung} --belastung {umsatz}" in text
+
+    r = _run("kreditkarte", "loesen", abrechnung, "--db", url)
+    assert r.exit_code == 1 and "keine zugeordnete" in _text(r)
+    r = _run("kreditkarte", "loesen", abrechnung, "--belastung", umsatz, "--db", url)
+    assert r.exit_code == 0, r.output
+    assert "Getrennt" in _text(r) and "-29,00" in _text(r)
+    r = _run("kreditkarte", "abgleich", "--db", url)
+    text = _text(r)
+    assert "mehrdeutig" not in text
+    assert "Befund" in text and "Differenz -5,00 €" in text
+    r = _run(
+        "kreditkarte", "loesen", abrechnung, "--belastung", "ffffffff", "--db", url
+    )
+    assert r.exit_code == 1 and "Kein Umsatz" in _text(r)
