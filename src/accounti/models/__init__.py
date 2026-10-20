@@ -329,6 +329,27 @@ class OffenerPosten(BaseModel):
         return daten
 
 
+class ZuordnungStatus(str, enum.Enum):
+    VORGESCHLAGEN = "vorgeschlagen"  # wartet auf Bestätigung
+    GEBUCHT = "gebucht"  # Ausgleich gebucht
+    ABGELEHNT = "abgelehnt"  # Transaktion geht zurück in die Kontierung
+
+
+class Zahlungszuordnung(BaseModel):
+    """Ein Anteil einer Banktransaktion an einem offenen Posten."""
+
+    id: UUID = Field(default_factory=uuid4)
+    transaktion_id: UUID
+    posten_id: UUID
+    betrag: Decimal = Field(description="gezahlt, positiv")
+    skonto: Decimal = Field(default=Decimal("0"), description="abgezogen, positiv")
+    stufe: str = Field(description="referenz, exakt, skonto, teil, sammel, …")
+    status: ZuordnungStatus
+    confidence: float = Field(ge=0.0, le=1.0)
+    begruendung: str
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
 # ---------------------------------------------------------------------------
 # Konto — aus Kontenrahmen (SKR03/SKR04)
 # ---------------------------------------------------------------------------

@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from accounti.erechnung.validierung import Befund
     from accounti.konfiguration import Firma
     from accounti.models import Beleg, Buchungssatz, Kontakt, PostenRichtung
+    from accounti.opos.zuordnung import Zuordnungsvorschlag
 
 app = typer.Typer(
     name="accounti",
@@ -1179,8 +1180,8 @@ def opos_verbuchen(
         console.print("[dim]Nichts zu verbuchen.[/dim]")
     elif lauf.verbucht:
         console.print(
-            "[dim]Bankzahlungen zu diesen Posten nicht zusätzlich mit 'classify' "
-            "kontieren — die Zahlungszuordnung folgt mit 'opos zuordnen'.[/dim]"
+            "[dim]Nächster Schritt: Bankumsätze importieren und 'accounti opos "
+            "zuordnen' vor 'accounti classify' ausführen.[/dim]"
         )
 
 
@@ -1293,6 +1294,190 @@ def opos_staffel(
     console.print(tabelle)
 
 
+_STUFEN = {
+    "referenz": "Referenz",
+    "exakt": "exakt",
+    "skonto": "Skonto",
+    "teil": "Teilzahlung",
+    "ueberzahlung": "Überzahlung",
+    "sammel": "Sammelzahlung",
+    "unscharf": "unscharf",
+}
+
+
+@opos_app.command("zuordnen")
+def opos_zuordnen(
+    period: str | None = typer.Option(None, "--period", help="nur Monat JJJJ-MM"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Bankzahlungen offenen Posten zuordnen — Eindeutiges wird sofort ausgeglichen."""
+    from rich.markup import escape
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.opos.zahlungslauf import zuordne_zahlungen
+
+    try:
+        einstellungen = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        lauf = zuordne_zahlungen(s, einstellungen, zeitraum=period)
+        s.commit()
+
+    def anteile_text(vorschlag: "Zuordnungsvorschlag") -> str:
+        teile = []
+        for a in vorschlag.anteile:
+            text = f"{a.posten.belegnummer or '?'} {betrag_de(a.betrag)}"
+            if a.skonto:
+                text += f" (Skonto {betrag_de(a.skonto)})"
+            teile.append(text)
+        return ", ".join(teile)
+
+    for tx, v in lauf.gebucht:
+        console.print(
+            f"[green]{datum_de(tx.datum)} {betrag_de(tx.betrag)} €[/green] → "
+            f"{escape(anteile_text(v))} · {_STUFEN[v.stufe.value]}"
+        )
+    for tx, v in lauf.vorgeschlagen:
+        console.print(
+            f"[yellow]Vorschlag {str(tx.id)[:8]}[/yellow] {datum_de(tx.datum)} "
+            f"{betrag_de(tx.betrag)} € → {escape(anteile_text(v))} · "
+            f"{_STUFEN[v.stufe.value]} ({v.confidence:.2f})"
+        )
+    console.print(
+        f"[green]{len(lauf.gebucht)} ausgeglichen[/green], "
+        f"[yellow]{len(lauf.vorgeschlagen)} Vorschläge[/yellow], "
+        f"{lauf.ohne_treffer} ohne passenden Posten (→ classify)."
+    )
+    if lauf.vorgeschlagen:
+        console.print(
+            "[dim]Prüfen: accounti opos vorschlaege · "
+            "accounti opos bestaetigen <ID> · accounti opos ablehnen <ID>[/dim]"
+        )
+
+
+@opos_app.command("vorschlaege")
+def opos_vorschlaege(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Offene Zuordnungsvorschläge anzeigen."""
+    from collections import defaultdict
+    from uuid import UUID
+
+    from rich.markup import escape
+    from rich.table import Table
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import (
+        lade_einen_posten,
+        lade_transaktion,
+        lade_zuordnungen,
+    )
+    from accounti.models import ZuordnungStatus
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        zuordnungen = lade_zuordnungen(s, status={ZuordnungStatus.VORGESCHLAGEN})
+        je_tx: dict[UUID, list[str]] = defaultdict(list)
+        for z in zuordnungen:
+            p = lade_einen_posten(s, z.posten_id)
+            text = f"{p.belegnummer or '?'} {betrag_de(z.betrag)}"
+            if z.skonto:
+                text += f" (Skonto {betrag_de(z.skonto)})"
+            je_tx[z.transaktion_id].append(text)
+        transaktionen = {t: lade_transaktion(s, t) for t in je_tx}
+    if not zuordnungen:
+        console.print("[dim]Keine Vorschläge.[/dim]")
+        return
+    erste = {z.transaktion_id: z for z in reversed(zuordnungen)}
+    tabelle = Table(title="Zuordnungsvorschläge")
+    tabelle.add_column("ID", no_wrap=True)
+    tabelle.add_column("Datum", no_wrap=True)
+    tabelle.add_column("Betrag", justify="right", no_wrap=True)
+    tabelle.add_column("Posten", overflow="fold")
+    tabelle.add_column("Stufe", no_wrap=True)
+    for tx_id, posten in je_tx.items():
+        tx = transaktionen[tx_id]
+        z = erste[tx_id]
+        tabelle.add_row(
+            str(tx_id)[:8],
+            datum_de(tx.datum) if tx else "—",
+            betrag_de(tx.betrag) if tx else "—",
+            escape(", ".join(posten)),
+            f"{z.stufe} {z.confidence:.2f}",
+        )
+    console.print(tabelle)
+    for tx_id in je_tx:
+        tx = transaktionen[tx_id]
+        zweck = tx.verwendungszweck[:60] if tx else ""
+        console.print(
+            f"  {str(tx_id)[:8]}  {escape(erste[tx_id].begruendung)} "
+            f"[dim]— {escape(zweck)}[/dim]"
+        )
+
+
+@opos_app.command("bestaetigen")
+def opos_bestaetigen(
+    transaktion: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Zuordnungsvorschlag buchen."""
+    from rich.markup import escape
+
+    from accounti.db import init_db, session_factory
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.opos.zahlungslauf import ZahlungslaufError, bestaetige
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            buchungen = bestaetige(s, transaktion, lade_buchhaltung(config))
+        except ZahlungslaufError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+    console.print(
+        f"[green]Vorschlag {escape(transaktion)} gebucht[/green] — "
+        f"{len(buchungen)} Buchungen"
+    )
+
+
+@opos_app.command("ablehnen")
+def opos_ablehnen(
+    transaktion: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+) -> None:
+    """Zuordnungsvorschlag verwerfen — die Zahlung geht zurück in die Kontierung."""
+    from rich.markup import escape
+
+    from accounti.db import init_db, session_factory
+    from accounti.opos.zahlungslauf import ZahlungslaufError, lehne_ab
+
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            lehne_ab(s, transaktion)
+        except ZahlungslaufError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+    console.print(
+        f"Vorschlag {escape(transaktion)} abgelehnt — die Zahlung wird bei "
+        "'accounti classify' wieder berücksichtigt."
+    )
+
+
 # ---------------------------------------------------------------------------
 # Klassifikation
 # ---------------------------------------------------------------------------
@@ -1304,7 +1489,7 @@ def classify(
     """Transaktionen automatisch kontieren."""
     from accounti.buchung.mapper import zu_buchungssatz
     from accounti.db import session_factory
-    from accounti.db.repository import lade_transaktionen, speichere_buchung
+    from accounti.db.repository import speichere_buchung
     from accounti.klassifikation.engine import (
         STANDARD_REGELN,
         KlassifikationsEngine,
@@ -1312,6 +1497,7 @@ def classify(
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.opos.zahlungslauf import offene_transaktionen
 
     # Eigene Regeln (config/regeln.yaml) haben Vorrang, dann das Standard-Regelwerk.
     regeln = lade_regeln("config/regeln.yaml")
@@ -1327,7 +1513,9 @@ def classify(
     _, make_session = session_factory(db)
     auto = offen = 0
     with make_session() as s:
-        for tx in lade_transaktionen(s):
+        # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
+        # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
+        for tx in offene_transaktionen(s, fuer_kontierung=True):
             erg = engine.klassifiziere(tx)
             if erg is None:
                 offen += 1

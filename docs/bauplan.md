@@ -56,8 +56,9 @@ sowie ZUGFeRD-PDF und E-Mail-Versand ([Paket 3](plans/2026-10-20-erechnung-paket
 jeweils formal geprüft. Offen als Erweiterungen: Storno/Korrekturrechnung (Typ 384), Dienstleistungen
 an Kunden im Drittland (Kategorie O) und der Peppol-Versandweg.
 **Baustein 4 ist teilweise fertig,** weil Kontakte mit Personenkonten und offene Posten aus
-Belegen stehen ([Paket 1](plans/2026-10-20-kontakte-opos-paket-1.md)) — was fehlt, sind die
-Zahlungszuordnung mit Ausgleich und Skonto (Paket 2) und die USt-IdNr.-Prüfung (Paket 3).
+Belegen ([Paket 1](plans/2026-10-20-kontakte-opos-paket-1.md)) sowie Zahlungszuordnung und
+Ausgleich mit Skonto ([Paket 2](plans/2026-10-21-kontakte-opos-paket-2-zahlungen.md)) stehen —
+was fehlt, ist die USt-IdNr.-Prüfung (Paket 3).
 **Baustein 11 ist teilweise fertig,** weil der DATEV-Buchungsstapel-Export existiert — was fehlt,
 sind Stammdaten, Belege, Kontoauszüge und die Marktplatz-Importer.
 

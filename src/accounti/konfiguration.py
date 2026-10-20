@@ -145,6 +145,17 @@ class Buchhaltung(BaseModel):
         default="4900", description="Sachkonto, wenn nichts Besseres bekannt ist"
     )
     standard_zahlungsziel_tage: int = 14
+    skonto_karenz_tage: int = Field(
+        default=3,
+        description="Skonto gilt noch, wenn die Bank so viele Tage später bucht",
+    )
+    # Skontokonten je Steuersatz (SKR03); "0" für steuerfreie Rechnungen
+    skonto_erhalten: dict[str, str] = Field(
+        default_factory=lambda: {"19": "3736", "7": "3731", "0": "3730"}
+    )
+    skonto_gewaehrt: dict[str, str] = Field(
+        default_factory=lambda: {"19": "8736", "7": "8731", "0": "8730"}
+    )
 
 
 def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
