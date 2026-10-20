@@ -92,7 +92,7 @@ Portal-API ─────▶ ConnectorKanal ───┘   (Typ am Inhalt,     
 | `src/accounti/belege/kanaele/pruefung.py` | `erkenne_dateityp`, `Dateipruefung`, `DateiAbgelehntError`, `sicherer_dateiname` |
 | `src/accounti/belege/kanaele/gedaechtnis.py` | `Gedaechtnis` (Protokoll) und `DbGedaechtnis` (eigene Transaktion) |
 | `src/accounti/belege/kanaele/zugaenge.py` | Geheimnisse der Kanäle im Tresor |
-| `src/accounti/belege/kanaele/fehler.py` | `KanalError` |
+| `src/accounti/belege/kanaele/abholung.py` | `KanalError`, `AbholKanal` (Basisklasse der Kanäle mit Gegenstelle, sammelt Hinweise) |
 | `src/accounti/belege/kanaele/email.py` | `EmailKanal`, `belegdateien` (Anhänge aus einer Nachricht) |
 | `src/accounti/belege/kanaele/webhook.py` | `WebhookKanal` |
 | `src/accounti/belege/kanaele/connector.py` | `BelegConnector`, `BELEG_CONNECTOREN`, `ConnectorKanal` |
