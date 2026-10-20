@@ -61,3 +61,24 @@ def test_original_bleibt_unveraendert():
     original = tx()
     (neu,) = mit_schluessel([original], "DE12")
     assert original.dublettenschluessel is None and neu.dublettenschluessel
+
+
+def test_ohne_bankreferenz_bleibt_der_schluessel_wie_bisher():
+    import hashlib
+
+    basis = "DE12|2026-03-12|-5|parkhaus altstadt||apcoa"
+    erwartet = hashlib.sha256(f"{basis}|1".encode()).hexdigest()
+    assert _schluessel([tx()]) == [erwartet]
+    assert _schluessel([tx(quelle_referenz="NONREF")]) == [erwartet]
+    assert _schluessel([tx(quelle_referenz=" notprovided ")]) == [erwartet]
+
+
+def test_bankreferenz_unterscheidet_gleich_aussehende_umsaetze():
+    a, b = tx(quelle_referenz="2026031300003"), tx(quelle_referenz="2026031300004")
+    hin = _schluessel([a, b])
+    zurueck = _schluessel([b, a])
+    assert len(set(hin)) == 2
+    assert set(hin) == set(zurueck)  # Reihenfolge des Abrufs egal
+    # nur einer der beiden kommt im nächsten Abruf noch einmal: keine neue Dublette
+    assert _schluessel([b]) == [hin[1]]
+    assert _schluessel([tx()]) not in ([hin[0]], [hin[1]])

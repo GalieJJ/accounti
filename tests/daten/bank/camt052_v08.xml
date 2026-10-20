@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Selbst erstellter Umsatzreport (camt.052.001.08), wie ihn FinTS (HKCAZ) liefert;
+     keine echten Daten. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.052.001.08">
+  <BkToCstmrAcctRpt>
+    <GrpHdr>
+      <MsgId>RPT-2026-03-20-0001</MsgId>
+      <CreDtTm>2026-03-20T08:00:00+01:00</CreDtTm>
+    </GrpHdr>
+    <Rpt>
+      <Id>RPT-2026-03-20</Id>
+      <CreDtTm>2026-03-20T08:00:00+01:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>DE02120300000000202051</IBAN></Id>
+      </Acct>
+      <Ntry>
+        <Amt Ccy="EUR">25.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-03-19</Dt></BookgDt>
+        <ValDt><Dt>2026-03-19</Dt></ValDt>
+        <AcctSvcrRef>2026031900011</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <RltdPties><Cdtr><Pty><Nm>Buchhandlung am Markt</Nm></Pty></Cdtr></RltdPties>
+            <RmtInf><Ustrd>Fachbuch Steuerrecht</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">300.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>PDNG</Cd></Sts>
+        <ValDt><Dt>2026-03-21</Dt></ValDt>
+        <NtryDtls>
+          <TxDtls>
+            <RltdPties><Cdtr><Pty><Nm>Vormerkposten GmbH</Nm></Pty></Cdtr></RltdPties>
+            <RmtInf><Ustrd>noch nicht gebucht</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Rpt>
+  </BkToCstmrAcctRpt>
+</Document>

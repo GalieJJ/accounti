@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Selbst erstellter Beispielauszug (camt.053.001.02), keine echten Daten. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.02"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>MSG-2026-03-31-0001</MsgId>
+      <CreDtTm>2026-04-01T06:00:00+02:00</CreDtTm>
+    </GrpHdr>
+    <Stmt>
+      <Id>STMT-2026-03-31</Id>
+      <CreDtTm>2026-04-01T06:00:00+02:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>DE44500105175407324931</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>OPBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">500.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-03-31</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">960.01</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Dt><Dt>2026-03-31</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">1500.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-03-31</Dt></BookgDt>
+        <ValDt><Dt>2026-03-31</Dt></ValDt>
+        <AcctSvcrRef>BATCH-0331-01</AcctSvcrRef>
+        <NtryDtls>
+          <Btch><NbOfTxs>2</NbOfTxs></Btch>
+          <TxDtls>
+            <Refs><EndToEndId>LOHN-03-1</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">800.00</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Cdtr><Nm>Erika Beispiel</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Abschlag Maerz</Ustrd></RmtInf>
+          </TxDtls>
+          <TxDtls>
+            <Refs><EndToEndId>LOHN-03-2</EndToEndId></Refs>
+            <AmtDtls><TxAmt><Amt Ccy="EUR">700.00</Amt></TxAmt></AmtDtls>
+            <RltdPties>
+              <Cdtr><Nm>Max Beispiel</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE12500105170648489890</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Abschlag Maerz</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+        <AddtlNtryInf>SAMMEL-UEBERWEISUNG</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">49.99</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <RvslInd>true</RvslInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-03-31</Dt></BookgDt>
+        <ValDt><Dt>2026-03-31</Dt></ValDt>
+        <AcctSvcrRef>RUECK-0331-07</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>NOTPROVIDED</EndToEndId><MndtId>M-4711</MndtId></Refs>
+            <RltdPties>
+              <Cdtr><Nm>Telefon AG</Nm></Cdtr>
+              <CdtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>Ruecklastschrift Kundennr 4711</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">10.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts>BOOK</Sts>
+        <BookgDt><Dt>2026-03-31</Dt></BookgDt>
+        <ValDt><Dt>2026-03-31</Dt></ValDt>
+        <NtryDtls>
+          <TxDtls>
+            <RltdPties><Cdtr><Nm>Verein e.V.</Nm></Cdtr></RltdPties>
+            <RmtInf>
+              <Strd><CdtrRefInf><Ref>RF18539007547034</Ref></CdtrRefInf></Strd>
+            </RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

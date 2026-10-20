@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Selbst erstellter Beispielauszug (camt.053.001.08), keine echten Daten. -->
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:camt.053.001.08">
+  <BkToCstmrStmt>
+    <GrpHdr>
+      <MsgId>MSG-2026-03-13-0001</MsgId>
+      <CreDtTm>2026-03-14T06:00:00+01:00</CreDtTm>
+    </GrpHdr>
+    <Stmt>
+      <Id>STMT-2026-03-13</Id>
+      <ElctrncSeqNb>13</ElctrncSeqNb>
+      <CreDtTm>2026-03-14T06:00:00+01:00</CreDtTm>
+      <Acct>
+        <Id><IBAN>DE02120300000000202051</IBAN></Id>
+        <Ccy>EUR</Ccy>
+      </Acct>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>PRCD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">1000.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-03-11</Dt></Dt>
+      </Bal>
+      <Bal>
+        <Tp><CdOrPrtry><Cd>CLBD</Cd></CdOrPrtry></Tp>
+        <Amt Ccy="EUR">2120.50</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Dt><Dt>2026-03-13</Dt></Dt>
+      </Bal>
+      <Ntry>
+        <Amt Ccy="EUR">59.50</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-03-12</Dt></BookgDt>
+        <ValDt><Dt>2026-03-12</Dt></ValDt>
+        <AcctSvcrRef>2026031200001</AcctSvcrRef>
+        <BkTxCd><Prtry><Cd>NDDT+106+9310+011</Cd><Issr>DK</Issr></Prtry></BkTxCd>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>70012345678901234567</EndToEndId></Refs>
+            <Amt Ccy="EUR">59.50</Amt>
+            <CdtDbtInd>DBIT</CdtDbtInd>
+            <RltdPties>
+              <Cdtr><Pty><Nm>SHELL STATION KIEL</Nm></Pty></Cdtr>
+              <CdtrAcct><Id><IBAN>DE89370400440532013000</IBAN></Id></CdtrAcct>
+            </RltdPties>
+            <RmtInf><Ustrd>2026-03-12T10.15 Debitk.1 2028-12</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+        <AddtlNtryInf>KARTENZAHLUNG</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">1190.00</Amt>
+        <CdtDbtInd>CRDT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><Dt>2026-03-13</Dt></BookgDt>
+        <ValDt><Dt>2026-03-13</Dt></ValDt>
+        <AcctSvcrRef>2026031300002</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>RE-2026-0042</EndToEndId></Refs>
+            <RltdPties>
+              <Dbtr><Pty><Nm>Muster Handels GmbH</Nm></Pty></Dbtr>
+              <DbtrAcct><Id><IBAN>DE12500105170648489890</IBAN></Id></DbtrAcct>
+              <Cdtr><Pty><Nm>Meine Firma GmbH</Nm></Pty></Cdtr>
+            </RltdPties>
+            <RmtInf><Ustrd>Rechnung RE-2026-0042 vom 01.03.2026</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+        <AddtlNtryInf>GUTSCHR. UEBERWEISUNG</AddtlNtryInf>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">5.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><DtTm>2026-03-13T09:12:00+01:00</DtTm></BookgDt>
+        <ValDt><Dt>2026-03-13</Dt></ValDt>
+        <AcctSvcrRef>2026031300003</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+            <RltdPties><Cdtr><Pty><Nm>APCOA PARKING Deutschland GmbH</Nm></Pty></Cdtr></RltdPties>
+            <RmtInf><Ustrd>PARKHAUS ALTSTADT</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+      <Ntry>
+        <Amt Ccy="EUR">5.00</Amt>
+        <CdtDbtInd>DBIT</CdtDbtInd>
+        <Sts><Cd>BOOK</Cd></Sts>
+        <BookgDt><DtTm>2026-03-13T17:40:00+01:00</DtTm></BookgDt>
+        <ValDt><Dt>2026-03-13</Dt></ValDt>
+        <AcctSvcrRef>2026031300004</AcctSvcrRef>
+        <NtryDtls>
+          <TxDtls>
+            <Refs><EndToEndId>NOTPROVIDED</EndToEndId></Refs>
+            <RltdPties><Cdtr><Pty><Nm>APCOA PARKING Deutschland GmbH</Nm></Pty></Cdtr></RltdPties>
+            <RmtInf><Ustrd>PARKHAUS ALTSTADT</Ustrd></RmtInf>
+          </TxDtls>
+        </NtryDtls>
+      </Ntry>
+    </Stmt>
+  </BkToCstmrStmt>
+</Document>

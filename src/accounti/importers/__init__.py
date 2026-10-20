@@ -20,5 +20,6 @@ class BankImporter:
 BANK_IMPORTERS: dict[str, BankImporter] = {}
 
 # Profile registrieren (füllt BANK_IMPORTERS mit den eingebauten Banken);
-# sparkasse-Modul für den Rückwärtskompatibilitäts-Import bereitstellen.
-from accounti.importers import profil, sparkasse  # noqa: E402, F401
+# sparkasse-Modul für den Rückwärtskompatibilitäts-Import bereitstellen;
+# MT940 und CAMT sind eigene Importer (keine CSV-Profile).
+from accounti.importers import camt, mt940, profil, sparkasse  # noqa: E402, F401
