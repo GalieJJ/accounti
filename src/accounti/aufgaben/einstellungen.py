@@ -113,6 +113,10 @@ class BenachrichtigungsEinstellungen(BaseModel):
     @field_validator("kanaele")
     @classmethod
     def _kanaele(cls, wert: list[str]) -> list[str]:
+        if not wert:
+            # ohne Kanal gälte jede Aufgabe als gemeldet, ohne dass jemand sie sah
+            msg = "mindestens ein Kanal (email oder webhook)"
+            raise ValueError(msg)
         unbekannt = [k for k in wert if k not in BEKANNTE_KANAELE]
         if unbekannt:
             msg = (

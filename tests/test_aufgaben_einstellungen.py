@@ -89,6 +89,7 @@ aufgaben:
         ("erinnerung: {stufen: [3, 0]}", "aufsteigend"),
         ("erinnerung: {stufen: [-1]}", "stufen"),
         ("benachrichtigung: {kanaele: [brieftaube]}", "brieftaube"),
+        ("benachrichtigung: {kanaele: []}", "mindestens ein Kanal"),
         ("zustaendigkeit: [{wenn: {art: x}}]", "an oder rolle"),
         ("zustaendigkeit: [{wenn: {art: x}, an: jan, rolle: b}]", "an oder rolle"),
         ("fristen: {beleg_fehlt: -2}", "fristen"),
