@@ -113,34 +113,46 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 
 ### Paket 1 — Zahlungslauf
 
-- [ ] **Modelle** `models/zahlung.py`: `LaufStatus`, `Zahlung`, `Zahlungslauf`, `LaufProtokoll`, `Zahlungssperre`, `IbanKlaerung`.
-- [ ] **Tabellen** `db/tabellen_zahlung.py` (eindeutiger Index `zahlungen.sperre`, ORM-Sperre für Zahlungen nicht-entworfener Läufe, Protokoll nur anfügen + SQLite-Trigger) und **Repository** `db/repo_zahlung.py`.
-- [ ] **Konfiguration** `zahlung/konfiguration.py`: `lade_zahlung()` mit Standards, Auftraggeber aus `mandant` (`tests/test_zahlung_konfiguration.py`).
-- [ ] **Vorschlag** `zahlung/vorschlag.py`: Skontofrist morgen vs. Nettofälligkeit heute, Skonto verfallen, Teilzahlung, gesperrter Kontakt, schon im Lauf, Gutschrift, Filter, ohne Skonto (`tests/test_zahlung_vorschlag.py`) — **Akzeptanz 1**.
-- [ ] **Prüfung** `zahlung/pruefung.py`: abweichende IBAN (Zahlung und Rechnung), ungültige Prüfziffer, fehlende IBAN, doppelter Posten, Sperre, Kontakt zur Prüfung, Betrag, Skontofrist, Höchstbetrag, Nicht-SEPA-Land, Fremdwährung, Datum — jeweils „blockiert, mit Begründung“; IBAN-Klärung (`tests/test_zahlung_pruefung.py`) — **Akzeptanz 4**.
-- [ ] **Freigabe** `zahlung/freigabe.py`: Anlegen, Entfernen nur im Entwurf, Übergänge in falscher Reihenfolge abgelehnt, Vier-Augen, Hash, Storno mit Grund und Protokoll, Posten wieder frei, Unveränderbarkeit auf ORM-Ebene, Doppelzahlung über den Index (`tests/test_zahlung_freigabe.py`) — **Akzeptanz 3, 5**.
+- [x] **Modelle** `models/zahlung.py`: `LaufStatus`, `Zahlung`, `Zahlungslauf`, `LaufProtokoll`, `Zahlungssperre`, `IbanKlaerung`.
+- [x] **Tabellen** `db/tabellen_zahlung.py` (eindeutiger Index `zahlungen.sperre`, ORM-Sperre für Zahlungen nicht-entworfener Läufe, Protokoll nur anfügen + SQLite-Trigger) und **Repository** `db/repo_zahlung.py`.
+- [x] **Konfiguration** `zahlung/konfiguration.py`: `lade_zahlung()` mit Standards, Auftraggeber aus `mandant` (`tests/test_zahlung_konfiguration.py`).
+- [x] **IBAN-Hilfen** `zahlung/iban.py` (Schreibweise, Prüfziffer, SEPA-Raum) und **Zeichensatz** `zahlung/zeichen.py` (Umlaute bleiben, Akzente fallen, Fremdes wird Leerzeichen, Längen, Schrägstrich-Regeln; `tests/test_zahlung_sepa.py`).
+- [x] **Vorschlag** `zahlung/vorschlag.py`: Skontofrist morgen vs. Nettofälligkeit heute, Skonto verfallen, Teilzahlung, gesperrter Kontakt, schon im Lauf, Gutschrift, Filter, ohne Skonto, Horizont (`tests/test_zahlung_vorschlag.py`) — **Akzeptanz 1**.
+- [x] **Prüfung** `zahlung/pruefung.py`: abweichende IBAN (Rechnung und Stammsatz), ungültige Prüfziffer, fehlende IBAN, Nicht-SEPA-Land, doppelter Posten (auch am Index vorbei), Sperre, Kontakt zur Prüfung, Posten geändert/bezahlt, Skontofrist, Höchstbetrag, Fremdwährung, Datum, Auftraggeber — jeweils „blockiert, mit Begründung“; IBAN-Klärung (`tests/test_zahlung_pruefung.py`) — **Akzeptanz 4**.
+- [x] **Freigabe** `zahlung/freigabe.py`: Anlegen, Entfernen nur im Entwurf, Übergänge in falscher Reihenfolge abgelehnt, Vier-Augen, Hash, Storno mit Grund und Protokoll, Posten wieder frei, Unveränderbarkeit auf ORM- und SQLite-Ebene, Doppelzahlung über den Index (`tests/test_zahlung_freigabe.py`) — **Akzeptanz 3, 5**.
 
 ### Paket 2 — SEPA-Datei
 
-- [ ] **Zeichensatz und Referenzen** (`zahlung/sepa.py`): Umlaute bleiben, Akzente fallen, Fremdes wird Leerzeichen, Längen, Schrägstrich-Regeln.
-- [ ] **pain.001.001.09** schreiben: Golden-Test gegen `tests/daten/zahlung/pain001_soll.xml`; Schemaprüfung gegen `pain.001.001.09_GBIC_5.xsd` (auch mit Adresse, ohne BIC, mit Umlauten, Höchstlängen) (`tests/test_zahlung_sepa.py`) — **Akzeptanz 2**.
-- [ ] **Datei erzeugen**: nur freigegeben, Prüfung + Hash, eingereicht, gespeicherte XML byte-gleich wieder ausgeben, Posten bleiben gesperrt; `zahlung abgleichen` setzt „ausgeführt“, sobald `opos zuordnen` ausgeglichen hat (`tests/test_zahlung_sepa.py`) — **Akzeptanz 3**.
-- [ ] **CLI** `befehle/zahlung.py`: `vorschlag`, `anlegen`, `liste`, `zeigen`, `entfernen`, `pruefen`, `freigeben`, `sepa --datei`, `stornieren`, `abgleichen`, `sperre`, `iban-klaeren`; Ende-zu-Ende ohne Bankanbindung bis zur Datei (`tests/test_cli_zahlung.py`) — **Akzeptanz 7**.
+- [x] **pain.001.001.09** schreiben (`zahlung/sepa.py`): Golden-Test gegen `tests/daten/zahlung/pain001_soll.xml`; Schemaprüfung gegen `pain.001.001.09_GBIC_5.xsd` mit `tests/daten/zahlung/XsdPruefung.java` (Soll-Datei, Sammelbuchung, Grenzfall mit Höchstlängen, Höchstbetrag, Sonderzeichen, ohne BIC und ohne Anschrift; Gegenprobe mit kaputter Datei) (`tests/test_zahlung_sepa.py`) — **Akzeptanz 2**.
+- [x] **Datei erzeugen**: nur freigegeben, Prüfung + Hash (Änderung am ORM vorbei wird erkannt), eingereicht, gespeicherte XML byte-gleich wieder ausgeben, Posten bleiben gesperrt; `pruefe_ausfuehrung` setzt „ausgeführt“, sobald `opos zuordnen` den Posten über den Bankumsatz ausgeglichen hat (`tests/test_zahlung_datei.py`) — **Akzeptanz 3**.
+- [x] **CLI** `befehle/zahlung.py`: `vorschlag`, `anlegen`, `liste`, `zeigen`, `entfernen`, `pruefen`, `freigeben`, `sepa --datei`, `stornieren`, `abgleichen`, `sperre`, `iban-klaeren`; Ende-zu-Ende ohne Bankanbindung bis zur Datei (`tests/test_cli_zahlung.py`) — **Akzeptanz 7**.
 
 ### Paket 3 — Mahnwesen
 
-- [ ] **Basiszinssatz** `mahnwesen/basiszins.py`: Tabelle lückenlos, Satz am Stichtag, Ergänzung aus der Konfiguration, unbekannter Zeitraum → Fehler (`tests/test_mahnwesen_basiszins.py`).
-- [ ] **Verzugszinsen** `mahnwesen/zinsen.py`: handgerechnete Fälle B2B/B2C, über den Wechsel am 01.07.2026, Teilzahlung im Verzug (`tests/test_mahnwesen_zinsen.py`).
-- [ ] **Konfiguration** `mahnwesen/konfiguration.py`: Stufen, Karenz, Mindestbetrag, Abstand, Pauschale, Texte; Prüfung der Stufenfolge (`tests/test_mahnwesen_konfiguration.py`).
-- [ ] **Modelle, Tabellen, Repository** `models/mahnwesen.py`, `db/tabellen_mahnwesen.py`, `db/repo_mahnwesen.py` (`setze_mahnstufe` am offenen Posten).
-- [ ] **Stufen** `mahnwesen/stufen.py` und **Einstufung B2B/B2C** (`tests/test_mahnwesen_stufen.py`).
-- [ ] **Mahnlauf und Versand** `mahnwesen/lauf.py`: ein Posten durchläuft Erinnerung → 1. → 2. Mahnung mit handgerechneten Zinsen, Pauschale und Gebühren; Mahnstufe am Posten; Ausnahmen (`tests/test_mahnwesen_lauf.py`) — **Akzeptanz 6**.
-- [ ] **Mahnschreiben** `mahnwesen/schreiben.py`: Text und PDF (Inhalt per `pypdf` gelesen), eigene Texte; E-Mail über einen Test-Versandweg (`tests/test_mahnwesen_schreiben.py`).
-- [ ] **CLI** `befehle/mahnwesen.py`: `lauf`, `liste`, `zeigen`, `versenden --pdf/--text/--email`, `verwerfen`, `sperre`, `kunde`, `basiszins`, `historie` (`tests/test_cli_mahnwesen.py`) — **Akzeptanz 7**.
+- [x] **Basiszinssatz** `mahnwesen/basiszins.py`: Tabelle lückenlos (mit der Bundesbank-Seite abgeglichen), Satz am Stichtag, Ergänzung/Korrektur aus der Konfiguration, Überschneidung, unbekannter Zeitraum → Fehler (`tests/test_mahnwesen_basiszins.py`).
+- [x] **Verzugszinsen** `mahnwesen/zinsen.py`: handgerechnete Fälle B2B/B2C, über den Wechsel am 01.07.2026, Teilzahlung im Verzug, Zahlung nach dem Stichtag (`tests/test_mahnwesen_zinsen.py`).
+- [x] **Konfiguration** `mahnwesen/konfiguration.py`: Stufen, Karenz, Mindestbetrag, Abstand, Pauschale, Texte mit geprüften Platzhaltern, Basiszins-Ergänzungen nur zum 1.1./1.7. (`tests/test_mahnwesen_konfiguration.py`).
+- [x] **Modelle, Tabellen, Repository** `models/mahnwesen.py`, `db/tabellen_mahnwesen.py` (versendete Mahnungen am ORM gesperrt), `db/repo_mahnwesen.py` (`setze_mahnstufe` am offenen Posten).
+- [x] **Stufen** `mahnwesen/stufen.py`: der Reihe nach, keine übersprungen, Karenz, Stufenabstand, Ausnahmen mit Grund (`tests/test_mahnwesen_stufen.py`).
+- [x] **Mahnlauf, Einstufung B2B/B2C, Versand-Status** `mahnwesen/lauf.py`: ein Posten durchläuft Erinnerung → 1. → 2. Mahnung mit handgerechneten Zinsen, Pauschale und Gebühren (B2B und B2C), Pauschale ohne Anrechnung, kein Verzug → keine Pauschale, Teilzahlung aus der Zahlungszuordnung, Mahnstufe am Posten erst beim Versand (`tests/test_mahnwesen_lauf.py`) — **Akzeptanz 6**.
+- [x] **Mahnschreiben** `mahnwesen/schreiben.py` und **Versand** `mahnwesen/versand.py`: Text und PDF (Inhalt per `pypdf` gelesen), eigene Texte, PDF ins Belegarchiv, E-Mail über einen Test-Versandweg, gescheiterte E-Mail ändert nichts (`tests/test_mahnwesen_schreiben.py`).
+- [x] **CLI** `befehle/mahnwesen.py`: `lauf`, `liste`, `zeigen`, `versenden --pdf/--text/--email`, `verwerfen`, `sperre`, `kunde`, `basiszins`, `historie` (`tests/test_cli_mahnwesen.py`) — **Akzeptanz 7**.
 
 ### Abschluss
 
-- [ ] `pytest`, `ruff check`, `ruff format --check` (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine unten aktuell.
+- [x] `pytest` (744 bestanden, 1 übersprungen), `ruff check`, `ruff format --check` (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine unten aktuell; Probelauf beider Befehlsgruppen unter `/tmp` (SEPA-Datei gegen das XSD geprüft, Mahn-PDF angesehen).
+
+### Akzeptanzkriterien → Tests
+
+| # | Kriterium | Beleg |
+|---|-----------|-------|
+| 1 | Skontoposten zuerst, Grund je Position | `test_zahlung_vorschlag.py::test_skontoposten_zuerst_mit_grund` |
+| 2 | Sammelüberweisung schemakonform | `test_zahlung_sepa.py::test_pain001_ist_schemakonform_nach_dk_tvs_gbic_5`, `::test_pain001_entspricht_der_soll_datei` — Annahme durch eine Bank **nicht** belegt (Grenzen) |
+| 3 | Posten nie zweimal in einem eingereichten Lauf | `test_zahlung_freigabe.py::test_posten_nie_zweimal_in_einem_aktiven_lauf`, `test_zahlung_pruefung.py::test_doppelter_posten_wird_auch_an_der_sperre_vorbei_erkannt`, `test_zahlung_datei.py::test_datei_macht_den_lauf_eingereicht_und_bleibt_byte_gleich` |
+| 4 | Abweichende IBAN blockiert mit klarer Meldung | `test_zahlung_pruefung.py::test_abweichende_iban_auf_der_rechnung_blockiert_mit_klarer_meldung`, `::test_stammsatz_nach_anlage_geaendert_blockiert`, `test_cli_zahlung.py::test_abweichende_iban_blockiert_mit_klarer_meldung` |
+| 5 | Freigegebener Lauf nur stornierbar, mit Protokoll | `test_zahlung_freigabe.py::test_freigegebener_lauf_nur_stornierbar_mit_protokoll`, `::test_uebergaenge_in_falscher_reihenfolge_werden_abgelehnt`, `test_zahlung_datei.py::test_aenderung_nach_der_freigabe_wird_erkannt` |
+| 6 | Stufen mit korrekten Verzugszinsen und Gebühren | `test_mahnwesen_lauf.py::test_b2b_posten_durchlaeuft_die_stufen_mit_zinsen_pauschale_und_gebuehren`, `::test_b2c_ohne_pauschale_mit_gebuehren`, `test_mahnwesen_zinsen.py::test_ueber_den_wechsel_des_basiszinssatzes_am_1_juli_2026` |
+| 7 | Ohne Live-Bankanbindung bis zur Datei | `test_cli_zahlung.py::test_von_vorschlag_bis_zur_sepa_datei`, `test_cli_mahnwesen.py::test_mahnstufen_bis_zum_versendeten_schreiben` |
 
 ## Grenzen
 
@@ -155,6 +167,14 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
   (nur Summen bis 4 Posten als Vorschlag) — dann bleiben Läufe „eingereicht“, bis die Posten von
   Hand ausgeglichen sind.
 - **Ausführungsdatum:** Wochenenden und Feiertage werden nicht verschoben; das macht die Bank.
+  `zahlung pruefen/freigeben/sepa` prüfen gegen das heutige Datum — ein Lauf mit Termin in der
+  Vergangenheit muss storniert und neu angelegt werden.
+- **Storno nach dem Einreichen** gibt die Posten wieder frei. Ob die Datei schon bei der Bank
+  hochgeladen wurde, weiß accounti nicht; die CLI weist darauf hin, den Auftrag dann bei der
+  Bank zurückzurufen — sonst droht beim nächsten Lauf eine Doppelzahlung.
+- **Unveränderbarkeit:** ORM-Sperren und (unter SQLite) Trigger schützen vor Änderungen über
+  accounti; wer die Datenbank direkt mit SQL ändert, wird vom Freigabe-Hash beim Erzeugen der
+  Datei aufgehalten, nicht vorher.
 - **Empfängerüberprüfung (VOP)** findet bei der Bank statt; accounti vergleicht nur die IBAN mit
   dem Stammsatz und der Rechnung, nicht den Kontoinhabernamen.
 - **Nicht im Umfang (Spec 8):** Lastschrift (`pain.008`), Echtzeitüberweisung, Fremdwährung (wird
@@ -181,7 +201,13 @@ ausgeführt          storniert ← Entwurf/freigegeben/eingereicht (mit Grund, P
 - **Teilzahlungen** fließen nur über Zahlungszuordnungen in die Zinsberechnung ein; ein von Hand
   verringerter Restbetrag gilt rückwirkend (zu niedrige Zinsen, nie zu hohe).
 - **Je Posten eine Mahnung**, keine Sammelmahnung je Kunde; keine Mahnsperre je einzelnem Posten
-  (nur je Kontakt).
+  (nur je Kontakt). Die Pauschale gilt je Forderung (Posten) und steht in jeder Mahnung mit Verzug
+  erneut als dieselbe Forderung, nicht zusätzlich.
+- **E-Mail-Versand** ist nur gegen einen Test-Versandweg geprüft, nicht gegen einen echten
+  SMTP-Server (Auftrag); er nutzt den bereits erprobten SMTP-Weg der E-Rechnung.
+- **Gebühren kumuliert:** Eine Mahnung verlangt die Gebühren aller Stufen bis zu ihrer (Annahme:
+  frühere Mahngebühren bleiben geschuldet). Wer das anders will, setzt die Gebühren je Stufe
+  entsprechend.
 - **Postgres:** Eindeutiger Index und ORM-Sperren gelten; die Trigger für das Protokoll gibt es wie
   beim USt-IdNr.-Protokoll nur unter SQLite.
 - **Keine Alembic-Migration** (entsteht beim Zusammenführen); neue Tabellen: `zahlungslaeufe`,
@@ -353,7 +379,8 @@ mahnwesen:
       ab_tagen: 28
       gebuehr: 10.00
       verzugszinsen: true
-      # text: "…{nummer} … {summe} … bis zum {frist} …"   # eigener Brieftext
+      # text: "…{nummer} … {summe} … bis zum {frist} …"   # eigener Brieftext; Platzhalter:
+      #   {kunde} {nummer} {datum} {faellig} {betrag} {summe} {frist} {firma} {stufe}
   # basiszinssaetze:           # neue Sätze nach Bekanntgabe der Bundesbank
   #   - ab: 2027-01-01
   #     satz: 1.52
