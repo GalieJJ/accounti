@@ -97,7 +97,7 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 | Sperre an allen Eingängen | Neben dem ORM-Ereignis prüfen Kassenbuch, AfA-Lauf, Abgang, `anlagen anlegen` (Zugang im gesperrten Jahr änderte dessen Anlagenspiegel) und Abgrenzungsvorschläge die Sperre vorher und melden sie als Fehler. `befehle/abschluss.py` importiert `db/tabellen_abschluss.py` auf Modulebene, damit die Sperre auch in CLI-Befehlen gilt, die `init_db` nicht aufrufen | Spec 4.8; sonst schlüge die Sperre erst beim `commit` mit Traceback zu oder gar nicht |
 | Abgrenzungen offen | Prüfung `abgrenzungen`: ein nicht entschiedener Vorschlag des Jahres ist ein Fehler-Befund | Bewertungsentscheidung wird bestätigt, nicht übergangen (Spec 5) |
 | Protokollprüfung | Prüfung `protokoll` rechnet die Hash-Kette des Abschlussprotokolls nach; ein Bruch ist eine **Warnung**, kein Fehler | das Protokoll ist nur anfügbar — ein einmal gebrochenes ließe sich nicht heilen und sperrte als Fehler jeden künftigen Abschluss; sichtbar bleibt der Befund bei jeder Prüfung und jedem Vortrag |
-| Sammelläufe und Sperre | `offene_transaktionen` (Grundlage von `classify`, `opos zuordnen`, `bank abgleich`) lässt Umsätze in abgeschlossenen Jahren aus — ein einziger spät importierter Dezember-Umsatz bräche sonst den ganzen Lauf ab; `abschluss pruefen` meldet sie als Warnung | einzige Änderung an fremdem Code dafür: drei Zeilen in `opos/zahlungslauf.py` |
+| Sammelläufe und Sperre | `offene_transaktionen` (Grundlage von `classify`, `opos zuordnen`, `bank abgleich`) lässt Umsätze in abgeschlossenen Jahren aus — ein einziger spät importierter Dezember-Umsatz bräche sonst den ganzen Lauf ab; `abschluss pruefen` meldet sie als Warnung. `opos verbuchen` (`verbuche_belege`) bucht mit dem Belegdatum: `verbuche_beleg` prüft das Jahr vorab (`JahrGesperrtError` mit Belegdatum und `abschluss oeffnen`-Hinweis, bevor ein Kontakt angelegt wird), der Lauf fängt `JahrGesperrtError` je Beleg ab (auch die ORM-Sperre, im Savepoint des Belegs) und meldet die Rechnung unter „Nicht verbucht“; die übrigen Rechnungen werden verbucht | Änderungen an fremdem Code dafür: drei Zeilen in `opos/zahlungslauf.py`, Vorprüfung und `except` in `opos/verbuchung.py` |
 | Freitexte | Freitexte des Nutzers werden auf die Spaltenlänge gekürzt (Protokoll `von` 50 / `grund` 500 vor dem Hash, Abschluss `von`, Kontoauszugssaldo und Kassenbuch `erfasst_von` 50, Kassenbuch `belegnummer` 60, Abgrenzung `entschieden_von` 50, `rechenweg` 500) | Postgres lehnt zu lange Werte ab; SQLite nicht |
 | Eröffnungssalden | `abschluss eroeffnung --jahr J --konto K --saldo S` für das erste Jahr in accounti (EB gegen 9000/9008/9009, geprüft) | ohne EB-Werte kann der Bankabgleich nicht stimmen |
 | Konfiguration | Abschnitte `anlagen`, `abschluss`, `kasse` mit eigenen Ladern (`lade_anlagen`, `lade_abschluss`, `lade_kasse`); Standards je Kontenrahmen aus `buchhaltung.kontenrahmen` (SKR03/SKR04); alles läuft ohne die Abschnitte | Auftrag |
@@ -145,6 +145,10 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
 - [x] **Sperre in Sammelläufen:** `classify` u. a. überspringen Umsätze in gesperrten Jahren, Warnung in `ungebucht` (`tests/test_abschluss_vortrag.py`).
 - [x] **Sammelposten-Abgang im Anschaffungsjahr** nach gebuchter Jahres-AfA: Korrektur, auch mit weiteren Gütern und im nächsten Lauf (`tests/test_anlagen_abgang.py`).
 - [x] **Niedrig:** Quelle Corona-Fenster, Prüfung `protokoll` (eigenes Modul `abschluss/protokoll.py`), Freitexte gekürzt, Gebäudekonten als Grenze mit Ausweg (`tests/test_anlagen_rechtsstand.py`, `tests/test_abschluss_vortrag.py`, `tests/test_kassenbuch.py`, `tests/test_abschluss_pruefungen.py`).
+
+### Runde 2 — Befunde der Prüfer
+
+- [x] **Sperre in `opos verbuchen`:** eine Rechnung mit Belegdatum im gesperrten Jahr bricht den Lauf nicht mehr ab, sie steht mit Hinweis unter „Nicht verbucht“, die Rechnung des offenen Jahres wird verbucht; nach `abschluss oeffnen` lässt sie sich verbuchen; auch die ORM-Sperre ohne Vorprüfung trifft nur den einen Beleg; CLI ohne Traceback (`tests/test_abschluss_vortrag.py`).
 
 ---
 
@@ -207,7 +211,10 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   Massen-`insert()`/`update()` an der ORM-Einheit vorbei sperrt es nicht (kein Datenbanktrigger).
   `classify`, `opos zuordnen` und `bank abgleich` überspringen Umsätze in gesperrten Jahren; die
   Ausgabe von `classify` („kontiert/offen“) zählt sie nicht mit (die Ausgabe steht in `cli.py`,
-  nicht in diesem Baustein) — gemeldet werden sie von `abschluss pruefen` als Warnung. Einzelne
+  nicht in diesem Baustein) — gemeldet werden sie von `abschluss pruefen` als Warnung.
+  `opos verbuchen` lässt Rechnungen mit Belegdatum im gesperrten Jahr liegen und meldet sie bei
+  jedem Lauf erneut unter „Nicht verbucht“; `abschluss pruefen` kennt keine Prüfung auf erfasste,
+  noch nicht verbuchte Rechnungen (weder im gesperrten noch im laufenden Jahr). Einzelne
   Befehle außerhalb des Bausteins (`bestaetige`, `korrigiere`) auf eine Buchung im gesperrten
   Jahr scheitern weiterhin mit einem rohen `JahrGesperrtError` (gesperrt bleibt es).
 - **Abschlussprotokoll:** Die Prüfung `protokoll` erkennt eine geänderte Hash-Kette als Warnung;
@@ -313,7 +320,8 @@ Freigabe; gezählt wird in Salden und Auswertungen nur, was freigegeben ist.
 - Buchungen in einem abgeschlossenen Jahr lassen sich nicht mehr anlegen, ändern oder löschen
   (`JahrGesperrtError`); `accounti abschluss oeffnen` hebt die Sperre mit Begründung und Protokoll
   auf. `classify`, `opos zuordnen` und `bank abgleich` lassen Umsätze in abgeschlossenen Jahren
-  aus
+  aus; `opos verbuchen` lässt Rechnungen mit Belegdatum in einem abgeschlossenen Jahr liegen und
+  meldet sie unter „Nicht verbucht“, statt den ganzen Lauf abzubrechen
 ```
 
 **Behoben**

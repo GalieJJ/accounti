@@ -18,12 +18,14 @@ from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
 from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
+from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repository import (
     lade_belege,
     speichere_buchung,
     speichere_posten,
     verbuchte_beleg_ids,
 )
+from accounti.db.tabellen_abschluss import JahrGesperrtError
 from accounti.erechnung import ERechnungError, lies
 from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
@@ -217,6 +219,15 @@ def verbuche_beleg(
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
+    belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
+    if ist_gesperrt(session, belegdatum.year):
+        jahr = belegdatum.year
+        msg = (
+            f"{anlass}: Belegdatum {belegdatum:%d.%m.%Y} liegt im abgeschlossenen "
+            f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
+            f"--jahr {jahr}"
+        )
+        raise JahrGesperrtError(msg)
 
     if eingang:
         if not beleg.lieferant_name:
@@ -272,7 +283,6 @@ def verbuche_beleg(
         if eingang
         else ("", False)
     )
-    belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
     hinweise = []
@@ -365,7 +375,8 @@ def verbuche_belege(
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
     Jeder Beleg läuft in einem eigenen Savepoint: Scheitert einer, bleiben die
-    anderen verbucht und der Fehler steht im Ergebnis.
+    anderen verbucht und der Fehler steht im Ergebnis — auch eine Rechnung, deren
+    Belegdatum in einem abgeschlossenen Geschäftsjahr liegt (Baustein 12).
     """
     bereits = verbuchte_beleg_ids(session)
     lauf = Verbuchungslauf()
@@ -387,6 +398,6 @@ def verbuche_belege(
                     ustid_max_alter_tage,
                 )
             lauf.verbucht.append(verbuchung)
-        except (VerbuchungError, ValueError) as fehler:
+        except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:
             lauf.fehler.append((beleg, str(fehler)))
     return lauf

@@ -416,6 +416,110 @@ def test_classify_ueberspringt_umsaetze_im_gesperrten_jahr(tmp_path):
     engine.dispose()
 
 
+def _rechnungen_um_den_jahreswechsel(make_session):
+    """Eine Eingangsrechnung vom Dezember 2026 und eine vom Januar 2027."""
+    from accounti.db.repository import speichere_beleg
+    from tests.test_opos_verbuchung import eingangsrechnung
+
+    alt = eingangsrechnung(
+        belegnummer="RE-ALT",
+        belegdatum=date(2026, 12, 20),
+        zahlungsziel=date(2027, 1, 3),
+        datei_hash="b" * 64,
+    )
+    neu = eingangsrechnung(
+        belegnummer="RE-NEU",
+        belegdatum=date(2027, 1, 10),
+        zahlungsziel=date(2027, 1, 24),
+        datei_hash="c" * 64,
+    )
+    with make_session() as s:
+        speichere_beleg(s, alt)
+        speichere_beleg(s, neu)
+        s.commit()
+    return alt, neu
+
+
+def test_verbuchen_laesst_rechnungen_im_gesperrten_jahr_liegen(make_session):
+    """Eine Rechnung im abgeschlossenen Jahr bricht den Lauf nicht ab."""
+    from accounti.db.repository import lade_posten
+    from accounti.opos.verbuchung import verbuche_belege
+    from tests.test_opos_verbuchung import EINSTELLUNGEN
+
+    _sperre(make_session, 2026)
+    alt, neu = _rechnungen_um_den_jahreswechsel(make_session)
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN)
+        s.commit()
+    assert [v.beleg.id for v in lauf.verbucht] == [neu.id]
+    ((beleg, grund),) = lauf.fehler
+    assert beleg.id == alt.id
+    assert "20.12.2026" in grund and "abgeschlossen" in grund
+    assert "oeffnen --jahr 2026" in grund
+    with make_session() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}
+        assert [p.belegnummer for p in lade_posten(s)] == ["RE-NEU"]
+    # nach dem Öffnen des Jahres lässt sich die Rechnung verbuchen
+    with make_session() as s:
+        oeffne(s, 2026, grund="Rechnung nachgereicht", von="test")
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN)
+        s.commit()
+    assert [v.beleg.id for v in lauf.verbucht] == [alt.id]
+    assert lauf.fehler == []
+
+
+def test_verbuchen_faengt_auch_die_orm_sperre_je_beleg_ab(make_session, monkeypatch):
+    """Ohne die Vorprüfung greift die ORM-Sperre — nur im Savepoint des Belegs."""
+    import accounti.opos.verbuchung as verbuchung
+    from tests.test_opos_verbuchung import EINSTELLUNGEN
+
+    monkeypatch.setattr(verbuchung, "ist_gesperrt", lambda *_: False)
+    _sperre(make_session, 2026)
+    alt, neu = _rechnungen_um_den_jahreswechsel(make_session)
+    with make_session() as s:
+        lauf = verbuchung.verbuche_belege(s, EINSTELLUNGEN)
+        s.commit()
+    assert [v.beleg.id for v in lauf.verbucht] == [neu.id]
+    ((beleg, grund),) = lauf.fehler
+    assert beleg.id == alt.id and "2026 ist abgeschlossen" in grund
+    with make_session() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}
+
+
+def test_cli_opos_verbuchen_im_gesperrten_jahr_ohne_abbruch(tmp_path):
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.db import init_db, session_factory
+
+    url = f"sqlite:///{(tmp_path / 'v.db').as_posix()}"
+    engine, factory = session_factory(url)
+    init_db(engine)
+    _sperre(factory, 2026)
+    _rechnungen_um_den_jahreswechsel(factory)
+    r = CliRunner().invoke(
+        app,
+        [
+            "opos",
+            "verbuchen",
+            "--db",
+            url,
+            "--archiv",
+            str(tmp_path / "archiv"),
+            "--config",
+            str(tmp_path / "x.yaml"),
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    assert r.exception is None
+    assert "Nicht verbucht" in r.output and "RE-ALT" in r.output
+    with factory() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}
+    engine.dispose()
+
+
 def test_ungebuchte_umsaetze_in_gesperrten_vorjahren_werden_gemeldet(
     make_session, config
 ):
