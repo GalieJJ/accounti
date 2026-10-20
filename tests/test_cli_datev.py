@@ -1,6 +1,8 @@
-"""CLI ``accounti datev``: stammdaten, belege (kontoauszuege in test_kontoauszuege)."""
+"""CLI ``accounti datev``: stammdaten, belege, kontoauszuege."""
 
 import zipfile
+from datetime import date
+from decimal import Decimal
 
 import pytest
 from typer.testing import CliRunner
@@ -8,8 +10,19 @@ from typer.testing import CliRunner
 from accounti.belege.archiv import BelegArchiv
 from accounti.cli import app
 from accounti.db import init_db, session_factory
-from accounti.db.repository import speichere_kontakt
-from accounti.models import Belegart, Kontakt
+from accounti.db.repo_export import lade_kontoauszuege
+from accounti.db.repository import (
+    speichere_bankkonto,
+    speichere_kontakt,
+    speichere_transaktion,
+)
+from accounti.models import (
+    Bankkonto,
+    Belegart,
+    Kontakt,
+    Transaktion,
+    TransaktionQuelle,
+)
 from tests.test_datev_belege import PDF, _beleg, _buchung
 
 runner = CliRunner()
@@ -137,3 +150,123 @@ def test_belege_falscher_zeitraum(umgebung):
     )
     assert r.exit_code == 1
     assert "JJJJ-MM" in _text(r)
+
+
+# ---------------------------------------------------------------------------
+# kontoauszuege
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def bank(tmp_path):
+    url = f"sqlite:///{tmp_path / 'k.db'}"
+    engine, make = session_factory(url)
+    init_db(engine)
+    with make() as s:
+        speichere_bankkonto(
+            s, Bankkonto(iban="DE89370400440532013000", bezeichnung="Giro")
+        )
+        for tag, betrag, konto in [
+            (date(2025, 7, 3), "1190.00", "1200"),
+            (date(2025, 7, 15), "-59.50", "1200"),
+            (date(2025, 8, 5), "250.00", "1200"),
+            (date(2025, 7, 9), "49.90", "1210"),
+        ]:
+            speichere_transaktion(
+                s,
+                Transaktion(
+                    datum=tag,
+                    betrag=Decimal(betrag),
+                    verwendungszweck="Umsatz",
+                    quelle=TransaktionQuelle.BANK,
+                    rohtext="",
+                    sachkonto=konto,
+                ),
+            )
+        s.commit()
+    aus = tmp_path / "aus"
+    return make, aus, ["--db", url, "--config", str(tmp_path / "fehlt.yaml")]
+
+
+def _auszug(basis, aus, *args):
+    return runner.invoke(
+        app, ["datev", "kontoauszuege", "--ausgabe", str(aus), *args, *basis]
+    )
+
+
+def test_kontoauszuege(bank):
+    make, aus, basis = bank
+    r = _auszug(basis, aus, "--period", "2025-07", "--anfangssaldo", "1.000,00")
+    assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "Auszug 1/2025" in text and "2.130,50" in text
+    mt = (aus / "MT940_1200_202507.sta").read_bytes().decode("ascii")
+    assert ":25:37040044/532013000" in mt and ":28C:1/1" in mt
+    r = _auszug(basis, aus, "--period", "2025-09", "--kontrollsaldo", "2380,50")
+    assert r.exit_code == 0, r.output
+    mt = (aus / "MT940_1200_202508-202509.sta").read_bytes().decode("ascii")
+    assert ":28C:2/1" in mt and ":28C:3/1" in mt
+    csv = (aus / "Saldenverlauf_1200_2025.csv").read_bytes().decode("cp1252")
+    assert len(csv.strip().split("\r\n")) == 4  # Kopf + Juli, August, September
+    assert "keine Befunde" in _text(r)
+    with make() as s:
+        assert [a.nummer for a in lade_kontoauszuege(s, "1200")] == [1, 2, 3]
+
+
+def test_kontoauszuege_paypal(bank):
+    _, aus, basis = bank
+    r = _auszug(
+        basis, aus, "--konto", "1210", "--period", "2025-07", "--anfangssaldo", "0"
+    )
+    assert r.exit_code == 0, r.output
+    mt = (aus / "MT940_1210_202507.sta").read_bytes().decode("ascii")
+    assert ":25:PPLXLULL/PAYPAL" in mt and "1190,00" not in mt  # nur PayPal
+    assert ":61:2507090709C49,90NMSCNONREF" in mt
+    assert ":62F:C250731EUR49,90" in mt
+
+
+def test_kontoauszuege_ohne_anfangssaldo(bank):
+    make, aus, basis = bank
+    r = _auszug(basis, aus, "--period", "2025-07")
+    assert r.exit_code == 1
+    assert "--anfangssaldo" in _text(r)
+
+
+def test_kontoauszuege_kontrollsaldo_falsch(bank):
+    make, aus, basis = bank
+    r = _auszug(
+        basis,
+        aus,
+        "--period",
+        "2025-07",
+        "--anfangssaldo",
+        "1000",
+        "--kontrollsaldo",
+        "2000",
+    )
+    assert r.exit_code == 1
+    assert "Nichts festgeschrieben" in _text(r)
+    with make() as s:
+        assert lade_kontoauszuege(s) == []
+
+
+def test_kontoauszuege_ohne_bankkonto(bank):
+    _, aus, basis = bank
+    r = _auszug(
+        basis, aus, "--konto", "1230", "--period", "2025-07", "--anfangssaldo", "0"
+    )
+    assert r.exit_code == 1
+    assert "--kontobezeichnung" in _text(r)
+    r = _auszug(
+        basis,
+        aus,
+        "--konto",
+        "1230",
+        "--period",
+        "2025-07",
+        "--anfangssaldo",
+        "0",
+        "--kontobezeichnung",
+        "DE02120300000000202051",
+    )
+    assert r.exit_code == 0, r.output
