@@ -19,6 +19,7 @@ from accounti.db.tabellen import (
     BuchungssatzRow,
     NummernkreisRow,
     TransaktionRow,
+    VersandprotokollRow,
 )
 from accounti.models import (
     AusgangsPosition,
@@ -36,6 +37,7 @@ from accounti.models import (
     Rechnungsempfaenger,
     Transaktion,
     TransaktionQuelle,
+    Versandprotokoll,
 )
 
 # ---------------------------------------------------------------------------
@@ -469,6 +471,7 @@ def _row_zu_ausgangsrechnung(
         zahlungsziel=r.zahlungsziel,
         beleg_id=_uuid(r.beleg_id),
         datei_hash=r.datei_hash,
+        pdf_hash=r.pdf_hash,
         erstellt_am=r.erstellt_am,
     )
 
@@ -506,6 +509,7 @@ def speichere_ausgangsrechnung(session: Session, r: Ausgangsrechnung) -> None:
             zahlungsziel=r.zahlungsziel,
             beleg_id=_str(r.beleg_id),
             datei_hash=r.datei_hash,
+            pdf_hash=r.pdf_hash,
             erstellt_am=r.erstellt_am,
         )
     )
@@ -584,6 +588,7 @@ def markiere_ausgestellt(
     zahlungsziel: date | None,
     beleg_id: UUID,
     datei_hash: str,
+    pdf_hash: str | None = None,
 ) -> None:
     row = session.get(AusgangsrechnungRow, str(rechnung_id))
     if row is None:
@@ -598,6 +603,7 @@ def markiere_ausgestellt(
     row.zahlungsziel = zahlungsziel
     row.beleg_id = str(beleg_id)
     row.datei_hash = datei_hash
+    row.pdf_hash = pdf_hash
     session.flush()
 
 
@@ -628,3 +634,48 @@ def naechste_nummer(session: Session, kreis: str, jahr: int) -> int:
             )
     wert = session.query(NummernkreisRow.letzte).filter(bedingung).scalar()
     return int(wert)
+
+
+def speichere_versandprotokoll(session: Session, p: Versandprotokoll) -> None:
+    session.add(
+        VersandprotokollRow(
+            id=str(p.id),
+            rechnung_id=str(p.rechnung_id),
+            zeitpunkt=p.zeitpunkt,
+            weg=p.weg,
+            empfaenger=p.empfaenger,
+            format=p.format,
+            dateiname=p.dateiname,
+            datei_hash=p.datei_hash,
+            message_id=p.message_id,
+            erfolgreich=p.erfolgreich,
+            fehler=p.fehler,
+        )
+    )
+    session.flush()
+
+
+def lade_versandprotokolle(session: Session, schluessel: str) -> list[Versandprotokoll]:
+    row = _finde_ausgangsrechnung(session, schluessel)
+    zeilen = (
+        session.query(VersandprotokollRow)
+        .filter(VersandprotokollRow.rechnung_id == row.id)
+        .order_by(VersandprotokollRow.zeitpunkt)
+        .all()
+    )
+    return [
+        Versandprotokoll(
+            id=UUID(z.id),
+            rechnung_id=UUID(z.rechnung_id),
+            zeitpunkt=z.zeitpunkt,
+            weg=z.weg,
+            empfaenger=z.empfaenger,
+            format=z.format,
+            dateiname=z.dateiname,
+            datei_hash=z.datei_hash,
+            message_id=z.message_id,
+            erfolgreich=z.erfolgreich,
+            fehler=z.fehler,
+        )
+        for z in zeilen
+    ]

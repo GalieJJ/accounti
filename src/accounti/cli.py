@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
     from accounti.erechnung.kosit import KositErgebnis
+    from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
     from accounti.konfiguration import Firma
     from accounti.models import Beleg
@@ -581,6 +582,23 @@ def rechnung_zeigen(
     befunde = pruefe(r)
     if befunde:
         _befunde_tabelle(befunde)
+    if entwurf.status.value == "ausgestellt":
+        from accounti.db.repository import lade_versandprotokolle
+
+        with make_session() as s:
+            protokolle = lade_versandprotokolle(s, str(entwurf.id))
+        if not protokolle:
+            console.print("[dim]Versand: noch nicht versendet[/dim]")
+        for p in protokolle:
+            ergebnis = (
+                "[green]versendet[/green]"
+                if p.erfolgreich
+                else f"[red]fehlgeschlagen: {escape(p.fehler or '')}[/red]"
+            )
+            console.print(
+                f"  Versand {p.zeitpunkt:%d.%m.%Y %H:%M} · {p.weg} · "
+                f"{escape(p.empfaenger)} · {p.format} · {ergebnis}"
+            )
 
 
 @rechnung_app.command("liste")
@@ -594,12 +612,20 @@ def rechnung_liste(
     from rich.table import Table
 
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import lade_ausgangsrechnungen
+    from accounti.db.repository import (
+        lade_ausgangsrechnungen,
+        lade_versandprotokolle,
+    )
 
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
         rechnungen = lade_ausgangsrechnungen(s)
+        versendet = {
+            r.id: any(p.erfolgreich for p in lade_versandprotokolle(s, str(r.id)))
+            for r in rechnungen
+            if r.nummer
+        }
     if not rechnungen:
         console.print("[dim]Keine Rechnungen.[/dim]")
         return
@@ -616,9 +642,20 @@ def rechnung_liste(
             r.nummer or "—",
             escape(r.kunde.name),
             f"{netto:.2f}",
-            r.status.value,
+            "versendet" if versendet.get(r.id) else r.status.value,
         )
     console.print(tabelle)
+
+
+def _mustang_ausgabe(ergebnis: "MustangErgebnis") -> None:
+    from rich.markup import escape
+
+    if ergebnis.gueltig:
+        console.print("[green]Mustang/veraPDF: ZUGFeRD-PDF gültig (PDF/A-3b)[/green]")
+    else:
+        console.print("[red]Mustang/veraPDF: ZUGFeRD-PDF ungültig[/red]")
+    for m in ergebnis.meldungen:
+        console.print(f"  [red]{escape(m)}[/red]")
 
 
 @rechnung_app.command("ausstellen")
@@ -627,13 +664,16 @@ def rechnung_ausstellen(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     config: str = KONFIG_OPTION,
-    ausgabe: str = typer.Option("rechnungen", help="Verzeichnis für die XRechnung"),
+    ausgabe: str = typer.Option("rechnungen", help="Verzeichnis für XML und PDF"),
     datum: str | None = typer.Option(None, help="Rechnungsdatum JJJJ-MM-TT (heute)"),
-    ohne_kosit: bool = typer.Option(
-        False, "--ohne-kosit", help="Ohne formale Prüfung ausstellen (nicht empfohlen)"
+    ohne_pruefung: bool = typer.Option(
+        False,
+        "--ohne-formale-pruefung",
+        "--ohne-kosit",
+        help="Ohne KoSIT- und Mustang-Prüfung ausstellen (nicht empfohlen)",
     ),
 ) -> None:
-    """Nummer vergeben, XRechnung erzeugen, prüfen, archivieren — unveränderlich."""
+    """Nummer vergeben, XRechnung + ZUGFeRD-PDF erzeugen, prüfen, archivieren."""
     from datetime import date
     from pathlib import Path
 
@@ -643,17 +683,23 @@ def rechnung_ausstellen(
     from accounti.db import init_db, session_factory
     from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
     from accounti.erechnung.kosit import KositPruefer
+    from accounti.erechnung.mustang import MustangPruefer
 
     firma = _lade_firma_oder_ende(config)
-    pruefer = None
-    if not ohne_kosit:
-        pruefer = KositPruefer()
-        if not pruefer.verfuegbar():
+    kosit = pdf_pruefer = None
+    if not ohne_pruefung:
+        kosit, pdf_pruefer = KositPruefer(), MustangPruefer()
+        fehlt = [
+            name
+            for name, w in (("KoSIT-Prüftool", kosit), ("Mustang", pdf_pruefer))
+            if not w.verfuegbar()
+        ]
+        if fehlt:
             console.print(
-                "[red]KoSIT-Prüftool nicht installiert — die XRechnung kann nicht "
-                "formal geprüft werden.[/red]\n"
-                "Installation: scripts/kosit_installieren.sh · ausdrücklich ohne "
-                "Prüfung: --ohne-kosit"
+                f"[red]{' und '.join(fehlt)} nicht installiert — die E-Rechnung kann "
+                "nicht formal geprüft werden.[/red]\n"
+                "Installation: scripts/pruefwerkzeuge_installieren.sh · "
+                "ausdrücklich ohne Prüfung: --ohne-formale-pruefung"
             )
             raise typer.Exit(1)
 
@@ -667,32 +713,116 @@ def rechnung_ausstellen(
                 schluessel,
                 firma,
                 _datum_option(datum, "--datum") or date.today(),
-                kosit=pruefer,
+                kosit=kosit,
+                pdf_pruefer=pdf_pruefer,
             )
         except (AusstellungError, ValueError) as fehler:
             s.rollback()  # Nummer bleibt frei, der Kreis lückenlos
             console.print(f"[red]Nicht ausgestellt: {escape(str(fehler))}[/red]")
-            if isinstance(fehler, AusstellungError) and fehler.kosit is not None:
-                _kosit_ausgabe(fehler.kosit)
+            if isinstance(fehler, AusstellungError):
+                if fehler.kosit is not None:
+                    _kosit_ausgabe(fehler.kosit)
+                if fehler.mustang is not None:
+                    _mustang_ausgabe(fehler.mustang)
             raise typer.Exit(1) from fehler
         s.commit()
 
     ziel = Path(ausgabe)
     ziel.mkdir(parents=True, exist_ok=True)
-    datei = ziel / f"{ergebnis.rechnung.nummer}.xml"
-    datei.write_bytes(ergebnis.xml)
+    nummer = ergebnis.rechnung.nummer or ""
+    (ziel / f"{nummer}.xml").write_bytes(ergebnis.xml)
+    (ziel / f"{nummer}.pdf").write_bytes(ergebnis.pdf)
     console.print(
-        f"[green]Rechnung {ergebnis.rechnung.nummer} ausgestellt[/green] — "
-        f"{ergebnis.beleg.brutto:.2f} EUR brutto → {datei}"
+        f"[green]Rechnung {nummer} ausgestellt[/green] — "
+        f"{ergebnis.beleg.brutto:.2f} EUR brutto → {ziel / nummer}.pdf (ZUGFeRD), "
+        f".xml (XRechnung)"
     )
     if ergebnis.kosit is not None:
         _kosit_ausgabe(ergebnis.kosit)
-    else:
-        console.print(
-            "[yellow]Ohne formale Prüfung (--ohne-kosit) ausgestellt.[/yellow]"
-        )
+    if ergebnis.mustang is not None:
+        _mustang_ausgabe(ergebnis.mustang)
+    if ohne_pruefung:
+        console.print("[yellow]Ohne formale Prüfung ausgestellt.[/yellow]")
     for b in ergebnis.befunde:
         console.print(f"  [yellow]Hinweis {escape(str(b))}[/yellow]")
+
+
+@rechnung_app.command("senden")
+def rechnung_senden(
+    schluessel: str = typer.Argument(help="Rechnungsnummer (oder Anfang der ID)"),
+    format: str = typer.Option(
+        "zugferd", help="zugferd (PDF mit XRechnung) oder xrechnung (nur XML)"
+    ),
+    an: str | None = typer.Option(None, help="Empfänger statt der E-Mail des Kunden"),
+    eml: str | None = typer.Option(
+        None, help="Nachricht nur in diese Datei schreiben, nicht senden"
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Ausgestellte Rechnung per E-Mail versenden (archivierte Datei, mit Protokoll)."""
+    from pathlib import Path
+
+    from rich.markup import escape
+
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_ausgangsrechnung
+    from accounti.erechnung.versand import (
+        SmtpVersand,
+        VersandError,
+        baue_nachricht,
+        lade_versand,
+        versende,
+    )
+    from accounti.konfiguration import KonfigurationError
+
+    firma = _lade_firma_oder_ende(config)
+    try:
+        konfiguration = lade_versand(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    belegarchiv = BelegArchiv(archiv)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with make_session() as s:
+        try:
+            if eml:
+                rechnung = lade_ausgangsrechnung(s, schluessel)
+                empfaenger = an or rechnung.kunde.email or "unbekannt@example.invalid"
+                nachricht = baue_nachricht(
+                    rechnung, firma, konfiguration, belegarchiv, format, empfaenger
+                )
+                Path(eml).write_bytes(nachricht.as_bytes())
+                console.print(f"Nachricht geschrieben (nicht gesendet): {escape(eml)}")
+                return
+            protokoll = versende(
+                s,
+                belegarchiv,
+                schluessel,
+                firma,
+                konfiguration,
+                SmtpVersand(konfiguration),
+                format=format,
+                an=an,
+            )
+        except (VersandError, ValueError) as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()  # das Protokoll bleibt auch bei einem Fehlschlag erhalten
+    if protokoll.erfolgreich:
+        console.print(
+            f"[green]{escape(protokoll.dateiname)} an {escape(protokoll.empfaenger)} "
+            "versendet[/green]"
+        )
+    else:
+        console.print(
+            f"[red]Versand an {escape(protokoll.empfaenger)} fehlgeschlagen: "
+            f"{escape(protokoll.fehler or '')}[/red]"
+        )
+        raise typer.Exit(1)
 
 
 @rechnung_app.command("pruefen")

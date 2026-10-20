@@ -2,7 +2,8 @@
 
 Das Prüftool ist eine Java-Anwendung der Koordinierungsstelle für IT-Standards und prüft
 gegen XML-Schema und Schematron der XRechnung — das ist der Maßstab, an dem Empfänger
-eine E-Rechnung messen. Installiert wird es mit ``scripts/kosit_installieren.sh``.
+eine E-Rechnung messen. Installiert wird es mit
+``scripts/pruefwerkzeuge_installieren.sh``.
 """
 
 from __future__ import annotations
@@ -56,8 +57,13 @@ def werte_bericht_aus(bericht: bytes) -> KositErgebnis:
     return KositErgebnis(akzeptiert=akzeptiert, meldungen=meldungen)
 
 
+def pruefwerkzeuge() -> Path:
+    """Verzeichnis der Prüfwerkzeuge (``scripts/pruefwerkzeuge_installieren.sh``)."""
+    return Path(os.environ.get("ACCOUNTI_PRUEFWERKZEUGE", ".pruefwerkzeuge"))
+
+
 def _standard_verzeichnis() -> Path:
-    return Path(os.environ.get("ACCOUNTI_KOSIT_DIR", ".kosit"))
+    return pruefwerkzeuge() / "kosit"
 
 
 class KositPruefer:
@@ -95,8 +101,8 @@ class KositPruefer:
         jar = self._jar
         if not self.verfuegbar() or jar is None:
             msg = (
-                f"KoSIT-Prüftool nicht gefunden in {self.verzeichnis} "
-                "(oder Java fehlt) — Installation: scripts/kosit_installieren.sh"
+                f"KoSIT-Prüftool nicht gefunden in {self.verzeichnis} (oder Java "
+                "fehlt) — Installation: scripts/pruefwerkzeuge_installieren.sh"
             )
             raise KositNichtVerfuegbarError(msg)
         with tempfile.TemporaryDirectory(prefix="accounti-kosit-") as tmp:
