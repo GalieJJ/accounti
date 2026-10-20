@@ -19,8 +19,12 @@ Privatkonten sind Gegenkonten:
 Ein Erlöskonto ohne Schlüssel und ohne feste Funktion hat keine Kennziffer — es sei
 denn, die Buchung mindert eine Rechnung desselben Belegs: Erlöskonto im Soll (Skonto,
 Gutschrift) oder ein Erlösschmälerungskonto (SKR03 87xx, SKR04 47xx, auch dessen
-Storno im Haben); dann folgt sie deren Kennziffer. Ein Erlös im Haben ohne Schlüssel
-mindert nichts. Alles andere landet in ``ohne_kennziffer`` und sperrt die Freigabe.
+Storno im Haben), gegen ein Gegenkonto. Hat die Rechnung genau eine Kennziffer und
+läuft sie über ein Konto mit fester Funktion (steuerfrei, z. B. Kz 41), folgt die
+Minderung ihr. Eine steuerpflichtige Rechnung (Schlüssel 3 → Kz 81) mindert nur eine
+Buchung mit Schlüssel, sonst fehlt die Korrektur der Umsatzsteuer; bei mehreren
+Kennziffern ist offen, welche gemindert wird. Ein Erlös im Haben ohne Schlüssel mindert
+nichts. Alles andere landet in ``ohne_kennziffer`` und sperrt die Freigabe.
 Buchungen auf Steuerkonten ohne Kennziffer (z. B. Einfuhrumsatzsteuer) sind eine
 Warnung.
 
@@ -127,13 +131,32 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
 
 Bereiche = tuple[tuple[int, int], ...]
 
-# Umsatzerlöse einschließlich Erlösschmälerungen und unentgeltlicher Wertabgaben: ohne
-# Steuerschlüssel oder Funktion fehlt der Umsatz in der Voranmeldung. Nicht dazu gehören
-# Bestandsveränderungen, aktivierte Eigenleistungen und sonstige Erträge (SKR03
-# 8960–8999, SKR04 4800–4999) — sie sind nicht steuerbar und tragen keinen Schlüssel.
+# Konten, auf denen ein Umsatz im Sinne des UStG gebucht wird: ohne Steuerschlüssel oder
+# Funktion fehlt er in der Voranmeldung. Umsatzerlöse, unentgeltliche Wertabgaben und
+# Erlösschmälerungen, dazu die Erlöskonten unter den sonstigen Erträgen, die DATEV als
+# Automatikkonten mit Umsatzsteuer führt (Kontenrahmen 2026), samt ihren Geschwistern
+# ohne Steuersatz: Sachbezüge, Anlagenverkäufe, Vermietung, sonstige Erlöse mit USt
+# oder steuerfrei nach § 4 UStG. Nicht dazu gehören Bestandsveränderungen, aktivierte
+# Eigenleistungen, Währungsumrechnung, Restbuchwerte, Erträge aus Auflösungen und
+# Zuschreibungen, Versicherungsentschädigungen und erstattete Vorsteuer — sie sind nicht
+# steuerbar — sowie die Sammelkonten der sonstigen Erträge ohne Steuerautomatik (SKR03
+# 2700–2749, SKR04 4830, 4832, 4839): ein steuerpflichtiger Ertrag dort braucht seinen
+# Schlüssel, ohne ihn fällt er nicht auf. Außerhalb liegen damit SKR03 8960–8999 und
+# SKR04 4800–4832, 4837–4840, 4843, 4846–4847, 4855–4859, 4870–4939, 4950–4999.
 STEUERRELEVANT: dict[str, Bereiche] = {
-    "SKR03": ((8000, 8959),),
-    "SKR04": ((4000, 4799),),
+    # 8000–8959 Erlöse bis Wertabgaben (mit 859x/86xx Sachbezüge und sonstige Erlöse,
+    # 88xx Anlagenverkäufe); 2750–2752 Grundstückserträge, Vermietung
+    "SKR03": ((2750, 2752), (8000, 8959)),
+    "SKR04": (
+        (4000, 4799),  # Umsatzerlöse, Wertabgaben, Erlösschmälerungen
+        (4833, 4836),  # andere Nebenerlöse, sonstige Erträge regelmäßig 16 %/19 %
+        (4841, 4842),  # sonstige Erträge steuerfrei § 4 Nr. 8 ff., Nr. 2 bis 7
+        (4844, 4845),  # Anlagenverkäufe § 4 Nr. 1a, 19 % (Buchgewinn)
+        (4848, 4852),  # Anlagenverkäufe § 4 Nr. 1b, ohne Satz, immateriell, Finanz
+        (4860, 4869),  # Grundstückserträge, Vermietung, Umlaufvermögen § 4 Abs. 3
+        (4940, 4949),  # Sachbezüge (z. B. 4947 Kfz-Gestellung 19 %)
+        (6884, 6892),  # Anlagenverkäufe bei Buchverlust
+    ),
 }
 # Erlösschmälerungen: mindern die Rechnung desselben Belegs, in beide Richtungen
 ERLOESSCHMAELERUNG: dict[str, Bereiche] = {
@@ -385,20 +408,31 @@ class _Ermittler:
             beitraege.append(Beitrag(r.vorsteuer, steuer))
         self._buche(b, f"Steuerschlüssel {schluessel} ({r.bezeichnung})", beitraege)
 
-    def _rechnungs_kz(self, b: Buchungssatz) -> set[int]:
+    def _rechnungs_kz(self, b: Buchungssatz) -> tuple[set[int], set[int]]:
         """Umsatz-Kennziffern der Rechnungsbuchungen desselben Belegs (ohne
-        Zahlungen)."""
-        return {
-            kz
+        Zahlungen): über Konten mit fester Funktion und über Umsatzsteuerschlüssel."""
+        rechnung = [
+            andere
             for andere in self.alle
             if andere.beleg_id == b.beleg_id
             and andere.id != b.id
             and andere.transaktion_id is None
+        ]
+        ueber_konto = {
+            kz
+            for andere in rechnung
             for konto in (andere.soll_konto, andere.haben_konto)
             if (kz := self.funktion.get(konto)) is not None
             and KENNZIFFERN_2026[kz].art is Art.BMG
             and zugangsseite(kz) == "haben"
         }
+        ueber_schluessel = {
+            kz
+            for andere in rechnung
+            if andere.steuer_schluessel in _USTEUER_SCHLUESSEL
+            and (kz := STEUERSCHLUESSEL[andere.steuer_schluessel].bmg) is not None
+        }
+        return ueber_konto, ueber_schluessel
 
     def _minderung(self, b: Buchungssatz, konto: str, seite: Seite) -> Beitrag | str:
         """Erlöskonto ohne Schlüssel: Minderung der Rechnung desselben Belegs — oder
@@ -406,12 +440,27 @@ class _Ermittler:
         ohne = f"Erlöskonto {konto} ohne Steuerschlüssel und ohne Kennziffer"
         if seite == "haben" and not self.plan.ist_erloesschmaelerung(konto):
             return ohne  # ein Erlös im Haben mindert nichts
-        kandidaten = self._rechnungs_kz(b) if b.beleg_id else set()
+        if not b.beleg_id:
+            return ohne
+        gegen = _gegenkonto(b, seite)
+        if not self.plan.ist_gegenkonto(gegen):
+            return (
+                f"{ohne} — gegen {gegen} (kein Personen- oder Geldkonto) mindert es "
+                "keine Rechnung"
+            )
+        ueber_konto, ueber_schluessel = self._rechnungs_kz(b)
+        kandidaten = ueber_konto | ueber_schluessel
         if not kandidaten:
             return ohne
         if len(kandidaten) > 1:
-            return f"Erlöskonto {konto}: Rechnung mit mehreren Kennziffern"
+            liste = ", ".join(str(kz) for kz in sorted(kandidaten))
+            return f"Erlöskonto {konto}: Rechnung mit mehreren Kennziffern ({liste})"
         (kz,) = kandidaten
+        if kz not in ueber_konto:
+            return (
+                f"Erlöskonto {konto} mindert eine steuerpflichtige Rechnung (Kz {kz}) "
+                "ohne Steuerschlüssel — die Umsatzsteuer wird nicht berichtigt"
+            )
         return Beitrag(kz, b.betrag_netto if seite == "haben" else -b.betrag_netto)
 
     def _steuerkonto(self, b: Buchungssatz, konto: str) -> None:
