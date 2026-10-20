@@ -159,9 +159,29 @@ class EbayImporter(MarktplatzImporter):
             )
             for zeile in gruppe:
                 self._zeile(abrechnung, zeile, dezimal)
-            if any(p.art is Postenart.AUSZAHLUNG for p in abrechnung.posten):
+            ueberweisungen = [
+                p for p in abrechnung.posten if p.art is Postenart.AUSZAHLUNG
+            ]
+            if ueberweisungen:
                 abrechnung.auszahlung = -abrechnung.summe(Postenart.AUSZAHLUNG)
-            else:
+            if len(ueberweisungen) > 1:
+                # eine Auszahlungsnummer, eine Überweisung — mehr ist ein Widerspruch
+                betraege = ", ".join(
+                    f"{-p.betrag:.2f}".replace(".", ",") for p in ueberweisungen
+                )
+                abrechnung.befunde.append(
+                    Befund(
+                        code="auszahlung_doppelt",
+                        schweregrad=Schweregrad.FEHLER,
+                        text=(
+                            f"{len(ueberweisungen)} Auszahlungszeilen zu {nummer} "
+                            f"({betraege}) — eine Auszahlung hat genau eine; "
+                            "Bericht prüfen"
+                        ),
+                        posten_nr=ueberweisungen[1].nr,
+                    )
+                )
+            if not ueberweisungen:
                 # Monatsberichte schneiden Auszahlungen: die übrigen Posten und die
                 # Auszahlungszeile stehen im nächsten Bericht
                 abrechnung.vollstaendig = False

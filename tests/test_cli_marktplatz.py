@@ -141,3 +141,43 @@ def test_cli_nachtrag_einer_auszahlung_ueber_zwei_berichte(tmp_path):
     assert "2 Posten nachgetragen, 1 Buchungen" in text
     r = runner.invoke(app, ["marktplatz", "zeigen", "P1", *_basis(tmp_path)[:2]])
     assert "auszahlung_folgt (erledigt)" in _text(r)
+
+
+def test_import_meldet_widerspruechliche_auszahlungszeile(tmp_path):
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    erst = tmp_path / "e.csv"
+    erst.write_bytes(
+        ebay_bericht(
+            ("10.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", ""),
+            ("12.08.2026", "Auszahlung", "", "", "-100,00", "P1", "12.08.2026"),
+        )
+    )
+    zweit = tmp_path / "e2.csv"
+    zweit.write_bytes(
+        ebay_bericht(
+            ("10.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", ""),
+            ("12.08.2026", "Auszahlung", "", "", "-90,00", "P1", "12.08.2026"),
+        )
+    )
+
+    def importiere(datei):
+        return runner.invoke(
+            app,
+            [
+                "marktplatz",
+                "import",
+                "ebay",
+                str(datei),
+                "--archiv",
+                str(tmp_path / "archiv"),
+                *_basis(tmp_path),
+            ],
+        )
+
+    assert importiere(erst).exit_code == 0
+    r = importiere(zweit)
+    assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "widerspricht" in text and "nichts nachgetragen" in text
+    assert "auszahlung_doppelt" in text

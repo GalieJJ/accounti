@@ -137,6 +137,13 @@ def marktplatz_import(
             f"[bold]{markt_name} {escape(a.nummer)}[/bold] "
             f"({a.von:%d.%m.}–{a.bis:%d.%m.%Y})"
         )
+        if e.widerspruch is not None:
+            console.print(
+                f"{kopf}: schon bekannt — der Bericht widerspricht ihr, nichts "
+                "nachgetragen."
+            )
+            _befunde([e.widerspruch])
+            continue
         if e.nachgetragen:
             console.print(
                 f"{kopf}: schon bekannt — {e.nachgetragen} Posten nachgetragen, "

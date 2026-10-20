@@ -43,6 +43,7 @@ from accounti.integrationen.buchung import (
     Buchungskontext,
     buche_abrechnung,
     ergaenze_auszahlung,
+    eur_text,
     setze_auszahlung_eur,
     summenprobe,
 )
@@ -83,6 +84,8 @@ class Importergebnis:
     buchungen: int = 0
     umsaetze: int = 0
     abgleich: list[Abgleich] = field(default_factory=list)
+    # Bericht widerspricht der bekannten Abrechnung: nichts nachgetragen
+    widerspruch: Befund | None = None
 
 
 def _erkenner(markt: str, abrechnungen: list[Abrechnung]) -> Erkenner:
@@ -179,7 +182,12 @@ def _paypal_umsaetze(
 
 
 def _fingerabdruck(p: Marktplatzposten) -> tuple[object, ...]:
-    """Was einen Posten ausmacht — ohne Zeilennummer, die je Bericht anders ist."""
+    """Was einen Posten ausmacht — ohne Zeilennummer, die je Bericht anders ist.
+
+    Ohne Freitext: Beschreibung, Typbezeichnung und Gebührenspalte hängen von
+    Sprache und Spaltenauswahl des Exports ab (eBay lässt die Spalten konfigurieren).
+    Gleiche Posten einer Bestellung zählt ``neue_posten`` als Multimenge.
+    """
     return (
         p.art,
         p.datum,
@@ -187,7 +195,6 @@ def _fingerabdruck(p: Marktplatzposten) -> tuple[object, ...]:
         p.waehrung,
         p.bestellnummer,
         p.gebuehrenart,
-        p.beschreibung,
         p.artikel,
         p.referenz,
     )
@@ -255,12 +262,24 @@ def _nachtrag(
     Auszahlungsposten wird ersetzt, Summenprobe und Bankabgleich laufen über die
     ganze Abrechnung. Ist die gebildete Auszahlung schon gegen die Bank abgeglichen,
     gilt ihr Betrag als bestätigt — passen neue Posten nicht dazu, ist das ein
-    Fehler-Befund.
+    Fehler-Befund. Bringt der Bericht eine weitere Auszahlungszeile, widerspricht
+    er der Abrechnung: dann wird nichts nachgetragen (``auszahlung_doppelt``).
     """
     neue = neue_posten(alt.posten, bericht.posten)
     if not neue:
         return Importergebnis(alt, neu=False)
+    widerspruch = _zweite_auszahlungszeile(alt, neue, bericht.dateiname)
+    if widerspruch is not None:
+        a = alt.model_copy(deep=True)
+        a.befunde.append(widerspruch)
+        a.status = status_von(a)
+        aktualisiere_abrechnung(session, a)
+        session.flush()
+        return Importergebnis(a, neu=False, widerspruch=widerspruch)
     a = alt.model_copy(deep=True)
+    # Befunde des Berichts zu den neuen Posten (z.B. Zeile rechnet nicht) gelten mit
+    nummern = {p.nr for p in neue}
+    a.befunde.extend(b for b in bericht.befunde if b.posten_nr in nummern)
     gebildet = [p for p in a.posten if p.art is Postenart.AUSZAHLUNG and p.nr == 0]
     ersetzt = {p.id for p in gebildet if p.bank_transaktion_id is None}
     bestaetigt = [p for p in gebildet if p.bank_transaktion_id is not None]
@@ -321,6 +340,36 @@ def _nachtrag(
         nachgetragen=len(neue),
         buchungen=len(gebucht.buchungen),
         abgleich=abgleich,
+    )
+
+
+def _zweite_auszahlungszeile(
+    alt: Abrechnung, neue: list[Marktplatzposten], dateiname: str
+) -> Befund | None:
+    """Eine Auszahlungsnummer hat genau eine Auszahlungszeile.
+
+    Bringt ein Bericht eine weitere (anderer Betrag oder anderes Datum), ist das ein
+    Widerspruch — summiert ergäbe sie eine erfundene Auszahlung, gegen die doppelt
+    nachgebuchte Posten die Summenprobe bestehen. Dann wird nichts nachgetragen.
+    """
+    bekannt = [p for p in alt.posten if p.art is Postenart.AUSZAHLUNG and p.nr != 0]
+    zeilen = [p for p in neue if p.art is Postenart.AUSZAHLUNG]
+    if not zeilen or (not bekannt and len(zeilen) == 1):
+        return None
+
+    def beschreibe(p: Marktplatzposten) -> str:
+        return f"{eur_text(-p.betrag)} {p.waehrung} am {p.datum:%d.%m.%Y}"
+
+    vorher = ", ".join(beschreibe(p) for p in bekannt) or "keine"
+    return Befund(
+        code="auszahlung_doppelt",
+        schweregrad=Schweregrad.FEHLER,
+        text=(
+            f"{dateiname} enthält eine weitere Auszahlungszeile zu {alt.nummer} "
+            f"({', '.join(beschreibe(p) for p in zeilen)}; bekannt: {vorher}) — "
+            f"widerspricht der Abrechnung, aus {dateiname} wurde nichts "
+            "nachgetragen; Bericht und Auszahlung prüfen"
+        ),
     )
 
 

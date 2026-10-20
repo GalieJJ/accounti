@@ -78,7 +78,7 @@ DATEV-Übergabe:
 |-------|--------------|-------|
 | Code-Ort | Formate in `importers/{marktplatz,amazon,ebay,paypal,shopify}.py`; Buchung, Abgleich, Lauf, OSS und Einstellungen im neuen Paket `integrationen/`; Exporte in `export/{datev_format,datev_stammdaten,datev_belege,kontoauszuege}.py` | Importer kennen nur ihr Format (Architektur); Buchhaltungslogik bleibt außerhalb |
 | Einheit „Abrechnung“ | Amazon: eine Abrechnung = ein `settlement-id`; eBay: eine je „Auszahlung Nr.“; Shopify: eine je Payout (ID oder Datum); PayPal: Zeitraum der Datei | jede Abrechnung hat genau einen Abgleichspunkt gegen die Bank (PayPal: das Guthaben) |
-| Doppelter Import, Nachträge | Abrechnung eindeutig über (Marktplatz, Nummer); dieselbe Datei erkennt das Belegarchiv (Datei-Hash). Ein anderer Bericht zu einer bekannten Abrechnung wird **nicht** übersprungen: Posten werden als Multimenge über ihren Inhalt (Art, Datum, Betrag, Bestellnummer, Beschreibung, Referenz — ohne Zeilennummer) verglichen, fehlende nachgebucht; ein aus der Summe gebildeter, noch nicht abgeglichener Auszahlungsposten wird ersetzt, Summenprobe und Abgleich laufen über die ganze Abrechnung; ist er schon abgeglichen, gilt sein Betrag als bestätigt (abweichende Posten → `summe_abweichung`). eBay ohne Auszahlungszeile im Bericht: kein Auszahlungsposten, Hinweis `auszahlung_folgt`. PayPal: Zeilen immer über den Transaktionscode, ein zweiter Export desselben Zeitraums heißt `… (2)`. Jeder Bericht ist ein eigener Beleg (Inhalts-Hash in der Belegnummer, sonst hielte die Belegdublettenprüfung „Lieferant + Belegnummer“ ihn für eine Dublette) | eine Auszahlung verteilt sich über Monatsberichte; der Hinweis „nach der Auszahlung erneut importieren“ führt genau dahin; ein zweiter Import bucht nichts doppelt |
+| Doppelter Import, Nachträge | Abrechnung eindeutig über (Marktplatz, Nummer); dieselbe Datei erkennt das Belegarchiv (Datei-Hash). Ein anderer Bericht zu einer bekannten Abrechnung wird **nicht** übersprungen: Posten werden als Multimenge über ihren Inhalt (Art, Datum, Betrag, Währung, Bestellnummer, Gebührenart, Artikel, Referenz — ohne Zeilennummer und ohne Freitext, denn Beschreibung, Typbezeichnung und Gebührenspalte hängen von Sprache und Spaltenauswahl des Exports ab) verglichen, fehlende nachgebucht, Befunde des Berichts zu diesen Posten übernommen; ein aus der Summe gebildeter, noch nicht abgeglichener Auszahlungsposten wird ersetzt, Summenprobe und Abgleich laufen über die ganze Abrechnung; ist er schon abgeglichen, gilt sein Betrag als bestätigt (abweichende Posten → `summe_abweichung`). Eine Auszahlungsnummer hat genau eine Auszahlungszeile: Bringt ein Bericht eine weitere (oder zwei auf einmal), widerspricht er der Abrechnung — Fehler-Befund `auszahlung_doppelt`, **nichts** wird nachgetragen oder summiert (eine summierte zweite Zeile ließe doppelt gebuchte Posten die Summenprobe bestehen); zwei Auszahlungszeilen in einem neuen Bericht → derselbe Befund, alles zur Prüfung. eBay ohne Auszahlungszeile im Bericht: kein Auszahlungsposten, Hinweis `auszahlung_folgt`. PayPal: Zeilen immer über den Transaktionscode, ein zweiter Export desselben Zeitraums heißt `… (2)`. Jeder Bericht ist ein eigener Beleg (Inhalts-Hash in der Belegnummer, sonst hielte die Belegdublettenprüfung „Lieferant + Belegnummer“ ihn für eine Dublette) | eine Auszahlung verteilt sich über Monatsberichte; der Hinweis „nach der Auszahlung erneut importieren“ führt genau dahin; ein zweiter Import bucht nichts doppelt |
 | Beleg | Der Bericht wird über `belege/pipeline.nimm_auf` unverändert archiviert und als Beleg (Art „sonstiges“, ohne Betrag, Kanal `marktplatz`) erfasst; jede Buchung der Abrechnung trägt diese `beleg_id` | Prinzip 7 (Belegbezug); ohne Betrag schlägt der Bankabgleich den Bericht nicht als Quittung vor |
 | Buchungsweg | Alles gegen ein Verrechnungskonto je Marktplatz (SKR03-Vorgabe 1361 Amazon, 1362 eBay, 1363 Shopify; anzulegen); Auszahlung „Bank an Verrechnungskonto“ mit `transaktion_id` des Bankumsatzes | Spec 5: Auszahlung ist nur Differenz und Abgleichspunkt; `classify` lässt den Umsatz dann in Ruhe |
 | Erlöse | je Bestellung eine Buchung (Bruttosumme aller Preisbestandteile inkl. Versand, Geschenkverpackung und Rabatt), Netto/Steuer über `UStBerechner` aus Bestimmungsland und Satz; Belegfeld = Bestellnummer | Einzelaufzeichnung; OSS-Meldung zählt je Bestellung |
@@ -88,7 +88,7 @@ DATEV-Übergabe:
 | Unbekanntes | unbekannte Posten, Ersatzleistungen (z. B. FBA-Erstattung) und Korrekturen werden gebucht, aber **zur Prüfung** mit Befund | nichts verschwindet, der Mensch entscheidet |
 | Summenprobe | Summe aller Posten = gemeldete Auszahlung, exakt auf den Cent; sonst Befund `summe_abweichung`, Buchungen der Abrechnung zur Prüfung, **keine** Differenzbuchung | Spec 5 „Differenzen“, Akzeptanz 2 |
 | Auszahlungsabgleich | Bankumsatz ohne Buchung/Zuordnung, Betrag exakt gleich, Datum Auszahlungsdatum −2/+`auszahlung_toleranz_tage` (10), eindeutig; Stichwort im Verwendungszweck bevorzugt. Zwei Durchgänge: erst alle eindeutigen exakten Treffer (wiederholt), dann Befunde für den Rest — gleicher Betrag mehrfach → Befund, kein Raten; anderer Betrag mit Stichwort/Abrechnungsnummer → `auszahlung_abweichung`; schon anderweitig gebuchter Umsatz → Befund mit Korrekturhinweis; ein im selben Lauf zugeordneter Umsatz zählt für keinen Befund. Befunde lassen sich erledigen (bleiben sichtbar): ein späterer exakter Treffer erledigt die Abgleichsbefunde seines Postens; der Status richtet sich nur nach offenen Befunden | Akzeptanz 2: Abweichung melden statt glätten; Fehlalarme sind so schädlich wie übersehene Fehler |
-| PayPal | jede saldenwirksame EUR-Zeile wird ein Umsatz (`Transaktion`, Quelle `paypal`) auf dem PayPal-Konto (SKR03-Vorgabe 1210, Dublettenschlüssel = Transaktionscode); das Modul bucht mit `transaktion_id`: Verkäufe (nur eingehende Checkout-Zahlungen: Website-, Express-Checkout-, Handy-, Warenkorb-, eBay-Zahlung), deren Gebühren, Erstattungen (nur negative Rückzahlungen), Einbehaltungen und ihre Freigaben (Einbehaltskonto), Abbuchungen/Einzahlungen; Rückbuchungen, Zahlungsrückbuchungen und Chargebacks gehen auf das Klärungskonto zur Prüfung (Befund `rueckbuchung`, § 17 UStG). Alles andere — Einkäufe, „Allgemeine Zahlung“ eines Kunden (z. B. auf eine Ausgangsrechnung), Rückzahlungen an uns — bleibt für `opos zuordnen`/`classify` (Hinweis `eingehende_zahlung`) | Spec: „eigenes Konto mit Saldo, nicht bloß Zahlungsweg“; eine Zahlung auf eine schon gebuchte Forderung darf kein zweiter Erlös werden |
+| PayPal | jede saldenwirksame EUR-Zeile wird ein Umsatz (`Transaktion`, Quelle `paypal`) auf dem PayPal-Konto (SKR03-Vorgabe 1210, Dublettenschlüssel = Transaktionscode); das Modul bucht mit `transaktion_id`: Verkäufe (nur eingehende Checkout-Zahlungen: Website-, Express-Checkout-, Handy-, Warenkorb-, eBay-Zahlung), deren Gebühren, Erstattungen (nur negative Rückzahlungen, deren zugehöriger Transaktionscode ein Checkout-Verkauf ist — aus derselben Datei oder einem früheren Export), Einbehaltungen und ihre Freigaben (Einbehaltskonto), Abbuchungen/Einzahlungen; Rückbuchungen, Zahlungsrückbuchungen und Chargebacks gehen auf das Klärungskonto zur Prüfung (Befund `rueckbuchung`, § 17 UStG). Alles andere — Einkäufe, „Allgemeine Zahlung“ eines Kunden (z. B. auf eine Ausgangsrechnung), Rückzahlungen an uns, Rückzahlungen an Kunden zu einer Zahlung, die kein Verkauf war (Hinweis `rueckzahlung_ohne_verkauf`), oder zu einer nicht importierten Zahlung (dieselbe Befundart als Warnung mit Verweis auf § 17 UStG) — bleibt für `opos zuordnen`/`classify` (Hinweis `eingehende_zahlung`) | Spec: „eigenes Konto mit Saldo, nicht bloß Zahlungsweg“; eine Zahlung auf eine schon gebuchte Forderung darf kein zweiter Erlös werden — und ihre Rückzahlung keine Erlösminderung |
 | PayPal-Saldo | Guthabenkette je Währung: vorheriges Guthaben + Netto = Guthaben; Bruch → Befund `saldensprung` | fehlende Zeilen fallen auf |
 | PayPal-Fremdwährung | Erlös in EUR zum effektiven PayPal-Kurs der zugehörigen Währungsumrechnung (EUR-Zeile = Netto, Brutto anteilig); ohne Umrechnung bleibt der Posten zur Prüfung | EUR-Saldo bleibt exakt, keine erfundenen Kurse |
 | Fremdwährung sonst | Abrechnung in Fremdwährung nur mit `--kurs` (Einheiten je 1 EUR, wie EZB/DATEV); ohne Kurs bricht der Import **vor** dem Archivieren ab (`IntegrationError`); jeder Posten einzeln umgerechnet, Auszahlung = Summe; Bankeingang anderer Höhe → Befund; Nachträge nehmen den gespeicherten Kurs | kein stiller Kursverlust; eine gespeicherte, ungebuchte Abrechnung ließe sich nicht mehr buchen |
@@ -156,6 +156,11 @@ DATEV-Übergabe:
 - [x] Nachträge zu bekannten Abrechnungen, PayPal-Export mit gleichem Zeitraum, Sammelabgleich in zwei Durchgängen, erledigte Befunde (`tests/test_integrationen_nachtrag.py`, `tests/test_cli_marktplatz.py`).
 - [x] Kontoauszüge: Kontrollsaldo für festgeschriebene Monate, keine Dateien bei kaputter Kette, Texte in der Hash-Kette (`tests/test_kontoauszuege.py`, `tests/test_cli_datev.py`).
 
+### Nacharbeit nach der Prüfung (Runde 2)
+
+- [x] PayPal: Rückzahlung an den Kunden ist nur zu einem Checkout-Verkauf eine Erlösminderung; zu einer „Allgemeinen Zahlung“ oder Überzahlung bleibt sie für opos/classify, zu einer nicht importierten Zahlung mit Warnung (`tests/test_integrationen_lauf.py::test_paypal_sonderfaelle`, `::test_paypal_rueckzahlung_zu_verkauf_aus_frueherem_export`, `::test_paypal_rueckzahlung_ohne_bekannte_zahlung`, `tests/test_marktplatz_importer.py::test_paypal_rueckzahlung_nur_zu_einem_verkauf_ist_erstattung`; Fixture `paypal_sonderfaelle.csv` um die Rückzahlung ergänzt).
+- [x] Nachträge: Fingerabdruck ohne Freitext; zweite Auszahlungszeile zu einer bekannten Auszahlung ist ein Widerspruch, es wird nichts nachgetragen; Befunde des Nachtragsberichts zu seinen Posten bleiben erhalten (`tests/test_integrationen_nachtrag.py::test_gleicher_bericht_mit_anderem_beschreibungstext_bucht_nichts`, `::test_zweite_auszahlungszeile_ist_widerspruch`, `::test_auseinanderlaufender_posten_bei_bekannter_auszahlungszeile`, `::test_nachtrag_uebernimmt_die_befunde_seiner_posten`, `tests/test_marktplatz_importer.py::test_ebay_zwei_auszahlungszeilen_sind_ein_fehler`, `tests/test_cli_marktplatz.py::test_import_meldet_widerspruechliche_auszahlungszeile`).
+
 ## Akzeptanzkriterien → Tests
 
 | Nr. | Kriterium | Test |
@@ -210,11 +215,25 @@ DATEV-Übergabe:
   echten Exporten); eine „Allgemeine Zahlung“ eines Kunden wird nicht gegen offene Posten
   geprüft, sondern bleibt für `opos zuordnen`/`classify`. Rückbuchungen (Chargebacks) bucht
   accounti nicht als Erlösminderung, sondern auf das Klärungskonto — ob Forderung oder
-  Erlösminderung mit USt-Berichtigung, entscheidet der Mensch.
-- Nachträge: Posten werden über ihren Inhalt verglichen. Ändert ein Marktplatz einen schon
-  gemeldeten Posten (anderer Betrag), gilt der geänderte als neuer Posten — die Summenprobe
-  meldet die Doppelung, gelöscht wird nichts. Zeilennummern in Befunden beziehen sich auf den
-  Bericht, aus dem der Posten kam. Wurde eine aus der Summe gebildete Auszahlung schon
+  Erlösminderung mit USt-Berichtigung, entscheidet der Mensch. Eine Rückzahlung an den Kunden
+  mindert den Erlös nur, wenn ihr „Zugehöriger Transaktionscode“ ein importierter
+  Checkout-Verkauf ist; fehlt der Code im Export oder wurde der Verkauf vor dem ersten
+  PayPal-Import gebucht, bleibt sie mit Warnung unverbucht — kontieren muss dann der Mensch
+  (Erlösminderung mit § 17 UStG oder Rückzahlung zu einem offenen Posten). Teilrückzahlungen
+  werden nicht gegen den Verkaufsbetrag geprüft.
+- Nachträge: Posten werden über ihren Inhalt ohne Freitext verglichen. Stabile Zeilen-IDs
+  (eBay „Transaktionsnummer“/„Referenznummer“) nimmt der Fingerabdruck bewusst nicht: die
+  Spalten sind wählbar, ein Bericht mit und einer ohne sie ergäbe wieder Doppelungen. Was
+  trotzdem auseinanderläuft, gilt als neuer Posten: ein vom Marktplatz geänderter Betrag oder
+  Datum, eine im zweiten Export fehlende Spalte „Bestellnummer“, eine Werbegebühr, die ohne
+  Beschreibungsspalte als Gebühr erkannt wird. Steht die Auszahlungszeile schon in der
+  Abrechnung, meldet die Summenprobe die Doppelung (Fehler, Nachtrag zur Prüfung), gelöscht wird
+  nichts; steht sie noch aus (eBay-Monatsbericht ohne Auszahlungszeile), werden solche Posten
+  zunächst normal gebucht und erst mit der Auszahlungszeile von der Summenprobe erkannt. Eine
+  zweite Auszahlungszeile (`auszahlung_doppelt`) hält die Abrechnung auf „Abweichung“; einen
+  Befehl, Befunde von Hand zu erledigen, gibt es nicht — der Bericht bleibt archiviert, ein
+  erneuter Import derselben Datei ist eine Dublette. Zeilennummern in Befunden beziehen sich auf
+  den Bericht, aus dem der Posten kam. Wurde eine aus der Summe gebildete Auszahlung schon
   abgeglichen, bleibt ein späterer Nachtrag ein Fehler-Befund, bis der Mensch klärt.
 - eBay: Ob eBay bei Transaktionen in einer anderen Währung als der Auszahlungswährung Brutto
   und Gebühren in Transaktions- oder Auszahlungswährung ausweist, ist nicht geprüft; geht die
@@ -316,7 +335,9 @@ Jede Abrechnung wird als Beleg archiviert und Bestandteil für Bestandteil gegen
 Verrechnungskonto gebucht; die Auszahlung ist nur der Abgleichspunkt gegen die Bank. Stimmt die
 Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Ein
 weiterer Bericht zu einer bekannten Abrechnung (Monatsberichte, erneuter Export) bucht nur die
-Posten nach, die noch fehlen. Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
+Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nichts nachgetragen.
+Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
+Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
 er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
 FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`.
 `datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel

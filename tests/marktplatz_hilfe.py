@@ -15,8 +15,13 @@ EBAY_KOPF = (
 )
 
 
-def ebay_bericht(*zeilen: tuple[str, str, str, str, str, str, str]) -> bytes:
-    """(Datum, Typ, Bestellnummer, Land, Betrag, Auszahlung Nr., Auszahlungsdatum)."""
+def ebay_bericht(
+    *zeilen: tuple[str, str, str, str, str, str, str], beschreibung: str = ""
+) -> bytes:
+    """(Datum, Typ, Bestellnummer, Land, Betrag, Auszahlung Nr., Auszahlungsdatum).
+
+    ``beschreibung``: Spalte „Beschreibung“ in jeder Zeile (Freitext von eBay).
+    """
     text = [EBAY_KOPF]
     for datum, typ, bestellung, land, betrag, nummer, auszahlungsdatum in zeilen:
         werte = [
@@ -29,7 +34,7 @@ def ebay_bericht(*zeilen: tuple[str, str, str, str, str, str, str]) -> bytes:
             auszahlungsdatum,
             nummer,
             betrag if typ == "Bestellung" else "",
-            "",
+            beschreibung,
         ]
         text.append(";".join(f'"{w}"' for w in werte))
     return ("\r\n".join(text) + "\r\n").encode("utf-8")

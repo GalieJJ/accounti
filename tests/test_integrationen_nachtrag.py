@@ -25,7 +25,7 @@ from accounti.integrationen.einstellungen import lade_integrationen
 from accounti.integrationen.lauf import Kontext, importiere
 from accounti.konfiguration import Buchhaltung
 from accounti.models import BuchungStatus, Transaktion, TransaktionQuelle
-from accounti.models.integrationen import AbrechnungStatus, Postenart
+from accounti.models.integrationen import AbrechnungStatus, Postenart, Schweregrad
 from tests.marktplatz_hilfe import FIXTURES, ebay_bericht, paypal_bericht
 
 D = Decimal
@@ -132,6 +132,89 @@ def test_gleicher_bericht_nochmals_bucht_nichts(umgebung):
     (ergebnis,) = importiere(s, archiv, kontext, "ebay", neu_gespeichert, "s2.csv")
     assert (ergebnis.neu, ergebnis.nachgetragen) == (False, 0)
     assert len(lade_buchungen(s)) == anzahl
+
+
+NUR_P1 = (
+    ("10.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", ""),
+    ("12.08.2026", "Auszahlung", "", "", "-100,00", "P1", "12.08.2026"),
+)
+
+
+def test_gleicher_bericht_mit_anderem_beschreibungstext_bucht_nichts(umgebung):
+    """eBay lässt die Spalten konfigurieren: derselbe Bericht mit anderem
+    Freitext ist keine neue Bestellung und keine zweite Auszahlung."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 8, 13), "100.00", "EBAY AUSZAHLUNG P1")
+    (erst,) = importiere(s, archiv, kontext, "ebay", ebay_bericht(*NUR_P1), "e.csv")
+    assert erst.abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    anzahl = len(lade_buchungen(s))
+    anders = ebay_bericht(*NUR_P1, beschreibung="Verkauf")
+    (zweit,) = importiere(s, archiv, kontext, "ebay", anders, "e2.csv")
+    assert (zweit.neu, zweit.nachgetragen, zweit.buchungen) == (False, 0, 0)
+    assert len(lade_buchungen(s)) == anzahl
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.auszahlung == D("100.00")
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+
+
+def test_zweite_auszahlungszeile_ist_widerspruch(umgebung):
+    """Eine Auszahlungsnummer hat genau eine Auszahlungszeile. Bringt ein Bericht
+    eine andere, wird nichts nachgetragen und nichts summiert."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 8, 13), "100.00", "EBAY AUSZAHLUNG P1")
+    importiere(s, archiv, kontext, "ebay", ebay_bericht(*NUR_P1), "e.csv")
+    anzahl = len(lade_buchungen(s))
+    widerspruch = ebay_bericht(
+        ("10.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", ""),
+        ("11.08.2026", "Bestellung", "12-9", "Deutschland", "20,00", "P1", ""),
+        ("12.08.2026", "Auszahlung", "", "", "-120,00", "P1", "12.08.2026"),
+    )
+    (ergebnis,) = importiere(s, archiv, kontext, "ebay", widerspruch, "e2.csv")
+    assert (ergebnis.neu, ergebnis.nachgetragen, ergebnis.buchungen) == (False, 0, 0)
+    assert ergebnis.widerspruch is not None
+    assert len(lade_buchungen(s)) == anzahl
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.auszahlung == D("100.00")
+    assert len([p for p in abrechnung.posten if p.art is Postenart.AUSZAHLUNG]) == 1
+    (befund,) = [b for b in abrechnung.befunde if b.code == "auszahlung_doppelt"]
+    assert befund.schweregrad is Schweregrad.FEHLER
+    assert "e2.csv" in befund.text and "120,00" in befund.text
+    assert abrechnung.status is AbrechnungStatus.ABWEICHUNG
+
+
+def test_auseinanderlaufender_posten_bei_bekannter_auszahlungszeile(umgebung):
+    """Ein Posten, den der Fingerabdruck nicht wiedererkennt (hier: ohne
+    Bestellnummer), ist neu — die bekannte Auszahlungszeile hält die Summe fest,
+    die Summenprobe meldet die Doppelung und der Nachtrag geht zur Prüfung."""
+    s, archiv, kontext = umgebung
+    importiere(s, archiv, kontext, "ebay", ebay_bericht(*NUR_P1), "e.csv")
+    ohne_nummer = ebay_bericht(
+        ("10.08.2026", "Bestellung", "", "Deutschland", "100,00", "P1", ""),
+        NUR_P1[1],
+    )
+    (ergebnis,) = importiere(s, archiv, kontext, "ebay", ohne_nummer, "e2.csv")
+    assert ergebnis.nachgetragen == 1 and ergebnis.widerspruch is None
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.auszahlung == D("100.00")
+    assert abrechnung.status is AbrechnungStatus.ABWEICHUNG
+    assert any(b.code == "summe_abweichung" for b in abrechnung.offene_befunde)
+    (neu,) = [b for b in lade_buchungen(s) if b.beleg_nummer == "P1"]
+    assert neu.status is BuchungStatus.ZUR_PRUEFUNG
+
+
+def test_nachtrag_uebernimmt_die_befunde_seiner_posten(umgebung):
+    s, archiv, kontext = umgebung
+    importiere(s, archiv, kontext, "ebay", AUGUST, "aug.csv")
+    september = ebay_bericht(
+        ("01.09.2026", "Bestellung", "12-2", "Deutschland", "50,00", "P1", ""),
+        ("01.09.2026", "Korrektur", "", "", "5,00", "P1", ""),
+        ("02.09.2026", "Auszahlung", "", "", "-155,00", "P1", "02.09.2026"),
+    )
+    (ergebnis,) = importiere(s, archiv, kontext, "ebay", september, "sep.csv")
+    assert ergebnis.nachgetragen == 3
+    (abrechnung,) = lade_abrechnungen(s)
+    (befund,) = [b for b in abrechnung.befunde if b.code == "unbekannter_posten"]
+    assert "Korrektur" in befund.text
 
 
 def test_nachtrag_nach_bankabgleich_ist_fehler(umgebung):

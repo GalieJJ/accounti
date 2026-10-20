@@ -11,7 +11,7 @@ from accounti.importers.marktplatz import (
     MarktplatzFormatError,
     lies_laenderdatei,
 )
-from accounti.models.integrationen import Gebuehrenart, Postenart
+from accounti.models.integrationen import Gebuehrenart, Postenart, Schweregrad
 
 FIXTURES = Path(__file__).resolve().parents[1] / "examples" / "marktplatz"
 D = Decimal
@@ -145,6 +145,21 @@ def test_ebay_zeile_rechnet_nicht():
     kaputt = inhalt.replace(b"52,56", b"52,66")
     (erste, _zweite) = MARKTPLATZ_IMPORTER["ebay"].lies(kaputt, "x.csv")
     assert any(b.code == "zeile_rechnet_nicht" for b in erste.befunde)
+
+
+def test_ebay_zwei_auszahlungszeilen_sind_ein_fehler():
+    """Eine Auszahlungsnummer hat genau eine Auszahlungszeile."""
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    inhalt = ebay_bericht(
+        ("10.08.2026", "Bestellung", "12-1", "Deutschland", "100,00", "P1", ""),
+        ("12.08.2026", "Auszahlung", "", "", "-60,00", "P1", "12.08.2026"),
+        ("12.08.2026", "Auszahlung", "", "", "-40,00", "P1", "12.08.2026"),
+    )
+    (abrechnung,) = MARKTPLATZ_IMPORTER["ebay"].lies(inhalt, "x.csv")
+    (befund,) = [b for b in abrechnung.befunde if b.code == "auszahlung_doppelt"]
+    assert befund.schweregrad is Schweregrad.FEHLER
+    assert "60,00" in befund.text and "40,00" in befund.text
 
 
 # --- PayPal ---------------------------------------------------------------------
