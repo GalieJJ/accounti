@@ -152,8 +152,9 @@ euer:
                                             # auf (§ 17 Abs. 2 Nr. 1 S. 2 UStG)
   - {von: "2752", bis: "2752", kz: "112"}   # Vermietung und Verpachtung 19 % USt
   - {von: "2795", bis: "2799", kz: "-"}     # Entnahmen aus Rücklagen (Ergebnisverwendung)
-  - {von: "2840", bis: "2899", kz: "-"}     # Rücklagen, Gewinnvortrag, verrechnete
-                                            # kalkulatorische Kosten
+  - {von: "2800", bis: "2899", kz: "-"}     # Rücklagen, Gewinnvortrag, verrechnete
+                                            # kalkulatorische Kosten (2800–2839 frei,
+                                            # wie SKR04 7700–7799)
   - {von: "1728", bis: "1728", kz: "140"}   # USt elektron. Dienstleistungen anderes EU-Land
   - {von: "1760", bis: "1768", kz: "140"}   # USt nicht fällig, USt OSS (wie SKR04)
   - {von: "1770", bis: "1779", kz: "140"}   # vereinnahmte Umsatzsteuer
@@ -212,6 +213,9 @@ euer:
   - {von: "2387", bis: "2399", kz: "-"}     # Spenden in den Vermögensstock
   - {von: "2400", bis: "2439", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
   - {von: "2402", bis: "2402", kz: "103"}   # … aus steuerfreien EU-Lieferungen
+  - {von: "2440", bis: "2459", kz: null}    # Abschreibungen auf Forderungen (soweit un-
+                                            # üblich hoch), Wertberichtigungen: keine
+                                            # Zeile, s. 4866 (wie SKR04 6290, 6920–6926)
   - {von: "2480", bis: "2489", kz: "-"}     # Einstellungen in Rücklagen
   - {von: "2495", bis: "2499", kz: "-"}     # Einstellungen in Kapital-/Gewinnrücklagen
   - {von: "3000", bis: "3969", kz: "100"}   # Waren, Roh-, Hilfs- und Betriebsstoffe
@@ -286,7 +290,16 @@ euer:
   - {von: "4855", bis: "4861", kz: "132"}   # GWG
   - {von: "4856", bis: "4856", kz: "134"}   # Sonderabschreibung § 7b EStG
   - {von: "4862", bis: "4864", kz: "137"}   # Sammelposten
-  - {von: "4865", bis: "4869", kz: "132"}
+  - {von: "4865", bis: "4865", kz: "132"}   # außerplanmäßige Abschreibungen auf GWG
+  # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen (4866–4899),
+  # Wertberichtigungen auf Forderungen (2440–2459): keine Zeile. Die Anlage EÜR kennt
+  # keine Teilwertabschreibung; Anschaffungskosten von Wertpapieren und nicht abnutz-
+  # barem Anlagevermögen sind erst bei der Veräußerung Betriebsausgabe (Anleitung zu
+  # Zeile 27 und 38); im DATEV-Kontenrahmen § 4/3 fehlen sie. Mit null erscheinen sie
+  # mit Hinweis, der Gewinn bleibt wie gebucht (wie SKR04 6270, 6920–6926, 7200–7299)
+  # prüfen: Vorräte (4892/4893) ggf. „-“ wie die Bestandsveränderungen; 4873/4874
+  # (§ 6b-Abzug) ggf. Zeile 100 → 59 (Kz 190), vgl. 4859 (132)
+  - {von: "4866", bis: "4899", kz: null}
   - {von: "4872", bis: "4872", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
                                             # Zeile 91 (Fußnote 23)
   - {von: "4909", bis: "4909", kz: "110"}   # Fremdleistungen/Fremdarbeiten
@@ -302,6 +315,13 @@ euer:
   - {von: "4969", bis: "4969", kz: "226"}   # Abraum- und Abfallbeseitigung
   - {von: "4980", bis: "4989", kz: "229"}   # Betriebsbedarf, Werkzeuge
   - {von: "4990", bis: "4995", kz: "-"}     # kalkulatorische Kosten: keine Ausgabe
+  - {von: "4400", bis: "4499", kz: null}    # zur freien Verfügung (DATEV-Posten „Beson-
+  - {von: "5000", bis: "6999", kz: null}    # dere Aufwendungen“): die Zeile hängt vom
+                                            # Inhalt ab, also Hinweis; eigene Konten über
+                                            # abschluss.kontenzuordnung zuordnen (wie
+                                            # SKR04 7800–7899, 8000–8999)
+  - {von: "2900", bis: "2999", kz: "183"}   # reserviert, DATEV-Posten „Neutrale Aufwen-
+                                            # dungen“ (wie SKR04 7900)
 
 namen:
   "0027": "EDV-Software"

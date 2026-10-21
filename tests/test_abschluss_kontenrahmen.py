@@ -399,6 +399,33 @@ LEITKONTEN_SKR03 = [
     # 8330: 2026 reserviert; accounti hat 8330 als OSS-Erlöskonto vorgeschlagen, also
     # im Inland nicht steuerbar wie 8320–8329 (Zeile 16)
     ("8330", "-100", "103"),
+    # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen sowie Wert-
+    # berichtigungen auf Forderungen (KR S. 15, 24): keine Zeile der Anlage EÜR. Die
+    # kennt keine Teilwertabschreibung; Anschaffungskosten von Wertpapieren und nicht
+    # abnutzbarem Anlagevermögen sind erst bei der Veräußerung Betriebsausgabe (Anl zu
+    # Zeile 27 und 38). Im KR-EÜR fehlen sie (S. 11, 20). Wie die SKR04-Wertberichti-
+    # gungen 6920/6923: null, also mit Hinweis; bisher 183, 4866 sogar GWG (132)
+    ("4866", "100", None),  # Abschreibungen auf Finanzanlagen (nicht dauerhaft)
+    ("4870", "100", None),  # Abschreibungen auf Finanzanlagen (dauerhaft)
+    ("4874", "100", None),  # … auf Grund § 6b EStG-Rücklage
+    ("4875", "100", None),  # Abschreibungen auf Wertpapiere des Umlaufvermögens
+    ("4880", "100", None),  # … auf sonstiges Umlaufvermögen (soweit unüblich hoch)
+    ("4886", "100", None),  # … auf Umlaufvermögen außer Vorräte (übliche Höhe)
+    ("4892", "100", None),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
+    ("2440", "100", None),  # Abschreibungen auf Forderungen (soweit unüblich hoch)
+    ("2451", "100", None),  # Einstellung in die Einzelwertberichtigung
+    # Konten zur freien Verfügung (KR-EÜR S. 18, 21, 22: „Besondere Aufwendungen“): die
+    # Zeile hängt vom Inhalt ab — null mit Hinweis wie bisher 5000–6999 und SKR04
+    # 7800–8999; 4400 bisher 183
+    ("4400", "100", None),
+    ("5000", "100", None),
+    ("6000", "100", None),
+    ("2900", "100", "183"),  # reserviert, „Neutrale Aufwendungen“ (KR-EÜR S. 13)
+    # sonstige betriebliche Aufwendungen und Erträge (KR S. 13, 16): Gegenstücke zu
+    # SKR04 7451/7551/7553
+    ("2004", "100", "183"),  # Verluste durch Verschmelzung und Umwandlung
+    ("2007", "100", "183"),  # Aufwendungen für Restrukturierungs-/Sanierungsmaßnahmen
+    ("2504", "-100", "103"),  # Erträge durch Verschmelzung und Umwandlung
 ]
 
 # Konten, die der Kontenrahmen 2026 reserviert hat; Buchungen bis 2025 behalten ihre
@@ -574,6 +601,30 @@ LEITKONTEN_SKR04 = [
     ("1425", "-100", "141"),
     ("3860", "-100", "186"),
     ("4330", "-100", "103"),  # 2026 reserviert, wie die OSS-Erlöse 4320–4329
+    # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen sowie Wert-
+    # berichtigungen auf Forderungen (KR S. 22, 25, 27; im KR-EÜR nur 6280–6287 und
+    # 7208, S. 21, 25): keine Zeile der Anlage EÜR, wie SKR03 (s. dort)
+    ("7200", "100", None),  # Abschreibungen auf Finanzanlagen (dauerhaft)
+    ("7201", "100", None),  # … (nicht dauerhaft)
+    ("7210", "100", None),  # Abschreibungen auf Wertpapiere des Umlaufvermögens
+    ("7250", "100", None),  # … auf Finanzanlagen auf Grund § 6b EStG-Rücklage
+    ("6270", "100", None),  # … auf sonstiges Umlaufvermögen (soweit unüblich hoch)
+    ("6278", "100", None),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
+    ("6290", "100", None),  # Abschreibungen auf Forderungen (soweit unüblich hoch)
+    ("6910", "100", None),  # … auf Umlaufvermögen außer Vorräte (übliche Höhe)
+    ("6923", "100", None),  # Einstellung in die Einzelwertberichtigung
+    # sonstige betriebliche Erträge und Aufwendungen (KR S. 28; KR-EÜR S. 26: 7454
+    # „Neutrale Erträge“, 7554 „Neutrale Aufwendungen“), wie SKR03 2504/2004/2007
+    ("7451", "-100", "103"),  # Erträge durch Verschmelzung und Umwandlung
+    ("7454", "-100", "103"),
+    ("7551", "100", "183"),  # Verluste durch Verschmelzung und Umwandlung
+    ("7553", "100", "183"),  # Aufwendungen für Restrukturierungs-/Sanierungsmaßnahmen
+    ("7554", "100", "183"),
+    # Konten zur freien Verfügung, reserviert (KR-EÜR S. 27), wie SKR03 4400/5000/2900
+    ("7800", "100", None),  # „Besondere Aufwendungen“: Zeile hängt vom Inhalt ab
+    ("8000", "100", None),
+    ("7900", "100", "183"),  # reserviert, „Neutrale Aufwendungen“
+    ("6255", "100", "222"),  # Kaufleasing-Bereich 6250–6259 (KR S. 21/22)
 ]
 
 
@@ -678,6 +729,10 @@ PAARE = """
 8960:4810 8980:4800 2375:7680 3400:5400 3950:5881 3955:5885 3960:5880 3990:5860
 4200:6305 4300:6860 4510:7685 4560:6580 4600:6600 4670:6670 4910:6800 4920:6805
 4930:6815 1800:2100 1890:2180
+4866:7201 4870:7200 4871:7204 4873:7255 4874:7250 4875:7210 4876:7214 4877:7207
+4878:7217 4880:6270 4882:6272 4886:6910 4887:6912 4892:6278 4893:6279 2440:6290
+2441:6291 2450:6920 2451:6923 2004:7551 2007:7553 2504:7451 2508:7454 2900:7900
+4400:7800 5000:8000 4815:6250
 """
 
 
@@ -690,3 +745,39 @@ def test_paritaet_skr03_skr04(skr03, skr04):
     if SKR03.art(skr03, "euer") is Kontenart.ERFOLG:
         for saldo in (Decimal(1), Decimal(-1)):
             assert SKR03.euer_kz(skr03, saldo) == SKR04.euer_kz(skr04, saldo)
+
+
+# Erfolgskonten ohne Kennzahl der Anlage EÜR: nur die in den Zuordnungsdateien
+# kommentierten Ausnahmen (Sonderbetriebseinnahmen, sonstige steuerliche Rücklagen,
+# Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen, Wertberichtigungen,
+# Konten zur freien Verfügung; SKR04 7611–7629 ist nicht belegt). Neue Lücken fallen
+# hier auf.
+OHNE_KENNZAHL = {
+    "SKR03": "2345 2440-2459 2740 2746 4400-4499 4866-4871 4873-4899 5000-6999"
+    " 8500-8505",
+    "SKR04": "4500-4505 4935 4981 6270-6279 6290-6299 6910-6912 6920-6921 6923"
+    " 6925-6927 7200-7207 7209-7299 7611-7629 7800-7899 8000-8999",
+}
+
+
+@pytest.mark.parametrize("kr", ["SKR03", "SKR04"])
+def test_euer_erfolgskonten_ohne_kennzahl_nur_bewusst(kr):
+    rahmen = {"SKR03": SKR03, "SKR04": SKR04}[kr]
+    bereiche: list[list[int]] = []
+    for nummer in range(10000):
+        konto = f"{nummer:04d}"
+        if rahmen.art(konto, "euer") is not Kontenart.ERFOLG:
+            continue
+        if None not in (
+            rahmen.euer_kz(konto, Decimal(1)),
+            rahmen.euer_kz(konto, Decimal(-1)),
+        ):
+            continue
+        if bereiche and bereiche[-1][1] == nummer - 1:
+            bereiche[-1][1] = nummer
+        else:
+            bereiche.append([nummer, nummer])
+    gefunden = " ".join(
+        f"{von:04d}-{bis:04d}" if von != bis else f"{von:04d}" for von, bis in bereiche
+    )
+    assert gefunden == OHNE_KENNZAHL[kr]

@@ -168,11 +168,20 @@ euer:
   - {von: "6231", bis: "6231", kz: "136"}   # AfaA Gebäude
   - {von: "6240", bis: "6249", kz: "134"}   # Sonderabschreibungen (auch § 7b EStG)
   - {von: "6243", bis: "6244", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
-  - {von: "6250", bis: "6250", kz: "222"}   # Kaufleasing
+  - {von: "6250", bis: "6259", kz: "222"}   # Kaufleasing (Bereich V 6250–6259)
   - {von: "6260", bis: "6263", kz: "132"}   # GWG
   - {von: "6264", bis: "6265", kz: "137"}   # Sammelposten
   - {von: "6266", bis: "6269", kz: "132"}
+  # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen, Wertberichtigungen
+  # auf Forderungen (6270–6279, 6290–6299, 6910–6912, 6920–6926, 7200–7299): keine
+  # Zeile. Die Anlage EÜR kennt keine Teilwertabschreibung; Anschaffungskosten von
+  # Wertpapieren und nicht abnutzbarem Anlagevermögen sind erst bei der Veräußerung
+  # Betriebsausgabe (Anleitung zu Zeile 27 und 38); im DATEV-Kontenrahmen § 4/3 fehlen
+  # sie. Mit null erscheinen sie mit Hinweis, der Gewinn bleibt wie gebucht (wie SKR03)
+  # prüfen: Vorräte (6278/6279) ggf. „-“ wie die Bestandsveränderungen
+  - {von: "6270", bis: "6279", kz: null}    # Umlaufvermögen (soweit unüblich hoch)
   - {von: "6280", bis: "6289", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
+  - {von: "6290", bis: "6299", kz: null}    # Forderungen (soweit unüblich hoch)
   - {von: "6300", bis: "6999", kz: "183"}   # übrige Betriebsausgaben
   - {von: "6303", bis: "6303", kz: "110"}   # Fremdleistungen/Fremdarbeiten
   - {von: "6305", bis: "6319", kz: "150"}   # Raumkosten, Miete, Pacht
@@ -241,6 +250,8 @@ euer:
   - {von: "6875", bis: "6875", kz: "168"}   # nicht abziehbare Hälfte Aufsichtsratsvergüt.
   - {von: "6907", bis: "6908", kz: "100"}   # Abgang UV § 4 Abs. 3 S. 4 EStG: Zeile der
                                             # Waren (AVEÜR Zeile 95: 2025 Z. 27, 2026 Z. 29)
+  - {von: "6910", bis: "6912", kz: null}    # Abschreibungen auf Umlaufvermögen außer
+                                            # Vorräte (übliche Höhe): keine Zeile, s. 6270
   - {von: "6920", bis: "6929", kz: null}    # Wertberichtigungen (nur Bilanz), sonstige
                                             # steuerliche Rücklagen (6927): keine Zeile
   - {von: "6922", bis: "6922", kz: "190"}   # Einstellungen § 6c/§ 6b EStG
@@ -250,6 +261,10 @@ euer:
   - {von: "6932", bis: "6932", kz: "103"}   # … aus steuerfreien EU-Lieferungen
   - {von: "6968", bis: "6968", kz: "168"}   # sonstige nicht abziehbare Aufwendungen
   - {von: "6970", bis: "6989", kz: "-"}     # kalkulatorische Kosten: keine Ausgabe
+  - {von: "7200", bis: "7299", kz: null}    # Abschreibungen auf Finanzanlagen und
+                                            # Wertpapiere des UV: keine Zeile, s. 6270
+                                            # prüfen: 7250/7255 (§ 6b-Abzug) ggf. Zeile
+                                            # 100 → 59 (Kz 190), vgl. 6249 (134)
   - {von: "7208", bis: "7208", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
                                             # Zeile 91 (Fußnote 23)
   - {von: "7300", bis: "7399", kz: "234"}   # übrige Schuldzinsen (auch 7313: Hinzu-
@@ -264,14 +279,27 @@ euer:
   # prüfen: 7325 Zinsen für Gebäude, 7327 Renten und dauernde Lasten, 7328 Zinsen an
   # Mitunternehmer
   - {von: "7390", bis: "7399", kz: "183"}   # Verlustübernahme, abgeführte Gewinne
+  # sonstige betriebliche Erträge und Aufwendungen: Verschmelzung und Umwandlung (7451,
+  # 7551), Restrukturierung (7553), reserviert; DATEV-Posten „Neutrale Erträge“ (7454)
+  # bzw. „Neutrale Aufwendungen“ (7554), wie SKR03 2500–2599 bzw. 2000–2099
+  # prüfen: Übernahmeergebnis aus Umwandlungen ist keine Zahlung
+  - {von: "7400", bis: "7499", kz: "103"}
+  - {von: "7500", bis: "7599", kz: "183"}
   - {von: "7600", bis: "7609", kz: "-"}     # KSt, SolZ — keine Betriebsausgabe
   - {von: "7610", bis: "7610", kz: "168"}   # Gewerbesteuer — nicht abziehbar, § 4 Abs. 5b
+  # 7611–7629 sind nicht belegt: ohne Zeile (Gewerbesteuer oder Steuern vom Einkommen)
   - {von: "7630", bis: "7639", kz: "-"}     # Kapitalertragsteuer, Quellensteuer
   - {von: "7640", bis: "7644", kz: "168"}   # Gewerbesteuer Vorjahre
   - {von: "7645", bis: "7649", kz: "-"}     # latente Steuern, Steuerstundung
   - {von: "7650", bis: "7699", kz: "183"}   # sonstige Betriebssteuern, Verbrauchsteuern
   - {von: "7680", bis: "7680", kz: "151"}   # Grundsteuer (Anleitung zu Zeile 41)
   - {von: "7685", bis: "7689", kz: "145"}   # Kfz-Steuer
+  - {von: "7800", bis: "8999", kz: null}    # zur freien Verfügung (DATEV-Posten „Beson-
+                                            # dere Aufwendungen“): die Zeile hängt vom
+                                            # Inhalt ab, also Hinweis; eigene Konten über
+                                            # abschluss.kontenzuordnung zuordnen (wie
+                                            # SKR03 4400–4499, 5000–6999)
+  - {von: "7900", bis: "7999", kz: "183"}   # reserviert, „Neutrale Aufwendungen“
 
 namen:
   "0135": "EDV-Software"
