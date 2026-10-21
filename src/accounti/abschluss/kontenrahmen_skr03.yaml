@@ -24,6 +24,9 @@ arten:
   - {von: "0000", bis: "0999", art: bestand}
   - {von: "1000", bis: "1999", art: bestand}
   - {von: "1528", bis: "1529", art: steuer}   # Vorsteuer nach § 15a Abs. 2 UStG
+  - {von: "1539", bis: "1539", art: steuer}   # USt-Forderungen frühere Jahre, aus
+  - {von: "1545", bis: "1546", art: steuer}   # Vorauszahlungen, Vorjahr (Posten „Um-
+                                              # satzsteuer-Zahlung“, DATEV 1037179)
   - {von: "1548", bis: "1548", art: steuer}   # Vorsteuer in Folgeperiode
   - {von: "1556", bis: "1569", art: steuer}   # Vorsteuer § 15a Abs. 1, aufzuteilende VSt
   - {von: "1570", bis: "1589", art: steuer}   # abziehbare Vorsteuer, EUSt, VSt § 4/3
@@ -34,8 +37,12 @@ arten:
                                               # USt-Vorauszahlungen — wie SKR04 3810–3849
   - {von: "1788", bis: "1788", art: bestand}  # Einfuhrumsatzsteuer aufgeschoben
   - {von: "1792", bis: "1793", art: bestand}  # Interimskonten, Verrechnung Anzahlungen
-  - {von: "1795", bis: "1797", art: bestand}  # Verbindl. soziale Sicherheit, Gutscheine,
-                                              # Verbindlichkeiten USt-Vorauszahlungen
+  - {von: "1795", bis: "1796", art: bestand}  # Verbindl. soziale Sicherheit, Gutscheine
+  # prüfen: DATEV fragt 1795 (Posten „Gesetzliche soziale Aufwendungen“) und 1796
+  # („Erhaltene Anzahlungen“) in der Gewinnermittlung § 4/3 ab — 1795 aber nur als
+  # Korrektur zu 1742–1745, deren Jahresverkehrszahlen DATEV dort ebenfalls abfragt
+  # (DATEV-Dok. 1036906), und 1796 wie die erhaltenen Anzahlungen 1710–1721. accounti
+  # führt diese Verbindlichkeiten als Bestand; einzeln umgestellt wären sie widersprüchlich
   - {von: "1799", bis: "1799", art: bestand}
   - {von: "1800", bis: "1999", art: privat}
   - {von: "2000", bis: "6999", art: erfolg}
@@ -90,11 +97,9 @@ euer:
   - {von: "8290", bis: "8299", kz: "103"}   # Erlöse 0 % USt (§ 12 Abs. 3 UStG: Zeile 16)
   - {von: "8320", bis: "8339", kz: "103"}   # im anderen EU-Land/Drittland steuerbar,
                                             # § 13b UStG (OSS-Erlöse 8320–8327)
-  - {von: "8330", bis: "8330", kz: "112"}   # bis 2025 im Inland steuerpflichtige
-                                            # EG-Lieferungen, 2026 reserviert
-                                            # prüfen: config/accounti.example.yaml schlägt
-                                            # 8330 als OSS-Erlöskonto (ermäßigt) vor —
-                                            # OSS-Erlöse gehören in Kz 103
+                                            # 8330 (2026 reserviert) bleibt bewusst bei
+                                            # 103: accounti hat es als OSS-Erlöskonto
+                                            # vorgeschlagen
   - {von: "8334", bis: "8334", kz: "112"}   # Erlöse 7 % USt
   - {von: "8500", bis: "8505", kz: null}    # Sonderbetriebseinnahmen: nur Sonderbilanz /
                                             # Anlage SE (Fußnote 28 im Kontenrahmen)
@@ -157,6 +162,10 @@ euer:
                                             # (§ 14c UStG): keine Erstattung (Zeile 18)
   - {von: "1789", bis: "1789", kz: "186"}   # USt laufendes Jahr: neutralisiert noch nicht
                                             # gezahlte Vorauszahlungen (DATEV 1037179)
+  - {von: "1797", bis: "1797", kz: "186"}   # Verbindlichkeiten aus USt-Vorauszahlungen:
+                                            # ebenso (Posten „Umsatzsteuer-Erstattungen“)
+  - {von: "1539", bis: "1539", kz: "186", kz_haben: "141"}   # USt-Forderungen: Erstattung
+  - {von: "1545", bis: "1546", kz: "186", kz_haben: "141"}   # Zeile 18, Zahlung Zeile 58
   - {von: "1798", bis: "1798", kz: "140"}   # USt nur OSS
   # Umsatzsteuer mit gleich hoher Vorsteuer (ig. Erwerb, § 13b, Neufahrzeuge, Dreiecks-
   # geschäft, Auslagerung aus USt-Lager): zur Vorsteuer in Zeile 57, die sich so aufhebt
@@ -249,7 +258,10 @@ euer:
   - {von: "4655", bis: "4655", kz: "168"}   # nicht abzugsfähige Werbe-/Repräsentationsk.
   - {von: "4660", bis: "4669", kz: "120"}   # Reisekosten Arbeitnehmer
   - {von: "4670", bis: "4679", kz: "221"}   # Reisekosten Unternehmer
-  - {von: "4672", bis: "4672", kz: "168"}   # … nicht abziehbarer Anteil
+  - {von: "4672", bis: "4672", kz: "168"}   # … nicht abziehbarer Anteil: Spalte „nicht
+                                            # abziehbar“ der Zeile 67 (2026: 68); Kz 139
+                                            # (Zeile 74/75) gilt nur für Beträge, die
+                                            # schon in den Zeilen 27–73 stecken
   - {von: "4673", bis: "4673", kz: "146"}   # … Fahrtkosten (DATEV-Dok. 1036862)
   - {von: "4674", bis: "4674", kz: "171"}   # Verpflegungsmehraufwand
   - {von: "4678", bis: "4678", kz: "176"}   # Wege Wohnung–Betriebsstätte, abziehbar

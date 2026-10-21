@@ -352,9 +352,9 @@ def test_steuer_je_land_aus_der_summe_der_bemessungsgrundlagen():
 
 
 def test_ermaessigte_satz_auf_eigenem_konto_in_der_meldung():
-    erloes = oss_buchung(date(2026, 8, 4), "56.87", konto="8330")
+    erloes = oss_buchung(date(2026, 8, 4), "56.87", konto="8328")
     meldung = OSSEngine().erstelle_meldung(
-        [erloes], 2026, 3, erloes_konten_ermaessigt={"FR": "8330"}
+        [erloes], 2026, 3, erloes_konten_ermaessigt={"FR": "8328"}
     )
     (fr,) = meldung.laender
     assert fr.bemessungsgrundlage_normal == D("0")
@@ -409,7 +409,7 @@ def test_ermaessigter_oss_verkauf_ohne_konto_nicht_in_der_meldung(tmp_path):
 
 def test_ermaessigter_oss_verkauf_mit_konto_in_der_meldung(tmp_path):
     meldung, abgleich = oss_import(
-        tmp_path, '  oss_erloes_ermaessigt: {FR: "8330", IT: "8331"}\n'
+        tmp_path, '  oss_erloes_ermaessigt: {FR: "8328", IT: "8329"}\n'
     )
     laender = {land.land_code: land for land in meldung.laender}
     # IT 61,00 / 1,10 = 55,45 netto, 5,55 USt

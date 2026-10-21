@@ -353,7 +353,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   USt (SKR04 3851) sind Steuerkonten. Nach Gegenprüfung außerdem: Ergebnisanteile aus
   Personengesellschaften (SKR03 2603/2614/2618/4872, SKR04 7003/7004/7008/7208) außerhalb
   der Zeilen 12–75; bis 2025 belegte, 2026 reservierte Konten (8195/8196/8330,
-  4185/4186) behalten ihre Kennzahl; USt nicht fällig, OSS-Umsatzsteuer und
+  4185/4186) behalten ihre Kennzahl, außer 8330/4330: accounti hatte 8330 als
+  OSS-Erlöskonto vorgeschlagen, es bleibt wie 8320–8329 bei Kz 103, und das Beispiel
+  `oss_erloes_ermaessigt` in `config/accounti.example.yaml` nennt jetzt 8328 (8330/4330
+  sind 2026 reserviert, 8331/4331 nur für elektronische Dienstleistungen);
+  USt-Forderungen (SKR03 1539/1545/1546, SKR04 1420/1422/1425) und Verbindlichkeiten aus
+  USt-Vorauszahlungen (1797/3860) wirken bei der EÜR wie die USt-Zahlungskonten
+  (Erstattung Zeile 18, Zahlung Zeile 58); USt nicht fällig, OSS-Umsatzsteuer und
   Steuerzahlungen an andere Länder (SKR03 1728/1729/1754/1760–1769/1798, SKR04
   3798/3799/3854) sind in beiden Rahmen Steuerkonten, sodass OSS-Umsatzsteuer und ihre
   Zahlung sich ausgleichen; Umsatzsteuer aus § 13b, ig. Erwerb, Dreiecksgeschäft und

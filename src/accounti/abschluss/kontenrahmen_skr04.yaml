@@ -19,7 +19,10 @@ arten:
   - {von: "1376", bis: "1377", art: steuer}   # Vorsteuer nach § 15a Abs. 2 UStG
   - {von: "1396", bis: "1399", art: steuer}   # Vorsteuer nach § 15a Abs. 1 UStG
   - {von: "1400", bis: "1439", art: steuer}   # abziehbare und aufzuteilende Vorsteuer
-  - {von: "1420", bis: "1430", art: bestand}  # USt-Forderungen, Verbrauchsteuern
+  - {von: "1420", bis: "1430", art: bestand}  # Verbrauchsteuern (1427)
+  - {von: "1420", bis: "1420", art: steuer}   # USt-Forderungen aus Vorauszahlungen,
+  - {von: "1422", bis: "1422", art: steuer}   # Vorjahr, frühere Jahre (Posten „Umsatz-
+  - {von: "1425", bis: "1425", art: steuer}   # steuer-Zahlung“, DATEV 1037179)
   - {von: "1435", bis: "1435", art: bestand}  # Forderungen aus Gewerbesteuerüberzahlungen
   - {von: "1480", bis: "1482", art: steuer}   # Vorsteuer § 4 Abs. 3 EStG (Gegenkonto,
                                               # Auflösung Vorjahr, Investitionen)
@@ -32,6 +35,8 @@ arten:
   - {von: "3800", bis: "3849", art: steuer}   # Umsatzsteuer, USt-Vorauszahlungen
   - {von: "3851", bis: "3851", art: steuer}   # unberechtigt ausgewiesene USt (§ 14c UStG)
   - {von: "3854", bis: "3854", art: steuer}   # Steuerzahlungen an andere Länder
+  - {von: "3860", bis: "3860", art: steuer}   # Verbindlichkeiten aus USt-Vorauszahlungen
+  # prüfen: 3796 (wie SKR03 1795) und 3786 (wie 1796) bleiben Bestand, siehe SKR03
   - {von: "4000", bis: "8999", art: erfolg}
   - {von: "9000", bis: "9999", art: vortrag}
 
@@ -129,6 +134,11 @@ euer:
   - {von: "3831", bis: "3832", kz: "140"}   # USt nur OSS, Nachsteuer (keine Erstattung)
   - {von: "3840", bis: "3840", kz: "186"}   # USt laufendes Jahr: neutralisiert noch nicht
                                             # gezahlte Vorauszahlungen (DATEV 1037179)
+  - {von: "3860", bis: "3860", kz: "186"}   # Verbindlichkeiten aus USt-Vorauszahlungen:
+                                            # ebenso (Posten „Umsatzsteuer-Erstattungen“)
+  - {von: "1420", bis: "1420", kz: "186", kz_haben: "141"}   # USt-Forderungen: Erstattung
+  - {von: "1422", bis: "1422", kz: "186", kz_haben: "141"}   # Zeile 18, Zahlung Zeile 58
+  - {von: "1425", bis: "1425", kz: "186", kz_haben: "141"}
   - {von: "3851", bis: "3851", kz: "140"}   # unberechtigt ausgewiesene USt (§ 14c UStG)
   # Umsatzsteuer mit gleich hoher Vorsteuer (ig. Erwerb, § 13b, Neufahrzeuge, Dreiecks-
   # geschäft, Auslagerung aus USt-Lager): zur Vorsteuer in Zeile 57, die sich so aufhebt
@@ -205,7 +215,10 @@ euer:
   - {von: "6645", bis: "6645", kz: "168"}   # nicht abzugsfähige Werbe-/Repräsentationsk.
   - {von: "6650", bis: "6669", kz: "120"}   # Reisekosten Arbeitnehmer
   - {von: "6670", bis: "6680", kz: "221"}   # Reisekosten Unternehmer
-  - {von: "6672", bis: "6672", kz: "168"}   # … nicht abziehbarer Anteil
+  - {von: "6672", bis: "6672", kz: "168"}   # … nicht abziehbarer Anteil: Spalte „nicht
+                                            # abziehbar“ der Zeile 67 (2026: 68); Kz 139
+                                            # (Zeile 74/75) gilt nur für Beträge, die
+                                            # schon in den Zeilen 27–73 stecken
   - {von: "6673", bis: "6673", kz: "146"}   # … Fahrtkosten (DATEV-Dok. 1036862)
   - {von: "6674", bis: "6674", kz: "171"}   # Verpflegungsmehraufwand
   - {von: "6688", bis: "6688", kz: "176"}   # Wege Wohnung–Betriebsstätte, abziehbar

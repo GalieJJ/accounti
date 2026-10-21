@@ -49,7 +49,10 @@ integrationen:
   geldtransit_konto: "1360"
   auszahlung_toleranz_tage: 10  # Bankeingang bis so viele Tage nach dem Auszahlungsdatum
   ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
-  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8330" } (anlegen)
+  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8328" } (anlegen)
+                                # OSS-Erlöse im DATEV-Bereich 8320–8329 (SKR04 4320–4329);
+                                # 8330/4330 sind im Kontenrahmen 2026 reserviert,
+                                # 8331/4331 nur für elektronische Dienstleistungen
   eu_fernverkaeufe_sonstige: {} # Jahr → EU-Fernverkäufe netto außerhalb der Marktplätze, z.B. { 2025: 12000 }
   paypal_kontobezeichnung: "PPLXLULL/PAYPAL"   # Feld :25: im MT940 des PayPal-Kontos
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen

@@ -155,9 +155,16 @@ def test_privatkonten_skr04_vollhafter_und_teilhafter(konto):
 def test_steuerbereich_skr04_nur_vorsteuer():
     for konto in ("1400", "1406", "1410", "1433", "1434", "1436"):
         assert SKR04.art(konto, "euer") is Kontenart.ERFOLG, konto
-    # Forderungen aus Gewerbesteuerüberzahlungen, USt-Forderungen: keine Vorsteuer
-    for konto in ("1435", "1420", "1421", "1427"):
+    # Forderungen aus Gewerbesteuerüberzahlungen und entrichteten Verbrauchsteuern:
+    # keine Vorsteuer, Bestand
+    for konto in ("1435", "1421", "1427"):
         assert SKR04.art(konto, "euer") is Kontenart.BESTAND, konto
+    # USt-Forderungen (Vorauszahlungen, Vorjahr, frühere Jahre) wirken bei der EÜR wie
+    # die USt-Zahlungskonten (KR-EÜR Posten „Umsatzsteuer-Zahlung“, DATEV-Dok.
+    # 1037179 Kap. 3.2: Erstattung aus der Jahreserklärung über 1422); bisher Bestand
+    for konto in ("1420", "1422", "1425"):
+        assert SKR04.art(konto, "euer") is Kontenart.ERFOLG, konto
+        assert SKR04.art(konto, "bilanz") is Kontenart.BESTAND, konto
     assert SKR04.art("2010", "euer") is Kontenart.BESTAND
     assert SKR04.art("2900", "euer") is Kontenart.BESTAND
 
@@ -381,6 +388,17 @@ LEITKONTEN_SKR03 = [
     ("2737", "-100", "124"),  # Auflösung § 4g EStG
     ("2345", "100", None),  # sonstige steuerliche Rücklagen: keine Zeile
     ("2740", "-100", None),
+    # USt-Forderungen (KR-EÜR „Umsatzsteuer-Zahlung“, DATEV-Dok. 1037179 Kap. 3.2)
+    ("1546", "-100", "141"),  # Erstattung aus der Jahreserklärung
+    ("1546", "100", "186"),
+    ("1545", "-100", "141"),
+    ("1539", "-100", "141"),
+    ("1540", "-100", None),  # Gewerbesteuerüberzahlung bleibt Bestand
+    ("1797", "-100", "186"),  # Verbindlichkeit USt-Vorauszahlung neutralisiert 1780
+    ("1797", "100", "186"),
+    # 8330: 2026 reserviert; accounti hat 8330 als OSS-Erlöskonto vorgeschlagen, also
+    # im Inland nicht steuerbar wie 8320–8329 (Zeile 16)
+    ("8330", "-100", "103"),
 ]
 
 # Konten, die der Kontenrahmen 2026 reserviert hat; Buchungen bis 2025 behalten ihre
@@ -388,7 +406,6 @@ LEITKONTEN_SKR03 = [
 ALTKONTEN = [
     ("SKR03", "8195", "-100", "111"),  # Kleinunternehmer bis 2025
     ("SKR03", "8196", "-100", "112"),  # Geldspielautomaten 19 % USt
-    ("SKR03", "8330", "-100", "112"),
     ("SKR04", "4185", "-100", "111"),
     ("SKR04", "4186", "-100", "112"),
 ]
@@ -550,6 +567,13 @@ LEITKONTEN_SKR04 = [
     ("4938", "-100", "124"),
     ("6927", "100", None),
     ("4935", "-100", None),
+    # USt-Forderungen und Verbindlichkeiten aus USt-Vorauszahlungen
+    ("1420", "-100", "141"),
+    ("1422", "-100", "141"),
+    ("1422", "100", "186"),
+    ("1425", "-100", "141"),
+    ("3860", "-100", "186"),
+    ("4330", "-100", "103"),  # 2026 reserviert, wie die OSS-Erlöse 4320–4329
 ]
 
 
@@ -600,7 +624,15 @@ def test_euer_leitkonten_skr04(konto, saldo, kz):
         ("SKR03", "1798", Kontenart.ERFOLG, Kontenart.BESTAND),
         ("SKR03", "1728", Kontenart.ERFOLG, Kontenart.BESTAND),
         ("SKR04", "3798", Kontenart.ERFOLG, Kontenart.BESTAND),
-        ("SKR03", "1797", Kontenart.BESTAND, Kontenart.BESTAND),  # Verbindlichkeit
+        # Verbindlichkeiten aus USt-Vorauszahlungen (KR-EÜR „Umsatzsteuer-
+        # Erstattungen“) wie 1789/3840; der Test hielt 1797 zuvor als Bestand fest
+        ("SKR03", "1797", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR04", "3860", Kontenart.ERFOLG, Kontenart.BESTAND),
+        # USt-Forderungen (KR-EÜR „Umsatzsteuer-Zahlung“)
+        ("SKR03", "1539", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1545", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1546", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1540", Kontenart.BESTAND, Kontenart.BESTAND),  # GewSt-Erstattung
         ("SKR03", "1730", Kontenart.BESTAND, Kontenart.BESTAND),  # Kreditkarten
         # Vortrag
         ("SKR03", "9000", Kontenart.VORTRAG, Kontenart.VORTRAG),
@@ -641,7 +673,7 @@ PAARE = """
 1576:1406 1577:1407 1580:1480 1581:1481 1588:1433 1754:3854 1729:3799 1728:3798
 1760:3810 1766:3816 1767:3817 1768:3818 1769:3839 1771:3801 1774:3804 1776:3806
 1779:3809 1780:3820 1782:3832 1783:3851 1784:3834 1787:3837 1789:3840 1790:3841
-1794:3819 1798:3831
+1794:3819 1798:3831 1539:1425 1545:1420 1546:1422 1797:3860 8500:4500
 8300:4300 8334:4334 8625:4842 8640:4836 8700:4700 8720:4720 8820:4845 8910:4610
 8960:4810 8980:4800 2375:7680 3400:5400 3950:5881 3955:5885 3960:5880 3990:5860
 4200:6305 4300:6860 4510:7685 4560:6580 4600:6600 4670:6670 4910:6800 4920:6805

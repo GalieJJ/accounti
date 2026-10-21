@@ -265,6 +265,30 @@ def test_ust_laufendes_jahr_gleicht_vorauszahlungen_aus(make_session):
     assert euer.zeile("141") is None
 
 
+def test_ust_erstattung_aus_der_jahreserklaerung(make_session):
+    """DATEV-Dok. 1037179 Kap. 3.2: Die Erstattung aus der Jahreserklärung wird bei
+    Zahlung über 1546 (SKR03) gebucht und ist Betriebseinnahme in Zeile 18."""
+    buche(make_session, date(2026, 3, 1), "1200", "8400", "1000")
+    buche(make_session, date(2026, 5, 1), "1200", "1546", "900")
+    susa, euer = _euer(make_session)
+    erstattung = euer.zeile("141")
+    assert erstattung is not None
+    assert (erstattung.zeile, erstattung.betrag) == (18, D("900"))
+    assert euer.gewinn == susa.ergebnis == D("1900")
+
+
+def test_verbindlichkeit_ust_vorauszahlung_neutralisiert_1780(make_session):
+    """1797 (KR-EÜR Posten „Umsatzsteuer-Erstattungen“): die gebuchte, noch nicht
+    gezahlte Vorauszahlung ist keine Betriebsausgabe."""
+    buche(make_session, date(2026, 3, 1), "1200", "8400", "1000")
+    buche(make_session, date(2026, 12, 31), "1780", "1797", "300")
+    susa, euer = _euer(make_session)
+    zahlung = euer.zeile("186")
+    assert zahlung is not None and zahlung.betrag == 0
+    assert euer.zeile("141") is None
+    assert euer.gewinn == susa.ergebnis == D("1000")
+
+
 def test_ruecklagen_zeilen_22_und_59(make_session):
     """Bildung (Kz 190, Zeile 59/2026: 60) und Auflösung (Kz 124, Zeile 22) nach
     § 6c/§ 6b EStG, R 6.6 EStR, § 4g EStG; sonstige steuerliche Rücklagen haben keine
