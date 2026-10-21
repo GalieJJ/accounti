@@ -29,6 +29,7 @@ from accounti.auth.dienst import (
 )
 from accounti.auth.fehler import AnmeldungError
 from accounti.bank.tresor import TresorError
+from accounti.i18n import N_, Text
 
 router = APIRouter()
 
@@ -54,14 +55,19 @@ def sicheres_ziel(weiter: str | None) -> str:
 
 
 def _formular(
-    request: Request, weiter: str, fehler: str | None, status: int
+    request: Request, weiter: str, fehler: Text | None, status: int
 ) -> Response:
     dienste = dienste_von(request)
     wert = secrets.token_urlsafe(32)
     antwort = seite(
         request,
         "anmelden.html",
-        {"titel": "Anmelden", "anmeldung": wert, "weiter": weiter, "fehler": fehler},
+        {
+            "titel": N_("Anmelden"),
+            "anmeldung": wert,
+            "weiter": weiter,
+            "fehler": fehler,
+        },
         status=status,
     )
     antwort.set_cookie(
@@ -128,13 +134,16 @@ async def anmelden(request: Request) -> Response:
     gesendet = felder.get("anmeldung", "")
     if not cookie or not hmac.compare_digest(cookie.encode(), gesendet.encode()):
         return _formular(
-            request, weiter, "Das Formular ist abgelaufen — bitte erneut senden.", 403
+            request,
+            weiter,
+            Text("Das Formular ist abgelaufen — bitte erneut senden."),
+            403,
         )
     if not await _anmeldeplatz(dienste):
         antwort = _formular(
             request,
             weiter,
-            "Gerade melden sich viele an — bitte gleich noch einmal versuchen.",
+            Text("Gerade melden sich viele an — bitte gleich noch einmal versuchen."),
             503,
         )
         warten = max(1, math.ceil(dienste.server.anmeldung_warten_sekunden))
@@ -145,7 +154,7 @@ async def anmelden(request: Request) -> Response:
     finally:
         dienste.anmeldeplatz_frei()
     if token is None:
-        return _formular(request, weiter, "Anmeldung fehlgeschlagen.", 401)
+        return _formular(request, weiter, Text("Anmeldung fehlgeschlagen."), 401)
     antwort = RedirectResponse(weiter, status_code=303)
     antwort.set_cookie(
         cookie_name(dienste),

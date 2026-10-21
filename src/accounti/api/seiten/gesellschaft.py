@@ -9,6 +9,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.formular import formular
 from accounti.api.sitzung import AngemeldetDep, dienste_von
 from accounti.auth.dienst import ereignis, wechsle_gesellschaft
+from accounti.i18n import Text
 
 router = APIRouter()
 
@@ -17,7 +18,7 @@ router = APIRouter()
 async def wechseln(request: Request, a: AngemeldetDep) -> Response:
     kuerzel = (await formular(request)).get("kuerzel", "")
     if kuerzel not in {g.kuerzel for g in a.gesellschaften}:
-        raise HTTPException(403, "Kein Zugriff auf diese Gesellschaft")
+        raise HTTPException(403, Text("Kein Zugriff auf diese Gesellschaft"))
     dienste = dienste_von(request)
 
     def speichern() -> None:

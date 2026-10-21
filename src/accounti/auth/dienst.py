@@ -144,6 +144,19 @@ def aendere_passwort(
     return b
 
 
+def setze_sprache(s: Session, benutzer_id: UUID, sprache: str | None) -> None:
+    """Sprache der Oberfläche (``de``, ``en`` oder ``None`` = automatisch)."""
+    from accounti.db.tabellen_auth import BenutzerRow
+
+    if sprache not in (None, "de", "en"):
+        raise AuthError(f"Sprache {sprache!r} gibt es nicht (de, en)")
+    zeile = s.get(BenutzerRow, str(benutzer_id))
+    if zeile is None:
+        raise AuthError("Benutzer unbekannt")
+    zeile.sprache = sprache
+    s.flush()
+
+
 def setze_aktiv(
     s: Session, b: Benutzer, aktiv: bool, jetzt: datetime | None, durch: str
 ) -> Benutzer:

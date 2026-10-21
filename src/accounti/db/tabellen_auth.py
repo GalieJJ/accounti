@@ -53,6 +53,9 @@ class BenutzerRow(Base):
     letzte_anmeldung_am: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    # Sprache der Oberfläche (Baustein 10b, Migration …_add_benutzer_sprache);
+    # NULL = automatisch nach dem Browser
+    sprache: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
 
 class RollenzuordnungRow(Base):

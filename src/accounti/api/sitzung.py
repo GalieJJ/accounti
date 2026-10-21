@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 
 from accounti.api.dienste import Dienste
 from accounti.api.formular import formular
+from accounti.api.htmx import ist_htmx
 from accounti.auth.dienst import (
     gesellschaften_von,
     pruefe_sitzung,
@@ -33,6 +34,7 @@ from accounti.auth.dienst import (
     wechsle_gesellschaft,
 )
 from accounti.betrieb.gesellschaften import Gesellschaft
+from accounti.i18n import Text
 from accounti.models.auth import Benutzer, Recht, Sitzung
 
 SICHERE_METHODEN = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -108,11 +110,16 @@ async def pruefe_csrf(request: Request, erwartet: str) -> None:
     gesendet = request.headers.get(CSRF_KOPF) or (await formular(request)).get(
         CSRF_FELD, ""
     )
+    # im HTMX-Weg lädt der Browser die Seite neu (frisches Token) — die 403 der Rolle
+    # sieht sonst gleich aus und bekommt den Kopf nicht
+    kopf = {"HX-Refresh": "true"} if ist_htmx(request) else None
     if not gesendet or not hmac.compare_digest(gesendet.encode(), erwartet.encode()):
-        raise HTTPException(403, "CSRF-Token fehlt oder passt nicht — Seite neu laden")
+        raise HTTPException(
+            403, Text("CSRF-Token fehlt oder passt nicht — Seite neu laden"), kopf
+        )
     # zusätzlich: Browser melden fremde Absender (Fetch Metadata)
     if request.headers.get("sec-fetch-site", "") == "cross-site":
-        raise HTTPException(403, "Anfrage von einer fremden Seite abgewiesen")
+        raise HTTPException(403, Text("Anfrage von einer fremden Seite abgewiesen"))
 
 
 async def angemeldet(request: Request) -> Angemeldet:
@@ -138,7 +145,11 @@ def erfordert(recht: Recht) -> Callable[..., Awaitable[Angemeldet]]:
     async def abhaengigkeit(a: AngemeldetDep) -> Angemeldet:
         if not a.darf(recht):
             raise HTTPException(
-                403, f"Ihre Rolle in {a.gesellschaft.name} erlaubt das nicht"
+                403,
+                Text(
+                    "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
+                    gesellschaft=a.gesellschaft.name,
+                ),
             )
         return a
 

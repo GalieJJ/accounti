@@ -913,20 +913,20 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
 
 ### Paket 2 — Zweisprachiges Seitengerüst (PR 10b-1)
 
-- [ ] **Kern** (`i18n/__init__.py`: `aktive_sprache`, `waehle_sprache`, `uebersetze`,
+- [x] **Kern** (`i18n/__init__.py`: `aktive_sprache`, `waehle_sprache`, `uebersetze`,
   `ngettext`, `N_`, `Text`, `betrag`, `datum`, `prozent`, `monat`; `i18n/en.yaml`): *Tests*
   `tests/test_i18n.py::test_accept_language_mit_q_werten`, `::test_benutzersprache_gewinnt`,
   `::test_unbekannte_sprache_faellt_auf_standard`, `::test_fehlender_eintrag_bleibt_deutsch`,
   `::test_platzhalter_werden_escaped`, `::test_mehrzahl`, `::test_formate_je_sprache`
   (`1.234,50`/`1,234.50`, `21.10.2026`/`2026-10-21`, negative Beträge, `None` → `—`).
-- [ ] **Jinja und Layout** (`api/vorlagen.py`: Erweiterung `jinja2.ext.i18n`, Callables, Filter
+- [x] **Jinja und Layout** (`api/vorlagen.py`: Erweiterung `jinja2.ext.i18n`, Callables, Filter
   mit `pass_context`, Sprache in `seite()` mit Token gesetzt und zurückgesetzt, `Vary`; `api/app.py`:
   Fehlerseite übersetzt `Text`; `basis.html`: `lang`, Sprachauswahl, `htmx-config`,
   `hx-history="false"`, `hx-headers`, Skript `htmx-2.0.11.min.js` mit `defer`, alle eigenen
   Dateien mit `?v={{ version }}`): *Tests* `tests/test_api_sprache.py::test_html_lang_und_navigation_englisch`,
   `::test_anmeldeseite_nach_accept_language`, `::test_fehlerseite_uebersetzt` (403-Rolle auf
   Englisch), `::test_vary_accept_language`, `::test_sprache_leckt_nicht_in_die_naechste_anfrage`.
-- [ ] **HTMX-Fehlerwege und Hilfen** (`api/app.py`: `nicht_angemeldet` mit `HX-Redirect` und
+- [x] **HTMX-Fehlerwege und Hilfen** (`api/app.py`: `nicht_angemeldet` mit `HX-Redirect` und
   `weiter` aus `HX-Current-URL`, Handler für `OperationalError` „beschäftigt“ → 503;
   `api/sitzung.angemeldet`: `HX-Refresh` am CSRF-Fehler; `api/htmx.py`: `ist_htmx(request)`,
   `ist_verlaufsabruf(request)`; `api/handeln.py`: `im_namen(a)`; `api/einmalcode.py`:
@@ -938,7 +938,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   (`OperationalError` per `monkeypatch`), `::test_andere_operationalerror_bleiben_500`;
   `tests/test_api_rechte_matrix.py::test_ustva_freigabe_im_browser` und
   `::test_vier_augen_im_browser` bleiben grün (Schutz für die verschobene Einmalcode-Prüfung).
-- [ ] **Sprachwahl am Benutzer** (Spalte `auth_benutzer.sprache`, `models/auth.Benutzer.sprache`,
+- [x] **Sprachwahl am Benutzer** (Spalte `auth_benutzer.sprache`, `models/auth.Benutzer.sprache`,
   `db/tabellen_auth.py`, `db/repo_auth.py`, `auth/dienst.setze_sprache`, `api/seiten/sprache.py`,
   Migration `alembic/versions/<rev>_add_benutzer_sprache.py` mit `down_revision` = Kontierung,
   idempotent; `Dienste.pruefe_schema()` und Abbruch in `api/server.starte_aus_cli`): *Tests*
@@ -947,16 +947,16 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `tests/test_migration_web.py::test_upgrade_ergaenzt_sprache_in_bestehender_tabelle` (System- und
   Gesellschaftsdatenbank), `tests/test_api_schema.py::test_start_ohne_migration_bricht_mit_hinweis_ab`
   (Meldung ohne URL, Exit 2), `::test_frische_datenbank_startet`.
-- [ ] **Seiten aus 10a übersetzen** (`anmelden.html`, `start.html`, `freigaben.html`,
+- [x] **Seiten aus 10a übersetzen** (`anmelden.html`, `start.html`, `freigaben.html`,
   `meldung.html`, Meldungen in `api/sitzung.py`, `api/seiten/*.py`): *Tests*
   `tests/test_api_sprache.py::test_jede_seite_in_beiden_sprachen` (alle GET-Seiten ohne Parameter:
   200, `lang`, „Company: <strong>…“ bzw. „Gesellschaft: <strong>…“),
   `tests/test_api_gesellschaften.py::test_akzeptanz_5_wechsel_aendert_alle_ansichten` bleibt grün
   (Schutz).
-- [ ] **Katalogtests** (`tests/test_i18n_katalog.py`): `::test_jeder_text_hat_eine_uebersetzung`,
+- [x] **Katalogtests** (`tests/test_i18n_katalog.py`): `::test_jeder_text_hat_eine_uebersetzung`,
   `::test_keine_verwaisten_eintraege`, `::test_platzhalter_gleich`, `::test_fachbegriffe_bleiben_deutsch`.
   Ab hier rot bei jedem neuen Text ohne Eintrag.
-- [ ] **Statisches und CSP** (`api/statisch/htmx-2.0.11.min.js` = `package/dist/htmx.min.js` aus
+- [x] **Statisches und CSP** (`api/statisch/htmx-2.0.11.min.js` = `package/dist/htmx.min.js` aus
   `htmx.org-2.0.11.tgz`, `LIZENZ-htmx.txt` (Paket-`LICENSE` plus Version, npm-Integrität,
   SHA-256), `pruefen.js`, `pruefen.css`, `auswertungen.css`): *Tests*
   `tests/test_api_statisch.py::test_htmx_pruefsumme_und_lizenz` (SHA-256
@@ -966,6 +966,27 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_keine_inline_skripte_stile_oder_ereignisattribute` (jede gerenderte Seite und jede
   Vorlage), `::test_eigenes_skript_ohne_eval_und_innerhtml`, `::test_eigene_dateien_mit_versionsanhang`
   (auch `accounti.css`).
+
+**Umsetzung Paket 2 (21.10.2026) — Abweichungen vom Plan:**
+
+- Migration `e7153706b43a_add_benutzer_sprache` (auf `d5a849692843`); Schemaprüfung
+  `Dienste.pruefe_schema()` beim Start von `serve` (Exit 2, Meldung ohne URL).
+- `Text` in `HTTPException.detail`: `str()` bleibt deutsch (API, Protokoll, Tests aus
+  10a), die Fehlerseite übersetzt (`meldung | uebersetzt`). Die Jinja-Filter lesen die
+  Sprache aus dem Vorlagenkontext (`sprache`), `_()`/`ngettext` ebenso; `seite()` setzt
+  zusätzlich `i18n.aktive_sprache` und setzt sie im `finally` zurück.
+- Mehrzahl im Katalog als `{one, other}` unter dem Einzahl-Schlüssel, Platzhalter der
+  Newstyle-Konvention `%(num)s`.
+- Rechte-Matrix: `MIT_EINMALCODE` schon in Paket 2 (A20) — `anfrage()` zieht nur dort
+  einen Wiederherstellungscode; `POST /einstellungen/sprache` = angemeldet.
+- `test_verlaufsabruf_bekommt_ganze_seite` prüft in Paket 2 `ist_htmx`/
+  `ist_verlaufsabruf` an der Anfrage (die erste Fragment-Route kommt mit Paket 3, dort
+  `test_api_pruefen.py::test_htmx_fragment_mit_push_url`).
+- 503 erkennt auch PostgreSQL-Deadlocks (SQLSTATE `40P01`) neben Sperr-Zeitüberschreitung
+  (`55P03`); das Protokoll nennt nur Methode und Routenvorlage.
+- `THIRD-PARTY.md` (neu, Wurzel) vermerkt htmx 2.0.11 (0BSD) und Liberation Sans (OFL);
+  `pruefen.js` übernimmt neben den Tasten den Fehlerhinweis und liegt im Grundlayout.
+  `pruefen.css` kommt mit Paket 3, `auswertungen.css` mit Paket 4.
 
 ### Paket 3 — Supervisions-Queue, Belegvorschau, Korrektur → Regel (PR 10b-1)
 

@@ -13,6 +13,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -178,6 +179,8 @@ class Benutzer(BaseModel):
     angelegt_am: datetime = Field(default_factory=datetime.now)
     passwort_geaendert_am: datetime | None = None
     letzte_anmeldung_am: datetime | None = None
+    # Sprache der Oberfläche (Baustein 10b): de, en oder None = automatisch (Browser)
+    sprache: Literal["de", "en"] | None = None
 
     @field_validator("name")
     @classmethod

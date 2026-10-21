@@ -1,0 +1,95 @@
+# accounti — englischer Katalog der Oberfläche (Baustein 10b)
+#
+# Schlüssel: der deutsche Text (Quellsprache). Mehrzahl als {one, other}. Platzhalter
+# %(name)s bleiben gleich (Test). Fehlt ein Eintrag, erscheint der deutsche Text.
+#
+# Glossar (Spec 4.5) — übersetzt, weil tragfähig:
+#   Soll/Haben → Debit/Credit · Summen- und Saldenliste → Trial balance ·
+#   Kontenblatt → Account ledger · offene Posten → Open items · Storno → Reversal ·
+#   Vorsteuer → Input VAT · Beleg → Document · Einmalcode → One-time code ·
+#   Gesellschaft → Company · Buchung → Booking · Prüfen → Review · Rückfrage → Query
+# Bleiben deutsch (Fachbegriffe ohne tragfähige Entsprechung, Test):
+#   Buchungssatz, BWA, Steuerschlüssel, GoBD, Festschreibung, USt-IdNr., USt-VA,
+#   SKR03/SKR04, DATEV, ELSTER, ZUGFeRD, XRechnung — dazu Kontenbezeichnungen.
+# Die englischen Texte hat niemand mit englischer Muttersprache durchgesehen.
+
+# --- Gerüst, Anmeldung ---------------------------------------------------------------
+Abmelden: Sign out
+Anmelden: Sign in
+Anmeldung fehlgeschlagen.: Sign-in failed.
+Benutzer: User
+Passwort: Password
+Einmalcode aus der App oder Wiederherstellungscode: One-time code from the app or recovery code
+Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — please submit it again.
+Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
+Gesellschaft: Company
+"Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
+Hauptmenü: Main menu
+Wechseln: Switch
+Sprache: Language
+automatisch: automatic
+Übernehmen: Apply
+Diese Sprache gibt es nicht: This language is not available
+Zurück: Back
+Fehler: Error
+Übersicht: Overview
+Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.: The action failed — please reload the page and try again.
+Ein Lauf schreibt gerade — bitte gleich noch einmal: A run is currently writing — please try again in a moment
+"Ungültige Angaben: %(felder)s": "Invalid input: %(felder)s"
+CSRF-Token fehlt oder passt nicht — Seite neu laden: CSRF token missing or invalid — reload the page
+Anfrage von einer fremden Seite abgewiesen: Request from a foreign site rejected
+Ihre Rolle in %(gesellschaft)s erlaubt das nicht: Your role in %(gesellschaft)s does not allow this
+Kein Zugriff auf diese Gesellschaft: No access to this company
+Benutzer unbekannt: Unknown user
+Einmalcode falsch oder schon benutzt: One-time code wrong or already used
+Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher alembic upgrade head für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md): The system database is not up to date for this version (column %(spalte)s is missing) — first run alembic upgrade head for the system database and every company database (see docs/betrieb.md)
+
+# --- Übersicht -------------------------------------------------------------------------
+Offene Posten: Open items
+Buchungen zur Prüfung: Bookings to review
+"%(num)s Buchung":
+  one: "%(num)s booking"
+  other: "%(num)s bookings"
+Belege zur Prüfung: Documents to review
+Zahlungsläufe im Entwurf: Payment runs in draft
+Fällige offene Posten: Open items due
+Fällig: Due
+Kontakt: Contact
+Beleg: Document
+Rest: Remaining
+
+# --- Freigaben (Baustein 10a) ----------------------------------------------------------
+Freigaben: Approvals
+Freigeben: Approve
+Nr.: No.
+Ausführung: Execution
+Zahlungen: Payments
+Summe: Total
+Angelegt von: Created by
+Einmalcode: One-time code
+Zahlungen in Lauf %(nr)s — freigegeben wird genau dieser Inhalt: Payments in run %(nr)s — exactly this content is approved
+Empfänger: Payee
+Betrag: Amount
+Verwendungszweck: Payment reference
+Kein Zahlungslauf wartet auf Freigabe.: No payment run is waiting for approval.
+Umsatzsteuer-Voranmeldung: VAT return (USt-VA)
+Zeitraum: Period
+Werte freigeben: Approve figures
+Zahlungslauf %(nr)s hat sich seit der Anzeige geändert — bitte neu laden und erneut prüfen: Payment run %(nr)s has changed since it was displayed — please reload and review again
+"Zahlungslauf %(nr)s freigegeben von %(person)s: %(anzahl)s Zahlungen über %(summe)s €.": "Payment run %(nr)s approved by %(person)s: %(anzahl)s payments totalling %(summe)s €."
+Erste Freigabe von %(person)s — das Vier-Augen-Prinzip verlangt eine zweite Person.: First approval by %(person)s — the four-eyes principle requires a second person.
+Umsatzsteuer-Voranmeldung %(zeitraum)s freigegeben von %(person)s — Kz 83 %(kz83)s €.: USt-VA %(zeitraum)s approved by %(person)s — box 83 %(kz83)s €.
+
+# --- Monate ---------------------------------------------------------------------------
+Januar: January
+Februar: February
+März: March
+April: April
+Mai: May
+Juni: June
+Juli: July
+August: August
+September: September
+Oktober: October
+November: November
+Dezember: December

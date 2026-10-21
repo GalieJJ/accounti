@@ -53,3 +53,10 @@ button { cursor: pointer; }
 .liste th, .liste td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--linie); text-align: left; }
 .liste .zahl { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 40rem) { .freigabe { grid-auto-flow: row; } }
+/* Baustein 10b: Sprachwahl, Fehlerhinweis (htmx), Fachmeldungen in deutscher Sprache */
+.sprachwahl label { color: var(--gedaempft); font-size: 0.9rem; }
+.netzhinweis { padding: 0.6rem; border-left: 4px solid var(--fehler); background: var(--flaeche); }
+.netzhinweis[hidden], [hidden] { display: none !important; }
+.htmx-request button[type="submit"], button[disabled] { opacity: 0.6; cursor: progress; }
+.fachmeldung { display: block; margin-top: 0.3rem; }
+kbd { font: inherit; font-size: 0.85em; padding: 0 0.3em; border: 1px solid var(--linie); border-radius: 3px; background: var(--hintergrund); }

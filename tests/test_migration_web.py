@@ -23,6 +23,7 @@ from tests.pg_hilfe import pg_datenbank as pg_datenbank  # noqa: F401 (Fixture)
 WURZEL = Path(__file__).resolve().parents[1]
 SIEBEN = "ddc9a184ddb4"  # Baustein 7
 KONTIERUNG = "d5a849692843"
+SPRACHE = "e7153706b43a"
 BUCHUNG = "00000000-0000-0000-0000-000000000001"
 
 
@@ -85,9 +86,10 @@ TRIGGER = {"kontierungsgruende_kein_update", "kontierungsgruende_kein_delete"}
 def test_ein_kopf_nach_ddc9a184ddb4(tmp_path):
     db = tmp_path / "x.db"
     kopf = ok(alembic(db, "heads"))
-    assert kopf.count("(head)") == 1 and KONTIERUNG in kopf
+    assert kopf.count("(head)") == 1 and SPRACHE in kopf
     verlauf = ok(alembic(db, "history", "-r", "a684d10751de:head"))
-    assert f"{SIEBEN} -> {KONTIERUNG} (head)" in verlauf
+    assert f"{SIEBEN} -> {KONTIERUNG}" in verlauf
+    assert f"{KONTIERUNG} -> {SPRACHE} (head)" in verlauf
     assert f"a684d10751de -> {SIEBEN}" in verlauf
 
 
@@ -96,7 +98,7 @@ def test_upgrade_auf_bestand(tmp_path):
     bestand(db)
     ok(alembic(db, "upgrade", "head"))
     tabellen, trigger, spalten = schema(db)
-    assert tabellen >= NEU and trigger >= TRIGGER
+    assert tabellen >= NEU and trigger >= TRIGGER and "sprache" in spalten
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
     with sqlite3.connect(db) as v:
         assert v.execute("SELECT count(*) FROM buchungssaetze").fetchone() == (1,)
@@ -119,9 +121,10 @@ def test_migration_uebernimmt_was_init_db_schon_anlegte(tmp_path):
     init_db(engine)  # neue Tabellen samt Triggern, aber keine neue Spalte
     engine.dispose()
     tabellen, trigger, spalten = schema(db)
-    assert tabellen >= NEU and trigger >= TRIGGER
+    assert tabellen >= NEU and trigger >= TRIGGER and "sprache" not in spalten
     ok(alembic(db, "upgrade", "head"))
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
+    assert "sprache" in schema(db)[2]
 
 
 def test_downgrade_und_wieder_hinauf(tmp_path):
@@ -130,12 +133,38 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     ok(alembic(db, "upgrade", "head"))
     ok(alembic(db, "downgrade", "-1"))
     tabellen, trigger, spalten = schema(db)
+    assert tabellen >= NEU and "sprache" not in spalten
+    ok(alembic(db, "downgrade", "-1"))
+    tabellen, trigger, spalten = schema(db)
     assert not tabellen & NEU and not trigger & TRIGGER
     with sqlite3.connect(db) as v:  # der Bestand bleibt
         assert v.execute("SELECT count(*) FROM buchungssaetze").fetchone() == (1,)
     ok(alembic(db, "upgrade", "head"))
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
     assert ok(alembic(db, "heads")).count("(head)") == 1
+
+
+def test_upgrade_ergaenzt_sprache_in_bestehender_tabelle(tmp_path):
+    """System- und Gesellschaftsdatenbank: ``auth_benutzer`` mit Benutzer, ohne
+    Spalte ``sprache`` → nach dem Upgrade da, Benutzer unverändert, NULL = automatisch.
+    """
+    for name in ("system.db", "a.db"):
+        db = tmp_path / name
+        ok(alembic(db, "upgrade", KONTIERUNG))
+        with sqlite3.connect(db) as v:
+            v.execute(
+                "INSERT INTO auth_benutzer (id, name, passwort_hash, totp_aktiv, "
+                "fehlversuche, cli_fehlversuche, aktiv, angelegt_am) VALUES "
+                "('u1', 'jan', 'h', 0, 0, 0, 1, '2026-10-01 09:00:00')"
+            )
+        assert "sprache" not in schema(db)[2]
+        ok(alembic(db, "upgrade", "head"))
+        assert "sprache" in schema(db)[2]
+        with sqlite3.connect(db) as v:
+            assert v.execute("SELECT name, sprache FROM auth_benutzer").fetchall() == [
+                ("jan", None)
+            ]
+        assert "No new upgrade operations detected" in ok(alembic(db, "check"))
 
 
 @mit_postgresql

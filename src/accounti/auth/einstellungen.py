@@ -9,7 +9,9 @@ auth:
   sitzung_leerlauf_minuten: 30    # OWASP: 15–30 min (geringes Risiko)
   sitzung_hoechstdauer_stunden: 8 # OWASP: z. B. 4–8 h
   totp_toleranz_schritte: 1       # RFC 6238 5.2: höchstens ein Schritt empfohlen
-  einmalcode_bestaetigung: true   # Freigaben (Browser und CLI) mit Einmalcode
+  einmalcode_bestaetigung: true   # Zahlungsläufe, Steuermeldungen, Storno/Korrektur
+                                  # freigegebener Buchungen im Browser; CLI: jeder
+                                  # Befehl mit Recht
   aussteller: accounti            # Name in der Authenticator-App
 ```
 """
@@ -44,8 +46,10 @@ class AuthEinstellungen(BaseModel):
     einmalcode_bestaetigung: bool = Field(
         default=True,
         description=(
-            "Freigaben im Browser und in der CLI sowie die Verwaltung in der CLI "
-            "verlangen den Einmalcode"
+            "Zahlungsläufe, Steuermeldungen und Storno/Korrektur freigegebener "
+            "Buchungen im Browser mit Einmalcode; in der CLI jeder Befehl mit Recht "
+            "(auch die Verwaltung). Die Entscheidung über Vorschläge in der "
+            "Prüfschlange verlangt keinen — die Sitzung entstand mit zweitem Faktor"
         ),
     )
     aussteller: str = Field(default="accounti", min_length=1, max_length=60)

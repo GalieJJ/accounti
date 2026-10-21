@@ -28,6 +28,13 @@ SEITEN: dict[tuple[str, str], object] = {
     ("GET", "/freigaben"): Recht.LESEN,
     ("POST", "/freigaben/zahlungslauf/{nr}"): Recht.ZAHLUNG_FREIGEBEN,
     ("POST", "/freigaben/ustva"): Recht.STEUER_FREIGEBEN,
+    ("POST", "/einstellungen/sprache"): ANGEMELDET,
+}
+# Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
+# Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)
+MIT_EINMALCODE = {
+    "/freigaben/zahlungslauf/{nr}",
+    "/freigaben/ustva",
 }
 # REST: (Methode, Pfad) → nötiges Token-Recht (None: jedes gültige Token)
 REST: dict[tuple[str, str], TokenRecht | None] = {
@@ -75,7 +82,9 @@ def test_jeder_endpunkt_steht_in_der_matrix(welt):
 def anfrage(welt, client, rolle, methode, pfad):
     """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode."""
     person = welt.personen[rolle.value]
-    daten = {"csrf": csrf(client), "einmalcode": person.codes.pop()}
+    daten = {"csrf": csrf(client)}
+    if pfad in MIT_EINMALCODE:
+        daten["einmalcode"] = person.codes.pop()
     if pfad == "/freigaben/zahlungslauf/{nr}":
         inhalt = freigabe_hash(client, 1)
         if inhalt is not None:  # nur wer freigeben darf, sieht das Formular
@@ -84,6 +93,8 @@ def anfrage(welt, client, rolle, methode, pfad):
         daten["zeitraum"] = "2026-09"
     if pfad == "/gesellschaft":
         daten["kuerzel"] = "a"
+    if pfad == "/einstellungen/sprache":
+        daten["sprache"] = ""
     pfad = pfad.replace("{nr}", "1")
     if methode == "GET":
         return client.get(pfad, follow_redirects=False)

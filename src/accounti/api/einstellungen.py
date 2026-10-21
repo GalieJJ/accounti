@@ -10,13 +10,15 @@ server:
   max_beleg_mb: 20                # je Anfrage an POST /api/v1/belege
   anmeldungen_gleichzeitig: 2     # scrypt: 128 MiB je Passwort-Prüfung
   anmeldung_warten_sekunden: 5    # länger → 503
+  sprache: de                     # Oberfläche ohne Benutzer-/Browserwahl: de oder en
+  max_vorschau_megapixel: 40      # TIFF-Vorschau: größere Seiten werden nicht dekodiert
 ```
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError
@@ -45,6 +47,18 @@ class ServerEinstellungen(BaseModel):
     )
     anmeldung_warten_sekunden: float = Field(
         default=5, ge=0, le=60, description="so lange auf einen freien Platz, dann 503"
+    )
+    sprache: Literal["de", "en"] = Field(
+        default="de",
+        description="Sprache der Oberfläche, wenn weder Benutzer noch Browser eine "
+        "unterstützte wählen",
+    )
+    max_vorschau_megapixel: float = Field(
+        default=40,
+        gt=0,
+        le=89,
+        description="TIFF-Vorschau: Seiten über dieser Pixelzahl werden nicht "
+        "dekodiert (Schutz vor Bildbomben)",
     )
 
     @property

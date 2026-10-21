@@ -54,6 +54,7 @@ _BENUTZER_FELDER = (
     "angelegt_am",
     "passwort_geaendert_am",
     "letzte_anmeldung_am",
+    "sprache",
 )
 
 

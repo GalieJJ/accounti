@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 from accounti.anzeige import betrag_de
 from accounti.api.dienste import Dienste
+from accounti.api.einmalcode import bestaetige_einmalcode
 from accounti.api.formular import formular
 from accounti.api.registry import Navigationspunkt
 from accounti.api.sitzung import (
@@ -33,42 +34,14 @@ from accounti.api.sitzung import (
     gesellschaft_db,
 )
 from accounti.api.vorlagen import seite
-from accounti.auth.dienst import pruefe_zweiten_faktor
-from accounti.auth.fehler import AnmeldungError, AuthError
-from accounti.bank.tresor import TresorError
-from accounti.db.repo_auth import lade_benutzer_id
 from accounti.db.repo_zahlung import lade_laeufe, lade_lauf
+from accounti.i18n import N_, Text
 from accounti.models.auth import Recht
 from accounti.models.zahlung import LaufStatus, Zahlungslauf
 from accounti.pruefung.person import geprueft_als
 
 router = APIRouter()
-NAVIGATION = [Navigationspunkt("Freigaben", "/freigaben", Recht.LESEN, 50)]
-
-
-def bestaetige_einmalcode(dienste: Dienste, a: Angemeldet, einmalcode: str) -> None:
-    """Frischer zweiter Faktor für genau diese Freigabe (zählt Fehlversuche)."""
-    if not dienste.auth.einmalcode_bestaetigung:
-        return
-    with dienste.system() as s:
-        b = lade_benutzer_id(s, a.benutzer.id)
-        if b is None:
-            raise HTTPException(403, "Benutzer unbekannt")
-        try:
-            pruefe_zweiten_faktor(
-                s,
-                b,
-                einmalcode,
-                dienste.schluessel(),
-                dienste.auth,
-                dienste.uhr(),
-                quelle="web",
-            )
-        except AnmeldungError as fehler:
-            raise HTTPException(403, "Einmalcode falsch oder schon benutzt") from fehler
-        except (AuthError, TresorError) as fehler:
-            raise HTTPException(403, str(fehler)) from fehler
-        s.commit()
+NAVIGATION = [Navigationspunkt(N_("Freigaben"), "/freigaben", Recht.LESEN, 50)]
 
 
 @router.get("/freigaben", response_class=HTMLResponse)
@@ -86,7 +59,7 @@ async def uebersicht(
         request,
         "freigaben.html",
         {
-            "titel": "Freigaben",
+            "titel": N_("Freigaben"),
             "laeufe": laeufe,
             "inhalt": {lauf.nr: freigabe_hash(lauf) for lauf in laeufe},
             "darf_zahlung": a.darf(Recht.ZAHLUNG_FREIGEBEN),
@@ -107,16 +80,17 @@ def _gesehen(s: Session, nr: int, gesehen: str) -> None:
     finally:
         s.rollback()
     if not gesehen or freigabe_hash(lauf) != gesehen:
-        msg = (
-            f"Zahlungslauf {nr} hat sich seit der Anzeige geändert — bitte neu laden "
-            "und erneut prüfen"
+        msg = Text(
+            "Zahlungslauf %(nr)s hat sich seit der Anzeige geändert — bitte neu laden "
+            "und erneut prüfen",
+            nr=nr,
         )
         raise HTTPException(409, msg)
 
 
 def _zahlungslauf(
     dienste: Dienste, a: Angemeldet, s: Session, nr: int, gesehen: str
-) -> str:
+) -> Text:
     # angemeldet und mit frischem Einmalcode: die Person ist geprüft (Journal)
     with geprueft_als(a.benutzer.name):
         return _zahlungslauf_freigeben(dienste, a, s, nr, gesehen)
@@ -124,7 +98,7 @@ def _zahlungslauf(
 
 def _zahlungslauf_freigeben(
     dienste: Dienste, a: Angemeldet, s: Session, nr: int, gesehen: str
-) -> str:
+) -> Text:
     from accounti.konfiguration import KonfigurationError
     from accounti.zahlung import freigabe
     from accounti.zahlung.konfiguration import lade_zahlung
@@ -151,13 +125,18 @@ def _zahlungslauf_freigeben(
         raise HTTPException(404, str(fehler)) from fehler
     s.commit()
     if lauf.status is LaufStatus.FREIGEGEBEN:
-        return (
-            f"Zahlungslauf {nr} freigegeben von {a.benutzer.name}: "
-            f"{len(lauf.zahlungen)} Zahlungen über {betrag_de(lauf.summe)} €."
+        return Text(
+            "Zahlungslauf %(nr)s freigegeben von %(person)s: %(anzahl)s Zahlungen über "
+            "%(summe)s €.",
+            nr=nr,
+            person=a.benutzer.name,
+            anzahl=len(lauf.zahlungen),
+            summe=betrag_de(lauf.summe),
         )
-    return (
-        f"Erste Freigabe von {a.benutzer.name} — das Vier-Augen-Prinzip verlangt "
-        "eine zweite Person."
+    return Text(
+        "Erste Freigabe von %(person)s — das Vier-Augen-Prinzip verlangt eine zweite "
+        "Person.",
+        person=a.benutzer.name,
     )
 
 
@@ -215,9 +194,12 @@ def _ustva_freigeben(a: Angemeldet, s: Session, zeitraum_text: str) -> dict[str,
         raise HTTPException(409, str(fehler)) from fehler
     s.commit()
     return {
-        "meldung": (
-            f"Umsatzsteuer-Voranmeldung {zeitraum} freigegeben von "
-            f"{f.freigegeben_von} — Kz 83 {betrag_de(v.voranmeldung.kz83)} €."
+        "meldung": Text(
+            "Umsatzsteuer-Voranmeldung %(zeitraum)s freigegeben von %(person)s — "
+            "Kz 83 %(kz83)s €.",
+            zeitraum=str(zeitraum),
+            person=f.freigegeben_von,
+            kz83=betrag_de(v.voranmeldung.kz83),
         ),
         "zurueck": "/freigaben",
     }
