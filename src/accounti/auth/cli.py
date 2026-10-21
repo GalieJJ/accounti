@@ -96,19 +96,18 @@ def streng(e: AuthEinstellungen) -> AuthEinstellungen:
 
     ``--config`` und ``ACCOUNTI_KONFIG`` wählt, wer den Befehl aufruft — ein
     ``einmalcode_bestaetigung: false`` darin darf die Bindung an die Person nicht
-    aufheben. Im Browser gilt die Datei, mit der ``accounti serve`` startete.
+    aufheben. Die Sperrwerte kommen nie aus der Datei: „strenger“ hieße hier eine
+    Waffe (``fehlversuche_obergrenze: 1`` sperrte jeden mit einem falschen Code) —
+    in der CLI gelten immer die Standardwerte. Im Browser gilt die Datei, mit der
+    ``accounti serve`` startete.
     """
     s = AuthEinstellungen()
     return e.model_copy(
         update={
             "einmalcode_bestaetigung": True,
-            "sperre_nach_fehlversuchen": min(
-                e.sperre_nach_fehlversuchen, s.sperre_nach_fehlversuchen
-            ),
-            "sperre_minuten": max(e.sperre_minuten, s.sperre_minuten),
-            "fehlversuche_obergrenze": min(
-                e.fehlversuche_obergrenze, s.fehlversuche_obergrenze
-            ),
+            "sperre_nach_fehlversuchen": s.sperre_nach_fehlversuchen,
+            "sperre_minuten": s.sperre_minuten,
+            "fehlversuche_obergrenze": s.fehlversuche_obergrenze,
             "totp_toleranz_schritte": min(
                 e.totp_toleranz_schritte, s.totp_toleranz_schritte
             ),

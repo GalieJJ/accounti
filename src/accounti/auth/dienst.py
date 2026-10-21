@@ -169,8 +169,16 @@ def sperre(
 
 
 def entsperre(s: Session, b: Benutzer, jetzt: datetime | None, durch: str) -> Benutzer:
+    """Sperren nach Fehlversuchen aufheben (Browser und CLI) — ``aktiv`` bleibt."""
     jetzt = _jetzt(jetzt)
-    b = b.model_copy(update={"gesperrt_bis": None, "fehlversuche": 0})
+    b = b.model_copy(
+        update={
+            "gesperrt_bis": None,
+            "fehlversuche": 0,
+            "cli_gesperrt_bis": None,
+            "cli_fehlversuche": 0,
+        }
+    )
     repo.speichere_benutzer(s, b)
     ereignis(s, "entsperrt", jetzt, b.name, hinweis=f"durch {durch}")
     return b
@@ -360,8 +368,17 @@ def _pruefe_faktor(
     return None
 
 
+def _kanal(quelle: str) -> str:
+    """Zähler des Kanals: die Server-Shell (``cli``) zählt getrennt vom Netz."""
+    return repo.CLI if quelle == "cli" else repo.WEB
+
+
 def _reserviere(
-    s: Session, b: Benutzer, einstellungen: AuthEinstellungen, jetzt: datetime
+    s: Session,
+    b: Benutzer,
+    einstellungen: AuthEinstellungen,
+    jetzt: datetime,
+    kanal: str = repo.WEB,
 ) -> repo.Versuch | None:
     """Versuch vor der Prüfung zählen und sofort festschreiben (``None``: gesperrt)."""
     versuch = repo.reserviere_versuch(
@@ -374,6 +391,7 @@ def _reserviere(
             einstellungen.fehlversuche_obergrenze,
             einstellungen.sperre_nach_fehlversuchen,
         ),
+        kanal=kanal,
     )
     s.commit()
     return versuch
@@ -415,8 +433,10 @@ def pruefe_zweiten_faktor(
     jetzt: datetime | None = None,
     quelle: str = "cli",
 ) -> str:
-    """Nur der zweite Faktor — für Freigaben in CLI und Browser. Zählt Versuche."""
+    """Nur der zweite Faktor — für Freigaben in CLI und Browser. Zählt Versuche,
+    getrennt nach Kanal (``quelle`` ``cli`` oder Browser)."""
     jetzt = _jetzt(jetzt)
+    kanal = _kanal(quelle)
     if not b.aktiv:
         ereignis(s, "einmalcode_gesperrt", jetzt, b.name, ok=False, quelle=quelle)
         s.commit()
@@ -425,7 +445,7 @@ def pruefe_zweiten_faktor(
         msg = f"{b.name} hat keinen zweiten Faktor — accounti benutzer 2fa {b.name}"
         raise AuthError(msg)
     geheimnis = _geheimnis(b, schluessel)  # Schlüssel falsch: kein Fehlversuch
-    versuch = _reserviere(s, b, einstellungen, jetzt)
+    versuch = _reserviere(s, b, einstellungen, jetzt, kanal)
     if versuch is None:
         ereignis(s, "einmalcode_gesperrt", jetzt, b.name, ok=False, quelle=quelle)
         s.commit()
@@ -435,7 +455,7 @@ def pruefe_zweiten_faktor(
         raise _fehlversuch(
             s, b, einstellungen, jetzt, "einmalcode_falsch", quelle, versuch
         )
-    repo.setze_zurueck(s, b.id)
+    repo.setze_zurueck(s, b.id, kanal)
     if art == "wiederherstellungscode":
         ereignis(s, "wiederherstellungscode", jetzt, b.name, quelle=quelle)
     return art

@@ -42,6 +42,9 @@ class BenutzerRow(Base):
     totp_letzter_schritt: Mapped[int | None] = mapped_column(Integer, nullable=True)
     fehlversuche: Mapped[int] = mapped_column(Integer, default=0)
     gesperrt_bis: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # CLI zählt getrennt vom Browser (eine Flut aus dem Netz sperrt die Shell nicht)
+    cli_fehlversuche: Mapped[int] = mapped_column(Integer, default=0)
+    cli_gesperrt_bis: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     aktiv: Mapped[bool] = mapped_column(Boolean, default=True)
     angelegt_am: Mapped[datetime] = mapped_column(DateTime)
     passwort_geaendert_am: Mapped[datetime | None] = mapped_column(

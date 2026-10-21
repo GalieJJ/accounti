@@ -126,7 +126,7 @@ def test_abgeschalteter_einmalcode_gilt_in_der_cli_nicht(db):
         pruefe_befehlsrecht(url, str(config), Recht.ZAHLUNG_FREIGEBEN, "eva", nie)
 
 
-def test_strenge_einstellungen_nur_in_die_strengere_richtung():
+def test_strenge_einstellungen_ohne_sperrwerte_aus_der_datei():
     from accounti.auth.cli import streng
     from tests.auth_hilfe import einstellungen
 
@@ -142,8 +142,18 @@ def test_strenge_einstellungen_nur_in_die_strengere_richtung():
     assert locker.einmalcode_bestaetigung
     assert (locker.sperre_nach_fehlversuchen, locker.sperre_minuten) == (5, 15)
     assert (locker.totp_toleranz_schritte, locker.passwort_mindestlaenge) == (1, 12)
-    strenger = streng(einstellungen(sperre_nach_fehlversuchen=3, sperre_minuten=60))
-    assert (strenger.sperre_nach_fehlversuchen, strenger.sperre_minuten) == (3, 60)
+    # auch „strengere“ Sperrwerte nicht: eine Datei mit fehlversuche_obergrenze: 1
+    # sperrte sonst jeden mit einem falschen Code (Nachprüfung R2-M1)
+    strenger = streng(
+        einstellungen(
+            sperre_nach_fehlversuchen=1, sperre_minuten=1440, fehlversuche_obergrenze=1
+        )
+    )
+    assert (
+        strenger.sperre_nach_fehlversuchen,
+        strenger.sperre_minuten,
+        strenger.fehlversuche_obergrenze,
+    ) == (5, 15, 100)
 
 
 def test_ende_mit_meldung(db, capsys):

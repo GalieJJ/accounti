@@ -28,7 +28,7 @@ from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 class AuthEinstellungen(BaseModel):
     passwort_mindestlaenge: int = Field(default=12, ge=8, le=64)
     sperre_nach_fehlversuchen: int = Field(default=5, ge=1, le=100)
-    sperre_minuten: int = Field(default=15, ge=1)
+    sperre_minuten: int = Field(default=15, ge=1, le=24 * 60)
     fehlversuche_obergrenze: int = Field(
         default=100,
         ge=1,

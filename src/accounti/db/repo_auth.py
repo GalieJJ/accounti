@@ -48,6 +48,8 @@ _BENUTZER_FELDER = (
     "totp_letzter_schritt",
     "fehlversuche",
     "gesperrt_bis",
+    "cli_fehlversuche",
+    "cli_gesperrt_bis",
     "aktiv",
     "angelegt_am",
     "passwort_geaendert_am",
@@ -112,6 +114,17 @@ class Versuch:
     gesperrt: bool
 
 
+WEB = "web"
+CLI = "cli"
+
+
+def _spalten(kanal: str) -> tuple[Any, Any]:
+    """Zähler und Sperre je Kanal: Browser (``web``) oder Server-Shell (``cli``)."""
+    if kanal == CLI:
+        return BenutzerRow.cli_fehlversuche, BenutzerRow.cli_gesperrt_bis
+    return BenutzerRow.fehlversuche, BenutzerRow.gesperrt_bis
+
+
 def reserviere_versuch(
     session: Session,
     benutzer_id: UUID,
@@ -120,6 +133,7 @@ def reserviere_versuch(
     schwelle: int,
     dauer: timedelta,
     obergrenze: int,
+    kanal: str = WEB,
 ) -> Versuch | None:
     """Zählt einen Versuch **vor** der Prüfung — ein einziges ``UPDATE … SET
     fehlversuche = fehlversuche + 1 WHERE nicht gesperrt``, daher auch unter
@@ -129,24 +143,29 @@ def reserviere_versuch(
     ``entsperren`` setzen ihn zurück): jeder ``schwelle``-te sperrt für ``dauer``,
     ab ``obergrenze`` bis ``entsperren``. Nach Ablauf einer Sperre gibt es wieder ein
     volles Fenster — nicht schon ein Fehlversuch sperrt erneut. ``None``: gesperrt.
+    ``kanal``: Browser und CLI zählen getrennt — wer aus dem Netz flutet, sperrt die
+    Anmeldung im Browser, nie den Einmalcode auf der Server-Shell.
     """
-    neu = BenutzerRow.fehlversuche + 1
+    zaehler, sperre = _spalten(kanal)
+    neu = zaehler + 1
     zeile = session.execute(
         update(BenutzerRow)
         .where(
             BenutzerRow.id == str(benutzer_id),
-            or_(BenutzerRow.gesperrt_bis.is_(None), BenutzerRow.gesperrt_bis <= jetzt),
-            BenutzerRow.fehlversuche < obergrenze,
+            or_(sperre.is_(None), sperre <= jetzt),
+            zaehler < obergrenze,
         )
         .values(
-            fehlversuche=neu,
-            gesperrt_bis=case(
-                (neu >= obergrenze, DAUERHAFT),
-                ((neu % schwelle) == 0, jetzt + dauer),
-                else_=BenutzerRow.gesperrt_bis,
-            ),
+            {
+                zaehler: neu,
+                sperre: case(
+                    (neu >= obergrenze, DAUERHAFT),
+                    ((neu % schwelle) == 0, jetzt + dauer),
+                    else_=sperre,
+                ),
+            }
         )
-        .returning(BenutzerRow.fehlversuche, BenutzerRow.gesperrt_bis)
+        .returning(zaehler, sperre)
         .execution_options(synchronize_session=False)
     ).first()
     if zeile is None:
@@ -155,12 +174,21 @@ def reserviere_versuch(
     return Versuch(stand, bis, bis is not None and bis > jetzt)
 
 
-def setze_zurueck(session: Session, benutzer_id: UUID) -> None:
-    """Erfolg (oder ``entsperren``): Zähler auf null, keine Sperre."""
+def setze_zurueck(
+    session: Session, benutzer_id: UUID, kanal: str | None = None
+) -> None:
+    """Erfolg in einem Kanal (``web``/``cli``) oder ``entsperren`` (beide):
+    Zähler auf null, keine Sperre."""
+    kanaele = [kanal] if kanal is not None else [WEB, CLI]
+    werte: dict[Any, Any] = {}
+    for k in kanaele:
+        zaehler, sperre = _spalten(k)
+        werte[zaehler] = 0
+        werte[sperre] = None
     session.execute(
         update(BenutzerRow)
         .where(BenutzerRow.id == str(benutzer_id))
-        .values(gesperrt_bis=None, fehlversuche=0)
+        .values(werte)
         .execution_options(synchronize_session=False)
     )
 

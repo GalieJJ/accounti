@@ -123,8 +123,11 @@ class Benutzer(BaseModel):
     totp_letzter_schritt: int | None = Field(
         default=None, description="zuletzt angenommener Zeitschritt (RFC 6238 5.2)"
     )
-    fehlversuche: int = 0
+    fehlversuche: int = Field(default=0, description="Fehlversuche in Folge (Browser)")
     gesperrt_bis: datetime | None = None
+    # die Server-Shell zählt getrennt: eine Flut aus dem Netz sperrt sie nie
+    cli_fehlversuche: int = Field(default=0, description="Fehlversuche in Folge (CLI)")
+    cli_gesperrt_bis: datetime | None = None
     aktiv: bool = True
     angelegt_am: datetime = Field(default_factory=datetime.now)
     passwort_geaendert_am: datetime | None = None
@@ -136,7 +139,12 @@ class Benutzer(BaseModel):
         return pruefe_name(wert)
 
     def gesperrt(self, jetzt: datetime) -> bool:
+        """Anmeldung im Browser gesperrt (Fehlversuche aus dem Netz)."""
         return self.gesperrt_bis is not None and self.gesperrt_bis > jetzt
+
+    def cli_gesperrt(self, jetzt: datetime) -> bool:
+        """Einmalcode in der CLI gesperrt (Fehlversuche auf der Server-Shell)."""
+        return self.cli_gesperrt_bis is not None and self.cli_gesperrt_bis > jetzt
 
 
 @dataclass(frozen=True)

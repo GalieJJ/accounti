@@ -266,7 +266,11 @@ def liste(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
         if not b.aktiv:
             status = "[red]gesperrt[/red]"
         elif b.gesperrt(jetzt) and b.gesperrt_bis:
-            status = f"[yellow]gesperrt bis {b.gesperrt_bis:%d.%m. %H:%M}[/yellow]"
+            status = f"[yellow]Browser gesperrt bis {b.gesperrt_bis:%d.%m.%Y %H:%M}"
+            status += "[/yellow]"
+        if b.aktiv and b.cli_gesperrt(jetzt) and b.cli_gesperrt_bis:
+            status += f" [yellow]CLI gesperrt bis {b.cli_gesperrt_bis:%d.%m.%Y %H:%M}"
+            status += "[/yellow]"
         tabelle.add_row(
             escape(b.name) + (f" ({escape(b.anzeigename)})" if b.anzeigename else ""),
             escape(", ".join(f"{z.gesellschaft}: {z.rolle.value}" for z in rollen))
@@ -370,14 +374,20 @@ def entsperren(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Sperre aufheben — auch die nach zu vielen Fehlversuchen."""
+    """Sperre aufheben — auch die nach zu vielen Fehlversuchen.
+
+    Wer im Browser nach Fehlversuchen gesperrt ist, entsperrt sich auf der
+    Server-Shell selbst (mit seinem Einmalcode; die CLI zählt getrennt vom Netz).
+    Ein von einem Verwalter gesperrtes Konto (``benutzer sperren``) öffnet nur ein
+    Verwalter wieder."""
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.dienst import entsperre, setze_aktiv
 
-    durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
+    ziel = name.strip().lower()
+    durch = verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
-        if not b.aktiv:
+        if not b.aktiv and durch != b.name:
             b = setze_aktiv(s, b, True, None, durch)
         entsperre(s, b, None, durch)
         s.commit()
