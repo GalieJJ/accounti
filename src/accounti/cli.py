@@ -2385,7 +2385,8 @@ def review(
     console.print(
         "[dim]Freigeben: accounti bestaetige <ID> · "
         "Korrigieren: accounti korrigiere <ID> --soll .. --haben .. "
-        "(freigegebene Buchungen: Storno mit Neubuchung)[/dim]"
+        "[--steuer .. | --ohne-steuer] (neues Sachkonto: Steuer ausdrücklich; "
+        "freigegebene Buchungen: Storno mit Neubuchung)[/dim]"
     )
 
 
@@ -2454,10 +2455,14 @@ def korrigiere(
     haben: str = typer.Option(..., help="Korrigiertes Haben-Konto"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     steuer: int | None = typer.Option(
-        None, help="Neuer Steuerschlüssel (ohne Angabe bleibt er)"
+        None,
+        help="Steuerschlüssel — Pflicht (oder --ohne-steuer), wenn sich das Sachkonto "
+        "einer Buchung mit Schlüssel ändert",
     ),
     ohne_steuer: bool = typer.Option(
-        False, "--ohne-steuer", help="Steuerschlüssel entfernen"
+        False,
+        "--ohne-steuer",
+        help="Steuerschlüssel entfernen (bei Buchungen mit Beleg nur mit --grund)",
     ),
     von: str | None = typer.Option(
         None, help="Wer korrigiert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
@@ -2483,7 +2488,8 @@ def korrigiere(
     from accounti.pruefung.storno import korrigiere as korrigiere_buchung
 
     try:
-        kontenrahmen = lade_kontenrahmen(lade_buchhaltung(config).kontenrahmen)
+        buchhaltung = lade_buchhaltung(config)
+        kontenrahmen = lade_kontenrahmen(buchhaltung.kontenrahmen)
     except (KonfigurationError, KontenrahmenError) as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2504,6 +2510,7 @@ def korrigiere(
                 grund=grund,
                 datum=tag,
                 kontenrahmen=kontenrahmen,
+                buchhaltung=buchhaltung,
             )
             if lernen and k.original.transaktion_id is None:
                 gelernt = _lerne_sachkonto(s, k.original, soll, haben)
@@ -2538,10 +2545,9 @@ def korrigiere(
         basis = (gegenkonto or zweck or "").strip()
         muster = re.escape(basis.split()[0]) if basis else ""
         if muster:
-            schluessel = k.neu.steuer_schluessel if k.neu else steuer
-            _regel_speichern(
-                f"gelernt_{muster}".lower(), muster, soll, haben, schluessel
-            )
+            # nur ein ausdrücklich angegebener Schlüssel wird gelernt — ein bloß
+            # beibehaltener stammt aus dem alten Vorschlag
+            _regel_speichern(f"gelernt_{muster}".lower(), muster, soll, haben, steuer)
             console.print(f"[green]Regel gelernt:[/green] Muster '{muster}'")
 
 

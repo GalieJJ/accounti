@@ -61,6 +61,8 @@ def test_akzeptanz_6_freigegeben_nur_per_storno_beide_sichtbar(tmp_path):
         "4930",
         "--haben",
         "1200",
+        "--steuer",
+        "9",
         "--db",
         url,
         "--von",
@@ -103,7 +105,16 @@ def test_akzeptanz_6_freigegeben_nur_per_storno_beide_sichtbar(tmp_path):
     assert "3 Buchungen" in r.output and "3 als exportiert vermerkt" in r.output
     # und danach: exportiert, weiter nur per Storno
     r = _run(
-        "korrigiere", kurz(neu.id), "--soll", "4940", "--haben", "1200", "--db", url
+        "korrigiere",
+        kurz(neu.id),
+        "--soll",
+        "4940",
+        "--haben",
+        "1200",
+        "--steuer",
+        "9",
+        "--db",
+        url,
     )
     assert r.exit_code == 0, r.output
     assert "Storniert" in r.output
@@ -205,6 +216,8 @@ def test_cli_skontobuchung(tmp_path):
         skonto.soll_konto,
         "--haben",
         "3730",
+        "--steuer",
+        str(skonto.steuer_schluessel),
         "--db",
         url,
     )
@@ -238,6 +251,8 @@ def test_cli_splitbuchung(tmp_path):
         "4650",
         "--haben",
         "1200",
+        "--steuer",
+        "8",
         "--db",
         url,
     )
@@ -273,6 +288,8 @@ def test_cli_belegbuchung(tmp_path):
         "4900",
         "--haben",
         "70001",
+        "--steuer",
+        "9",
         "--db",
         url,
     )

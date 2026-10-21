@@ -158,8 +158,8 @@ def test_storno_im_geschlossenen_monat(make_session):
     _geschlossen(make_session)
     with make_session() as s:
         with pytest.raises(StornoError, match="--datum"):
-            korrigiere(s, kurz(b.id), "4930", "1200")
-        k = korrigiere(s, kurz(b.id), "4930", "1200", datum=date(2026, 9, 2))
+            korrigiere(s, kurz(b.id), "4930", "1200", steuer=9)
+        k = korrigiere(s, kurz(b.id), "4930", "1200", steuer=9, datum=date(2026, 9, 2))
         s.commit()
         assert finde_buchung(s, kurz(b.id)).storniert_durch == k.storno.id
         assert len(lade_buchungen(s)) == 3

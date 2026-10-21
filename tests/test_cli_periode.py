@@ -42,6 +42,8 @@ def test_schliessen_oeffnen_liste(tmp_path):
         "4930",
         "--haben",
         "1200",
+        "--steuer",
+        "9",
         "--db",
         url,
     )
@@ -53,6 +55,8 @@ def test_schliessen_oeffnen_liste(tmp_path):
         "4930",
         "--haben",
         "1200",
+        "--steuer",
+        "9",
         "--db",
         url,
         "--datum",

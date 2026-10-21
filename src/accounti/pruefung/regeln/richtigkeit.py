@@ -11,9 +11,11 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
 from accounti.db.repository import lade_bankkonten
+from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.erkennung import normalisiere_name
 from accounti.kontakte.ustid import aktuelle_bestaetigung, normalisiere
 from accounti.models import (
@@ -22,10 +24,12 @@ from accounti.models import (
     Belegrichtung,
     BelegStatus,
     Buchungssatz,
+    BuchungStatus,
     Kontakt,
 )
 from accounti.models.pruefung import Befund, Kategorie, Schwere
 from accounti.pruefung.belegangaben import Belegangaben, lies_angaben
+from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
 from accounti.steuer.kennziffern import (
@@ -44,6 +48,14 @@ AUFWAND: dict[str, tuple[tuple[int, int], ...]] = {
     "SKR04": ((5000, 7999),),
 }
 _USTID_LAND = {"EL": "GR", "XI": "GB"}
+_FREIGEGEBEN = frozenset(
+    {
+        BuchungStatus.AUTO_GEBUCHT,
+        BuchungStatus.GEPRUEFT,
+        BuchungStatus.KORRIGIERT,
+        BuchungStatus.EXPORTIERT,
+    }
+)
 
 
 def _land_aus_ustid(ust_id: str | None) -> str | None:
@@ -300,14 +312,21 @@ class Rechenprobe:
 class _Kontenwissen:
     """Steuerautomatik der Konten (``config/skr03.yaml``) und Bereiche."""
 
-    def __init__(self, k: Kontext) -> None:
-        self.k = k
-        self.kr = k.buchhaltung.kontenrahmen.upper()
+    def __init__(
+        self,
+        session: Session,
+        buchhaltung: Buchhaltung,
+        einstellungen: PruefEinstellungen,
+    ) -> None:
+        self.session = session
+        self.buchhaltung = buchhaltung
+        self.einstellungen = einstellungen
+        self.kr = buchhaltung.kontenrahmen.upper()
 
     @cached_property
     def plan(self) -> Kontenplan:
-        b = self.k.buchhaltung
-        geld = {konto.sachkonto for konto in lade_bankkonten(self.k.session)}
+        b = self.buchhaltung
+        geld = {konto.sachkonto for konto in lade_bankkonten(self.session)}
         return Kontenplan(
             kontenrahmen=self.kr,
             debitoren=(b.debitoren_von, b.debitoren_bis),
@@ -317,7 +336,7 @@ class _Kontenwissen:
 
     @cached_property
     def konten(self) -> dict[str, dict[str, Any]]:
-        datei = self.k.einstellungen.kontenrahmen_datei or (
+        datei = self.einstellungen.kontenrahmen_datei or (
             "config/skr03.yaml" if self.kr == "SKR03" else None
         )
         if datei is None or not Path(datei).is_file():
@@ -342,14 +361,11 @@ class _Kontenwissen:
         return None
 
     def ohne_vorsteuer(self, konto: str) -> str | None:
-        """Name eines Aufwandskontos ohne Vorsteuer laut Kontenrahmen-Datei."""
+        """Name eines Aufwandskontos ohne Vorsteuerfunktion laut Kontenrahmen-Datei
+        (``steuer.vorsteuer: false`` — z.B. Löhne, Versicherungen, Abschreibungen)."""
         eintrag = self.konten.get(konto) or {}
         steuer = eintrag.get("steuer") or {}
-        if (
-            eintrag.get("typ") == "aufwand"
-            and steuer.get("schluessel") is None
-            and not steuer.get("automatik")
-        ):
+        if eintrag.get("typ") == "aufwand" and steuer.get("vorsteuer") is False:
             return str(eintrag.get("name") or konto)
         return None
 
@@ -458,7 +474,7 @@ class SteuerschluesselKonto:
         return probleme
 
     def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
-        w = _Kontenwissen(k)
+        w = _Kontenwissen(k.session, k.buchhaltung, k.einstellungen)
         befunde = []
         for x in k.buchungen:
             if not k.im_zeitraum(x.datum) or x.storno_von or x.storniert_durch:
@@ -479,10 +495,45 @@ class SteuerschluesselKonto:
                     schwere=_schwerste(probleme),
                     datum=x.datum,
                     betrag=x.betrag_netto,
-                    abhilfe=f"accounti korrigiere {str(x.id)[:8]} --steuer …",
+                    abhilfe=self._abhilfe(x, w),
                 )
             )
         return befunde
+
+    def _abhilfe(self, x: Buchungssatz, w: _Kontenwissen) -> str:
+        """Ein Aufruf, den ``accounti korrigiere`` so annimmt (Soll und Haben dabei)."""
+        befehl = (
+            f"accounti korrigiere {str(x.id)[:8]} --soll {x.soll_konto} "
+            f"--haben {x.haben_konto}"
+        )
+        grund = ' --grund "…"' if x.beleg_id is not None else ""
+        if not self._sachkonten(x, w):  # reine Geld-/Personenbewegung: ohne Steuer
+            if x.status in _FREIGEGEBEN:
+                return (
+                    "nicht per Storno korrigierbar (beide Seiten Geld- oder "
+                    "Personenkonto, die Gegenbuchung höbe die Steuer nicht auf) — "
+                    "mit dem Steuerberater klären"
+                )
+            return f"{befehl} --ohne-steuer{grund}"
+        if x.beleg_id is not None:  # Steuer aus dem Beleg: Konto ändern oder entfernen
+            return (
+                f"Sachkonto ändern: accounti korrigiere {str(x.id)[:8]} --soll … "
+                f"--haben … --steuer {x.steuer_schluessel} — oder Steuer entfernen: "
+                f"{befehl} --ohne-steuer{grund}"
+            )
+        return f"{befehl} --steuer <Schlüssel> (oder --ohne-steuer)"
+
+
+def steuerschluessel_probleme(
+    session: Session,
+    buchung: Buchungssatz,
+    buchhaltung: Buchhaltung,
+    einstellungen: PruefEinstellungen | None = None,
+) -> list[tuple[Schwere, str]]:
+    """Was die Regel ``steuerschluessel_konto`` an einer (geplanten) Buchung findet —
+    für ``korrigiere``, bevor die Neubuchung entsteht."""
+    w = _Kontenwissen(session, buchhaltung, einstellungen or PruefEinstellungen())
+    return SteuerschluesselKonto()._probleme(buchung, w)
 
 
 # --- Steuersatz zum Land ------------------------------------------------------------

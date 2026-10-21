@@ -1,6 +1,7 @@
 """CLI ``accounti pruefen`` (Spec 4.7) — Akzeptanz 1–3 über die Kommandozeile."""
 
 from datetime import date
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -122,4 +123,42 @@ def test_falsche_angaben_ohne_traceback(tmp_path, monkeypatch):
         r = _run(*args)
         assert r.exit_code == 1, r.output
         assert "Traceback" not in r.output
+    engine.dispose()
+
+
+def test_eigene_belegverbuchung_mit_zwei_steuersaetzen_ohne_fehler(
+    tmp_path, monkeypatch
+):
+    """Befund B-H2: Eine Rechnung mit 19 % und 7 % auf dem Standardaufwand (4900)
+    ist richtig gebucht — die SKR03-Stammdaten nennen 4900 kein Automatikkonto."""
+    url, _, config, engine = _umgebung(tmp_path, monkeypatch)
+    (tmp_path / "config").mkdir()
+    quelle = Path(__file__).resolve().parents[1] / "config" / "skr03.yaml"
+    (tmp_path / "config" / "skr03.yaml").write_bytes(quelle.read_bytes())
+    archiv = tmp_path / "archiv"
+    beispiel = Path(__file__).resolve().parents[1] / "examples" / "belege"
+    datei = beispiel / "rechnung_zwei_steuersaetze.txt"
+    r = _run("belege", "import", datei, "--db", url, "--archiv", archiv)
+    assert r.exit_code == 0, r.output
+    r = _run("opos", "verbuchen", "--db", url, "--archiv", archiv, "--config", config)
+    assert r.exit_code == 0, r.output
+    r = _run(
+        "pruefen",
+        "--period",
+        "2026-03",
+        "--db",
+        url,
+        "--config",
+        config,
+        "--archiv",
+        archiv,
+        "--regel",
+        "steuerschluessel_konto",
+        "--regel",
+        "rechenprobe",
+        "--regel",
+        "pflichtangaben",
+    )
+    assert r.exit_code == 0, r.output
+    assert "passt nicht zum Sachkonto" not in r.output
     engine.dispose()

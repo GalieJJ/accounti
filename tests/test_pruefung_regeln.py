@@ -53,6 +53,7 @@ from tests.pruefung_hilfe import (  # noqa: F401
     anlegen,
     beleg,
     buchung,
+    db_url,
     kontakt,
     make_session_fixture,
     umsatz,
@@ -499,7 +500,8 @@ def skr03(tmp_path, monkeypatch):
 def test_akzeptanz_3_steuerschluessel_passt_nicht_zum_sachkonto(make_session, skr03):
     vst_auf_erloes = buchung(soll="1200", haben="8400", schluessel=9)
     ust_auf_aufwand = buchung(soll="4930", haben="1200", schluessel=3, steuer="19.00")
-    automatik = buchung(soll="3400", haben="1200", schluessel=9)  # 3400 = VSt 7 %
+    # DATEV SKR03 2026: 3400 = Wareneingang 19 % Vorsteuer (AV)
+    automatik = buchung(soll="3400", haben="1200", schluessel=8, steuer="7.00")
     steuerfrei = buchung(soll="1400", haben="8125", schluessel=3)
     zahlung = buchung(soll="70001", haben="1200", schluessel=9)
     anlegen(
@@ -524,12 +526,83 @@ def test_passende_steuerschluessel_sind_kein_befund(make_session, skr03):
         make_session,
         buchung(soll="4930", haben="1200", schluessel=9),
         buchung(soll="1200", haben="8400", schluessel=3),
-        buchung(soll="3400", haben="1200", schluessel=8, steuer="7.00"),
+        buchung(soll="3400", haben="1200", schluessel=9),  # Wareneingang 19 % (AV)
+        buchung(soll="3300", haben="1200", schluessel=8, steuer="7.00"),  # 7 % (AV)
         buchung(soll="1400", haben="8125", schluessel=None, steuer=None),
         buchung(soll="70001", haben="1200", schluessel=None, steuer=None),
         buchung(soll="4970", haben="1200", schluessel=None, steuer=None),
     )
     assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
+@pytest.mark.parametrize(
+    ("soll", "haben", "schluessel", "steuer"),
+    [
+        ("4900", "70001", 8, "7.00"),  # Standardaufwand mit 7 % (Belegverbuchung)
+        ("4900", "70001", 9, "19.00"),
+        ("4940", "1200", 9, "19.00"),  # Online-Abo 19 %
+        ("8700", "1400", 2, "0.70"),  # Erlösschmälerung 7 %
+        ("3000", "70001", 8, "7.00"),
+        ("4210", "1200", 9, "19.00"),  # Miete mit Option zur Steuerpflicht
+        ("4500", "1200", 8, "7.00"),
+        ("4920", "1200", 9, "19.00"),
+        ("4955", "1200", 9, "19.00"),
+    ],
+)
+def test_keine_automatikkonten_laut_datev(
+    make_session, skr03, soll, haben, schluessel, steuer
+):
+    """DATEV SKR03 2026: diese Konten haben keine AV/AM-Automatik — kein Fehler."""
+    anlegen(
+        make_session,
+        buchung(soll=soll, haben=haben, schluessel=schluessel, steuer=steuer),
+    )
+    assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
+@pytest.mark.parametrize("mit_beleg", [False, True])
+def test_abhilfe_ist_ein_gueltiger_aufruf(make_session, skr03, tmp_path, mit_beleg):
+    """Befund B-Niedrig: die Abhilfe nennt --soll/--haben und läuft so durch."""
+    import shlex
+
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+
+    zahlung = buchung(
+        soll="70001",
+        haben="1200",
+        schluessel=9,
+        status=BuchungStatus.ZUR_PRUEFUNG,
+        beleg_id=uuid4() if mit_beleg else None,
+    )
+    anlegen(make_session, zahlung)
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert "--soll 70001 --haben 1200 --ohne-steuer" in befund.abhilfe
+    args = shlex.split(befund.abhilfe.replace("…", "Zahlung ohne Steuer"))[1:]
+    r = CliRunner().invoke(app, [*args, "--db", db_url(tmp_path)])
+    assert r.exit_code == 0, r.output
+    assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
+def test_abhilfe_freigegeben_ohne_storno(make_session, skr03):
+    """Freigegeben und beide Seiten Geld-/Personenkonto: ein Storno höbe die Steuer
+    nicht auf — die Abhilfe verspricht keinen Aufruf, der scheitert."""
+    anlegen(
+        make_session,
+        buchung(
+            soll="70001", haben="1200", schluessel=9, status=BuchungStatus.GEPRUEFT
+        ),
+    )
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert "korrigiere" not in befund.abhilfe and "Steuerberater" in befund.abhilfe
+
+
+def test_konto_ohne_vorsteuerfunktion_ist_nur_ein_hinweis(make_session, skr03):
+    anlegen(make_session, buchung(soll="4360", haben="1200", schluessel=9))
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert befund.schwere is Schwere.HINWEIS
+    assert "4360" in befund.text and "keine Vorsteuer" in befund.text
 
 
 def test_storniertes_ist_kein_befund(make_session, skr03):
@@ -604,7 +677,7 @@ def test_ig_erwerb_ohne_ustid(make_session):
     a = buchung(soll="3425", haben="70003", schluessel=19)
     b = buchung(soll="3425", haben="70004", schluessel=19)
     c = buchung(soll="3425", haben="70005", schluessel=19)
-    normal = buchung(soll="3400", haben="70005", schluessel=8, steuer="7.00")
+    normal = buchung(soll="3300", haben="70005", schluessel=8, steuer="7.00")
     anlegen(make_session, ohne, mit, inland, a, b, c, normal)
     befunde = {b.objekt_id: b for b in pruefe(make_session, "ig_erwerb_ustid")}
     assert set(befunde) == {str(a.id), str(b.id), str(c.id)}

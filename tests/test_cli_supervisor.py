@@ -169,3 +169,36 @@ def test_korrigiere_lernen(tmp_path, monkeypatch):
     assert res.exit_code == 0
     regeln = yaml.safe_load((tmp_path / "config" / "regeln.yaml").read_text("utf-8"))
     assert any(r["muster"] == "Stadtwerke" for r in regeln)
+
+
+def test_korrigiere_lernt_keinen_bloss_beibehaltenen_schluessel(tmp_path, monkeypatch):
+    """Befund B-H1: --lernen übernimmt nur einen ausdrücklich angegebenen Schlüssel."""
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text("[]\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    url = _url(tmp_path)
+    bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
+    pid = str(bs[0].id)[:8]
+    # nur das Geldkonto wechselt: der Schlüssel bleibt an der Buchung …
+    args = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
+    res = runner.invoke(app, [*args, "--db", url])
+    assert res.exit_code == 0, res.output
+    _, make_session = session_factory(url)
+    with make_session() as s:
+        assert finde_buchung(s, pid).steuer_schluessel == 9
+    # … wird aber nicht als Regel gelernt
+    regeln = yaml.safe_load((tmp_path / "config" / "regeln.yaml").read_text("utf-8"))
+    (regel,) = regeln
+    assert regel["steuer_schluessel"] is None
+
+
+def test_korrigiere_neues_sachkonto_braucht_steuerangabe(tmp_path):
+    url = _url(tmp_path)
+    bs = _seed(url, [BuchungStatus.AUTO_GEBUCHT])
+    pid = str(bs[0].id)[:8]
+    args = ["korrigiere", pid, "--soll", "4360", "--haben", "1200", "--db", url]
+    res = runner.invoke(app, args)
+    assert res.exit_code == 1
+    assert "--ohne-steuer" in res.output and "Traceback" not in res.output
+    res = runner.invoke(app, [*args, "--ohne-steuer"])
+    assert res.exit_code == 0, res.output

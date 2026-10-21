@@ -33,6 +33,7 @@ from accounti.db.repository import (
     speichere_buchung,
 )
 from accounti.db.tabellen import BuchungssatzRow
+from accounti.konfiguration import Buchhaltung
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.pruefung import Buchungskorrektur
 from accounti.pruefung.ereignisse import gesperrt
@@ -104,8 +105,41 @@ def _nicht_storniert(b: Buchungssatz) -> None:
         )
 
 
+def _sachkonten(kr: Kontenrahmen, soll: str, haben: str) -> set[str]:
+    """Die Seiten, die kein Geld- oder Personenkonto sind."""
+    return {k for k in (soll, haben) if not kr.ist_geldkonto(k)}
+
+
+def _pruefe_ausdruecklich(
+    b: Buchungssatz,
+    soll: str,
+    haben: str,
+    steuer: int | None,
+    ohne_steuer: bool,
+    kr: Kontenrahmen,
+) -> None:
+    """Ändert sich das Sachkonto, wird der Steuerschlüssel nicht still mitgenommen.
+
+    Der Schlüssel gehört zum Sachkonto: Eine Versicherung (4360), eine Privatentnahme
+    (1800) oder eine Geldbewegung (1200 an 1361) trägt keine Vorsteuer bzw.
+    Umsatzsteuer, nur weil der Vorschlag auf 4900 oder 8400 lag."""
+    if b.steuer_schluessel is None or steuer is not None or ohne_steuer:
+        return
+    alt = _sachkonten(kr, b.soll_konto, b.haben_konto)
+    neu = _sachkonten(kr, soll, haben)
+    if alt == neu:
+        return
+    von = "/".join(sorted(alt)) or "—"
+    nach = "/".join(sorted(neu)) or "nur Geld- und Personenkonten"
+    raise StornoError(
+        f"Buchung {_kurz(b)}: Das Sachkonto ändert sich ({von} → {nach}) — "
+        f"Steuerschlüssel {b.steuer_schluessel} ausdrücklich bestätigen mit "
+        f"--steuer {b.steuer_schluessel} oder entfernen mit --ohne-steuer"
+    )
+
+
 def _steuer(
-    b: Buchungssatz, steuer: int | None, ohne_steuer: bool
+    b: Buchungssatz, steuer: int | None, ohne_steuer: bool, grund: str | None
 ) -> tuple[int | None, Decimal, Decimal | None]:
     """(Schlüssel, Netto, Steuer) nach der Korrektur — aus dem Brutto der Buchung."""
     if ohne_steuer and steuer is not None:
@@ -115,10 +149,17 @@ def _steuer(
     schluessel = None if ohne_steuer else steuer
     if schluessel == b.steuer_schluessel:
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
-    if b.beleg_id is not None:
+    if b.beleg_id is not None and not ohne_steuer:
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
-            "bzw. aus dem Ausgleich; nur Konten korrigieren"
+            "bzw. aus dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit "
+            "--ohne-steuer --grund … entfernen)"
+        )
+    if b.beleg_id is not None and not (grund or "").strip():
+        raise StornoError(
+            f"Buchung {_kurz(b)} hat einen Beleg — die Steuer daraus entfernt nur, "
+            "wer einen Grund nennt (steht im Journal): --ohne-steuer --grund "
+            '"z.B. kein Vorsteuerabzug, Rechnung unvollständig"'
         )
     brutto = b.betrag_netto + (b.steuer_betrag or NULL)
     if schluessel in _IM_BRUTTO:
@@ -242,16 +283,23 @@ def korrigiere(
     grund: str | None = None,
     datum: date | None = None,
     kontenrahmen: Kontenrahmen | None = None,
+    buchhaltung: Buchhaltung | None = None,
 ) -> Korrektur:
     """Vorschlag: direkt korrigieren. Freigegeben: Storno und Neubuchung.
 
     Erhalten bleiben Transaktion, Beleg, Belegposition, Belegnummer, Text und der
     Betrag der Buchung; ``steuer`` rechnet Netto und Steuer aus ihrem Brutto neu.
+    Ändert sich das Sachkonto, muss ein vorhandener Steuerschlüssel ausdrücklich
+    bestätigt (``steuer``) oder entfernt werden (``ohne_steuer``); eine Kombination,
+    die die Prüfregel ``steuerschluessel_konto`` als Fehler einstuft, wird abgelehnt.
+    Bei Buchungen mit Beleg entfernt ``ohne_steuer`` die Steuer nur mit ``grund``.
     """
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
     person = aktuelle_person(von)
-    schluessel, netto, steuerbetrag = _steuer(b, steuer, ohne_steuer)
+    kr = kontenrahmen or lade_kontenrahmen()
+    _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
+    schluessel, netto, steuerbetrag = _steuer(b, steuer, ohne_steuer, grund)
     aenderung = {
         "soll_konto": soll,
         "haben_konto": haben,
@@ -266,6 +314,7 @@ def korrigiere(
         f"Korrektur: {b.soll_konto} an {b.haben_konto} → {soll} an {haben}"
         + (f", Schlüssel {schluessel}" if schluessel != b.steuer_schluessel else "")
     )
+    _pruefe_steuerschluessel(session, b.model_copy(update=aenderung), buchhaltung)
     if not ist_freigegeben(b):
         if datum is not None:
             raise StornoError(
@@ -291,9 +340,29 @@ def korrigiere(
     ):
         raise StornoError(f"Die Korrektur ändert an Buchung {_kurz(b)} nichts")
     neu = b.model_copy(update={**aenderung, "id": uuid4(), "storniert_durch": None})
-    return _storno(
-        session, b, person, text, datum, kontenrahmen or lade_kontenrahmen(), neu
-    )
+    return _storno(session, b, person, text, datum, kr, neu)
+
+
+def _pruefe_steuerschluessel(
+    session: Session, kandidat: Buchungssatz, buchhaltung: Buchhaltung | None
+) -> None:
+    """Die Prüfregel ``steuerschluessel_konto`` auf die korrigierte Buchung."""
+    from accounti.models.pruefung import Schwere
+    from accounti.pruefung.regeln.richtigkeit import steuerschluessel_probleme
+
+    fehler = [
+        text
+        for schwere, text in steuerschluessel_probleme(
+            session, kandidat, buchhaltung or Buchhaltung()
+        )
+        if schwere is Schwere.FEHLER
+    ]
+    if fehler:
+        raise StornoError(
+            f"Korrektur {kandidat.soll_konto} an {kandidat.haben_konto} mit "
+            f"Schlüssel {kandidat.steuer_schluessel}: " + "; ".join(fehler) + " — "
+            "anderen Schlüssel mit --steuer angeben oder --ohne-steuer"
+        )
 
 
 def freigeben(

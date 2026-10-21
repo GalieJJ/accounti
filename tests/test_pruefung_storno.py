@@ -61,7 +61,7 @@ def test_vorschlag_wird_direkt_korrigiert(make_session):
     b = buchung(tx)
     anlegen(make_session, tx, b)
     with make_session() as s:
-        k = korrigiere(s, kurz(b.id), "4930", "1200", von="erika")
+        k = korrigiere(s, kurz(b.id), "4930", "1200", steuer=9, von="erika")
         s.commit()
     assert k.direkt and k.storno is None
     with make_session() as s:
@@ -72,7 +72,7 @@ def test_vorschlag_wird_direkt_korrigiert(make_session):
             "erika",
         )
         assert neu.betrag_netto == Decimal("100.00")
-        assert neu.steuer_schluessel == 9  # ohne --steuer bleibt der Schlüssel
+        assert neu.steuer_schluessel == 9  # ausdrücklich bestätigt (Sachkonto neu)
         vorgaenge = [e.vorgang for e in lade_journal(s)]
     assert vorgaenge[-2:] == ["buchung_korrigiert", "buchung_freigegeben"]
 
@@ -91,7 +91,9 @@ def test_freigegebene_buchung_nur_per_storno_beide_sichtbar(make_session):
         with pytest.raises(BuchungFestgeschriebenError, match="nur per Storno"):
             s.flush()
     with make_session() as s:
-        k = korrigiere(s, kurz(b.id), "4930", "1200", von="jan", grund="falsches Konto")
+        k = korrigiere(
+            s, kurz(b.id), "4930", "1200", steuer=9, von="jan", grund="falsches Konto"
+        )
         s.commit()
     assert not k.direkt
     with make_session() as s:
@@ -237,10 +239,12 @@ def test_storno_im_gesperrten_zeitraum_braucht_ein_offenes_datum(make_session):
         s.commit()
     with make_session() as s:
         with pytest.raises(StornoError, match="--datum"):
-            korrigiere(s, kurz(b.id), "4930", "1200")
+            korrigiere(s, kurz(b.id), "4930", "1200", steuer=9)
         with pytest.raises(StornoError, match="abgeschlossenen"):
-            korrigiere(s, kurz(b.id), "4930", "1200", datum=date(2025, 12, 31))
-        k = korrigiere(s, kurz(b.id), "4930", "1200", datum=date(2026, 1, 5))
+            korrigiere(
+                s, kurz(b.id), "4930", "1200", steuer=9, datum=date(2025, 12, 31)
+            )
+        k = korrigiere(s, kurz(b.id), "4930", "1200", steuer=9, datum=date(2026, 1, 5))
         s.commit()
         assert k.storno.datum == k.neu.datum == date(2026, 1, 5)
         # das Original im gesperrten Jahr trägt den Stornovermerk, sonst nichts
@@ -263,7 +267,9 @@ def test_gegenbuchung_nicht_eindeutig_umkehrbar(make_session):
 
 def _korrigiert_freigegeben(make_session, b, soll, haben):
     with make_session() as s:
-        k = korrigiere(s, kurz(b.id), soll, haben, von="jan")
+        k = korrigiere(
+            s, kurz(b.id), soll, haben, steuer=b.steuer_schluessel, von="jan"
+        )
         s.commit()
     with make_session() as s:
         return finde_buchung(s, kurz(k.neu.id)), finde_buchung(s, kurz(k.storno.id))
@@ -401,7 +407,7 @@ def test_split_vorschlag_direkt_behaelt_anteil(make_session):
     (teil,) = teile
     assert teil.status is BuchungStatus.ZUR_PRUEFUNG
     with make_session() as s:
-        korrigiere(s, kurz(teil.id), "4930", "1200")
+        korrigiere(s, kurz(teil.id), "4930", "1200", steuer=teil.steuer_schluessel)
         s.commit()
         neu = finde_buchung(s, kurz(teil.id))
     assert (neu.betrag_netto, neu.beleg_id, neu.transaktion_id) == (
@@ -476,3 +482,118 @@ def test_gegenbuchung_auf_anderem_umsatz_laesst_beide_gebucht(make_session):
     anlegen(make_session, s_b)
     with make_session() as s:
         assert {tx.id, gegen.id} <= gebuchte_transaktion_ids(s)
+
+
+# --- korrigiere: Steuerschlüssel bei geändertem Sachkonto (Befund B-H1, B-M2) -------
+
+
+def _ustva(make_session) -> dict[int, Decimal]:
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+
+    with make_session() as s:
+        e = ermittle(lade_buchungen(s), Zeitraum(2026, monat=8), Kontenplan())
+    return {kz: e.voranmeldung.wert(kz) for kz in (66, 81)}
+
+
+def _neubuchung(make_session, k):
+    with make_session() as s:
+        return finde_buchung(s, str(k.neu.id))
+
+
+def test_versicherung_umgebucht_verlangt_ausdrueckliche_steuer(make_session):
+    tx = umsatz("-320.00", zweck="HAFTPFLICHT BEITRAG Q3", name="Allianz")
+    b = buchung(tx, status=BuchungStatus.AUTO_GEBUCHT, netto="268.91", steuer="51.09")
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        with pytest.raises(StornoError, match="--steuer .*--ohne-steuer"):
+            korrigiere(s, str(b.id), "4360", "1200", von="erika")
+        s.rollback()
+        k = korrigiere(s, str(b.id), "4360", "1200", ohne_steuer=True, von="erika")
+        s.commit()
+    neu = _neubuchung(make_session, k)
+    assert (neu.steuer_schluessel, neu.betrag_netto, neu.steuer_betrag) == (
+        None,
+        Decimal("320.00"),
+        None,
+    )
+    assert _ustva(make_session)[66] == 0
+
+
+@pytest.mark.parametrize(
+    ("tx_betrag", "vorher", "nachher", "schluessel"),
+    [
+        ("-119.00", ("4930", "1200"), ("1800", "1200"), 9),  # Privatentnahme
+        ("1190.00", ("1200", "8400"), ("1200", "1361"), 3),  # Amazon-Auszahlung
+    ],
+)
+def test_steuer_auf_reiner_geldbewegung_wird_abgelehnt(
+    make_session, tx_betrag, vorher, nachher, schluessel
+):
+    tx = umsatz(tx_betrag, zweck="Auszahlung 4711", name="AMAZON PAYMENTS EUROPE")
+    netto = (abs(Decimal(tx_betrag)) / Decimal("1.19")).quantize(Decimal("0.01"))
+    b = buchung(
+        tx,
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll=vorher[0],
+        haben=vorher[1],
+        netto=str(netto),
+        steuer=str(abs(Decimal(tx_betrag)) - netto),
+        schluessel=schluessel,
+    )
+    anlegen(make_session, tx, b)
+    soll, haben = nachher
+    with make_session() as s:
+        with pytest.raises(StornoError, match="--ohne-steuer"):
+            korrigiere(s, str(b.id), soll, haben, von="erika")
+        s.rollback()
+        with pytest.raises(StornoError, match="Geld- und Personenkonten"):
+            korrigiere(s, str(b.id), soll, haben, steuer=schluessel, von="erika")
+        s.rollback()
+        k = korrigiere(s, str(b.id), soll, haben, ohne_steuer=True, von="erika")
+        s.commit()
+    assert _neubuchung(make_session, k).steuer_schluessel is None
+    assert _ustva(make_session) == {66: 0, 81: 0}
+
+
+def test_nur_das_geldkonto_getauscht_behaelt_den_schluessel(make_session):
+    tx = umsatz()
+    b = buchung(tx, status=BuchungStatus.AUTO_GEBUCHT)
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        k = korrigiere(s, str(b.id), "4900", "1210", von="erika")
+        s.commit()
+    assert _neubuchung(make_session, k).steuer_schluessel == 9
+
+
+def test_vorsteuer_aus_belegbuchung_entfernen_nur_mit_grund(make_session):
+    beleg_id = uuid4()
+    b = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT, soll="4930", haben="70001", beleg_id=beleg_id
+    )
+    anlegen(make_session, b)
+    with make_session() as s:
+        with pytest.raises(StornoError, match="--grund"):
+            korrigiere(s, str(b.id), "4930", "70001", ohne_steuer=True, von="erika")
+        s.rollback()
+        with pytest.raises(StornoError, match="Beleg"):
+            korrigiere(s, str(b.id), "4930", "70001", steuer=8, von="erika")
+        s.rollback()
+        k = korrigiere(
+            s,
+            str(b.id),
+            "4930",
+            "70001",
+            ohne_steuer=True,
+            grund="Rechnung ohne Steuernummer — kein Vorsteuerabzug",
+            von="erika",
+        )
+        s.commit()
+        eintrag = [e for e in lade_journal(s) if e.vorgang == "storno_gebucht"][-1]
+    neu = _neubuchung(make_session, k)
+    assert (neu.steuer_schluessel, neu.betrag_netto, neu.beleg_id) == (
+        None,
+        Decimal("119.00"),
+        beleg_id,
+    )
+    assert eintrag.grund == "Rechnung ohne Steuernummer — kein Vorsteuerabzug"
