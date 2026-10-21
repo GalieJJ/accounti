@@ -64,12 +64,14 @@ class BuchungssatzRow(Base):
     confidence: Mapped[float] = mapped_column(Float)
     geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
     beleg_position_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    # Storno statt Änderung (Baustein 7) — eindeutig: höchstens ein Storno je Buchung
+    # Storno statt Änderung (Baustein 7) — eindeutig: höchstens ein Storno je Buchung.
+    # Als benannter Unique-Index (ix_buchungssaetze_…), nicht als unbenannte
+    # Unique-Constraint: die Migration fügt ihn per batch_alter_table hinzu.
     storniert_durch: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, unique=True, active_history=True
+        String(36), nullable=True, unique=True, index=True, active_history=True
     )
     storno_von: Mapped[str | None] = mapped_column(
-        String(36), nullable=True, unique=True
+        String(36), nullable=True, unique=True, index=True
     )
 
 
