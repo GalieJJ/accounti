@@ -68,6 +68,7 @@ def _skonto_buchungen(
     einstellungen: Buchhaltung,
     text: str,
     status: BuchungStatus,
+    geprueft_von: str | None = None,
 ) -> list[Buchungssatz]:
     eingang = posten.richtung is PostenRichtung.VERBINDLICHKEIT
     konten = einstellungen.skonto_erhalten if eingang else einstellungen.skonto_gewaehrt
@@ -107,6 +108,7 @@ def _skonto_buchungen(
             beleg_nummer=posten.belegnummer,
             status=status,
             confidence=1.0,
+            geprueft_von=geprueft_von,
         )
         speichere_buchung(session, buchung)
         buchungen.append(buchung)
@@ -119,8 +121,10 @@ def gleiche_aus(
     anteile: list[Anteil],
     einstellungen: Buchhaltung,
     status: BuchungStatus = BuchungStatus.AUTO_GEBUCHT,
+    geprueft_von: str | None = None,
 ) -> list[Buchungssatz]:
-    """Bucht Zahlung (und ggf. Skonto) je Anteil und mindert die Posten.
+    """Bucht Zahlung (und ggf. Skonto) je Anteil und mindert die Posten
+    (``geprueft_von``: wer einen Vorschlag bestätigt hat).
 
     Die Posten werden frisch geladen: Maßgeblich ist der aktuelle Restbetrag, nicht
     der Stand zum Zeitpunkt des Vorschlags.
@@ -156,6 +160,7 @@ def gleiche_aus(
             beleg_nummer=posten.belegnummer,
             status=status,
             confidence=1.0,
+            geprueft_von=geprueft_von,
         )
         speichere_buchung(session, zahlung)
         buchungen.append(zahlung)
@@ -169,6 +174,7 @@ def gleiche_aus(
                 einstellungen,
                 text,
                 status,
+                geprueft_von,
             )
         # Überzahlung: der Posten schließt, der Überschuss bleibt als Guthaben auf
         # dem Personenkonto stehen.

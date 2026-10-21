@@ -40,6 +40,7 @@ from accounti.db.repo_auth import lade_benutzer_id
 from accounti.db.repo_zahlung import lade_laeufe, lade_lauf
 from accounti.models.auth import Recht
 from accounti.models.zahlung import LaufStatus, Zahlungslauf
+from accounti.pruefung.person import geprueft_als
 
 router = APIRouter()
 NAVIGATION = [Navigationspunkt("Freigaben", "/freigaben", Recht.LESEN, 50)]
@@ -116,6 +117,14 @@ def _gesehen(s: Session, nr: int, gesehen: str) -> None:
 def _zahlungslauf(
     dienste: Dienste, a: Angemeldet, s: Session, nr: int, gesehen: str
 ) -> str:
+    # angemeldet und mit frischem Einmalcode: die Person ist geprüft (Journal)
+    with geprueft_als(a.benutzer.name):
+        return _zahlungslauf_freigeben(dienste, a, s, nr, gesehen)
+
+
+def _zahlungslauf_freigeben(
+    dienste: Dienste, a: Angemeldet, s: Session, nr: int, gesehen: str
+) -> str:
     from accounti.konfiguration import KonfigurationError
     from accounti.zahlung import freigabe
     from accounti.zahlung.konfiguration import lade_zahlung
@@ -171,6 +180,11 @@ async def zahlungslauf_freigeben(
 
 
 def _ustva(a: Angemeldet, s: Session, zeitraum_text: str) -> dict[str, Any]:
+    with geprueft_als(a.benutzer.name):
+        return _ustva_freigeben(a, s, zeitraum_text)
+
+
+def _ustva_freigeben(a: Angemeldet, s: Session, zeitraum_text: str) -> dict[str, Any]:
     from accounti.elster.freigabe import FreigabeError, gib_frei
     from accounti.elster.konfiguration import lade_elster, lade_oss
     from accounti.elster.ustva import bereite_vor

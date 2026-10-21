@@ -47,6 +47,17 @@ def kontext() -> JournalKontext:
 
 
 @contextmanager
+def geprueft_als(name: str | None) -> Iterator[None]:
+    """Journal-Kontext einer Person, die die Rechteprüfung bestätigt hat (Rolle und
+    Einmalcode bzw. Anmeldung im Browser). ``None`` (keine Benutzer): nichts ändern."""
+    if name is None:
+        yield
+        return
+    with journal_kontext(person=name, geprueft=True):
+        yield
+
+
+@contextmanager
 def journal_kontext(
     person: str | None = None,
     grund: str | None = None,

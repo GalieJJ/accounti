@@ -302,3 +302,43 @@ def test_ersteller_darf_freigeben_im_browser_mit_der_serverkonfiguration(welt):
     r = eva.post("/freigaben/zahlungslauf/1", data=daten)
     assert r.status_code == 200, r.text
     assert laufstatus(welt) == "freigegeben"
+
+
+def bindung_setzen(url: str) -> None:
+    """Gesellschafts-Datenbank an die Benutzerverwaltung gebunden (Merker), wie nach
+    der ersten Rechteprüfung — ab dann kennzeichnet das Journal ungeprüfte Personen."""
+    from datetime import datetime
+
+    from accounti.db.repo_auth import setze_merker_einmal
+
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        setze_merker_einmal(
+            s,
+            "benutzerverwaltung",
+            '{"gesellschaft": "a", "system": "x"}',
+            datetime.now(),
+        )
+        s.commit()
+    engine.dispose()
+
+
+def test_freigabe_im_browser_steht_geprueft_im_journal(welt):
+    """Abschlussprüfung M-A: Der angemeldete Freigeber (mit frischem Einmalcode) steht
+    ohne „(ungeprüft)“ im Journal — auch in einer gebundenen Datenbank."""
+    url = welt.umgebung.db["a"]
+    bindung_setzen(url)
+    freigeber = welt.angemeldet("freigeber")
+    r = anfrage(
+        welt, freigeber, Rolle.FREIGEBER, "POST", "/freigaben/zahlungslauf/{nr}"
+    )
+    assert r.status_code == 200, r.text
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        personen = set(
+            s.execute(
+                text("SELECT person FROM journal WHERE vorgang LIKE 'zahlungslauf_%'")
+            ).scalars()
+        )
+    engine.dispose()
+    assert "freigeber" in personen and not any("ungeprüft" in p for p in personen)

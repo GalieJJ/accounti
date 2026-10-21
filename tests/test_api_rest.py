@@ -296,6 +296,11 @@ def test_im_journal_steht_das_token(welt):
         engine.dispose()
         return [(nr, person) for nr, person in zeilen]
 
+    # gebunden wie nach der ersten Rechteprüfung — sonst kennzeichnete das Journal
+    # gar nicht, und „geprüft“ des Tokens bliebe ungetestet (Abschlussprüfung U4)
+    from tests.test_api_rechte_matrix import bindung_setzen
+
+    bindung_setzen(welt.umgebung.db["a"])
     bisher = max((nr for nr, _ in personen()), default=0)
     token = welt.token("a", TokenRecht.BELEGE_SCHREIBEN)
     r = welt.client().post(
@@ -320,6 +325,9 @@ def test_lauf_ueber_rest_steht_unter_dem_token_im_journal(welt, monkeypatch):
         return {"lauf": "bank"}
 
     monkeypatch.setattr(laeufe, "_bank", lauf)
+    from tests.test_api_rechte_matrix import bindung_setzen
+
+    bindung_setzen(welt.umgebung.db["a"])
     token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
     r = welt.client().post("/api/v1/laeufe/bank", headers=bearer(token))
     assert r.status_code == 200, r.text

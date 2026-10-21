@@ -164,9 +164,13 @@ def _vorschlag_zu(session: Session, praefix: str) -> list[Zahlungszuordnung]:
 
 
 def bestaetige(
-    session: Session, praefix: str, einstellungen: Buchhaltung
+    session: Session,
+    praefix: str,
+    einstellungen: Buchhaltung,
+    von: str | None = None,
 ) -> list[Buchungssatz]:
-    """Bucht einen Vorschlag; die Buchungen gelten als vom Menschen geprüft."""
+    """Bucht einen Vorschlag; die Buchungen gelten als vom Menschen (``von``)
+    geprüft."""
     zuordnungen = _vorschlag_zu(session, praefix)
     tx = lade_transaktion(session, zuordnungen[0].transaktion_id)
     if tx is None:
@@ -178,7 +182,12 @@ def bestaetige(
     ]
     try:
         buchungen = gleiche_aus(
-            session, tx, anteile, einstellungen, status=BuchungStatus.GEPRUEFT
+            session,
+            tx,
+            anteile,
+            einstellungen,
+            status=BuchungStatus.GEPRUEFT,
+            geprueft_von=von[:50] if von else None,
         )
     except ValueError as fehler:
         raise ZahlungslaufError(f"Vorschlag veraltet: {fehler}") from fehler

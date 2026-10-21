@@ -115,13 +115,37 @@ def _vorschlag(session: Session, praefix: str) -> Belegabgleich:
     return treffer[0]
 
 
+def _entscheidung_ins_journal(
+    session: Session, a: Belegabgleich, vorgang: str, verworfen: list[str]
+) -> None:
+    """Der Belegabgleich speichert keine Person — die Entscheidung eines Menschen
+    steht deshalb im Journal (Person aus dem Journal-Kontext, Baustein 7)."""
+    from accounti.pruefung.journal import schreibe
+
+    schreibe(
+        session,
+        vorgang,
+        "belegabgleich",
+        str(a.id),
+        nachher={
+            "transaktion_id": str(a.transaktion_id),
+            "beleg_id": str(a.beleg_id),
+            "stufe": a.stufe,
+            "verworfen": verworfen,
+        },
+    )
+
+
 def bestaetige_abgleich(session: Session, praefix: str) -> Belegabgleich:
     """Bestätigt einen Vorschlag und verwirft die konkurrierenden."""
     a = _vorschlag(session, praefix)
     setze_abgleich_status(session, a.id, AbgleichStatus.BESTAETIGT)
+    verworfen = []
     for andere in lade_abgleiche(session, status={AbgleichStatus.VORGESCHLAGEN}):
         if andere.transaktion_id == a.transaktion_id or andere.beleg_id == a.beleg_id:
             setze_abgleich_status(session, andere.id, AbgleichStatus.ABGELEHNT)
+            verworfen.append(str(andere.id))
+    _entscheidung_ins_journal(session, a, "abgleich_bestaetigt", verworfen)
     return a.model_copy(update={"status": AbgleichStatus.BESTAETIGT})
 
 
@@ -129,6 +153,7 @@ def lehne_abgleich_ab(session: Session, praefix: str) -> Belegabgleich:
     """Verwirft einen Vorschlag; das Paar wird nicht wieder vorgeschlagen."""
     a = _vorschlag(session, praefix)
     setze_abgleich_status(session, a.id, AbgleichStatus.ABGELEHNT)
+    _entscheidung_ins_journal(session, a, "abgleich_abgelehnt", [])
     return a.model_copy(update={"status": AbgleichStatus.ABGELEHNT})
 
 

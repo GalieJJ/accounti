@@ -66,18 +66,19 @@ def _person(von: str | None) -> str:
     return von or person_standard()
 
 
-def _benutzer_oder_person(
-    db: str, config: str, recht_name: str, von: str | None
-) -> str:
+@contextmanager
+def _handelnd(db: str, config: str, recht_name: str, von: str | None) -> Iterator[str]:
     """Mit eingerichteten Benutzern: Recht und Einmalcode der handelnden Person —
-    ins Protokoll kommt der Benutzer; ohne Benutzer wie bisher ``--von`` bzw.
-    ``ACCOUNTI_BENUTZER``/Anmeldename."""
+    ins Protokoll und geprüft ins Journal kommt der Benutzer; ohne Benutzer wie
+    bisher ``--von`` bzw. ``ACCOUNTI_BENUTZER``/Anmeldename."""
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.models.auth import Recht
+    from accounti.pruefung.person import geprueft_als
 
     person = _person(von)
     benutzer = befehlsrecht_oder_ende(db, config, Recht(recht_name), person)
-    return benutzer.name if benutzer is not None else person
+    with geprueft_als(benutzer.name if benutzer is not None else None):
+        yield benutzer.name if benutzer is not None else person
 
 
 def _einstellungen(config: str) -> ZahlungEinstellungen:
@@ -209,6 +210,7 @@ def anlegen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.models.auth import Recht
+    from accounti.pruefung.person import geprueft_als
     from accounti.zahlung.freigabe import LaufError, lege_an
 
     e = _mit_filtern(_einstellungen(config), vorlauf, ohne_skonto, minimum, maximum)
@@ -219,7 +221,7 @@ def anlegen(
     # dann der Benutzer, nicht ein Freitext (Vier-Augen: er gibt nicht selbst frei)
     benutzer = befehlsrecht_oder_ende(db, config, Recht.BUCHEN, person)
     ersteller = benutzer.name if benutzer is not None else person
-    with _sitzung(db) as s:
+    with geprueft_als(benutzer.name if benutzer else None), _sitzung(db) as s:
         v = _vorschlag(s, e, tag, kontakt)
         try:
             lauf = lege_an(s, v, e, ersteller, ausfuehrung=termin)
@@ -335,8 +337,7 @@ def entfernen(
     from accounti.anzeige import betrag_de
     from accounti.zahlung.freigabe import LaufError, entferne
 
-    person = _benutzer_oder_person(db, config, "buchen", von)
-    with _sitzung(db) as s:
+    with _handelnd(db, config, "buchen", von) as person, _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
             z = entferne(s, nr, position, person)
@@ -385,6 +386,7 @@ def freigeben(
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.models.auth import Recht
     from accounti.models.zahlung import LaufStatus
+    from accounti.pruefung.person import geprueft_als
     from accounti.zahlung import freigabe
 
     e = _einstellungen(config)
@@ -397,7 +399,7 @@ def freigeben(
     # zahlung.ersteller_darf_freigeben käme hier aus einer frei wählbaren Datei
     # (--config, ACCOUNTI_KONFIG, eigene Registry) und gilt nur im Browser
     benutzer = befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
-    with _sitzung(db) as s:
+    with geprueft_als(benutzer.name if benutzer else None), _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
             lauf = freigabe.freigeben(
@@ -440,10 +442,15 @@ def sepa(
     from accounti.zahlung.sepa import erzeuge_datei
 
     e = _einstellungen(config)
-    with _sitzung(db) as s:
+    # die SEPA-Datei ist der Zahlungsauftrag an die Bank (Status eingereicht): mit
+    # Benutzern nur, wer Zahlungsläufe freigeben darf — wie Freigabe und Storno
+    with (
+        _handelnd(db, config, "zahlung_freigeben", von) as person,
+        _sitzung(db) as s,
+    ):
         _lauf_oder_ende(s, nr)
         try:
-            lauf, xml, neu = erzeuge_datei(s, nr, e, _person(von), date.today())
+            lauf, xml, neu = erzeuge_datei(s, nr, e, person, date.today())
         except LaufGesperrtError as fehler:
             raise _befunde(fehler.ergebnis.zeilen(), nr) from fehler
         except LaufError as fehler:
@@ -491,8 +498,7 @@ def stornieren(
     from accounti.zahlung.freigabe import LaufError, storniere
 
     # hebt eine Freigabe auf — mit Benutzern nur, wer Zahlungsläufe freigeben darf
-    person = _benutzer_oder_person(db, config, "zahlung_freigeben", von)
-    with _sitzung(db) as s:
+    with _handelnd(db, config, "zahlung_freigeben", von) as person, _sitzung(db) as s:
         vorher = _lauf_oder_ende(s, nr).status
         try:
             storniere(s, nr, person, grund)
@@ -516,8 +522,10 @@ def abgleichen(
     """Eingereichte Läufe auf „ausgeführt“ setzen, sobald alle Posten ausgeglichen."""
     from accounti.zahlung.freigabe import pruefe_ausfuehrung
 
-    with _sitzung(db) as s:
-        fertig = pruefe_ausfuehrung(s, _person(von))
+    # Abgleich mit den Kontoumsätzen ist Buchhaltung: mit Benutzern buchen und
+    # Einmalcode (der Lauf wird „ausgeführt“, das Protokoll nennt die Person)
+    with _handelnd(db, config, "buchen", von) as person, _sitzung(db) as s:
+        fertig = pruefe_ausfuehrung(s, person)
         s.commit()
     if not fertig:
         _zeile(
@@ -540,8 +548,7 @@ def sperre(
     """Zahlungssperre an einem Kontakt setzen oder aufheben."""
     from accounti.zahlung.freigabe import LaufError, hebe_sperre_auf, setze_sperre
 
-    person = _benutzer_oder_person(db, config, "buchen", von)
-    with _sitzung(db) as s:
+    with _handelnd(db, config, "buchen", von) as person, _sitzung(db) as s:
         try:
             if aufheben:
                 k, war = hebe_sperre_auf(s, kontakt)
@@ -580,8 +587,7 @@ def iban_klaeren(
     from accounti.zahlung.iban import lesbar
 
     # die Klärung ist die Betrugskontrolle: mit Benutzern buchen und Einmalcode
-    person = _benutzer_oder_person(db, config, "buchen", von)
-    with _sitzung(db) as s:
+    with _handelnd(db, config, "buchen", von) as person, _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
             k = klaeren(s, nr, position, person, grund)

@@ -86,7 +86,7 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "abschluss eroeffnung",
         "bank bestaetigen|ablehnen",
         "nachfordern anfrage --senden",
-        "zahlung anlegen|entfernen|sperre|iban-klaeren",
+        "zahlung anlegen|entfernen|sperre|iban-klaeren|abgleichen",
     ),
     Recht.BUCHUNG_FREIGEBEN: (
         "bestaetige",
@@ -98,7 +98,7 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "export datev",
         "datev belege",
     ),
-    Recht.ZAHLUNG_FREIGEBEN: ("zahlung freigeben|stornieren",),
+    Recht.ZAHLUNG_FREIGEBEN: ("zahlung freigeben|stornieren|sepa",),
     Recht.STEUER_FREIGEBEN: (
         "ustva freigeben",
         "ustva dauerfrist --freigeben",

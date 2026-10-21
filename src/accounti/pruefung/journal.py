@@ -231,17 +231,24 @@ def fuege_an(verbindung: Connection, vorgaenge: list[Vorgang]) -> list[Journalei
         zeitpunkt=jetzt, person="", vorgang="", objekt_typ="", objekt_id=""
     )
     zeit = vorlage.model_dump(mode="json")["zeitpunkt"]
-    person = ctx.person or aktuelle_person()
-    if not ctx.geprueft and benutzer_eingerichtet(verbindung):
-        # nicht über Rolle und Einmalcode bestätigt (Läufe, Importe, Freitext)
-        person = person[: PERSON_LAENGE - len(UNGEPRUEFT)] + UNGEPRUEFT
+    # nicht über Rolle und Einmalcode bestätigt (Läufe, Importe, Freitext): mit
+    # eingerichteten Benutzern gekennzeichnet — auch eine Person, die der Vorgang
+    # selbst mitbringt (Protokoll, geprueft_von), sonst ließe sie sich vorschieben
+    ungeprueft = not ctx.geprueft and benutzer_eingerichtet(verbindung)
+
+    def gekennzeichnet(name: str) -> str:
+        if ungeprueft:
+            return name[: PERSON_LAENGE - len(UNGEPRUEFT)] + UNGEPRUEFT
+        return name[:PERSON_LAENGE]
+
+    person = gekennzeichnet(ctx.person or aktuelle_person())
     zeilen = []
     for v in vorgaenge:
         nr += 1
         daten = {
             "nr": nr,
             "zeitpunkt": zeit,
-            "person": (v.person or person)[:PERSON_LAENGE],
+            "person": gekennzeichnet(v.person) if v.person else person,
             "vorgang": v.vorgang,
             "objekt_typ": v.objekt_typ,
             "objekt_id": v.objekt_id,
@@ -431,6 +438,31 @@ def _pruefe_uebernahmen(eintraege: list[Journaleintrag], p: Journalpruefung) -> 
             )
 
 
+def _als_objekt(text: str) -> dict[str, Any] | None:
+    """Vorher/Nachher als Objekt — ``None``, wenn es kein JSON-Objekt ist."""
+    try:
+        wert = json.loads(text)
+    except ValueError:
+        return None
+    return wert if isinstance(wert, dict) else None
+
+
+def _pruefe_staende(eintraege: list[Journaleintrag], p: Journalpruefung) -> None:
+    """Vorher und Nachher sind JSON-Objekte — sonst ein Befund statt eines Absturzes."""
+    for e in eintraege:
+        for name, stand in (("Vorher", e.vorher), ("Nachher", e.nachher)):
+            if stand is not None and _als_objekt(stand) is None:
+                p.befunde.append(
+                    Journalbefund(
+                        "unlesbar",
+                        f"Eintrag {e.nr} ({e.vorgang}): {name}-Stand ist kein "
+                        "JSON-Objekt",
+                        nr=e.nr,
+                        objekt=e.objekt_id,
+                    )
+                )
+
+
 def letzter_stand(eintraege: list[Journaleintrag]) -> dict[tuple[str, str], Any]:
     """Je Objekt der letzte Stand laut Journal — ``None`` nach dem Verwerfen."""
     stand: dict[tuple[str, str], Any] = {}
@@ -439,7 +471,7 @@ def letzter_stand(eintraege: list[Journaleintrag]) -> dict[tuple[str, str], Any]
             continue
         schluessel = (e.objekt_typ, e.objekt_id)
         if e.nachher is not None:
-            stand[schluessel] = json.loads(e.nachher)
+            stand[schluessel] = _als_objekt(e.nachher) or {}
         elif e.vorher is not None:
             stand[schluessel] = None
     return stand
@@ -472,7 +504,7 @@ def _pruefe_verlauf(eintraege: list[Journaleintrag], p: Journalpruefung) -> None
             and letzter.get(schluessel) is not None
             and (e.vorher, e.nachher) != paar.get(schluessel)
         ):
-            zuletzt, stand = letzter[schluessel], json.loads(e.vorher)
+            zuletzt, stand = letzter[schluessel], _als_objekt(e.vorher) or {}
             # über die Felder: eine später hinzugekommene Spalte fehlt in alten
             # Einträgen und gilt dort als None (keine dauerhaften Befunde)
             if unterschiede := _unterschiede(zuletzt, stand):
@@ -487,7 +519,9 @@ def _pruefe_verlauf(eintraege: list[Journaleintrag], p: Journalpruefung) -> None
                         objekt=e.objekt_id,
                     )
                 )
-        letzter[schluessel] = json.loads(e.nachher) if e.nachher is not None else None
+        letzter[schluessel] = (
+            (_als_objekt(e.nachher) or {}) if e.nachher is not None else None
+        )
         paar[schluessel] = (e.vorher, e.nachher)
 
 
@@ -517,6 +551,15 @@ def _pruefe_bestand(
 ) -> None:
     stand = letzter_stand(eintraege)
     verbindung = session.connection()
+    # vor dem ersten regulären Eintrag lässt sich Bestand noch übernehmen
+    uebernahme = all(e.vorgang in UEBERNAHMEN for e in eintraege)
+    weg = (
+        "Bestand von vor dem Journal: accounti journal uebernehmen"
+        if uebernahme
+        else "das Journal führt schon, übernehmen lässt sich nichts mehr: Herkunft "
+        "klären, eine falsche Buchung mit accounti buchung storniere aufheben bzw. "
+        "einen Beleg neu erfassen"
+    )
     for typ, tabelle in BESTAND.items():
         aktuell = {
             str(z["id"]): schnappschuss(tabelle, z)
@@ -529,8 +572,7 @@ def _pruefe_bestand(
                     Journalbefund(
                         "ohne_eintrag",
                         f"{objekt} hat keinen Journaleintrag (an accounti vorbei "
-                        "angelegt? Bestand von vor dem Journal: accounti journal "
-                        "uebernehmen)",
+                        f"angelegt? {weg})",
                         objekt=ident,
                     )
                 )
@@ -638,12 +680,15 @@ def lesestand(session: Session) -> Iterator[Connection]:
     Aufrufer vorher per Flush in seine Transaktion — der Lesestand schreibt nichts
     fest, was ein späteres ``rollback`` zurücknehmen soll."""
     if session.get_bind().dialect.name == "postgresql" and not session.in_transaction():
-        yield session.connection(
-            execution_options={
-                "isolation_level": "REPEATABLE READ",
-                "postgresql_readonly": True,
-            }
-        )
+        try:
+            yield session.connection(
+                execution_options={
+                    "isolation_level": "REPEATABLE READ",
+                    "postgresql_readonly": True,
+                }
+            )
+        finally:
+            session.rollback()  # keine Read-only-Transaktion in der Sitzung lassen
         return
     verbindung = session.connection()
     begonnen = False
@@ -682,6 +727,7 @@ def _pruefe(session: Session, kopf: str | None, p: Journalpruefung) -> Journalpr
     if kopf is not None:
         _pruefe_kopf(eintraege, kopf, p)
     _pruefe_uebernahmen(eintraege, p)
+    _pruefe_staende(eintraege, p)
     _pruefe_verlauf(eintraege, p)
     _pruefe_bestand(session, eintraege, p)
     _pruefe_sperren(session, eintraege, p)

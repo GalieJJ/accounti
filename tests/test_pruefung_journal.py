@@ -416,3 +416,80 @@ def test_uebernahme_nur_auf_dem_upgrade_weg(make_session, tmp_path):
         befunde = pruefe_journal(s).befunde
     assert [b.art for b in befunde] == ["uebernahme"]
     assert "nachträglich übernommen" in befunde[0].text
+
+
+def test_befundtext_empfiehlt_uebernahme_nur_wenn_moeglich(make_session):
+    """Abschlussprüfung N-G: Führt das Journal schon, lehnt ``journal uebernehmen``
+    ab — der Befund empfiehlt es dann nicht, sondern nennt den Weg."""
+    anlegen(make_session, buchung())
+    with make_session() as s:
+        s.execute(
+            text(
+                "INSERT INTO buchungssaetze (id, datum, soll_konto, haben_konto, "
+                "betrag_netto, buchungstext, status, confidence) VALUES ("
+                "'00000000-0000-0000-0000-0000000000aa', '2026-08-20', '4900', "
+                "'1200', 50, 'vorbei', 'geprueft', 1)"
+            )
+        )
+        s.commit()
+        (befund,) = pruefe_journal(s).befunde
+    assert befund.art == "ohne_eintrag"
+    assert "journal uebernehmen" not in befund.text
+    assert "buchung storniere" in befund.text
+
+
+def test_journal_mit_nicht_objekt_stuerzt_nicht_ab(make_session):
+    """Hinweis der Abschlussprüfung: Ein Eintrag, dessen Vorher/Nachher gültiges
+    JSON, aber kein Objekt ist, wird gemeldet, statt die Prüfung abzubrechen."""
+    from accounti.pruefung.journal import Vorgang, fuege_an
+
+    b = buchung()
+    anlegen(make_session, b)
+    with make_session() as s:
+        fuege_an(
+            s.connection(),
+            [Vorgang("buchung_geaendert", "buchung", str(b.id), nachher=[1, 2])],  # type: ignore[arg-type]
+        )
+        s.commit()
+        arten = {x.art for x in pruefe_journal(s).befunde}
+    assert "unlesbar" in arten
+
+
+def test_neue_person_im_kontext_ist_ungeprueft():
+    """Abschlussprüfung N-F (U3): Innerhalb eines geprüften Kontexts bleibt dieselbe
+    Person geprüft (auch mit neuem Grund); eine andere Person nicht."""
+    from accounti.pruefung.person import kontext
+
+    assert not kontext().geprueft
+    with journal_kontext(person="eva", geprueft=True):
+        assert kontext().geprueft
+        with journal_kontext(grund="Nachtrag"):
+            assert kontext().geprueft
+        with journal_kontext(person="eva"):
+            assert kontext().geprueft
+        with journal_kontext(person="mallory"):
+            assert not kontext().geprueft
+            assert kontext().person == "mallory"
+        assert kontext().geprueft
+    assert not kontext().geprueft
+
+
+def test_gebundene_datenbank_kennzeichnet_ohne_eigene_benutzer(make_session):
+    """N-F (U6): Eine Gesellschafts-Datenbank ohne eigene Benutzer, aber gebunden
+    an eine Systemdatenbank (Merker), kennzeichnet ungeprüfte Personen."""
+    from datetime import datetime
+
+    from accounti.db.repo_auth import setze_merker_einmal
+
+    with make_session() as s:
+        setze_merker_einmal(
+            s,
+            "benutzerverwaltung",
+            '{"gesellschaft": "a", "system": "x"}',
+            datetime.now(),
+        )
+        s.commit()
+    with journal_kontext(person="chef"):
+        anlegen(make_session, buchung())
+    (e,) = _journal(make_session)
+    assert e.person == "chef (ungeprüft)"

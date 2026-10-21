@@ -249,10 +249,14 @@ def freigeben(
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.elster.freigabe import FreigabeError, gib_frei
     from accounti.models.auth import Recht
+    from accounti.pruefung.person import geprueft_als
 
     # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10)
-    befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
-    with sitzung(period, db, config) as (s, lauf):
+    benutzer = befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
+    with (
+        geprueft_als(benutzer.name if benutzer else None),
+        sitzung(period, db, config) as (s, lauf),
+    ):
         v = lauf.vorbereiten(s)
         zeige_kennziffern(v)
         zeige_befunde(v.befunde)
@@ -505,11 +509,15 @@ def dauerfrist(
 
     if test and testfall:
         ende("--test und --testfall schließen sich aus")
+    from accounti.pruefung.person import geprueft_als
+
+    geprueft: str | None = None
     if freigeben and von:
         from accounti.auth.cli import befehlsrecht_oder_ende
         from accounti.models.auth import Recht
 
-        befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
+        benutzer = befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
+        geprueft = benutzer.name if benutzer is not None else None
     try:
         einstellungen = lade_elster(config)
         buchhaltung = lade_buchhaltung(config)
@@ -520,7 +528,7 @@ def dauerfrist(
     engine, make_session = session_factory(db)
     init_db(engine)
     try:
-        with make_session() as s:
+        with geprueft_als(geprueft), make_session() as s:
             try:
                 svz = berechne_svz(s, jahr, einstellungen, summe, vorjahr)
             except DauerfristError as fehler:

@@ -262,11 +262,28 @@ def test_vorschlag_anzeigen_und_bestaetigen(tmp_path):
     assert tx in liste.output and "sammel" in liste.output
     for nummer in ("RE-1001", "RE-1002", "RE-1003"):
         assert nummer in liste.output
+    keine = str(tmp_path / "keine.yaml")
     r = _run(
-        "opos", "bestaetigen", tx, "--db", url, "--config", str(tmp_path / "keine.yaml")
+        "opos", "bestaetigen", tx, "--db", url, "--config", keine, "--von", "erika"
     )
     assert r.exit_code == 0, r.output
     assert "3 Buchungen" in r.output
+    # Abschlussprüfung N-E: die Ausgleichsbuchungen tragen den Prüfvermerk
+    from sqlalchemy import text
+
+    from accounti.db import session_factory
+
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        pruefer = set(
+            s.execute(
+                text(
+                    "SELECT geprueft_von FROM buchungssaetze WHERE status = 'geprueft'"
+                )
+            ).scalars()
+        )
+    engine.dispose()
+    assert pruefer == {"erika"}
     assert "Keine offenen Posten" in _run("opos", "liste", "--db", url).output
     assert "Keine Vorschläge" in _run("opos", "vorschlaege", "--db", url).output
 

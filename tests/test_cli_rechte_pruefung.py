@@ -465,3 +465,67 @@ def test_journal_uebernehmen_nur_als_verwalter(welt, monkeypatch):
     r = _run(url, config, "journal", "uebernehmen", "--von", "admin")
     assert r.exit_code == 0, r.output
     assert ("bestand_uebernommen", "admin") in _journal(url, "vorgang", "person")
+
+
+def test_zahlung_einreichen_nicht_unter_fremdem_namen(tmp_path, monkeypatch):
+    """Abschlussprüfung M-A: mallory (kein Benutzer, kein Einmalcode) reicht mit
+    ``--von chef`` keinen Zahlungslauf ein und gleicht keinen ab — beide Befehle
+    sind gebunden; im Journal stehen die 10a-Freigaben unter dem geprüften
+    Benutzer (ohne „(ungeprüft)“), das echte Einreichen unter chef."""
+    from tests import test_cli_zahlung as zahlung
+
+    url, config = zahlung._umgebung(tmp_path)
+    basis = ["--db", url, "--config", config]
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        p = {
+            "eva": lege_person_an(s, "eva", Rolle.BUCHHALTER, jetzt=datetime.now()),
+            "chef": lege_person_an(s, "chef", Rolle.FREIGEBER, jetzt=datetime.now()),
+        }
+    engine.dispose()
+
+    def run(*args):  # type: ignore[no-untyped-def]
+        return runner.invoke(app, [*args, *basis], env={"COLUMNS": "250"})
+
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert run("zahlung", "anlegen", "--von", "eva").exit_code == 0
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    assert run("zahlung", "freigeben", "1", "--von", "chef").exit_code == 0
+    monkeypatch.delenv("ACCOUNTI_EINMALCODE")
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "mallory")
+    datei = tmp_path / "x.xml"
+    r = run("zahlung", "sepa", "1", "--datei", str(datei), "--von", "chef")
+    assert r.exit_code == 1 and not datei.exists()  # Einmalcode fehlt
+    r = run("zahlung", "sepa", "1", "--datei", str(datei))
+    assert r.exit_code == 1 and "mallory ist kein aktiver Benutzer" in r.output
+    r = run("zahlung", "abgleichen", "--von", "chef")
+    assert r.exit_code == 1 and "chef darf" in r.output  # freigeber bucht nicht
+    vorgaenge = [v for v, _ in _journal(url, "vorgang", "person")]
+    assert "zahlungslauf_eingereicht" not in vorgaenge
+
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = run("zahlung", "sepa", "1", "--datei", str(datei), "--von", "chef")
+    assert r.exit_code == 0, r.output
+    eintraege = _journal(url, "vorgang", "person")
+    assert ("zahlungslauf_eingereicht", "chef") in eintraege
+    assert ("zahlungslauf_angelegt", "eva") in eintraege
+    assert not [x for x in eintraege if "(ungeprüft)" in x[1]], eintraege
+
+
+def test_eigene_person_eines_vorgangs_wird_auch_gekennzeichnet(welt):
+    """M-A (1): Ein Vorgang mit eigener Person (Protokoll, geprueft_von) außerhalb
+    einer Rechteprüfung steht ebenfalls als „(ungeprüft)“ im Journal."""
+    from accounti.pruefung.journal import schreibe
+    from accounti.pruefung.person import journal_kontext
+
+    url, _, _, _ = welt
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        schreibe(s, "export", "export", "frei", nachher={"n": 1}, person="chef")
+        with journal_kontext(person="chef", geprueft=True):
+            schreibe(s, "export", "export", "geprueft", nachher={"n": 2}, person="chef")
+        s.commit()
+    engine.dispose()
+    eintraege = _journal(url, "objekt_id", "person")
+    assert ("frei", "chef (ungeprüft)") in eintraege
+    assert ("geprueft", "chef") in eintraege

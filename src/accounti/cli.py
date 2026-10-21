@@ -1770,17 +1770,20 @@ def opos_bestaetigen(
     from accounti.konfiguration import lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.opos.zahlungslauf import ZahlungslaufError, bestaetige
+    from accounti.pruefung.person import aktuelle_person
 
     engine, make_session = session_factory(db)
     init_db(engine)
     # der Vorschlag wird zur freigegebenen Ausgleichsbuchung (Status geprueft):
     # Buchungen freigeben (buchhalter, freigeber) und Einmalcode
     with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von),
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
         make_session() as s,
     ):
         try:
-            buchungen = bestaetige(s, transaktion, lade_buchhaltung(config))
+            buchungen = bestaetige(
+                s, transaktion, lade_buchhaltung(config), aktuelle_person(person)
+            )
         except ZahlungslaufError as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
@@ -2247,7 +2250,7 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
-            ergebnis = bank_lauf(s, engine, einstellungen)
+            ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
             s.commit()
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
