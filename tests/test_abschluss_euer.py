@@ -354,3 +354,44 @@ def test_skr04_wege_und_kalkulatorische_kosten(make_session):
     assert euer.nicht_zugeordnet == []
     assert euer.gewinn == D("8164")
     assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("6000")
+
+
+def test_hinweis_je_konto_skr03(make_session):
+    """Abschreibung auf Finanzanlagen: keine Zeile — die EÜR nennt Konto und Grund
+    statt nur „Zuordnung prüfen“; Konten ohne hinterlegten Hinweis bleiben allgemein."""
+    buche(make_session, date(2026, 3, 1), "1200", "8400", "1000")
+    buche(make_session, date(2026, 12, 31), "4870", "0525", "200")  # Teilwert
+    buche(make_session, date(2026, 12, 31), "5900", "1200", "10")  # frei, ohne Hinweis
+    buche(make_session, date(2026, 12, 31), "4892", "3980", "30")  # Vorräte: „-“
+    susa, euer = _euer(make_session)
+    [teilwert] = [h for h in euer.hinweise if "4870" in h]
+    assert teilwert.startswith("Konten ohne Zeile der Anlage EÜR: 4870")
+    assert "Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren" in (
+        teilwert
+    )
+    assert "5900" not in teilwert and "Zuordnung prüfen" not in teilwert
+    [allgemein] = [h for h in euer.hinweise if "5900" in h]
+    assert "Zuordnung prüfen" in allgemein
+    [vorraete] = [h for h in euer.hinweise if "4892" in h]
+    assert vorraete.startswith("Konto 4892: Abschreibung auf Vorräte")
+    # der Gewinn bleibt wie gebucht: 4870 und 5900 zählen mit, 4892 steht außerhalb
+    assert euer.summe_ausgaben == D("210")
+    assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("760")
+
+
+def test_hinweis_je_konto_skr04(make_session):
+    skr04 = lade_kontenrahmen("SKR04")
+    buche(make_session, date(2026, 3, 1), "1800", "4400", "1000")
+    buche(make_session, date(2026, 12, 31), "7200", "0900", "200")  # Teilwert
+    buche(make_session, date(2026, 12, 31), "6249", "0520", "50")  # § 6b-Abzug
+    with make_session() as s:
+        susa = summen_und_salden(s, 2026, skr04, "euer")
+    euer = erstelle_euer(susa, skr04)
+    [teilwert] = [h for h in euer.hinweise if "7200" in h]
+    assert "Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren" in (
+        teilwert
+    )
+    assert "Anschaffungskosten von Finanzanlagen und Wertpapieren erst bei" in teilwert
+    [abzug] = [h for h in euer.hinweise if "6249" in h]
+    assert abzug.startswith("Konto 6249: Abzug nach § 6c i. V. m. § 6b EStG")
+    assert {z.kz: z.betrag for z in euer.ausgaben} == {"190": D("50")}

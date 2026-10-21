@@ -74,6 +74,8 @@ steuerkonten: {}
 # kz: null  — keine Zeile bekannt: zählt als „nicht zugeordnet“ mit (Warnung)
 # kz: "-"   — gehört nicht in die EÜR (weder Betriebseinnahme noch -ausgabe, z. B.
 #             Steuern vom Einkommen); erscheint nur in der Überleitung zur SuSa
+# hinweis   — Text zum Konto in EÜR und Abschlussprüfung (warum ohne Zeile, was zu
+#             tun ist); unbekannte Schlüssel lehnt der Lader ab
 # Erlösschmälerungen und Forderungsverluste stehen bei der Kennzahl ihrer Erlöse und
 # mindern sie (Posten „Einnahmen“ im DATEV-Kontenrahmen für § 4 Abs. 3 EStG).
 euer:
@@ -138,6 +140,16 @@ euer:
                                             # (fehlen im DATEV-Kontenrahmen § 4/3)
   - {von: "8990", bis: "8999", kz: "103"}   # aktivierte Eigenleistungen
                                             # prüfen: neutralisieren Herstellungskosten
+  # Umwandlungsergebnis: fehlt im KR § 4/3; 2007 Restrukturierung bleibt Betriebsausgabe
+  # (183). „hinweis“ erscheint in der EÜR und in der Abschlussprüfung beim Konto
+  - von: "2004"
+    bis: "2004"
+    kz: "-"
+    hinweis: &umwandlung >-
+      Umwandlungsergebnis (Verschmelzung, Umwandlung) ist weder Zu- noch Abfluss und
+      gehört nicht in die EÜR; ggf. bei Wechsel der Gewinnermittlungsart (Zeile 89,
+      2026: 90)
+  - {von: "2504", bis: "2504", kz: "-", hinweis: *umwandlung}
   - {von: "2500", bis: "2599", kz: "103"}   # betriebs-/periodenfremde Erträge
                                             # prüfen: Steuerschlüssel je Buchung
   - {von: "2600", bis: "2799", kz: "103"}   # Zinserträge, sonstige Erträge
@@ -152,8 +164,9 @@ euer:
                                             # auf (§ 17 Abs. 2 Nr. 1 S. 2 UStG)
   - {von: "2752", bis: "2752", kz: "112"}   # Vermietung und Verpachtung 19 % USt
   - {von: "2795", bis: "2799", kz: "-"}     # Entnahmen aus Rücklagen (Ergebnisverwendung)
-  - {von: "2840", bis: "2899", kz: "-"}     # Rücklagen, Gewinnvortrag, verrechnete
-                                            # kalkulatorische Kosten
+  - {von: "2800", bis: "2899", kz: "-"}     # Rücklagen, Gewinnvortrag, verrechnete
+                                            # kalkulatorische Kosten (2800–2839 frei,
+                                            # wie SKR04 7700–7799)
   - {von: "1728", bis: "1728", kz: "140"}   # USt elektron. Dienstleistungen anderes EU-Land
   - {von: "1760", bis: "1768", kz: "140"}   # USt nicht fällig, USt OSS (wie SKR04)
   - {von: "1770", bis: "1779", kz: "140"}   # vereinnahmte Umsatzsteuer
@@ -212,6 +225,15 @@ euer:
   - {von: "2387", bis: "2399", kz: "-"}     # Spenden in den Vermögensstock
   - {von: "2400", bis: "2439", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
   - {von: "2402", bis: "2402", kz: "103"}   # … aus steuerfreien EU-Lieferungen
+  # Abschreibungen auf Forderungen (soweit unüblich hoch), Wertberichtigungen: keine
+  # Zeile, s. 4866 (wie SKR04 6290, 6920–6926)
+  - von: "2440"
+    bis: "2459"
+    kz: null
+    hinweis: >-
+      Teilwertabschreibung und Wertberichtigung auf Forderungen in der EÜR nicht
+      zulässig – Buchung stornieren; ein Forderungsausfall zählt erst, wenn er
+      feststeht
   - {von: "2480", bis: "2489", kz: "-"}     # Einstellungen in Rücklagen
   - {von: "2495", bis: "2499", kz: "-"}     # Einstellungen in Kapital-/Gewinnrücklagen
   - {von: "3000", bis: "3969", kz: "100"}   # Waren, Roh-, Hilfs- und Betriebsstoffe
@@ -285,10 +307,49 @@ euer:
   - {von: "4853", bis: "4854", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
   - {von: "4855", bis: "4861", kz: "132"}   # GWG
   - {von: "4856", bis: "4856", kz: "134"}   # Sonderabschreibung § 7b EStG
+  - von: "4859"                             # Abzugsbetrag nach § 6b EStG, s. 4873
+    bis: "4859"
+    kz: "190"
+    hinweis: &abzug_6b >-
+      Abzug nach § 6c i. V. m. § 6b EStG: in den Ergänzenden Angaben als Übertragung
+      stiller Reserven (Kz 170, Zeile 100, 2026: 101) eintragen; in Zeile 59 (2026:
+      60) enthalten
   - {von: "4862", bis: "4864", kz: "137"}   # Sammelposten
-  - {von: "4865", bis: "4869", kz: "132"}
+  - {von: "4865", bis: "4865", kz: "132"}   # außerplanmäßige Abschreibungen auf GWG
+  # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen (4866–4899),
+  # Wertberichtigungen auf Forderungen (2440–2459): keine Zeile. Teilwertabschreibung
+  # in der EÜR nicht zulässig – Buchung stornieren; Anschaffungskosten von Wertpapieren
+  # und nicht abnutzbarem Anlagevermögen erst bei Veräußerung (Anleitung zu Zeile 27
+  # und 38); im DATEV-Kontenrahmen § 4/3 fehlen sie. Mit null erscheinen sie mit
+  # Hinweis, der Gewinn bleibt wie gebucht (wie SKR04 6270, 6920–6926, 7200–7299)
+  - von: "4866"                             # Finanzanlagen, Wertpapiere
+    bis: "4879"
+    kz: null
+    hinweis: >-
+      Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren;
+      Anschaffungskosten von Finanzanlagen und Wertpapieren erst bei Veräußerung
+      (§ 4 Abs. 3 S. 4 EStG)
+  - von: "4880"                             # übriges Umlaufvermögen
+    bis: "4899"
+    kz: null
+    hinweis: >-
+      Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren; ein Verlust
+      zählt erst bei Abgang oder Ausfall
   - {von: "4872", bis: "4872", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
                                             # Zeile 91 (Fußnote 23)
+  # § 6b-Abzug von den Anschaffungskosten (auch § 6b Abs. 10, § 6c Abs. 1 nimmt nur
+  # Abs. 4 Nr. 1 aus): Zeile 100 „Übertragung von stillen Reserven“ (Kz 170),
+  # Gesamtsumme Kz 190 → Zeile 59 (Anleitung zu Zeilen 99/100; 2026: 101 → 60)
+  - {von: "4873", bis: "4874", kz: "190", hinweis: *abzug_6b}
+  # Abschreibungen auf Vorräte: Anschaffungskosten der Waren sind schon beim Abfluss
+  # Betriebsausgabe (Anleitung zu Zeile 27); fehlen im KR § 4/3 wie die
+  # Bestandsveränderungen Waren 3950–3954
+  - von: "4892"
+    bis: "4893"
+    kz: "-"
+    hinweis: >-
+      Abschreibung auf Vorräte gehört nicht in die EÜR: die Anschaffungskosten waren
+      schon beim Abfluss Betriebsausgabe
   - {von: "4909", bis: "4909", kz: "110"}   # Fremdleistungen/Fremdarbeiten
   - {von: "4910", bis: "4910", kz: "229"}   # Porto
   - {von: "4920", bis: "4929", kz: "280"}   # Telefon, Internet
@@ -302,6 +363,13 @@ euer:
   - {von: "4969", bis: "4969", kz: "226"}   # Abraum- und Abfallbeseitigung
   - {von: "4980", bis: "4989", kz: "229"}   # Betriebsbedarf, Werkzeuge
   - {von: "4990", bis: "4995", kz: "-"}     # kalkulatorische Kosten: keine Ausgabe
+  - {von: "4400", bis: "4499", kz: null}    # zur freien Verfügung (DATEV-Posten „Beson-
+  - {von: "5000", bis: "6999", kz: null}    # dere Aufwendungen“): die Zeile hängt vom
+                                            # Inhalt ab, also Hinweis; eigene Konten über
+                                            # abschluss.kontenzuordnung zuordnen (wie
+                                            # SKR04 7800–7899, 8000–8999)
+  - {von: "2900", bis: "2999", kz: "183"}   # reserviert, DATEV-Posten „Neutrale Aufwen-
+                                            # dungen“ (wie SKR04 7900)
 
 namen:
   "0027": "EDV-Software"

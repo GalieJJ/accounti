@@ -491,6 +491,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   176 und 190; alle Zeilen 2025 und 2026 gegen die BMF-Vordrucke (29.08.2025,
   01.09.2026) geprüft. Offene Punkte sind in den Zuordnungsdateien mit „prüfen:“
   markiert
+- **Abschluss – Kontenrahmen SKR03/SKR04, Konten ohne EÜR-Kennzahl:** Erfolgskonten
+  ohne Zeile der Anlage EÜR gegen das Gegenstück im anderen Kontenrahmen und die
+  DATEV-Kontenrahmen für § 4 Abs. 3 EStG (11079/11080) geprüft. SKR04: sonstige
+  betriebliche Erträge und Aufwendungen 7400–7599 (Restrukturierung, reserviert) Kz 103
+  bzw. 183 wie SKR03 2500–2599/2000–2099, reserviert 7900 und SKR03 2900 Kz 183
+  (DATEV-Posten „Neutrale Aufwendungen“), Kaufleasing 6250–6259 Kz 222; SKR03
+  2800–2839 außerhalb der EÜR wie die übrige Ergebnisverwendung. Außerhalb der EÜR
+  stehen auch das Umwandlungsergebnis (Verschmelzung, Umwandlung: SKR03 2004/2504,
+  SKR04 7451/7551; weder Zu- noch Abfluss) und die Abschreibungen auf Vorräte (SKR03
+  4892/4893, SKR04 6278/6279; die Anschaffungskosten waren schon beim Abfluss
+  Betriebsausgabe; bisher Kz 183). Der Abzug nach § 6b EStG (SKR03 4859, 4873/4874,
+  SKR04 6249, 7250/7255) steht als Übertragung stiller Reserven in Zeile 59 (Kz 190,
+  2026 Zeile 60; bisher GWG Kz 132, Sonderabschreibung Kz 134 bzw. Kz 183).
+  Abschreibungen auf Finanzanlagen, Wertpapiere und übriges Umlaufvermögen sowie
+  Wertberichtigungen auf Forderungen (SKR03 2440–2459 und 4866–4899, SKR04 6270–6277,
+  6290–6299, 6910–6912 und 7200–7299, jeweils ohne die schon genannten Konten und
+  4872/7208) haben in beiden Rahmen bewusst keine Zeile: Eine Teilwertabschreibung ist
+  in der EÜR nicht zulässig, Anschaffungskosten von Wertpapieren und nicht abnutzbarem
+  Anlagevermögen zählen erst bei der Veräußerung. Ebenso die Konten zur freien
+  Verfügung (SKR03 4400–4499 wie 5000–6999, SKR04 7800–7899, 8000–8999), deren Zeile
+  vom Inhalt abhängt. Sie erscheinen mit Hinweis als „nicht zugeordnet“, der Gewinn
+  bleibt unverändert (im SKR03 bisher Kz 183, 4866 sogar GWG Kz 132). Ein Test hält die
+  verbleibenden Konten ohne Kennzahl fest. EÜR und Abschlussprüfung nennen für diese Konten den Grund statt
+  nur „Zuordnung prüfen“ (z. B. „Teilwertabschreibung in der EÜR nicht zulässig –
+  Buchung stornieren“; neuer Schlüssel `hinweis` der EÜR-Regeln), ebenso für § 6b-Abzug,
+  Vorräte und Umwandlungsergebnis. Eine eigene Kontenzuordnung
+  (`abschluss.kontenzuordnung`) mit unbekanntem Schlüssel wird abgelehnt, statt die
+  Angabe still zu verwerfen
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
   erkannt“ zu melden
 - `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback

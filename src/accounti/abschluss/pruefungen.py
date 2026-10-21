@@ -316,22 +316,33 @@ def _euer_personenkonten(k: Abschlusskontext) -> list[Befund]:
 
 
 def _euer_zuordnung(k: Abschlusskontext) -> list[Befund]:
+    """Konten ohne Zeile der Anlage EÜR (Warnung, mit dem Hinweis ihrer Regel) und
+    Konten, deren Regel einen Hinweis trägt (z. B. § 6b-Abzug, Umwandlungsergebnis)."""
     if not k.euer:
         return []
-    ohne = [
-        z.konto
-        for z in k.susa.zeilen
-        if z.art is Kontenart.ERFOLG
-        and z.saldo != 0
-        and k.kontenrahmen.euer_kz(z.konto, z.saldo) is None
-    ]
-    if not ohne:
-        return []
-    text = (
-        f"Konten ohne Zeile der Anlage EÜR: {_liste(ohne)} — sie zählen als "
-        "„nicht zugeordnet“ (abschluss.kontenzuordnung)"
-    )
-    return [Befund("euer_zuordnung", Schwere.WARNUNG, text)]
+    ohne: dict[str | None, list[str]] = defaultdict(list)
+    mit_hinweis: dict[str, list[str]] = defaultdict(list)
+    for z in k.susa.zeilen:
+        if z.art is not Kontenart.ERFOLG or z.saldo == 0:
+            continue
+        hinweis = k.kontenrahmen.euer_hinweis(z.konto)
+        if k.kontenrahmen.euer_kz(z.konto, z.saldo) is None:
+            ohne[hinweis].append(z.konto)
+        elif hinweis:
+            mit_hinweis[hinweis].append(z.konto)
+    befunde = []
+    for hinweis, konten in sorted(ohne.items(), key=lambda g: (g[0] is not None, g[1])):
+        text = f"Konten ohne Zeile der Anlage EÜR: {_liste(konten)} — sie zählen als "
+        if hinweis:
+            text += f"„nicht zugeordnet“. {hinweis}"
+        else:
+            text += "„nicht zugeordnet“ (abschluss.kontenzuordnung)"
+        befunde.append(Befund("euer_zuordnung", Schwere.WARNUNG, text))
+    for hinweis, konten in sorted(mit_hinweis.items(), key=lambda g: g[1]):
+        art = "Konto " if len(konten) == 1 else "Konten "
+        text = f"{art}{_liste(konten)}: {hinweis}"
+        befunde.append(Befund("euer_zuordnung", Schwere.HINWEIS, text))
+    return befunde
 
 
 def _protokoll(k: Abschlusskontext) -> list[Befund]:

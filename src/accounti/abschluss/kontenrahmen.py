@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from accounti.steuer.umsatzsteuer import (
     DATEV_BU_SCHLUESSEL,
@@ -43,6 +43,9 @@ class Kontenart(str, enum.Enum):
 
 
 class _Spanne(BaseModel):
+    # unbekannte Schlüssel (Tippfehler) lehnt der Lader ab, statt sie still zu verwerfen
+    model_config = ConfigDict(extra="forbid")
+
     von: str
     bis: str
 
@@ -61,9 +64,12 @@ class _Art(_Spanne):
 class _EuerRegel(_Spanne):
     kz: str | None
     kz_haben: str | None = None
+    hinweis: str | None = None  # warum ohne Zeile bzw. was beim Ausfüllen zu tun ist
 
 
 class Vortragskonten(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sachkonten: str = "9000"
     debitoren: str = "9008"
     kreditoren: str = "9009"
@@ -83,6 +89,8 @@ STEUERSCHLUESSEL = _vorsteuer_schluessel()
 
 
 class Kontenrahmen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     quelle: str = ""
     arten: list[_Art] = Field(default_factory=list)
@@ -152,6 +160,12 @@ class Kontenrahmen(BaseModel):
         if saldo < 0 and regel.kz_haben:
             return regel.kz_haben  # type: ignore[no-any-return]
         return regel.kz  # type: ignore[no-any-return]
+
+    def euer_hinweis(self, konto: str) -> str | None:
+        """Hinweis der engsten EÜR-Regel, z. B. warum ein Konto keine Zeile hat."""
+        regel = self._engste(self.euer, konto)
+        hinweis: str | None = regel.hinweis if regel is not None else None
+        return hinweis
 
     def vortragskonto(
         self,
