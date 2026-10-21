@@ -407,11 +407,20 @@ LEITKONTEN_SKR03 = [
     # gungen 6920/6923: null, also mit Hinweis; bisher 183, 4866 sogar GWG (132)
     ("4866", "100", None),  # Abschreibungen auf Finanzanlagen (nicht dauerhaft)
     ("4870", "100", None),  # Abschreibungen auf Finanzanlagen (dauerhaft)
-    ("4874", "100", None),  # … auf Grund § 6b EStG-Rücklage
     ("4875", "100", None),  # Abschreibungen auf Wertpapiere des Umlaufvermögens
     ("4880", "100", None),  # … auf sonstiges Umlaufvermögen (soweit unüblich hoch)
     ("4886", "100", None),  # … auf Umlaufvermögen außer Vorräte (übliche Höhe)
-    ("4892", "100", None),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
+    # Abschreibungen auf Vorräte: die Anschaffungskosten der Waren sind schon beim
+    # Abfluss Betriebsausgabe (Anl zu Zeile 27); im KR-EÜR fehlen sie wie die
+    # Bestandsveränderungen Waren → außerhalb der EÜR (bisher 183)
+    ("4892", "100", "-"),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
+    ("4893", "100", "-"),  # … auf fertige und unfertige Erzeugnisse
+    # § 6b-Abzug von den Anschaffungskosten: Zeile 100 „Übertragung von stillen
+    # Reserven“ (Kz 170), Gesamtsumme Kz 190 → Zeile 59 (Anl zu Zeilen 99/100; 2026
+    # Zeile 101 → 60); bisher 132 (4859) bzw. 183
+    ("4859", "100", "190"),  # Abzugsbetrag nach § 6b EStG
+    ("4873", "100", "190"),  # Abschreibungen auf Finanzanlagen auf Grund § 6b-Rücklage
+    ("4874", "100", "190"),
     ("2440", "100", None),  # Abschreibungen auf Forderungen (soweit unüblich hoch)
     ("2451", "100", None),  # Einstellung in die Einzelwertberichtigung
     # Konten zur freien Verfügung (KR-EÜR S. 18, 21, 22: „Besondere Aufwendungen“): die
@@ -422,10 +431,12 @@ LEITKONTEN_SKR03 = [
     ("6000", "100", None),
     ("2900", "100", "183"),  # reserviert, „Neutrale Aufwendungen“ (KR-EÜR S. 13)
     # sonstige betriebliche Aufwendungen und Erträge (KR S. 13, 16): Gegenstücke zu
-    # SKR04 7451/7551/7553
-    ("2004", "100", "183"),  # Verluste durch Verschmelzung und Umwandlung
+    # SKR04 7451/7551/7553. Das Umwandlungsergebnis ist weder Zu- noch Abfluss
+    # (allenfalls Zeile 89, Wechsel der Gewinnermittlungsart) und fehlt im KR-EÜR
+    # → außerhalb der EÜR (bisher 183/103); Restrukturierung bleibt Betriebsausgabe
+    ("2004", "100", "-"),  # Verluste durch Verschmelzung und Umwandlung
+    ("2504", "-100", "-"),  # Erträge durch Verschmelzung und Umwandlung
     ("2007", "100", "183"),  # Aufwendungen für Restrukturierungs-/Sanierungsmaßnahmen
-    ("2504", "-100", "103"),  # Erträge durch Verschmelzung und Umwandlung
 ]
 
 # Konten, die der Kontenrahmen 2026 reserviert hat; Buchungen bis 2025 behalten ihre
@@ -607,17 +618,23 @@ LEITKONTEN_SKR04 = [
     ("7200", "100", None),  # Abschreibungen auf Finanzanlagen (dauerhaft)
     ("7201", "100", None),  # … (nicht dauerhaft)
     ("7210", "100", None),  # Abschreibungen auf Wertpapiere des Umlaufvermögens
-    ("7250", "100", None),  # … auf Finanzanlagen auf Grund § 6b EStG-Rücklage
     ("6270", "100", None),  # … auf sonstiges Umlaufvermögen (soweit unüblich hoch)
-    ("6278", "100", None),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
     ("6290", "100", None),  # Abschreibungen auf Forderungen (soweit unüblich hoch)
     ("6910", "100", None),  # … auf Umlaufvermögen außer Vorräte (übliche Höhe)
     ("6923", "100", None),  # Einstellung in die Einzelwertberichtigung
+    # Abschreibungen auf Vorräte: außerhalb der EÜR wie SKR03 4892/4893 (s. dort)
+    ("6278", "100", "-"),  # … auf Roh-, Hilfs- und Betriebsstoffe/Waren
+    ("6279", "100", "-"),  # … auf fertige und unfertige Erzeugnisse
+    # § 6b-Abzug: Zeile 100 → Kz 190 wie SKR03 4859/4873/4874 (bisher 134 bzw. null)
+    ("6249", "100", "190"),  # Abzugsbetrag nach § 6b EStG
+    ("7250", "100", "190"),  # Abschreibungen auf Finanzanlagen auf Grund § 6b-Rücklage
+    ("7255", "100", "190"),
     # sonstige betriebliche Erträge und Aufwendungen (KR S. 28; KR-EÜR S. 26: 7454
-    # „Neutrale Erträge“, 7554 „Neutrale Aufwendungen“), wie SKR03 2504/2004/2007
-    ("7451", "-100", "103"),  # Erträge durch Verschmelzung und Umwandlung
+    # „Neutrale Erträge“, 7554 „Neutrale Aufwendungen“), wie SKR03 2504/2004/2007;
+    # Umwandlungsergebnis außerhalb der EÜR
+    ("7451", "-100", "-"),  # Erträge durch Verschmelzung und Umwandlung
     ("7454", "-100", "103"),
-    ("7551", "100", "183"),  # Verluste durch Verschmelzung und Umwandlung
+    ("7551", "100", "-"),  # Verluste durch Verschmelzung und Umwandlung
     ("7553", "100", "183"),  # Aufwendungen für Restrukturierungs-/Sanierungsmaßnahmen
     ("7554", "100", "183"),
     # Konten zur freien Verfügung, reserviert (KR-EÜR S. 27), wie SKR03 4400/5000/2900
@@ -732,7 +749,7 @@ PAARE = """
 4866:7201 4870:7200 4871:7204 4873:7255 4874:7250 4875:7210 4876:7214 4877:7207
 4878:7217 4880:6270 4882:6272 4886:6910 4887:6912 4892:6278 4893:6279 2440:6290
 2441:6291 2450:6920 2451:6923 2004:7551 2007:7553 2504:7451 2508:7454 2900:7900
-4400:7800 5000:8000 4815:6250
+4400:7800 5000:8000 4815:6250 4859:6249
 """
 
 
@@ -753,10 +770,11 @@ def test_paritaet_skr03_skr04(skr03, skr04):
 # Konten zur freien Verfügung; SKR04 7611–7629 ist nicht belegt). Neue Lücken fallen
 # hier auf.
 OHNE_KENNZAHL = {
-    "SKR03": "2345 2440-2459 2740 2746 4400-4499 4866-4871 4873-4899 5000-6999"
-    " 8500-8505",
-    "SKR04": "4500-4505 4935 4981 6270-6279 6290-6299 6910-6912 6920-6921 6923"
-    " 6925-6927 7200-7207 7209-7299 7611-7629 7800-7899 8000-8999",
+    "SKR03": "2345 2440-2459 2740 2746 4400-4499 4866-4871 4875-4891 4894-4899"
+    " 5000-6999 8500-8505",
+    "SKR04": "4500-4505 4935 4981 6270-6277 6290-6299 6910-6912 6920-6921 6923"
+    " 6925-6927 7200-7207 7209-7249 7251-7254 7256-7299 7611-7629 7800-7899"
+    " 8000-8999",
 }
 
 

@@ -138,6 +138,11 @@ euer:
                                             # (fehlen im DATEV-Kontenrahmen § 4/3)
   - {von: "8990", bis: "8999", kz: "103"}   # aktivierte Eigenleistungen
                                             # prüfen: neutralisieren Herstellungskosten
+  - {von: "2004", bis: "2004", kz: "-"}     # Umwandlungsergebnis (Verschmelzung, Um-
+  - {von: "2504", bis: "2504", kz: "-"}     # wandlung): weder Zu- noch Abfluss, allen-
+                                            # falls Zeile 89 (Wechsel der Gewinnermitt-
+                                            # lungsart); fehlt im KR § 4/3. 2007 Restruk-
+                                            # turierung bleibt Betriebsausgabe (183)
   - {von: "2500", bis: "2599", kz: "103"}   # betriebs-/periodenfremde Erträge
                                             # prüfen: Steuerschlüssel je Buchung
   - {von: "2600", bis: "2799", kz: "103"}   # Zinserträge, sonstige Erträge
@@ -289,19 +294,26 @@ euer:
   - {von: "4853", bis: "4854", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
   - {von: "4855", bis: "4861", kz: "132"}   # GWG
   - {von: "4856", bis: "4856", kz: "134"}   # Sonderabschreibung § 7b EStG
+  - {von: "4859", bis: "4859", kz: "190"}   # Abzugsbetrag nach § 6b EStG, s. 4873
   - {von: "4862", bis: "4864", kz: "137"}   # Sammelposten
   - {von: "4865", bis: "4865", kz: "132"}   # außerplanmäßige Abschreibungen auf GWG
   # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen (4866–4899),
-  # Wertberichtigungen auf Forderungen (2440–2459): keine Zeile. Die Anlage EÜR kennt
-  # keine Teilwertabschreibung; Anschaffungskosten von Wertpapieren und nicht abnutz-
-  # barem Anlagevermögen sind erst bei der Veräußerung Betriebsausgabe (Anleitung zu
-  # Zeile 27 und 38); im DATEV-Kontenrahmen § 4/3 fehlen sie. Mit null erscheinen sie
-  # mit Hinweis, der Gewinn bleibt wie gebucht (wie SKR04 6270, 6920–6926, 7200–7299)
-  # prüfen: Vorräte (4892/4893) ggf. „-“ wie die Bestandsveränderungen; 4873/4874
-  # (§ 6b-Abzug) ggf. Zeile 100 → 59 (Kz 190), vgl. 4859 (132)
+  # Wertberichtigungen auf Forderungen (2440–2459): keine Zeile. Teilwertabschreibung
+  # in der EÜR nicht zulässig – Buchung stornieren; Anschaffungskosten von Wertpapieren
+  # und nicht abnutzbarem Anlagevermögen erst bei Veräußerung (Anleitung zu Zeile 27
+  # und 38); im DATEV-Kontenrahmen § 4/3 fehlen sie. Mit null erscheinen sie mit
+  # Hinweis, der Gewinn bleibt wie gebucht (wie SKR04 6270, 6920–6926, 7200–7299)
   - {von: "4866", bis: "4899", kz: null}
   - {von: "4872", bis: "4872", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
                                             # Zeile 91 (Fußnote 23)
+  # § 6b-Abzug von den Anschaffungskosten (auch § 6b Abs. 10, § 6c Abs. 1 nimmt nur
+  # Abs. 4 Nr. 1 aus): Zeile 100 „Übertragung von stillen Reserven“ (Kz 170),
+  # Gesamtsumme Kz 190 → Zeile 59 (Anleitung zu Zeilen 99/100; 2026: 101 → 60)
+  - {von: "4873", bis: "4874", kz: "190"}
+  # Abschreibungen auf Vorräte: Anschaffungskosten der Waren sind schon beim Abfluss
+  # Betriebsausgabe (Anleitung zu Zeile 27); fehlen im KR § 4/3 wie die
+  # Bestandsveränderungen Waren 3950–3954
+  - {von: "4892", bis: "4893", kz: "-"}
   - {von: "4909", bis: "4909", kz: "110"}   # Fremdleistungen/Fremdarbeiten
   - {von: "4910", bis: "4910", kz: "229"}   # Porto
   - {von: "4920", bis: "4929", kz: "280"}   # Telefon, Internet

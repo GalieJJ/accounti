@@ -168,18 +168,25 @@ euer:
   - {von: "6231", bis: "6231", kz: "136"}   # AfaA Gebäude
   - {von: "6240", bis: "6249", kz: "134"}   # Sonderabschreibungen (auch § 7b EStG)
   - {von: "6243", bis: "6244", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
+  # § 6b-Abzug von den Anschaffungskosten (auch § 6b Abs. 10, § 6c Abs. 1 nimmt nur
+  # Abs. 4 Nr. 1 aus): Zeile 100 „Übertragung von stillen Reserven“ (Kz 170),
+  # Gesamtsumme Kz 190 → Zeile 59 (Anleitung zu Zeilen 99/100; 2026: 101 → 60)
+  - {von: "6249", bis: "6249", kz: "190"}   # Abzugsbetrag nach § 6b EStG
   - {von: "6250", bis: "6259", kz: "222"}   # Kaufleasing (Bereich V 6250–6259)
   - {von: "6260", bis: "6263", kz: "132"}   # GWG
   - {von: "6264", bis: "6265", kz: "137"}   # Sammelposten
   - {von: "6266", bis: "6269", kz: "132"}
   # Abschreibungen auf Finanzanlagen, Wertpapiere und Umlaufvermögen, Wertberichtigungen
-  # auf Forderungen (6270–6279, 6290–6299, 6910–6912, 6920–6926, 7200–7299): keine
-  # Zeile. Die Anlage EÜR kennt keine Teilwertabschreibung; Anschaffungskosten von
-  # Wertpapieren und nicht abnutzbarem Anlagevermögen sind erst bei der Veräußerung
-  # Betriebsausgabe (Anleitung zu Zeile 27 und 38); im DATEV-Kontenrahmen § 4/3 fehlen
-  # sie. Mit null erscheinen sie mit Hinweis, der Gewinn bleibt wie gebucht (wie SKR03)
-  # prüfen: Vorräte (6278/6279) ggf. „-“ wie die Bestandsveränderungen
+  # auf Forderungen (6270–6277, 6290–6299, 6910–6912, 6920–6926, 7200–7299): keine
+  # Zeile. Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren;
+  # Anschaffungskosten von Wertpapieren und nicht abnutzbarem Anlagevermögen erst bei
+  # Veräußerung (Anleitung zu Zeile 27 und 38); im DATEV-Kontenrahmen § 4/3 fehlen sie.
+  # Mit null erscheinen sie mit Hinweis, der Gewinn bleibt wie gebucht (wie SKR03)
   - {von: "6270", bis: "6279", kz: null}    # Umlaufvermögen (soweit unüblich hoch)
+  - {von: "6278", bis: "6279", kz: "-"}     # Vorräte: Anschaffungskosten der Waren sind
+                                            # schon beim Abfluss Betriebsausgabe (Anlei-
+                                            # tung zu Zeile 27); fehlen im KR § 4/3 wie
+                                            # die Bestandsveränderungen Waren 5880–5884
   - {von: "6280", bis: "6289", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
   - {von: "6290", bis: "6299", kz: null}    # Forderungen (soweit unüblich hoch)
   - {von: "6300", bis: "6999", kz: "183"}   # übrige Betriebsausgaben
@@ -263,10 +270,10 @@ euer:
   - {von: "6970", bis: "6989", kz: "-"}     # kalkulatorische Kosten: keine Ausgabe
   - {von: "7200", bis: "7299", kz: null}    # Abschreibungen auf Finanzanlagen und
                                             # Wertpapiere des UV: keine Zeile, s. 6270
-                                            # prüfen: 7250/7255 (§ 6b-Abzug) ggf. Zeile
-                                            # 100 → 59 (Kz 190), vgl. 6249 (134)
   - {von: "7208", bis: "7208", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
                                             # Zeile 91 (Fußnote 23)
+  - {von: "7250", bis: "7250", kz: "190"}   # Abschreibungen auf Finanzanlagen auf Grund
+  - {von: "7255", bis: "7255", kz: "190"}   # § 6b-Rücklage: § 6b-Abzug, s. 6249
   - {von: "7300", bis: "7399", kz: "234"}   # übrige Schuldzinsen (auch 7313: Hinzu-
                                             # rechnung § 4 Abs. 4a erst in Zeile 96)
   - {von: "7302", bis: "7302", kz: "168"}   # Nebenleistungen zu Steuern § 4 Abs. 5b EStG
@@ -279,12 +286,16 @@ euer:
   # prüfen: 7325 Zinsen für Gebäude, 7327 Renten und dauernde Lasten, 7328 Zinsen an
   # Mitunternehmer
   - {von: "7390", bis: "7399", kz: "183"}   # Verlustübernahme, abgeführte Gewinne
-  # sonstige betriebliche Erträge und Aufwendungen: Verschmelzung und Umwandlung (7451,
-  # 7551), Restrukturierung (7553), reserviert; DATEV-Posten „Neutrale Erträge“ (7454)
-  # bzw. „Neutrale Aufwendungen“ (7554), wie SKR03 2500–2599 bzw. 2000–2099
-  # prüfen: Übernahmeergebnis aus Umwandlungen ist keine Zahlung
+  # sonstige betriebliche Erträge und Aufwendungen: Restrukturierung (7553), reserviert;
+  # DATEV-Posten „Neutrale Erträge“ (7454) bzw. „Neutrale Aufwendungen“ (7554), wie
+  # SKR03 2500–2599 bzw. 2000–2099
   - {von: "7400", bis: "7499", kz: "103"}
   - {von: "7500", bis: "7599", kz: "183"}
+  - {von: "7451", bis: "7451", kz: "-"}     # Umwandlungsergebnis (Verschmelzung, Um-
+  - {von: "7551", bis: "7551", kz: "-"}     # wandlung): weder Zu- noch Abfluss, allen-
+                                            # falls Zeile 89 (Wechsel der Gewinnermitt-
+                                            # lungsart); fehlt im KR § 4/3 (wie SKR03
+                                            # 2004/2504)
   - {von: "7600", bis: "7609", kz: "-"}     # KSt, SolZ — keine Betriebsausgabe
   - {von: "7610", bis: "7610", kz: "168"}   # Gewerbesteuer — nicht abziehbar, § 4 Abs. 5b
   # 7611–7629 sind nicht belegt: ohne Zeile (Gewerbesteuer oder Steuern vom Einkommen)
