@@ -34,9 +34,10 @@ from collections.abc import Callable, Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Connection, Float, Numeric, Table, event, inspect, select
+from sqlalchemy import Connection, Table, event, inspect, select
 from sqlalchemy.orm import ORMExecuteState, Session, UOWTransaction
 
 from accounti.db import GESCHUETZT
@@ -54,6 +55,7 @@ from accounti.pruefung.journal import (
     fuege_an,
     journal_vorhanden,
     schnappschuss,
+    schreibsperre,
 )
 
 FREIGEGEBEN = frozenset({"auto", "geprueft", "korrigiert", "exportiert"})
@@ -68,8 +70,6 @@ STATUSWEGE = frozenset(
     }
 )
 _INFO = "accounti_journal_vorher"
-# Buchungen, deren neuer Stand sich ohne erneutes Lesen ergibt (siehe _exakt)
-_NACHHER = "accounti_journal_nachher"
 # Felder einer Buchung, die keinen Inhalt tragen (Status, Prüfvermerk)
 _VERMERKE = frozenset({"status", "geprueft_von", "confidence", "storniert_durch"})
 
@@ -325,18 +325,6 @@ def _aenderungen(zeile: BuchungssatzRow, gespeichert: Any) -> dict[str, Any]:
     return {k: w for k, w in _gesetzt(zeile).items() if w != gespeichert.get(k)}
 
 
-def _exakt(tabelle: Table, neu: dict[str, Any]) -> bool:
-    """Kommen die geänderten Werte unverändert aus der Datenbank zurück?
-
-    Text, Ganzzahl, Datum: ja — dann ist der neue Stand der gespeicherte mit diesen
-    Werten, ohne die Zeile nach dem Schreiben noch einmal zu lesen (Export, Freigabe
-    vieler Buchungen). Beträge und Gleitkommazahlen werden gelesen."""
-    spalten = tabelle.columns
-    return all(
-        k in spalten and not isinstance(spalten[k].type, Float | Numeric) for k in neu
-    )
-
-
 def _nur_stornovermerk(neu: dict[str, Any], gespeichert: Any) -> bool:
     return (
         set(neu) == {"storniert_durch"}
@@ -350,7 +338,7 @@ def _hinweis(gespeichert: Any) -> str:
     return (
         f"Buchung {kurz} ist freigegeben ({gespeichert['status']}) — Korrektur nur per "
         f"Storno mit Neubuchung: accounti korrigiere {kurz} --soll … --haben … "
-        f"(oder accounti buchung storniere {kurz})"
+        f"[--steuer … | --ohne-steuer] (oder accounti buchung storniere {kurz})"
     )
 
 
@@ -405,27 +393,59 @@ def _pruefe_festschreibung(
         raise BuchungFestgeschriebenError(f"Buchung {kurz} ist schon storniert")
 
 
+_SPIEGEL = ("storno_von", "status", "soll_konto", "haben_konto", "betrag_netto")
+_GLEICH = ("betrag_netto", "steuer_schluessel", "steuer_betrag")
+
+
+def _spiegelt(storno: dict[str, Any], original: Any) -> bool:
+    """Freigegebene Gegenbuchung: Seiten getauscht, Beträge und Schlüssel gleich."""
+    return (
+        str(storno["storno_von"]) == str(original["id"])
+        and storno["status"] in FREIGEGEBEN
+        and storno["soll_konto"] == original["haben_konto"]
+        and storno["haben_konto"] == original["soll_konto"]
+        and all(
+            (storno[f] is None and original[f] is None)
+            or (
+                storno[f] is not None
+                and original[f] is not None
+                and Decimal(str(storno[f])) == Decimal(str(original[f]))
+            )
+            for f in _GLEICH
+        )
+    )
+
+
 def _pruefe_stornovermerke(
-    session: Session, vermerke: dict[str, str], neue: list[BuchungssatzRow]
+    session: Session,
+    vermerke: dict[str, tuple[str, Any]],
+    neue: list[BuchungssatzRow],
 ) -> None:
-    """Ein Stornovermerk zeigt auf die Stornobuchung, die ``storno_von`` auf das
-    Original setzt — sonst fiele die Buchung ohne Gegenbuchung aus allen Läufen."""
+    """Ein Stornovermerk zeigt auf eine freigegebene Stornobuchung, die ``storno_von``
+    auf das Original setzt und es spiegelt — sonst fiele die Buchung ohne Gegenbuchung
+    (oder mit einer beliebigen) aus allen Läufen."""
     if not vermerke:
         return
-    gefunden = {str(z.id): z.storno_von for z in neue if str(z.id) in vermerke.values()}
-    offen = set(vermerke.values()) - set(gefunden)
+    ziele = {storno for storno, _ in vermerke.values()}
+    felder = (*_SPIEGEL, "steuer_schluessel", "steuer_betrag")
+    gefunden = {
+        str(z.id): {f: getattr(z, f) for f in felder}
+        for z in neue
+        if str(z.id) in ziele
+    }
     t = BuchungssatzRow.__table__
-    for teil in _je_abfrage(sorted(offen)):
+    for teil in _je_abfrage(sorted(ziele - set(gefunden))):
         zeilen = session.connection().execute(
-            select(t.c.id, t.c.storno_von).where(t.c.id.in_(teil))
+            select(t.c.id, *(t.c[f] for f in felder)).where(t.c.id.in_(teil))
         )
-        gefunden |= {str(i): v for i, v in zeilen}
-    for original, storno in vermerke.items():
-        if gefunden.get(storno) != original:
+        gefunden |= {str(z["id"]): dict(z) for z in zeilen.mappings()}
+    for original, (storno, gespeichert) in vermerke.items():
+        zeile = gefunden.get(storno)
+        if zeile is None or not _spiegelt(zeile, gespeichert):
             raise BuchungFestgeschriebenError(
                 f"Buchung {original[:8]}: Stornovermerk ohne Stornobuchung — "
-                f"{storno[:8]} ist kein Storno dieser Buchung (accounti buchung "
-                f"storniere {original[:8]})"
+                f"{storno[:8]} ist kein freigegebenes, spiegelbildliches Storno dieser "
+                f"Buchung (accounti buchung storniere {original[:8]})"
             )
 
 
@@ -434,13 +454,14 @@ def _pruefe_stornovermerke(
 
 @event.listens_for(Session, "before_flush")
 def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
+    # erst die Schreibsperre, dann lesen und prüfen: kein zweiter Schreiber ändert
+    # den geprüften Stand, bevor dieser Flush schreibt (auch nicht die Sperren)
+    schreibsperre(session.connection())
     cache: dict[str, Any] = {}  # Sperren für diesen Flush (auch für die Mapper)
     session.info[SPERRCACHE] = cache
     # je Flush frisch: Reste eines gescheiterten Flushs gelten nicht mehr
     vorher: dict[tuple[str, str], Zeile] = {}
     session.info[_INFO] = vorher
-    nachher: dict[tuple[str, str], Zeile] = {}
-    session.info[_NACHHER] = nachher
     ziele: dict[str, set[str]] = defaultdict(set)
     tabellen: dict[str, Table] = {}
     buchungen: list[tuple[BuchungssatzRow, bool]] = []
@@ -466,7 +487,7 @@ def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
         for pk, z in roh.items():  # derselbe gespeicherte Stand fürs Journal
             vorher[(t.name, str(pk))] = schnappschuss(t, z, ohne)
         verbindung = session.connection()
-        vermerke: dict[str, str] = {}
+        vermerke: dict[str, tuple[str, Any]] = {}
         for b, geloescht in buchungen:
             gespeichert = roh.get(_schluessel(b))
             if gespeichert is None:
@@ -476,11 +497,11 @@ def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
             _pruefe_festschreibung(gespeichert, neu, geloescht)
             if not geloescht:  # die Mapper-Sperre muss diese Zeile nicht noch einmal
                 cache.setdefault(VORAB_GEPRUEFT, set()).add(id(b))
-            stelle = (t.name, str(gespeichert["id"]))
-            if not geloescht and neu and _exakt(t, neu) and stelle in vorher:
-                nachher[stelle] = {**vorher[stelle], **schnappschuss(t, neu, ohne)}
             if neu.get("storniert_durch"):
-                vermerke[str(gespeichert["id"])] = str(neu["storniert_durch"])
+                vermerke[str(gespeichert["id"])] = (
+                    str(neu["storniert_durch"]),
+                    gespeichert,
+                )
         neue = [o for o in session.new if isinstance(o, BuchungssatzRow)]
         _pruefe_stornovermerke(session, vermerke, neue)
     for name, schluessel in ziele.items():
@@ -492,7 +513,6 @@ def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
 def _nach_dem_schreiben(session: Session, _: UOWTransaction) -> None:
     session.info.pop(SPERRCACHE, None)
     vorher: dict[tuple[str, str], Zeile] = session.info.pop(_INFO, {})
-    nachher: dict[tuple[str, str], Zeile] = session.info.pop(_NACHHER, {})
     verbindung = session.connection()
     if not journal_vorhanden(verbindung):
         return
@@ -519,11 +539,14 @@ def _nach_dem_schreiben(session: Session, _: UOWTransaction) -> None:
     tabellen = {}
     for tabelle, pk, weg in reihe:
         tabellen[tabelle.name] = tabelle
-        if not weg and (tabelle.name, pk) not in nachher:
+        if not weg:
             je_tabelle[tabelle.name].add(pk)
-    for name, schluessel in je_tabelle.items():
-        for pk, zeile in _lies(session, tabellen[name], schluessel).items():
-            nachher[(name, pk)] = zeile
+    # der neue Stand immer aus der Datenbank (nicht aus dem Vorher-Stand abgeleitet)
+    nachher = {
+        (name, pk): zeile
+        for name, schluessel in je_tabelle.items()
+        for pk, zeile in _lies(session, tabellen[name], schluessel).items()
+    }
     vorgaenge = []
     for tabelle, pk, weg in reihe:
         erfassung = ERFASST[tabelle.name]
@@ -552,9 +575,12 @@ def _keine_massenaenderung(zustand: ORMExecuteState) -> None:
     if not (zustand.is_insert or zustand.is_update or zustand.is_delete):
         return
     namen = {mapper.local_table.name for mapper in zustand.all_mappers}  # type: ignore[attr-defined]
-    # auch Core-DML auf die Tabelle, wenn sie über die Sitzung läuft
+    # auch Core-DML auf die Tabelle, wenn sie über die Sitzung läuft — der Name ohne
+    # Schema und Groß-/Kleinschreibung (SQLite unterscheidet sie nicht)
     namen.add(getattr(getattr(zustand.statement, "table", None), "name", None))
-    for name in sorted(n for n in namen if n):
+    for name in sorted(
+        str(n).split(".")[-1].strip('"`[] ').lower() for n in namen if n
+    ):
         if name in GESCHUETZT:
             msg = (
                 f"Massenänderung an {name} ist gesperrt — Buchungen einzeln über die "

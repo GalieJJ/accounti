@@ -18,8 +18,9 @@ der Import dieses Moduls.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -221,33 +222,65 @@ def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
             raise fehler
 
 
-# session.info: IDs der EB-Buchungen, die gerade angelegt werden (Saldovortrag)
+# session.info: Rahmen der EB-Buchungen, die gerade angelegt werden (Saldovortrag)
 _EROEFFNUNG = "accounti_eroeffnungsbuchungen"
 
 
+@dataclass
+class _Eroeffnung:
+    ids: set[str]
+    vortragskonten: frozenset[str]
+
+
 @contextmanager
-def eroeffnungsbuchungen(session: Session) -> Iterator[set[str]]:
+def eroeffnungsbuchungen(
+    session: Session, vortragskonten: Iterable[str]
+) -> Iterator[set[str]]:
     """EB-Buchungen am 01.01. anlegen, auch wenn der Januar festgeschrieben ist.
 
     Der Saldovortrag (und der erste Eröffnungssaldo) trägt die Schlussbilanz des
     Vorjahres vor: Er ändert weder die Verkehrszahlen noch die UStVA des Januars, und
     auf einen späteren Tag gebucht stimmten die Salden des Januars nicht mehr. Die
-    Monatssperre nimmt deshalb genau diese Buchungen an — nur angelegt, nur am 01.01.,
-    nur mit der hier gemeldeten ID. Die Jahressperre gilt weiter.
+    Monatssperre nimmt deshalb genau diese Buchungen an — nur angelegt, nur mit der
+    hier gemeldeten ID und nur in der Form einer EB-Buchung: am 01.01., ohne Steuer,
+    Belegnummer ``EB-JJJJ``, genau eine Seite ein Saldenvortragskonto
+    (``vortragskonten``). Die Jahressperre gilt weiter; Rahmen lassen sich schachteln.
     """
-    ids: set[str] = set()
-    session.info[_EROEFFNUNG] = ids
+    rahmen = _Eroeffnung(set(), frozenset(vortragskonten))
+    stapel = session.info.get(_EROEFFNUNG)
+    if not isinstance(stapel, list):
+        stapel = session.info[_EROEFFNUNG] = []
+    stapel.append(rahmen)
     try:
-        yield ids
+        yield rahmen.ids
     finally:
-        session.info.pop(_EROEFFNUNG, None)
+        stapel.remove(rahmen)
+        if not stapel:
+            session.info.pop(_EROEFFNUNG, None)
+
+
+def _eb_form(ziel: BuchungssatzRow, vortragskonten: frozenset[str]) -> bool:
+    tag = ziel.datum
+    return (
+        (tag.month, tag.day) == (1, 1)
+        and ziel.steuer_schluessel is None
+        and not ziel.steuer_betrag
+        and ziel.beleg_nummer == f"EB-{tag.year}"
+        and (ziel.soll_konto in vortragskonten) != (ziel.haben_konto in vortragskonten)
+    )
 
 
 def _eroeffnung(ziel: BuchungssatzRow) -> bool:
     session = object_session(ziel)
-    ids: set[str] = session.info.get(_EROEFFNUNG, set()) if session else set()
-    tag = ziel.datum
-    return str(ziel.id) in ids and (tag.month, tag.day) == (1, 1)
+    stapel = session.info.get(_EROEFFNUNG) if session is not None else None
+    if not isinstance(stapel, list):
+        return False
+    return any(
+        isinstance(r, _Eroeffnung)
+        and str(ziel.id) in r.ids
+        and _eb_form(ziel, r.vortragskonten)
+        for r in stapel
+    )
 
 
 @event.listens_for(BuchungssatzRow, "before_insert")

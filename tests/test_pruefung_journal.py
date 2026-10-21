@@ -215,6 +215,51 @@ def test_buchung_an_accounti_vorbei_geaendert(make_session):
     assert "betrag_netto: '100.00' → '10.00'" in befund.text
 
 
+@pytest.mark.parametrize("danach", ["export", "storno"])
+def test_gewaschene_aenderung_faellt_am_verlauf_auf(make_session, danach):
+    """Befund M2 der Nachprüfung: rohes SQL, danach ein regulärer Vorgang an
+    derselben Zeile — der Bestand passt wieder zum letzten Nachher-Stand, aber der
+    Vorher-Stand des neuen Eintrags nicht zum vorigen Nachher-Stand."""
+    from datetime import date
+
+    from accounti.db.repository import lade_buchungen
+    from accounti.pruefung.storno import markiere_exportiert, storniere
+
+    b = buchung(status=BuchungStatus.GEPRUEFT, steuer=None, schluessel=None)
+    anlegen(make_session, b)
+    with make_session() as s:
+        s.execute(
+            text("UPDATE buchungssaetze SET betrag_netto = 1 WHERE id = :id"),
+            {"id": str(b.id)},
+        )
+        s.commit()
+        if danach == "export":
+            markiere_exportiert(s, lade_buchungen(s), None, "datev")
+        else:
+            storniere(s, str(b.id), grund="x", von="erika", datum=date(2026, 8, 20))
+        s.commit()
+        p = pruefe_journal(s)
+    verlauf = [x for x in p.befunde if x.art == "verlauf"]
+    assert len(verlauf) == 1, [x.text for x in p.befunde]
+    assert verlauf[0].objekt == str(b.id)
+    assert "betrag_netto: '100.00' → '1.00'" in verlauf[0].text
+
+
+def test_verlauf_ohne_fehlalarm_bei_mehreren_vorgaengen_je_flush(make_session):
+    """Korrektur eines Vorschlags: „korrigiert“ und „freigegeben“ aus einem Flush
+    tragen dasselbe Paar aus Vorher und Nachher."""
+    from accounti.pruefung.storno import korrigiere
+
+    b = buchung()
+    anlegen(make_session, b)
+    with make_session() as s:
+        korrigiere(s, str(b.id), "4930", "1200", steuer=9, von="erika")
+        s.commit()
+        korrigiere(s, str(b.id), "4940", "1200", steuer=9, von="erika")
+        s.commit()
+        assert pruefe_journal(s).in_ordnung
+
+
 def test_buchung_an_accounti_vorbei_geloescht(make_session):
     b = buchung()
     anlegen(make_session, b)

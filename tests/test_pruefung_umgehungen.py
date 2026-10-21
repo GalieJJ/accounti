@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import insert, update
+from sqlalchemy import column, insert, table, update
 from sqlalchemy.orm import Session
 
 import accounti
@@ -185,6 +185,7 @@ def _zeile(tag: date) -> dict[str, object]:
         "bulk_insert_mappings",
         "bulk_update_mappings",
         "update_tabelle",
+        "update_grossgeschrieben",
     ],
 )
 def test_massenwege_auf_buchungen_abgelehnt(make_session, weg):
@@ -203,6 +204,11 @@ def test_massenwege_auf_buchungen_abgelehnt(make_session, weg):
                 s.bulk_update_mappings(
                     BuchungssatzRow,
                     [{"id": str(fest.id), "betrag_netto": Decimal("1.00")}],
+                )
+            elif weg == "update_grossgeschrieben":  # SQLite: Namen ohne Groß/klein
+                tt = table("BUCHUNGSSAETZE", column("id"), column("soll_konto"))
+                s.execute(
+                    update(tt).where(tt.c.id == str(fest.id)).values(soll_konto="1")
                 )
             else:  # Core-Update auf die Tabelle, aber über die Sitzung
                 t = BuchungssatzRow.__table__
@@ -340,3 +346,66 @@ def test_export_vermerk_in_einem_flush(make_session):
         assert pruefe_journal(s).in_ordnung
     assert flushes <= 3, flushes
     assert dauer < 30, f"{dauer:.1f} s"
+
+
+@pytest.mark.parametrize(
+    ("status", "betrag"),
+    [("entwurf", "100.00"), ("geprueft", "1.00")],
+)
+def test_stornovermerk_nur_auf_ein_spiegelbildliches_freigegebenes_storno(
+    make_session, status, betrag
+):
+    """Befund N5: ein Entwurf über 0,01 € oder ein Storno über 1 € statt 100 € ist
+    kein Storno der Buchung."""
+    orig = buchung(
+        status=BuchungStatus.EXPORTIERT,
+        tag=date(2026, 3, 5),
+        steuer=None,
+        schluessel=None,
+    )
+    anlegen(make_session, orig)
+    schein = BuchungssatzRow(
+        id=str(uuid4()),
+        datum=date(2026, 3, 6),
+        soll_konto="1200",
+        haben_konto="4900",
+        betrag_netto=Decimal(betrag),
+        buchungstext="Schein-Storno",
+        status=status,
+        confidence=1.0,
+        storno_von=str(orig.id),
+    )
+    with make_session() as s:
+        s.add(schein)
+        s.get(BuchungssatzRow, str(orig.id)).storniert_durch = schein.id
+        with pytest.raises(BuchungFestgeschriebenError, match="Stornobuchung"):
+            s.commit()
+
+
+def test_haengender_stornovermerk_faellt_auf(make_session):
+    from sqlalchemy import text
+
+    orig = _fest(date(2026, 3, 5))
+    anlegen(make_session, orig)
+    with make_session() as s:
+        k = storniere(s, str(orig.id), grund="x", von="erika")
+        s.commit()
+        s.execute(
+            text("DELETE FROM buchungssaetze WHERE id = :i"), {"i": str(k.storno.id)}
+        )
+        s.commit()
+        befunde = pruefe_journal(s).befunde
+    haengend = [b for b in befunde if b.art == "storno"]
+    assert len(haengend) == 1 and haengend[0].objekt == str(orig.id)
+
+
+def test_hinweise_nennen_die_steuerangabe(make_session):
+    """Befund N-N10: Die Hinweise auf korrigiere nennen --steuer/--ohne-steuer, die
+    bei neuem Sachkonto Pflicht sind."""
+    fest = _fest(date(2026, 3, 5))
+    anlegen(make_session, fest)
+    with make_session() as s:
+        s.get(BuchungssatzRow, str(fest.id)).soll_konto = "4930"
+        with pytest.raises(BuchungFestgeschriebenError) as fehler:
+            s.flush()
+    assert "--steuer" in str(fehler.value) and "--ohne-steuer" in str(fehler.value)
