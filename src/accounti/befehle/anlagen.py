@@ -240,16 +240,28 @@ def afa(
 @befehl.command("freigeben")
 def freigeben_befehl(
     jahr: int = typer.Option(..., help="Geschäftsjahr"),
-    von: str = typer.Option("supervisor", help="Wer hat geprüft"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer hat geprüft (ohne Benutzer; sonst ACCOUNTI_BENUTZER bzw. "
+        "Anmeldename — mit Einmalcode)",
+    ),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """AfA-Vorschläge eines Jahres freigeben."""
+    """AfA-Vorschläge eines Jahres freigeben (Buchungsfreigabe)."""
     from accounti.anlagen.lauf import freigeben
+    from accounti.auth.cli import aktueller_benutzername, befehlsrecht_oder_ende
+    from accounti.models.auth import Recht
 
+    # mit eingerichteten Benutzern: Buchungen freigeben (buchhalter/freigeber) und
+    # Einmalcode; geprüft hat dann der Benutzer (Spec 4.1: ein echter Benutzer)
+    benutzer = befehlsrecht_oder_ende(
+        db, config, Recht.BUCHUNG_FREIGEBEN, von or aktueller_benutzername()
+    )
+    pruefer = benutzer.name if benutzer is not None else (von or "supervisor")
     with sitzung(db)() as s:
         try:
-            anzahl = freigeben(s, jahr, von)
+            anzahl = freigeben(s, jahr, pruefer)
         except JahrGesperrtError as fehler:
             ende(str(fehler))
         s.commit()

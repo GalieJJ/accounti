@@ -1,0 +1,80 @@
+# accounti mit PostgreSQL und geplantem Lauf — Anleitung in docs/betrieb.md.
+#
+#   cp config/accounti.example.yaml config/accounti.yaml   # Firmendaten eintragen
+#   # .env anlegen (chmod 600, nie ins Repository):
+#   #   POSTGRES_PASSWORD=…            (nur Buchstaben/Ziffern, sonst URL-kodieren)
+#   #   ACCOUNTI_SCHLUESSEL=…           (accounti bank schluessel)
+#   #   ACCOUNTI_SICHERUNG_SCHLUESSEL=… (accounti sicherung schluessel)
+#   docker compose up -d --build
+#
+# Die Anwendung lauscht nur auf 127.0.0.1; TLS macht der Reverse-Proxy davor.
+
+name: accounti
+
+x-accounti: &accounti
+  image: accounti:${ACCOUNTI_VERSION:-lokal}
+  environment:
+    ACCOUNTI_DB: postgresql+psycopg://accounti:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}@db:5432/accounti
+    ACCOUNTI_SCHLUESSEL: ${ACCOUNTI_SCHLUESSEL:?ACCOUNTI_SCHLUESSEL in .env setzen (accounti bank schluessel)}
+    ACCOUNTI_SICHERUNG_SCHLUESSEL: ${ACCOUNTI_SICHERUNG_SCHLUESSEL:-}
+    ACCOUNTI_FINTS_PRODUKT_ID: ${ACCOUNTI_FINTS_PRODUKT_ID:-}
+    ACCOUNTI_PROTOKOLL_FORMAT: ${ACCOUNTI_PROTOKOLL_FORMAT:-text}
+    ACCOUNTI_PROTOKOLL_STUFE: ${ACCOUNTI_PROTOKOLL_STUFE:-INFO}
+  volumes:
+    - daten:/arbeit/daten
+    - ./config:/arbeit/config:ro
+  read_only: true
+  tmpfs:
+    - /tmp
+  # scrypt braucht je Passwort-Prüfung 128 MiB; die App prüft höchstens
+  # server.anmeldungen_gleichzeitig (2) zugleich — die Grenze fängt den Rest ab
+  mem_limit: ${ACCOUNTI_SPEICHER:-1g}
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: accounti
+      POSTGRES_USER: accounti
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD in .env setzen}
+    volumes:
+      - datenbank:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U accounti -d accounti"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  app:
+    <<: *accounti
+    build:
+      context: .
+      args:
+        OCR: ${ACCOUNTI_OCR:-ja}
+    command: ["serve", "--host", "0.0.0.0", "--port", "8400"]
+    ports:
+      - "127.0.0.1:${ACCOUNTI_PORT:-8400}:8400"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  lauf:
+    <<: *accounti
+    # bank lauf + aufgaben lauf je Gesellschaft, alle ACCOUNTI_LAUF_MINUTEN Minuten
+    command: ["betrieb", "lauf", "--intervall-minuten", "${ACCOUNTI_LAUF_MINUTEN:-60}"]
+    healthcheck:
+      disable: true
+    depends_on:
+      db:
+        condition: service_healthy
+      app:
+        condition: service_started
+
+volumes:
+  datenbank:
+  daten:

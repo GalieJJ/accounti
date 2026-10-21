@@ -1,0 +1,67 @@
+{% extends "basis.html" %}
+{% block titel %}Freigaben{% endblock %}
+{% block inhalt %}
+<h1>Freigaben</h1>
+<section>
+  <h2>Zahlungsläufe im Entwurf</h2>
+  {% if laeufe %}
+  <table class="liste">
+    <thead><tr><th>Nr.</th><th>Ausführung</th><th class="zahl">Zahlungen</th><th class="zahl">Summe</th><th>Angelegt von</th><th></th></tr></thead>
+    <tbody>
+    {% for lauf in laeufe %}
+      <tr>
+        <td>{{ lauf.nr }}</td>
+        <td>{{ lauf.ausfuehrung | datum }}</td>
+        <td class="zahl">{{ lauf.zahlungen | length }}</td>
+        <td class="zahl">{{ lauf.summe | betrag }} €</td>
+        <td>{{ lauf.erstellt_von }}</td>
+        <td>
+          {% if darf_zahlung %}
+          <form method="post" action="/freigaben/zahlungslauf/{{ lauf.nr }}" class="freigabe">
+            <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="freigabe_hash" value="{{ inhalt[lauf.nr] }}">
+            {% if mit_einmalcode %}<input name="einmalcode" autocomplete="one-time-code" placeholder="Einmalcode" required aria-label="Einmalcode">{% endif %}
+            <button type="submit">Freigeben</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      <tr class="zahlungen">
+        <td></td>
+        <td colspan="5">
+          <table class="liste">
+            <caption>Zahlungen in Lauf {{ lauf.nr }} — freigegeben wird genau dieser Inhalt</caption>
+            <thead><tr><th>Empfänger</th><th>IBAN</th><th class="zahl">Betrag</th><th>Verwendungszweck</th></tr></thead>
+            <tbody>
+            {% for z in lauf.zahlungen %}
+              <tr>
+                <td>{{ z.empfaenger }}</td>
+                <td class="iban">{{ z.iban | iban }}</td>
+                <td class="zahl">{{ z.betrag | betrag }} €</td>
+                <td>{{ z.verwendungszweck }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>Kein Zahlungslauf wartet auf Freigabe.</p>
+  {% endif %}
+</section>
+{% if darf_steuer %}
+<section>
+  <h2>Umsatzsteuer-Voranmeldung</h2>
+  <form method="post" action="/freigaben/ustva" class="freigabe">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <label for="zeitraum">Zeitraum</label>
+    <input id="zeitraum" name="zeitraum" placeholder="2026-09 oder 2026-Q3" required>
+    {% if mit_einmalcode %}<input name="einmalcode" autocomplete="one-time-code" placeholder="Einmalcode" required aria-label="Einmalcode">{% endif %}
+    <button type="submit">Werte freigeben</button>
+  </form>
+</section>
+{% endif %}
+{% endblock %}

@@ -24,6 +24,8 @@ config/accounti.yaml
 /export/
 # lokale SQLite-Datenbank
 accounti.db
+# Laufsperren neben SQLite-Datenbanken (accounti.betrieb.laufsperre)
+*.lauf-*.sperre
 # Belegarchiv und Watch-Ordner (Standardpfade, enthalten echte Belege)
 /archiv/
 /eingang/

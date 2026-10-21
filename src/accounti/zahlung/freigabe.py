@@ -75,6 +75,10 @@ class ZustandError(LaufError):
     """Der Übergang ist im Zustandsautomaten nicht vorgesehen."""
 
 
+class InhaltGeaendertError(LaufError):
+    """Der Entwurf ist nicht mehr der, den die freigebende Person gesehen hat."""
+
+
 class LaufGesperrtError(LaufError):
     """Die Prüfung hat Befunde — der Lauf darf nicht weiter."""
 
@@ -335,10 +339,31 @@ def freigeben(
     person: str,
     einstellungen: ZahlungEinstellungen,
     heute: date,
+    *,
+    gesehen: str | None = None,
+    ersteller_ausgeschlossen: bool = False,
 ) -> Zahlungslauf:
-    """Prüft und gibt frei; mit Vier-Augen-Prinzip erst bei der zweiten Person."""
+    """Prüft und gibt frei; mit Vier-Augen-Prinzip erst bei der zweiten Person.
+
+    ``gesehen``: Freigabe-Hash des angezeigten Inhalts (Browser) — weicht der
+    Entwurf davon ab, ``InhaltGeaendertError``. ``ersteller_ausgeschlossen``: wer den
+    Lauf angelegt hat, gibt ihn nicht frei (mit eingerichteten Benutzern).
+    """
     lauf = lade_lauf(session, lauf_nr)
     pruefe_uebergang(lauf, LaufStatus.FREIGEGEBEN)
+    if gesehen is not None and freigabe_hash(lauf) != gesehen:
+        msg = (
+            f"Lauf {lauf_nr} hat sich seit der Anzeige geändert — bitte neu laden und "
+            "erneut prüfen"
+        )
+        raise InhaltGeaendertError(msg)
+    if ersteller_ausgeschlossen and person == lauf.erstellt_von:
+        msg = (
+            f"{person} hat den Lauf {lauf_nr} angelegt — freigeben muss eine andere "
+            "Person (in der CLI immer; im Browser abschaltbar mit "
+            "zahlung.ersteller_darf_freigeben)"
+        )
+        raise LaufError(msg)
     if einstellungen.freigeber and person not in einstellungen.freigeber:
         msg = (
             f"{person} ist nicht als Freigeber eingetragen (zahlung.freigeber: "

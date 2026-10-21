@@ -362,3 +362,17 @@ def test_kunden_id_liegt_verschluesselt_im_zugang(umgebung, tmp_path):
     assert b"KD-4711-ID" not in (tmp_path / "f.db").read_bytes()
     _run("bank", "abrufen", "--db", url)
     assert bank.clients[-1]["kunden_id"] == "KD-4711-ID"
+
+
+def test_freigeben_haelt_die_laufsperre(umgebung):
+    """Runde 3 (N-R3-2): ``fints freigeben`` ruft ab wie ``bank abrufen`` — nie
+    neben einem laufenden ``bank lauf``."""
+    from accounti.betrieb.laufsperre import laufsperre
+
+    _, url = umgebung
+    with laufsperre(url, "bank"):
+        r = _run("fints", "freigeben", "--db", url)
+    assert r.exit_code == 1, r.output
+    assert "läuft schon" in r.output
+    r = _run("fints", "freigeben", "--db", url)
+    assert r.exit_code == 0, r.output

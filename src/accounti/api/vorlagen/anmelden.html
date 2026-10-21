@@ -1,0 +1,18 @@
+{% extends "basis.html" %}
+{% block titel %}Anmelden{% endblock %}
+{% block inhalt %}
+<section class="anmeldung">
+  <h1>Anmelden</h1>
+  <form method="post" action="/anmelden" autocomplete="on">
+    <input type="hidden" name="anmeldung" value="{{ anmeldung }}">
+    <input type="hidden" name="weiter" value="{{ weiter }}">
+    <label for="benutzer">Benutzer</label>
+    <input id="benutzer" name="benutzer" autocomplete="username" required autofocus>
+    <label for="passwort">Passwort</label>
+    <input id="passwort" name="passwort" type="password" autocomplete="current-password" required>
+    <label for="einmalcode">Einmalcode aus der App oder Wiederherstellungscode</label>
+    <input id="einmalcode" name="einmalcode" autocomplete="one-time-code" inputmode="text" required>
+    <button type="submit">Anmelden</button>
+  </form>
+</section>
+{% endblock %}

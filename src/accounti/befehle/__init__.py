@@ -10,14 +10,33 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from types import ModuleType
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 console = Console()
 DB_OPTION = typer.Option("sqlite:///accounti.db", help="DB-URL")
 KONFIG_OPTION = typer.Option("config/accounti.yaml", "--config", help="Konfiguration")
+
+
+@contextmanager
+def laufsperre_oder_ende(db: str, art: str = "bank") -> Iterator[None]:
+    """Je Datenbank höchstens ein Lauf der Art ``art`` (``betrieb.laufsperre``) —
+    für ``bank lauf`` und jeden seiner Einzelschritte (abrufen, Kreditkarten,
+    zuordnen, abgleichen, kontieren): sonst kontieren zwei Prozesse denselben
+    Umsatz. Läuft schon einer, Meldung und Exit 1 statt Warten."""
+    from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
+
+    try:
+        with laufsperre(db, art):
+            yield
+    except LaufLaeuftError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+        raise typer.Exit(1) from fehler
 
 
 def befehlsmodule() -> list[ModuleType]:

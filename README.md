@@ -116,9 +116,10 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **DATEV vollständig** | Debitoren/Kreditoren (EXTF, Golden-Test), Belegpaket mit `document.xml` und Buchungsstapel mit Beleglink — Belege hängen beim Empfänger am Buchungssatz —, Kontoauszüge lückenlos nummeriert als MT940 mit Saldenverlauf |
 | 🟨 | **Marktplätze & ERP** | Amazon (Abrechnungsbericht V2), eBay, Shopify, PayPal (als eigenes Konto) — Erlöse, Gebühren, Erstattungen, Einbehalte einzeln gebucht, Summenprobe, Auszahlungsabgleich, Bestimmungsland → OSS; JTL-Wawi folgt |
 | 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
-| 🔲 | **REST-API** | Belege einliefern, Buchungen und OPOS abfragen, Läufe anstoßen |
-| 🔲 | **Mehrere Gesellschaften** | Eigene Firmen mit eigenem Wirtschaftsjahr und Kontenrahmen |
-| 🔲 | **Benutzer & Rollen** | Anmeldung mit 2FA, Rollen, Vier-Augen-Freigabe, DE/EN |
+| ✅ | **REST-API** | `/api/v1` mit API-Token und Rechten (`opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`): offene Posten und Buchungen abfragen, Belege einliefern (Pipeline wie der Webhook), `bank lauf` und `aufgaben lauf` anstoßen; Token nur als Hash gespeichert, ohne Recht 403 |
+| ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
+| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI), Vier-Augen-Freigabe; DE/EN folgt |
+| ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
 
 Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
 
@@ -156,7 +157,12 @@ cp config/accounti.example.yaml config/accounti.yaml
 # Datenbank initialisieren
 accounti db init
 
-# Starten
+# Ersten Benutzer (Verwalter) anlegen und zweiten Faktor einrichten
+accounti bank schluessel            # die ausgegebene Zeile „export ACCOUNTI_SCHLUESSEL=…“ ausführen
+accounti benutzer anlegen chef --rolle verwalter --rolle freigeber
+accounti benutzer 2fa chef
+
+# Web-Oberfläche und REST-API (TLS über einen Reverse-Proxy, siehe docs/betrieb.md)
 accounti serve
 ```
 
@@ -472,6 +478,25 @@ Erledigt bleibt erledigt: Wer eine Aufgabe mit Begründung schließt, bekommt si
 Prüflauf nicht wieder. „Beleg fehlt“ lässt sich nur mit Begründung (`--text`) erledigen. Erinnerungen kommen am Fälligkeitstag, nach drei und nach sieben Tagen
 (einstellbar je Art, die letzte Stufe eskaliert auf Wunsch) — gebündelt, nicht als Einzelmail.
 
+### Betrieb, Benutzer und mehrere Gesellschaften
+
+```bash
+docker compose up -d --build                       # App, PostgreSQL, geplanter Lauf (docs/betrieb.md)
+accounti benutzer anlegen eva --rolle buchhalter   # Rollen: betrachter, buchhalter, freigeber, verwalter
+accounti benutzer 2fa eva                          # TOTP-App + zehn Wiederherstellungscodes
+accounti benutzer liste | rolle | passwort | sperren | entsperren | protokoll
+accounti token anlegen erp --recht opos:lesen --recht belege:schreiben
+accounti gesellschaft liste                        # Registry `gesellschaften`
+accounti --gesellschaft tochter opos liste         # setzt --db/--archiv/--config aller Befehle
+accounti sicherung erstellen --ziel /sicherungen/  # Datenbank + Belegarchiv, verschlüsselt
+accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
+accounti betrieb aufbewahrung                      # was frühestens ausgesondert werden dürfte
+accounti betrieb lauf --intervall-minuten 60       # bank lauf + aufgaben lauf je Gesellschaft
+```
+
+Mit eingerichteten Benutzern verlangen `zahlung freigeben` und `ustva freigeben` die Rolle
+`freigeber` und den Einmalcode der handelnden Person; ohne Benutzer bleibt alles wie bisher.
+
 ---
 
 ## Architektur
@@ -736,8 +761,9 @@ kontieren will, braucht nur v0.1.
 ### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
 - [x] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
 - [ ] Web-UI: Supervisions-Queue mit Belegansicht, BWA mit Vorjahresvergleich
-- [ ] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, DE/EN
-- [ ] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
+- [x] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, mehrere Gesellschaften, REST-API
+- [x] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
+- [ ] DE/EN in der Oberfläche
 
 ### v0.6 — Integrationen *(Baustein 11)*
 - [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal

@@ -3,10 +3,11 @@
 Jedes erfolgswirksame Konto der Summen- und Saldenliste (bei EÜR auch Vorsteuer,
 Umsatzsteuer und USt-Vorauszahlungen) geht über seine Kennzahl in eine Zeile des
 Vordrucks des jeweiligen Jahres. Konten ohne Zeile erscheinen als „nicht zugeordnet“
-und zählen trotzdem mit. Nicht abziehbare Betriebsausgaben (Kz 164, 165, 168 — dort
+und zählen trotzdem mit. Nicht abziehbare Betriebsausgaben (Kz 162, 164, 165, 168 — dort
 auch die Gewerbesteuer, § 4 Abs. 5b EStG) stehen in eigener Spalte und mindern die
-Summe der Betriebsausgaben nicht. Konten mit der Kennzahl „-“ (Steuern vom Einkommen)
-gehören gar nicht in die EÜR. Die Überleitung zum Ergebnis der SuSa ist ausgewiesen:
+Summe der Betriebsausgaben nicht. Konten mit der Kennzahl „-“ (Steuern vom Einkommen,
+Spenden, kalkulatorische Kosten, Bestandsveränderungen) gehören gar nicht in die EÜR.
+Die Überleitung zum Ergebnis der SuSa ist ausgewiesen:
 Ergebnis = Gewinn − nicht abziehbare Betriebsausgaben − Konten außerhalb der EÜR.
 
 Die Zeilen ab „Ermittlung des Gewinns“ (Hinzurechnungen, Kürzungen, § 7g, § 4 Abs. 4a)

@@ -190,13 +190,15 @@ def freigeben(
 ) -> None:
     """Freigabe der Bank erteilen (TAN oder App) und Umsätze abrufen."""
     from accounti.bank.lauf import rufe_ab
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonten, lade_bankkonto
     from accounti.models import KontoZustand
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    # ruft ab wie bank abrufen — nie neben einem laufenden bank lauf
+    with laufsperre_oder_ende(db), make_session() as s:
         if konto is not None:
             try:
                 konten = [lade_bankkonto(s, konto)]

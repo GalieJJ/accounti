@@ -1,7 +1,7 @@
 # accounti Konfiguration
 # Kopiere diese Datei nach config/accounti.yaml und passe sie an.
 
-# Datenbank
+# Datenbank: --db oder ACCOUNTI_DB (dieser Eintrag wird nicht gelesen)
 database:
   url: "postgresql://accounti:accounti@localhost:5432/accounti"
 
@@ -49,7 +49,10 @@ integrationen:
   geldtransit_konto: "1360"
   auszahlung_toleranz_tage: 10  # Bankeingang bis so viele Tage nach dem Auszahlungsdatum
   ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
-  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8330" } (anlegen)
+  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8328" } (anlegen)
+                                # OSS-Erlöse im DATEV-Bereich 8320–8329 (SKR04 4320–4329);
+                                # 8330/4330 sind im Kontenrahmen 2026 reserviert,
+                                # 8331/4331 nur für elektronische Dienstleistungen
   eu_fernverkaeufe_sonstige: {} # Jahr → EU-Fernverkäufe netto außerhalb der Marktplätze, z.B. { 2025: 12000 }
   paypal_kontobezeichnung: "PPLXLULL/PAYPAL"   # Feld :25: im MT940 des PayPal-Kontos
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
@@ -233,6 +236,7 @@ zahlung:
   # hoechstbetrag: 50000.00    # Vorschlag: größere Posten weglassen
   # hoechstbetrag_zahlung: 25000.00   # Prüfung: größere Einzelzahlungen blockieren
   vier_augen: false            # true: zwei verschiedene Personen (Anmeldename) geben frei
+  ersteller_darf_freigeben: false # nur im Browser; in der CLI gibt immer eine andere Person frei
   # freigeber: [erika, jan]    # nur diese Anmeldenamen dürfen freigeben
   einzelbuchung: true          # BtchBookg=false — wirkt nur mit Vereinbarung mit der Bank
   # auftraggeber:              # Standard: mandant.name und mandant.bank
@@ -321,7 +325,42 @@ versand:
     verschluesselung: starttls             # starttls, ssl oder keine
   # betreff/text überschreibbar, Platzhalter: {nummer} {firma} {datum} {faellig} {brutto} {format}
 
-# Server
+# Web-Oberfläche und REST-API (accounti serve) — TLS über einen Reverse-Proxy (docs/betrieb.md)
 server:
-  host: "127.0.0.1"
+  host: "127.0.0.1"               # im Container 0.0.0.0
   port: 8400
+  cookie_sicher: true             # Secure + __Host-; nur ohne TLS (lokal) false
+  vertrauenswuerdige_proxies: ["127.0.0.1"]   # nur deren X-Forwarded-* gelten
+  max_formular_kb: 64
+  max_beleg_mb: 20                # je Anfrage an POST /api/v1/belege
+  anmeldungen_gleichzeitig: 2     # scrypt: 128 MiB je Passwort-Prüfung, sonst 503
+  anmeldung_warten_sekunden: 5
+
+# Anmeldung (optional — ohne Abschnitt gelten diese Werte; die Sperrwerte gelten nur im Browser,
+# die CLI nutzt immer 5 / 15 / 100)
+auth:
+  passwort_mindestlaenge: 12      # mit zweitem Faktor; NIST 800-63B-4 verlangt ≥ 8
+  sperre_nach_fehlversuchen: 5
+  sperre_minuten: 15             # höchstens 1440
+  fehlversuche_obergrenze: 100    # in Folge, dann gesperrt bis „benutzer entsperren“
+  sitzung_leerlauf_minuten: 30
+  sitzung_hoechstdauer_stunden: 8
+  totp_toleranz_schritte: 1
+  einmalcode_bestaetigung: true   # Browser-Freigaben mit Einmalcode (in der CLI immer)
+  aussteller: accounti            # Name in der Authenticator-App
+
+# Mehrere eigene Gesellschaften (optional — ohne Abschnitt gibt es eine: „standard“)
+# gesellschaften:
+#   systemdatenbank: "${ACCOUNTI_SYSTEM_DB}"   # Benutzer, Rollen, Sitzungen, Token
+#   standard: muster
+#   eintraege:
+#     muster:
+#       name: Muster GmbH
+#       datenbank: "${ACCOUNTI_DB_MUSTER}"
+#       archiv: archiv/muster
+#       konfiguration: config/muster.yaml     # eigener Kontenrahmen, Wirtschaftsjahr, Firmendaten
+#     tochter:
+#       name: Tochter UG
+#       datenbank: "${ACCOUNTI_DB_TOCHTER}"
+#       archiv: archiv/tochter
+#       konfiguration: config/tochter.yaml

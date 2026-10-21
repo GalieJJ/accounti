@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block titel %}{{ titel }}{% endblock %} · accounti</title>
+  <link rel="stylesheet" href="/statisch/accounti.css">
+  {% block kopf %}{% endblock %}
+</head>
+<body>
+  <header class="kopfleiste">
+    <a class="marke" href="/">accounti</a>
+    {% if angemeldet %}
+    <nav class="navigation" aria-label="Hauptmenü">
+      {% for punkt in navigation %}
+      <a href="{{ punkt.pfad }}">{{ punkt.titel }}</a>
+      {% endfor %}
+    </nav>
+    <div class="sitzung">
+      {% if angemeldet.gesellschaften | length > 1 %}
+      <form method="post" action="/gesellschaft" class="gesellschaft-wahl">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <label for="gesellschaft">Gesellschaft</label>
+        <select id="gesellschaft" name="kuerzel">
+          {% for g in angemeldet.gesellschaften %}
+          <option value="{{ g.kuerzel }}"{% if g.kuerzel == angemeldet.gesellschaft.kuerzel %} selected{% endif %}>{{ g.name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">Wechseln</button>
+      </form>
+      {% else %}
+      <span class="gesellschaft" data-gesellschaft="{{ angemeldet.gesellschaft.kuerzel }}">{{ angemeldet.gesellschaft.name }}</span>
+      {% endif %}
+      <span class="benutzer">{{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }}</span>
+      <form method="post" action="/abmelden" class="abmelden">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit">Abmelden</button>
+      </form>
+    </div>
+    {% endif %}
+  </header>
+  <main id="inhalt">
+    {% if angemeldet %}<p class="aktive-gesellschaft">Gesellschaft: <strong>{{ angemeldet.gesellschaft.name }}</strong></p>{% endif %}
+    {% if meldung %}<p class="meldung" role="status">{{ meldung }}</p>{% endif %}
+    {% if fehler %}<p class="fehler" role="alert">{{ fehler }}</p>{% endif %}
+    {% block inhalt %}{% endblock %}
+  </main>
+  <footer class="fuss">accounti {{ version }}</footer>
+</body>
+</html>

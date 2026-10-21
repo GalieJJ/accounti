@@ -38,6 +38,24 @@ app = typer.Typer(
 console = Console()
 
 
+@app.callback()
+def gesellschaft_waehlen(
+    ctx: typer.Context,
+    gesellschaft: str | None = typer.Option(
+        None,
+        "--gesellschaft",
+        "-g",
+        envvar="ACCOUNTI_GESELLSCHAFT",
+        help="Gesellschaft aus der Registry (Abschnitt gesellschaften): setzt "
+        "--db, --archiv und --config aller Befehle",
+    ),
+) -> None:
+    """Gesellschaft und Umgebung (ACCOUNTI_DB/ARCHIV/KONFIG) für alle Befehle."""
+    from accounti.betrieb.cli import richte_kontext_ein
+
+    richte_kontext_ein(ctx, gesellschaft)
+
+
 @app.command()
 def version() -> None:
     """Zeigt die aktuelle Version an."""
@@ -1438,7 +1456,9 @@ def opos_verbuchen(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    regelwerk = RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN)
+    from accounti.betrieb.kontext import regeln_datei
+
+    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
@@ -1626,9 +1646,11 @@ def opos_zuordnen(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+    from accounti.befehle import laufsperre_oder_ende
+
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         lauf = zuordne_zahlungen(s, einstellungen, zeitraum=period)
         s.commit()
 
@@ -1810,11 +1832,12 @@ def bank_abgleich(
     from rich.markup import escape
 
     from accounti.bank.abgleichslauf import gleiche_belege_ab
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         ergebnis = gleiche_belege_ab(s, zeitraum=period)
         s.commit()
     for k in ergebnis.automatisch:
@@ -2117,12 +2140,13 @@ def bank_abrufen(
     from rich.markup import escape
 
     from accounti.bank.lauf import rufe_ab
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonto
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         konten = None
         if konto is not None:
             try:
@@ -2161,15 +2185,25 @@ def bank_lauf_befehl(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+    from accounti.betrieb.kontext import regeln_datei
+
+    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN),
+        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
         llm=LLMEngine() if llm else None,
     )
+    from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
+
     db_engine, make_session = session_factory(db)
     init_db(db_engine)
-    with make_session() as s:
-        ergebnis = bank_lauf(s, engine, einstellungen)
-        s.commit()
+    try:
+        # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
+        with laufsperre(db, "bank"), make_session() as s:
+            ergebnis = bank_lauf(s, engine, einstellungen)
+            s.commit()
+    except LaufLaeuftError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     _abruf_ausgabe(ergebnis.abrufe)
     zeige_kartenabgleich(ergebnis.kreditkarten, still=True)
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung
@@ -2209,8 +2243,11 @@ def classify(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    # Eigene Regeln (config/regeln.yaml) haben Vorrang, dann das Standard-Regelwerk.
-    regeln = lade_regeln("config/regeln.yaml")
+    from accounti.betrieb.kontext import regeln_datei
+
+    # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
+    # das Standard-Regelwerk.
+    regeln = lade_regeln(regeln_datei())
     if regeln:
         regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
     else:
@@ -2220,9 +2257,12 @@ def classify(
         llm=LLMEngine() if llm else None,
     )
 
+    from accounti.befehle import laufsperre_oder_ende
+
     db_engine, make_session = session_factory(db)
     init_db(db_engine)
-    with make_session() as s:
+    # derselbe Schritt wie in bank lauf — nie zwei gleichzeitig (Doppelbuchung)
+    with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
         lauf = kontiere_umsaetze(s, engine, einstellungen)
@@ -2327,12 +2367,15 @@ def _regel_speichern(
     steuer: int | None,
     feld: str = "beide",
 ) -> None:
-    """Hängt eine Regel an config/regeln.yaml an."""
+    """Hängt eine Regel an die Regeldatei der Gesellschaft an (Registry ``regeln:``,
+    sonst config/regeln.yaml)."""
     from pathlib import Path
 
     import yaml
 
-    pfad = Path("config/regeln.yaml")
+    from accounti.betrieb.kontext import regeln_datei
+
+    pfad = Path(regeln_datei())
     if pfad.exists():
         regeln = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
     else:
@@ -2348,6 +2391,7 @@ def _regel_speichern(
             "buchungstext": name,
         }
     )
+    pfad.parent.mkdir(parents=True, exist_ok=True)
     pfad.write_text(
         yaml.safe_dump(regeln, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )
@@ -2601,12 +2645,18 @@ def korrigiere(
 # ---------------------------------------------------------------------------
 @app.command()
 def serve(
-    host: str = typer.Option("127.0.0.1", help="Host-Adresse"),
-    port: int = typer.Option(8400, help="Port"),
+    host: str | None = typer.Option(None, help="Host-Adresse (sonst server.host)"),
+    port: int | None = typer.Option(None, help="Port (sonst server.port, 8400)"),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration"
+    ),
 ) -> None:
-    """Web-UI für Supervision starten."""
-    console.print(f"[bold]accounti server[/bold] → http://{host}:{port}")
-    console.print("[yellow]⚠ Noch nicht implementiert — siehe Roadmap Phase 4[/yellow]")
+    """Web-Oberfläche und REST-API starten (TLS über einen Reverse-Proxy)."""
+    from accounti.api.server import starte_aus_cli
+
+    starte_aus_cli(host, port, db, archiv, config)
 
 
 # ---------------------------------------------------------------------------

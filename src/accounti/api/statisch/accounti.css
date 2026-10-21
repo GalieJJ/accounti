@@ -1,0 +1,55 @@
+/* accounti — Grundlayout ohne Build-Schritt. Fachansichten bringen eigene Regeln mit. */
+:root {
+  --text: #1d2125;
+  --gedaempft: #5b6670;
+  --flaeche: #ffffff;
+  --hintergrund: #f4f5f7;
+  --linie: #d7dbe0;
+  --akzent: #1f5fa8;
+  --fehler: #a61b1b;
+  --ok: #1e6b35;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--text);
+  background: var(--hintergrund);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e6e8eb;
+    --gedaempft: #a3acb5;
+    --flaeche: #1d2125;
+    --hintergrund: #121416;
+    --linie: #343a40;
+    --akzent: #7fb0ea;
+    --fehler: #ff8a8a;
+    --ok: #8fd6a3;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--akzent); }
+.kopfleiste {
+  display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
+  padding: 0.6rem 1rem; background: var(--flaeche); border-bottom: 1px solid var(--linie);
+}
+.marke { font-weight: 700; text-decoration: none; color: var(--text); }
+.navigation { display: flex; flex-wrap: wrap; gap: 0.8rem; flex: 1; }
+.sitzung { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.sitzung form { display: flex; gap: 0.4rem; align-items: center; margin: 0; }
+main { flex: 1; width: 100%; max-width: 72rem; margin: 0 auto; padding: 1rem; }
+.aktive-gesellschaft { color: var(--gedaempft); margin-top: 0; }
+.fuss { padding: 0.6rem 1rem; color: var(--gedaempft); font-size: 0.85rem; }
+.meldung { padding: 0.6rem; border-left: 4px solid var(--ok); background: var(--flaeche); }
+.fehler { padding: 0.6rem; border-left: 4px solid var(--fehler); background: var(--flaeche); }
+.anmeldung { max-width: 24rem; margin: 2rem auto; }
+.anmeldung form, .freigabe { display: grid; gap: 0.5rem; }
+.freigabe { grid-auto-flow: column; justify-content: start; align-items: center; }
+input, select, button { font: inherit; padding: 0.4rem 0.5rem; }
+button { cursor: pointer; }
+.kennzahlen { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.8rem; }
+.kennzahlen div { background: var(--flaeche); border: 1px solid var(--linie); padding: 0.8rem; }
+.kennzahlen dt { color: var(--gedaempft); font-size: 0.9rem; }
+.kennzahlen dd { margin: 0.3rem 0 0; font-size: 1.2rem; }
+.liste { width: 100%; border-collapse: collapse; background: var(--flaeche); margin-top: 1rem; }
+.liste th, .liste td { padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--linie); text-align: left; }
+.liste .zahl { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 40rem) { .freigabe { grid-auto-flow: row; } }

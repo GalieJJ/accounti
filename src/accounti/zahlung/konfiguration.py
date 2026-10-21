@@ -65,6 +65,14 @@ class ZahlungEinstellungen(BaseModel):
         default_factory=list,
         description="nur diese Personen dürfen freigeben; leer = alle",
     )
+    ersteller_darf_freigeben: bool = Field(
+        default=False,
+        description=(
+            "mit eingerichteten Benutzern: wer den Lauf anlegt, darf ihn im Browser "
+            "freigeben (nur für Ein-Personen-Betriebe; in der CLI gilt immer die "
+            "Trennung)"
+        ),
+    )
     einzelbuchung: bool = Field(
         default=True, description="BtchBookg=false — nur mit Bankvereinbarung"
     )

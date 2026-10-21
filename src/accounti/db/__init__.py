@@ -75,11 +75,14 @@ class AccountiSitzung(Session):
 def session_factory(
     url: str = "sqlite:///accounti.db",
 ) -> tuple[Engine, sessionmaker[Session]]:
+    """Engine und Sitzungsfabrik. ``hide_parameters``: Fehlermeldungen der Datenbank
+    enthalten kein ``[parameters: …]`` — sonst landeten Namen und Belegtexte über
+    jede Ausnahme im Protokoll (Spec 4.6)."""
     registriere_ereignisse()
     # SQLite: ein langer Lauf hält die Schreibsperre länger als die 5 s, die sqlite3
     # sonst wartet — andere Schreiber warten bis zu 30 s statt „database is locked“
     zusatz = {"connect_args": {"timeout": 30}} if url.startswith("sqlite") else {}
-    engine = create_engine(url, **zusatz)
+    engine = create_engine(url, hide_parameters=True, **zusatz)
     return engine, sessionmaker(bind=engine, class_=AccountiSitzung)
 
 

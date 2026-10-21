@@ -1,9 +1,15 @@
 # accounti — Zeilen der Anlage EÜR je Vordruckjahr
 #
 # Die Kennzahlen (Kz) bleiben über die Jahre stabil, die Zeilennummern nicht (2026: neue
-# Zeile 27, ab da alles +1). Deshalb ordnet accounti Konten Kennzahlen zu und Kennzahlen
+# Zeile 27 „Bildung Rücklage Tierbewertung“, Waren rücken von Zeile 27 auf 29, ab den
+# Fremdleistungen alles +1). Deshalb ordnet accounti Konten Kennzahlen zu und Kennzahlen
 # hier den Zeilen des jeweiligen Vordrucks. Fehlt ein Jahr, gilt der jüngste ältere
-# Vordruck (mit Hinweis).
+# Vordruck (mit Hinweis). Alle Paare aus Kennzahl und Zeile sind gegen die BMF-Vordrucke
+# 2025 und 2026 geprüft (21.10.2026).
+#
+# Zeile 22 und Zeile 59 (2026: 60) tragen selbst keine Kennzahl; sie übernehmen die
+# Gesamtsummen der Rücklagen aus den Ergänzenden Angaben (Kz 124 Auflösung, Kz 190
+# Bildung). accounti führt sie unter diesen Kennzahlen.
 #
 # Format je Kennzahl: [Zeile, Text]
 
@@ -19,6 +25,8 @@
     "102": [19, "Veräußerung oder Entnahme von Anlagevermögen"]
     "106": [20, "Private Kfz-Nutzung"]
     "108": [21, "Sonstige Sach-, Nutzungs- und Leistungsentnahmen"]
+    "124": [22, "Auflösung von Rücklagen und/oder Ausgleichsposten (Übertrag aus Zeile
+      105)"]
   summe_einnahmen: [23, "159", "Summe Betriebseinnahmen"]
   ausgaben:
     "195": [24, "Betriebsausgabenpauschale für bestimmte Berufsgruppen"]
@@ -52,19 +60,27 @@
     "234": [56, "Übrige Schuldzinsen"]
     "185": [57, "Gezahlte und nach § 15 UStG abziehbare Vorsteuerbeträge"]
     "186": [58, "An das Finanzamt gezahlte und ggf. verrechnete Umsatzsteuer"]
+    "190": [59, "Rücklagen, stille Reserven und/oder Ausgleichsposten (Übertrag aus
+      Zeile 102)"]
     "183": [60, "Übrige unbeschränkt abziehbare Betriebsausgaben"]
     "174": [62, "Geschenke (abziehbar)"]
     "175": [63, "Bewirtungsaufwendungen (abziehbar)"]
     "171": [64, "Verpflegungsmehraufwendungen"]
     "172": [65, "Aufwendungen für ein häusliches Arbeitszimmer"]
+    "163": [66, "Tagespauschale für die Tätigkeit in der häuslichen Wohnung"]
     "177": [67, "Sonstige beschränkt abziehbare Betriebsausgaben"]
     "144": [68, "Kfz: Leasingkosten"]
     "145": [69, "Kfz: Steuern, Versicherungen und Maut"]
     "146": [70, "Sonstige tatsächliche Fahrtkosten ohne AfA und Zinsen"]
     "147": [71, "Fahrtkosten für nicht zum Betriebsvermögen gehörende Fahrzeuge"]
+    # Zeile 72 ist ein Abzug: der Betrag ist negativ (mindert die Kfz-Kosten)
+    "142": [72, "Fahrtkosten für Wege zwischen Wohnung und erster Betriebsstätte,
+      Familienheimfahrten (pauschaliert oder tatsächlich)"]
+    "176": [73, "Mindestens abziehbare Fahrtkosten (Entfernungspauschale)"]
   nicht_abziehbar:
     "164": [62, "Geschenke (nicht abziehbar)"]
     "165": [63, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    "162": [65, "Aufwendungen für ein häusliches Arbeitszimmer (nicht abziehbar)"]
     # u. a. Gewerbesteuer (§ 4 Abs. 5b EStG; Anleitung zur Anlage EÜR 2025, S. 9)
     "168": [67, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [75, "199", "Summe Betriebsausgaben"]
@@ -84,6 +100,8 @@
     "102": [19, "Veräußerung oder Entnahme von Anlagevermögen"]
     "106": [20, "Private Kfz-Nutzung"]
     "108": [21, "Sonstige Sach-, Nutzungs- und Leistungsentnahmen"]
+    "124": [22, "Auflösung von Rücklagen und/oder Ausgleichsposten (Übertrag aus Zeile
+      106)"]
   summe_einnahmen: [23, "159", "Summe Betriebseinnahmen"]
   ausgaben:
     "195": [24, "Betriebsausgabenpauschale für bestimmte Berufsgruppen"]
@@ -117,19 +135,26 @@
     "234": [57, "Übrige Schuldzinsen"]
     "185": [58, "Gezahlte und nach § 15 UStG abziehbare Vorsteuerbeträge"]
     "186": [59, "An das Finanzamt gezahlte und ggf. verrechnete Umsatzsteuer"]
+    "190": [60, "Rücklagen, stille Reserven und/oder Ausgleichsposten (Übertrag aus
+      Zeile 103)"]
     "183": [61, "Übrige unbeschränkt abziehbare Betriebsausgaben"]
     "174": [63, "Geschenke (abziehbar)"]
     "175": [64, "Bewirtungsaufwendungen (abziehbar)"]
     "171": [65, "Verpflegungsmehraufwendungen"]
     "172": [66, "Aufwendungen für ein häusliches Arbeitszimmer"]
+    "163": [67, "Tagespauschale für die Tätigkeit in der häuslichen Wohnung"]
     "177": [68, "Sonstige beschränkt abziehbare Betriebsausgaben"]
     "144": [69, "Kfz: Leasingkosten"]
     "145": [70, "Kfz: Steuern, Versicherungen und Maut"]
     "146": [71, "Sonstige tatsächliche Fahrtkosten ohne AfA und Zinsen"]
     "147": [72, "Fahrtkosten für nicht zum Betriebsvermögen gehörende Fahrzeuge"]
+    "142": [73, "Fahrtkosten für Wege zwischen Wohnung und erster Betriebsstätte,
+      Familienheimfahrten (pauschaliert oder tatsächlich)"]
+    "176": [74, "Mindestens abziehbare Fahrtkosten (Entfernungspauschale)"]
   nicht_abziehbar:
     "164": [63, "Geschenke (nicht abziehbar)"]
     "165": [64, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    "162": [66, "Aufwendungen für ein häusliches Arbeitszimmer (nicht abziehbar)"]
     "168": [68, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [76, "199", "Summe Betriebsausgaben"]
   gewinn: [77, 78]
