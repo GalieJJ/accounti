@@ -97,8 +97,9 @@ Ordnung), Nachforderung als Aufgabe über den Prüflauf `beleg_fehlt` (verstummt
 Beleg abgeglichen ist), hash-verkettetes Journal über alle buchungsrelevanten Vorgänge mit
 Verlauf und Bestandsabgleich, Storno statt Änderung ab der Freigabe, Monatsabschluss neben der
 Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Mit Baustein 10a
-verzahnt: Freigabe, Korrektur, Storno und Festschreibung nur mit Rolle und Einmalcode, im
-Journal der angemeldete Benutzer, Sammelläufe unter der Laufsperre, Journal und Korrekturen in
+verzahnt: Erfassen, Freigabe, Korrektur, Storno, Festschreibung und Export nur mit Rolle und
+Einmalcode, das Öffnen eines festgeschriebenen Zeitraums nur durch die Rolle freigeber, im
+Journal der angemeldete Benutzer (andere Personen als „ungeprüft“), Sammelläufe unter der Laufsperre, Journal und Korrekturen in
 Sicherung und Aufbewahrungsbericht; Migration für bestehende Datenbanken. Offen: Prüfbefunde
 und Perioden in der UStVA-Plausibilisierung (Baustein 9), Generalumkehr im DATEV-Export,
 Historisierung von Stammdaten, Prüfbefunde in der Oberfläche (Baustein 10).

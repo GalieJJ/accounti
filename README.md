@@ -512,17 +512,27 @@ einem festgeschriebenen Monat bucht `opos verbuchen --buchungsdatum` in einen of
 bei Bilanzierung (und ohne ausdrückliche `abschluss.gewinnermittlung`) nicht über den
 Geschäftsjahreswechsel.
 
-Mit eingerichteten Benutzern brauchen `bestaetige`, `periode schliessen|oeffnen`,
-`abschluss vortrag|oeffnen` und `journal uebernehmen` das Recht, Buchungen freizugeben
-(`buchhalter`, `freigeber`), `korrigiere`, `buchung storniere` und `kasse storno` das Recht
-zu buchen (`buchhalter`) — jeweils mit Einmalcode; im Journal steht dann der Benutzer, nicht
-ein Freitext aus `--von`. `opos verbuchen` und `periode schliessen` laufen nie neben `bank lauf`,
-`classify` oder einem anderen Buchungslauf derselben Datenbank (Laufsperre, sonst Exit 1),
+Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
+
+| Recht (Rollen) | Befehle |
+|----------------|---------|
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden` |
+| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
+| Steuermeldungen freigeben (`freigeber`) | `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |
+| verwalten (`verwalter`) | `journal uebernehmen` |
+
+Im Journal steht dann der Benutzer, nicht ein Freitext aus `--von`; wer keine
+Rechteprüfung durchlaufen hat (Läufe wie `classify`, Importe), steht dort als „… (ungeprüft)“.
+Beim Öffnen nennt accounti schon freigegebene oder abgegebene Voranmeldungen des
+Zeitraums. `opos verbuchen` und `periode schliessen` laufen nie neben `bank lauf`, `classify`
+oder einem anderen Buchungslauf derselben Datenbank (Laufsperre, sonst Exit 1),
 `nachfordern` nicht neben `aufgaben lauf`.
 
 Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `alembic upgrade head`
-(Migration `ddc9a184ddb4`); danach einmal `accounti journal uebernehmen`, sonst meldet
-`journal pruefen` den älteren Bestand als „ohne Eintrag“ ([Upgrades](docs/betrieb.md#upgrades)).
+(Migration `ddc9a184ddb4`); gleich danach — bevor accounti selbst schreibt — einmal
+`accounti journal uebernehmen`, sonst meldet `journal pruefen` den älteren Bestand als
+„ohne Eintrag“. Später lehnt `journal uebernehmen` ab: Was dann ohne Eintrag ist, entstand an
+accounti vorbei ([Upgrades](docs/betrieb.md#upgrades)).
 
 ### Betrieb, Benutzer und mehrere Gesellschaften
 

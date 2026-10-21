@@ -89,8 +89,8 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 | Sperre freigegebener Buchungen | `before_flush`: liest den gespeicherten Stand **aus der Datenbank** (nie aus der Attribut-Historie, die nach `commit` leer ist) und prüft damit Jahres- und Monatssperre (gespeichertes und neues Datum) und die Storno-Regel — auch im gesperrten Zeitraum; erlaubt bei freigegebenen Buchungen nur `auto → geprueft` (mit `geprueft_von`), `auto/geprueft/korrigiert → exportiert` und das einmalige Setzen von `storniert_durch`, das auf eine Stornobuchung mit `storno_von` zeigen muss; Löschen nie. Der Primärschlüssel erfasster Zeilen ändert sich nie. `datum` und `storniert_durch` haben zusätzlich `active_history`, damit auch die Mapper-Sperre das alte Datum kennt. Massen-`INSERT`/`UPDATE`/`DELETE` über die Sitzung (ORM und Core-DML) auf `buchungssaetze`, `journal`, `buchungskorrekturen` werden abgelehnt (`do_orm_execute`), die alten `bulk_*`-Wege sperrt die Sitzungsklasse `AccountiSitzung` aus `session_factory`; `repo_bank.loesche_buchung` löscht über `session.delete` | Akzeptanz 6 in der Datenbankschicht statt nur im Befehl; der bisherige Massen-Delete umging auch die Jahressperre |
 | Unique | `storno_von` und `storniert_durch` eindeutig | eine Buchung wird höchstens einmal storniert — auch bei zwei Prozessen |
 | `korrigiere` | Vorschlag: direkt (Status `korrigiert`, Journal „korrigiert“ und „freigegeben“). Freigegeben: Storno + Neubuchung. In beiden Fällen bleiben Transaktion, **Beleg, Belegposition, Belegnummer, Datum, Text und Betrag der Buchung** erhalten; mit `--steuer` werden Netto/Steuer aus dem **Brutto der Buchung** neu gerechnet, nicht aus dem Umsatz. **Ändert sich das Sachkonto** (die Seite, die kein Geld-/Personenkonto ist) einer Buchung mit Schlüssel, muss `--steuer` (bestätigen oder ändern) oder `--ohne-steuer` angegeben werden; bleibt das Sachkonto (nur das Geldkonto wechselt), bleibt der Schlüssel. Eine Kombination, die die Regel `steuerschluessel_konto` als Fehler einstuft, wird abgelehnt. `--steuer` mit anderem Schlüssel bei Buchungen mit Beleg (Belegbuchung, Split, Ausgleich, Skonto) abgelehnt; `--ohne-steuer` dort nicht für ausgewiesene Umsatzsteuer (Schlüssel 2, 3) und nur mit `--grund` (steht im Journal) — ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG), die Berichtigung ist ein neuer Beleg. Ein DATEV-Automatikkonto ohne Schlüssel lehnt `korrigiere` ab (DATEV rechnete trotzdem Steuer heraus). Geprüft wird mit der Kontenrahmen-Datei der Konfiguration (`pruefung.kontenrahmen_datei`). `--lernen` lernt den Schlüssel der Neubuchung (bei neuem Sachkonto ausdrücklich angegeben, sonst der des unveränderten Sachkontos). Storno- und stornierte Buchungen werden nicht korrigiert | behebt: `zu_buchungssatz(tx)` setzte den ganzen Umsatzbetrag ein und verlor `beleg_id` (Belegbuchung, Ausgleich, Skonto, Split); ein still mitgenommener Schlüssel ergab Vorsteuer auf Versicherung (4360), Privatentnahme (1800) oder Umsatzsteuer auf eine Auszahlung (1200 an 1361) |
-| Person | Ohne Benutzer: `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename (wie `zahlung/freigabe.py`). Mit Benutzern (Baustein 10a): `befehle.handelnde_person` prüft Recht und Einmalcode und setzt den Benutzer in `journal_kontext`, `geprueft_von` und das Protokoll; API-Token stehen als „API-Token <Name>“ im Journal | Freitext beweist nichts, der zweite Faktor schon |
-| Rechte (Verzahnung 10a) | `bestaetige`, `periode schliessen|oeffnen`, `abschluss vortrag|oeffnen`, `journal uebernehmen` → `BUCHUNG_FREIGEBEN` (buchhalter, freigeber); `korrigiere`, `buchung storniere`, `kasse storno` → `BUCHEN` (buchhalter); `review` zeigt nur an (kein Recht) | Festschreiben und Öffnen sind Freigaben des Zeitraums — die Matrix kennt kein eigenes Recht dafür, `VERWALTEN` ist kein Buchhaltungsrecht; Öffnen zusätzlich mit Pflichtgrund und Protokoll. Korrektur und Storno legen freigegebene Buchungen an: `BUCHEN` genügt, weil jede Rolle mit `BUCHEN` auch `BUCHUNG_FREIGEBEN` hat (Test `test_buchen_umfasst_die_freigabe`) — zwei Prüfungen verlangten zwei Einmalcodes. `journal uebernehmen` macht Unprotokolliertes zum Bestand und ist deshalb eine Freigabe |
+| Person | Ohne Benutzer: `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename (wie `zahlung/freigabe.py`). Mit Benutzern (Baustein 10a): `befehle.handelnde_person` prüft Recht und Einmalcode und setzt den Benutzer geprüft in `journal_kontext` (`geprueft=True`), `geprueft_von` und das Protokoll; API-Token stehen geprüft als „API-Token <Name>“ im Journal; jede andere Person steht als „… (ungeprüft)“ im Journal, sobald die Datenbank zu einer Benutzerverwaltung gehört (Merker oder eigene Benutzer) | Freitext beweist nichts, der zweite Faktor schon — und das Journal unterscheidet beides |
+| Rechte (Verzahnung 10a, Liste `models.auth.FREIGABEWEGE`) | `BUCHEN` (buchhalter): `korrigiere`, `buchung storniere`, `kasse buchen|anfangsbestand|storno`, `abschluss eroeffnung`, `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. `BUCHUNG_FREIGEBEN` (buchhalter, freigeber): `bestaetige`, `opos bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege`. `STEUER_FREIGEBEN` (freigeber): `periode oeffnen`, `abschluss oeffnen`. `VERWALTEN` (verwalter): `journal uebernehmen`. `review` zeigt nur an (kein Recht) | Erfassen und Korrigieren (auch mit sofort freigegebener Buchung) ist Buchen — jede Rolle mit `BUCHEN` hat auch `BUCHUNG_FREIGEBEN` (Test `test_buchen_umfasst_die_freigabe`), eine zweite Prüfung verlangte einen zweiten Einmalcode. Einen Vorschlag zur freigegebenen Buchung machen (Status geprueft) ist Freigeben; Beleg und Umsatz zuordnen (noch keine Buchung) ist Buchen. Festschreiben und Vortrag schützen nur — Freigabe; der Export ist die Übergabe an den Steuerberater und setzt den Vermerk „exportiert“ — Freigabe (`LAEUFE_STARTEN` hat nur der buchhalter, ein freigeber soll übergeben können). Die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102) und zieht meist eine berichtigte Voranmeldung nach sich — nur, wer Steuermeldungen freigibt. Die Bestandsübernahme ist ein Schritt des Betriebs beim Upgrade, kein Buchhaltungsvorgang — verwalten, und nur, solange das Journal außer Übernahmen leer ist. Senden an Lieferanten ist Buchhaltungsarbeit — buchen |
 | Journal-Einhängung | Session-Ereignisse, eingehängt von `session_factory`/`init_db` (`accounti.db.registriere_ereignisse`), nicht durch einen Import: `before_flush` liest den gespeicherten Stand geänderter/gelöschter Zeilen, `after_flush` liest den neuen Stand immer aus der Datenbank und hängt je Vorgang einen Eintrag an (über die Verbindung, in derselben Transaktion — ein Rollback nimmt beides zurück). Tabellen: `buchungssaetze`, `belege`, `beleg_eingaenge` (nur Dubletten = „verworfen“), `zahlungslaeufe` (Anlage), `zahlungslauf_protokoll` (Statuswechsel), `abschlussprotokoll` (Jahres- und Monatsabschlüsse) — die Sperrtabellen `abschluesse`/`periodenabschluesse` selbst gleicht `journal pruefen` ab. Explizit: Export, Verfahrensdoku, Bestandsübernahme, Anfrage an Lieferanten. Fehlt die Tabelle `journal` (alte Datenbank), wird nicht protokolliert und `journal pruefen` meldet es. Sperren werden je Flush einmal gelesen. **Vor dem Lesen** holt jeder Flush und jedes `schreibe` die Schreibsperre der Transaktion (`journal.schreibsperre`: SQLite ein UPDATE ohne Treffer = RESERVED-Sperre, PostgreSQL die Advisory-Sperre der Nummernvergabe) — Prüfung, Nummernvergabe und Schreiben sind atomar gegenüber anderen accounti-Schreibern; die Mapper-Sperre überspringt nur Zeilen, die `before_flush` unter dieser Sperre geprüft hat | zentral statt in jedem Befehl; jeder Weg über eine Sitzung aus `session_factory` ist erfasst (Grenzen: rohes SQL, Sitzungen an `session_factory` vorbei) |
 | Vorgänge | `buchung_angelegt`, `storno_gebucht`, `buchung_korrigiert`, `buchung_freigegeben`, `buchung_exportiert`, `buchung_storniert`, `buchung_geaendert`, `buchung_verworfen`, `beleg_importiert`, `beleg_verworfen`, `beleg_geaendert`, `zahlungslauf_<status>`, `jahr_abgeschlossen`/`jahr_geoeffnet`, `periode_geschlossen`/`periode_geoeffnet`, `export`, `verfahrensdoku_erstellt`, `bestand_uebernommen`, `sperre_uebernommen`, `beleg_angefordert`. Löschen und Neuanlegen derselben ID in einem Flush ist eine Änderung | Spec 4.3 vollständig plus Perioden |
 | Journal-Eintrag | laufende Nummer, Zeitpunkt, Person, Vorgang, Objekt (Typ, ID), Vorher/Nachher als kanonisches JSON (alle Spalten, Beträge mit Spaltenskala; `zahlungslaeufe` ohne die erzeugte Datei `datei` und ohne `version`), Grund, Bezug, Vorgänger-Hash, Hash = SHA-256 über alles außer dem Hash | Muster `kontakte/ustid.py`; vorher/nachher aus der Datenbank, damit der spätere Abgleich exakt vergleicht |
@@ -192,6 +192,45 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   lokal gegen PostgreSQL 16 (Upgrade mit Bestand, Übernahme, Downgrade, `check`,
   `init_db` vor der Migration, PG-Tests der Sicherung).
 
+### Befunde der Schlussprüfung, je mit Regressionstest
+
+- [x] **M-1** Öffnen nur mit `STEUER_FREIGEBEN` (freigeber), Hinweis auf freigegebene bzw.
+  abgegebene Voranmeldungen (`test_cli_rechte_pruefung.py::test_oeffnen_nur_wer_steuermeldungen_freigibt`,
+  `::test_abschluss_vortrag_und_oeffnen_mit_benutzer`).
+- [x] **M-2** `journal uebernehmen` nur mit `VERWALTEN` und nur vor dem ersten regulären
+  Eintrag; `journal pruefen` meldet spätere Übernahmen
+  (`test_pruefung_journal.py::test_uebernahme_nur_auf_dem_upgrade_weg`).
+- [x] **M-3/T-M1** `kasse buchen|anfangsbestand`, `abschluss eroeffnung|bestaetigen|ablehnen`,
+  `opos bestaetigen|ablehnen`, `bank bestaetigen|ablehnen`, `export datev`, `datev belege`,
+  `nachfordern anfrage --senden` gebunden; „(ungeprüft)“ im Journal
+  (`test_cli_rechte_pruefung.py::test_betrachter_darf_nicht_…`,
+  `::test_eb_in_festgeschriebenen_januar_nicht_durch_betrachter`,
+  `::test_ungepruefte_person_im_journal_gekennzeichnet`).
+- [x] **M-4** Verfahrensdoku mit Benutzern, Rollen, Rechten, Einmalcode, Freigabewegen,
+  Datensicherung, `betrieb lauf`, Laufsperre; **N-3** Gewinnermittlung ohne Angabe, EB-Form
+  vollständig (`test_pruefung_verfahrensdoku.py::test_akzeptanz_7_…`).
+- [x] **M-5** `--ohne-steuer` bei 18/19/91/94: eigene Meldung, Warnung, keine Abhilfe
+  „Vorsteuer entfernen“, Brutto ohne selbst berechnete Steuer
+  (`test_pruefung_storno.py::test_ohne_steuer_bei_13b_und_ig_erwerb_eigener_hinweis`,
+  `test_pruefung_regeln.py::test_abhilfe_bei_13b_schlaegt_nicht_vorsteuer_entfernen_vor`).
+- [x] **T-M2** Schreibsperre nur bei Journal- oder Sperrbezug, `fints freigeben` je Konto
+  festgeschrieben (`test_pruefung_nebenlaeufigkeit.py::test_flush_ohne_journalbezug_holt_keine_schreibsperre`,
+  `::test_anmeldung_wartet_nicht_auf_eine_buchung_postgresql`,
+  `test_bank_lauf.py::test_mit_freigabe_wird_je_konto_gesichert`).
+- [x] **T-N1/T-N2** Lesestand ohne fremden Commit, unter PostgreSQL Schnappschuss
+  (`::test_journal_pruefen_schreibt_offene_aenderungen_nicht_fest`,
+  `::test_journal_pruefen_haelt_schreiber_nicht_an_postgresql`); **T-N3** Laufsperre vor
+  dem Einmalcode (`test_cli_rechte_pruefung.py::test_laufsperre_vor_dem_einmalcode`);
+  **T-N4** gleichzeitiges Storno als Meldung
+  (`test_pruefung_storno.py::test_gleichzeitiges_storno_meldet_klar`); **T-N5**
+  (`test_api_rest.py::test_lauf_ueber_rest_steht_unter_dem_token_im_journal`).
+- [x] **N-1** Vorsteuer-Zeitraum bei festem Buchungsdatum
+  (`test_pruefung_perioden.py::test_fester_tag_lange_nach_dem_eingang_warnt_zur_vorsteuer`);
+  **N-2** als Grenze (Kalenderjahr); **N-4**
+  (`test_pruefung_nachforderung.py::test_beleg_ueber_die_buchung_zugeordnet`); **N-5**
+  (`test_pruefung_regeln.py::test_datev_export_warnt_bei_steuer_ohne_schluessel_auf_automatikkonto`);
+  **N-6** CHANGELOG, Anfrage-Text ohne `antwort_an`, `--von` ohne „supervisor“.
+
 ### Befunde der Nachprüfung (Runde 2), je mit Regressionstest
 
 - [x] **Nebenläufigkeit** (`tests/test_pruefung_nebenlaeufigkeit.py`): Schreibsperre vor dem Lesen in `before_flush` und `fuege_an`; Export gegen Storno, Freigabe gegen Änderung, Festschreibung gegen Verschiebung, Journalnummer (N1, N3); die Abkürzung über den Vorher-Stand ist entfernt (M1). Zusätzlich lokal gegen PostgreSQL 16 und unter Last (4 Prozesse × 250 Vorgänge: Journal in Ordnung).
@@ -234,8 +273,12 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   keine Trigger. Die Tests laufen gegen SQLite; die Wettlauf-Fälle (Export gegen Storno,
   Freigabe gegen Änderung, Festschreibung gegen Verschiebung, Journalnummer) sind zusätzlich
   lokal gegen PostgreSQL 16 geprüft (nicht in der CI).
-- **Nebenläufigkeit:** Jede schreibende accounti-Transaktion hält ab dem ersten Flush bzw.
-  `schreibe` (`periode schliessen`: vor seinen Prüfungen) die Schreibsperre bis zum Commit.
+- **Nebenläufigkeit:** Jede schreibende accounti-Transaktion hält ab dem ersten Flush mit
+  Journal- oder Sperrbezug (Buchungen, Belege, Zahlungsläufe, Abschlussprotokoll, Journal,
+  Korrekturen, Sperren) bzw. `schreibe` (`periode schliessen`: vor seinen Prüfungen) die
+  Schreibsperre bis zum Commit; Flushes ohne diesen Bezug (Umsätze, Anmeldungen,
+  Sitzungen) holen sie nicht, `fints freigeben` schreibt je Konto fest (keine offene
+  Transaktion während der TAN-Abfrage).
   Ein zweiter Schreiber wartet (SQLite: busy timeout, von `session_factory` auf 30 s
   gesetzt, danach „database is locked“; PostgreSQL: ohne Frist) und prüft dann gegen den
   neuen Stand: Ein einzelner Vorgang, der dem inzwischen geschriebenen Stand widerspricht,
@@ -250,26 +293,40 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   `periode schliessen` (nicht festschreiben, während ein Lauf in den Monat bucht); Art
   `aufgaben` für `aufgaben lauf` und `nachfordern` (derselbe Prüflauf `beleg_fehlt`).
   `journal uebernehmen` holt die Schreibsperre, bevor es liest. Nicht gesperrt sind
-  `aufgaben pruefen` (Baustein 8) und Läufe an der CLI vorbei. Unter PostgreSQL serialisiert die Sperre
-  alle schreibenden Transaktionen (Durchsatz statt Parallelität). Lange Befehle halten die
-  Sperre bis zu ihrem Commit. `journal pruefen` liest Journal und Bestand aus einem Stand:
-  unter SQLite warten Schreiber mit ihrem Commit, solange die Prüfung liest. Rohes SQL
-  nimmt die Sperre nicht.
+  `aufgaben pruefen` (Baustein 8) und Läufe an der CLI vorbei. Unter PostgreSQL
+  serialisiert die Sperre alle schreibenden Transaktionen mit Journalbezug (Durchsatz statt
+  Parallelität). Lange Befehle halten die Sperre bis zu ihrem Commit. `journal pruefen`
+  liest Journal und Bestand aus einem Stand: unter PostgreSQL aus einem Schnappschuss
+  (`REPEATABLE READ READ ONLY`, hält niemanden auf), unter SQLite in einer Lesetransaktion
+  — Schreiber warten mit ihrem Commit, solange die Prüfung liest (gemessen: 22.200
+  Einträge 2,0 s; hochgerechnet auf zehn Jahre, rund 250.000 Einträge, 20–25 s und etwa
+  1 GB Speicher — nahe am busy timeout von 30 s; die Prüfung lädt das ganze Journal).
+  Ein zweites Storno derselben Buchung scheitert am Unique-Index und wird als Meldung
+  „inzwischen storniert“ abgelehnt. Rohes SQL nimmt die Sperre nicht.
 - **Personen:** Ohne eingerichtete Benutzer sind sie Zeichenketten (`--von`,
   `ACCOUNTI_BENUTZER`, Anmeldename) — wer die CLI bedient, kann jeden Namen angeben. Mit
-  Benutzern (Baustein 10a) brauchen Freigabe, Korrektur, Storno, Festschreiben, Öffnen,
-  Saldovortrag und Bestandsübernahme Rolle und Einmalcode, und im Journal steht der
-  Benutzer. Nicht gebunden sind (wie in 10a) Läufe, Importe und Exporte (`classify`, `opos
-  verbuchen`, `import`, `export datev`, `verfahrensdoku`, `nachfordern anfrage --senden`):
-  dort bleibt die Person der Freitext. Die Prüfung gilt in der CLI auf dem Server; wer die
-  Datenbankdatei schreiben kann, umgeht sie (Grenze aus 10a). Zeitstempel sind lokale Zeit
-  ohne Zeitzone, ohne qualifizierten Zeitstempel.
+  Benutzern (Baustein 10a) brauchen alle Befehle aus `FREIGABEWEGE` (Erfassen, Freigeben,
+  Korrigieren, Stornieren, Festschreiben, Öffnen, Vortrag, Export, Versand,
+  Bestandsübernahme) Rolle und Einmalcode, und im Journal steht der Benutzer. Nicht
+  gebunden sind Lesebefehle und maschinelle Läufe und Importe (`classify`, `opos
+  verbuchen`, `opos zuordnen`, `bank abgleich`, `bank lauf`, `aufgaben lauf`, `import`,
+  `belege import`, `verfahrensdoku`, `abschluss buchen` und `anlagen afa` mit Vorschlägen):
+  dort steht die Person als „… (ungeprüft)“ im Journal, sobald die Datenbank zu einer
+  Benutzerverwaltung gehört (Merker der Bindung oder eigene Benutzer; je Verbindung eine
+  Minute gemerkt). Eine nicht gebundene Gesellschafts-Datenbank (noch keine Rechteprüfung,
+  keine Rollenvergabe dort) kennzeichnet noch nicht. Die Prüfung gilt in der CLI auf dem
+  Server; wer die Datenbankdatei schreiben kann, umgeht sie (Grenze aus 10a). Zeitstempel
+  sind lokale Zeit ohne Zeitzone, ohne qualifizierten Zeitstempel.
 - **Bestehende Datenbanken** brauchen die Migration `ddc9a184ddb4` (neue Spalten
   `storniert_durch`, `storno_von`, neue Tabellen, Trigger); ohne Tabelle `journal` wird nicht
   protokolliert, und `journal pruefen` meldet das. Bestand von vor dem Journal einmal mit
-  `accounti journal uebernehmen` eintragen (geprüft: Datenbank mit Buchungen, Belegen und
-  abgeschlossenem Jahr auf `a684d10751de`, Migration, Übernahme — `journal pruefen` in
-  Ordnung). Die Sicherung aus 10a liest eine Datenbank vor der Migration mit dem neuen Code
+  `accounti journal uebernehmen` eintragen — nur, solange das Journal außer Übernahmen leer
+  ist, also gleich nach der Migration und bevor accounti selbst schreibt; danach lehnt
+  accounti ab, und `journal pruefen` meldet jede Übernahme nach dem ersten regulären Eintrag
+  (geprüft: Datenbank mit Buchungen, Belegen und abgeschlossenem Jahr auf `a684d10751de`,
+  Migration, Übernahme — `journal pruefen` in Ordnung). Wer vergisst und schon gebucht
+  hat, behält die Befunde „ohne Eintrag“ für den Altbestand (bewusst: sie sind von an
+  accounti vorbei angelegten Buchungen nicht zu unterscheiden). Die Sicherung aus 10a liest eine Datenbank vor der Migration mit dem neuen Code
   (nur vorhandene Spalten) und bringt Journal und Korrekturen samt Triggern zurück.
 - **Aufbewahrung:** Journal, Buchungskorrekturen und Monatsabschlüsse zählen als Bücher (10
   Jahre); ein spät festgeschriebener Monat verschiebt den Fristbeginn seines
@@ -283,7 +340,13 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   Abgrenzung und Anlagen übergehen Storno-Paare). Ein anderer Schlüssel per `--steuer` ist bei
   Buchungen mit Beleg gesperrt (die Steuer kommt aus dem Beleg bzw. dem Ausgleich);
   `--ohne-steuer` entfernt dort Vorsteuer, ig. Erwerb und § 13b (Eingangsrechnung, z.B. ein
-  falsch erkannter § 13b-Fall) nur mit Grund; ausgewiesene Umsatzsteuer einer
+  falsch erkannter § 13b-Fall) nur mit Grund. Bei § 13b und ig. Erwerb (18, 19, 91, 94)
+  entfernt es Steuerschuld **und** Vorsteuer — richtig nur, wenn gar kein solcher Fall
+  vorliegt (Grund dann Pflicht, auch ohne Beleg, und eine Warnung); „kein
+  Vorsteuerabzug“ bei einem echten § 13b-Fall bildet accounti nicht ab (die Steuerschuld
+  bliebe, § 13b Abs. 5 UStG; der Vorsteuerabzug hängt nicht an der Rechnung, § 15 Abs. 1
+  Nr. 3/4 UStG) — das klärt der Steuerberater. Das Brutto einer korrigierten Buchung
+  enthält bei diesen Schlüsseln die selbst berechnete Steuer nicht; ausgewiesene Umsatzsteuer einer
   Ausgangsrechnung (Schlüssel 2, 3; § 14c UStG) bleibt — die Berichtigung ist ein neuer
   Beleg. Nach einem reinen Storno einer Belegbuchung lässt sich
   der Beleg nicht erneut mit `opos verbuchen` buchen (der offene Posten bleibt bestehen);
@@ -335,7 +398,11 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   1548 und ihre Umbuchung im Folgejahr macht accounti nicht selbst; bei
   Einnahmenüberschussrechnung bucht es mit Hinweis. Bei `offen` mit Eingang in einem
   festgeschriebenen Monat weist accounti auf die Berichtigung der dortigen Voranmeldung
-  hin, korrigiert sie aber nicht. Weitere Buchungswege (Kasse, Kreditkarte,
+  hin, korrigiert sie aber nicht; liegt ein fester Tag nach einem offenen Eingangsmonat,
+  warnt es, dass die Vorsteuer in den Eingangsmonat gehört (kein Wahlrecht). Der Schutz
+  beim Jahreswechsel und die Jahressperre rechnen wie der ganze Abschluss mit dem
+  Kalenderjahr — ein abweichendes Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`)
+  berücksichtigen sie nicht. Weitere Buchungswege (Kasse, Kreditkarte,
   Marktplatz) haben noch kein eigenes Buchungsdatum.
   `ustva` berücksichtigt Befunde und Perioden noch nicht (Plausibilisierung aus Baustein 9
   unverändert).

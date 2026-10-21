@@ -159,16 +159,30 @@ bleibt Pflicht, und das Protokoll zeigt, wer allein freigab. `zahlung entfernen`
 `zahlung stornieren` das Recht zur Zahlungsfreigabe — jeweils mit Einmalcode; ins
 Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
 
-Buchungen (Baustein 7): `bestaetige`, `periode schliessen|oeffnen`, `abschluss
-vortrag|oeffnen` und `journal uebernehmen` verlangen das Recht, Buchungen freizugeben
-(`buchhalter`, `freigeber`); `korrigiere`, `buchung storniere` und `kasse storno` das Recht
-zu buchen (`buchhalter`) — Korrektur und Storno legen freigegebene Buchungen an, das Recht
-zu buchen schließt laut Rollen das Freigeben ein (ein Test hält das fest). Wer festschreibt
-oder öffnet, gibt einen Einmalcode und beim Öffnen einen Grund an. Im Journal, in
-`geprueft_von` und im Abschlussprotokoll steht der Benutzer; was ein API-Token anstößt,
-steht als „API-Token <Name>“ im Journal. Nicht an eine Rolle gebunden sind (wie in 10a)
-Läufe und Importe (`classify`, `opos verbuchen`, `import`, `export datev`) — dort steht im
-Journal `ACCOUNTI_BENUTZER` bzw. der Anmeldename.
+Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWEGE` in
+`models/auth.py`, auch in der Verfahrensdokumentation):
+
+- **buchen** (`buchhalter`): `korrigiere`, `buchung storniere`, `kasse
+  buchen|anfangsbestand|storno`, `abschluss eroeffnung` (die EB-Ausnahme der
+  Monatssperre), `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
+  und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
+  Rollen das Freigeben ein (ein Test hält das fest).
+- **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
+  bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`,
+  `abschluss vortrag`, `export datev` und `datev belege` (Übergabe an den Steuerberater,
+  Vermerk „exportiert“).
+- **Steuermeldungen freigeben** (`freigeber`): `periode oeffnen`, `abschluss oeffnen` —
+  die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102), meist folgt eine
+  berichtigte Voranmeldung; accounti nennt beim Öffnen schon freigegebene oder
+  abgegebene Voranmeldungen des Zeitraums. Grund ist Pflicht.
+- **verwalten** (`verwalter`): `journal uebernehmen` (nur auf dem Upgrade-Weg, unten).
+
+Im Journal, in `geprueft_von` und in den Protokollen steht der Benutzer; was ein
+API-Token anstößt, steht als „API-Token <Name>“ im Journal. Nicht an eine Rolle gebunden
+sind Lesebefehle und maschinelle Läufe und Importe (`classify`, `opos verbuchen`, `opos
+zuordnen`, `bank abgleich`, `bank lauf`, `aufgaben lauf`, `import`, `belege import`,
+`verfahrensdoku`) — dort steht im Journal `ACCOUNTI_BENUTZER` bzw. der Anmeldename mit dem
+Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung gehört.
 
 - **Anmeldung im Browser** nur mit Passwort **und** Einmalcode (TOTP-App nach RFC 6238 oder
   ein Wiederherstellungscode, der genau einmal gilt). Jeder Code gilt einmal. Passwörter:
@@ -454,9 +468,9 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   **wieder geöffnetes** Geschäftsjahr (`abschluesse.gesperrt` falsch) läuft nicht ab — es
   kann noch bebucht werden; ebenso ein wieder geöffneter Monat, solange sein Jahr nicht
   abgeschlossen ist. Das Journal ist eine Hash-Kette: Wer alte Einträge aussondert, prüft
-  danach mit einem Anker ab dem verbliebenen Anfang (`journal pruefen --kopf`). Die 8 Jahre gelten für alle Belege, deren alte
-  Frist am 31.12.2024 noch lief; ein Bericht mit `--stichtag` vor dem 01.01.2025 rechnet
-  Belege nach altem Recht mit 10 Jahren.
+  danach mit einem Anker ab dem verbliebenen Anfang (`journal pruefen --kopf`). Die 8 Jahre
+  gelten für alle Belege, deren alte Frist am 31.12.2024 noch lief; ein Bericht mit
+  `--stichtag` vor dem 01.01.2025 rechnet Belege nach altem Recht mit 10 Jahren.
 - Sie läuft nicht ab, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
   Festsetzungsfrist noch läuft — etwa bei Außenprüfung, Einspruch, vorläufiger Festsetzung
   (§ 147 Abs. 3 Satz 3 AO). Handelsrechtlich gilt § 257 HGB entsprechend.
@@ -507,7 +521,7 @@ gibt, legt accounti beim ersten Befehl selbst an (`init_db`).
 **Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
 Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher
 liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `alembic
-upgrade head` einmal
+upgrade head` und **vor** `docker compose up -d` einmal
 
 ```bash
 docker compose run --rm app journal uebernehmen    # Bestand von vor dem Journal eintragen
@@ -515,8 +529,12 @@ docker compose run --rm app journal pruefen        # in Ordnung; den Kopf notier
 ```
 
 — sonst meldet `journal pruefen` jede ältere Buchung und jeden älteren Beleg als „ohne
-Eintrag“ und jedes früher abgeschlossene Jahr als „an accounti vorbei gesperrt“. Mit
-eingerichteten Benutzern braucht `journal uebernehmen` das Recht, Buchungen freizugeben
-(Einmalcode, z. B. `-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`). Hat ein Befehl
+Eintrag“ und jedes früher abgeschlossene Jahr als „an accounti vorbei gesperrt“. **Die
+Übernahme gleich nach der Migration, bevor accounti selbst schreibt** (den Dienst `lauf`
+erst danach wieder starten): Steht im Journal schon ein regulärer Eintrag, lehnt `journal
+uebernehmen` ab — was dann ohne Eintrag ist, entstand an accounti vorbei und bleibt ein
+Befund; eine später doch eingetragene Übernahme meldet `journal pruefen`. Mit
+eingerichteten Benutzern braucht `journal uebernehmen` die Rolle `verwalter` und den
+Einmalcode (z. B. `-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`). Hat ein Befehl
 des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`),
 übernimmt die Migration sie und ergänzt nur, was fehlt.

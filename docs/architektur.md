@@ -257,18 +257,22 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   SQLite-Trigger); Sitzungsereignisse `before_flush`/`after_flush` schreiben je Vorgang einen
   Eintrag (Buchungen, Belege, verworfene Dubletten, Zahlungslauf- und Abschlussprotokoll),
   `do_orm_execute` sperrt Massenänderungen; jede schreibende Transaktion hält ab dem ersten
-  Flush die Schreibsperre (`schreibsperre`). `pruefe_journal` prüft Kette, Anker, Verlauf je
-  Objekt und den Bestand (Buchungen, Belege, Sperren) aus einem Stand (`lesestand`). Person
-  und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung der CLI
-  (`befehle.handelnde_person`), für API-Token die REST-API. *(vorhanden)*
+  Flush mit Journal- oder Sperrbezug die Schreibsperre (`schreibsperre`). `pruefe_journal`
+  prüft Kette, Anker, Übernahmen, Verlauf je Objekt und den Bestand (Buchungen, Belege,
+  Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
+  Person und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung
+  der CLI (`befehle.handelnde_person`, geprüft), für API-Token die REST-API; jede andere
+  Person kennzeichnet `fuege_an` als „(ungeprüft)“, sobald die Datenbank zu einer
+  Benutzerverwaltung gehört. *(vorhanden)*
 - `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
   Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
   sitzt in `ereignisse.py`. *(vorhanden)*
 - `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
   Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
   gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
-- `verfahrensdoku.py` — Verfahrensdokumentation aus Konfiguration, Datenbank und
-  Code-Standards (GoBD Rz. 151 ff.), Markdown/PDF, Fassung im Journal. *(vorhanden)*
+- `verfahrensdoku.py` — Verfahrensdokumentation aus Konfiguration, Datenbank, Systemdatenbank
+  (Benutzer, Rollen, Freigabewege) und Code-Standards (GoBD Rz. 151 ff.), Markdown/PDF,
+  Fassung im Journal. *(vorhanden)*
 
 Befehle: `accounti pruefen`, `nachfordern`, `journal`, `buchung`, `periode`,
 `verfahrensdoku`; `korrigiere`, `bestaetige`, `review` aus `cli.py` nutzen `storno.py`.
@@ -466,10 +470,9 @@ Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **System
   Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
   Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
   `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben` und — über
-  `befehle.handelnde_person`, das zugleich die Person im Journal setzt — in `bestaetige`,
-  `korrigiere`, `buchung storniere`, `kasse storno`, `periode schliessen|oeffnen`,
-  `abschluss vortrag|oeffnen`, `journal uebernehmen` (Baustein 7). Sperrwerte gelten in der
-  CLI immer mit den Standardwerten, nie aus `--config`.
+  `befehle.handelnde_person`, das zugleich die geprüfte Person im Journal setzt — in die
+  Befehle von Baustein 7 (vollständige Liste je Recht: `models.auth.FREIGABEWEGE`).
+  Sperrwerte gelten in der CLI immer mit den Standardwerten, nie aus `--config`.
 - `einstellungen.py` — Abschnitt `auth`.
 
 Rollen → Rechte (`ROLLEN_RECHTE`): `betrachter` lesen · `buchhalter` lesen, buchen, Belege
