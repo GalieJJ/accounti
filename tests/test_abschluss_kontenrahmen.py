@@ -762,6 +762,7 @@ def test_paritaet_skr03_skr04(skr03, skr04):
     if SKR03.art(skr03, "euer") is Kontenart.ERFOLG:
         for saldo in (Decimal(1), Decimal(-1)):
             assert SKR03.euer_kz(skr03, saldo) == SKR04.euer_kz(skr04, saldo)
+        assert SKR03.euer_hinweis(skr03) == SKR04.euer_hinweis(skr04)
 
 
 # Erfolgskonten ohne Kennzahl der Anlage EÜR: nur die in den Zuordnungsdateien
@@ -799,3 +800,73 @@ def test_euer_erfolgskonten_ohne_kennzahl_nur_bewusst(kr):
         f"{von:04d}-{bis:04d}" if von != bis else f"{von:04d}" for von, bis in bereiche
     )
     assert gefunden == OHNE_KENNZAHL[kr]
+
+
+# Hinweis je Konto: warum ein Konto keine Zeile hat oder was beim Ausfüllen zu tun ist
+TEILWERT = "Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren"
+
+
+@pytest.mark.parametrize(
+    ("kr", "konto", "teil"),
+    [
+        ("SKR03", "4870", TEILWERT),  # Finanzanlagen
+        ("SKR04", "7200", TEILWERT),
+        ("SKR03", "4875", "Anschaffungskosten von Finanzanlagen und Wertpapieren erst"),
+        ("SKR04", "7210", "erst bei Veräußerung (§ 4 Abs. 3 S. 4 EStG)"),
+        ("SKR03", "4886", TEILWERT),  # Umlaufvermögen (übliche Höhe)
+        ("SKR04", "6910", TEILWERT),
+        ("SKR03", "2440", "Forderungsausfall zählt erst"),  # Forderungen
+        ("SKR04", "6290", "Forderungsausfall zählt erst"),
+        ("SKR03", "2451", "Wertberichtigung auf Forderungen"),
+        ("SKR04", "6923", "Wertberichtigung auf Forderungen"),
+        ("SKR03", "4892", "Abschreibung auf Vorräte"),  # Vorräte („-“)
+        ("SKR04", "6278", "Abschreibung auf Vorräte"),
+        ("SKR03", "4859", "Übertragung stiller Reserven (Kz 170"),  # § 6b (190)
+        ("SKR03", "4874", "Übertragung stiller Reserven (Kz 170"),
+        ("SKR04", "6249", "Übertragung stiller Reserven (Kz 170"),
+        ("SKR04", "7255", "Übertragung stiller Reserven (Kz 170"),
+        ("SKR03", "2504", "Umwandlungsergebnis"),  # Umwandlung („-“)
+        ("SKR04", "7551", "Umwandlungsergebnis"),
+    ],
+)
+def test_euer_hinweis_je_konto(kr, konto, teil):
+    rahmen = {"SKR03": SKR03, "SKR04": SKR04}[kr]
+    hinweis = rahmen.euer_hinweis(konto)
+    assert hinweis is not None and teil in hinweis
+
+
+@pytest.mark.parametrize(
+    ("kr", "konto"),
+    [
+        ("SKR03", "4872"),  # engere Regel ohne Hinweis (Fußnote 23)
+        ("SKR04", "7208"),
+        ("SKR04", "6927"),  # sonstige steuerliche Rücklagen
+        ("SKR03", "2345"),
+        ("SKR03", "5900"),  # zur freien Verfügung
+        ("SKR04", "8000"),
+        ("SKR03", "2007"),  # Restrukturierung
+        ("SKR03", "4930"),
+        ("SKR03", "abc"),
+    ],
+)
+def test_euer_hinweis_nur_wo_hinterlegt(kr, konto):
+    rahmen = {"SKR03": SKR03, "SKR04": SKR04}[kr]
+    assert rahmen.euer_hinweis(konto) is None
+
+
+@pytest.mark.parametrize(
+    ("inhalt", "schluessel"),
+    [
+        ("euer:\n  - {von: '4000', bis: '4999', kz: '183', hinwies: 'x'}\n", "hinwies"),
+        ("arten:\n  - {von: '0000', bis: '9999', art: erfolg, bsi: '1'}\n", "bsi"),
+        ("eür:\n  - {von: '4000', bis: '4999', kz: '183'}\n", "eür"),
+        ("vortragskonten: {sachkonto: '9000'}\n", "sachkonto"),
+    ],
+    ids=["euer-regel", "kontoart", "oberste-ebene", "vortragskonten"],
+)
+def test_unbekannter_schluessel_wird_abgelehnt(tmp_path, inhalt, schluessel):
+    """Ein Tippfehler darf eine Regel nicht still verschwinden lassen."""
+    datei = tmp_path / "zuordnung.yaml"
+    datei.write_text("name: eigen\n" + inhalt, encoding="utf-8")
+    with pytest.raises(KontenrahmenError, match=schluessel):
+        lade_kontenrahmen("SKR03", datei)

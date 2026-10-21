@@ -198,13 +198,43 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
         getattr(euer, gruppe).append(zeile)
     euer.entnahmen = entnahmen_einlagen["entnahmen"]
     euer.einlagen = entnahmen_einlagen["einlagen"]
-    if euer.nicht_zugeordnet:
-        konten = sorted({k for z in euer.nicht_zugeordnet for k in z.konten})
-        euer.hinweise.append(
-            f"Konten ohne Zeile der Anlage EÜR: {', '.join(konten)} — in den Summen "
-            "enthalten, Zuordnung prüfen"
-        )
+    euer.hinweise += _konten_hinweise(euer, kr)
     return euer
+
+
+def _kontenliste(konten: list[str]) -> str:
+    """„Konto 4870“ bzw. „Konten 4870, 4875“."""
+    return ("Konto " if len(konten) == 1 else "Konten ") + ", ".join(konten)
+
+
+def _konten_hinweise(euer: Euer, kr: Kontenrahmen) -> list[str]:
+    """Konten ohne Zeile — mit dem Hinweis ihrer Regel, sonst „Zuordnung prüfen“ —
+    und Konten mit Zeile oder außerhalb der EÜR, deren Regel einen Hinweis trägt."""
+    ohne_zeile = {k for z in euer.nicht_zugeordnet for k in z.konten}
+    mit_zeile = [*euer.einnahmen, *euer.ausgaben, *euer.nicht_abziehbar]
+    gebucht = ohne_zeile | {k for z in mit_zeile + euer.ausserhalb for k in z.konten}
+    gruppen: dict[tuple[bool, str | None], list[str]] = defaultdict(list)
+    for konto in sorted(gebucht):
+        hinweis = kr.euer_hinweis(konto)
+        if konto in ohne_zeile or hinweis:
+            gruppen[(konto not in ohne_zeile, hinweis)].append(konto)
+    texte = []
+    for (hat_zeile, hinweis), konten in sorted(
+        gruppen.items(), key=lambda g: (g[0][0], g[0][1] is not None, g[1])
+    ):
+        if hat_zeile:
+            texte.append(f"{_kontenliste(konten)}: {hinweis}")
+        elif hinweis:
+            texte.append(
+                f"Konten ohne Zeile der Anlage EÜR: {', '.join(konten)} — in den "
+                f"Summen enthalten. {hinweis}"
+            )
+        else:
+            texte.append(
+                f"Konten ohne Zeile der Anlage EÜR: {', '.join(konten)} — in den "
+                "Summen enthalten, Zuordnung prüfen"
+            )
+    return texte
 
 
 def _gruppe(v: dict[str, Any], kz: str | None, ausgabe: bool) -> str:

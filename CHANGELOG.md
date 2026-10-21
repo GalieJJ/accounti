@@ -511,10 +511,14 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   in der EÜR nicht zulässig, Anschaffungskosten von Wertpapieren und nicht abnutzbarem
   Anlagevermögen zählen erst bei der Veräußerung. Ebenso die Konten zur freien
   Verfügung (SKR03 4400–4499 wie 5000–6999, SKR04 7800–7899, 8000–8999), deren Zeile
-  vom Inhalt abhängt.
-  Sie erscheinen mit Hinweis als „nicht zugeordnet“, der Gewinn bleibt unverändert (im
-  SKR03 bisher Kz 183, 4866 sogar GWG Kz 132). Ein Test hält die verbleibenden Konten
-  ohne Kennzahl fest
+  vom Inhalt abhängt. Sie erscheinen mit Hinweis als „nicht zugeordnet“, der Gewinn
+  bleibt unverändert (im SKR03 bisher Kz 183, 4866 sogar GWG Kz 132). Ein Test hält die
+  verbleibenden Konten ohne Kennzahl fest. EÜR und Abschlussprüfung nennen für diese Konten den Grund statt
+  nur „Zuordnung prüfen“ (z. B. „Teilwertabschreibung in der EÜR nicht zulässig –
+  Buchung stornieren“; neuer Schlüssel `hinweis` der EÜR-Regeln), ebenso für § 6b-Abzug,
+  Vorräte und Umwandlungsergebnis. Eine eigene Kontenzuordnung
+  (`abschluss.kontenzuordnung`) mit unbekanntem Schlüssel wird abgelehnt, statt die
+  Angabe still zu verwerfen
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
   erkannt“ zu melden
 - `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback
