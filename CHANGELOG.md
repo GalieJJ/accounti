@@ -318,15 +318,29 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Laufsperre. `abschluss eroeffnung|bestaetigen|ablehnen` nehmen ohne `--von`
   `ACCOUNTI_BENUTZER` bzw. den Anmeldenamen (früher „supervisor“). Ohne Benutzer prüft
   accounti weiterhin keine Rollen
+- **Zahlungsverkehr in der Rechteprüfung:** Mit eingerichteten Benutzern verlangt `zahlung
+  sepa` (die SEPA-Datei ist der Zahlungsauftrag) das Recht zur Zahlungsfreigabe, `zahlung
+  abgleichen` das Recht zu buchen — jeweils mit Einmalcode. Die 10a-Befehle (`zahlung …`,
+  `anlagen freigeben`, `ustva …`) und die Freigaben im Browser schreiben den Benutzer
+  geprüft ins Journal; eine Person, die ein Vorgang ohne Rechteprüfung selbst mitbringt
+  (`--von`), steht dort als „(ungeprüft)“. `opos bestaetigen` setzt `geprueft_von`, die
+  Entscheidung über einen Belegabgleich steht im Journal (`abgleich_bestaetigt`,
+  `abgleich_abgelehnt`). `anlagen freigeben` nimmt ohne `--von` `ACCOUNTI_BENUTZER` bzw. den
+  Anmeldenamen (früher „supervisor“)
 - **`journal uebernehmen` nur auf dem Upgrade-Weg:** solange das Journal außer Übernahmen
   leer ist; danach lehnt accounti ab (was dann ohne Eintrag ist, entstand an accounti
   vorbei), und `journal pruefen` meldet jede spätere Übernahme
 - **Schreibsperre und Lesestand:** Die Schreibsperre holt nur ein Flush mit Journal- oder
   Sperrbezug (unter PostgreSQL warteten sonst Anmeldungen und Uploads auf jede
   Buchungstransaktion), `fints freigeben` schreibt je Konto fest (keine offene
-  Transaktion während der TAN-Abfrage); `journal pruefen` liest unter PostgreSQL aus einem
-  Schnappschuss (`REPEATABLE READ READ ONLY`) und hält niemanden auf; ein gleichzeitiges
-  zweites Storno derselben Buchung endet mit einer Meldung statt einem Traceback
+  Transaktion während der TAN-Abfrage), `bank lauf` ebenso den Abruf; unter PostgreSQL holt
+  jede Transaktion, die bestehende Zeilen ändert, die Schreibsperre zuerst (keine
+  Deadlocks durch umgekehrte Sperrreihenfolge); `journal pruefen` liest unter PostgreSQL
+  aus einem Schnappschuss (`REPEATABLE READ READ ONLY`), hält niemanden auf und lässt die
+  Sitzung danach schreibbar; ein gleichzeitiges zweites Storno derselben Buchung endet mit
+  einer Meldung statt einem Traceback; ein Journaleintrag, dessen Vorher/Nachher kein
+  JSON-Objekt ist, ist ein Befund statt eines Absturzes; der Befund „ohne Eintrag“ empfiehlt
+  `journal uebernehmen` nur, solange es noch geht
 - **Kontenrahmen-Datei im Paket:** `config/skr03.yaml` liegt jetzt als
   `accounti/pruefung/skr03.yaml` im Paket (Prüfregel und DATEV-Export unabhängig vom
   Arbeitsverzeichnis); eine eigene Datei nennt `pruefung.kontenrahmen_datei`

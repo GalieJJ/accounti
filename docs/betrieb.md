@@ -155,9 +155,10 @@ verschiedene Freigeber. Grenze: `vier_augen` steht in der Konfiguration der
 Gesellschaft — wer die CLI mit einer eigenen `ACCOUNTI_KONFIG` (auch einer eigenen
 Registry) aufruft, kann die Vier-Augen-Pflicht dort abschalten; der eigene Einmalcode
 bleibt Pflicht, und das Protokoll zeigt, wer allein freigab. `zahlung entfernen`,
-`sperre` und `iban-klaeren` (die Betrugskontrolle) verlangen das Recht buchen,
-`zahlung stornieren` das Recht zur Zahlungsfreigabe — jeweils mit Einmalcode; ins
-Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
+`sperre`, `iban-klaeren` (die Betrugskontrolle) und `abgleichen` verlangen das Recht
+buchen, `zahlung stornieren` und `sepa` (die SEPA-Datei ist der Zahlungsauftrag an die
+Bank) das Recht zur Zahlungsfreigabe — jeweils mit Einmalcode; ins Protokoll und
+geprüft ins Journal kommt der Benutzer, nicht der Freitext aus `--von`.
 
 Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWEGE` in
 `models/auth.py`, auch in der Verfahrensdokumentation):
@@ -227,7 +228,8 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
-  `sperre`, `iban-klaeren` und `stornieren` sowie die Befehle aus Baustein 7 (siehe oben). Der Einmalcode lässt sich in
+  `sperre`, `iban-klaeren`, `abgleichen`, `sepa` und `stornieren` sowie die Befehle aus
+  Baustein 7 (siehe oben). Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
   Browser), Sperrwerte gar nicht.
@@ -510,6 +512,7 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 
 ```bash
 docker compose build
+docker compose stop app lauf     # bis zum Ende des Updates schreibt nichts mehr
 docker compose run --rm app sicherung erstellen --ziel /arbeit/daten/sicherungen/   # Einstiegspunkt ist accounti
 docker compose run --rm --entrypoint alembic app -c /app/alembic.ini upgrade head
 docker compose up -d

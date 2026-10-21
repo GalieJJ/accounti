@@ -192,6 +192,39 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   lokal gegen PostgreSQL 16 (Upgrade mit Bestand, Übernahme, Downgrade, `check`,
   `init_db` vor der Migration, PG-Tests der Sicherung).
 
+### Befunde der Abschlussprüfung, je mit Regressionstest
+
+- [x] **M-A** „(ungeprüft)“ auch für die Person eines Vorgangs; 10a-Befehle (`zahlung`,
+  `anlagen freigeben`, `ustva`) und die Freigaben im Browser setzen den geprüften
+  Benutzer; `zahlung sepa` (Zahlungsfreigabe) und `zahlung abgleichen` (buchen)
+  gebunden (`test_cli_rechte_pruefung.py::test_zahlung_einreichen_nicht_unter_fremdem_namen`,
+  `::test_eigene_person_eines_vorgangs_wird_auch_gekennzeichnet`,
+  `test_api_rechte_matrix.py::test_freigabe_im_browser_steht_geprueft_im_journal`).
+- [x] **N-A** Sperrreihenfolge unter PostgreSQL
+  (`test_pruefung_nebenlaeufigkeit.py::test_kein_deadlock_durch_sperrreihenfolge_postgresql`);
+  **N-D** keine Read-only-Transaktion nach der Prüfung
+  (`::test_nach_der_pruefung_schreibt_die_sitzung_wieder_postgresql`).
+- [x] **N-B** Buchungstag vor dem Eingang: „zu früh“
+  (`test_pruefung_perioden.py::test_fester_tag_vor_dem_eingang_warnt_zu_frueh`).
+- [x] **N-C** Verfahrensdoku: gebunden, aber Systemdatenbank nicht lesbar; keine leere
+  SQLite-Datei; nur Benutzer der aktiven Gesellschaft
+  (`test_pruefung_verfahrensdoku.py::test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft`).
+- [x] **N-E** `opos bestaetigen` setzt `geprueft_von`; Entscheidungen über den
+  Belegabgleich stehen im Journal (`abgleich_bestaetigt|abgelehnt`; der Abgleich selbst
+  speichert keine Person) (`test_cli_opos.py::test_vorschlag_anzeigen_und_bestaetigen`,
+  `test_bank_abgleichslauf.py::test_entscheidung_ueber_den_abgleich_steht_im_journal`).
+- [x] **N-F** Testlücken U3, U4, U6, F1, F2
+  (`test_pruefung_journal.py::test_neue_person_im_kontext_ist_ungeprueft`,
+  `::test_gebundene_datenbank_kennzeichnet_ohne_eigene_benutzer`, `test_api_rest.py`
+  gegen eine gebundene Datenbank, `test_bank_lauf.py::test_mit_freigabe_wird_je_konto_gesichert`
+  über den Kontostand statt der Umsätze, `::test_cli_sichert_je_konto`).
+- [x] **N-G** Upgrade mit `docker compose stop app lauf`; der Befund „ohne Eintrag“
+  empfiehlt `journal uebernehmen` nur, solange es geht
+  (`test_pruefung_journal.py::test_befundtext_empfiehlt_uebernahme_nur_wenn_moeglich`);
+  Vorher/Nachher, das kein JSON-Objekt ist, wird gemeldet statt abzustürzen
+  (`::test_journal_mit_nicht_objekt_stuerzt_nicht_ab`); `anlagen freigeben` ohne
+  Benutzer ohne „supervisor“.
+
 ### Befunde der Schlussprüfung, je mit Regressionstest
 
 - [x] **M-1** Öffnen nur mit `STEUER_FREIGEBEN` (freigeber), Hinweis auf freigegebene bzw.
@@ -276,9 +309,17 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 - **Nebenläufigkeit:** Jede schreibende accounti-Transaktion hält ab dem ersten Flush mit
   Journal- oder Sperrbezug (Buchungen, Belege, Zahlungsläufe, Abschlussprotokoll, Journal,
   Korrekturen, Sperren) bzw. `schreibe` (`periode schliessen`: vor seinen Prüfungen) die
-  Schreibsperre bis zum Commit; Flushes ohne diesen Bezug (Umsätze, Anmeldungen,
-  Sitzungen) holen sie nicht, `fints freigeben` schreibt je Konto fest (keine offene
-  Transaktion während der TAN-Abfrage).
+  Schreibsperre bis zum Commit; Flushes ohne diesen Bezug (neue Umsätze, Anmeldungen,
+  Sitzungen) holen sie nicht. Unter PostgreSQL holt sie außerdem jeder Flush, der
+  bestehende Zeilen ändert oder löscht (außer Anmeldedaten) — so ist die
+  Advisory-Sperre immer die erste Sperre einer Transaktion, die sie braucht, und zwei
+  accounti-Schreiber können sich nicht gegenseitig blockieren (Deadlock). Rest: zwei
+  gleichzeitige Einfügungen desselben eindeutigen Werts (z.B. derselbe Umsatz aus zwei
+  Importen) warten aufeinander außerhalb dieser Reihenfolge — PostgreSQL bricht dann
+  einen der beiden mit `DeadlockDetected` ab, die Daten bleiben konsistent. `fints
+  freigeben` und `bank lauf` schreiben den Abruf je Konto fest (keine offene
+  Transaktion während der TAN-Abfrage bzw. des Netzabrufs); die Buchungen danach
+  beginnen eine eigene Transaktion.
   Ein zweiter Schreiber wartet (SQLite: busy timeout, von `session_factory` auf 30 s
   gesetzt, danach „database is locked“; PostgreSQL: ohne Frist) und prüft dann gegen den
   neuen Stand: Ein einzelner Vorgang, der dem inzwischen geschriebenen Stand widerspricht,
