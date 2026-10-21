@@ -13,9 +13,15 @@ Datenbankwerkzeuge. Zeilen kommen bytegleich zurück — Hash-Ketten (USt-IdNr.-
 Übermittlungs-, Zahlungslauf-, Abschlussprotokoll, Kontoauszüge) bleiben gültig.
 Sitzungen werden nicht gesichert.
 
+Alle Tabellen werden in **einer** Lese-Transaktion gelesen (PostgreSQL: ``REPEATABLE
+READ READ ONLY``, SQLite: ausdrückliches ``BEGIN``) — die Sicherung ist ein Stand,
+auch wenn ``app`` und ``lauf`` währenddessen schreiben. Belege, deren Datei im
+Archiv fehlt, nennt das Manifest; fehlt das Archiv ganz, obwohl Belege darauf
+verweisen, bricht die Sicherung ab (falscher ``--archiv``-Pfad).
+
 Wiederhergestellt wird nur in eine **leere** Umgebung, in einer Transaktion: Erst wenn
-alle Zeilenzahlen und Hashes zum Manifest passen, wird festgeschrieben und das
-Archiv an seinen Platz gelegt; sonst bleibt nichts zurück.
+alle Zeilenzahlen und Hashes zum Manifest passen, wird das Archiv an seinen Platz
+gelegt und danach festgeschrieben; sonst bleibt nichts zurück.
 """
 
 from __future__ import annotations
@@ -30,11 +36,12 @@ import shutil
 import tarfile
 import tempfile
 from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path, PurePosixPath
-from typing import IO, Any
+from typing import IO, Any, BinaryIO
 from uuid import UUID
 
 from sqlalchemy import (
@@ -65,9 +72,13 @@ AUSGELASSEN = frozenset(
     {"auth_sitzungen"}
 )  # flüchtig, nach der Wiederherstellung wertlos
 ALEMBIC = "alembic_version"
+# Endung: heute bereinigt (``BelegArchiv.ablegen``); ältere Ablagen tragen auch
+# Leerzeichen o. Ä. — erlaubt ist alles außer Schrägstrichen und Steuerzeichen
 _ARCHIVPFAD = re.compile(
-    r"^([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{64})(\.[a-z0-9]{1,10})?$"
+    r"^([0-9a-f]{2})/([0-9a-f]{2})/([0-9a-f]{64})(\.[^/\\\x00-\x1f\x7f]{1,64})?$"
 )
+SYSTEM = "system"
+GESELLSCHAFT = "gesellschaft"
 _STAPEL = 500
 
 
@@ -85,6 +96,15 @@ class Ergebnis:
     @property
     def zeilen(self) -> int:
         return sum(self.tabellen.values())
+
+    @property
+    def fehlende(self) -> int:
+        """Belege, deren Datei beim Sichern nicht im Archiv lag."""
+        return len(self.manifest.get("fehlende_archivdateien", []))
+
+    @property
+    def system(self) -> bool:
+        return self.manifest.get("inhalt") == SYSTEM
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +174,47 @@ def _alembic_tabelle(metadaten: MetaData) -> Table:
     )
 
 
+@contextmanager
+def lesetransaktion(verbindung: Connection) -> Iterator[Connection]:
+    """Eine Lese-Transaktion über alle folgenden Abfragen — ein Stand der Datenbank.
+
+    PostgreSQL: ``REPEATABLE READ READ ONLY`` (ein Schnappschuss ab der ersten
+    Abfrage, Schreiber werden nicht aufgehalten). SQLite: pysqlite beginnt vor
+    ``SELECT`` keine Transaktion, also ausdrücklich ``BEGIN`` — im WAL-Modus ein
+    Schnappschuss, sonst hält die Lesesperre Schreiber bis zum Ende auf.
+    """
+    if verbindung.dialect.name == "postgresql":
+        verbindung = verbindung.execution_options(
+            isolation_level="REPEATABLE READ", postgresql_readonly=True
+        )
+        verbindung.begin()
+    elif verbindung.dialect.name == "sqlite":
+        verbindung.exec_driver_sql("BEGIN")
+    else:  # pragma: no cover - andere Datenbanken nutzt accounti nicht
+        verbindung = verbindung.execution_options(isolation_level="REPEATABLE READ")
+        verbindung.begin()
+    try:
+        yield verbindung
+    finally:
+        verbindung.rollback()
+
+
+def _verwiesene_dateien(verbindung: Connection, metadaten: MetaData) -> set[str]:
+    """Hashes der Archivdateien, auf die Belege verweisen."""
+    belege = metadaten.tables.get("belege")
+    if belege is None:
+        return set()
+    return {
+        wert
+        for (wert,) in verbindung.execute(
+            select(belege.c.datei_hash)
+            .where(belege.c.datei_hash.is_not(None))
+            .distinct()
+        )
+        if wert
+    }
+
+
 def _zeilen(verbindung: Connection, tabelle: Table) -> Iterator[bytes]:
     reihenfolge = list(tabelle.primary_key.columns) or list(tabelle.columns)
     for zeile in verbindung.execute(select(tabelle).order_by(*reihenfolge)):
@@ -187,17 +248,41 @@ def archivdateien(archiv: Path) -> list[tuple[str, Path]]:
     return gefunden
 
 
+def _pruefe_archiv(
+    archiv: Path, dateien: list[tuple[str, Path]], verwiesen: set[str]
+) -> list[str]:
+    """Fehlende Archivdateien — fehlt das Archiv ganz, ist das ein Fehler."""
+    if verwiesen and not dateien:
+        zustand = "ist leer" if archiv.is_dir() else "fehlt"
+        msg = (
+            f"Das Belegarchiv {archiv} fehlt oder ist leer ({zustand}), aber "
+            f"{len(verwiesen)} Belege verweisen auf Archivdateien — --archiv prüfen "
+            "(Arbeitsverzeichnis?) oder bewusst --ohne-archiv sichern"
+        )
+        raise SicherungError(msg)
+    vorhanden = {rel.split("/")[-1][:64] for rel, _ in dateien}
+    return sorted(verwiesen - vorhanden)
+
+
 def erstelle(
     db: str,
     archiv: Path | None,
     ziel: Path,
     schluessel: bytes,
     gesellschaft: str | None = None,
+    *,
+    system: bool = False,
 ) -> Ergebnis:
-    """Schreibt die Sicherung atomar nach ``ziel`` (Rechte 0600)."""
+    """Schreibt die Sicherung atomar nach ``ziel`` (Rechte 0600).
+
+    ``system``: Sicherung der Systemdatenbank (Benutzer, Rollen, Token) — ohne
+    Archiv und ohne Gesellschaft; zurück nur mit ``system=True``.
+    """
     if ziel.exists():
         msg = f"{ziel} gibt es schon — eine Sicherung wird nie überschrieben"
         raise SicherungError(msg)
+    if system and archiv is not None:
+        raise SicherungError("Die Systemdatenbank wird ohne Belegarchiv gesichert")
     metadaten = _metadaten()
     engine, _ = session_factory(db)
     ergebnis = Ergebnis()
@@ -205,7 +290,8 @@ def erstelle(
         "format": FORMAT,
         "accounti": __version__,
         "erstellt_am": datetime.now().isoformat(timespec="seconds"),
-        "gesellschaft": gesellschaft,
+        "inhalt": SYSTEM if system else GESELLSCHAFT,
+        "gesellschaft": None if system else gesellschaft,
         "datenbank": engine.dialect.name,
         "tabellen": {},
         "dateien": {},
@@ -215,56 +301,34 @@ def erstelle(
     vorlaeufig = ziel.with_name(f".{ziel.name}.{os.getpid()}.tmp")
     try:
         with (
-            open(vorlaeufig, "wb", opener=lambda p, f: os.open(p, f, 0o600)) as datei,
-            engine.connect() as verbindung,
+            engine.connect() as roh,
+            lesetransaktion(roh) as verbindung,
         ):
-            schreiber = VerschluesselnderSchreiber(datei, schluessel)
             vorhanden = set(inspect(verbindung).get_table_names())
-            with tarfile.open(
-                fileobj=schreiber, mode="w|", format=tarfile.PAX_FORMAT
-            ) as tar:  # type: ignore[call-overload]
-                tabellen = [
-                    t
-                    for t in metadaten.sorted_tables
-                    if t.name in vorhanden and t.name not in AUSGELASSEN
-                ]
-                if ALEMBIC in vorhanden:
-                    tabellen.append(_alembic_tabelle(metadaten))
-                for tabelle in tabellen:
-                    with tempfile.SpooledTemporaryFile(
-                        max_size=16 * 1024 * 1024
-                    ) as puffer:
-                        pruefsumme = hashlib.sha256()
-                        anzahl = 0
-                        for zeile in _zeilen(verbindung, tabelle):
-                            puffer.write(zeile)
-                            pruefsumme.update(zeile)
-                            anzahl += 1
-                        groesse = puffer.tell()
-                        puffer.seek(0)
-                        _fuege_hinzu(
-                            tar, f"datenbank/{tabelle.name}.jsonl", puffer, groesse
-                        )
-                    manifest["tabellen"][tabelle.name] = {
-                        "zeilen": anzahl,
-                        "sha256": pruefsumme.hexdigest(),
-                    }
-                    ergebnis.tabellen[tabelle.name] = anzahl
-                for rel, pfad in archivdateien(archiv) if archiv is not None else []:
-                    inhalt = pfad.read_bytes()
-                    wert = hashlib.sha256(inhalt).hexdigest()
-                    if not rel.split("/")[-1].startswith(wert):
-                        msg = f"Archivdatei {rel} passt nicht zu ihrem Hash"
-                        raise SicherungError(msg)
-                    _fuege_hinzu(tar, f"archiv/{rel}", io.BytesIO(inhalt), len(inhalt))
-                    manifest["dateien"][rel] = wert
-                    ergebnis.dateien += 1
-                    ergebnis.bytes_archiv += len(inhalt)
-                roh = json.dumps(manifest, ensure_ascii=False, indent=1).encode()
-                _fuege_hinzu(tar, "manifest.json", io.BytesIO(roh), len(roh))
-            schreiber.close()
-            datei.flush()
-            os.fsync(datei.fileno())
+            liste: list[tuple[str, Path]] = []
+            if archiv is not None:
+                liste = archivdateien(archiv)
+                verwiesen = (
+                    _verwiesene_dateien(verbindung, metadaten)
+                    if "belege" in vorhanden
+                    else set()
+                )
+                manifest["fehlende_archivdateien"] = _pruefe_archiv(
+                    archiv, liste, verwiesen
+                )
+            tabellen = [
+                t
+                for t in metadaten.sorted_tables
+                if t.name in vorhanden and t.name not in AUSGELASSEN
+            ]
+            if ALEMBIC in vorhanden:
+                tabellen.append(_alembic_tabelle(metadaten))
+            with open(
+                vorlaeufig, "wb", opener=lambda p, f: os.open(p, f, 0o600)
+            ) as datei:
+                _schreibe(
+                    datei, schluessel, verbindung, tabellen, liste, manifest, ergebnis
+                )
         os.replace(vorlaeufig, ziel)
     except BaseException:
         vorlaeufig.unlink(missing_ok=True)
@@ -273,6 +337,55 @@ def erstelle(
         engine.dispose()
     ergebnis.manifest = manifest
     return ergebnis
+
+
+def _tabelle_schreiben(
+    tar: tarfile.TarFile, verbindung: Connection, tabelle: Table
+) -> dict[str, Any]:
+    with tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024) as puffer:
+        pruefsumme = hashlib.sha256()
+        anzahl = 0
+        for zeile in _zeilen(verbindung, tabelle):
+            puffer.write(zeile)
+            pruefsumme.update(zeile)
+            anzahl += 1
+        groesse = puffer.tell()
+        puffer.seek(0)
+        _fuege_hinzu(tar, f"datenbank/{tabelle.name}.jsonl", puffer, groesse)
+    return {"zeilen": anzahl, "sha256": pruefsumme.hexdigest()}
+
+
+def _schreibe(
+    datei: BinaryIO,
+    schluessel: bytes,
+    verbindung: Connection,
+    tabellen: list[Table],
+    archiv: list[tuple[str, Path]],
+    manifest: dict[str, Any],
+    ergebnis: Ergebnis,
+) -> None:
+    """Tar-Strom aus Tabellen, Archivdateien und Manifest — verschlüsselt."""
+    schreiber = VerschluesselnderSchreiber(datei, schluessel)
+    with tarfile.open(fileobj=schreiber, mode="w|", format=tarfile.PAX_FORMAT) as tar:  # type: ignore[call-overload]
+        for tabelle in tabellen:
+            angabe = _tabelle_schreiben(tar, verbindung, tabelle)
+            manifest["tabellen"][tabelle.name] = angabe
+            ergebnis.tabellen[tabelle.name] = angabe["zeilen"]
+        for rel, pfad in archiv:
+            inhalt = pfad.read_bytes()
+            wert = hashlib.sha256(inhalt).hexdigest()
+            if not rel.split("/")[-1].startswith(wert):
+                msg = f"Archivdatei {rel} passt nicht zu ihrem Hash"
+                raise SicherungError(msg)
+            _fuege_hinzu(tar, f"archiv/{rel}", io.BytesIO(inhalt), len(inhalt))
+            manifest["dateien"][rel] = wert
+            ergebnis.dateien += 1
+            ergebnis.bytes_archiv += len(inhalt)
+        roh = json.dumps(manifest, ensure_ascii=False, indent=1).encode()
+        _fuege_hinzu(tar, "manifest.json", io.BytesIO(roh), len(roh))
+    schreiber.close()
+    datei.flush()
+    os.fsync(datei.fileno())
 
 
 # ---------------------------------------------------------------------------
@@ -424,10 +537,65 @@ def _sequenzen_nachziehen(verbindung: Connection, metadaten: MetaData) -> None:
                 )
 
 
+def pruefe_art(
+    manifest: dict[str, Any],
+    *,
+    system: bool = False,
+    gesellschaft: str | None = None,
+    fremde: bool = False,
+) -> None:
+    """Passt die Sicherung zum Ziel? Systemdatenbank nur als solche, eine
+    Gesellschaft nur in dieselbe (``fremde``: bewusst in eine andere)."""
+    ist_system = manifest.get("inhalt") == SYSTEM
+    if system and not ist_system:
+        msg = (
+            "Das ist keine Sicherung der Systemdatenbank — ohne --system zurückspielen"
+        )
+        raise SicherungError(msg)
+    if ist_system and not system:
+        msg = (
+            "Das ist eine Sicherung der Systemdatenbank (Benutzer, Rollen, Token) — "
+            "mit --system zurückspielen"
+        )
+        raise SicherungError(msg)
+    herkunft = manifest.get("gesellschaft")
+    if (
+        not system
+        and not fremde
+        and gesellschaft is not None
+        and herkunft is not None
+        and herkunft != gesellschaft
+    ):
+        msg = (
+            f"Die Sicherung gehört zur Gesellschaft {herkunft}, nicht {gesellschaft} — "
+            "mit --fremde-gesellschaft bewusst übernehmen"
+        )
+        raise SicherungError(msg)
+
+
+def _lege_archiv_hin(zwischen: Path, archiv: Path) -> None:
+    """Zwischenordner → Archiv (das leer ist oder fehlt)."""
+    if archiv.exists():
+        archiv.rmdir()
+    os.replace(zwischen, archiv)
+
+
 def stelle_wieder_her(
-    quelle: Path, db: str, archiv: Path | None, schluessel: bytes
+    quelle: Path,
+    db: str,
+    archiv: Path | None,
+    schluessel: bytes,
+    *,
+    gesellschaft: str | None = None,
+    fremde: bool = False,
+    system: bool = False,
 ) -> Ergebnis:
-    """Spielt die Sicherung in eine leere Datenbank und ein leeres Archiv zurück."""
+    """Spielt die Sicherung in eine leere Datenbank und ein leeres Archiv zurück.
+
+    Das Archiv kommt **vor** dem Festschreiben an seinen Platz: Scheitert das
+    Umbenennen, ist auch die Datenbank unverändert; scheitert das Festschreiben,
+    wird das Archiv wieder entfernt.
+    """
     metadaten = _metadaten()
     if archiv is not None and archiv.exists() and any(archiv.iterdir()):
         msg = f"Das Belegarchiv {archiv} ist nicht leer — nur in eine leere Umgebung"
@@ -478,6 +646,9 @@ def stelle_wieder_her(
                         tar, tabelle_fuer, schreibe_zeilen, schreibe_datei
                     )
                 leser.lies_bis_zum_ende()
+            pruefe_art(
+                manifest, system=system, gesellschaft=gesellschaft, fremde=fremde
+            )
             if archiv is not None and not manifest.get("mit_archiv", True):
                 msg = (
                     "Die Sicherung enthält kein Belegarchiv — mit --ohne-archiv "
@@ -485,12 +656,16 @@ def stelle_wieder_her(
                 )
                 raise SicherungError(msg)
             _sequenzen_nachziehen(verbindung, metadaten)
-            verbindung.commit()
-        if zwischen is not None and archiv is not None:
-            if archiv.exists():
-                archiv.rmdir()
-            os.replace(zwischen, archiv)
-            zwischen = None
+            hingelegt = False
+            if zwischen is not None and archiv is not None:
+                _lege_archiv_hin(zwischen, archiv)
+                zwischen, hingelegt = None, True
+            try:
+                verbindung.commit()
+            except BaseException:
+                if hingelegt and archiv is not None:
+                    shutil.rmtree(archiv, ignore_errors=True)
+                raise
         return ergebnis
     except (SicherungError, ManipuliertError, SicherungsschluesselError):
         raise

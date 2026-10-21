@@ -85,14 +85,127 @@ def test_ohne_schluessel_wird_nichts_geschrieben(umgebung, monkeypatch):
     assert not ziel.exists()
 
 
+def _beleg_im_archiv(db: str, archiv) -> None:
+    """Ein echter Beleg im Archiv der Gesellschaft (die Posten der Testumgebung
+    verweisen auf Dateien, die es nicht gibt)."""
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.belege.kanaele import RohBeleg
+    from accounti.belege.pipeline import nimm_auf
+    from accounti.db import init_db, session_factory
+    from tests.pdf_hilfe import pdf_mit_text
+
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    with fabrik() as s:
+        nimm_auf(
+            s,
+            BelegArchiv(archiv),
+            RohBeleg(
+                dateiname="b.pdf",
+                inhalt=pdf_mit_text("Rechnung B"),
+                kanal="ordner",
+                herkunft="test",
+            ),
+        )
+        s.commit()
+    engine.dispose()
+
+
 def test_mit_gesellschaft(umgebung, monkeypatch):
     u = zwei_gesellschaften(umgebung)
+    _beleg_im_archiv(u.db["b"], u.archiv["b"])
     monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
     ziel = umgebung / "b.sicherung"
     r = runner.invoke(app, ["-g", "b", "sicherung", "erstellen", "--ziel", str(ziel)])
     assert r.exit_code == 0, r.output
+    assert "1 Belege ohne Datei im Archiv" in r.output
     r = runner.invoke(app, ["sicherung", "pruefen", str(ziel)])
-    assert "1 Belege" in r.output
+    assert "2 Belege" in r.output and "1 Archivdateien" in r.output
+
+
+def test_falscher_archivpfad_bricht_ab(umgebung):
+    """Befund B-M1: Cron aus einem anderen Arbeitsverzeichnis — Archiv fehlt."""
+    db, _ = befuelle(umgebung)
+    r = runner.invoke(
+        app, ["sicherung", "erstellen", "--ziel", str(umgebung / "s"), "--db", db]
+    )
+    assert r.exit_code == 1
+    assert "fehlt oder ist leer" in r.output and "4 Belege verweisen" in r.output
+    assert not (umgebung / "s").exists()
+
+
+def test_systemdatenbank_sichern_ohne_gesellschaft(umgebung, monkeypatch):
+    """Befund B-M9: ``--system`` ohne ``standard``, eindeutige Namen, eigene Art."""
+    u = zwei_gesellschaften(umgebung, standard="a")
+    _beleg_im_archiv(u.db["a"], u.archiv["a"])
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
+    from datetime import datetime
+
+    from accounti.db import init_db, session_factory
+    from accounti.models.auth import Rolle
+    from tests.auth_hilfe import billige_hashes, lege_person_an
+
+    billige_hashes(monkeypatch)
+    engine, fabrik = session_factory(u.system)
+    init_db(engine)
+    with fabrik() as s:
+        lege_person_an(
+            s, "chef", Rolle.VERWALTER, gesellschaft="a", jetzt=datetime.now()
+        )
+    engine.dispose()
+    ordner = f"{umgebung}/s/"
+    for _ in range(2):  # zweimal in derselben Sekunde
+        r = runner.invoke(app, ["sicherung", "erstellen", "--system", "--ziel", ordner])
+        assert r.exit_code == 0, r.output
+    r = runner.invoke(app, ["sicherung", "erstellen", "--ziel", ordner])
+    assert r.exit_code == 0, r.output
+    namen = sorted(p.name for p in (umgebung / "s").iterdir())
+    assert len([n for n in namen if n.startswith("accounti-system-")]) == 2
+    assert len([n for n in namen if n.startswith("accounti-a-")]) == 1
+    system = sorted((umgebung / "s").glob("accounti-system-*"))[0]
+    # ohne standard bei mehreren Gesellschaften: --system braucht keine Wahl
+    (umgebung / "zwei").mkdir()
+    u2 = zwei_gesellschaften(umgebung / "zwei")
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u2.registry))
+    r = runner.invoke(
+        app, ["sicherung", "erstellen", "--system", "--ziel", f"{umgebung}/t/"]
+    )
+    assert r.exit_code == 0, r.output
+    r = runner.invoke(app, ["sicherung", "pruefen", str(system)])
+    assert r.exit_code == 0 and "Systemdatenbank" in r.output
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
+    r = runner.invoke(
+        app,
+        ["sicherung", "wiederherstellen", str(system), "--ohne-archiv"]
+        + ["--db", url(umgebung / "x.db")],
+    )
+    assert r.exit_code == 1 and "--system" in r.output
+    leer = url(umgebung / "leer-system.db")
+    monkeypatch.setenv("ACCOUNTI_SYSTEM_DB", leer)
+    r = runner.invoke(app, ["sicherung", "wiederherstellen", str(system), "--system"])
+    assert r.exit_code == 0, r.output
+    from tests.api_hilfe import zaehle
+
+    assert zaehle(leer, "SELECT count(*) FROM auth_benutzer") == 1
+
+
+def test_wiederherstellen_in_die_falsche_gesellschaft(umgebung, monkeypatch):
+    """Befund B-N3: ``-g b`` mit einer Sicherung von a bricht ab."""
+    u = zwei_gesellschaften(umgebung)
+    _beleg_im_archiv(u.db["a"], u.archiv["a"])
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
+    ziel = umgebung / "a.sicherung"
+    r = runner.invoke(app, ["-g", "a", "sicherung", "erstellen", "--ziel", str(ziel)])
+    assert r.exit_code == 0, r.output
+    neu = ["--db", url(umgebung / "neu.db"), "--archiv", str(umgebung / "neu")]
+    zurueck = ["-g", "b", "sicherung", "wiederherstellen", str(ziel), *neu]
+    r = runner.invoke(app, zurueck)
+    assert r.exit_code == 1 and "Gesellschaft a" in r.output
+    r = runner.invoke(
+        app,
+        [*zurueck, "--fremde-gesellschaft"],
+    )
+    assert r.exit_code == 0, r.output
 
 
 def test_schluessel(umgebung):

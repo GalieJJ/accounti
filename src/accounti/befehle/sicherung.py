@@ -26,8 +26,11 @@ ZIEL_OPTION = typer.Option(
     ..., "--ziel", help="Datei oder vorhandener Ordner (dann mit Zeitstempel)"
 )
 DATEI_ARGUMENT = typer.Argument(help="Sicherungsdatei")
-OHNE_ARCHIV_OPTION = typer.Option(
-    False, "--ohne-archiv", help="nur die Datenbank (z.B. die Systemdatenbank)"
+OHNE_ARCHIV_OPTION = typer.Option(False, "--ohne-archiv", help="nur die Datenbank")
+SYSTEM_OPTION = typer.Option(
+    False,
+    "--system",
+    help="die Systemdatenbank (Benutzer, Rollen, Token) statt einer Gesellschaft",
 )
 
 
@@ -52,6 +55,13 @@ def _zusammenfassung(wort: str, e: object) -> None:
     from accounti.betrieb.sicherung import Ergebnis
 
     assert isinstance(e, Ergebnis)
+    if e.system:
+        console.print(
+            f"[green]{wort}[/green] (Systemdatenbank): {len(e.tabellen)} Tabellen, "
+            f"{e.zeilen} Zeilen (davon {e.tabellen.get('auth_benutzer', 0)} Benutzer)",
+            soft_wrap=True,
+        )
+        return
     console.print(
         f"[green]{wort}[/green]: {len(e.tabellen)} Tabellen, {e.zeilen} Zeilen "
         f"(davon {e.tabellen.get('buchungssaetze', 0)} Buchungen, "
@@ -59,6 +69,40 @@ def _zusammenfassung(wort: str, e: object) -> None:
         f"({e.bytes_archiv / 1024 / 1024:.1f} MB)",
         soft_wrap=True,
     )
+    if e.fehlende:
+        console.print(
+            f"[yellow]{e.fehlende} Belege ohne Datei im Archiv[/yellow] (Hashes im "
+            "Manifest unter fehlende_archivdateien)",
+            soft_wrap=True,
+        )
+
+
+def _ausdruecklich(ctx: typer.Context, name: str) -> bool:
+    """Stand die Option auf der Befehlszeile (nicht aus Gesellschaft/Standard)?"""
+    quelle = ctx.get_parameter_source(name)
+    return getattr(quelle, "name", "") == "COMMANDLINE"
+
+
+def _systemdatenbank(ctx: typer.Context, db: str) -> str:
+    """``--db`` von der Befehlszeile, sonst die Systemdatenbank des Kontexts."""
+    from accounti.betrieb.kontext import aktueller_kontext
+
+    if _ausdruecklich(ctx, "db"):
+        return db
+    return aktueller_kontext().systemdatenbank(db)
+
+
+def freier_name(ordner: Path, bezeichnung: str) -> Path:
+    """``accounti-<bezeichnung>-<stempel>.sicherung`` — in derselben Sekunde mit
+    ``-2``, ``-3`` … statt eines Fehlers."""
+    stempel = datetime.now().strftime("%Y%m%d-%H%M%S")
+    basis = f"accounti-{bezeichnung}-{stempel}"
+    datei = ordner / f"{basis}.sicherung"
+    nummer = 2
+    while datei.exists():
+        datei = ordner / f"{basis}-{nummer}.sicherung"
+        nummer += 1
+    return datei
 
 
 @befehl.command("schluessel")
@@ -76,33 +120,40 @@ def schluessel() -> None:
 
 @befehl.command("erstellen")
 def erstellen(
+    ctx: typer.Context,
     ziel: str = ZIEL_OPTION,
     db: str = DB_OPTION,
     archiv: str = ARCHIV_OPTION,
     ohne_archiv: bool = OHNE_ARCHIV_OPTION,
+    system: bool = SYSTEM_OPTION,
 ) -> None:
     """Datenbank und Belegarchiv verschlüsselt in eine Datei sichern."""
     from accounti.betrieb.kontext import gesellschaft_noetig
     from accounti.betrieb.sicherung import SicherungError, erstelle
     from accounti.konfiguration import KonfigurationError
 
+    kuerzel: str | None = None
     try:
-        kontext = gesellschaft_noetig()
+        if system:
+            quelle = _systemdatenbank(ctx, db)
+        else:
+            kuerzel = gesellschaft_noetig().kuerzel
+            quelle = db
     except KonfigurationError as fehler:
         raise _ende(str(fehler)) from fehler
     datei = Path(ziel)
     if ziel.endswith(("/", "\\")) or datei.is_dir():
-        # Ordner: Dateiname mit Gesellschaft und Zeitstempel
+        # Ordner: Dateiname mit Gesellschaft (bzw. „system“) und Zeitstempel
         datei.mkdir(parents=True, exist_ok=True)
-        stempel = datetime.now().strftime("%Y%m%d-%H%M%S")
-        datei = datei / f"accounti-{kontext.kuerzel}-{stempel}.sicherung"
+        datei = freier_name(datei, kuerzel or "system")
     try:
         e = erstelle(
-            db,
-            None if ohne_archiv else Path(archiv),
+            quelle,
+            None if ohne_archiv or system else Path(archiv),
             datei,
             _schluessel(),
-            gesellschaft=kontext.kuerzel,
+            gesellschaft=kuerzel,
+            system=system,
         )
     except (SicherungError, OSError) as fehler:
         raise _ende(str(fehler)) from fehler
@@ -128,6 +179,10 @@ def pruefen(datei: Path = DATEI_ARGUMENT) -> None:
     except (SicherungError, ManipuliertError, SicherungsschluesselError, OSError) as f:
         raise _ende(str(f)) from f
     _zusammenfassung("Sicherung vollständig und unverändert", e)
+    if not e.system and e.manifest.get("gesellschaft"):
+        console.print(
+            f"Gesellschaft {escape(str(e.manifest['gesellschaft']))}", soft_wrap=True
+        )
     console.print(
         f"Erstellt {escape(str(e.manifest.get('erstellt_am')))} mit accounti "
         f"{escape(str(e.manifest.get('accounti')))} aus "
@@ -138,10 +193,17 @@ def pruefen(datei: Path = DATEI_ARGUMENT) -> None:
 
 @befehl.command("wiederherstellen")
 def wiederherstellen(
+    ctx: typer.Context,
     datei: Path = DATEI_ARGUMENT,
     db: str = DB_OPTION,
     archiv: str = ARCHIV_OPTION,
     ohne_archiv: bool = OHNE_ARCHIV_OPTION,
+    system: bool = SYSTEM_OPTION,
+    fremde: bool = typer.Option(
+        False,
+        "--fremde-gesellschaft",
+        help="Sicherung einer anderen Gesellschaft bewusst übernehmen",
+    ),
 ) -> None:
     """In eine LEERE Datenbank und ein leeres Archiv — alles oder nichts."""
     from accounti.betrieb.kontext import gesellschaft_noetig
@@ -152,13 +214,24 @@ def wiederherstellen(
     )
     from accounti.konfiguration import KonfigurationError
 
+    kuerzel: str | None = None
     try:
-        gesellschaft_noetig()
+        if system:
+            ziel_db = _systemdatenbank(ctx, db)
+        else:
+            kuerzel = gesellschaft_noetig().kuerzel
+            ziel_db = db
     except KonfigurationError as fehler:
         raise _ende(str(fehler)) from fehler
     try:
         e = stelle_wieder_her(
-            datei, db, None if ohne_archiv else Path(archiv), _schluessel()
+            datei,
+            ziel_db,
+            None if ohne_archiv or system else Path(archiv),
+            _schluessel(),
+            gesellschaft=kuerzel,
+            fremde=fremde,
+            system=system,
         )
     except (SicherungError, ManipuliertError, SicherungsschluesselError, OSError) as f:
         raise _ende(str(f)) from f

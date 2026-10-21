@@ -32,6 +32,7 @@ from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.auth import Rolle, TokenRecht
 from tests.auth_hilfe import billige_hashes, lege_person_an
 from tests.pdf_hilfe import pdf_mit_text
+from tests.pg_hilfe import mit_postgresql
 from tests.test_ustid_protokoll import bestaetige
 from tests.zahlung_hilfe import kreditor, posten, speichere
 
@@ -329,3 +330,237 @@ def test_fremde_eintraege_werden_abgelehnt(tmp_path, name):
 )
 def test_typgetreu(wert):
     assert dekodiere(kodiere(wert)) == wert
+
+
+# ---------------------------------------------------------------------------
+# Befunde der gegnerischen Prüfung
+# ---------------------------------------------------------------------------
+
+
+def _schreibt_zwischen_zwei_tabellen(monkeypatch, fabrik) -> list:
+    """Nachdem ``kontakte`` gelesen ist, legt die laufende App (eigene Verbindung,
+    eigener Thread) Kontakt und Posten an — so wie ``app`` oder ``lauf`` während
+    ``docker compose exec app accounti sicherung erstellen``."""
+    import threading
+
+    from accounti.betrieb import sicherung
+
+    original = sicherung._zeilen
+    schreiber: list[threading.Thread] = []
+
+    def zeilen(verbindung, tabelle):
+        yield from original(verbindung, tabelle)
+        if tabelle.name == "kontakte" and not schreiber:
+
+            def schreibe() -> None:
+                neu = kreditor("Beta Rahmen KG", "70002")
+                speichere(fabrik, [neu], [posten(neu, "RE-2", "20.00")])
+
+            t = threading.Thread(target=schreibe)
+            t.start()
+            schreiber.append(t)
+            t.join(timeout=1.0)  # ohne Schnappschuss ist der Schreiber hier fertig
+
+    monkeypatch.setattr(sicherung, "_zeilen", zeilen)
+    return schreiber
+
+
+def _mit_fremdschluesseln(monkeypatch) -> None:
+    """Wiederherstellen in SQLite mit Fremdschlüsselprüfung — wie PostgreSQL."""
+    from sqlalchemy import event
+
+    from accounti.betrieb import sicherung
+
+    echt = sicherung.session_factory
+
+    def mit_fk(u):
+        e, f = echt(u)
+        if e.dialect.name == "sqlite":
+            event.listen(e, "connect", lambda c, _: c.execute("PRAGMA foreign_keys=ON"))
+        return e, f
+
+    monkeypatch.setattr(sicherung, "session_factory", mit_fk)
+
+
+def _schnappschuss_probe(monkeypatch, tmp_path, quelle: str, ziel_db: str) -> None:
+    engine, fabrik = session_factory(quelle)
+    init_db(engine)
+    k = kreditor("Alpha Papier GmbH", "70001")
+    speichere(fabrik, [k], [posten(k, "RE-1", "10.00")])
+    schreiber = _schreibt_zwischen_zwei_tabellen(monkeypatch, fabrik)
+    ziel = tmp_path / "s.sicherung"
+    e = erstelle(quelle, None, ziel, SCHLUESSEL)
+    for t in schreiber:
+        t.join(timeout=30)
+    assert schreiber and not schreiber[0].is_alive()
+    # ein Stand über alle Tabellen: Kontakte und Posten passen zusammen
+    assert e.tabellen["kontakte"] == e.tabellen["offene_posten"]
+    with engine.connect() as v:  # der Schreiber hat trotzdem geschrieben
+        assert v.execute(text("SELECT count(*) FROM kontakte")).scalar() == 2
+    engine.dispose()
+    _mit_fremdschluesseln(monkeypatch)
+    w = stelle_wieder_her(ziel, ziel_db, None, SCHLUESSEL)
+    assert w.tabellen["offene_posten"] == e.tabellen["offene_posten"]
+
+
+def test_sicherung_ist_ein_schnappschuss_ueber_alle_tabellen(tmp_path, monkeypatch):
+    """Befund A-H1/B-H2: eine Lese-Transaktion über alle Tabellen (SQLite)."""
+    _schnappschuss_probe(
+        monkeypatch, tmp_path, url(tmp_path / "a.db"), url(tmp_path / "leer.db")
+    )
+
+
+@mit_postgresql
+def test_sicherung_ist_ein_schnappschuss_postgresql(
+    tmp_path, monkeypatch, pg_datenbank
+):
+    """Dasselbe unter PostgreSQL (REPEATABLE READ READ ONLY), zurück in PostgreSQL."""
+    _schnappschuss_probe(monkeypatch, tmp_path, pg_datenbank(), pg_datenbank())
+
+
+@mit_postgresql
+def test_lesetransaktion_postgresql_ist_repeatable_read_read_only(pg_datenbank):
+    from accounti.betrieb.sicherung import lesetransaktion
+
+    db = pg_datenbank()
+    engine, _ = session_factory(db)
+    with engine.connect() as roh, lesetransaktion(roh) as v:
+        stufe = v.execute(text("SHOW transaction_isolation")).scalar()
+        nur_lesen = v.execute(text("SHOW transaction_read_only")).scalar()
+    engine.dispose()
+    assert (stufe, nur_lesen) == ("repeatable read", "on")
+
+
+def test_archiv_fehlt_obwohl_belege_darauf_verweisen(tmp_path):
+    """Befund B-M1: falscher Archivpfad → Fehler statt einer Sicherung ohne Belege."""
+    db, archiv = befuelle(tmp_path)
+    for falsch in (tmp_path / "gibt-es-nicht", tmp_path / "leer"):
+        if falsch.name == "leer":
+            falsch.mkdir()
+        with pytest.raises(SicherungError, match="4 Belege verweisen"):
+            erstelle(db, falsch, tmp_path / "s.sicherung", SCHLUESSEL)
+        assert not (tmp_path / "s.sicherung").exists()
+    # fehlt nur ein Teil, nennt das Manifest die fehlenden Dateien (nur Hashes)
+    weg = sorted(p for p in archiv.rglob("*") if p.is_file())[0]
+    weg.chmod(0o644)
+    weg.unlink()
+    e = erstelle(db, archiv, tmp_path / "s.sicherung", SCHLUESSEL)
+    fehlend = e.manifest["fehlende_archivdateien"]
+    assert weg.name[:64] in fehlend
+    assert len(fehlend) == 2  # dazu der Beleg aus den Posten (ohne Datei)
+    assert e.fehlende == 2
+    assert pruefe(tmp_path / "s.sicherung", SCHLUESSEL).fehlende == 2
+
+
+def test_ungewoehnliche_endung_blockiert_die_sicherung_nicht(tmp_path):
+    """Befund B-M2: ``<hash>. shell`` aus dem Ordnerkanal (ältere Ablage)."""
+    db, archiv = befuelle(tmp_path)
+    inhalt = b"Quittung Tankstelle"
+    import hashlib
+
+    wert = hashlib.sha256(inhalt).hexdigest()
+    alt = archiv / wert[:2] / wert[2:4] / f"{wert}. shell"
+    alt.parent.mkdir(parents=True, exist_ok=True)
+    alt.write_bytes(inhalt)
+    ziel = tmp_path / "s.sicherung"
+    e = erstelle(db, archiv, ziel, SCHLUESSEL)
+    assert e.dateien == 4
+    neu_archiv = tmp_path / "neu-archiv"
+    stelle_wieder_her(ziel, url(tmp_path / "neu.db"), neu_archiv, SCHLUESSEL)
+    assert (neu_archiv / wert[:2] / wert[2:4] / f"{wert}. shell").read_bytes() == inhalt
+
+
+def test_archiv_endung_wird_beim_ablegen_bereinigt(tmp_path):
+    a = BelegArchiv(tmp_path)
+    for endung, erwartet in [
+        (". Shell", ".shell"),
+        (".PDF", ".pdf"),
+        (".tar.gz", ".gz"),
+        (".ä ö", ""),
+        (".sehr-lange-endung-ohne-sinn", ""),
+        ("", ""),
+    ]:
+        inhalt = f"Inhalt {endung!r}".encode()
+        h = a.ablegen(inhalt, endung)
+        assert a.pfad(h).name == f"{h}{erwartet}", endung
+
+
+def test_archiv_wird_vor_dem_festschreiben_an_seinen_platz_gelegt(
+    tmp_path, monkeypatch
+):
+    """Befund A-N5/B-N1: scheitert das Umbenennen des Archivs, bleibt auch die
+    Datenbank leer — ein zweiter Versuch geht danach."""
+    import os
+
+    db, archiv = befuelle(tmp_path)
+    ziel = tmp_path / "s.sicherung"
+    erstelle(db, archiv, ziel, SCHLUESSEL)
+    neu_db, neu_archiv = url(tmp_path / "neu.db"), tmp_path / "neu-archiv"
+    echt = os.replace
+
+    def scheitert(quelle, ziel_pfad, *a, **kw):
+        if Path(ziel_pfad) == neu_archiv:
+            raise OSError("Platte voll")
+        return echt(quelle, ziel_pfad, *a, **kw)
+
+    monkeypatch.setattr(os, "replace", scheitert)
+    with pytest.raises(OSError, match="Platte voll"):
+        stelle_wieder_her(ziel, neu_db, neu_archiv, SCHLUESSEL)
+    assert all(z == [] for z in tabelleninhalt(neu_db).values())
+    assert not list(tmp_path.glob(".neu-archiv-*"))
+    monkeypatch.setattr(os, "replace", echt)
+    w = stelle_wieder_her(ziel, neu_db, neu_archiv, SCHLUESSEL)
+    assert w.dateien == 3 and dateien(neu_archiv) == dateien(archiv)
+
+
+def test_scheitert_das_festschreiben_kommt_das_archiv_wieder_weg(tmp_path, monkeypatch):
+    from sqlalchemy.engine import Connection
+
+    db, archiv = befuelle(tmp_path)
+    ziel = tmp_path / "s.sicherung"
+    erstelle(db, archiv, ziel, SCHLUESSEL)
+    neu_db, neu_archiv = url(tmp_path / "neu.db"), tmp_path / "neu-archiv"
+
+    def commit(self):
+        raise RuntimeError("Verbindung weg")
+
+    monkeypatch.setattr(Connection, "commit", commit)
+    with pytest.raises(RuntimeError, match="Verbindung weg"):
+        stelle_wieder_her(ziel, neu_db, neu_archiv, SCHLUESSEL)
+    monkeypatch.undo()
+    assert all(z == [] for z in tabelleninhalt(neu_db).values())
+    assert not neu_archiv.exists() or not any(neu_archiv.iterdir())
+
+
+def test_gesellschaft_im_manifest_muss_zum_ziel_passen(tmp_path):
+    """Befund B-N3: eine Sicherung von a landet nicht versehentlich in b."""
+    db, archiv = befuelle(tmp_path)
+    ziel = tmp_path / "s.sicherung"
+    erstelle(db, archiv, ziel, SCHLUESSEL, gesellschaft="a")
+    neu_db, neu_archiv = url(tmp_path / "neu.db"), tmp_path / "neu-archiv"
+    with pytest.raises(SicherungError, match="Gesellschaft a.*nicht b"):
+        stelle_wieder_her(ziel, neu_db, neu_archiv, SCHLUESSEL, gesellschaft="b")
+    assert all(z == [] for z in tabelleninhalt(neu_db).values())
+    assert not neu_archiv.exists()
+    w = stelle_wieder_her(
+        ziel, neu_db, neu_archiv, SCHLUESSEL, gesellschaft="b", fremde=True
+    )
+    assert w.tabellen["belege"] == 4
+
+
+def test_sicherung_der_systemdatenbank(tmp_path):
+    """Befund B-M9: eigene Art „system“ — nur als solche zurückzuspielen."""
+    db, _ = befuelle(tmp_path)
+    ziel = tmp_path / "system.sicherung"
+    e = erstelle(db, None, ziel, SCHLUESSEL, system=True)
+    assert e.manifest["inhalt"] == "system" and e.manifest["gesellschaft"] is None
+    with pytest.raises(SicherungError, match="Systemdatenbank"):
+        stelle_wieder_her(ziel, url(tmp_path / "x.db"), None, SCHLUESSEL)
+    w = stelle_wieder_her(ziel, url(tmp_path / "y.db"), None, SCHLUESSEL, system=True)
+    assert w.tabellen["auth_benutzer"] == 1
+    gesellschaft = tmp_path / "g.sicherung"
+    erstelle(db, None, gesellschaft, SCHLUESSEL, gesellschaft="standard")
+    with pytest.raises(SicherungError, match="keine Sicherung der Systemdatenbank"):
+        stelle_wieder_her(
+            gesellschaft, url(tmp_path / "z.db"), None, SCHLUESSEL, system=True
+        )
