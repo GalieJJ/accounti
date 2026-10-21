@@ -2549,6 +2549,8 @@ def korrigiere(
             "[dim]Die Buchung war freigegeben — Original, Storno und Neubuchung "
             f"bleiben sichtbar (accounti buchung zeige {kurz}).[/dim]"
         )
+    for warnung in k.warnungen:
+        console.print(f"[yellow]{escape(warnung)}[/yellow]")
     if gelernt:
         console.print(f"[green]Gelernt:[/green] {gelernt}")
     if lernen and (gegenkonto or zweck):

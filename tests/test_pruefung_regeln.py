@@ -871,3 +871,176 @@ def test_falsche_konfiguration(make_session):
         fuehre_regeln_aus(
             Kontext(s, PruefEinstellungen(), Buchhaltung(), STICHTAG), ["nix"]
         )
+
+
+# --- Befunde der fachlichen Prüfung: Marktplatz, Land, § 13b/§ 6a --------------------
+
+
+def test_marktplatz_abrechnung_ist_keine_dublette(make_session):
+    """Befund B-M5: zwei Bestellungen zum selben Preis in einer Abrechnung."""
+    abr = beleg(
+        belegart=Belegart.SONSTIGES,
+        nummer="AMZ-2026-08",
+        netto="33.60",
+        steuer="6.38",
+        brutto="39.98",
+        lieferant="Amazon",
+    )
+    bestellungen = [
+        buchung(
+            soll="1361",
+            haben="8400",
+            netto="16.80",
+            steuer="3.19",
+            schluessel=3,
+            status=BuchungStatus.AUTO_GEBUCHT,
+            beleg_id=abr.id,
+            beleg_nummer=nummer,
+        )
+        for nummer in ("302-111", "302-222")
+    ]
+    anlegen(make_session, abr, *bestellungen)
+    assert pruefe(make_session, "dublette") == []
+
+
+def test_auslaendischer_lieferant_mit_deutscher_ustid(make_session):
+    """Befund B-M6: Amazon EU S.à r.l. (LU) stellt deutsche USt unter ihrer
+    DE-USt-IdNr. in Rechnung — die Vorsteuer ist abziehbar."""
+    amazon = kontakt(
+        name="Amazon EU S.a r.l.",
+        land="LU",
+        kreditor_konto="70010",
+        ust_id="LU20260743",
+    )
+    rechnung = beleg(
+        nummer="DE6ABCD",
+        lieferant="Amazon EU S.a r.l.",
+        ust_id="DE814584193",
+        kontakt_id=amazon.id,
+    )
+    vst = buchung(
+        soll="4930",
+        haben="70010",
+        status=BuchungStatus.AUTO_GEBUCHT,
+        beleg_id=rechnung.id,
+    )
+    anlegen(make_session, amazon, rechnung, vst)
+    assert pruefe(make_session, "steuersatz_land") == []
+
+
+def _rc_rechnung(brutto: str, **kw):
+    return beleg(
+        nummer="IE-1",
+        lieferant="Google Ireland Ltd",
+        netto=brutto,
+        steuer="0.00",
+        brutto=brutto,
+        positionen=[("Ads", brutto, "0", "0.00")],
+        **kw,
+    )
+
+
+def test_reverse_charge_ist_keine_kleinbetragsrechnung(make_session):
+    """Befund B-M7: § 33 UStDV gilt nicht für § 13b — auch unter 250 € braucht die
+    Rechnung die USt-IdNr. des Leistenden (§ 14a Abs. 1 UStG)."""
+    rc = _rc_rechnung("50.00")
+    b = buchung(
+        soll="4610",
+        haben="70020",
+        netto="50.00",
+        steuer=None,
+        schluessel=94,
+        status=BuchungStatus.AUTO_GEBUCHT,
+        beleg_id=rc.id,
+    )
+    anlegen(make_session, rc, b)
+    befund = next(
+        x for x in pruefe(make_session, "pflichtangaben") if x.objekt_typ == "beleg"
+    )
+    assert "§ 33 UStDV" not in befund.text
+    assert "§ 14a" in befund.text and "§ 13b" in befund.text
+
+
+RC_TEXT = """Google Ireland Ltd · Gordon House · Barrow Street · Dublin 4 · Ireland
+VAT: IE6388047V
+Bill to: Galerie Muster GmbH, Beispielweg 3, 24103 Kiel
+Invoice No. IE-1   Invoice date: 10.08.2026
+Leistungszeitraum: 01.07.2026 - 31.07.2026
+Google Ads, Juli 2026   50,00 EUR
+Total 50,00 EUR  VAT 0 %
+{zusatz}
+"""
+
+
+@pytest.mark.parametrize("vollstaendig", [False, True])
+def test_reverse_charge_pflichtangaben_nach_14a(make_session, tmp_path, vollstaendig):
+    """§ 14a Abs. 1 und 5 UStG: USt-IdNr. beider Seiten, Hinweis
+    „Steuerschuldnerschaft des Leistungsempfängers“."""
+    zusatz = (
+        "USt-IdNr. Leistungsempfänger: DE999999999\n"
+        "Steuerschuldnerschaft des Leistungsempfängers (Reverse Charge)"
+        if vollstaendig
+        else ""
+    )
+    archiv, rc = _archiviert(
+        make_session,
+        tmp_path,
+        RC_TEXT.format(zusatz=zusatz).encode(),
+        nummer="IE-1",
+        lieferant="Google Ireland Ltd",
+        netto="50.00",
+        steuer="0.00",
+        brutto="50.00",
+        positionen=[("Ads", "50.00", "0", "0.00")],
+    )
+    b = buchung(
+        soll="4610",
+        haben="70020",
+        netto="50.00",
+        steuer=None,
+        schluessel=94,
+        status=BuchungStatus.AUTO_GEBUCHT,
+        beleg_id=rc.id,
+    )
+    anlegen(make_session, b)
+    befunde = pruefe(make_session, "pflichtangaben", archiv=archiv)
+    if vollstaendig:
+        assert befunde == []
+        return
+    (befund,) = befunde
+    assert befund.schwere is Schwere.WARNUNG
+    assert "USt-IdNr. des Leistungsempfängers" in befund.text
+    assert "Steuerschuldnerschaft des Leistungsempfängers" in befund.text
+
+
+def test_ig_lieferung_braucht_ustid_und_hinweis(make_session, tmp_path):
+    """§ 14a Abs. 3 UStG: Rechnung über eine ig. Lieferung (beim Erwerber: Schlüssel
+    19) mit USt-IdNr. beider Seiten und Hinweis auf die Steuerbefreiung."""
+    text = (
+        "Papeterie SARL · 12 Rue de Rivoli · 75001 Paris\n"
+        "TVA: FR12345678901\nFacture F-7 du 10.08.2026 · Papier 100,00 EUR\n"
+        "Total HT 100,00 EUR  TVA 0 %\n"
+    )
+    archiv, fr = _archiviert(
+        make_session,
+        tmp_path,
+        text.encode(),
+        nummer="F-7",
+        lieferant="Papeterie SARL",
+        netto="100.00",
+        steuer="0.00",
+        brutto="100.00",
+        positionen=[("Papier", "100.00", "0", "0.00")],
+    )
+    erwerb = buchung(
+        soll="3425",
+        haben="70002",
+        schluessel=19,
+        status=BuchungStatus.AUTO_GEBUCHT,
+        beleg_id=fr.id,
+    )
+    anlegen(make_session, erwerb)
+    (befund,) = pruefe(make_session, "pflichtangaben", archiv=archiv)
+    assert "§ 33 UStDV" not in befund.text and "§ 14a Abs. 3" in befund.text
+    assert "USt-IdNr. des Leistungsempfängers" in befund.text
+    assert "steuerfreie innergemeinschaftliche Lieferung" in befund.text

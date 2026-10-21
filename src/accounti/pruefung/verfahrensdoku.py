@@ -282,6 +282,22 @@ def _kontierung(d: _Doku) -> None:
         f"{schwelle}; darunter geht die Buchung zur Prüfung.",
         "",
     )
+    d(
+        "Weitere Wege, auf denen accounti ohne menschliche Freigabe bucht (Status "
+        "auto; sie gelten wie jede Freigabe und sind nur per Storno korrigierbar):",
+        "",
+        "- Eingangs- und Ausgangsrechnungen über accounti opos verbuchen — Sachkonto "
+        "aus Kontakt oder Regel, sonst zur Prüfung;",
+        "- Belegabgleich: Bankumsatz mit passendem Beleg, Konten aus dem Beleg "
+        "(classify);",
+        "- Zahlungsausgleich offener Posten (opos zuordnen, bank lauf), auch Skonto;",
+        "- Kreditkartenabgleich (Sammelabbuchung gegen Einzelbelastungen);",
+        "- Marktplatz-Abrechnungen und -Auszahlungen (Amazon, eBay, PayPal …), "
+        "Unklares zur Prüfung;",
+        "- Zahllast der Umsatzsteuer-Voranmeldung bzw. Sondervorauszahlung nach "
+        "erfolgreicher ELSTER-Übermittlung (an das Finanzamt als Kreditor).",
+        "",
+    )
 
 
 def _freigabe(d: _Doku) -> None:

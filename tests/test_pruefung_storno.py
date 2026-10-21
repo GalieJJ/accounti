@@ -597,3 +597,20 @@ def test_vorsteuer_aus_belegbuchung_entfernen_nur_mit_grund(make_session):
         beleg_id,
     )
     assert eintrag.grund == "Rechnung ohne Steuernummer — kein Vorsteuerabzug"
+
+
+def test_storno_mit_datum_in_anderem_voranmeldungszeitraum_warnt(make_session):
+    """Befund B-Niedrig: die USt-Wirkung wandert mit dem Storno-Datum — gewarnt wird,
+    weil der Originalzeitraum eigentlich berichtigt werden müsste."""
+    b = buchung(status=BuchungStatus.GEPRUEFT, tag=date(2026, 8, 12))
+    gleich = buchung(status=BuchungStatus.GEPRUEFT, tag=date(2026, 8, 13))
+    anlegen(make_session, b, gleich)
+    with make_session() as s:
+        k = storniere(s, kurz(b.id), grund="x", von="erika", datum=date(2026, 9, 2))
+        k2 = storniere(
+            s, kurz(gleich.id), grund="x", von="erika", datum=date(2026, 8, 20)
+        )
+        s.commit()
+    (warnung,) = k.warnungen
+    assert "08/2026" in warnung and "berichtigte Voranmeldung" in warnung
+    assert k2.warnungen == []

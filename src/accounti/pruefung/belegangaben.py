@@ -73,6 +73,7 @@ class Belegangaben:
     leistungszeitpunkt: bool | None = None
     steuerbefreiung: bool = False
     gutschrift: bool = False
+    steuerkategorien: frozenset[str] = frozenset()  # E-Rechnung (EN 16931, BT-118)
 
     @property
     def gelesen(self) -> bool:
@@ -122,6 +123,9 @@ def _aus_erechnung(xml: bytes, beleg: Beleg) -> Belegangaben | None:
             (s.kategorie or "").upper() in _KATEGORIEN_OHNE_STEUER for s in r.steuern
         ),
         gutschrift=r.typ == "381",
+        steuerkategorien=frozenset(
+            (s.kategorie or "").upper() for s in r.steuern if s.kategorie
+        ),
     )
 
 

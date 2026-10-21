@@ -14,7 +14,7 @@ Sperre in ``ereignisse`` lässt andere Wege gar nicht erst zu.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -75,6 +75,7 @@ class Korrektur:
     neu: Buchungssatz | None  # direkt korrigiert bzw. Neubuchung (None: nur Storno)
     storno: Buchungssatz | None = None  # None: direkt korrigierter Vorschlag
     korrektur: Buchungskorrektur | None = None
+    warnungen: list[str] = field(default_factory=list)
 
     @property
     def direkt(self) -> bool:
@@ -243,7 +244,29 @@ def _storno(
             speichere_buchung(session, neu)
             session.flush()
         speichere_korrektur(session, korrektur)
-    return Korrektur(_lade(session, str(b.id)), neu, storno, korrektur)
+    return Korrektur(
+        _lade(session, str(b.id)),
+        neu,
+        storno,
+        korrektur,
+        _warnungen(b, tag),
+    )
+
+
+def _warnungen(b: Buchungssatz, tag: date) -> list[str]:
+    """Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort."""
+    if b.steuer_schluessel is None or (tag.year, tag.month) == (
+        b.datum.year,
+        b.datum.month,
+    ):
+        return []
+    return [
+        f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum als "
+        f"das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im Zeitraum "
+        f"des Stornos — ist die Voranmeldung für {b.datum:%m/%Y} schon abgegeben "
+        "und war sie falsch, ist eine berichtigte Voranmeldung für diesen Zeitraum "
+        "abzugeben"
+    ]
 
 
 def storniere(

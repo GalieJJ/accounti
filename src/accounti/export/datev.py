@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from accounti.export.datev_format import belegfeld2_storno
 from accounti.models import Buchungssatz
 
 
@@ -103,7 +104,9 @@ class DATEVExporter:
             "BU-Schlüssel": str(buchung.steuer_schluessel or ""),
             "Belegdatum": f"{buchung.datum:%d%m}",  # TTMM
             "Belegfeld 1": buchung.beleg_nummer or "",
-            "Belegfeld 2": "",
+            "Belegfeld 2": belegfeld2_storno(
+                buchung.storno_von, buchung.storniert_durch, buchung.id
+            ),
             "Skonto": "",
             "Buchungstext": buchung.buchungstext[:60],
             "Postensperre": "",

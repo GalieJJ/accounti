@@ -74,3 +74,24 @@ class TestDATEVExporter:
 
         # Header + Spaltenüberschriften + 3 Datenzeilen = 5
         assert len(zeilen) == 5
+
+
+def test_storno_traegt_den_bezug_zum_original_in_belegfeld_2(tmp_path: Path) -> None:
+    """GoBD Rz. 64: das Storno ist auf die ursprüngliche Buchung rückbeziehbar —
+    auch ohne Belegnummer sieht DATEV das Paar (Belegfeld 2, höchstens 12 Zeichen)."""
+    original = _beispiel_buchung()
+    storno = _beispiel_buchung(
+        soll_konto="1200", haben_konto="4970", storno_von=original.id
+    )
+    original = original.model_copy(update={"storniert_durch": storno.id})
+    andere = _beispiel_buchung(buchungstext="ohne Storno")
+    datei = DATEVExporter(
+        DATEVConfig(berater_nummer="1001", mandanten_nummer="1")
+    ).exportiere([original, storno, andere], tmp_path)
+    zeilen = datei.read_text(encoding="cp1252").splitlines()
+    spalten = zeilen[1].split(";")
+    feld = spalten.index("Belegfeld 2")
+    werte = [z.split(";")[feld] for z in zeilen[2:]]
+    bezug = "ST" + original.id.hex[:8].upper()
+    assert werte == [bezug, bezug, ""]
+    assert len(bezug) <= 12 and bezug.isalnum()

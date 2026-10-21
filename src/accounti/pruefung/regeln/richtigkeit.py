@@ -37,6 +37,7 @@ from accounti.steuer.kennziffern import (
     STEUERSCHLUESSEL,
     Kontenplan,
 )
+from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
 NULL = Decimal("0")
 VORSTEUER = frozenset(s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer)
@@ -80,7 +81,23 @@ def _schwerste(probleme: list[tuple[Schwere, str]]) -> Schwere:
     return max((s for s, _ in probleme), key=lambda s: s.rang)
 
 
-# --- § 14 Abs. 4 UStG / § 33 UStDV --------------------------------------------------
+# --- § 14 Abs. 4 UStG / § 33 UStDV / § 14a UStG -------------------------------------
+
+# Hinweis „Steuerschuldnerschaft des Leistungsempfängers“ (§ 14a Abs. 5 UStG)
+_HINWEIS_13B = re.compile(
+    r"steuerschuldnerschaft\s+des\s+leistungsempf|reverse[\s-]*charge|"
+    r"§\s*13\s*b|autoliquidation|inversione\s+contabile|btw\s+verlegd",
+    re.IGNORECASE,
+)
+# Hinweis auf die steuerfreie innergemeinschaftliche Lieferung (§ 14 Abs. 4 Nr. 8)
+_HINWEIS_6A = re.compile(
+    r"innergemeinschaftliche\s+lieferung|intra[\s-]*community\s+(?:supply|delivery)|"
+    r"§\s*4\s*nr\.?\s*1\s*b|§\s*6\s*a|art(?:ikel|icle|\.)?\s*138|"
+    r"livraison\s+intracommunautaire",
+    re.IGNORECASE,
+)
+_SCHLUESSEL_13B = frozenset({91, 94})
+_SCHLUESSEL_6A = frozenset({18, 19})  # ig. Erwerb beim Empfänger = § 6a beim Lieferer
 
 
 class Pflichtangaben:
@@ -110,7 +127,99 @@ class Pflichtangaben:
             fehlt.append((Schwere.FEHLER, "Steuersatz (Nr. 4)"))
         return fehlt
 
-    def _voll(self, b: Beleg, a: Belegangaben) -> list[tuple[Schwere, str]]:
+    def _sonderfall(
+        self, b: Beleg, a: Belegangaben, schluessel: set[int | None], oss: bool
+    ) -> str | None:
+        """§ 13b, § 6a oder § 3c — dann gilt § 33 UStDV nicht (§ 33 Satz 3 UStDV)."""
+        if schluessel & _SCHLUESSEL_13B or "AE" in a.steuerkategorien:
+            return "§ 13b"
+        if schluessel & _SCHLUESSEL_6A or "K" in a.steuerkategorien:
+            return "§ 6a"
+        if oss:
+            return "§ 3c"
+        if a.text and _HINWEIS_13B.search(a.text):
+            return "§ 13b"
+        if a.text and _HINWEIS_6A.search(a.text):
+            return "§ 6a"
+        return None
+
+    def _14a(
+        self, k: Kontext, b: Beleg, a: Belegangaben, fall: str
+    ) -> list[tuple[Schwere, str]]:
+        """§ 14a UStG: USt-IdNr. beider Seiten und der Hinweis auf den Sonderfall.
+
+        Nur Warnungen: Der Vorsteuerabzug aus § 13b und aus dem ig. Erwerb hängt nicht
+        an der Rechnung (§ 15 Abs. 1 Nr. 3 und 4 UStG)."""
+        if fall == "§ 3c":
+            return []
+        eigene = _kompakt(k.firma.ust_id) if k.firma and k.firma.ust_id else ""
+        alle = {_kompakt(x) for x in [*a.ust_ids, b.lieferant_ust_id] if x}
+        fremde = alle - {eigene}
+        if eigene:
+            empfaenger = eigene in alle or eigene in _kompakt(a.text)
+        else:
+            empfaenger = len(alle) >= 2
+        empfaenger = empfaenger or bool(a.empfaenger_ust_id)
+        kontakt = k.kontakt_zum_beleg(b)
+        land = kontakt.land.upper() if kontakt else None
+        land = land or next((_land_aus_ustid(x) for x in fremde), None)
+        nicht_gelesen = "" if a.gelesen else " nicht erkannt — Original nicht geprüft"
+        fehlt: list[tuple[Schwere, str]] = []
+        if fall == "§ 13b":
+            if land != "DE":  # Leistender im Ausland: § 14a Abs. 1
+                if not fremde:
+                    fehlt.append(
+                        (
+                            Schwere.WARNUNG,
+                            "USt-IdNr. des leistenden Unternehmers (§ 14a Abs. 1 UStG)"
+                            + nicht_gelesen,
+                        )
+                    )
+                if a.gelesen and not empfaenger:
+                    fehlt.append(
+                        (
+                            Schwere.WARNUNG,
+                            "USt-IdNr. des Leistungsempfängers (§ 14a Abs. 1 UStG)",
+                        )
+                    )
+            hinweis = "AE" in a.steuerkategorien or _HINWEIS_13B.search(a.text or "")
+            if a.gelesen and not hinweis:
+                fehlt.append(
+                    (
+                        Schwere.WARNUNG,
+                        "Hinweis „Steuerschuldnerschaft des Leistungsempfängers“ "
+                        "(§ 14a Abs. 5 UStG)",
+                    )
+                )
+            return fehlt
+        if not fremde:  # § 6a
+            fehlt.append(
+                (
+                    Schwere.WARNUNG,
+                    "USt-IdNr. des Lieferers (§ 14a Abs. 3 UStG)" + nicht_gelesen,
+                )
+            )
+        if a.gelesen and not empfaenger:
+            fehlt.append(
+                (
+                    Schwere.WARNUNG,
+                    "USt-IdNr. des Leistungsempfängers (§ 14a Abs. 3 UStG)",
+                )
+            )
+        hinweis = "K" in a.steuerkategorien or _HINWEIS_6A.search(a.text or "")
+        if a.gelesen and not hinweis:
+            fehlt.append(
+                (
+                    Schwere.WARNUNG,
+                    "Hinweis auf die steuerfreie innergemeinschaftliche Lieferung "
+                    "(§ 14 Abs. 4 Nr. 8, § 14a Abs. 3 UStG)",
+                )
+            )
+        return fehlt
+
+    def _voll(
+        self, b: Beleg, a: Belegangaben, fall: str | None = None
+    ) -> list[tuple[Schwere, str]]:
         fehlt: list[tuple[Schwere, str]] = []
         if not (a.leistender_name or b.lieferant_name):
             fehlt.append((Schwere.FEHLER, "Nr. 1 Name des leistenden Unternehmers"))
@@ -151,6 +260,8 @@ class Pflichtangaben:
         steuer = b.steuer is not None or any(
             p.steuer_betrag is not None for p in b.positionen
         )
+        if fall in ("§ 13b", "§ 6a"):
+            return fehlt  # ohne deutsche Steuer: Hinweis nach § 14a (siehe _14a)
         if not steuer and not a.steuerbefreiung:
             fehlt.append(
                 (
@@ -166,6 +277,14 @@ class Pflichtangaben:
         grenze = k.einstellungen.kleinbetrag_grenze
         befunde = []
         nur_felder = 0
+        schluessel: dict[Any, set[int | None]] = defaultdict(set)
+        oss: set[Any] = set()
+        oss_konten = set(OSS_ERLOES_KONTEN_SKR03.values())
+        for x in k.buchungen:
+            if x.beleg_id is not None and not (x.storno_von or x.storniert_durch):
+                schluessel[x.beleg_id].add(x.steuer_schluessel)
+                if {x.soll_konto, x.haben_konto} & oss_konten:
+                    oss.add(x.beleg_id)
         for b in k.belege.values():
             if b.belegart not in p.belegarten or b.status is not BelegStatus.ERFASST:
                 continue
@@ -173,11 +292,26 @@ class Pflichtangaben:
                 continue
             a = lies_angaben(b, k.archiv, k.ocr)
             nur_felder += not a.gelesen
-            klein = b.brutto is not None and abs(b.brutto) <= grenze
-            fehlt = self._klein(b, a) if klein else self._voll(b, a)
+            fall = self._sonderfall(b, a, schluessel[b.id], b.id in oss)
+            klein = b.brutto is not None and abs(b.brutto) <= grenze and fall is None
+            if klein:
+                fehlt = self._klein(b, a)
+            else:
+                fehlt = self._voll(b, a, fall)
+                if fall is not None:
+                    fehlt += self._14a(k, b, a, fall)
             if not fehlt:
                 continue
-            vorschrift = "§ 33 UStDV (Kleinbetrag)" if klein else "§ 14 Abs. 4 UStG"
+            vorschrift = (
+                "§ 33 UStDV (Kleinbetrag)"
+                if klein
+                else (
+                    f"§ 14 Abs. 4 und § 14a UStG ({fall} UStG, keine "
+                    "Kleinbetragsrechnung)"
+                    if fall is not None
+                    else "§ 14 Abs. 4 UStG"
+                )
+            )
             befunde.append(
                 befund(
                     self,
@@ -557,6 +691,12 @@ class SteuersatzLand:
         pass
 
     def _land(self, k: Kontext, b: Beleg) -> str | None:
+        if b.richtung is Belegrichtung.EINGANG:
+            # Steuer nach der USt-IdNr. auf der Rechnung: Amazon EU S.à r.l. (LU)
+            # rechnet unter ihrer DE-USt-IdNr. deutsche Umsatzsteuer ab
+            land = _land_aus_ustid(b.lieferant_ust_id)
+            if land is not None and ist_eu_land(land):
+                return land
         kontakt = k.kontakt_zum_beleg(b)
         if kontakt is not None:
             return kontakt.land.upper()
@@ -879,6 +1019,9 @@ class Dublette:
             schluessel = (
                 x.beleg_id,
                 x.transaktion_id,
+                # Marktplatz-Abrechnung: je Bestellung eine Buchung (Bestellnummer)
+                x.beleg_nummer,
+                x.beleg_position_id,
                 x.soll_konto,
                 x.haben_konto,
                 x.betrag_netto,

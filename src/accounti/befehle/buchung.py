@@ -51,6 +51,8 @@ def storniere(
         f"{str(k.storno.id)[:8]} ({k.storno.soll_konto} an {k.storno.haben_konto}) — "
         "beide bleiben sichtbar"
     )
+    for warnung in k.warnungen:
+        console.print(f"[yellow]{escape(warnung)}[/yellow]")
 
 
 @befehl.command("zeige")

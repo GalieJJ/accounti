@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from accounti.export.datev_felder import Feld
 
@@ -151,6 +152,21 @@ def belegfeld1(text: str | None) -> str:
     Buchungsstapel, Feld 11). Das Feld ist der Schlüssel für den OPOS-Ausgleich.
     """
     return _BELEGFELD1_UNZULAESSIG.sub("", text or "")[:36]
+
+
+def belegfeld2_storno(
+    storno_von: UUID | None, storniert_durch: UUID | None, ident: UUID
+) -> str:
+    """Belegfeld 2 eines Storno-Paars: ``ST`` und die ersten acht Zeichen der ID des
+    Originals — an Original und Stornobuchung, sonst leer.
+
+    GoBD Rz. 64: das Storno ist auf die ursprüngliche Buchung rückbeziehbar; über
+    Belegfeld 1 nur, wenn es eine Belegnummer gibt. Zehn Zeichen aus Buchstaben und
+    Ziffern passen in Feld 12 (höchstens 12) und sehen nie wie ein Datum (TTMMJJ)
+    aus, das DATEV im OPOS als Fälligkeit läse.
+    """
+    original = storno_von or (ident if storniert_durch else None)
+    return f"ST{original.hex[:8].upper()}" if original else ""
 
 
 def feldnummer(felder: tuple[Feld, ...], name: str) -> int:

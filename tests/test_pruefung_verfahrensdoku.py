@@ -91,6 +91,13 @@ def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
         "| buchhaltung | jan, erika |",
         "2026-08 | festgeschrieben",
         "ab Confidence 0.95",
+        # alle Wege, auf denen accounti ohne Freigabe bucht (Status auto)
+        "accounti opos verbuchen",
+        "Belegabgleich",
+        "Zahlungsausgleich",
+        "Kreditkartenabgleich",
+        "Marktplatz-Abrechnungen und -Auszahlungen",
+        "Zahllast",
         "Kontenrahmen:** SKR03",
         "## 4 Betriebsdokumentation",
     ):
