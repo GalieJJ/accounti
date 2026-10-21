@@ -18,7 +18,7 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 
 NAME = "datev"
 befehl = typer.Typer(
@@ -143,6 +143,7 @@ def datev_belege(
     from accounti.export.datev_format import DatevFormatError
     from accounti.export.datev_stammdaten import lade_datev_mandant
     from accounti.konfiguration import KonfigurationError
+    from accounti.models.auth import Recht
     from accounti.pruefung.storno import markiere_exportiert
 
     von, bis = zeitraum(period)
@@ -151,7 +152,11 @@ def datev_belege(
         automatik = automatikkonten_aus(config)
         engine, make_session = session_factory(db)
         init_db(engine)
-        with make_session() as s:
+        # wie export datev: Übergabe an den Steuerberater — Buchungen freigeben
+        with (
+            handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
+            make_session() as s,
+        ):
             ergebnis = exportiere_belegpaket(
                 s,
                 BelegArchiv(archiv),

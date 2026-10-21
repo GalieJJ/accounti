@@ -10,6 +10,7 @@ Beträge stehen als Zeichenkette mit Punkt (``"1190.00"``), damit nichts gerunde
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterator
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from typing import Annotated
 
@@ -33,6 +34,12 @@ class Zugang:
     def person(self) -> str:
         """Wer im Journal steht (Baustein 7): das Token, nicht der Server-Benutzer."""
         return f"API-Token {self.token.name}"[:100]
+
+    def journal(self) -> AbstractContextManager[object]:
+        """Journal-Kontext: das Token ist geprüft (Hash, Gültigkeit, Rechte)."""
+        from accounti.pruefung.person import journal_kontext
+
+        return journal_kontext(person=self.person, geprueft=True)
 
 
 def _bearer(kopf: str | None) -> str | None:

@@ -43,9 +43,12 @@ def handelnde_person(
     from accounti.pruefung.person import aktuelle_person, journal_kontext
 
     benutzer = befehlsrecht_oder_ende(db, config, recht, aktuelle_person(von))
-    person = benutzer.name if benutzer is not None else von
-    with journal_kontext(person=person.strip() if person and person.strip() else None):
-        yield person
+    if benutzer is not None:
+        with journal_kontext(person=benutzer.name, geprueft=True):
+            yield benutzer.name
+        return
+    with journal_kontext(person=von.strip() if von and von.strip() else None):
+        yield von
 
 
 @contextmanager

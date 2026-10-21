@@ -1755,18 +1755,30 @@ def opos_vorschlaege(
 def opos_bestaetigen(
     transaktion: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     config: str = KONFIG_OPTION,
 ) -> None:
     """Zuordnungsvorschlag buchen."""
     from rich.markup import escape
 
+    from accounti.befehle import handelnde_person
     from accounti.db import init_db, session_factory
     from accounti.konfiguration import lade_buchhaltung
+    from accounti.models.auth import Recht
     from accounti.opos.zahlungslauf import ZahlungslaufError, bestaetige
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    # der Vorschlag wird zur freigegebenen Ausgleichsbuchung (Status geprueft):
+    # Buchungen freigeben (buchhalter, freigeber) und Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von),
+        make_session() as s,
+    ):
         try:
             buchungen = bestaetige(s, transaktion, lade_buchhaltung(config))
         except ZahlungslaufError as fehler:
@@ -1783,16 +1795,28 @@ def opos_bestaetigen(
 def opos_ablehnen(
     transaktion: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Zuordnungsvorschlag verwerfen — die Zahlung geht zurück in die Kontierung."""
     from rich.markup import escape
 
+    from accounti.befehle import handelnde_person
     from accounti.db import init_db, session_factory
+    from accounti.models.auth import Recht
     from accounti.opos.zahlungslauf import ZahlungslaufError, lehne_ab
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    # dieselbe Entscheidung wie bestaetigen, nur mit anderem Ausgang
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von),
+        make_session() as s,
+    ):
         try:
             lehne_ab(s, transaktion)
         except ZahlungslaufError as fehler:
@@ -1913,7 +1937,9 @@ def bank_vorschlaege(
     )
 
 
-def _abgleich_entscheiden(praefix: str, db: str, bestaetigen: bool) -> None:
+def _abgleich_entscheiden(
+    praefix: str, db: str, bestaetigen: bool, von: str | None, config: str
+) -> None:
     from rich.markup import escape
 
     from accounti.bank.abgleichslauf import (
@@ -1921,12 +1947,19 @@ def _abgleich_entscheiden(praefix: str, db: str, bestaetigen: bool) -> None:
         bestaetige_abgleich,
         lehne_abgleich_ab,
     )
+    from accounti.befehle import handelnde_person
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_belege, lade_transaktion
+    from accounti.models.auth import Recht
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    # Beleg und Umsatz zuordnen ist Prüfen, noch keine Buchung (die bucht danach
+    # classify): buchen (buchhalter) und Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von),
+        make_session() as s,
+    ):
         try:
             a = (bestaetige_abgleich if bestaetigen else lehne_abgleich_ab)(s, praefix)
         except AbgleichError as fehler:
@@ -1950,18 +1983,30 @@ def _abgleich_entscheiden(praefix: str, db: str, bestaetigen: bool) -> None:
 def bank_bestaetigen(
     vorschlag: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgleich-Vorschlag bestätigen."""
-    _abgleich_entscheiden(vorschlag, db, bestaetigen=True)
+    _abgleich_entscheiden(vorschlag, db, True, von, config)
 
 
 @bank_app.command("ablehnen")
 def bank_ablehnen(
     vorschlag: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgleich-Vorschlag ablehnen — das Paar wird nicht wieder vorgeschlagen."""
-    _abgleich_entscheiden(vorschlag, db, bestaetigen=False)
+    _abgleich_entscheiden(vorschlag, db, False, von, config)
 
 
 @bank_app.command("offen")
@@ -2329,6 +2374,8 @@ def export_datev(
             BuchungStatus.EXPORTIERT,
         }
     )
+    from accounti.befehle import handelnde_person
+    from accounti.models.auth import Recht
     from accounti.pruefung.storno import markiere_exportiert
 
     try:
@@ -2337,7 +2384,12 @@ def export_datev(
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     _, make_session = session_factory(db)
-    with make_session() as s:
+    # Übergabe an den Steuerberater, vermerkt die Buchungen als exportiert: Buchungen
+    # freigeben (buchhalter, freigeber) und Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
+        make_session() as s,
+    ):
         buchungen = lade_buchungen(s, status=freigegeben)
         cfg = DATEVConfig(
             berater_nummer=berater, mandanten_nummer=mandant, automatikkonten=automatik

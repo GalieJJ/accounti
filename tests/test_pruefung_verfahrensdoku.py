@@ -63,7 +63,10 @@ def _fabrik(tmp_path):
     return engine, fabrik
 
 
-def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
+def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path, monkeypatch):
+    from tests.auth_hilfe import billige_hashes
+
+    billige_hashes(monkeypatch)
     engine, fabrik = _fabrik(tmp_path)
     config = _konfig(tmp_path / "accounti.yaml")
     with fabrik() as s:
@@ -104,6 +107,15 @@ def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
         "Zahllast",
         "Kontenrahmen:** SKR03",
         "## 4 Betriebsdokumentation",
+        # Stand mit Baustein 10a (Befund M-4 der Schlussprüfung)
+        "Benutzer und Rechte: keine Benutzer eingerichtet",
+        "accounti sicherung erstellen",
+        "verschlüsselt",
+        "accounti betrieb lauf",
+        "Laufsperre",
+        # N-3: Gewinnermittlung ohne Angabe und vollständige EB-Form
+        "Einnahmenüberschussrechnung (Standard, nicht ausdrücklich angegeben",
+        "die andere ein Bestandskonto, kein Storno",
     ):
         assert erwartet in erste, erwartet
     assert "${ACCOUNTI_IMAP_PASSWORT}" not in erste  # keine Geheimnisse
@@ -119,11 +131,16 @@ def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
         ab_betrag=10,
         vier_augen="false",
     )
+    from accounti.models.auth import Rolle
+    from tests.auth_hilfe import lege_person_an
+
     with fabrik() as s:
         speichere_bankkonto(
             s, Bankkonto(iban="DE02120300000000202051", bezeichnung="Kreditkarte")
         )
         s.commit()
+        lege_person_an(s, "eva", Rolle.BUCHHALTER)
+        lege_person_an(s, "chef", Rolle.FREIGEBER, Rolle.VERWALTER, mit_2fa=False)
         zweite = erzeuge(s, config, db_url="sqlite:///x.db", stand=date(2026, 10, 21))
     for erwartet in (
         "eingang2",
@@ -132,8 +149,19 @@ def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
         "| op_alter | ordnung | warnung | aktiv |",
         "ab_betrag=10",
         "Vier-Augen-Prinzip nein",
+        # Benutzer, Rollen, Rechte, Einmalcode und Freigabewege aus der
+        # Systemdatenbank
+        "Benutzer und Rechte: 2 Benutzer",
+        "| eva | buchhalter (standard) | ja | ja |",
+        "| chef | freigeber (standard), verwalter (standard) | nein | ja |",
+        "buchhalter: lesen, buchen und korrigieren",
+        "Einmalcode",
+        "(ungeprüft)",
+        "periode oeffnen",
+        "journal uebernehmen",
     ):
         assert erwartet in zweite, erwartet
+    assert "keine Benutzer eingerichtet" not in zweite
     assert "ab_betrag=5" not in zweite and fassung(erste) != fassung(zweite)
     engine.dispose()
 

@@ -74,6 +74,41 @@ ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
 }
 
 
+# Befehle der CLI je Recht — mit eingerichteten Benutzern nur mit Rolle und Einmalcode
+# (Verfahrensdokumentation, docs/betrieb.md). Nicht gebunden sind Lesebefehle und
+# maschinelle Läufe (classify, opos verbuchen, opos zuordnen, bank abgleich, import,
+# bank lauf, aufgaben lauf, verfahrensdoku) — ihre Person ist im Journal „(ungeprüft)“.
+FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
+    Recht.BUCHEN: (
+        "korrigiere",
+        "buchung storniere",
+        "kasse buchen|anfangsbestand|storno",
+        "abschluss eroeffnung",
+        "bank bestaetigen|ablehnen",
+        "nachfordern anfrage --senden",
+        "zahlung anlegen|entfernen|sperre|iban-klaeren",
+    ),
+    Recht.BUCHUNG_FREIGEBEN: (
+        "bestaetige",
+        "opos bestaetigen|ablehnen",
+        "abschluss bestaetigen|ablehnen",
+        "anlagen freigeben",
+        "periode schliessen",
+        "abschluss vortrag",
+        "export datev",
+        "datev belege",
+    ),
+    Recht.ZAHLUNG_FREIGEBEN: ("zahlung freigeben|stornieren",),
+    Recht.STEUER_FREIGEBEN: (
+        "ustva freigeben",
+        "ustva dauerfrist --freigeben",
+        "periode oeffnen",
+        "abschluss oeffnen",
+    ),
+    Recht.VERWALTEN: ("benutzer …", "token …", "journal uebernehmen"),
+}
+
+
 def rechte_der_rollen(rollen: Iterable[Rolle]) -> set[Recht]:
     """Vereinigung der Rechte aller Rollen."""
     rechte: set[Recht] = set()

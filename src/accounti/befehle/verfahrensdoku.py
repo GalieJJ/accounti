@@ -30,10 +30,12 @@ def verfahrensdoku(
     """Erzeugen, speichern und die Fassung (SHA-256) im Journal vermerken."""
     if ctx.invoked_subcommand is not None:
         return
+    from accounti.betrieb.kontext import aktueller_kontext
     from accounti.pruefung.verfahrensdoku import als_pdf, erzeuge, fassung, vermerke
 
+    system_db = aktueller_kontext().systemdatenbank(db)
     with sitzung(db)() as s:
-        text = erzeuge(s, config, db_url=db, archiv=archiv)
+        text = erzeuge(s, config, db_url=db, archiv=archiv, system_db=system_db)
         ziel = Path(ausgabe)
         ziel.write_text(text, encoding="utf-8")
         vermerke(s, text, ziel.name)

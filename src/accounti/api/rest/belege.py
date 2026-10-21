@@ -24,7 +24,6 @@ from accounti.belege.pipeline import nimm_auf
 from accounti.belege.webhook.anfrage import AnfrageError, lies_anfrage
 from accounti.db.repository import lade_beleg
 from accounti.models.auth import TokenRecht
-from accounti.pruefung.person import journal_kontext
 
 router = APIRouter()
 KANAL = "api"
@@ -90,7 +89,7 @@ def _aufnehmen(
     ergebnisse: list[dict[str, Any]] = []
     with (
         dienste.einlieferung(zugang.gesellschaft.kuerzel),
-        journal_kontext(person=zugang.person),
+        zugang.journal(),
     ):
         for name, inhalt in dateien:
             roh = RohBeleg(

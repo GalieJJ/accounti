@@ -7,7 +7,13 @@ from datetime import date
 import typer
 from rich.markup import escape
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, laufsperre_oder_ende
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    handelnde_person,
+    laufsperre_oder_ende,
+)
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
 NAME = "nachfordern"
@@ -77,13 +83,20 @@ def anfrage(
     senden: bool = typer.Option(
         False, "--senden", help="diese eine Anfrage wirklich per E-Mail senden"
     ),
-    von: str | None = typer.Option(None, help="Wer fordert an"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer fordert an (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern beim Senden: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Anfrage nach dem Beleg — Entwurf aus der Vorlage; gesendet nur mit --senden."""
+    from contextlib import ExitStack
+
     from accounti.erechnung.versand import SmtpVersand, VersandError, lade_versand
     from accounti.konfiguration import KonfigurationError, lade_eigene_firma
+    from accounti.models.auth import Recht
     from accounti.pruefung.einstellungen import lade_pruefung
     from accounti.pruefung.nachforderung import (
         NachforderungError,
@@ -92,13 +105,21 @@ def anfrage(
     )
     from accounti.pruefung.person import aktuelle_person
 
-    try:
-        pruefung = lade_pruefung(config)
-        firma = lade_eigene_firma(config)
-        versand = lade_versand(config) if senden else None
-    except KonfigurationError as fehler:
-        ende(str(fehler))
-    with sitzung(db)() as s:
+    with ExitStack() as stapel:
+        # senden (eine E-Mail an Dritte) mit Benutzern: buchen (buchhalter) und
+        # Einmalcode — vor allem anderen; der Entwurf liest nur
+        person = (
+            stapel.enter_context(handelnde_person(db, config, Recht.BUCHEN, von))
+            if senden
+            else von
+        )
+        try:
+            pruefung = lade_pruefung(config)
+            firma = lade_eigene_firma(config)
+            versand = lade_versand(config) if senden else None
+        except KonfigurationError as fehler:
+            ende(str(fehler))
+        s = stapel.enter_context(sitzung(db)())
         try:
             entwurf = baue_anfrage(
                 s,
@@ -122,7 +143,11 @@ def anfrage(
         assert versand is not None
         try:
             sende_anfrage(
-                s, entwurf, SmtpVersand(versand), versand.absender, aktuelle_person(von)
+                s,
+                entwurf,
+                SmtpVersand(versand),
+                versand.absender,
+                aktuelle_person(person),
             )
             s.commit()
         except (NachforderungError, VersandError, OSError) as fehler:

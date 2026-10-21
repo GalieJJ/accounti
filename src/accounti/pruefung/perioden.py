@@ -34,6 +34,7 @@ from accounti.models import BuchungStatus
 from accounti.models.pruefung import Periodenabschluss
 from accounti.opos.zahlungslauf import offene_transaktionen
 from accounti.pruefung.journal import schreibsperre
+from accounti.steuer.zeitraum import Zeitraum
 
 _MONAT = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
@@ -151,6 +152,73 @@ def schliesse(
         {"monat": monat, "buchungen": len(im_monat), "ungebucht": len(ungebucht)},
     )
     return _periode(zeile)
+
+
+def meldungen_im_zeitraum(session: Session, von: date, bis: date) -> list[str]:
+    """Hinweise beim Öffnen: Umsatzsteuer-Voranmeldungen (Baustein 9), die den
+    Zeitraum betreffen und schon freigegeben oder abgegeben sind — ändert sich danach
+    eine Buchung, ist eine berichtigte Voranmeldung abzugeben (§ 18 Abs. 1 UStG,
+    § 153 AO); accounti berichtigt sie nicht von selbst."""
+    from sqlalchemy import select
+
+    from accounti.db.tabellen_elster import (
+        SteuermeldungFreigabeRow,
+        SteuermeldungProtokollRow,
+    )
+    from accounti.models.elster import Meldeart, Modus
+    from accounti.steuer.zeitraum import ZeitraumError
+
+    verbindung = session.connection()
+
+    def betroffen(text: str) -> Zeitraum | None:
+        try:
+            z = Zeitraum.lies(text)
+        except ZeitraumError:
+            return None
+        return z if z.von <= bis and von <= z.bis else None
+
+    abgegeben: dict[Zeitraum, datetime] = {}
+    if verbindung.dialect.has_table(
+        verbindung, SteuermeldungProtokollRow.__tablename__
+    ):
+        p = SteuermeldungProtokollRow
+        for zeitraum, zeitpunkt in verbindung.execute(
+            select(p.zeitraum, p.zeitpunkt).where(
+                p.art == Meldeart.USTVA.value,
+                p.modus == Modus.ECHT.value,
+                p.erfolgreich.is_(True),
+            )
+        ):
+            if (z := betroffen(zeitraum)) is not None:
+                abgegeben[z] = max(zeitpunkt, abgegeben.get(z, zeitpunkt))
+    freigegeben: dict[Zeitraum, str] = {}
+    if verbindung.dialect.has_table(verbindung, SteuermeldungFreigabeRow.__tablename__):
+        f = SteuermeldungFreigabeRow
+        for zeitraum, wer in verbindung.execute(
+            select(f.zeitraum, f.freigegeben_von).where(f.art == Meldeart.USTVA.value)
+        ):
+            if (z := betroffen(zeitraum)) is not None and z not in abgegeben:
+                freigegeben[z] = wer
+    hinweise = [
+        f"Die Umsatzsteuer-Voranmeldung {z.text} ist schon abgegeben "
+        f"({zeitpunkt:%d.%m.%Y}) — ändert sich eine Buchung dieses Zeitraums, ist "
+        "eine berichtigte Voranmeldung abzugeben (accounti ustva --period "
+        f"{_cli(z)}; Kz 10)"
+        for z, zeitpunkt in sorted(abgegeben.items())
+    ]
+    hinweise += [
+        f"Die Umsatzsteuer-Voranmeldung {z.text} ist schon freigegeben (von {wer}), "
+        "noch nicht abgegeben — nach Änderungen neu prüfen und freigeben"
+        for z, wer in sorted(freigegeben.items())
+    ]
+    return hinweise
+
+
+def _cli(z: Zeitraum) -> str:
+    """Schreibweise der CLI (``2026-08``, ``2026-Q3``)."""
+    if z.monat is not None:
+        return f"{z.jahr}-{z.monat:02d}"
+    return f"{z.jahr}-Q{z.quartal}" if z.quartal is not None else str(z.jahr)
 
 
 def oeffne(session: Session, monat: str, von: str, grund: str) -> Periodenabschluss:

@@ -305,3 +305,28 @@ def test_im_journal_steht_das_token(welt):
     )
     assert r.status_code == 200, r.text
     assert {person for _, person in personen(bisher)} == {"API-Token erp"}
+
+
+def test_lauf_ueber_rest_steht_unter_dem_token_im_journal(welt, monkeypatch):
+    """Schlussprüfung T-N5: auch ``/laeufe/…`` setzt die Person des Journals."""
+    from sqlalchemy import text
+
+    from accounti.api.rest import laeufe
+    from accounti.pruefung.journal import schreibe
+
+    def lauf(zugang, s):  # type: ignore[no-untyped-def]
+        schreibe(s, "export", "export", "probe", nachher={"anzahl": 0})
+        s.commit()
+        return {"lauf": "bank"}
+
+    monkeypatch.setattr(laeufe, "_bank", lauf)
+    token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
+    r = welt.client().post("/api/v1/laeufe/bank", headers=bearer(token))
+    assert r.status_code == 200, r.text
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:
+        person = s.execute(
+            text("SELECT person FROM journal WHERE objekt_id = 'probe'")
+        ).scalar()
+    engine.dispose()
+    assert person == "API-Token erp"

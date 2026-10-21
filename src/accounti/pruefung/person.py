@@ -1,9 +1,11 @@
 """Wer handelt — und mit welchem Grund? Kontext für das Journal.
 
-Benutzerkonten bringt Baustein 10; bis dahin ist die Person eine Zeichenkette:
-``--von`` des Befehls, sonst ``ACCOUNTI_BENUTZER``, sonst der Anmeldename (wie im
-Zahlungsverkehr). Ein Befehl setzt Person und Grund mit ``journal_kontext``; die
-Journal-Ereignisse lesen sie von dort.
+Ohne eingerichtete Benutzer ist die Person eine Zeichenkette: ``--von`` des Befehls,
+sonst ``ACCOUNTI_BENUTZER``, sonst der Anmeldename (wie im Zahlungsverkehr). Ein
+Befehl setzt Person und Grund mit ``journal_kontext``; die Journal-Ereignisse lesen
+sie von dort. Hat die Rechteprüfung (Baustein 10a: Rolle und Einmalcode) oder ein
+API-Token die Person bestätigt, steht ``geprueft``; sonst kennzeichnet das Journal
+die Person als „(ungeprüft)“, sobald Benutzer eingerichtet sind.
 """
 
 from __future__ import annotations
@@ -32,6 +34,7 @@ class JournalKontext:
     person: str | None = None
     grund: str | None = None
     bezug: str | None = None
+    geprueft: bool = False  # Person durch Rechteprüfung bzw. API-Token bestätigt
 
 
 _KONTEXT: ContextVar[JournalKontext | None] = ContextVar(
@@ -45,15 +48,25 @@ def kontext() -> JournalKontext:
 
 @contextmanager
 def journal_kontext(
-    person: str | None = None, grund: str | None = None, bezug: str | None = None
+    person: str | None = None,
+    grund: str | None = None,
+    bezug: str | None = None,
+    *,
+    geprueft: bool | None = None,
 ) -> Iterator[JournalKontext]:
-    """Person, Grund und Bezug für alle Journaleinträge im Block (innen gewinnt)."""
+    """Person, Grund und Bezug für alle Journaleinträge im Block (innen gewinnt).
+
+    Eine neue Person ohne ``geprueft=True`` gilt als ungeprüft — auch innerhalb eines
+    geprüften Blocks."""
     alt = kontext()
+    if geprueft is None:
+        geprueft = alt.geprueft if person is None or person == alt.person else False
     neu = replace(
         alt,
         person=person if person is not None else alt.person,
         grund=grund if grund is not None else alt.grund,
         bezug=bezug if bezug is not None else alt.bezug,
+        geprueft=geprueft,
     )
     token = _KONTEXT.set(neu)
     try:

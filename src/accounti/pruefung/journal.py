@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -180,6 +181,40 @@ def _kurz(wert: str | None, laenge: int) -> str | None:
     return wert[:laenge] if wert is not None else None
 
 
+UNGEPRUEFT = " (ungeprüft)"
+_BENUTZER_GEMERKT = "accounti_benutzer_eingerichtet"
+_BENUTZER_FRIST = 60.0  # Sekunden — neue Benutzer gelten spätestens danach
+
+
+def benutzer_eingerichtet(verbindung: Connection) -> bool:
+    """Gehört die Datenbank zu einer Benutzerverwaltung (Baustein 10a)?
+
+    Ja, wenn sie an eine Systemdatenbank gebunden ist (Merker
+    ``benutzerverwaltung``, gesetzt bei der Rollenvergabe bzw. der ersten
+    Rechteprüfung) oder selbst Benutzer hat. Je Verbindung eine Minute gemerkt."""
+    gemerkt = verbindung.info.get(_BENUTZER_GEMERKT)
+    jetzt = time.monotonic()
+    if gemerkt is not None and jetzt - gemerkt[1] < _BENUTZER_FRIST:
+        return bool(gemerkt[0])
+    da = False
+    if verbindung.dialect.has_table(verbindung, "auth_merker"):
+        da = (
+            verbindung.execute(
+                text(
+                    "SELECT 1 FROM auth_merker WHERE schluessel = 'benutzerverwaltung'"
+                )
+            ).first()
+            is not None
+        )
+    if not da and verbindung.dialect.has_table(verbindung, "auth_benutzer"):
+        da = (
+            verbindung.execute(text("SELECT 1 FROM auth_benutzer LIMIT 1")).first()
+            is not None
+        )
+    verbindung.info[_BENUTZER_GEMERKT] = (da, jetzt)
+    return da
+
+
 def fuege_an(verbindung: Connection, vorgaenge: list[Vorgang]) -> list[Journaleintrag]:
     """Hängt die Vorgänge in dieser Reihenfolge an das Journal an."""
     if not vorgaenge:
@@ -197,6 +232,9 @@ def fuege_an(verbindung: Connection, vorgaenge: list[Vorgang]) -> list[Journalei
     )
     zeit = vorlage.model_dump(mode="json")["zeitpunkt"]
     person = ctx.person or aktuelle_person()
+    if not ctx.geprueft and benutzer_eingerichtet(verbindung):
+        # nicht über Rolle und Einmalcode bestätigt (Läufe, Importe, Freitext)
+        person = person[: PERSON_LAENGE - len(UNGEPRUEFT)] + UNGEPRUEFT
     zeilen = []
     for v in vorgaenge:
         nr += 1
@@ -299,10 +337,18 @@ BESTAND: dict[str, Table] = {
 }
 
 
+# Vorgänge der Bestandsübernahme — nur vor dem ersten regulären Eintrag zulässig
+UEBERNAHMEN = frozenset({"bestand_uebernommen", "sperre_uebernommen"})
+
+
+class UebernahmeError(ValueError):
+    """Bestand lässt sich nur übernehmen, solange das Journal sonst leer ist."""
+
+
 @dataclass(frozen=True)
 class Journalbefund:
     # luecke, verkettung, veraendert, kopf, ohne_eintrag, abweichung, fehlt, verlauf,
-    # storno
+    # storno, uebernahme
     art: str
     text: str
     nr: int | None = None
@@ -362,6 +408,27 @@ def _pruefe_kopf(
                 "kopf", f"Eintrag {nr} hat nicht mehr den notierten Hash", nr=nr
             )
         )
+
+
+def _pruefe_uebernahmen(eintraege: list[Journaleintrag], p: Journalpruefung) -> None:
+    """Eine Übernahme nach dem ersten regulären Eintrag hat einen Bestand für in
+    Ordnung erklärt, der an accounti vorbei entstand — das meldet die Prüfung."""
+    erster = next((e for e in eintraege if e.vorgang not in UEBERNAHMEN), None)
+    if erster is None:
+        return
+    for e in eintraege:
+        if e.nr > erster.nr and e.vorgang in UEBERNAHMEN:
+            p.befunde.append(
+                Journalbefund(
+                    "uebernahme",
+                    f"Eintrag {e.nr}: {e.objekt_typ} {e.objekt_id[:8]} nachträglich "
+                    f"übernommen ({e.vorgang}, {e.person}) — nach dem ersten "
+                    f"regulären Eintrag {erster.nr}; was danach ohne Eintrag war, "
+                    "entstand an accounti vorbei",
+                    nr=e.nr,
+                    objekt=f"{e.objekt_typ} {e.objekt_id}",
+                )
+            )
 
 
 def letzter_stand(eintraege: list[Journaleintrag]) -> dict[tuple[str, str], Any]:
@@ -559,14 +626,26 @@ def _pruefe_sperren(
 
 
 @contextmanager
-def lesestand(verbindung: Connection) -> Iterator[None]:
+def lesestand(session: Session) -> Iterator[Connection]:
     """Journal und Bestand aus *einem* Stand lesen, auch wenn andere schreiben.
 
-    SQLite: eine (verzögerte) Lesetransaktion — die erste Abfrage hält ihren Stand
-    bis zum Ende (Schreiber warten mit dem Commit, busy timeout); eine schon laufende
-    schreibende Transaktion hält ohnehin die Sperre. PostgreSQL: die Schreibsperre
-    der accounti-Schreiber (Advisory-Sperre) — wer schreibt, hält sie bis zum Commit.
-    """
+    PostgreSQL: ein Schnappschuss (``REPEATABLE READ READ ONLY``, wie die Sicherung)
+    — Schreiber werden nicht aufgehalten; läuft in der Sitzung schon eine
+    Transaktion, die Schreibsperre der accounti-Schreiber. SQLite: eine (verzögerte)
+    Lesetransaktion — die erste Abfrage hält ihren Stand bis zum Ende (Schreiber
+    warten mit dem Commit, busy timeout); eine schon laufende schreibende
+    Transaktion hält ohnehin die Sperre. Eigene offene Änderungen schreibt der
+    Aufrufer vorher per Flush in seine Transaktion — der Lesestand schreibt nichts
+    fest, was ein späteres ``rollback`` zurücknehmen soll."""
+    if session.get_bind().dialect.name == "postgresql" and not session.in_transaction():
+        yield session.connection(
+            execution_options={
+                "isolation_level": "REPEATABLE READ",
+                "postgresql_readonly": True,
+            }
+        )
+        return
+    verbindung = session.connection()
     begonnen = False
     if verbindung.dialect.name == "sqlite":
         roh: Any = verbindung.connection.dbapi_connection
@@ -576,7 +655,7 @@ def lesestand(verbindung: Connection) -> Iterator[None]:
     else:
         schreibsperre(verbindung)
     try:
-        yield
+        yield verbindung
     finally:
         if begonnen:
             verbindung.connection.dbapi_connection.commit()  # type: ignore[union-attr]
@@ -586,11 +665,11 @@ def pruefe_journal(session: Session, kopf: str | None = None) -> Journalpruefung
     """Kette, optional Anker ``NR:HASH``, Verlauf je Objekt und Abgleich mit dem
     Bestand — alles aus einem Stand (``lesestand``)."""
     p = Journalpruefung()
-    verbindung = session.connection()
-    if not journal_vorhanden(verbindung):
-        p.vorhanden = False
-        return p
-    with lesestand(verbindung):
+    session.flush()  # eigene Änderungen in die eigene Transaktion, nicht in BEGIN
+    with session.no_autoflush, lesestand(session) as verbindung:
+        if not journal_vorhanden(verbindung):
+            p.vorhanden = False
+            return p
         return _pruefe(session, kopf, p)
 
 
@@ -602,6 +681,7 @@ def _pruefe(session: Session, kopf: str | None, p: Journalpruefung) -> Journalpr
     _pruefe_kette(eintraege, p)
     if kopf is not None:
         _pruefe_kopf(eintraege, kopf, p)
+    _pruefe_uebernahmen(eintraege, p)
     _pruefe_verlauf(eintraege, p)
     _pruefe_bestand(session, eintraege, p)
     _pruefe_sperren(session, eintraege, p)
@@ -619,7 +699,11 @@ def uebernehme_bestand(session: Session, person: str | None = None) -> int:
 
     Erst die Schreibsperre, dann lesen: Ein zweiter gleichzeitiger Lauf wartet und
     findet danach nichts mehr ohne Eintrag — statt denselben Bestand noch einmal
-    einzutragen."""
+    einzutragen.
+
+    Nur auf dem Upgrade-Weg: Steht im Journal schon ein regulärer Eintrag, entstand
+    alles, was jetzt ohne Eintrag ist, an accounti vorbei — dann ``UebernahmeError``
+    statt es für in Ordnung zu erklären (``journal pruefen`` meldet es weiter)."""
     verbindung = session.connection()
     if not journal_vorhanden(verbindung):
         return 0
@@ -656,5 +740,13 @@ def uebernehme_bestand(session: Session, person: str | None = None) -> int:
                     person=person,
                 )
             )
+    erster = next((e for e in eintraege if e.vorgang not in UEBERNAHMEN), None)
+    if vorgaenge and erster is not None:
+        raise UebernahmeError(
+            f"Das Journal führt schon seit Eintrag {erster.nr} ({erster.vorgang}) — "
+            "Bestand lässt sich nur einmal nach der Migration übernehmen, bevor "
+            f"accounti selbst schreibt. Die {len(vorgaenge)} Objekte ohne Eintrag "
+            "entstanden an accounti vorbei: accounti journal pruefen nennt sie"
+        )
     fuege_an(verbindung, vorgaenge)
     return len(vorgaenge)

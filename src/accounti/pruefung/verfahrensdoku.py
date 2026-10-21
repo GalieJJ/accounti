@@ -70,10 +70,17 @@ def schwellen_text(werte: dict[str, Any]) -> str:
 
 
 class _Doku:
-    def __init__(self, session: Session, config: Path, db_url: str | None) -> None:
+    def __init__(
+        self,
+        session: Session,
+        config: Path,
+        db_url: str | None,
+        system_db: str | None = None,
+    ) -> None:
         self.s = session
         self.config = config
         self.db_url = db_url
+        self.system_db = system_db
         self.zeilen: list[str] = []
 
     def __call__(self, *zeilen: str) -> None:
@@ -103,7 +110,10 @@ class _Doku:
 
 
 def _allgemein(d: _Doku) -> None:
-    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.abschluss.konfiguration import (
+        gewinnermittlung_angegeben,
+        lade_abschluss,
+    )
     from accounti.db.tabellen import (
         BelegRow,
         BuchungssatzRow,
@@ -138,6 +148,12 @@ def _allgemein(d: _Doku) -> None:
             if abschluss.gewinnermittlung == "euer"
             else "Bilanz"
         )
+        if gewinnermittlung_angegeben(d.config) is None:
+            # wie 2.6: ohne Angabe schützt accounti den Jahreswechsel wie bei Bilanz
+            art += (
+                " (Standard, nicht ausdrücklich angegeben — ein Buchungsdatum im "
+                "Folgejahr lehnt accounti deshalb ab)"
+            )
         d(f"- **Gewinnermittlung:** {art}")
     elster = d.lade(lade_elster, "elster")
     if elster is not None:
@@ -318,7 +334,7 @@ def _freigabe(d: _Doku) -> None:
     aufgaben = d.lade(lade_aufgaben_einstellungen, "aufgaben")
     if aufgaben is not None:
         rollen = [[r, ", ".join(w)] for r, w in sorted(aufgaben.rollen.items())]
-        d("Rollen (bis zur Benutzerverwaltung als Namen):", "")
+        d("Zuständigkeitsrollen der Aufgaben (Namen):", "")
         d(*_tabelle(["Rolle", "Personen"], rollen))
         d(
             f"Zuständigkeitsregeln: {len(aufgaben.zustaendigkeit)}; Erinnerungsstufen "
@@ -344,6 +360,84 @@ def _freigabe(d: _Doku) -> None:
             "byte-gleich gespeichert.",
             "",
         )
+    _benutzer(d)
+
+
+def _benutzerliste(d: _Doku) -> list[list[object]] | None:
+    """Benutzer mit Rollen aus der Systemdatenbank — ``None``: keine eingerichtet."""
+    from sqlalchemy import inspect as sql_inspect
+
+    from accounti.db import session_factory
+    from accounti.db.repo_auth import lade_alle_benutzer, rollen_von
+
+    def lies(s: Session) -> list[list[object]] | None:
+        if not sql_inspect(s.get_bind()).has_table("auth_benutzer"):
+            return None
+        zeilen: list[list[object]] = []
+        for b in lade_alle_benutzer(s):
+            rollen = sorted(
+                f"{r.rolle.value} ({r.gesellschaft})" for r in rollen_von(s, b.id)
+            )
+            zeilen.append(
+                [b.name, ", ".join(rollen) or "—", _ja(b.totp_aktiv), _ja(b.aktiv)]
+            )
+        return zeilen or None
+
+    if d.system_db is None or d.system_db == d.db_url:
+        return lies(d.s)
+    engine, fabrik = session_factory(d.system_db)
+    try:
+        with fabrik() as s:
+            return lies(s)
+    finally:
+        engine.dispose()
+
+
+def _benutzer(d: _Doku) -> None:
+    from accounti.models.auth import FREIGABEWEGE, RECHT_TEXT, ROLLEN_RECHTE, Recht
+
+    benutzer = _benutzerliste(d)
+    if benutzer is None:
+        d(
+            "Benutzer und Rechte: keine Benutzer eingerichtet — accounti prüft keine "
+            "Rollen; die handelnde Person ist ein Freitext (--von, ACCOUNTI_BENUTZER, "
+            "sonst der Anmeldename) und steht so im Journal.",
+            "",
+        )
+        return
+    d(
+        f"Benutzer und Rechte: {len(benutzer)} Benutzer (Anmeldung mit Passwort und "
+        "zweitem Faktor, Rollen je Gesellschaft):",
+        "",
+    )
+    d(*_tabelle(["Benutzer", "Rollen", "zweiter Faktor", "aktiv"], benutzer))
+    d(
+        "Rechte je Rolle: "
+        + " · ".join(
+            f"{rolle.value}: "
+            + ", ".join(RECHT_TEXT[r] for r in sorted(rechte, key=list(Recht).index))
+            for rolle, rechte in ROLLEN_RECHTE.items()
+        )
+        + ". Die Rollen sind nicht hierarchisch — wer bucht, gibt keine Zahlungen "
+        "frei und öffnet keinen festgeschriebenen Zeitraum.",
+        "",
+        "Jeder der folgenden Befehle verlangt in der CLI Rolle und Einmalcode (TOTP "
+        "oder Wiederherstellungscode); im Browser verlangt jede Freigabe einen "
+        "frischen Einmalcode. Im Journal, in geprueft_von und in den Protokollen "
+        "steht der Benutzer; Personen, die keine Rechteprüfung bestätigt hat "
+        "(Läufe, Importe), stehen als „(ungeprüft)“ im Journal, API-Token als "
+        "„API-Token <Name>“.",
+        "",
+    )
+    d(
+        *_tabelle(
+            ["Recht", "Befehle (accounti …)"],
+            [
+                [RECHT_TEXT[recht], ", ".join(befehle)]
+                for recht, befehle in FREIGABEWEGE.items()
+            ],
+        )
+    )
 
 
 def _pruefung(d: _Doku) -> None:
@@ -438,7 +532,8 @@ def _perioden(d: _Doku) -> None:
         "Ausnahme: Eröffnungsbuchungen (EB-Werte) des Saldovortrags (accounti "
         "abschluss vortrag) und des ersten Eröffnungssaldos — nur neu angelegt, nur "
         "am 01.01., ohne Steuer, Belegnummer EB-JJJJ, eine Seite ein "
-        "Saldenvortragskonto. Sie tragen die Schlussbilanz des Vorjahres vor, ändern "
+        "Saldenvortragskonto, die andere ein Bestandskonto, kein Storno. Sie "
+        "tragen die Schlussbilanz des Vorjahres vor, ändern "
         "weder Verkehrszahlen noch Umsatzsteuer-Voranmeldung des Januars und stehen "
         "wie jede Buchung im Journal; die Sperre des Geschäftsjahres gilt für sie "
         "weiter. Eine Eingangsrechnung zu einem festgeschriebenen Monat wird mit "
@@ -515,16 +610,29 @@ def _betrieb(d: _Doku, archiv: Path | None, vorgaenger: list[Journaleintrag]) ->
     from accounti.db.tabellen import BelegRow
 
     d("## 4 Betriebsdokumentation", "")
+    sicherungsschluessel = os.environ.get(
+        "ACCOUNTI_SICHERUNG_SCHLUESSEL"
+    ) or os.environ.get("ACCOUNTI_SCHLUESSEL")
     bis = d.s.execute(
         select(func.min(BelegRow.aufbewahren_bis), func.max(BelegRow.aufbewahren_bis))
     ).one()
     d(
         f"- **Belegarchiv:** {_zelle(archiv) if archiv else 'nicht angegeben'}; "
         f"Aufbewahrungsfristen im Bestand {datum_de(bis[0])} bis {datum_de(bis[1])}.",
-        "- **Datensicherung:** nicht Teil von accounti — Verfahren, Turnus und "
-        "Aufbewahrungsort der Sicherungen legt der Betrieb fest und ergänzt sie hier.",
-        "- **Geplante Läufe:** aus dem System nicht ablesbar (Cron/Timer des "
-        "Betriebs, z.B. accounti bank lauf && accounti aufgaben lauf).",
+        "- **Datensicherung:** accounti sicherung erstellen sichert Datenbank und "
+        "Belegarchiv in einer Datei, verschlüsselt (AES-256-GCM, Schlüssel "
+        "ACCOUNTI_SICHERUNG_SCHLUESSEL bzw. ACCOUNTI_SCHLUESSEL, gesetzt: "
+        f"{_ja(sicherungsschluessel)}); accounti sicherung pruefen prüft jede Datei "
+        "gegen ihr Manifest, wiederhergestellt wird nur in eine leere Umgebung. "
+        "Turnus, Aufbewahrungsort und Wiederherstellungstests legt der Betrieb fest "
+        "und ergänzt sie hier.",
+        "- **Geplante Läufe:** accounti betrieb lauf (im Docker-Setup der Dienst "
+        "lauf) startet je Gesellschaft im Intervall accounti bank lauf und accounti "
+        "aufgaben lauf; ohne ihn Cron/Timer des Betriebs. Laufsperre: je Datenbank "
+        "läuft jede Art höchstens einmal zugleich — bank (bank lauf und seine "
+        "Schritte, classify, opos zuordnen, bank abgleich, opos verbuchen, periode "
+        "schliessen) und aufgaben (aufgaben lauf, nachfordern); ein zweiter Lauf "
+        "wartet nicht, er endet mit einer Meldung.",
         "",
         "### Änderungshistorie dieser Dokumentation",
         "",
@@ -547,11 +655,15 @@ def erzeuge(
     db_url: str | None = None,
     archiv: str | Path | None = None,
     stand: date | None = None,
+    system_db: str | None = None,
 ) -> str:
-    """Die Verfahrensdokumentation als Markdown — aus dem Systemzustand."""
+    """Die Verfahrensdokumentation als Markdown — aus dem Systemzustand.
+
+    ``system_db``: Datenbank mit Benutzern und Rollen (Registry bzw.
+    ``ACCOUNTI_SYSTEM_DB``); ohne Angabe die Datenbank der Sitzung."""
     from accounti.pruefung.journal import lade_journal
 
-    d = _Doku(session, Path(config), db_url)
+    d = _Doku(session, Path(config), db_url, system_db)
     stand = stand or date.today()
     name = (d.roh().get("mandant") or {}).get("name") or "nicht eingerichtet"
     d(

@@ -147,17 +147,20 @@ def uebernehmen(
 ) -> None:
     """Buchungen, Belege und Sperren von vor dem Journal als Bestand eintragen."""
     from accounti.models.auth import Recht
-    from accounti.pruefung.journal import uebernehme_bestand
+    from accounti.pruefung.journal import UebernahmeError, uebernehme_bestand
     from accounti.pruefung.person import aktuelle_person
 
-    # Was ohne Journaleintrag vorgefunden wird, gilt danach als Bestand — auch eine
-    # an accounti vorbei angelegte Buchung. Das bestätigt, wer Buchungen freigeben
-    # darf (buchhalter, freigeber), mit Einmalcode
+    # Was ohne Journaleintrag vorgefunden wird, gilt danach als Bestand. Ein Schritt
+    # des Upgrades (Betrieb, nicht Buchhaltung): verwalten (verwalter), mit
+    # Einmalcode — und nur, solange das Journal außer Übernahmen leer ist
     with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        handelnde_person(db, config, Recht.VERWALTEN, von) as person,
         sitzung(db)() as s,
     ):
-        anzahl = uebernehme_bestand(s, person=aktuelle_person(person))
+        try:
+            anzahl = uebernehme_bestand(s, person=aktuelle_person(person))
+        except UebernahmeError as fehler:
+            ende(str(fehler))
         s.commit()
     console.print(
         f"[green]{anzahl} Objekte als Bestand ins Journal übernommen.[/green]"

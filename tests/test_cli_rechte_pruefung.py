@@ -88,7 +88,9 @@ def test_buchen_umfasst_die_freigabe():
             assert Recht.BUCHUNG_FREIGEBEN in rechte, rolle
 
 
-def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(welt):
+def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
+    welt, monkeypatch
+):
     url, config, b, _ = welt
     vorher = _journal(url, "nr", "hash")
     befehle = [
@@ -102,9 +104,32 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(we
         ["abschluss", "vortrag", "--jahr", "2025"],
         ["abschluss", "oeffnen", "--jahr", "2025", "--grund", "Nachtrag"],
         ["journal", "uebernehmen"],
+        # Schlussprüfung M-3: auch Erfassen, Bestätigen, Export und Versand
+        ["kasse", "anfangsbestand", "--betrag", "100", "--datum", "2026-03-01"],
+        ["kasse", "buchen", "--betrag", "-24.90", "--text", "Porto", "--datum"]
+        + ["2026-03-02", "--konto", "4910"],
+        ["abschluss", "eroeffnung", "--jahr", "2026", "--konto", "1200"]
+        + ["--saldo", "5000"],
+        ["abschluss", "bestaetigen", "1"],
+        ["abschluss", "ablehnen", "1"],
+        ["opos", "bestaetigen", "abc"],
+        ["opos", "ablehnen", "abc"],
+        ["bank", "bestaetigen", "abc"],
+        ["bank", "ablehnen", "abc"],
+        ["nachfordern", "anfrage", "abc", "--senden"],
     ]
     for befehl in befehle:
         r = _run(url, config, *befehl, "--von", "jan")
+        assert r.exit_code == 1, (befehl, r.output)
+        assert "jan darf" in r.output, (befehl, r.output)
+    # Export ohne --von: die Person aus ACCOUNTI_BENUTZER
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "jan")
+    for befehl in (
+        ["export", "datev", "--berater", "1", "--mandant", "2"],
+        ["datev", "belege", "--period", "2026-08", "--ausgabe", "b.zip"]
+        + ["--berater", "1", "--mandant", "2"],
+    ):
+        r = _run(url, config, *befehl)
         assert r.exit_code == 1, (befehl, r.output)
         assert "jan darf" in r.output, (befehl, r.output)
     assert _journal(url, "nr", "hash") == vorher
@@ -211,6 +236,67 @@ def test_storno_und_periode_mit_benutzer_im_journal(welt, monkeypatch):
     assert ("periode_geoeffnet", "chef") in eintraege
 
 
+def test_oeffnen_nur_wer_steuermeldungen_freigibt(welt, monkeypatch):
+    """Schlussprüfung M-1: Die Festschreibung aufheben darf nicht, wer bucht
+    (Funktionstrennung, GoBD Rz. 100–102) — nur die Rolle freigeber. Ist die
+    Voranmeldung des Zeitraums schon freigegeben oder abgegeben, sagt accounti, dass
+    eine berichtigte nötig wird."""
+    from accounti.db.repo_elster import speichere_freigabe, speichere_uebermittlung
+    from accounti.models.elster import Freigabe, Meldeart, Modus, Uebermittlung
+
+    url, config, b, p = welt
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert _run(url, config, "bestaetige", kurz(b.id), "--von", "eva").exit_code == 0
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(
+        url, config, "periode", "schliessen", "2026-08", "--trotzdem", "--von", "eva"
+    )
+    assert r.exit_code == 0, r.output
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        speichere_freigabe(
+            s,
+            Freigabe(
+                art=Meldeart.USTVA,
+                zeitraum="2026-08",
+                inhalt_hash="0" * 64,
+                werte="{}",
+                freigegeben_von="chef",
+            ),
+        )
+        speichere_uebermittlung(
+            s,
+            Uebermittlung(
+                nr=1,
+                art=Meldeart.USTVA,
+                zeitraum="2026-Q3",
+                modus=Modus.ECHT,
+                weg="attrappe",
+                datensatz="<x/>",
+                datensatz_hash="1" * 64,
+                erfolgreich=True,
+                ergebnis="ok",
+                pruefbericht="",
+                aufbewahren_bis=date(2036, 12, 31),
+                vorgaenger_hash="0" * 64,
+                hash="2" * 64,
+            ),
+        )
+        s.commit()
+    engine.dispose()
+    oeffnen = ["periode", "oeffnen", "2026-08", "--grund", "Rechnung nachgereicht"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, *oeffnen, "--von", "eva")
+    assert r.exit_code == 1 and "eva darf" in r.output
+    assert "Steuermeldungen freigeben" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = _run(url, config, *oeffnen, "--von", "chef")
+    assert r.exit_code == 0, r.output
+    text = " ".join(r.output.split())
+    assert "III. Quartal 2026 ist schon abgegeben" in text
+    assert "berichtigte Voranmeldung" in text
+
+
 def test_kasse_storno_mit_benutzer_im_journal(tmp_path, monkeypatch):
     url = db_url(tmp_path)
     config = str(tmp_path / "accounti.yaml")
@@ -263,6 +349,7 @@ def test_abschluss_vortrag_und_oeffnen_mit_benutzer(tmp_path, monkeypatch):
     with fabrik() as s:
         p = lege_person_an(s, "eva", Rolle.BUCHHALTER, jetzt=datetime.now())
         j = lege_person_an(s, "jan", Rolle.BETRACHTER, jetzt=datetime.now())
+        c = lege_person_an(s, "chef", Rolle.FREIGEBER, jetzt=datetime.now())
     from tests.abschluss_hilfe import buche
 
     buche(fabrik, date(2026, 1, 1), "1590", "9000", "500", "EB", beleg_nummer="EB")
@@ -279,15 +366,102 @@ def test_abschluss_vortrag_und_oeffnen_mit_benutzer(tmp_path, monkeypatch):
         app, ["abschluss", "vortrag", "--jahr", "2026", "--von", "eva", *basis]
     )
     assert r.exit_code == 0, r.output
+    oeffnen = ["abschluss", "oeffnen", "--jahr", "2026", "--grund", "Nachbuchung"]
     monkeypatch.setenv("ACCOUNTI_EINMALCODE", p.codes.pop())
-    r = runner.invoke(
-        app,
-        ["abschluss", "oeffnen", "--jahr", "2026", "--grund", "Nachbuchung"]
-        + ["--von", "eva", *basis],
-    )
+    r = runner.invoke(app, [*oeffnen, "--von", "eva", *basis])
+    assert r.exit_code == 1 and "eva darf" in r.output  # M-1: nur freigeber
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", c.codes.pop())
+    r = runner.invoke(app, [*oeffnen, "--von", "chef", *basis])
     assert r.exit_code == 0, r.output
     eintraege = _journal(url, "vorgang", "person")
     assert ("jahr_abgeschlossen", "eva") in eintraege
-    assert ("jahr_geoeffnet", "eva") in eintraege
+    assert ("jahr_geoeffnet", "chef") in eintraege
     angelegt = [person for v, person in eintraege if v == "buchung_angelegt"]
     assert angelegt[-1] == "eva"  # die EB-Buchung des Vortrags
+
+
+def test_laufsperre_vor_dem_einmalcode(welt, monkeypatch):
+    """Schlussprüfung T-N3: Läuft ein Buchungslauf, endet periode schliessen, bevor
+    der Einmalcode geprüft (und verbraucht) ist — derselbe Code gilt danach noch."""
+    from accounti.betrieb.laufsperre import laufsperre
+
+    url, config, b, p = welt
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert _run(url, config, "bestaetige", kurz(b.id), "--von", "eva").exit_code == 0
+    code = p["eva"].codes.pop()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", code)
+    befehl = ["periode", "schliessen", "2026-08", "--trotzdem", "--von", "eva"]
+    with laufsperre(url, "bank"):
+        r = _run(url, config, *befehl)
+    assert r.exit_code == 1 and "läuft schon" in r.output
+    r = _run(url, config, *befehl)  # derselbe Wiederherstellungscode
+    assert r.exit_code == 0, r.output
+
+
+def test_eb_in_festgeschriebenen_januar_nicht_durch_betrachter(welt, monkeypatch):
+    """Schlussprüfung M-3/T-M1: ``abschluss eroeffnung`` nutzt die EB-Ausnahme der
+    Monatssperre — ohne Rolle und Einmalcode käme jeder in einen festgeschriebenen
+    Januar."""
+    url, config, _, p = welt
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = _run(
+        url, config, "periode", "schliessen", "2026-01", "--trotzdem", "--von", "chef"
+    )
+    assert r.exit_code == 0, r.output
+    vorher = _journal(url, "nr")
+    eb = ["abschluss", "eroeffnung", "--jahr", "2026", "--konto", "1210"]
+    r = _run(url, config, *eb, "--saldo", "777", "--von", "jan")
+    assert r.exit_code == 1 and "jan darf" in r.output
+    r = _run(url, config, *eb, "--saldo", "777", "--von", "chef")  # bucht nicht
+    assert r.exit_code == 1 and "chef darf" in r.output
+    assert _journal(url, "nr") == vorher
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, *eb, "--saldo", "777", "--von", "eva")
+    assert r.exit_code == 0, r.output
+    assert ("buchung_angelegt", "eva") in _journal(url, "vorgang", "person")
+
+
+def test_ungepruefte_person_im_journal_gekennzeichnet(welt, tmp_path, monkeypatch):
+    """Schlussprüfung M-3: Mit eingerichteten Benutzern steht eine Person, die keine
+    Rechteprüfung bestätigt hat (Import, Läufe), als „(ungeprüft)“ im Journal —
+    ``ACCOUNTI_BENUTZER=chef`` ist von chef mit Einmalcode zu unterscheiden."""
+    from tests.pdf_hilfe import pdf_mit_text
+
+    url, config, b, p = welt
+    ordner = tmp_path / "eingang"
+    ordner.mkdir()
+    (ordner / "re.pdf").write_bytes(pdf_mit_text("Rechnung RE-9 über 119,00 EUR"))
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "chef")
+    r = runner.invoke(
+        app,
+        ["belege", "import", str(ordner / "re.pdf"), "--db", url]
+        + ["--archiv", str(tmp_path / "archiv")],
+    )
+    assert r.exit_code == 0, r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    assert _run(url, config, "bestaetige", kurz(b.id)).exit_code == 0
+    eintraege = _journal(url, "vorgang", "person")
+    assert ("beleg_importiert", "chef (ungeprüft)") in eintraege
+    assert ("buchung_freigegeben", "chef") in eintraege
+
+
+def test_journal_uebernehmen_nur_als_verwalter(welt, monkeypatch):
+    """Schlussprüfung M-2: Die Bestandsübernahme ist ein Schritt des Betriebs beim
+    Upgrade — verwalten, nicht Buchungen freigeben."""
+    url, config, _, p = welt
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        s.execute(text("DROP TRIGGER journal_kein_delete"))
+        s.execute(text("DELETE FROM journal"))
+        s.commit()
+        admin = lege_person_an(s, "admin", Rolle.VERWALTER, jetzt=datetime.now())
+    engine.dispose()
+    for wer in ("eva", "chef"):
+        monkeypatch.setenv("ACCOUNTI_EINMALCODE", p[wer].codes.pop())
+        r = _run(url, config, "journal", "uebernehmen", "--von", wer)
+        assert r.exit_code == 1 and f"{wer} darf" in r.output
+        assert "verwalten" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", admin.codes.pop())
+    r = _run(url, config, "journal", "uebernehmen", "--von", "admin")
+    assert r.exit_code == 0, r.output
+    assert ("bestand_uebernommen", "admin") in _journal(url, "vorgang", "person")

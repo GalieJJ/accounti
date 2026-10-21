@@ -354,3 +354,65 @@ def test_ohne_journaltabelle_wird_nicht_protokolliert(tmp_path):
         p = pruefe_journal(s)
     assert not p.vorhanden and not p.in_ordnung
     engine.dispose()
+
+
+def test_uebernahme_nur_auf_dem_upgrade_weg(make_session, tmp_path):
+    """Schlussprüfung M-2: Eine per SQL an accounti vorbei eingefügte Buchung über
+    5.000 € lässt sich nicht nachträglich „übernehmen“ — sonst hieße journal pruefen
+    sie in Ordnung, auch mit notiertem Kopf. Und eine Übernahme nach dem ersten
+    regulären Eintrag, die doch ins Journal kam, meldet die Prüfung."""
+    from sqlalchemy import select
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.pruefung.journal import (
+        UebernahmeError,
+        Vorgang,
+        fuege_an,
+        schnappschuss,
+    )
+    from tests.pruefung_hilfe import db_url
+
+    anlegen(make_session, buchung())  # accounti hat schon gebucht
+    with make_session() as s:
+        kopf = pruefe_journal(s)
+        s.execute(
+            text(
+                "INSERT INTO buchungssaetze (id, datum, soll_konto, haben_konto, "
+                "betrag_netto, buchungstext, status, confidence) VALUES ("
+                "'00000000-0000-0000-0000-00000000beef', '2026-08-20', '4900', "
+                "'1200', 5000, 'an accounti vorbei', 'geprueft', 1)"
+            )
+        )
+        s.commit()
+        assert [b.art for b in pruefe_journal(s).befunde] == ["ohne_eintrag"]
+        with pytest.raises(UebernahmeError, match="an accounti vorbei"):
+            uebernehme_bestand(s, person="eva")
+        s.rollback()
+    r = CliRunner().invoke(app, ["journal", "uebernehmen", "--db", db_url(tmp_path)])
+    assert r.exit_code == 1 and "an accounti vorbei" in " ".join(r.output.split())
+    with make_session() as s:
+        p = pruefe_journal(s, kopf=f"{kopf.kopf_nr}:{kopf.kopf_hash}")
+        assert [b.art for b in p.befunde] == ["ohne_eintrag"]
+        # an der Sperre vorbei doch eingetragen (älterer Code, eigenes Skript)
+        t = BuchungssatzRow.__table__
+        zeile = (
+            s.execute(select(t).where(t.c.id == "00000000-0000-0000-0000-00000000beef"))
+            .mappings()
+            .one()
+        )
+        fuege_an(
+            s.connection(),
+            [
+                Vorgang(
+                    "bestand_uebernommen",
+                    "buchung",
+                    str(zeile["id"]),
+                    nachher=schnappschuss(t, zeile),  # type: ignore[arg-type]
+                )
+            ],
+        )
+        s.commit()
+        befunde = pruefe_journal(s).befunde
+    assert [b.art for b in befunde] == ["uebernahme"]
+    assert "nachträglich übernommen" in befunde[0].text

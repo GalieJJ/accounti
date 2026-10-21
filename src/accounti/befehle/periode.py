@@ -43,10 +43,11 @@ def schliessen(
 
     # Festschreiben ist eine Freigabe des Monats: Buchungen freigeben (buchhalter,
     # freigeber) und Einmalcode. Nicht während eines Buchungslaufs (classify, bank
-    # lauf, opos verbuchen …): dessen Schreiben scheiterte sonst am gesperrten Monat
+    # lauf, opos verbuchen …): dessen Schreiben scheiterte sonst am gesperrten Monat.
+    # Die Laufsperre zuerst — läuft ein Lauf, ist kein Einmalcode verbraucht
     with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
         laufsperre_oder_ende(db),
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
         sitzung(db)() as s,
     ):
         try:
@@ -74,15 +75,23 @@ def oeffnen(
 ) -> None:
     """Monat wieder öffnen — protokolliert und begründet."""
     from accounti.models.auth import Recht
-    from accounti.pruefung.perioden import PeriodeError, oeffne
+    from accounti.pruefung.perioden import (
+        PeriodeError,
+        grenzen,
+        meldungen_im_zeitraum,
+        oeffne,
+        pruefe_monat,
+    )
     from accounti.pruefung.person import aktuelle_person
 
     if not grund.strip():
         ende("Grund für das Öffnen fehlt")
-    # die Festschreibung aufheben: Buchungen freigeben, mit Einmalcode und Grund
-    # (Abschlussprotokoll und Journal nennen Person und Grund)
+    # die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102): nicht,
+    # wer bucht, sondern wer Steuermeldungen freigibt (Rolle freigeber) — ein
+    # geöffneter Monat zieht meist eine berichtigte Voranmeldung nach sich; mit
+    # Einmalcode und Grund (Abschlussprotokoll und Journal nennen beides)
     with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        handelnde_person(db, config, Recht.STEUER_FREIGEBEN, von) as person,
         sitzung(db)() as s,
     ):
         try:
@@ -90,10 +99,13 @@ def oeffnen(
             s.commit()
         except PeriodeError as fehler:
             ende(str(fehler))
+        hinweise = meldungen_im_zeitraum(s, *grenzen(pruefe_monat(monat)))
     console.print(
         f"[yellow]{p.monat} wieder geöffnet[/yellow] von "
         f"{escape(p.geoeffnet_von or '')}: {escape(p.grund or '')}"
     )
+    for hinweis in hinweise:
+        console.print(f"[yellow]{escape(hinweis)}[/yellow]")
 
 
 @befehl.command("liste")
