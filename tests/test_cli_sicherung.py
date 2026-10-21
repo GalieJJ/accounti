@@ -278,3 +278,60 @@ def test_sicherung_aus_dem_falschen_arbeitsverzeichnis(umgebung, monkeypatch):
     assert r.exit_code == 1, r.output
     assert "gibt es nicht" in r.output
     assert list(anderswo.iterdir()) == []
+
+
+def test_fremde_gesellschaft_bekommt_den_merker_des_ziels(umgebung, monkeypatch):
+    """Nachprüfung R2-N2: Wer eine Sicherung von a bewusst in b übernimmt
+    (``--fremde-gesellschaft``), bindet b danach an b — nicht an a."""
+    from datetime import datetime
+
+    from accounti.db import init_db, session_factory
+    from accounti.models.auth import Rolle
+    from tests.auth_hilfe import billige_hashes, lege_person_an, setze_schluessel
+    from tests.gesellschaft_hilfe import zahlungslauf
+
+    billige_hashes(monkeypatch)
+    setze_schluessel(monkeypatch)
+    u = zwei_gesellschaften(umgebung)
+    _beleg_im_archiv(u.db["a"], u.archiv["a"])
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
+    monkeypatch.setenv("ACCOUNTI_GESELLSCHAFT", "a")
+    zahlungslauf(u, "a")
+    monkeypatch.delenv("ACCOUNTI_GESELLSCHAFT")
+    engine, fabrik = session_factory(u.system)
+    init_db(engine)
+    with fabrik() as s:
+        lege_person_an(
+            s, "chef", Rolle.FREIGEBER, gesellschaft="a", jetzt=datetime.now()
+        )
+        bert = lege_person_an(
+            s, "bert", Rolle.FREIGEBER, gesellschaft="b", jetzt=datetime.now()
+        )
+    engine.dispose()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", "000000")
+    runner.invoke(app, ["-g", "a", "zahlung", "freigeben", "1", "--von", "chef"])
+    ziel = umgebung / "a.sicherung"
+    r = runner.invoke(app, ["-g", "a", "sicherung", "erstellen", "--ziel", str(ziel)])
+    assert r.exit_code == 0, r.output
+    neu_b = url(umgebung / "neu-b.db")
+    text = u.registry.read_text(encoding="utf-8").replace(u.db["b"], neu_b)
+    u.registry.write_text(
+        text.replace(str(u.archiv["b"].as_posix()), str(umgebung / "neu-b-archiv")),
+        encoding="utf-8",
+    )
+    r = runner.invoke(
+        app,
+        [
+            "-g",
+            "b",
+            "sicherung",
+            "wiederherstellen",
+            str(ziel),
+            "--fremde-gesellschaft",
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", bert.codes.pop())
+    r = runner.invoke(app, ["-g", "b", "zahlung", "freigeben", "1", "--von", "bert"])
+    assert "gehört zur Gesellschaft a" not in r.output
+    assert r.exit_code == 0, r.output

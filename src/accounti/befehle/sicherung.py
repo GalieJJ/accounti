@@ -236,3 +236,26 @@ def wiederherstellen(
     except (SicherungError, ManipuliertError, SicherungsschluesselError, OSError) as f:
         raise _ende(str(f)) from f
     _zusammenfassung("Wiederhergestellt", e)
+    if fremde and kuerzel is not None:
+        _binde_neu(ziel_db, kuerzel)
+
+
+def _binde_neu(db: str, kuerzel: str) -> None:
+    """Merker der Herkunft durch die Bindung an das Ziel ersetzen (Nachprüfung)."""
+    from accounti.auth.cli import binde_neu
+    from accounti.auth.fehler import AuthError
+    from accounti.konfiguration import KonfigurationError
+
+    try:
+        binde_neu(db, kuerzel)
+    except (AuthError, KonfigurationError) as fehler:
+        console.print(
+            f"[yellow]Die Bindung an die Benutzerverwaltung ließ sich nicht neu "
+            f"setzen: {escape(str(fehler))}[/yellow]",
+            soft_wrap=True,
+        )
+        return
+    console.print(
+        f"Bindung an die Benutzerverwaltung jetzt: Gesellschaft {escape(kuerzel)}",
+        soft_wrap=True,
+    )

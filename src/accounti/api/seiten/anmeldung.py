@@ -7,8 +7,11 @@ sie serverseitig. Die Fehlermeldung sagt nie, was falsch war.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
+import math
 import secrets
+import time
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -78,19 +81,17 @@ async def anmelden_formular(request: Request, weiter: str = "/") -> Response:
     return _formular(request, sicheres_ziel(weiter), None, 200)
 
 
-UEBERLASTET = "überlastet"
-
-
-def _anmelden(dienste: Dienste, felder: dict[str, str]) -> str | None:
-    """Sitzungstoken, ``None`` oder ``UEBERLASTET`` — die Fehlversuche zählt
-    ``pruefe_anmeldung``. Höchstens ``server.anmeldungen_gleichzeitig`` Prüfungen
-    laufen zugleich (scrypt braucht je 128 MiB; Befund A-M2)."""
-    if not dienste.anmeldeplatz():
-        return UEBERLASTET
-    try:
-        return _pruefe(dienste, felder)
-    finally:
-        dienste.anmeldeplatz_frei()
+async def _anmeldeplatz(dienste: Dienste) -> bool:
+    """Auf einen Platz für die Passwort-Prüfung warten — höchstens
+    ``server.anmeldung_warten_sekunden``, im Event-Loop statt in einem
+    Arbeitsthread (Befund A-M2, Nachprüfung R2-N3): Wartende belegen so keinen
+    der Threads, die der Rest der Anwendung braucht."""
+    ende = time.monotonic() + dienste.server.anmeldung_warten_sekunden
+    while not dienste.anmeldeplatz():
+        if time.monotonic() >= ende:
+            return False
+        await asyncio.sleep(0.05)
+    return True
 
 
 def _pruefe(dienste: Dienste, felder: dict[str, str]) -> str | None:
@@ -129,14 +130,20 @@ async def anmelden(request: Request) -> Response:
         return _formular(
             request, weiter, "Das Formular ist abgelaufen — bitte erneut senden.", 403
         )
-    token = await run_in_threadpool(_anmelden, dienste, felder)
-    if token == UEBERLASTET:
-        return _formular(
+    if not await _anmeldeplatz(dienste):
+        antwort = _formular(
             request,
             weiter,
             "Gerade melden sich viele an — bitte gleich noch einmal versuchen.",
             503,
         )
+        warten = max(1, math.ceil(dienste.server.anmeldung_warten_sekunden))
+        antwort.headers["Retry-After"] = str(warten)
+        return antwort
+    try:
+        token = await run_in_threadpool(_pruefe, dienste, felder)
+    finally:
+        dienste.anmeldeplatz_frei()
     if token is None:
         return _formular(request, weiter, "Anmeldung fehlgeschlagen.", 401)
     antwort = RedirectResponse(weiter, status_code=303)

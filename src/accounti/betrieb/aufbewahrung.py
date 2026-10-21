@@ -73,9 +73,22 @@ INSTITUT = Frist(
 )
 
 
-def frist(unterlage: Unterlage, institut: bool = False) -> Frist:
+# BEG IV: die 8 Jahre für Buchungsbelege gelten ab dem 01.01.2025
+BEG_IV_AB = date(2025, 1, 1)
+VOR_BEG_IV = Frist(Unterlage.BUCHUNGSBELEG, 10, "§ 147 Abs. 3 AO a. F. (vor BEG IV)")
+
+
+def frist(
+    unterlage: Unterlage, institut: bool = False, stichtag: date | None = None
+) -> Frist:
     if institut and unterlage is Unterlage.BUCHUNGSBELEG:
         return INSTITUT
+    if (
+        stichtag is not None
+        and stichtag < BEG_IV_AB
+        and unterlage is Unterlage.BUCHUNGSBELEG
+    ):
+        return VOR_BEG_IV
     return FRISTEN[unterlage]
 
 
@@ -140,14 +153,19 @@ def buecher_frist_ende(
     return date(letzte + jahre, 12, 31)
 
 
+OFFEN = date.max  # wieder geöffnetes Geschäftsjahr: die letzte Eintragung steht aus
+
+
 def _abschluesse(s: Session, vorhanden: set[str]) -> dict[int, date]:
-    """Geschäftsjahr → spätester Abschluss (``abschluesse.abgeschlossen_am``)."""
+    """Geschäftsjahr → spätester Abschluss (``abschluesse.abgeschlossen_am``);
+    ein wieder geöffnetes Jahr (``gesperrt`` falsch) → ``OFFEN``."""
     tabelle = Base.metadata.tables.get("abschluesse")
     if tabelle is None or "abschluesse" not in vorhanden:
         return {}
     ergebnis: dict[int, date] = {}
-    for jahr, am in s.execute(select(tabelle.c.jahr, tabelle.c.abgeschlossen_am)):
-        tag = _als_datum(am)
+    abfrage = select(tabelle.c.jahr, tabelle.c.abgeschlossen_am, tabelle.c.gesperrt)
+    for jahr, am, gesperrt in s.execute(abfrage):
+        tag = _als_datum(am) if gesperrt else OFFEN
         if tag is not None and (jahr not in ergebnis or tag > ergebnis[jahr]):
             ergebnis[int(jahr)] = tag
     return ergebnis
@@ -205,6 +223,8 @@ def _buch_zeile(
             (abschluesse[j] for j in {anfang.year, ende.year} if j in abschluesse),
             default=None,
         )
+        if abschluss == OFFEN:
+            continue  # wieder geöffnet: kann noch bebucht werden
         if stichtag > buecher_frist_ende(ende, abschluss, f.jahre):
             abgelaufen += anzahl
     return Zeile(bezeichnung, f, aeltester, abgelaufen, sum(je_wj.values()))
@@ -225,7 +245,7 @@ def bericht(
         tabelle = Base.metadata.tables.get(name)
         if tabelle is None or name not in vorhanden:
             continue
-        f = frist(unterlage, institut)
+        f = frist(unterlage, institut, stichtag)
         if unterlage is Unterlage.BUCH:
             zeilen.append(
                 _buch_zeile(

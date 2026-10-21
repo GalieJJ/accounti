@@ -625,6 +625,10 @@ def lade_merker(session: Session, schluessel: str) -> str | None:
     return zeile.wert if zeile else None
 
 
+def loesche_merker(session: Session, schluessel: str) -> None:
+    session.execute(delete(AuthMerkerRow).where(AuthMerkerRow.schluessel == schluessel))
+
+
 def setze_merker_einmal(
     session: Session, schluessel: str, wert: str, jetzt: datetime
 ) -> str:

@@ -66,6 +66,20 @@ def _person(von: str | None) -> str:
     return von or person_standard()
 
 
+def _benutzer_oder_person(
+    db: str, config: str, recht_name: str, von: str | None
+) -> str:
+    """Mit eingerichteten Benutzern: Recht und Einmalcode der handelnden Person —
+    ins Protokoll kommt der Benutzer; ohne Benutzer wie bisher ``--von`` bzw.
+    ``ACCOUNTI_BENUTZER``/Anmeldename."""
+    from accounti.auth.cli import befehlsrecht_oder_ende
+    from accounti.models.auth import Recht
+
+    person = _person(von)
+    benutzer = befehlsrecht_oder_ende(db, config, Recht(recht_name), person)
+    return benutzer.name if benutzer is not None else person
+
+
 def _einstellungen(config: str) -> ZahlungEinstellungen:
     from accounti.konfiguration import KonfigurationError
     from accounti.zahlung.konfiguration import lade_zahlung
@@ -321,10 +335,11 @@ def entfernen(
     from accounti.anzeige import betrag_de
     from accounti.zahlung.freigabe import LaufError, entferne
 
+    person = _benutzer_oder_person(db, config, "buchen", von)
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
-            z = entferne(s, nr, position, _person(von))
+            z = entferne(s, nr, position, person)
         except LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()
@@ -475,10 +490,12 @@ def stornieren(
     from accounti.models.zahlung import LaufStatus
     from accounti.zahlung.freigabe import LaufError, storniere
 
+    # hebt eine Freigabe auf — mit Benutzern nur, wer Zahlungsläufe freigeben darf
+    person = _benutzer_oder_person(db, config, "zahlung_freigeben", von)
     with _sitzung(db) as s:
         vorher = _lauf_oder_ende(s, nr).status
         try:
-            storniere(s, nr, _person(von), grund)
+            storniere(s, nr, person, grund)
         except LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()
@@ -523,12 +540,13 @@ def sperre(
     """Zahlungssperre an einem Kontakt setzen oder aufheben."""
     from accounti.zahlung.freigabe import LaufError, hebe_sperre_auf, setze_sperre
 
+    person = _benutzer_oder_person(db, config, "buchen", von)
     with _sitzung(db) as s:
         try:
             if aufheben:
                 k, war = hebe_sperre_auf(s, kontakt)
             else:
-                k, war = setze_sperre(s, kontakt, grund or "", _person(von)), True
+                k, war = setze_sperre(s, kontakt, grund or "", person), True
         except (LaufError, ValueError) as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()
@@ -561,10 +579,12 @@ def iban_klaeren(
     from accounti.zahlung.freigabe import iban_klaeren as klaeren
     from accounti.zahlung.iban import lesbar
 
+    # die Klärung ist die Betrugskontrolle: mit Benutzern buchen und Einmalcode
+    person = _benutzer_oder_person(db, config, "buchen", von)
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
-            k = klaeren(s, nr, position, _person(von), grund)
+            k = klaeren(s, nr, position, person, grund)
         except LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()

@@ -75,15 +75,16 @@ class Dienste:
 
     def anmeldeplatz(self) -> bool:
         """Platz für eine Passwort-Prüfung (scrypt, 128 MiB) — höchstens
-        ``server.anmeldungen_gleichzeitig`` zugleich; ``False`` nach der Wartezeit.
-        Freigeben mit ``anmeldeplatz_frei``."""
+        ``server.anmeldungen_gleichzeitig`` zugleich. Wartet nicht (``False``: alle
+        belegt); das Warten übernimmt die Seite ohne Arbeitsthread. Freigeben mit
+        ``anmeldeplatz_frei``."""
         with self._sperre:
             if self._anmeldeplaetze is None:
                 self._anmeldeplaetze = threading.BoundedSemaphore(
                     self.server.anmeldungen_gleichzeitig
                 )
             plaetze = self._anmeldeplaetze
-        return plaetze.acquire(timeout=self.server.anmeldung_warten_sekunden)
+        return plaetze.acquire(blocking=False)
 
     def anmeldeplatz_frei(self) -> None:
         assert self._anmeldeplaetze is not None

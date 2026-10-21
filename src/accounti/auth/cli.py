@@ -53,6 +53,7 @@ from accounti.db.repo_auth import (
     benutzer_mit_rolle,
     lade_benutzer,
     lade_merker,
+    loesche_merker,
     rollen_von,
     setze_merker_einmal,
 )
@@ -246,6 +247,22 @@ def binde_gesellschaften(db: str, *, alle: bool = False) -> None:
     with systemsitzung(db) as s:
         for kuerzel, url in _bindungsziele(kontext, db, alle):
             _binde(url, system_url, s, kuerzel)
+
+
+def binde_neu(db: str, kuerzel: str) -> None:
+    """Nach dem bewussten Übernehmen einer fremden Sicherung (``sicherung
+    wiederherstellen --fremde-gesellschaft``): der mitgebrachte Merker der Herkunft
+    fällt weg; gibt es Benutzer, gehört die Datenbank danach zu dieser
+    Systemdatenbank und Gesellschaft. Nur in eine leere Umgebung möglich — also eine
+    Handlung des Betreibers, kein Umweg um eine bestehende Bindung."""
+    kontext = aktueller_kontext().pruefe()
+    system_url = kontext.systemdatenbank(db)
+    with _sitzung(db) as g:
+        loesche_merker(g, MERKER_BINDUNG)
+        g.commit()
+    with systemsitzung(db) as s:
+        if anzahl_benutzer(s) > 0:
+            _binde(db, system_url, s, kuerzel)
 
 
 def _pruefe_registry(kontext: Kontext, db: str, config: str) -> None:

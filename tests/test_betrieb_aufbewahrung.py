@@ -169,3 +169,57 @@ def test_buecher_mit_abweichendem_wirtschaftsjahr(tmp_path):
         assert frei(date(2027, 12, 31)) == 1
         assert frei(date(2028, 1, 1)) == 2  # WJ 2015/16: Beginn 2017
     engine.dispose()
+
+
+def test_wieder_geoeffnetes_geschaeftsjahr_laeuft_nicht_ab(tmp_path):
+    """Nachprüfung N2: ein wieder geöffnetes Jahr kann noch bebucht werden — seine
+    Bücher sind nicht aussonderbar, gleich wann es einmal abgeschlossen war."""
+    from sqlalchemy import insert
+
+    from accounti.db.tabellen_abschluss import AbschlussRow
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        _buchungen(s, date(2015, 6, 1))
+        s.execute(
+            insert(AbschlussRow),
+            [
+                {
+                    "jahr": 2015,
+                    "gesperrt": False,  # abgeschlossen 2016, seitdem geöffnet
+                    "gewinnermittlung": "euer",
+                    "ergebnis": Decimal("0"),
+                    "abgeschlossen_am": datetime(2016, 3, 1),
+                    "von": "chef",
+                }
+            ],
+        )
+        s.commit()
+        zeilen = {z.bezeichnung: z for z in bericht(s, date(2030, 1, 1))}
+    engine.dispose()
+    assert zeilen["Buchungen"].aussonderbar == 0
+
+
+def test_vor_dem_beg_iv_gelten_fuer_belege_zehn_jahre(tmp_path):
+    """Nachprüfung N3: Stichtag vor dem 01.01.2025 — altes Recht (10 Jahre)."""
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        speichere_beleg(
+            s,
+            Beleg(
+                datei_hash=f"{2015:064d}",
+                dateiname="2015.pdf",
+                kanal="ordner",
+                herkunft="t",
+                eingegangen_am=datetime(2015, 6, 1),
+                aufbewahren_bis=date(2025, 12, 31),
+            ),
+        )
+        s.commit()
+        alt = {z.bezeichnung: z for z in bericht(s, date(2024, 6, 1))}["Belege"]
+        neu = {z.bezeichnung: z for z in bericht(s, date(2025, 6, 1))}["Belege"]
+    engine.dispose()
+    assert (alt.frist.jahre, alt.aussonderbar) == (10, 0)
+    assert (neu.frist.jahre, neu.aussonderbar) == (8, 1)

@@ -215,9 +215,79 @@ def test_gleichzeitige_anmeldungen_sind_begrenzt(tmp_path, monkeypatch):
     r = melde_an(w.client(), "jan", PASSWORT, w.code("jan"))
     assert r.status_code == 503, r.text
     assert "gleich noch einmal" in r.text
+    assert int(r.headers["retry-after"]) >= 1
     weiter.set()
     t.join(10)
     assert erster["r"].status_code == 401
     monkeypatch.setattr(passwort, "_scrypt", echt)
     r = melde_an(w.client(), "jan", PASSWORT, w.code("jan"))
     assert r.status_code == 303
+
+
+def test_wartende_anmeldungen_blockieren_keine_arbeitsthreads(tmp_path, monkeypatch):
+    """Nachprüfung R2-N3: Wer auf einen Platz für die Passwort-Prüfung wartet,
+    belegt keinen Arbeitsthread — die übrige Anwendung antwortet weiter."""
+    import asyncio
+    import threading
+    import time
+
+    import httpx
+
+    from accounti.api.app import erstelle_app
+    from accounti.api.einstellungen import ServerEinstellungen
+    from accounti.auth import passwort
+    from tests.api_hilfe import BASIS, formularwert
+
+    w = webwelt(tmp_path)
+    w.dienste.server = ServerEinstellungen(
+        anmeldungen_gleichzeitig=1, anmeldung_warten_sekunden=2
+    )
+    w.person("jan", Rolle.BUCHHALTER)
+    echt = passwort._scrypt
+    weiter = threading.Event()
+
+    def langsam(*a, **kw):
+        weiter.wait(10)
+        return echt(*a, **kw)
+
+    monkeypatch.setattr(passwort, "_scrypt", langsam)
+    app = erstelle_app(w.dienste)
+
+    async def ablauf() -> tuple[float, list[int], list[str]]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url=BASIS) as c:
+            seite = await c.get("/anmelden")
+            wert = formularwert(seite.text, "anmeldung")
+            kopf = {"Cookie": f"__Host-accounti_anmeldung={wert}"}
+            daten = {
+                "anmeldung": wert,
+                "benutzer": "jan",
+                "passwort": "falsch falsch falsch",
+                "einmalcode": "000000",
+            }
+            c.cookies.clear()
+            anfragen = [
+                asyncio.create_task(c.post("/anmelden", data=daten, headers=kopf))
+                for _ in range(45)
+            ]
+            await asyncio.sleep(0.5)  # eine prüft (blockiert), 44 warten
+            beginn = time.perf_counter()
+            gesund = await c.get("/gesund")
+            dauer = time.perf_counter() - beginn
+            assert gesund.status_code == 200
+            weiter.set()
+            antworten = await asyncio.gather(*anfragen)
+        return (
+            dauer,
+            [a.status_code for a in antworten],
+            [
+                a.headers.get("retry-after", "")
+                for a in antworten
+                if a.status_code == 503
+            ],
+        )
+
+    dauer, status, warte = asyncio.run(ablauf())
+    assert dauer < 1.0, f"/gesund brauchte {dauer:.2f} s"
+    assert set(status) <= {401, 503}
+    assert all(int(x) >= 1 for x in warte)

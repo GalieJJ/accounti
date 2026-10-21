@@ -238,3 +238,51 @@ def test_anlagen_freigeben_nur_mit_rolle(tmp_path, monkeypatch):
         )
     engine.dispose()
     assert geprueft == {"eva"}
+
+
+def test_weitere_zahlungsbefehle_mit_rolle_und_angemeldetem_benutzer(
+    tmp_path, monkeypatch
+):
+    """Nachprüfung (Rest B-M12): ``iban-klaeren`` ist die Betrugskontrolle —
+    buchen und Einmalcode; ``entfernen`` und ``sperre`` ebenso, ``stornieren``
+    braucht das Recht zur Freigabe. Im Protokoll steht der Benutzer, nicht der
+    Freitext aus ``--von``."""
+    from sqlalchemy import text
+
+    url, basis = zahlungslauf(tmp_path)
+    p = personen(url)
+    for befehl in (
+        ["entfernen", "1", "1"],
+        ["iban-klaeren", "1", "1", "--grund", "Telefon mit Herrn Müller"],
+        ["sperre", "70001", "--grund", "Ware mangelhaft"],
+        ["stornieren", "1", "--grund", "falsch angelegt"],
+    ):
+        r = runner.invoke(app, ["zahlung", *befehl, *basis, "--von", "jan"])
+        assert r.exit_code == 1, (befehl, r.output)
+        assert "jan darf" in r.output, befehl
+    r = runner.invoke(
+        app, ["zahlung", "stornieren", "1", "--grund", "x", *basis, "--von", "eva"]
+    )
+    assert r.exit_code == 1 and "eva darf" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", "000000")
+    r = runner.invoke(
+        app, ["zahlung", "sperre", "70001", "--grund", "Mangel", *basis, "--von", "eva"]
+    )
+    assert r.exit_code == 1 and "Einmalcode falsch" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = runner.invoke(
+        app, ["zahlung", "sperre", "70001", "--grund", "Mangel", *basis, "--von", "eva"]
+    )
+    assert r.exit_code == 0, r.output
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        von = s.execute(text("SELECT gesetzt_von FROM zahlungssperren")).scalar()
+    engine.dispose()
+    assert von == "eva"
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = runner.invoke(
+        app,
+        ["zahlung", "stornieren", "1", "--grund", "neu anlegen", *basis]
+        + ["--von", "chef"],
+    )
+    assert r.exit_code == 0, r.output
