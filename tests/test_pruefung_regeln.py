@@ -21,6 +21,7 @@ from accounti.db.repository import (
     speichere_zuordnung,
 )
 from accounti.db.tabellen_anlagen import AfaVorgangRow
+from accounti.export.kontoauszuege import erstelle_auszuege
 from accounti.konfiguration import Buchhaltung, KonfigurationError
 from accounti.kontakte.dienst import Partnerdaten
 from accounti.models import (
@@ -39,6 +40,7 @@ from accounti.models import (
 from accounti.models.abschluss import Kontoauszugssaldo
 from accounti.models.pruefung import Schwere
 from accounti.pruefung.einstellungen import PruefEinstellungen
+from accounti.pruefung.journal import uebernehme_bestand
 from accounti.pruefung.perioden import schliesse
 from accounti.pruefung.regeln import (
     PRUEFREGELN,
@@ -323,6 +325,31 @@ def test_kontoauszug_saldo_luecke(make_session):
     (b,) = pruefe(make_session, "kontoauszug_luecke")
     assert b.objekt_typ == "bankkonto" and b.betrag == Decimal("-50")
     assert "es fehlen Umsätze" in b.text
+
+
+def test_festgeschriebener_kontoauszug_mit_fehlendem_umsatz(make_session):
+    august = umsatz("-100.00", tag=date(2026, 8, 5), sachkonto="1200")
+    september = umsatz("50.00", tag=date(2026, 9, 5), sachkonto="1200")
+    anlegen(make_session, august, september)
+    with make_session() as s:
+        erstelle_auszuege(
+            s,
+            "1200",
+            date(2026, 9, 30),
+            anfangssaldo=Decimal("1000"),
+            ab=date(2026, 8, 1),
+            heute=STICHTAG,
+        )
+        s.commit()
+    assert pruefe(make_session, "kontoauszug_luecke") == []
+    with make_session() as s:  # an accounti vorbei gelöscht
+        s.execute(
+            text("DELETE FROM transaktionen WHERE id = :id"), {"id": str(august.id)}
+        )
+        s.commit()
+    befunde = pruefe(make_session, "kontoauszug_luecke")
+    assert befunde and all(b.schwere is Schwere.FEHLER for b in befunde)
+    assert any("nicht mehr vorhanden" in b.text for b in befunde)
 
 
 def test_kontoauszug_saldo_stimmt_und_monat_ohne_umsatz(make_session):
@@ -632,6 +659,22 @@ def test_buchung_verspaetet(make_session):
     befunde = pruefe(make_session, "buchung_verspaetet", stichtag=heute)
     assert [b.objekt_id for b in befunde] == [str(alt.id)]
     assert befunde[0].schwere is Schwere.HINWEIS
+
+
+def test_bestand_von_vor_dem_journal_ist_nicht_verspaetet(make_session):
+    """Übernommener Bestand hat keinen bekannten Buchungszeitpunkt — kein Befund,
+    weder „verspätet“ noch „nach dem Abschluss angelegt“."""
+    tx = umsatz(tag=date(2026, 6, 3))
+    b = buchung(tx, status=BuchungStatus.GEPRUEFT)
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        s.execute(text("DROP TRIGGER journal_kein_delete"))
+        s.execute(text("DELETE FROM journal"))
+        uebernehme_bestand(s)
+        schliesse(s, "2026-06", "erika")
+        s.commit()
+    assert pruefe(make_session, "buchung_verspaetet") == []
+    assert pruefe(make_session, "buchung_in_gesperrter_periode") == []
 
 
 def test_buchung_in_gesperrter_periode(make_session):

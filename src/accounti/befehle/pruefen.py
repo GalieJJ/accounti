@@ -135,6 +135,7 @@ def regeln(config: str = KONFIG_OPTION) -> None:
     from accounti.konfiguration import KonfigurationError
     from accounti.pruefung.einstellungen import lade_pruefung
     from accounti.pruefung.regeln import PRUEFREGELN, pruefe_konfiguration
+    from accounti.pruefung.verfahrensdoku import schwellen_text
 
     try:
         einstellungen = lade_pruefung(config)
@@ -154,7 +155,7 @@ def regeln(config: str = KONFIG_OPTION) -> None:
             f"[dim]{name} (aus)[/dim]" if aus else name,
             r.kategorie.value,
             schwere,
-            ", ".join(f"{k}={v}" for k, v in parameter.model_dump().items()),
+            schwellen_text(parameter.model_dump(mode="json")),
             r.beschreibung,
         )
     console.print(tabelle)

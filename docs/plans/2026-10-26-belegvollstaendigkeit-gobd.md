@@ -101,7 +101,7 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 | Konfiguration | Abschnitt `pruefung` mit Lader `lade_pruefung`: `abgeschaltet`, `schwere` (je Regel), `regeln.<name>` (Schwellen, nur Abweichungen), `belegfrei` (Muster mit Begründung), `kleinbetrag_grenze` (250), `eigene_namen`, `kontenrahmen_datei`, `archiv`, `nachforderung` (Vorlage). Unbekannte Regel → `KonfigurationError` beim Lauf | Spec 4.1: Schwellen ohne Code ändern |
 | Pflichtangaben-Quelle | E-Rechnung (XML/ZUGFeRD aus dem Archiv) → Rechnungsmodell; PDF mit Textebene/Text → Regex (Steuernummer, USt-IdNr., Anschrift, eigener Name); Scan ohne Text → nur mit `--ocr`, sonst Hinweis „nicht prüfbar“; ohne Archiv → nur gespeicherte Felder, Steuernummer gilt dann als „nicht erkannt“ (Warnung statt Fehler) | Beleg speichert keine Steuernummer und keinen Empfänger; `models/__init__.py` darf nur die Storno-Felder bekommen |
 | Kleinbetrag | Brutto ≤ `kleinbetrag_grenze` (250 €): nur § 33 UStDV (keine Steuernummer, kein Empfänger, keine Nummer) | § 33 UStDV seit 01.01.2017 |
-| Steuerschlüssel ./. Konto | Sachkontoseite = die Seite, die kein Geld-/Personenkonto ist (`kennziffern.Kontenplan`). Fehler: Vorsteuerschlüssel auf Erlöskonto, USt-Schlüssel auf Aufwandskonto, Schlüssel auf Konto mit fester Steuerfunktion (8125 …), Automatikkonto aus `config/skr03.yaml` mit anderem Schlüssel. Warnung: Automatikkonto ohne Schlüssel, Schlüssel auf Konto ohne Vorsteuerabzug laut Kontenrahmen (Gehälter, Versicherungen …). SKR04 ohne Automatikdatei: nur Bereichsregeln | Akzeptanz 3; nutzt Steuerautomatik, Kennziffern-Bereiche und Kontenrahmen |
+| Steuerschlüssel ./. Konto | Sachkontoseite = die Seite, die kein Geld-/Personenkonto ist (`kennziffern.Kontenplan`). Fehler: Vorsteuerschlüssel auf Erlöskonto, USt-Schlüssel auf Aufwandskonto, Schlüssel auf Konto mit fester Steuerfunktion (8125 …), Automatikkonto aus `config/skr03.yaml` mit anderem Schlüssel. Fehler auch: Schlüssel auf einer Buchung nur zwischen Geld- und Personenkonten. Warnung: unbekannter Schlüssel. Hinweis: Automatikkonto ohne Steuer, Vorsteuer auf einem Konto ohne Vorsteuerabzug laut Kontenrahmen (Gehälter, Versicherungen …). SKR04 ohne Automatikdatei: nur Bereichsregeln | Akzeptanz 3; nutzt Steuerautomatik, Kennziffern-Bereiche und Kontenrahmen |
 | Nachforderung | `accounti.pruefung.aufgaben_anbindung` ersetzt den eingebauten Prüflauf `beleg_fehlt` (wie in Architektur/Bauplan vorgesehen): Anlässe des eingebauten Laufs **geschnitten** mit den Befunden der Regel `umsatz_ohne_beleg` (Schwellen, `belegfrei`-Muster); belegfrei nach Regel → Grund „belegfrei nach Regel …“. Merkmale `befund`, `schwere` zusätzlich | nur ein Erzeuger je Art (Baustein 8); ohne `belegfrei`-Regeln verhält sich der Lauf wie bisher (bestehende Tests) |
 | Anfrage an Lieferanten | `nachfordern anfrage TX` zeigt den Entwurf aus der Vorlage (`pruefung.nachforderung`); `--senden` verschickt **diese eine** Anfrage über den SMTP-Zugang aus `versand`, Kommentar an der Aufgabe, Journal `beleg_angefordert`. Kein Lauf verschickt etwas | Spec 4.2: Nachrichten an Dritte sind Entscheidung des Betriebs |
 | Verfahrensdoku | aus dem Systemzustand: Mandant, Kontenrahmen, Gewinnermittlung, Belegkanäle (Postfächer, Webhook, Connectoren — ohne Geheimnisse), OCR/LLM (Modell, opt-in), Bankkonten mit Provider/Zustand, Kontierungsregeln, Auto-Schwelle, Freigabe/Storno, Vier-Augen, Rollen, Zuständigkeit, Prüfregeln mit Schwellen, Perioden, Aufbewahrung, Journal-Kopf, Protokolle; gegliedert nach GoBD Rz. 151 ff.; Stand-Datum; Hash und Historie über das Journal (Rz. 154); PDF mit fpdf2 (Liberation Sans aus `erechnung/schriften`) | Akzeptanz 7 |
@@ -112,56 +112,344 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 
 ### Paket 1 — Journal & Storno
 
-- [ ] **Modelle** (`models/pruefung.py`, `models/__init__.py`): `Journaleintrag`, `Buchungskorrektur`; `Buchungssatz.storniert_durch`, `storno_von`.
-- [ ] **Tabellen** (`db/tabellen_pruefung.py`, `db/tabellen.py`): `journal`, `buchungskorrekturen` (nur anfügen, ORM + SQLite-Trigger), Spalten am Buchungssatz (eindeutig); Repository (`db/repo_pruefung.py`, Mapping in `db/repository.py`).
-- [ ] **Journal** (`pruefung/journal.py`): kanonischer Schnappschuss, Hash, Anfügen mit Kette, `pruefe_journal` (Kette, Anker, Bestand), `uebernehme_bestand` (`tests/test_pruefung_journal.py`).
-- [ ] **Ereignisse** (`pruefung/ereignisse.py`): Vorgänge aus ORM-Änderungen, Sperre freigegebener Buchungen, Massen-Änderungen abgelehnt (`tests/test_pruefung_ereignisse.py`).
-- [ ] **Storno** (`pruefung/storno.py`): `storniere`, `korrigiere` (Vorschlag direkt / freigegeben per Storno), `freigeben`, `markiere_exportiert`; je ein Test mit Bank-, Beleg-, Ausgleichs-, Skonto- und Splitbuchung (`tests/test_pruefung_storno.py`).
-- [ ] **CLI:** `korrigiere`, `bestaetige`, `review` umgebaut; `export datev`/`datev belege` markieren; `buchung storniere|zeige`; `journal [--von --bis --objekt --vorgang]`, `journal zeige NR`, `journal pruefen [--kopf]`, `journal uebernehmen` (`tests/test_cli_journal_storno.py`).
-- [ ] **Akzeptanz 5 und 6** als Tests.
+- [x] **Modelle** (`models/pruefung.py`, `models/__init__.py`): `Journaleintrag`, `Buchungskorrektur`, `Periodenabschluss`, `Befund`, `Schwere`, `Kategorie`; `Buchungssatz.storniert_durch`, `storno_von`.
+- [x] **Tabellen** (`db/tabellen_pruefung.py`, `db/tabellen.py`): `journal`, `buchungskorrekturen` (nur anfügen, ORM + SQLite-Trigger per `after_create`), Spalten am Buchungssatz (eindeutig); Repository (`db/repo_pruefung.py`, Mapping in `db/repository.py`, `lade_belegbuchungen` ohne Storno-Paare).
+- [x] **Journal** (`pruefung/journal.py`): kanonischer Schnappschuss, Hash, Anfügen mit Kette, `pruefe_journal` (Kette, Anker, Bestand, Sperren), `uebernehme_bestand` (`tests/test_pruefung_journal.py`).
+- [x] **Ereignisse** (`pruefung/ereignisse.py`): Vorgänge aus ORM-Änderungen (Buchungen, Belege, Dubletten, Zahlungslauf-Protokoll, Abschlussprotokoll), Sperre freigegebener Buchungen, Massen-Änderungen abgelehnt; `repo_bank.loesche_buchung` löscht über die Sitzung (`tests/test_pruefung_ereignisse.py`).
+- [x] **Storno** (`pruefung/storno.py`): `storniere`, `korrigiere` (Vorschlag direkt / freigegeben per Storno), `freigeben`, `markiere_exportiert`; je ein Test mit Bank-, Beleg-, Ausgleichs-, Skonto- und Splitbuchung (`tests/test_pruefung_storno.py`).
+- [x] **CLI:** `korrigiere`, `bestaetige`, `review` umgebaut; `export datev`/`datev belege` vermerken „exportiert“; `buchung storniere|zeige`; `journal [--von --bis --objekt --vorgang]`, `journal zeige NR`, `journal pruefen [--kopf]`, `journal uebernehmen` (`tests/test_cli_journal_storno.py`).
+- [x] **Akzeptanz 5 und 6** als Tests.
 
 ### Paket 2 — Perioden
 
-- [ ] **Tabelle und Sperre** (`periodenabschluesse`, Ereignis auf `buchungssaetze`, `PeriodeGesperrtError`), Storno-Vermerk in gesperrten Zeiträumen erlaubt (auch Jahressperre).
-- [ ] **`pruefung/perioden.py`:** `schliesse`, `oeffne`, `sperre_am`, `lade_perioden`; Protokoll + Journal; Sammelläufe (`offene_transaktionen`) (`tests/test_pruefung_perioden.py`).
-- [ ] **CLI:** `periode schliessen|oeffnen|liste` (`tests/test_cli_periode.py`).
+- [x] **Tabelle und Sperre** (`periodenabschluesse`, Ereignis auf `buchungssaetze`, `PeriodeGesperrtError`), Stornovermerk in gesperrten Zeiträumen erlaubt (auch Jahressperre, `tabellen_abschluss.nur_stornovermerk`).
+- [x] **`pruefung/perioden.py`:** `schliesse`, `oeffne`, `sperre_am`, `lade_perioden`; Abschlussprotokoll + Journal; Sammelläufe (`offene_transaktionen`) (`tests/test_pruefung_perioden.py`).
+- [x] **CLI:** `periode schliessen|oeffnen|liste` (`tests/test_cli_periode.py`).
 
 ### Paket 3 — Prüfregeln
 
-- [ ] **Registry, Kontext, Befund, Konfiguration** (`pruefung/regeln/__init__.py`, `pruefung/einstellungen.py`) (`tests/test_pruefung_regeln_basis.py`).
-- [ ] **Pflichtangaben-Quelle** (`pruefung/belegangaben.py`) (`tests/test_pruefung_belegangaben.py`).
-- [ ] **Vollständigkeit** — je Regel auslösend und nicht auslösend (`tests/test_pruefung_vollstaendigkeit.py`).
-- [ ] **Richtigkeit** (`tests/test_pruefung_richtigkeit.py`).
-- [ ] **Zeitgerechtheit und Ordnung** (`tests/test_pruefung_zeit_ordnung.py`).
-- [ ] **CLI** `accounti pruefen [--period] [--regel] [--stichtag] [--archiv] [--ocr]`, Exit 1 bei Fehler-Befunden (`tests/test_cli_pruefen.py`).
+- [x] **Registry, Kontext, Befund, Konfiguration** (`pruefung/regeln/__init__.py`, `pruefung/einstellungen.py`).
+- [x] **Pflichtangaben-Quelle** (`pruefung/belegangaben.py`): E-Rechnung, Textebene, OCR auf Wunsch, sonst gespeicherte Felder.
+- [x] **Vollständigkeit** (`regeln/vollstaendigkeit.py`), **Richtigkeit** (`regeln/richtigkeit.py`), **Zeitgerechtheit** (`regeln/zeitgerechtheit.py`), **Ordnung** (`regeln/ordnung.py`) — je Regel auslösend und nicht auslösend, Regeln ändern nichts (`tests/test_pruefung_regeln.py`).
+- [x] **CLI** `accounti pruefen [--period] [--regel] [--stichtag] [--archiv] [--ocr]`, Exit 1 bei Fehler-Befunden; `pruefen regeln` (`tests/test_cli_pruefen.py`).
 
 ### Paket 4 — Nachforderung
 
-- [ ] **Prüflauf** (`pruefung/nachforderung.py`, `pruefung/aufgaben_anbindung.py`), Anfrage aus Vorlage, Versand nur auf Befehl (`tests/test_pruefung_nachforderung.py`); `test_aufgaben_anbindung.py` erwartet jetzt die Anbindung von Baustein 7.
-- [ ] **CLI** `accounti nachfordern [--period]`, `nachfordern anfrage TX [--an] [--senden]` (`tests/test_cli_nachfordern.py`).
+- [x] **Prüflauf** (`pruefung/nachforderung.py`, `pruefung/aufgaben_anbindung.py`), Anfrage aus Vorlage, Versand nur auf Befehl (`tests/test_pruefung_nachforderung.py`); `test_aufgaben_anbindung.py` erwartet jetzt die Anbindung von Baustein 7.
+- [x] **CLI** `accounti nachfordern [--period] [--stichtag]`, `nachfordern anfrage UMSATZ [--an] [--senden]` (`tests/test_cli_nachfordern.py`).
 
 ### Paket 5 — Verfahrensdokumentation & Abschluss
 
-- [ ] **Generator** (`pruefung/verfahrensdoku.py`), Markdown + PDF, Journal-Eintrag (`tests/test_pruefung_verfahrensdoku.py`).
-- [ ] **CLI** `accounti verfahrensdoku --ausgabe … [--pdf …]`.
-- [ ] **Abschluss:** `pytest`, `ruff` (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine vollständig; gegnerische Selbstprüfung.
+- [x] **Generator** (`pruefung/verfahrensdoku.py`), Markdown + PDF, Fassung im Journal (`tests/test_pruefung_verfahrensdoku.py`).
+- [x] **CLI** `accounti verfahrensdoku --ausgabe … [--pdf …] [--archiv …]`.
+- [x] **Selbstprüfung:** übernommener Bestand gilt nicht als verspätet/nach Abschluss angelegt (`test_bestand_von_vor_dem_journal_ist_nicht_verspaetet`); festgeschriebene Kontoauszüge über `pruefe_auszuege` (`test_festgeschriebener_kontoauszug_mit_fehlendem_umsatz`); zwei Tests mit zufälligem Hash-/ID-Zeichen deterministisch gemacht.
+- [x] **Abschluss:** `pytest`, `ruff` (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine vollständig.
 
 ## Akzeptanzkriterien → Tests
 
 | # | Kriterium | Tests |
 |---|-----------|-------|
-| 1 | Zahlung ohne Beleg erscheint als Befund mit Betrag, Datum, Gegenpartei | (wird ergänzt) |
-| 2 | Rechnung ohne Steuernummer → unvollständig nach § 14 UStG | (wird ergänzt) |
-| 3 | Steuerschlüssel passt nicht zum Sachkonto → erkannt | (wird ergänzt) |
-| 4 | Befund → Aufgabe, die verstummt, sobald der Beleg eintrifft | (wird ergänzt) |
-| 5 | Manipulierter Journaleintrag → `journal pruefen` findet ihn | (wird ergänzt) |
-| 6 | Freigegebene Buchung nur per Storno korrigierbar, beide sichtbar | (wird ergänzt) |
-| 7 | Verfahrensdoku beschreibt den eingerichteten Stand | (wird ergänzt) |
+| 1 | Zahlung ohne Beleg erscheint als Befund mit Betrag, Datum, Gegenpartei | `test_pruefung_regeln.py::test_akzeptanz_1_zahlung_ohne_beleg_mit_betrag_datum_gegenpartei`, `::test_umsatz_mit_beleg_ist_kein_befund`, `::test_umsatz_ohne_beleg_schwellen_belegfrei_und_zeitraum`, `test_cli_pruefen.py::test_akzeptanz_1_cli_zahlung_ohne_beleg` |
+| 2 | Rechnung ohne Steuernummer → unvollständig nach § 14 UStG | `test_pruefung_regeln.py::test_akzeptanz_2_rechnung_ohne_steuernummer_unvollstaendig`, `::test_erechnung_ohne_ustid_und_steuernummer`, nicht auslösend: `::test_rechnung_mit_steuernummer_ist_vollstaendig`, `::test_kleinbetragsrechnung_braucht_keine_steuernummer`, `::test_erechnung_mit_ustid_ist_vollstaendig`; `test_cli_pruefen.py::test_akzeptanz_2_und_3_cli_fehler_mit_exit_1` |
+| 3 | Steuerschlüssel passt nicht zum Sachkonto → erkannt | `test_pruefung_regeln.py::test_akzeptanz_3_steuerschluessel_passt_nicht_zum_sachkonto`, `::test_passende_steuerschluessel_sind_kein_befund`, `::test_skr04_ohne_automatikdatei`; `test_cli_pruefen.py::test_akzeptanz_2_und_3_cli_fehler_mit_exit_1` |
+| 4 | Befund → Aufgabe, die verstummt, sobald der Beleg eintrifft | `test_pruefung_nachforderung.py::test_akzeptanz_4_aufgabe_verstummt_wenn_der_beleg_eintrifft`, `::test_belegfrei_nach_regel_schliesst_mit_grund`, `test_cli_nachfordern.py::test_akzeptanz_4_cli` |
+| 5 | Manipulierter Journaleintrag → `journal pruefen` findet ihn | `test_pruefung_journal.py::test_veraenderter_eintrag_wird_gefunden`, `::test_neu_berechneter_hash_bricht_die_kette`, `::test_entfernter_eintrag_wird_gefunden`, `::test_abgeschnittenes_ende_faellt_am_bestand_auf`, `::test_buchung_an_accounti_vorbei_geaendert`; `test_cli_journal_storno.py::test_akzeptanz_5_manipulierter_eintrag_wird_gefunden` |
+| 6 | Freigegebene Buchung nur per Storno korrigierbar, beide sichtbar | `test_pruefung_storno.py::test_freigegebene_buchung_nur_per_storno_beide_sichtbar`, `::test_freigegebene_buchung_nicht_loeschbar`, `test_cli_journal_storno.py::test_akzeptanz_6_freigegeben_nur_per_storno_beide_sichtbar`; behobener Fehler je Buchungsart: `test_pruefung_storno.py::test_belegbuchung_behaelt_beleg_und_betrag`, `::test_ausgleichsbuchung_behaelt_anteil_und_beleg`, `::test_skontobuchung_behaelt_betrag_steuer_und_beleg`, `::test_splitbuchung_behaelt_ihren_anteil`, `test_cli_journal_storno.py::test_cli_belegbuchung`, `::test_cli_ausgleichsbuchung`, `::test_cli_skontobuchung`, `::test_cli_splitbuchung` |
+| 7 | Verfahrensdoku beschreibt den eingerichteten Stand | `test_pruefung_verfahrensdoku.py::test_akzeptanz_7_beschreibt_den_eingerichteten_stand`, `::test_fassungen_im_journal_und_historie`, `::test_cli` |
 
 ## Grenzen
 
-(wird mit der Umsetzung gefüllt)
+- **Rohes SQL.** Journal-Ereignisse, Storno-Regel und Monats-/Jahressperre hängen am ORM
+  (Sitzungsereignisse). Wer direkt auf die Datenbank schreibt, umgeht sie; unter SQLite
+  verhindern Trigger nur Änderungen an `journal` und `buchungskorrekturen`. Aufgedeckt wird
+  das von `journal pruefen` — aber nur für Buchungen, Belege und die Sperrtabellen
+  (Bestandsabgleich). Umsätze, Kontakte, offene Posten, Zuordnungen, Abgleiche,
+  Belegpositionen und Aufgaben stehen nicht im Journal (Stammdatenänderungen werden nicht
+  historisiert). Wird das Ende des Journals **und** die zugehörige Buchung gelöscht, fällt das
+  nur mit dem notierten Kopf auf (`journal pruefen --kopf NR:HASH`). Unter Postgres gibt es
+  keine Trigger; die Nummernvergabe serialisiert `pg_advisory_xact_lock` — nicht gegen eine
+  echte Postgres-Instanz geprüft (nur SQLite getestet).
+- **Personen sind Zeichenketten** (`--von`, `ACCOUNTI_BENUTZER`, Anmeldename); wer die CLI
+  bedient, kann jeden Namen angeben. Echte Benutzer bringt Baustein 10. Zeitstempel sind
+  lokale Zeit ohne Zeitzone, ohne qualifizierten Zeitstempel.
+- **Bestehende Datenbanken** brauchen die Migration (neue Spalten `storniert_durch`,
+  `storno_von`, neue Tabellen); ohne Tabelle `journal` wird nicht protokolliert, und
+  `journal pruefen` meldet das. Bestand von vor dem Journal einmal mit
+  `accounti journal uebernehmen` eintragen.
+- **Storno als Gegenbuchung**, nicht als DATEV-Generalumkehr (GU-Kennzeichen). Haben beide
+  Seiten dieselbe Natur und einen Steuerschlüssel, lehnt accounti das Storno ab. Storno und
+  Korrektur ändern keine offenen Posten, Zahlungszuordnungen, Belegabgleiche,
+  Kreditkartenabrechnungen, AfA-Vorgänge oder Abgrenzungen — eine falsche Zahlungszuordnung
+  bleibt bestehen. `--steuer` ist bei Buchungen mit Beleg gesperrt (die Steuer kommt aus dem
+  Beleg bzw. dem Ausgleich).
+- **Verhaltensänderungen:** automatisch gebuchte Buchungen (`auto`) gelten wie im ganzen
+  Projekt als freigegeben — ihre Korrektur ist jetzt ein Storno; `korrigiere` ohne `--steuer`
+  behält den Schlüssel (früher fiel er weg), `--ohne-steuer` entfernt ihn; `bestaetige` und
+  `korrigiere` nehmen ohne `--von` `ACCOUNTI_BENUTZER` bzw. den Anmeldenamen (früher
+  „supervisor“). Der DATEV-Export exportiert weiterhin alle freigegebenen Buchungen,
+  auch bereits exportierte — „exportiert“ ist ein Vermerk, kein Filter; Buchungen in
+  gesperrten Zeiträumen werden nicht vermerkt (die Sperre nimmt keinen Statuswechsel an),
+  stehen aber im Journaleintrag des Exports.
+- **Perioden:** Monate, keine Quartale; beliebige Reihenfolge; die Festschreibung ist
+  accounti-intern (im EXTF-Kopf bleibt „Festschreibung“ 0). Kassenbuch, AfA-Lauf, Abgang und
+  Abgrenzung prüfen vorab nur das Jahr — die Monatssperre greift dort erst beim Schreiben
+  (gleiche Fehlerklasse, Meldung ohne Traceback, wo die Jahressperre gefangen wird).
+  `ustva` berücksichtigt Befunde und Perioden noch nicht (Plausibilisierung aus Baustein 9
+  unverändert).
+- **Pflichtangaben** werden aus PDFs per Muster gelesen: Anschrift = „PLZ Ort“ irgendwo im
+  Text, Steuernummer ohne Prüfziffer, Empfänger nur als „eigener Name oder eigene USt-IdNr.
+  im Text“, Menge/Art nur bei E-Rechnungen; Nr. 9 (§ 14b-Hinweis) und Nr. 10 („Gutschrift“)
+  werden nicht geprüft. Scans nur mit `--ocr` (Tesseract), sonst Hinweis. Standardmäßig nur
+  Eingangsrechnungen (`regeln.pflichtangaben.belegarten`).
+- **Steuerschlüssel ./. Sachkonto:** Steuerautomatik nur aus `config/skr03.yaml` (Starterset,
+  relativ zum Arbeitsverzeichnis wie `config/regeln.yaml`); für SKR04 gibt es keine
+  Automatikdatei, nur Bereichsregeln (Erlös-, Aufwands-, Funktions-, Geld- und
+  Personenkonten). Schlüsselbedeutung nach `steuer/kennziffern.py` (2, 3, 8, 9, 18, 19, 91,
+  94). „Konto ohne Vorsteuer“ ist nur ein Hinweis.
+- **Weitere Regeln:** Steuersätze aus `steuer/eu_steuersaetze.py` (Stand 2026), Drittland ohne
+  Prüfung; ig. Erwerb nur gegen das vorhandene BZSt-Protokoll (der Prüflauf fragt nie beim
+  BZSt an); Dubletten heuristisch (Kontakt + Brutto + Fenster); Nummernkreise nur für
+  Ausgangsrechnungen (Präfix-Heuristik, Lücken nur zwischen kleinster und größter Nummer)
+  und das Kassenbuch. Kontoauszugslücken: festgeschriebene accounti-Auszüge
+  (`export/kontoauszuege`), Saldoverlauf nur mit erfassten Kontoauszugssalden
+  (`abschluss saldo`), „Monat ohne Umsatz“ als Hinweis — die Auszugsnummern der Bank aus
+  MT940/CAMT werden nicht gespeichert und sind nicht prüfbar. „Verspätet gebucht“ braucht den
+  Journal-Zeitpunkt (Bestand von vor dem Journal: unbekannt, kein Befund).
+- **Nachforderung:** `accounti aufgaben pruefen` (Baustein 8) liest den Abschnitt `pruefung`
+  aus `config/accounti.yaml` im Arbeitsverzeichnis, nicht aus `--config`
+  (`accounti nachfordern` nutzt `--config`). Ohne Abschnitt `pruefung` verhält sich
+  `beleg_fehlt` wie der eingebaute Lauf. Erinnerung und Eskalation kommen aus Baustein 8.
+  Die Anfrage hat keinen Anhang, Empfänger nur über die E-Mail des Kontakts (IBAN/Name) oder
+  `--an`; der Versand ist nur gegen eine Attrappe getestet, es wurde keine E-Mail verschickt.
+  Aufgaben entstehen nur für „Umsatz ohne Beleg“, nicht für andere Befunde.
+- **Verfahrensdokumentation:** beschreibt, was Konfiguration, Datenbank und Code-Standards
+  hergeben; Datensicherung, Organisation und Zeitpläne bleiben Platzhalter. Das LLM-Modell
+  stammt aus dem Code-Standard — der Konfigurationsabschnitt `llm` wird von accounti nicht
+  ausgewertet. Die PDF-Fassung ist schlicht (keine Tabellenlayouts, kein PDF/A, keine
+  Signatur); frühere Fassungen werden nicht archiviert, nur ihr Hash steht im Journal.
 
 ## Doku-Bausteine
 
-(wird mit der Umsetzung gefüllt)
+### README.md
+
+**Features-Tabelle** — die vier Zeilen `🔲 Belegvollständigkeit`, `🔲 Ordnungsmäßigkeit`,
+`🔲 Belegnachforderung`, `🔲 Unveränderbares Journal` ersetzen durch:
+
+```markdown
+| ✅ | **Belegvollständigkeit** | Prüfregeln mit Schweregrad und Schwellen aus der Konfiguration: Umsatz ohne Beleg (mit Betrag, Datum, Gegenpartei), Rechnung ohne Zahlung nach Zahlungsziel, Lücken in Nummernkreisen und Kontoauszügen; begründet belegfreie Umsätze per Muster |
+| ✅ | **Ordnungsmäßigkeit** | Pflichtangaben nach § 14 Abs. 4 UStG aus dem Original (Kleinbetragsrechnung § 33 UStDV bis 250 €), Rechenprobe, Steuerschlüssel ./. Sachkonto, Steuersatz zum Land, Adressat, Vorsteuer aus ig. Erwerb ohne USt-IdNr., Dubletten, Zeitgerechtheit, Festschreibung — `accounti pruefen` |
+| ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
+| ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; Verfahrensdokumentation aus dem eingerichteten System |
+```
+
+**Quickstart** — nach dem Abschnitt `### Aufgaben und Rückfragen` (vor `---` / `## Architektur`)
+einfügen:
+
+````markdown
+### Prüfung, Journal und Festschreibung
+
+accounti sagt, was der Buchhaltung fehlt und was daran nicht stimmt — die Prüfregeln lesen
+nur. Was freigegeben ist, ändert sich nur noch per Storno; jede Änderung steht im Journal.
+
+```bash
+accounti pruefen --period 2026-08              # alle Regeln; Exit 1 bei Fehler-Befunden
+accounti pruefen --regel umsatz_ohne_beleg --period 2026-08
+accounti pruefen --archiv archiv/belege        # Pflichtangaben aus dem Original (--ocr für Scans)
+accounti pruefen regeln                        # Regeln, Schweregrade, Schwellen
+accounti nachfordern --period 2026-08          # Aufgaben „Beleg fehlt“; schließen sich selbst
+accounti nachfordern anfrage 3fa2c1 --an beleg@lieferant.example   # Entwurf; senden mit --senden
+
+accounti korrigiere 3fa2c1 --soll 4930 --haben 1200   # freigegeben: Storno + Neubuchung
+accounti buchung zeige 3fa2c1                  # Original, Storno, Neubuchung, Journal
+accounti buchung storniere 3fa2c1 --grund "doppelt erfasst"
+accounti journal --von 2026-08-01 --bis 2026-08-31
+accounti journal pruefen                       # Verkettung + Bestand; Kopf zum Notieren
+accounti periode schliessen 2026-08            # keine Buchung mehr im August
+accounti periode oeffnen 2026-08 --grund "Rechnung nachgereicht"
+accounti verfahrensdoku --ausgabe verfahrensdoku.md --pdf verfahrensdoku.pdf
+```
+
+Ab der Freigabe (auch automatisch gebuchte Buchungen) ist eine Korrektur eine Stornobuchung
+mit Neubuchung; beide bleiben sichtbar und verweisen aufeinander. Einen festgeschriebenen
+Monat öffnet nur, wer einen Grund angibt — protokolliert wie der Jahresabschluss.
+````
+
+**Roadmap** — unter `### v0.4 — Zahlung & Prüfung` die drei offenen Punkte abhaken:
+`- [ ] Prüfregeln …` → `- [x] Prüfregeln …`, `- [ ] Belegnachforderung, …` →
+`- [x] Belegnachforderung, …`, `- [ ] Generierte Verfahrensdokumentation` →
+`- [x] Generierte Verfahrensdokumentation`.
+
+### CHANGELOG.md (unter `## [Unreleased]`)
+
+**Hinzugefügt** — als ersten Eintrag:
+
+```markdown
+- **Belegvollständigkeit & Ordnungsmäßigkeit** (Baustein 7): Prüfregeln als Registry mit
+  Schweregrad (`hinweis`, `warnung`, `fehler`) und Schwellen aus dem neuen, optionalen
+  Abschnitt `pruefung` — Vollständigkeit (Umsatz ohne Beleg mit Betrag, Datum und
+  Gegenpartei; Rechnung ohne Zahlung nach Zahlungsziel; Lücken in Nummernkreisen,
+  Kontoauszügen und im Saldoverlauf), Richtigkeit (Pflichtangaben nach § 14 Abs. 4 UStG aus
+  dem archivierten Original, Kleinbetragsrechnung nach § 33 UStDV bis 250 €; Rechenprobe;
+  Steuerschlüssel ./. Sachkonto über Steuerautomatik und Kontenbereiche; Steuersatz zum
+  Land; Adressat; Vorsteuer aus ig. Erwerb ohne gültige USt-IdNr.; Dubletten),
+  Zeitgerechtheit (unbearbeitete Belege, nach Ablauf des Folgemonats gebucht, Buchung in
+  abgeschlossener Periode) und Ordnung (Buchung ohne Beleg, offene Posten mit unplausiblem
+  Alter, Monat nicht festgeschrieben) — `accounti pruefen [--period] [--regel]`,
+  `pruefen regeln`. Nachforderung: Baustein 7 übernimmt den Prüflauf `beleg_fehlt`
+  (Schwellen, begründet belegfreie Umsätze per Muster), `accounti nachfordern`; Anfrage an
+  den Lieferanten als Entwurf aus einer Vorlage, gesendet nur mit `--senden`.
+  Hash-verkettetes, nur anfügbares Journal über Buchungen (angelegt, korrigiert, freigegeben,
+  exportiert, storniert, verworfen), Belege (importiert, verworfene Dubletten, geändert),
+  Zahlungsläufe, Jahres- und Monatsabschlüsse, Exporte (`accounti journal`, `journal zeige`,
+  `journal pruefen [--kopf]` mit Abgleich von Buchungen, Belegen und Sperren,
+  `journal uebernehmen`). Storno statt Änderung: `storniert_durch`/`storno_von` am
+  Buchungssatz, Tabelle `buchungskorrekturen`, `accounti buchung storniere|zeige`.
+  Periodenabschluss je Monat (`accounti periode schliessen|oeffnen|liste`). Generierte
+  Verfahrensdokumentation nach GoBD Rz. 151 ff. als Markdown und PDF, Fassung im Journal
+  (`accounti verfahrensdoku`)
+```
+
+**Geändert:**
+
+```markdown
+- **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
+  `korrigiert`, `exportiert` lehnt die Datenbankschicht jede Änderung außer
+  `auto → geprueft`, `→ exportiert` und dem einmaligen Stornovermerk ab, Löschen immer;
+  `accounti korrigiere` erzeugt dann Storno und Neubuchung (mit `--datum`, wenn der Zeitraum
+  abgeschlossen ist). Ohne `--steuer` bleibt der Steuerschlüssel (`--ohne-steuer` entfernt
+  ihn); `bestaetige` und `korrigiere` nehmen ohne `--von` `ACCOUNTI_BENUTZER` bzw. den
+  Anmeldenamen. `export datev` und `datev belege` vermerken exportierte Buchungen als
+  `exportiert` und schreiben den Export ins Journal. Massen-`UPDATE`/`DELETE` über das ORM
+  auf Buchungen ist gesperrt. Die Jahressperre nimmt den Stornovermerk an; Sammelläufe
+  (`classify`, `opos zuordnen`, `bank abgleich`) überspringen festgeschriebene Monate
+```
+
+**Behoben:**
+
+```markdown
+- **`korrigiere` zerstörte Buchungen mit Beleg** (Baustein 7): Die Korrektur einer
+  Transaktionsbuchung baute sie aus dem Umsatz neu auf — mit dem ganzen Umsatzbetrag statt
+  dem der Buchung und ohne `beleg_id`; Belegbuchungen, Ausgleichs- und Skontobuchungen und
+  Splitbuchungen behalten jetzt Beleg, Belegposition, Belegnummer und Betrag
+- **Kreditkartenabgleich umging die Jahressperre**: Vorläufige Buchungen wurden per
+  Massen-`DELETE` entfernt; jetzt einzeln über die Sitzung (Sperre und Journal greifen)
+```
+
+### docs/bauplan.md
+
+**Bausteinkarte** — Zeile 7 ersetzen:
+
+```markdown
+| 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | ✅ fertig | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
+```
+
+**Absatz** — nach dem Absatz zu Baustein 6 einfügen:
+
+```markdown
+**Baustein 7 ist fertig** ([Plan](plans/2026-10-26-belegvollstaendigkeit-gobd.md)): 17
+benannte Prüfregeln mit Schweregrad und Schwellen aus dem Abschnitt `pruefung`
+(Vollständigkeit, Richtigkeit mit § 14 UStG/§ 33 UStDV aus dem Original, Zeitgerechtheit,
+Ordnung), Nachforderung als Aufgabe über den Prüflauf `beleg_fehlt` (verstummt, sobald der
+Beleg abgeglichen ist), hash-verkettetes Journal über alle buchungsrelevanten Vorgänge mit
+Bestandsabgleich, Storno statt Änderung ab der Freigabe, Monatsabschluss neben der
+Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Offen:
+Prüfbefunde und Perioden in der UStVA-Plausibilisierung (Baustein 9), echte Benutzer im
+Journal (Baustein 10), Generalumkehr im DATEV-Export, Historisierung von Stammdaten.
+```
+
+Im Absatz zu Baustein 9 den Satz „Periodenabschluss und Prüfbefunde prüft die
+Plausibilisierung, sobald Baustein 7 steht.“ ersetzen durch „Periodenabschluss und
+Prüfbefunde aus Baustein 7 kann die Plausibilisierung jetzt einbeziehen (noch nicht
+angeschlossen).“
+
+### docs/architektur.md
+
+**Modulabschnitt** `### \`pruefung/\` *(geplant — …)*` vollständig ersetzen durch:
+
+```markdown
+### `pruefung/` *(vorhanden — [Baustein 7](specs/2026-08-10-belegvollstaendigkeit-gobd.md))*
+
+Die Mechanik hinter den Prinzipien 6 und 7.
+
+- `regeln/` — Registry `PRUEFREGELN` (`registriere_pruefregel`): Regel = `name`, `kategorie`,
+  `schwere`, `beschreibung`, Pydantic-`Parameter` (Schwellen) und `pruefe(kontext, p)`;
+  liest nur. `vollstaendigkeit.py` (Umsatz ohne Beleg über `offen_in_der_bank`, Rechnung ohne
+  Zahlung, Nummernkreise, Kontoauszüge über `export/kontoauszuege.pruefe_auszuege` und
+  Kontoauszugssalden), `richtigkeit.py` (Pflichtangaben, Rechenprobe, Steuerschlüssel ./.
+  Sachkonto über `config/skr03.yaml` und `steuer/kennziffern`, Steuersatz zum Land,
+  Adressat, ig. Erwerb gegen das USt-IdNr.-Protokoll, Dubletten), `zeitgerechtheit.py`,
+  `ordnung.py`. *(vorhanden)*
+- `belegangaben.py` — liest Pflichtangaben aus dem archivierten Original (E-Rechnung,
+  Textebene, OCR auf Wunsch). *(vorhanden)*
+- `einstellungen.py` — Abschnitt `pruefung` (`lade_pruefung`). *(vorhanden)*
+- `nachforderung.py` + `aufgaben_anbindung.py` — ersetzt den Prüflauf `beleg_fehlt` aus
+  Baustein 8 durch den mit Schwellen und `belegfrei`-Mustern; Anfrage an den Lieferanten als
+  Entwurf, Versand nur auf Befehl. *(vorhanden)*
+- `journal.py` + `ereignisse.py` — Journal (`journal`, nur anfügen, SHA-256-Kette,
+  SQLite-Trigger); Sitzungsereignisse `before_flush`/`after_flush` schreiben je Vorgang einen
+  Eintrag (Buchungen, Belege, verworfene Dubletten, Zahlungslauf- und Abschlussprotokoll),
+  `do_orm_execute` sperrt Massenänderungen; `pruefe_journal` prüft Kette, Anker und den
+  Bestand (Buchungen, Belege, Sperren). Person und Grund aus `person.journal_kontext`.
+  *(vorhanden)*
+- `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
+  Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
+  sitzt in `ereignisse.py`. *(vorhanden)*
+- `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
+  Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
+  gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
+- `verfahrensdoku.py` — Verfahrensdokumentation aus Konfiguration, Datenbank und
+  Code-Standards (GoBD Rz. 151 ff.), Markdown/PDF, Fassung im Journal. *(vorhanden)*
+
+Befehle: `accounti pruefen`, `nachfordern`, `journal`, `buchung`, `periode`,
+`verfahrensdoku`; `korrigiere`, `bestaetige`, `review` aus `cli.py` nutzen `storno.py`.
+```
+
+**Erweiterungspunkte** — Überschrift `### Neue Prüfregel hinzufügen *(geplant)*` ersetzen durch
+`### Neue Prüfregel hinzufügen` und den Absatz darunter ergänzen um:
+
+```markdown
+Eine Klasse mit `name`, `kategorie`, `schwere`, `beschreibung`, einem Pydantic-Modell
+`Parameter` (Schwellen mit Standardwerten) und `pruefe(kontext, parameter) -> list[Befund]`,
+eingetragen mit `registriere_pruefregel`. Der `Kontext` bringt Sitzung, Zeitraum, Stichtag,
+Einstellungen und einmal geladene Bestände mit; Schwellen setzt der Betrieb unter
+`pruefung.regeln.<name>`, den Schweregrad unter `pruefung.schwere.<name>`.
+```
+
+**Datenmodell** — Zeile `| Journaleintrag | … |` ersetzen durch:
+
+```markdown
+| `Journaleintrag` | Laufende Nummer, Zeitpunkt, Person, Vorgang, Objekt, Vorher/Nachher (JSON), Grund, Bezug, Hash des Vorgängers, Hash | → Buchung, Beleg, Zahlungslauf, Periode, Geschäftsjahr, Export (nur anfügen) |
+| `Buchungskorrektur` | Original, Storno, Neubuchung, Datum, Grund, Person | → `Buchungssatz` (nur anfügen) |
+| `Periodenabschluss` | Monat, gesperrt, geschlossen/geöffnet (Zeit, Person), Grund | → Buchungen des Monats |
+| `Befund` | Regel, Kategorie, Schwere, Objekt, Datum, Betrag, Gegenpartei, Begründung, Abhilfe | nicht gespeichert |
+```
+
+### config/accounti.example.yaml
+
+Nach dem Abschnitt `aufgaben:` (vor `# Versand von Ausgangsrechnungen …`) einfügen:
+
+```yaml
+# Belegvollständigkeit & Ordnungsmäßigkeit (optional — ohne diesen Abschnitt gelten die Standards)
+pruefung:
+  archiv: archiv/belege          # Originale für die Pflichtangaben (accounti pruefen --archiv)
+  kleinbetrag_grenze: 250.00     # § 33 UStDV: darunter gelten die Pflichtangaben der Kleinbetragsrechnung
+  eigene_namen: []               # weitere Namen der Gesellschaft für die Adressat-Prüfung
+  # kontenrahmen_datei: config/skr03.yaml   # Steuerautomatik der Konten (SKR03: Standard)
+  abgeschaltet: []               # z.B. [kontoauszug_luecke]
+  schwere: {}                    # Schweregrad je Regel, z.B. {dublette: fehler}
+  regeln:                        # Schwellen je Regel (accounti pruefen regeln zeigt alle)
+    umsatz_ohne_beleg: {ab_betrag: 0.00, nach_tagen: 0}
+    beleg_ohne_zahlung: {karenz_tage: 0, quittung_tage: 30}
+    beleg_unbearbeitet: {frist_tage: 10}   # GoBD Rz. 47
+    dublette: {fenster_tage: 7}
+    op_alter: {max_tage: 365}
+  belegfrei:                     # Umsätze ohne eigenen Beleg — mit Begründung
+    # - name: kontofuehrung
+    #   muster: "kontoführung|kontoentgelt|rechnungsabschluss"
+    #   feld: verwendungszweck   # verwendungszweck, gegenpartei oder beide
+    #   begruendung: "Bankentgelt — der Kontoauszug ist der Beleg"
+  nachforderung:                 # Vorlage der Anfrage beim Lieferanten (gesendet nur mit --senden)
+    # betreff: "Beleg zu unserer Zahlung vom {datum} über {betrag} €"
+    # text: "…{datum} {betrag} {verwendungszweck} {gegenpartei} {firma} {antwort}…"
+    # antwort_an: "belege@meine-firma.example"
+```

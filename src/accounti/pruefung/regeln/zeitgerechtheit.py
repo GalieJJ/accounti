@@ -24,7 +24,8 @@ from accounti.pruefung.journal import lade_journal
 from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
 
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
-_ANGELEGT = frozenset({"buchung_angelegt", "storno_gebucht", "bestand_uebernommen"})
+_ANGELEGT = frozenset({"buchung_angelegt", "storno_gebucht"})
+_UEBERNOMMEN = "bestand_uebernommen"  # Zeitpunkt der Buchung unbekannt
 
 
 def ende_folgemonat(tag: date) -> date:
@@ -32,12 +33,17 @@ def ende_folgemonat(tag: date) -> date:
     return date(jahr, monat, monthrange(jahr, monat)[1])
 
 
-def angelegt_am(k: Kontext) -> dict[str, datetime]:
-    """Wann ist jede Buchung laut Journal entstanden?"""
-    ergebnis: dict[str, datetime] = {}
+def angelegt_am(k: Kontext) -> dict[str, datetime | None]:
+    """Wann ist jede Buchung laut Journal entstanden? ``None``: Bestand von vor dem
+    Journal, Zeitpunkt unbekannt; fehlt die Buchung ganz, hat sie keinen Eintrag."""
+    ergebnis: dict[str, datetime | None] = {}
     for e in lade_journal(k.session):
-        if e.objekt_typ == "buchung" and e.vorgang in _ANGELEGT:
+        if e.objekt_typ != "buchung":
+            continue
+        if e.vorgang in _ANGELEGT:
             ergebnis.setdefault(e.objekt_id, e.zeitpunkt)
+        elif e.vorgang == _UEBERNOMMEN:
+            ergebnis.setdefault(e.objekt_id, None)
     return ergebnis
 
 
@@ -188,6 +194,7 @@ class BuchungInGesperrterPeriode:
             if treffer is None or not k.im_zeitraum(x.datum):
                 continue
             zeitraum, seit = treffer
+            bekannt = str(x.id) in angelegt
             zeitpunkt = angelegt.get(str(x.id))
             if x.status in VORSCHLAG:
                 text = (
@@ -195,7 +202,7 @@ class BuchungInGesperrterPeriode:
                     f"abgeschlossenen Zeitraum {zeitraum} — er lässt sich nicht mehr "
                     "freigeben (Zeitraum öffnen oder verwerfen)"
                 )
-            elif zeitpunkt is None or zeitpunkt > seit:
+            elif not bekannt or (zeitpunkt is not None and zeitpunkt > seit):
                 wann = (
                     f"am {datum_de(zeitpunkt.date())}"
                     if zeitpunkt
