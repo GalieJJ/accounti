@@ -265,3 +265,32 @@ def test_offen_in_der_bank(make_session):
     assert [t.id for t in bericht.umsaetze_ohne_beleg] == [ohne_beleg.id]
     assert [b.id for b in bericht.belege_ohne_umsatz] == [ohne_umsatz.id]
     assert date(2026, 3, 14) == bericht.umsaetze_ohne_beleg[0].datum
+
+
+def test_entscheidung_ueber_den_abgleich_steht_im_journal(make_session):
+    """Abschlussprüfung N-E: Der Belegabgleich speichert keine Person — wer einen
+    Vorschlag bestätigt oder ablehnt, steht deshalb im Journal."""
+    from sqlalchemy import text
+
+    from accounti.bank.abgleichslauf import lehne_abgleich_ab
+    from accounti.pruefung.person import journal_kontext
+
+    t1, t2, b1, b2 = umsatz(), umsatz(), quittung(), quittung()
+    _anlegen(make_session, [t1, t2], [b1, b2])
+    _lauf(make_session)
+    abgleiche = {(a.transaktion_id, a.beleg_id): a for a in _abgleiche(make_session)}
+    with make_session() as s, journal_kontext(person="erika"):
+        bestaetige_abgleich(s, str(abgleiche[(t1.id, b1.id)].id)[:8])
+        lehne_abgleich_ab(s, str(abgleiche[(t2.id, b2.id)].id)[:8])
+        s.commit()
+        eintraege = s.execute(
+            text(
+                "SELECT vorgang, objekt_id, person FROM journal "
+                "WHERE objekt_typ = 'belegabgleich' ORDER BY nr"
+            )
+        ).all()
+    assert [(v, p) for v, _, p in eintraege] == [
+        ("abgleich_bestaetigt", "erika"),
+        ("abgleich_abgelehnt", "erika"),
+    ]
+    assert eintraege[0][1] == str(abgleiche[(t1.id, b1.id)].id)

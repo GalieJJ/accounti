@@ -4,6 +4,14 @@ Eingang:  Aufwand an Kreditor (Vorsteuer per BU-Schlüssel)
 Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
 
 Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
+
+Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
+Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
+(``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und Eingangsdatum
+(``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt ist; die
+Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
+Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel. Offener
+Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
 
 from __future__ import annotations
@@ -11,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from sqlalchemy.orm import Session
 
@@ -26,6 +35,7 @@ from accounti.db.repository import (
     verbuchte_beleg_ids,
 )
 from accounti.db.tabellen_abschluss import JahrGesperrtError
+from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.erechnung import ERechnungError, lies
 from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
@@ -64,6 +74,10 @@ _ERLOES_UNBEKANNT = "8200"
 
 class VerbuchungError(RuntimeError):
     """Der Beleg kann so nicht verbucht werden."""
+
+
+# Buchungsdatum einer Eingangsrechnung: Belegdatum, Eingang, erster offener Tag, fest
+Buchungsdatum = Literal["beleg", "eingang", "offen"] | date
 
 
 @dataclass
@@ -215,19 +229,45 @@ def verbuche_beleg(
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
+    buchungsdatum: Buchungsdatum = "beleg",
+    gewinnermittlung: str | None = None,
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
-    if ist_gesperrt(session, belegdatum.year):
+    gebucht_am, hinweis_datum = _buchungstag(
+        session,
+        beleg,
+        belegdatum,
+        buchungsdatum if eingang else "beleg",
+        anlass,
+        gewinnermittlung,
+    )
+    if ist_gesperrt(session, gebucht_am.year) and gebucht_am == belegdatum:
         jahr = belegdatum.year
         msg = (
             f"{anlass}: Belegdatum {belegdatum:%d.%m.%Y} liegt im abgeschlossenen "
             f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
             f"--jahr {jahr}"
+            + (
+                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
+                "--buchungsdatum offen)"
+                if eingang
+                else ""
+            )
         )
         raise JahrGesperrtError(msg)
+    if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
+        ausweg = (
+            " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
+            "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
+            if eingang
+            else " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
+        )
+        raise type(fehler)(
+            f"{anlass}: gebucht am {gebucht_am:%d.%m.%Y}: {fehler}{ausweg}"
+        )
 
     if eingang:
         if not beleg.lieferant_name:
@@ -285,7 +325,7 @@ def verbuche_beleg(
     )
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
-    hinweise = []
+    hinweise = [hinweis_datum] if hinweis_datum else []
     ustid_bestaetigt = True
     if rechnung is not None and any(
         kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
@@ -315,7 +355,7 @@ def verbuche_beleg(
             soll, haben = haben, soll
         buchung = Buchungssatz(
             beleg_id=beleg.id,
-            datum=belegdatum,
+            datum=gebucht_am,
             soll_konto=soll,
             haben_konto=haben,
             betrag_netto=abs(g.netto),
@@ -358,6 +398,110 @@ def verbuche_beleg(
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
+def _buchungstag(
+    session: Session,
+    beleg: Beleg,
+    belegdatum: date,
+    buchungsdatum: Buchungsdatum,
+    anlass: str,
+    gewinnermittlung: str | None = None,
+) -> tuple[date, str | None]:
+    """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest.
+
+    Ein anderes Datum als das Belegdatum gilt nur für Belege, deren Zeitraum gesperrt
+    ist — der Rest eines Laufs bleibt beim Belegdatum. „Eingang“ ist der Zeitpunkt, zu
+    dem accounti den Beleg erfasst hat (``eingegangen_am``, z.B. der Import). Bei
+    Bilanzierung bleibt die Buchung im Geschäftsjahr des Belegs (§ 252 Abs. 1 Nr. 5
+    HGB, GoBD Rz. 51) — ebenso, wenn die Gewinnermittlung nicht angegeben ist
+    (``None``); nur ausdrücklich ``euer`` bucht über den Jahreswechsel."""
+    eingegangen = beleg.eingegangen_am.date()
+    if (
+        buchungsdatum == "beleg"
+        or sperrfehler(session.connection(), belegdatum) is None
+    ):
+        return belegdatum, None
+    if buchungsdatum == "eingang":
+        tag = eingegangen
+    elif buchungsdatum == "offen":
+        tag = erster_offener_tag(session.connection(), max(belegdatum, eingegangen))
+    else:
+        assert isinstance(buchungsdatum, date)
+        tag = buchungsdatum
+    if tag < belegdatum:
+        raise VerbuchungError(
+            f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt vor dem Belegdatum "
+            f"{belegdatum:%d.%m.%Y}"
+        )
+    if tag == belegdatum:
+        return tag, None
+    if tag.year != belegdatum.year and gewinnermittlung != "euer":
+        if ist_gesperrt(session, belegdatum.year):
+            oeffnen = (
+                f"das Geschäftsjahr mit Grund öffnen (accounti abschluss oeffnen "
+                f"--jahr {belegdatum.year})"
+            )
+        else:
+            oeffnen = (
+                f"den Monat mit Grund öffnen (accounti periode oeffnen "
+                f"{belegdatum:%Y-%m} --grund …)"
+            )
+        ohne_angabe = (
+            " — die Gewinnermittlung ist nicht angegeben (abschluss.gewinnermittlung: "
+            "bilanz oder euer in der Konfiguration); ohne Angabe gilt der Schutz der "
+            "Bilanzierung"
+            if gewinnermittlung is None
+            else ""
+        )
+        raise VerbuchungError(
+            f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt im Geschäftsjahr "
+            f"{tag.year}, die Rechnung vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
+            f"und Verbindlichkeit ins Geschäftsjahr {belegdatum.year} (§ 252 Abs. 1 "
+            f"Nr. 5 HGB, GoBD Rz. 51) — {oeffnen} und zum Belegdatum buchen; die "
+            "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG) und "
+            "gehört dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ (SKR03) — das "
+            f"bucht accounti nicht selbst{ohne_angabe}"
+        )
+    # Vorsteuer: im Zeitraum, in dem Leistung und Rechnung vorliegen — ohne Wahlrecht
+    # (§ 15 Abs. 1 Nr. 1 UStG); maßgeblich ist hier das spätere von Beleg und Eingang
+    massgeblich = max(belegdatum, eingegangen)
+    gebucht = (
+        f"gebucht am {tag:%d.%m.%Y} statt zum Belegdatum {belegdatum:%d.%m.%Y} "
+        f"(Eingang {eingegangen:%d.%m.%Y})"
+    )
+    if (tag.year, tag.month) == (massgeblich.year, massgeblich.month):
+        hinweis = (
+            f"{gebucht} — die Vorsteuer zählt in diesem Voranmeldungszeitraum "
+            "(§ 15 Abs. 1 Nr. 1 UStG: Rechnung liegt vor)"
+        )
+    elif tag < massgeblich:
+        hinweis = (
+            f"{gebucht} — Achtung: die Vorsteuer zählt erst ab dem Zeitraum, in dem "
+            f"die Rechnung vorliegt ({massgeblich:%m/%Y}); gebucht am "
+            f"{tag:%d.%m.%Y} zählt sie zu früh (§ 15 Abs. 1 Nr. 1 UStG) — zum ersten "
+            "offenen Tag ab Eingang buchen: --buchungsdatum offen"
+        )
+    elif sperrfehler(session.connection(), massgeblich) is not None:
+        hinweis = (
+            f"{gebucht} — die Vorsteuer gehört in den Zeitraum, in dem die Rechnung "
+            f"vorlag ({massgeblich:%m/%Y}), der ist festgeschrieben: dessen "
+            "Voranmeldung ist gegebenenfalls zu berichtigen (§ 15 Abs. 1 Nr. 1 UStG, "
+            "kein Wahlrecht beim Zeitpunkt)"
+        )
+    else:
+        hinweis = (
+            f"{gebucht} — Achtung: die Vorsteuer gehört in den Voranmeldungszeitraum "
+            f"{massgeblich:%m/%Y}, in dem die Rechnung vorlag (offen); gebucht am "
+            f"{tag:%d.%m.%Y} zählt sie erst später (§ 15 Abs. 1 Nr. 1 UStG, kein "
+            "Wahlrecht) — zum ersten offenen Tag buchen: --buchungsdatum offen"
+        )
+    if tag.year != belegdatum.year:  # Einnahmenüberschussrechnung
+        hinweis += (
+            f"; gebucht im Geschäftsjahr {tag.year} statt {belegdatum.year} — bei der "
+            "Einnahmenüberschussrechnung zählt der Abfluss (§ 11 EStG)"
+        )
+    return tag, hinweis
+
+
 @dataclass
 class Verbuchungslauf:
     verbucht: list[Verbuchung] = field(default_factory=list)
@@ -371,6 +515,8 @@ def verbuche_belege(
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
+    buchungsdatum: Buchungsdatum = "beleg",
+    gewinnermittlung: str | None = None,
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
@@ -396,6 +542,8 @@ def verbuche_belege(
                     regelwerk,
                     eigene_firma,
                     ustid_max_alter_tage,
+                    buchungsdatum,
+                    gewinnermittlung,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:

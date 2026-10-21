@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy.orm import Session
 
@@ -29,6 +29,11 @@ from accounti.db.repo_kasse import (
     naechste_kassennummer,
     speichere_kassenvorgang,
 )
+from accounti.db.repo_pruefung import (
+    lade_korrekturen,
+    setze_storniert_durch,
+    speichere_korrektur,
+)
 from accounti.db.repository import (
     lade_buchungen,
     speichere_buchung,
@@ -36,6 +41,7 @@ from accounti.db.repository import (
 )
 from accounti.models import Buchungssatz, BuchungStatus, Transaktion, TransaktionQuelle
 from accounti.models.kasse import Kassenart, Kassenvorgang
+from accounti.models.pruefung import Buchungskorrektur
 from accounti.steuer.umsatzsteuer import DATEV_BU_SCHLUESSEL, UStBerechner
 
 NULL = Decimal("0")
@@ -186,6 +192,8 @@ def _speichere(
     speichere_transaktion(session, tx)
     buchung: Buchungssatz | None = None
     if buchung_umkehren is not None:
+        # die Gegenbuchung ist ein Storno der gültigen Buchung (Baustein 7): Vermerke
+        # des Originals nicht mitkopieren, sondern auf das Original verweisen
         buchung = buchung_umkehren.model_copy(
             update={
                 "id": uuid4(),
@@ -196,6 +204,8 @@ def _speichere(
                 "buchungstext": v.text[:60],
                 "status": BuchungStatus.GEPRUEFT,
                 "geprueft_von": v.erfasst_von or "kassenbuch",
+                "storniert_durch": None,
+                "storno_von": buchung_umkehren.id,
             }
         )
     elif v.gegenkonto:
@@ -210,6 +220,19 @@ def _speichere(
         )
     if buchung is not None:
         speichere_buchung(session, buchung)
+    if buchung is not None and buchung_umkehren is not None:
+        session.flush()
+        setze_storniert_durch(session, buchung_umkehren.id, buchung.id)
+        speichere_korrektur(
+            session,
+            Buchungskorrektur(
+                original_id=buchung_umkehren.id,
+                storno_id=buchung.id,
+                datum=v.datum,
+                grund=v.text,
+                person=v.erfasst_von or "kassenbuch",
+            ),
+        )
     v = v.model_copy(
         update={
             "transaktion_id": tx.id,
@@ -251,6 +274,29 @@ def buche_kasse(
     return _speichere(session, v, einstellungen)
 
 
+def _gueltige_buchung(
+    session: Session, buchung_id: UUID, nr: int
+) -> Buchungssatz | None:
+    """Die Buchung, die für den Kassenvorgang gerade gilt: nach ``korrigiere`` die
+    Neubuchung (Kette über die Buchungskorrekturen), sonst das Original."""
+    alle = {b.id: b for b in lade_buchungen(session)}
+    neubuchung = {k.original_id: k.neubuchung_id for k in lade_korrekturen(session)}
+    b = alle.get(buchung_id)
+    gesehen: set[UUID] = set()
+    while b is not None and b.storniert_durch is not None and b.id not in gesehen:
+        gesehen.add(b.id)
+        nachfolger = neubuchung.get(b.id)
+        if nachfolger is None:
+            raise KassenbuchError(
+                f"Die Buchung {str(b.id)[:8]} zu Nr. {nr} ist storniert, ohne "
+                "Neubuchung — es gibt keine gültige Buchung, die sich umkehren "
+                "ließe; den Umsatz erst neu buchen (accounti classify), dann "
+                "stornieren"
+            )
+        b = alle.get(nachfolger)
+    return b
+
+
 def storniere(
     session: Session,
     nr: int,
@@ -270,11 +316,11 @@ def storniere(
         )
     if any(v.storno_von == nr for v in buch):
         raise KassenbuchError(f"Nr. {nr} ist schon storniert")
-    umkehren = None
-    if original.buchung_id is not None:
-        umkehren = next(
-            (b for b in lade_buchungen(session) if b.id == original.buchung_id), None
-        )
+    umkehren = (
+        _gueltige_buchung(session, original.buchung_id, nr)
+        if original.buchung_id is not None
+        else None
+    )
     v = Kassenvorgang(
         nr=naechste_kassennummer(session),
         datum=datum or date.today(),

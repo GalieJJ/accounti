@@ -111,6 +111,8 @@ def _row_zu_buchung(r: BuchungssatzRow) -> Buchungssatz:
         status=BuchungStatus(r.status),
         confidence=r.confidence,
         geprueft_von=r.geprueft_von,
+        storniert_durch=_uuid(r.storniert_durch),
+        storno_von=_uuid(r.storno_von),
     )
 
 
@@ -170,6 +172,8 @@ def speichere_buchung(session: Session, b: Buchungssatz) -> None:
             status=b.status.value,
             confidence=b.confidence,
             geprueft_von=b.geprueft_von,
+            storniert_durch=_str(b.storniert_durch),
+            storno_von=_str(b.storno_von),
         )
     )
 
@@ -898,12 +902,18 @@ def aktualisiere_posten(
 
 
 def lade_belegbuchungen(session: Session, beleg_id: UUID) -> list[Buchungssatz]:
-    """Die Buchungen aus der Verbuchung eines Belegs (ohne Zahlungsbuchungen)."""
+    """Die Buchungen aus der Verbuchung eines Belegs (ohne Zahlungsbuchungen).
+
+    Stornierte Buchungen und ihre Stornobuchungen heben sich auf und zählen nicht;
+    die Neubuchung einer Korrektur zählt.
+    """
     rows = (
         session.query(BuchungssatzRow)
         .filter(
             BuchungssatzRow.beleg_id == str(beleg_id),
             BuchungssatzRow.transaktion_id.is_(None),
+            BuchungssatzRow.storniert_durch.is_(None),
+            BuchungssatzRow.storno_von.is_(None),
         )
         .all()
     )
@@ -976,14 +986,31 @@ def setze_zuordnungen_status(
 
 
 def gebuchte_transaktion_ids(session: Session) -> set[UUID]:
-    """Transaktionen, zu denen schon eine Buchung existiert."""
+    """Transaktionen, zu denen schon eine Buchung existiert.
+
+    Ein Storno-Paar am selben Umsatz (Original und Stornobuchung, Baustein 7) hebt
+    sich auf und zählt nicht: Nach einem reinen Storno ist der Umsatz wieder offen
+    (classify, Periodenabschluss, Abschlussprüfung, Kartenabgleich). Die Neubuchung
+    einer Korrektur zählt; eine Gegenbuchung an einem anderen Umsatz (Kassen-Storno)
+    lässt beide Umsätze gebucht.
+    """
     rows = (
-        session.query(BuchungssatzRow.transaktion_id)
+        session.query(
+            BuchungssatzRow.id,
+            BuchungssatzRow.transaktion_id,
+            BuchungssatzRow.storno_von,
+        )
         .filter(BuchungssatzRow.transaktion_id.is_not(None))
-        .distinct()
         .all()
     )
-    return {UUID(t) for (t,) in rows if t}
+    umsatz = {ident: tx for ident, tx, _ in rows}
+    aufgehoben = {
+        x
+        for ident, tx, storno_von in rows
+        if storno_von is not None and umsatz.get(storno_von) == tx
+        for x in (ident, storno_von)
+    }
+    return {UUID(tx) for ident, tx, _ in rows if tx and ident not in aufgehoben}
 
 
 # --- USt-IdNr.-Protokoll (nur anfügen) ------------------------------------------

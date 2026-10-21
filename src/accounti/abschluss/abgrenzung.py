@@ -210,6 +210,8 @@ def schlage_abgrenzungen_vor(
     for b in lade_buchungen(session, status=set(FREIGEGEBEN)):
         if b.datum.year != jahr or b.id in schon:
             continue
+        if b.storniert_durch or b.storno_von:
+            continue  # Storno-Paar hebt sich auf; abgegrenzt wird die Neubuchung
         if (b.beleg_nummer or "").startswith(("RAP-", "EB-")):
             continue
         texte = [b.buchungstext, b.beleg_nummer]

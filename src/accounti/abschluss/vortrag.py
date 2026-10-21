@@ -39,6 +39,7 @@ from accounti.db.repo_abschluss import (
     setze_jahresabschluss,
 )
 from accounti.db.repository import speichere_buchung
+from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.abschluss import Jahresabschluss
 
@@ -151,7 +152,11 @@ def erfasse_eroeffnung(
     b = _eb_buchung(
         konto, differenz, date(jahr, 1, 1), einst, kr, "Eröffnungssaldo", von
     )
-    speichere_buchung(session, b)
+    # auch in einen festgeschriebenen Januar (Baustein 7)
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
+        eb.add(str(b.id))
+        speichere_buchung(session, b)
+        session.flush()
     protokolliere(
         session, jahr, "eroeffnung", von, None, {"konto": konto, "saldo": saldo}
     )
@@ -173,22 +178,25 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     vorhanden = eroeffnungssalden(session, jahr + 1, kr)
     ergebnis = k.susa.ergebnis
     vortrag = Vortrag(jahr, ziel, ergebnis, befunde=befunde)
-    for konto in sorted(set(ziel) | set(vorhanden), key=lambda x: (len(x), x)):
-        differenz = ziel.get(konto, NULL) - vorhanden.get(konto, NULL)
-        if differenz == 0:
-            continue
-        b = _eb_buchung(
-            konto,
-            differenz,
-            date(jahr + 1, 1, 1),
-            einst,
-            kr,
-            f"Saldovortrag {jahr}",
-            von,
-        )
-        speichere_buchung(session, b)
-        vortrag.buchungen.append(b)
-    session.flush()
+    # EB-Buchungen am 01.01. auch in einen schon festgeschriebenen Januar (Baustein 7)
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
+        for konto in sorted(set(ziel) | set(vorhanden), key=lambda x: (len(x), x)):
+            differenz = ziel.get(konto, NULL) - vorhanden.get(konto, NULL)
+            if differenz == 0:
+                continue
+            b = _eb_buchung(
+                konto,
+                differenz,
+                date(jahr + 1, 1, 1),
+                einst,
+                kr,
+                f"Saldovortrag {jahr}",
+                von,
+            )
+            eb.add(str(b.id))
+            speichere_buchung(session, b)
+            vortrag.buchungen.append(b)
+        session.flush()
     setze_jahresabschluss(
         session,
         Jahresabschluss(

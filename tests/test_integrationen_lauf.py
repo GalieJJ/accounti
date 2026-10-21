@@ -176,6 +176,19 @@ def test_auszahlung_schon_per_regel_gebucht(umgebung):
     (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
     assert befund.code == "auszahlung_anderweitig_gebucht"
     assert "korrigiere" in befund.text
+    # dem Hinweis folgen: die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer
+    import re
+
+    from accounti.pruefung.storno import korrigiere
+
+    treffer = re.search(
+        r"korrigiere (\w+) --soll (\d+) --haben (\d+) --ohne-steuer", befund.text
+    )
+    assert treffer is not None, befund.text
+    ident, soll, haben = treffer.groups()
+    k = korrigiere(s, ident, soll, haben, ohne_steuer=True, von="erika")
+    assert k.neu is not None and k.neu.steuer_schluessel is None
+    assert k.neu.betrag_netto == D("209.85")
 
 
 def test_fehlende_laenderdatei_erloese_zur_pruefung(umgebung):

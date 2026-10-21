@@ -285,7 +285,8 @@ def _befund(
                     f"{markt} {a.nummer}: Der Bankumsatz vom {t.datum:%d.%m.%Y} ist "
                     f"schon gebucht ({', '.join(ids)}) — Erlöse wären doppelt. "
                     f"Korrigieren mit accounti korrigiere {ids[0] if ids else '<ID>'} "
-                    f"--soll {bank} --haben {konten.verrechnungskonto}"
+                    f"--soll {bank} --haben {konten.verrechnungskonto} --ohne-steuer "
+                    "(die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer)"
                 ),
                 posten_nr=p.nr,
             ),

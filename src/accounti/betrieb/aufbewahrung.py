@@ -14,9 +14,15 @@ Stand 20.10.2026 (Quellen in ``docs/betrieb.md``):
   Eintragung gemacht wurde (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG). Bücher und
   Aufzeichnungen rechnet accounti **je Wirtschaftsjahr**: Die letzte Eintragung eines
   Wirtschaftsjahres (Abschlussbuchungen) liegt frühestens im Jahr nach seinem Ende —
-  später, wenn der Abschluss (``abschluesse``) später festgeschrieben wurde. Wann eine
-  Buchung tatsächlich eingetragen wurde, speichert accounti nicht; die Annahme ist
-  deshalb die vorsichtige.
+  später, wenn der Abschluss (``abschluesse``) oder ein Monat des Wirtschaftsjahres
+  (``periodenabschluesse``, Baustein 7) später festgeschrieben wurde; ein wieder
+  geöffnetes Jahr oder ein wieder geöffneter Monat eines nicht abgeschlossenen Jahres
+  läuft nicht ab (die letzte Eintragung steht aus). Den Zeitpunkt einzelner
+  Buchungen kennt seit Baustein 7 das Journal — der Bericht wertet ihn nicht aus und
+  bleibt bei dieser vorsichtigen Annahme.
+- Journal, Buchungskorrekturen und Monatsabschlüsse sind Aufzeichnungen (10 Jahre).
+  Das Journal ist eine Hash-Kette: Wer alte Einträge aussondert, kürzt sie — ``journal
+  pruefen`` braucht danach einen Anker (``--kopf``) ab dem verbliebenen Anfang.
 - Kein Ablauf, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
   Festsetzungsfrist noch läuft (§ 147 Abs. 3 Satz 3 AO) — das prüft ein Mensch.
 
@@ -122,6 +128,11 @@ BESTAND: list[tuple[str, str, str, Unterlage]] = [
     ("zahlungslauf_protokoll", "zeitpunkt", "Zahlungslauf-Protokoll", Unterlage.BUCH),
     ("abschlussprotokoll", "zeitpunkt", "Abschlussprotokoll", Unterlage.BUCH),
     ("kassenbuch", "datum", "Kassenbuch", Unterlage.BUCH),
+    # Baustein 7: das Journal nach dem Zeitpunkt des Vorgangs, Storno-Verweise nach
+    # dem Storno-Datum, Monatsabschlüsse nach dem Festschreiben
+    ("journal", "zeitpunkt", "Journal", Unterlage.BUCH),
+    ("buchungskorrekturen", "datum", "Buchungskorrekturen", Unterlage.BUCH),
+    ("periodenabschluesse", "geschlossen_am", "Periodenabschlüsse", Unterlage.BUCH),
 ]
 
 
@@ -171,6 +182,29 @@ def _abschluesse(s: Session, vorhanden: set[str]) -> dict[int, date]:
     return ergebnis
 
 
+@dataclass(frozen=True)
+class _Monate:
+    """Monatsabschlüsse je Wirtschaftsjahr (Schlüssel: dessen letzter Tag)."""
+
+    spaetester: dict[date, date]  # spätestes Festschreiben eines Monats
+    wieder_offen: set[date]  # ein Monat wurde geöffnet und ist offen
+
+
+def _monatsabschluesse(s: Session, vorhanden: set[str], beginn: date | None) -> _Monate:
+    tabelle = Base.metadata.tables.get("periodenabschluesse")
+    monate = _Monate({}, set())
+    if tabelle is None or "periodenabschluesse" not in vorhanden:
+        return monate
+    abfrage = select(tabelle.c.monat, tabelle.c.gesperrt, tabelle.c.geschlossen_am)
+    for monat, gesperrt, am in s.execute(abfrage):
+        _, ende = wirtschaftsjahr(date(int(monat[:4]), int(monat[5:7]), 1), beginn)
+        if not gesperrt:
+            monate.wieder_offen.add(ende)
+        elif (tag := _als_datum(am)) is not None:
+            monate.spaetester[ende] = max(tag, monate.spaetester.get(ende, tag))
+    return monate
+
+
 def _zeile(
     s: Session,
     tabelle: Table,
@@ -202,6 +236,7 @@ def _buch_zeile(
     stichtag: date,
     beginn: date | None,
     abschluesse: dict[int, date],
+    monate: _Monate,
 ) -> Zeile:
     """Bücher und Aufzeichnungen je Wirtschaftsjahr (§ 147 Abs. 4 AO)."""
     spalte = tabelle.c[spaltenname]
@@ -225,6 +260,10 @@ def _buch_zeile(
         )
         if abschluss == OFFEN:
             continue  # wieder geöffnet: kann noch bebucht werden
+        if abschluss is None and ende in monate.wieder_offen:
+            continue  # ein Monat wieder geöffnet, das Jahr nicht abgeschlossen
+        if (monat := monate.spaetester.get(ende)) is not None:
+            abschluss = max(abschluss or monat, monat)
         if stichtag > buecher_frist_ende(ende, abschluss, f.jahre):
             abgelaufen += anzahl
     return Zeile(bezeichnung, f, aeltester, abgelaufen, sum(je_wj.values()))
@@ -240,6 +279,7 @@ def bericht(
     registriere_tabellen()
     vorhanden = set(inspect(s.get_bind()).get_table_names())
     abschluesse = _abschluesse(s, vorhanden)
+    monate = _monatsabschluesse(s, vorhanden, wirtschaftsjahr_beginn)
     zeilen = []
     for name, spalte, bezeichnung, unterlage in BESTAND:
         tabelle = Base.metadata.tables.get(name)
@@ -257,6 +297,7 @@ def bericht(
                     stichtag,
                     wirtschaftsjahr_beginn,
                     abschluesse,
+                    monate,
                 )
             )
         else:

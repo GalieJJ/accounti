@@ -219,6 +219,8 @@ def vorschlaege(
         b
         for b in lade_buchungen(session)
         if b.datum.year == jahr
+        and b.storniert_durch is None  # Storno-Paar: kein Zugang (Baustein 7)
+        and b.storno_von is None
         and einstellungen.ist_anlagekonto(b.soll_konto)
         and not einstellungen.ist_anlagekonto(b.haben_konto)
         and not (b.beleg_nummer or "").startswith(("AfA-", "ANL-", "EB-"))

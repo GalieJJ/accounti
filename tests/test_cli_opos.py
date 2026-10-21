@@ -262,11 +262,28 @@ def test_vorschlag_anzeigen_und_bestaetigen(tmp_path):
     assert tx in liste.output and "sammel" in liste.output
     for nummer in ("RE-1001", "RE-1002", "RE-1003"):
         assert nummer in liste.output
+    keine = str(tmp_path / "keine.yaml")
     r = _run(
-        "opos", "bestaetigen", tx, "--db", url, "--config", str(tmp_path / "keine.yaml")
+        "opos", "bestaetigen", tx, "--db", url, "--config", keine, "--von", "erika"
     )
     assert r.exit_code == 0, r.output
     assert "3 Buchungen" in r.output
+    # Abschlussprüfung N-E: die Ausgleichsbuchungen tragen den Prüfvermerk
+    from sqlalchemy import text
+
+    from accounti.db import session_factory
+
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        pruefer = set(
+            s.execute(
+                text(
+                    "SELECT geprueft_von FROM buchungssaetze WHERE status = 'geprueft'"
+                )
+            ).scalars()
+        )
+    engine.dispose()
+    assert pruefer == {"erika"}
     assert "Keine offenen Posten" in _run("opos", "liste", "--db", url).output
     assert "Keine Vorschläge" in _run("opos", "vorschlaege", "--db", url).output
 
@@ -279,3 +296,64 @@ def test_vorschlag_ablehnen(tmp_path):
     assert "RE-1001" in _run("opos", "liste", "--db", url).output
     unbekannt = _run("opos", "bestaetigen", tx, "--db", url)
     assert unbekannt.exit_code == 1
+
+
+def test_verbuchen_in_festgeschriebenen_monat_mit_buchungsdatum(tmp_path):
+    """Befund B-H3: die Rechnung vom 05.03. kommt nach der Festschreibung des März."""
+    from datetime import date
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+
+    url = _db(tmp_path)
+    archiv = str(tmp_path / "archiv")
+    datei = str(BELEGE / "rechnung_zwei_steuersaetze.txt")
+    r = _run("belege", "import", datei, "--db", url, "--archiv", archiv)
+    assert r.exit_code == 0, r.output
+    r = _run("periode", "schliessen", "2026-03", "--db", url, "--von", "erika")
+    assert r.exit_code == 0, r.output
+    basis = ["--db", url, "--archiv", archiv, "--config", str(tmp_path / "k.yaml")]
+    r = _run("opos", "verbuchen", *basis)
+    assert "Nicht verbucht" in r.output and "--buchungsdatum" in r.output
+    r = _run("opos", "verbuchen", *basis, "--buchungsdatum", "eingang")
+    assert r.exit_code == 0, r.output
+    assert "§ 15 Abs. 1 Nr. 1 UStG" in r.output
+    _, fabrik = session_factory(url)
+    with fabrik() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date.today()}
+
+
+def test_buchungsdatum_im_folgejahr_braucht_die_gewinnermittlung(tmp_path):
+    """Befund M-1 (Runde 3): Ohne abschluss.gewinnermittlung lehnt accounti ein
+    Buchungsdatum im nächsten Geschäftsjahr ab — still EÜR anzunehmen ließe eine
+    bilanzierende GmbH Aufwand ins falsche Jahr buchen."""
+    from datetime import date
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+
+    url = _db(tmp_path)
+    archiv = str(tmp_path / "archiv")
+    datei = str(BELEGE / "rechnung_zwei_steuersaetze.txt")  # Belegdatum 05.03.2026
+    assert (
+        _run("belege", "import", datei, "--db", url, "--archiv", archiv).exit_code == 0
+    )
+    r = _run("periode", "schliessen", "2026-03", "--db", url, "--von", "erika")
+    assert r.exit_code == 0, r.output
+    folgejahr = ["--buchungsdatum", "2027-01-10"]
+
+    def verbuchen(konfig: str) -> str:
+        pfad = tmp_path / "k.yaml"
+        pfad.write_text(konfig, encoding="utf-8")
+        basis = ["--db", url, "--archiv", archiv, "--config", str(pfad)]
+        return _run("opos", "verbuchen", *basis, *folgejahr).output
+
+    for konfig in ("", "abschluss:\n  rap_verzicht_bis_gwg: false\n"):
+        ausgabe = verbuchen(konfig)
+        assert "Nicht verbucht" in ausgabe and "gewinnermittlung" in ausgabe
+    assert "Nicht verbucht" in verbuchen("abschluss:\n  gewinnermittlung: bilanz\n")
+    ausgabe = verbuchen("abschluss:\n  gewinnermittlung: euer\n")
+    assert "Nicht verbucht" not in ausgabe, ausgabe
+    _, fabrik = session_factory(url)
+    with fabrik() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}

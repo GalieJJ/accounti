@@ -453,3 +453,25 @@ def test_entscheider_wird_auf_die_spaltenlaenge_gekuerzt(make_session, bilanz):
     with make_session() as s:
         (a,) = lade_abgrenzungen(s, 2026)
     assert a.entschieden_von == "X" * 50
+
+
+def test_storno_paar_wird_nicht_abgegrenzt(make_session, bilanz):
+    """Befund B-M4: Korrigiert per Storno und Neubuchung — abgegrenzt wird nur die
+    Neubuchung, nicht Original (ARAP) und Storno (PRAP) dazu."""
+    from accounti.pruefung.storno import korrigiere
+
+    versicherung = buche(
+        make_session,
+        date(2026, 12, 1),
+        "4360",
+        "1200",
+        "1200",
+        "Versicherung 01.12.2026 - 30.11.2027",
+    )
+    with make_session() as s:
+        k = korrigiere(s, str(versicherung.id), "4380", "1200", von="erika")
+        s.commit()
+    lauf = vorschlagen(make_session, bilanz)
+    assert [(v.buchung_id, v.konto, v.art) for v in lauf.vorschlaege] == [
+        (k.neu.id, "4380", AbgrenzungArt.ARAP)
+    ]

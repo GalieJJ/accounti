@@ -46,6 +46,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
         engine,
         lade_buchhaltung(g.konfiguration),
         bank_einstellungen=lade_bank_einstellungen(g.konfiguration),
+        sichern=s.commit,
     )
     s.commit()
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung
@@ -132,7 +133,10 @@ def _gesperrt(
     s: Session,
 ) -> dict[str, Any]:
     try:
-        with laufsperre(zugang.gesellschaft.datenbank, art):
+        with (
+            laufsperre(zugang.gesellschaft.datenbank, art),
+            zugang.journal(),
+        ):
             return lauf(zugang, s)
     except LaufLaeuftError as fehler:
         raise HTTPException(409, str(fehler)) from fehler

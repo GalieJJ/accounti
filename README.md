@@ -88,10 +88,10 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
-| 🔲 | **Belegvollständigkeit** | Umsatz ohne Beleg, Beleg ohne Umsatz, Lücken in Nummernkreisen |
-| 🔲 | **Ordnungsmäßigkeit** | § 14 UStG-Pflichtangaben, Rechenprobe, Steuerschlüssel ./. Konto, Adressat |
-| 🔲 | **Belegnachforderung** | Fehlende Belege werden selbstständig angefordert und erinnert |
-| 🔲 | **Unveränderbares Journal** | Hashverkettet, Storno statt Änderung, Verfahrensdokumentation generiert |
+| ✅ | **Belegvollständigkeit** | Prüfregeln mit Schweregrad und Schwellen aus der Konfiguration: Umsatz ohne Beleg (mit Betrag, Datum, Gegenpartei), Rechnung ohne Zahlung nach Zahlungsziel, Lücken in Nummernkreisen und Kontoauszügen; begründet belegfreie Umsätze per Muster |
+| ✅ | **Ordnungsmäßigkeit** | Pflichtangaben nach § 14 Abs. 4 UStG aus dem Original (Kleinbetragsrechnung § 33 UStDV bis 250 €), Rechenprobe, Steuerschlüssel ./. Sachkonto (DATEV-Automatikkonten), Steuersatz zum Land, Adressat, Vorsteuer aus ig. Erwerb ohne USt-IdNr., Dubletten, Zeitgerechtheit, Festschreibung — `accounti pruefen` |
+| ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
+| ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen, auch am Bestand vorbei); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; mit Benutzern nur mit Rolle und Einmalcode, im Journal steht der Benutzer; Verfahrensdokumentation aus dem eingerichteten System |
 | ✅ | **Aufgaben & Rückfragen** | Aufgaben mit Bezug auf Buchung, Beleg, Umsatz, Kontakt oder Bankkonto; Prüfläufe (unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe) idempotent und mit Selbstabschluss; Zuständigkeit an Person oder Rolle, sonst gemeinsame Liste; Rückfragen am Beleg; gebündelte Tagesübersicht per E-Mail oder Webhook |
 | 🔲 | **Supervisionsansicht** | Web-UI: Beleg links, Vorschlag rechts, Korrektur in einem Schritt |
 
@@ -118,7 +118,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
 | ✅ | **REST-API** | `/api/v1` mit API-Token und Rechten (`opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`): offene Posten und Buchungen abfragen, Belege einliefern (Pipeline wie der Webhook), `bank lauf` und `aufgaben lauf` anstoßen; Token nur als Hash gespeichert, ohne Recht 403 |
 | ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
-| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI), Vier-Augen-Freigabe; DE/EN folgt |
+| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI) — auch Buchungsfreigabe, Korrektur, Storno und Festschreibung —, Vier-Augen-Freigabe; DE/EN folgt |
 | ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
 
 Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
@@ -478,6 +478,63 @@ Erledigt bleibt erledigt: Wer eine Aufgabe mit Begründung schließt, bekommt si
 Prüflauf nicht wieder. „Beleg fehlt“ lässt sich nur mit Begründung (`--text`) erledigen. Erinnerungen kommen am Fälligkeitstag, nach drei und nach sieben Tagen
 (einstellbar je Art, die letzte Stufe eskaliert auf Wunsch) — gebündelt, nicht als Einzelmail.
 
+### Prüfung, Journal und Festschreibung
+
+accounti sagt, was der Buchhaltung fehlt und was daran nicht stimmt — die Prüfregeln lesen
+nur. Was freigegeben ist, ändert sich nur noch per Storno; jede Änderung steht im Journal.
+
+```bash
+accounti pruefen --period 2026-08              # alle Regeln; Exit 1 bei Fehler-Befunden
+accounti pruefen --regel umsatz_ohne_beleg --period 2026-08
+accounti pruefen --archiv archiv/belege        # Pflichtangaben aus dem Original (--ocr für Scans)
+accounti pruefen regeln                        # Regeln, Schweregrade, Schwellen
+accounti nachfordern --period 2026-08          # Aufgaben „Beleg fehlt“; schließen sich selbst
+accounti nachfordern anfrage 3fa2c1 --an beleg@lieferant.example   # Entwurf; senden mit --senden
+
+accounti korrigiere 3fa2c1 --soll 4930 --haben 1200 --steuer 9   # freigegeben: Storno + Neubuchung
+accounti buchung zeige 3fa2c1                  # Original, Storno, Neubuchung, Journal
+accounti buchung storniere 3fa2c1 --grund "doppelt erfasst"
+accounti journal --von 2026-08-01 --bis 2026-08-31
+accounti journal pruefen                       # Verkettung, Verlauf, Bestand; Kopf zum Notieren
+accounti periode schliessen 2026-08            # keine Buchung mehr im August
+accounti periode oeffnen 2026-08 --grund "Rechnung nachgereicht"
+accounti opos verbuchen --buchungsdatum eingang   # Rechnung zu einem festgeschriebenen Monat
+accounti verfahrensdoku --ausgabe verfahrensdoku.md --pdf verfahrensdoku.pdf
+accounti journal uebernehmen                   # einmal nach dem Update einer älteren Datenbank
+```
+
+Ab der Freigabe (auch automatisch gebuchte Buchungen) ist eine Korrektur eine Stornobuchung
+mit Neubuchung; beide bleiben sichtbar und verweisen aufeinander. Ändert sich das Sachkonto,
+gehört `--steuer` oder `--ohne-steuer` dazu. Einen festgeschriebenen Monat öffnet nur, wer
+einen Grund angibt — protokolliert wie der Jahresabschluss. Nur die EB-Werte des
+Saldovortrags am 01.01. nimmt ein festgeschriebener Januar noch an; eine Eingangsrechnung zu
+einem festgeschriebenen Monat bucht `opos verbuchen --buchungsdatum` in einen offenen Monat —
+bei Bilanzierung (und ohne ausdrückliche `abschluss.gewinnermittlung`) nicht über den
+Geschäftsjahreswechsel.
+
+Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
+
+| Recht (Rollen) | Befehle |
+|----------------|---------|
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
+| Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
+| Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |
+| verwalten (`verwalter`) | `journal uebernehmen` |
+
+Im Journal steht dann der Benutzer, nicht ein Freitext aus `--von`; wer keine
+Rechteprüfung durchlaufen hat (Läufe wie `classify`, Importe), steht dort als „… (ungeprüft)“.
+Beim Öffnen nennt accounti schon freigegebene oder abgegebene Voranmeldungen des
+Zeitraums. `opos verbuchen` und `periode schliessen` laufen nie neben `bank lauf`, `classify`
+oder einem anderen Buchungslauf derselben Datenbank (Laufsperre, sonst Exit 1),
+`nachfordern` nicht neben `aufgaben lauf`.
+
+Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `alembic upgrade head`
+(Migration `ddc9a184ddb4`); gleich danach — bevor accounti selbst schreibt — einmal
+`accounti journal uebernehmen`, sonst meldet `journal pruefen` den älteren Bestand als
+„ohne Eintrag“. Später lehnt `journal uebernehmen` ab: Was dann ohne Eintrag ist, entstand an
+accounti vorbei ([Upgrades](docs/betrieb.md#upgrades)).
+
 ### Betrieb, Benutzer und mehrere Gesellschaften
 
 ```bash
@@ -495,7 +552,8 @@ accounti betrieb lauf --intervall-minuten 60       # bank lauf + aufgaben lauf j
 ```
 
 Mit eingerichteten Benutzern verlangen `zahlung freigeben` und `ustva freigeben` die Rolle
-`freigeber` und den Einmalcode der handelnden Person; ohne Benutzer bleibt alles wie bisher.
+`freigeber` und den Einmalcode der handelnden Person, Buchungsfreigabe, Korrektur, Storno und
+Festschreibung die Rollen aus dem Abschnitt oben; ohne Benutzer bleibt alles wie bisher.
 
 ---
 
@@ -524,7 +582,7 @@ accounti/
 │   ├── bwa/              # BWA-Berechnung nach DATEV-Schema
 │   ├── auth/             # Benutzer, Rollen, 2FA
 │   └── api/              # REST-API + Web-UI für Supervision
-├── config/               # Kontenrahmen (SKR03/04), Steuerschlüssel, Regeln
+├── config/               # Beispielkonfiguration, eigene Kontierungsregeln
 ├── tests/
 ├── docs/                 # Bauplan, Architektur, Specs, Pläne
 └── examples/             # Beispiel-Imports und Konfigurationen
@@ -594,7 +652,8 @@ confidence           beleg_nummer
 
 ## Kontenrahmen & Steuer
 
-accounti liefert SKR03 und SKR04 als YAML-Dateien mit:
+accounti liefert für SKR03 eine Kontendatei im Paket (Starterset, gegen den
+DATEV-Kontenrahmen 2026 abgeglichen; für SKR04 gelten nur Kontenbereiche) mit:
 
 - Kontonummern und Bezeichnungen
 - Kontotypen (Bilanz/GuV)
@@ -603,10 +662,10 @@ accounti liefert SKR03 und SKR04 als YAML-Dateien mit:
 - Steuerschlüssel nach DATEV-Standard
 
 ```yaml
-# config/skr03.yaml (Auszug)
+# accounti/pruefung/skr03.yaml (Auszug; mitgeliefert, eigene Datei: pruefung.kontenrahmen_datei)
 konten:
   "8400":
-    name: "Erlöse 19% USt"
+    name: "Erlöse 19 % USt"
     typ: erloes
     bwa_zeile: 1
     steuer:
@@ -617,9 +676,14 @@ konten:
     typ: aufwand
     bwa_zeile: 14
     steuer:
-      schluessel: 9    # VSt 19%
-      automatik: true
+      schluessel: null
+      automatik: false
 ```
+
+`automatik: true` tragen nur DATEV-Automatikkonten (AV/AM). Im DATEV-Export bleibt auf ihnen
+der passende Steuerschlüssel weg, ohne Steuer steht BU 40. Kontoarten, EÜR-Kennzahlen und
+Saldenvortragskonten für den Jahresabschluss stehen getrennt davon in
+`accounti/abschluss/kontenrahmen_skr03.yaml` bzw. `…_skr04.yaml`.
 
 ---
 
@@ -754,9 +818,9 @@ kontieren will, braucht nur v0.1.
 ### v0.4 — Zahlung & Prüfung *(Bausteine 6, 7)*
 - [x] Zahlungsvorschlag nach Skontofrist, SEPA-Sammelüberweisung, Freigabe
 - [x] Mehrstufiges Mahnwesen mit Verzugszinsen
-- [ ] Prüfregeln für Vollständigkeit, Richtigkeit, Zeitgerechtheit, Ordnung
-- [ ] Belegnachforderung, unveränderbares Journal, Periodenabschluss
-- [ ] Generierte Verfahrensdokumentation
+- [x] Prüfregeln für Vollständigkeit, Richtigkeit, Zeitgerechtheit, Ordnung
+- [x] Belegnachforderung, unveränderbares Journal, Periodenabschluss
+- [x] Generierte Verfahrensdokumentation
 
 ### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
 - [x] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen

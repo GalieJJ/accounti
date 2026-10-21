@@ -276,3 +276,65 @@ def test_benutzer_mit_sitzung_braucht_trotzdem_ein_token(welt):
     welt.person("jan", Rolle.BUCHHALTER)
     client = welt.angemeldet("jan")
     assert client.get("/api/v1/offene-posten").status_code == 401
+
+
+def test_im_journal_steht_das_token(welt):
+    """Verzahnung mit Baustein 7: was ein API-Token anstößt, steht im Journal unter
+    dem Token — nicht unter dem Betriebssystem-Benutzer des Servers."""
+    from sqlalchemy import text
+
+    def personen(ab: int = 0) -> list[tuple[int, str]]:
+        engine, fabrik = session_factory(welt.umgebung.db["a"])
+        with fabrik() as s:
+            zeilen = s.execute(
+                text(
+                    "SELECT nr, person FROM journal "
+                    "WHERE vorgang = 'beleg_importiert' AND nr > :ab"
+                ),
+                {"ab": ab},
+            ).all()
+        engine.dispose()
+        return [(nr, person) for nr, person in zeilen]
+
+    # gebunden wie nach der ersten Rechteprüfung — sonst kennzeichnete das Journal
+    # gar nicht, und „geprüft“ des Tokens bliebe ungetestet (Abschlussprüfung U4)
+    from tests.test_api_rechte_matrix import bindung_setzen
+
+    bindung_setzen(welt.umgebung.db["a"])
+    bisher = max((nr for nr, _ in personen()), default=0)
+    token = welt.token("a", TokenRecht.BELEGE_SCHREIBEN)
+    r = welt.client().post(
+        "/api/v1/belege",
+        headers={**bearer(token), "Content-Type": "application/pdf"},
+        content=pdf_mit_text("Rechnung RE-78 Papier"),
+    )
+    assert r.status_code == 200, r.text
+    assert {person for _, person in personen(bisher)} == {"API-Token erp"}
+
+
+def test_lauf_ueber_rest_steht_unter_dem_token_im_journal(welt, monkeypatch):
+    """Schlussprüfung T-N5: auch ``/laeufe/…`` setzt die Person des Journals."""
+    from sqlalchemy import text
+
+    from accounti.api.rest import laeufe
+    from accounti.pruefung.journal import schreibe
+
+    def lauf(zugang, s):  # type: ignore[no-untyped-def]
+        schreibe(s, "export", "export", "probe", nachher={"anzahl": 0})
+        s.commit()
+        return {"lauf": "bank"}
+
+    monkeypatch.setattr(laeufe, "_bank", lauf)
+    from tests.test_api_rechte_matrix import bindung_setzen
+
+    bindung_setzen(welt.umgebung.db["a"])
+    token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
+    r = welt.client().post("/api/v1/laeufe/bank", headers=bearer(token))
+    assert r.status_code == 200, r.text
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:
+        person = s.execute(
+            text("SELECT person FROM journal WHERE objekt_id = 'probe'")
+        ).scalar()
+    engine.dispose()
+    assert person == "API-Token erp"

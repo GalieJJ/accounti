@@ -18,11 +18,14 @@ verändert, sondern als ``DatevFormatError`` gemeldet.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from accounti.export.datev_felder import Feld
+from accounti.models import Buchungssatz
 
 
 class DatevFormatError(ValueError):
@@ -151,6 +154,83 @@ def belegfeld1(text: str | None) -> str:
     Buchungsstapel, Feld 11). Das Feld ist der Schlüssel für den OPOS-Ausgleich.
     """
     return _BELEGFELD1_UNZULAESSIG.sub("", text or "")[:36]
+
+
+def belegfeld2_storno(
+    storno_von: UUID | None, storniert_durch: UUID | None, ident: UUID
+) -> str:
+    """Belegfeld 2 eines Storno-Paars: ``ST`` und die ersten acht Zeichen der ID des
+    Originals — an Original und Stornobuchung, sonst leer.
+
+    GoBD Rz. 64: das Storno ist auf die ursprüngliche Buchung rückbeziehbar; über
+    Belegfeld 1 nur, wenn es eine Belegnummer gibt. Zehn Zeichen aus Buchstaben und
+    Ziffern passen in Feld 12 (höchstens 12) und sehen nie wie ein Datum (TTMMJJ)
+    aus, das DATEV im OPOS als Fälligkeit läse.
+    """
+    original = storno_von or (ident if storniert_durch else None)
+    return f"ST{original.hex[:8].upper()}" if original else ""
+
+
+# Berichtigungsschlüssel 4 + Steuerschlüssel 0: Aufhebung der Automatik (DATEV)
+AUFHEBUNG_DER_AUTOMATIK = "40"
+
+
+def _automatik(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> int | None:
+    for konto in (b.soll_konto, b.haben_konto):
+        if konto in automatikkonten:
+            return automatikkonten[konto]
+    return None
+
+
+def bu_schluessel(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> str:
+    """BU-Schlüssel einer Buchung (Feld 9).
+
+    DATEV-Steuerschlüssel-Tabelle (Dok.-Nr. 0907049, Kap. 3): Steuerschlüssel gelten
+    nur auf Konten ohne Automatik. Auf einem Automatikkonto (AV/AM, z.B. 3400, 8400)
+    bleibt das Feld deshalb leer, wenn der Schlüssel der Automatik entspricht — DATEV
+    rechnet die Steuer selbst heraus; steht die Buchung dort bewusst ohne Steuer,
+    trägt sie BU 40 „Aufhebung der Automatik“. Ein abweichender Schlüssel bleibt
+    stehen und wird vorab gemeldet (``automatik_widerspruch``). Sonst der
+    Steuerschlüssel der Buchung oder leer.
+    """
+    automatik = _automatik(b, automatikkonten)
+    if b.steuer_schluessel is not None:
+        if automatik is not None and b.steuer_schluessel == automatik:
+            return ""
+        return str(b.steuer_schluessel)
+    if automatik is not None and not b.steuer_betrag:
+        return AUFHEBUNG_DER_AUTOMATIK
+    return ""
+
+
+def automatik_widerspruch(
+    b: Buchungssatz, automatikkonten: Mapping[str, int]
+) -> str | None:
+    """Warnung vor dem Export: anderer Schlüssel auf einem Automatikkonto — oder
+    Steuer ohne Schlüssel (BU bleibt leer, DATEV rechnet, accounti meldet nichts)."""
+    automatik = _automatik(b, automatikkonten)
+    if automatik is None:
+        return None
+    konto = b.soll_konto if b.soll_konto in automatikkonten else b.haben_konto
+    if b.steuer_schluessel is None and b.steuer_betrag:
+        return (
+            f"Buchung {b.beleg_nummer or str(b.id)[:8]} ({b.soll_konto} an "
+            f"{b.haben_konto}): Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+            f"{automatik}), gebucht mit Steuerbetrag, aber ohne Schlüssel — DATEV "
+            "rechnet die Steuer aus dem Betrag heraus, accounti meldet sie in keiner "
+            f"Voranmeldung; vor dem Import korrigieren (accounti korrigiere "
+            f"{str(b.id)[:8]} --soll {b.soll_konto} --haben {b.haben_konto} "
+            f"--steuer {automatik})"
+        )
+    if b.steuer_schluessel in (None, automatik):
+        return None
+    return (
+        f"Buchung {b.beleg_nummer or str(b.id)[:8]} ({b.soll_konto} an "
+        f"{b.haben_konto}): Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+        f"{automatik}), gebucht mit Schlüssel {b.steuer_schluessel} — DATEV nimmt "
+        "Steuerschlüssel nur auf Konten ohne Automatik an; vor dem Import korrigieren "
+        "(accounti pruefen --regel steuerschluessel_konto)"
+    )
 
 
 def feldnummer(felder: tuple[Feld, ...], name: str) -> int:

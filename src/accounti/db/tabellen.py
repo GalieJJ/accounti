@@ -51,7 +51,8 @@ class BuchungssatzRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     transaktion_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
-    datum: Mapped[date] = mapped_column(Date)
+    # active_history: das alte Datum kennt die Sperre auch, wenn es abgelaufen war
+    datum: Mapped[date] = mapped_column(Date, active_history=True)
     soll_konto: Mapped[str] = mapped_column(String(10))
     haben_konto: Mapped[str] = mapped_column(String(10))
     betrag_netto: Mapped[Decimal] = mapped_column(Numeric(14, 2))
@@ -63,6 +64,15 @@ class BuchungssatzRow(Base):
     confidence: Mapped[float] = mapped_column(Float)
     geprueft_von: Mapped[str | None] = mapped_column(String(50), nullable=True)
     beleg_position_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    # Storno statt Änderung (Baustein 7) — eindeutig: höchstens ein Storno je Buchung.
+    # Als benannter Unique-Index (ix_buchungssaetze_…), nicht als unbenannte
+    # Unique-Constraint: die Migration fügt ihn per batch_alter_table hinzu.
+    storniert_durch: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, unique=True, index=True, active_history=True
+    )
+    storno_von: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, unique=True, index=True
+    )
 
 
 class BelegRow(Base):

@@ -2,12 +2,14 @@
 
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import update
 
 from accounti.abschluss.kassenbuch import anfangsbestand, buche_kasse
 from accounti.abschluss.konfiguration import KassenEinstellungen
+from accounti.abschluss.kontenrahmen import lade_kontenrahmen
 from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.pruefungen import (
     erfasse_kontoauszugssaldo,
@@ -39,6 +41,7 @@ from tests.abschluss_hilfe import anlegen, buche, datenbank
 
 D = Decimal
 IBAN = "DE02120300000000202051"
+KR = lade_kontenrahmen("SKR03")
 
 
 @pytest.fixture
@@ -585,3 +588,143 @@ def test_pruefung_protokoll_meldet_manipulation(make_session, config, jahr_2026)
         (b,) = pruefe_abschluss(_k(s, config, 2027), nur=["protokoll"])
     assert b.schwere is Schwere.WARNUNG
     assert "Eintrag 1 wurde verändert" in b.text
+
+
+# --- Monatssperre und Saldovortrag (Baustein 7, Befund B-H3) -------------------------
+
+
+def test_vortrag_in_einen_festgeschriebenen_januar(make_session, config, jahr_2026):
+    """Der Januar ist mit der UStVA festgeschrieben, der Abschluss folgt später: Die
+    EB-Werte am 01.01. tragen die Schlussbilanz vor und ändern weder Verkehrszahlen
+    noch UStVA des Januars — sie nimmt die Monatssperre an, die Jahressperre nicht."""
+    from accounti.pruefung.journal import pruefe_journal
+    from accounti.pruefung.perioden import schliesse
+    from tests.test_pruefung_regeln import pruefe
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    with make_session() as s:
+        vortrag = trage_vor(s, _k(s, config), "E. Muster")
+        s.commit()
+        assert vortrag.buchungen and all(
+            b.datum == date(2027, 1, 1) for b in vortrag.buchungen
+        )
+        assert pruefe_journal(s).in_ordnung
+        # eine gewöhnliche Buchung im Januar bleibt gesperrt
+        speichere_buchung(
+            s,
+            Buchungssatz(
+                datum=date(2027, 1, 1),
+                soll_konto="4930",
+                haben_konto="1200",
+                betrag_netto=D("10"),
+                buchungstext="nachgereicht",
+                status=BuchungStatus.GEPRUEFT,
+            ),
+        )
+        with pytest.raises(JahrGesperrtError, match="2027-01"):
+            s.flush()
+    befunde = pruefe(make_session, "buchung_in_gesperrter_periode", period="2027-01")
+    assert befunde == []
+
+
+def _eb(tag, soll="1200", haben="9000", **kw):
+    werte = {
+        "datum": tag,
+        "soll_konto": soll,
+        "haben_konto": haben,
+        "betrag_netto": D("100"),
+        "buchungstext": "Saldovortrag 2026",
+        "beleg_nummer": f"EB-{tag.year}",
+        "status": BuchungStatus.GEPRUEFT,
+    }
+    werte.update(kw)
+    return Buchungssatz.model_validate(werte)
+
+
+@pytest.mark.parametrize(
+    ("fall", "buchung"),
+    [
+        (
+            "aufwand mit vorsteuer",
+            _eb(
+                date(2027, 1, 1),
+                "4900",
+                "1200",
+                steuer_schluessel=9,
+                steuer_betrag=D("19"),
+            ),
+        ),
+        ("ohne vortragskonto", _eb(date(2027, 1, 1), "1200", "0880")),
+        ("andere belegnummer", _eb(date(2027, 1, 1), beleg_nummer="RE-1")),
+        ("am 02.01.", _eb(date(2027, 1, 2), beleg_nummer="EB-2027")),
+        ("erfolgskonto gegen 9000", _eb(date(2027, 1, 1), "4900", "9000")),
+        ("eb-storno", _eb(date(2027, 1, 1), "9000", "1200", storno_von=uuid4())),
+    ],
+)
+def test_eb_ausnahme_nur_fuer_die_form_einer_eb_buchung(make_session, fall, buchung):
+    """Befund N4/N-N7, N-3: gemeldete ID allein genügt nicht — ohne Steuer, eine Seite
+    ein Saldenvortragskonto des Kontenrahmens, die andere ein Bestandskonto,
+    Belegnummer EB-JJJJ, am 01.01., kein Storno."""
+    from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
+    from accounti.pruefung.perioden import schliesse
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    with make_session() as s, eroeffnungsbuchungen(s, KR, "bilanz") as eb:
+        eb.add(str(buchung.id))
+        speichere_buchung(s, buchung)
+        with pytest.raises(JahrGesperrtError, match="2027-01"):
+            s.flush()
+
+
+def test_eb_ausnahme_verschachtelt_und_nicht_ueber_session_info(make_session):
+    from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
+    from accounti.pruefung.perioden import schliesse
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    aussen, innen = _eb(date(2027, 1, 1)), _eb(date(2027, 1, 1), "9000", "0880")
+    with make_session() as s:
+        with eroeffnungsbuchungen(s, KR, "bilanz") as eb_aussen:
+            eb_aussen.add(str(aussen.id))
+            speichere_buchung(s, aussen)
+            with eroeffnungsbuchungen(s, KR, "bilanz") as eb_innen:
+                eb_innen.add(str(innen.id))
+                speichere_buchung(s, innen)
+                s.flush()
+            # der innere Rahmen nimmt den äußeren nicht mit
+            andere = _eb(date(2027, 1, 1), "1000", "9000")
+            eb_aussen.add(str(andere.id))
+            speichere_buchung(s, andere)
+            s.flush()
+        s.commit()
+    with make_session() as s:
+        direkt = _eb(date(2027, 1, 1), "1400", "9000")
+        s.info["accounti_eroeffnungsbuchungen"] = {str(direkt.id)}
+        speichere_buchung(s, direkt)
+        with pytest.raises(JahrGesperrtError, match="2027-01"):
+            s.flush()
+
+
+def test_eb_rahmen_mit_gleichem_inhalt_verschachtelt(make_session):
+    """Befund N-2: Der innere Rahmen entfernt beim Verlassen nicht den äußeren, auch
+    wenn beide denselben Inhalt haben."""
+    from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
+    from accounti.pruefung.perioden import schliesse
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    eb = _eb(date(2027, 1, 1))
+    with make_session() as s:
+        with eroeffnungsbuchungen(s, KR, "bilanz") as aussen:
+            with eroeffnungsbuchungen(s, KR, "bilanz"):
+                pass
+            aussen.add(str(eb.id))
+            speichere_buchung(s, eb)
+            s.flush()
+        s.commit()

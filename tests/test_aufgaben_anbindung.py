@@ -70,11 +70,15 @@ def fremdpaket(tmp_path, monkeypatch):
         del sys.modules[name]
 
 
+EIGENE = ["accounti.pruefung.aufgaben_anbindung"]  # Baustein 7: beleg_fehlt
+
+
 def test_anbindungen_werden_gefunden(fremdpaket):
-    assert anbindung.lade_anbindungen() == ["fremdpaket.steuer.aufgaben_anbindung"]
+    erwartet = [*EIGENE, "fremdpaket.steuer.aufgaben_anbindung"]
+    assert anbindung.lade_anbindungen() == erwartet
     assert "frist_probe" in PRUEFLAEUFE
     # ein zweiter Aufruf lädt nichts doppelt
-    assert anbindung.lade_anbindungen() == ["fremdpaket.steuer.aufgaben_anbindung"]
+    assert anbindung.lade_anbindungen() == erwartet
 
 
 def test_pruefen_laedt_die_anbindungen_selbst(fremdpaket, tmp_path):
@@ -103,5 +107,5 @@ def test_kanaele_laden_die_anbindungen_selbst(fremdpaket, tmp_path):
     assert set(kanaele) == {"brieftaube_probe"} and fehler == {}
 
 
-def test_accounti_selbst_hat_noch_keine_anbindung():
-    assert anbindung.lade_anbindungen() == []
+def test_accounti_bringt_nur_die_anbindung_von_baustein_7():
+    assert anbindung.lade_anbindungen() == EIGENE

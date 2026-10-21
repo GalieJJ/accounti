@@ -250,16 +250,18 @@ def freigeben_befehl(
 ) -> None:
     """AfA-Vorschläge eines Jahres freigeben (Buchungsfreigabe)."""
     from accounti.anlagen.lauf import freigeben
-    from accounti.auth.cli import aktueller_benutzername, befehlsrecht_oder_ende
+    from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.models.auth import Recht
+    from accounti.pruefung.person import aktuelle_person, geprueft_als
 
     # mit eingerichteten Benutzern: Buchungen freigeben (buchhalter/freigeber) und
-    # Einmalcode; geprüft hat dann der Benutzer (Spec 4.1: ein echter Benutzer)
+    # Einmalcode; geprüft hat dann der Benutzer (Spec 4.1: ein echter Benutzer) —
+    # ohne Benutzer --von bzw. ACCOUNTI_BENUTZER oder der Anmeldename
     benutzer = befehlsrecht_oder_ende(
-        db, config, Recht.BUCHUNG_FREIGEBEN, von or aktueller_benutzername()
+        db, config, Recht.BUCHUNG_FREIGEBEN, aktuelle_person(von)
     )
-    pruefer = benutzer.name if benutzer is not None else (von or "supervisor")
-    with sitzung(db)() as s:
+    pruefer = benutzer.name if benutzer is not None else aktuelle_person(von)
+    with geprueft_als(benutzer.name if benutzer else None), sitzung(db)() as s:
         try:
             anzahl = freigeben(s, jahr, pruefer)
         except JahrGesperrtError as fehler:

@@ -266,8 +266,14 @@ def _verwiesene_dateien(verbindung: Connection, metadaten: MetaData) -> set[str]
 
 
 def _zeilen(verbindung: Connection, tabelle: Table) -> Iterator[bytes]:
-    reihenfolge = list(tabelle.primary_key.columns) or list(tabelle.columns)
-    for zeile in verbindung.execute(select(tabelle).order_by(*reihenfolge)):
+    """Zeilen als JSON — nur Spalten, die es in der Datenbank gibt: Eine Datenbank
+    vor der Migration (z. B. ohne ``buchungssaetze.storno_von``) lässt sich so mit dem
+    neuen Code sichern; fehlende Spalten bleiben beim Zurückspielen leer bzw. auf
+    ihrem Standard."""
+    vorhanden = {s["name"] for s in inspect(verbindung).get_columns(tabelle.name)}
+    spalten = [c for c in tabelle.columns if c.name in vorhanden]
+    reihenfolge = [c for c in tabelle.primary_key.columns if c in spalten] or spalten
+    for zeile in verbindung.execute(select(*spalten).order_by(*reihenfolge)):
         werte = {k: kodiere(v) for k, v in zeile._mapping.items()}
         yield (json.dumps(werte, ensure_ascii=False, sort_keys=True) + "\n").encode()
 

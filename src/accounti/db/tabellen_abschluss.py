@@ -2,6 +2,7 @@
 
 Ist ein Jahr abgeschlossen (Saldovortrag), lassen sich Buchungen dieses Jahres nicht
 mehr anlegen, ändern oder löschen — das prüft ein ORM-Ereignis auf ``buchungssaetze``.
+Angenommen wird nur noch der Stornovermerk (``storniert_durch``, Baustein 7).
 Es greift für jeden Code, der dieses Modul geladen hat (``init_db`` und
 ``registriere_tabellen`` tun das). Rohes SQL umgeht es; einen Datenbanktrigger gibt es
 nicht, weil das Sperrjahr im Datum steckt.
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -26,7 +28,7 @@ from sqlalchemy import (
     select,
     text,
 )
-from sqlalchemy.orm import Mapped, Mapper, mapped_column
+from sqlalchemy.orm import Mapped, Mapper, mapped_column, object_session
 
 from accounti.db import Base
 from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
@@ -122,8 +124,34 @@ def _protokoll_trigger(_: object, verbindung: Connection, **__: object) -> None:
 
 # --- Jahressperre -----------------------------------------------------------------
 
+# ``session.info``: gesperrte Jahre und Monate für die Dauer eines Flushs (legt
+# ``pruefung.ereignisse`` vor jedem Flush frisch an) — eine Abfrage statt einer je Zeile
+SPERRCACHE = "accounti_sperren"
+# im Zwischenspeicher: Zeilen, deren Änderung ``before_flush`` schon gegen den
+# gespeicherten Stand geprüft hat (``id()`` des Objekts, gültig für diesen Flush)
+VORAB_GEPRUEFT = "vorab_geprueft"
 
-def jahr_gesperrt(verbindung: Connection, jahr: int) -> bool:
+
+def sperrcache(ziel: object) -> dict[str, Any] | None:
+    """Der Sperr-Zwischenspeicher des laufenden Flushs (``None`` außerhalb)."""
+    session = object_session(ziel)
+    return session.info.get(SPERRCACHE) if session is not None else None
+
+
+def vorab_geprueft(ziel: object) -> bool:
+    """Hat ``before_flush`` die Änderung dieser Zeile schon geprüft (Sperren aus dem
+    gespeicherten Stand, Baustein 7)?"""
+    cache = sperrcache(ziel)
+    return cache is not None and id(ziel) in cache.get(VORAB_GEPRUEFT, ())
+
+
+def jahr_gesperrt(
+    verbindung: Connection, jahr: int, cache: dict[str, Any] | None = None
+) -> bool:
+    if cache is not None:
+        if "jahre" not in cache:
+            cache["jahre"] = gesperrte_jahre(verbindung)
+        return jahr in cache["jahre"]
     if not verbindung.dialect.has_table(verbindung, AbschlussRow.__tablename__):
         return False
     gesperrt = verbindung.execute(
@@ -142,23 +170,53 @@ def gesperrte_jahre(verbindung: Connection) -> set[int]:
     )
 
 
+def nur_stornovermerk(ziel: BuchungssatzRow) -> bool:
+    """Ändert sich nur der Stornovermerk (``storniert_durch`` einmal gesetzt)?
+
+    Das nimmt auch ein gesperrter Zeitraum an (Baustein 7): Der Inhalt der Buchung
+    bleibt, das Storno selbst steht mit eigenem Datum in einem offenen Zeitraum.
+    """
+    geaendert = [a for a in inspect(ziel).attrs if a.history.has_changes()]
+    if [a.key for a in geaendert] != ["storniert_durch"]:
+        return False
+    (a,) = geaendert
+    return bool(a.history.added and a.history.added[0]) and not any(a.history.deleted)
+
+
+def jahressperre(
+    verbindung: Connection, jahr: int, cache: dict[str, Any] | None = None
+) -> JahrGesperrtError | None:
+    """Der Fehler, wenn das Geschäftsjahr gesperrt ist — sonst ``None``."""
+    if not jahr_gesperrt(verbindung, jahr, cache):
+        return None
+    return JahrGesperrtError(
+        f"Geschäftsjahr {jahr} ist abgeschlossen — Buchungen sind gesperrt "
+        f"(Änderung nur nach accounti abschluss oeffnen --jahr {jahr})"
+    )
+
+
 def _sperre_pruefen(verbindung: Connection, ziel: BuchungssatzRow) -> None:
+    # das alte Datum steht dank active_history auch nach dem Ablauf in der Historie
     jahre = {ziel.datum.year} if ziel.datum else set()
     alt = inspect(ziel).attrs.datum.history.deleted
     jahre |= {d.year for d in alt if d is not None}
+    cache = sperrcache(ziel)
     for jahr in sorted(jahre):
-        if jahr_gesperrt(verbindung, jahr):
-            msg = (
-                f"Geschäftsjahr {jahr} ist abgeschlossen — Buchungen sind gesperrt "
-                f"(Änderung nur nach accounti abschluss oeffnen --jahr {jahr})"
-            )
-            raise JahrGesperrtError(msg)
+        if (fehler := jahressperre(verbindung, jahr, cache)) is not None:
+            raise fehler
 
 
 @event.listens_for(BuchungssatzRow, "before_insert")
-@event.listens_for(BuchungssatzRow, "before_update")
 @event.listens_for(BuchungssatzRow, "before_delete")
 def _buchung_im_gesperrten_jahr(
     _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
 ) -> None:
     _sperre_pruefen(verbindung, ziel)
+
+
+@event.listens_for(BuchungssatzRow, "before_update")
+def _aenderung_im_gesperrten_jahr(
+    _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
+) -> None:
+    if not vorab_geprueft(ziel) and not nur_stornovermerk(ziel):
+        _sperre_pruefen(verbindung, ziel)

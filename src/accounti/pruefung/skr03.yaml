@@ -3,18 +3,30 @@
 # Vollständiger SKR03 hat ~1.500 Konten. Dies ist ein Starterset
 # mit den häufigsten Konten für E-Commerce / KMU.
 #
-# Quellen:
-# - DATEV Kontenrahmen SKR03
-# - https://www.datev.de/dnlexom/client/app/index.html#/document/1080579
+# Quelle: DATEV-Kontenrahmen SKR 03, „Gültig für 2026“ (Art.-Nr. 11174, Stand
+# 01.01.2026), https://www.datev.de/content/dam/markenassets/themen-und-produktgruppen/
+# zielgruppen/mandant/unternehmer/branche/bau/11174%20SKR03%20BilrUg.pdf —
+# abgeglichen am 21.10.2026: Kontenbezeichnungen, Automatikkonten (Hauptfunktion
+# AV = automatische Vorsteuer, AM = automatische Umsatzsteuer) mit ihrem Steuersatz
+# und die Zusatzfunktion V (Vorsteuer möglich) der Kontenbereiche.
 #
 # Format:
 #   nummer:
-#     name: Kontenbezeichnung
+#     name: Kontenbezeichnung (DATEV)
 #     typ: aktiv | passiv | erloes | aufwand | sonstiges
 #     bwa_zeile: BWA-Form-01-Zeile (1-23)
 #     steuer:
-#       schluessel: DATEV BU-Schlüssel (oder null)
-#       automatik: true/false
+#       schluessel: BU-Schlüssel — bei Automatikkonten der Schlüssel der Automatik,
+#                   sonst der übliche Schlüssel (oder null)
+#       automatik: true nur für DATEV-Automatikkonten (AV/AM)
+#       vorsteuer: false, wenn das Konto laut DATEV keine Vorsteuerfunktion hat
+#                  (außerhalb der V-Bereiche, z.B. Löhne, Versicherungen, AfA)
+#
+# Die Prüfregel steuerschluessel_konto meldet einen Fehler nur bei Automatikkonten
+# (automatik: true) mit anderem Schlüssel; vorsteuer: false ergibt einen Hinweis.
+# Der DATEV-Export lässt auf Automatikkonten den passenden Schlüssel weg und setzt
+# ohne Steuer BU 40. Die Datei liegt im Paket (unabhängig vom Arbeitsverzeichnis);
+# eine eigene setzt pruefung.kontenrahmen_datei.
 
 kontenrahmen: SKR03
 version: "2026-01"
@@ -23,8 +35,14 @@ konten:
   # ============================================================
   # Klasse 0: Anlage- und Kapitalkonten
   # ============================================================
+  "0027":
+    name: "EDV-Software"
+    typ: aktiv
+    bwa_zeile: null
+    steuer: { schluessel: null, automatik: false }
+
   "0400":
-    name: "Technische Anlagen und Maschinen"
+    name: "Betriebsausstattung"
     typ: aktiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
@@ -36,8 +54,8 @@ konten:
     steuer: { schluessel: null, automatik: false }
 
   "0650":
-    name: "Büromaschinen, EDV-Anlagen"
-    typ: aktiv
+    name: "Verbindlichkeiten gegenüber Kreditinstituten - Restlaufzeit größer 5 Jahre"
+    typ: passiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
 
@@ -63,13 +81,13 @@ konten:
     steuer: { schluessel: null, automatik: false }
 
   "1576":
-    name: "Abziehbare Vorsteuer 19%"
+    name: "Abziehbare Vorsteuer 19 %"
     typ: aktiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
 
   "1571":
-    name: "Abziehbare Vorsteuer 7%"
+    name: "Abziehbare Vorsteuer 7 %"
     typ: aktiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
@@ -81,94 +99,107 @@ konten:
     steuer: { schluessel: null, automatik: false }
 
   "1776":
-    name: "Umsatzsteuer 19%"
+    name: "Umsatzsteuer 19 %"
     typ: passiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
 
   "1771":
-    name: "Umsatzsteuer 7%"
+    name: "Umsatzsteuer 7 %"
     typ: passiv
     bwa_zeile: null
     steuer: { schluessel: null, automatik: false }
 
   # ============================================================
-  # Klasse 3: Wareneinkauf
+  # Klasse 3: Wareneingangs- und Bestandskonten
   # ============================================================
   "3000":
     name: "Einkauf Roh-, Hilfs- und Betriebsstoffe"
     typ: aufwand
     bwa_zeile: 4
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
-  "3300":
-    name: "Wareneinkauf"
-    typ: aufwand
-    bwa_zeile: 4
-    steuer: { schluessel: 9, automatik: true }
-
-  "3400":
-    name: "Wareneinkauf 7%"
+  "3300":  # AV 3300-3309
+    name: "Wareneingang 7 % Vorsteuer"
     typ: aufwand
     bwa_zeile: 4
     steuer: { schluessel: 8, automatik: true }
 
+  "3400":  # AV 3400-3409
+    name: "Wareneingang 19 % Vorsteuer"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: 9, automatik: true }
+
   # ============================================================
   # Klasse 4: Betriebliche Aufwendungen
+  # (V: 4000-4099, 4200-4299, 4400-4509, 4520-4821, 4900-4983, 4985-4989)
   # ============================================================
   "4100":
-    name: "Löhne"
+    name: "Löhne und Gehälter"
     typ: aufwand
     bwa_zeile: 8
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: false, vorsteuer: false }
 
   "4120":
     name: "Gehälter"
     typ: aufwand
     bwa_zeile: 8
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: false, vorsteuer: false }
 
   "4130":
     name: "Gesetzliche soziale Aufwendungen"
     typ: aufwand
     bwa_zeile: 8
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: false, vorsteuer: false }
 
   "4210":
     name: "Miete (unbewegliche Wirtschaftsgüter)"
     typ: aufwand
     bwa_zeile: 9
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: null, automatik: false }
 
   "4360":
     name: "Versicherungen"
     typ: aufwand
     bwa_zeile: 11
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: false, vorsteuer: false }
 
   "4500":
     name: "Fahrzeugkosten"
     typ: aufwand
     bwa_zeile: 12
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4600":
+    name: "Werbekosten"
+    typ: aufwand
+    bwa_zeile: 12
+    steuer: { schluessel: 9, automatik: false }
+
+  "4660":
     name: "Reisekosten Arbeitnehmer"
     typ: aufwand
     bwa_zeile: 12
     steuer: { schluessel: null, automatik: false }
 
   "4800":
-    name: "Abschreibungen auf Sachanlagen"
+    name: "Reparaturen und Instandhaltungen von technischen Anlagen und Maschinen"
     typ: aufwand
     bwa_zeile: 13
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: 9, automatik: false }
+
+  "4830":
+    name: "Abschreibungen auf Sachanlagen (ohne AfA auf Fahrzeuge und Gebäude)"
+    typ: aufwand
+    bwa_zeile: 13
+    steuer: { schluessel: null, automatik: false, vorsteuer: false }
 
   "4900":
     name: "Sonstige betriebliche Aufwendungen"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4910":
     name: "Porto"
@@ -180,31 +211,31 @@ konten:
     name: "Telefon"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4930":
     name: "Bürobedarf"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4940":
-    name: "Zeitschriften, Bücher"
+    name: "Zeitschriften, Bücher, digitale Medien (Fachliteratur)"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 8, automatik: true }
+    steuer: { schluessel: 8, automatik: false }
 
   "4950":
     name: "Rechts- und Beratungskosten"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4955":
     name: "Buchführungskosten"
     typ: aufwand
     bwa_zeile: 14
-    steuer: { schluessel: 9, automatik: true }
+    steuer: { schluessel: 9, automatik: false }
 
   "4970":
     name: "Nebenkosten des Geldverkehrs"
@@ -213,40 +244,40 @@ konten:
     steuer: { schluessel: null, automatik: false }
 
   # ============================================================
-  # Klasse 8: Erlöse
+  # Klasse 8: Erlöskonten
   # ============================================================
   "8000":
-    name: "Erlöse (ohne USt)"
+    name: "Umsatzerlöse (zur freien Verfügung)"
     typ: erloes
     bwa_zeile: 1
     steuer: { schluessel: null, automatik: false }
 
-  "8100":
-    name: "Steuerfreie Umsätze § 4 Nr. 1a UStG (Ausfuhr)"
+  "8100":  # AM 8100-8104, steuerfrei (ohne Schlüssel)
+    name: "Steuerfreie Umsätze § 4 Nr. 8 ff. UStG"
     typ: erloes
     bwa_zeile: 1
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: true }
 
-  "8125":
-    name: "Steuerfreie ig. Lieferungen § 4 Nr. 1b UStG"
+  "8125":  # AM, steuerfrei (ohne Schlüssel)
+    name: "Steuerfreie innergemeinschaftliche Lieferungen nach § 4 Nr. 1b UStG"
     typ: erloes
     bwa_zeile: 1
-    steuer: { schluessel: null, automatik: false }
+    steuer: { schluessel: null, automatik: true }
 
-  "8300":
-    name: "Erlöse 7% USt"
+  "8300":  # AM 8300-8309
+    name: "Erlöse 7 % USt"
     typ: erloes
     bwa_zeile: 1
     steuer: { schluessel: 2, automatik: true }
 
-  "8400":
-    name: "Erlöse 19% USt"
+  "8400":  # AM 8400-8409
+    name: "Erlöse 19 % USt"
     typ: erloes
     bwa_zeile: 1
     steuer: { schluessel: 3, automatik: true }
 
   "8611":
-    name: "Erlöse aus Vermietung und Verpachtung"
+    name: "Verrechnete sonstige Sachbezüge aus Fahrzeug-Gestellung 19 % USt"
     typ: erloes
     bwa_zeile: 3
     steuer: { schluessel: 3, automatik: true }
@@ -255,17 +286,29 @@ konten:
     name: "Erlösschmälerungen"
     typ: erloes
     bwa_zeile: 1
+    steuer: { schluessel: null, automatik: false }
+
+  "8710":  # AM 8710-8711
+    name: "Erlösschmälerungen 7 % USt"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: 2, automatik: true }
+
+  "8720":  # AM 8720-8721
+    name: "Erlösschmälerungen 19 % USt"
+    typ: erloes
+    bwa_zeile: 1
     steuer: { schluessel: 3, automatik: true }
 
 # ============================================================
-# Steuerschlüssel-Referenz
+# Steuerschlüssel-Referenz (wie accounti sie auswertet: steuer/kennziffern.py)
 # ============================================================
 steuer_schluessel:
-  1: { bezeichnung: "Frei", satz: 0.00 }
   2: { bezeichnung: "USt 7%", satz: 7.00 }
   3: { bezeichnung: "USt 19%", satz: 19.00 }
   8: { bezeichnung: "VSt 7%", satz: 7.00 }
   9: { bezeichnung: "VSt 19%", satz: 19.00 }
-  10: { bezeichnung: "ig. Erwerb 19% VSt + USt", satz: 19.00 }
-  11: { bezeichnung: "ig. Erwerb 7% VSt + USt", satz: 7.00 }
-  40: { bezeichnung: "Innergemeinschaftliche Lieferung", satz: 0.00 }
+  18: { bezeichnung: "ig. Erwerb 7% VSt + USt", satz: 7.00 }
+  19: { bezeichnung: "ig. Erwerb 19% VSt + USt", satz: 19.00 }
+  91: { bezeichnung: "§ 13b UStG 7% VSt + USt", satz: 7.00 }
+  94: { bezeichnung: "§ 13b UStG 19% VSt + USt", satz: 19.00 }

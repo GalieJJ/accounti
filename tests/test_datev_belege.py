@@ -383,3 +383,32 @@ def test_document_xml_gegen_datev_xsd(paket, tmp_path):
     )
     assert lauf.returncode == 0, lauf.stderr
     assert "gueltig" in lauf.stdout
+
+
+def test_storno_im_buchungsstapel_mit_bezug_in_belegfeld_2():
+    from uuid import uuid4
+
+    from accounti.export.datev_belege import buchungsstapel_satz
+    from accounti.export.datev_felder import BUCHUNGSSTAPEL
+    from accounti.export.datev_format import feldnummer
+    from accounti.models import Buchungssatz, BuchungStatus
+
+    original = uuid4()
+    storno = Buchungssatz(
+        datum=date(2026, 8, 3),
+        soll_konto="1200",
+        haben_konto="4930",
+        betrag_netto=Decimal("10.00"),
+        buchungstext="Storno Papier",
+        status=BuchungStatus.GEPRUEFT,
+        storno_von=original,
+    )
+    satz = buchungsstapel_satz(storno, None)
+    assert satz[feldnummer(BUCHUNGSSTAPEL, "Belegfeld 2")] == (
+        "ST" + original.hex[:8].upper()
+    )
+    ohne = storno.model_copy(update={"storno_von": None})
+    assert (
+        buchungsstapel_satz(ohne, None)[feldnummer(BUCHUNGSSTAPEL, "Belegfeld 2")]
+        is None
+    )

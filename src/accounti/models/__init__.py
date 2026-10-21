@@ -505,6 +505,13 @@ class Buchungssatz(BaseModel):
     erstellt_am: datetime = Field(default_factory=datetime.now)
     geprueft_am: datetime | None = None
     geprueft_von: str | None = None
+    # Storno statt Änderung (Baustein 7): beide Buchungen verweisen aufeinander
+    storniert_durch: UUID | None = Field(
+        default=None, description="Stornobuchung zu dieser Buchung"
+    )
+    storno_von: UUID | None = Field(
+        default=None, description="Buchung, die diese Stornobuchung aufhebt"
+    )
 
 
 # ---------------------------------------------------------------------------

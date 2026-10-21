@@ -7,6 +7,39 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Belegvollständigkeit & Ordnungsmäßigkeit** (Baustein 7): Prüfregeln als Registry mit
+  Schweregrad (`hinweis`, `warnung`, `fehler`) und Schwellen aus dem neuen, optionalen
+  Abschnitt `pruefung` — Vollständigkeit (Umsatz ohne Beleg mit Betrag, Datum und
+  Gegenpartei; Rechnung ohne Zahlung nach Zahlungsziel; Lücken in Nummernkreisen,
+  Kontoauszügen und im Saldoverlauf), Richtigkeit (Pflichtangaben nach § 14 Abs. 4 UStG aus
+  dem archivierten Original, Kleinbetragsrechnung nach § 33 UStDV bis 250 €, § 14a UStG bei
+  § 13b/§ 6a/§ 3c; Rechenprobe; Steuerschlüssel ./. Sachkonto über die DATEV-Automatikkonten
+  der mitgelieferten `accounti/pruefung/skr03.yaml` und Kontenbereiche; Steuersatz zum Land;
+  Adressat; Vorsteuer aus ig. Erwerb ohne gültige USt-IdNr.; Dubletten), Zeitgerechtheit
+  (unbearbeitete Belege, nach Ablauf des Folgemonats gebucht, Buchung in abgeschlossener
+  Periode) und Ordnung (Buchung ohne Beleg, offene Posten mit unplausiblem Alter, Monat nicht
+  festgeschrieben) — `accounti pruefen [--period] [--regel] [--archiv] [--ocr]`,
+  `pruefen regeln`. Nachforderung: Baustein 7 übernimmt den Prüflauf `beleg_fehlt`
+  (Schwellen, begründet belegfreie Umsätze per Muster), `accounti nachfordern`; Anfrage an
+  den Lieferanten als Entwurf aus einer Vorlage, gesendet nur mit `--senden`.
+  Hash-verkettetes, nur anfügbares Journal über Buchungen (angelegt, korrigiert, freigegeben,
+  exportiert, storniert, verworfen), Belege (importiert, verworfene Dubletten, geändert),
+  Zahlungsläufe, Jahres- und Monatsabschlüsse, Exporte (`accounti journal`, `journal zeige`,
+  `journal pruefen [--kopf]` mit Kette, Verlauf je Objekt und Abgleich von Buchungen,
+  Belegen und Sperren aus einem Stand, `journal uebernehmen`). Storno statt Änderung:
+  `storniert_durch`/`storno_von` am Buchungssatz, Tabelle `buchungskorrekturen`,
+  `accounti buchung storniere|zeige`. Periodenabschluss je Monat (`accounti periode
+  schliessen|oeffnen|liste`); EB-Werte des Saldovortrags nimmt ein festgeschriebener Januar
+  weiter an; `opos verbuchen --buchungsdatum eingang|offen|JJJJ-MM-TT` für
+  Eingangsrechnungen zu einem festgeschriebenen Monat (Vorsteuer nach § 15 Abs. 1 Nr. 1
+  UStG, bei Bilanzierung und ohne ausdrückliche `abschluss.gewinnermittlung` nicht über den
+  Jahreswechsel). Generierte Verfahrensdokumentation nach GoBD Rz. 151 ff. als Markdown und
+  PDF, Fassung im Journal (`accounti verfahrensdoku`). Alembic-Migration `ddc9a184ddb4`
+  (Tabellen `journal`, `buchungskorrekturen`, `periodenabschluesse`, Spalten und
+  Unique-Indizes `storniert_durch`/`storno_von`, SQLite-Trigger; was ein Befehl vor der
+  Migration schon per `init_db` angelegt hat, übernimmt sie) — **nach dem Upgrade einmal
+  `accounti journal uebernehmen`**, damit der Bestand von vor dem Journal nicht als „ohne
+  Eintrag“ gemeldet wird
 - **Anmeldung, Rollen, mehrere Gesellschaften, Betrieb und REST-API** (Baustein 10a):
   Benutzer mit scrypt-Passwort (OWASP: N = 2^17, r = 8, p = 1) und zweitem Faktor nach RFC 6238
   (TOTP, jeder Code einmal; zehn Wiederherstellungscodes, je einer einmal), Sperre nach
@@ -253,6 +286,77 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
+  `korrigiert`, `exportiert` lehnt die Datenbankschicht jede Änderung außer
+  `auto → geprueft`, `→ exportiert` und dem einmaligen Stornovermerk ab, Löschen immer;
+  `accounti korrigiere` erzeugt dann Storno und Neubuchung (mit `--datum`, wenn der Zeitraum
+  abgeschlossen ist). Ändert sich das Sachkonto einer Buchung mit Steuerschlüssel, verlangt
+  `korrigiere` `--steuer` oder `--ohne-steuer` (früher fiel der Schlüssel still weg);
+  `bestaetige` und `korrigiere` nehmen ohne `--von` `ACCOUNTI_BENUTZER` bzw. den
+  Anmeldenamen. `export datev` und `datev belege` vermerken exportierte Buchungen als
+  `exportiert` und schreiben den Export ins Journal; auf DATEV-Automatikkonten bleibt der
+  passende Steuerschlüssel weg, eine Buchung ohne Steuer trägt BU 40 (Aufhebung der
+  Automatik), ein Storno-Paar in Belegfeld 2 den Bezug zum Original. Massenänderungen über
+  die Sitzung (ORM, Core, `bulk_*`) auf Buchungen und Journal sind gesperrt. Die
+  Jahressperre nimmt den Stornovermerk an; Sammelläufe (`classify`, `opos zuordnen`,
+  `bank abgleich`) überspringen festgeschriebene Monate. Ein reines Storno macht den
+  Bankumsatz wieder offen. SQLite wartet bis zu 30 s auf die Schreibsperre (busy timeout)
+- **Rollen in den Befehlen von Baustein 7** (Verzahnung mit Baustein 10a): Mit
+  eingerichteten Benutzern verlangen — jeweils mit Einmalcode — das Recht zu buchen
+  (`buchhalter`): `korrigiere`, `buchung storniere`, `kasse buchen|anfangsbestand|storno`,
+  `abschluss eroeffnung`, `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`;
+  Buchungen freizugeben (`buchhalter`, `freigeber`): `bestaetige`, `opos
+  bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`, `abschluss
+  vortrag`, `export datev`, `datev belege`; Steuermeldungen freizugeben (`freigeber`):
+  `periode oeffnen`, `abschluss oeffnen` (Funktionstrennung; beim Öffnen nennt accounti
+  schon freigegebene oder abgegebene Voranmeldungen des Zeitraums); verwalten
+  (`verwalter`): `journal uebernehmen`. `geprueft_von`, Protokolle und Journal nennen den
+  Benutzer statt eines Freitexts aus `--von`; Personen ohne Rechteprüfung (Läufe, Importe)
+  stehen als „… (ungeprüft)“ im Journal, API-Token als „API-Token <Name>“. Die
+  Verfahrensdokumentation beschreibt Benutzer, Rollen, Rechte, Einmalcode und
+  Freigabewege (`models.auth.FREIGABEWEGE`), die Datensicherung, `betrieb lauf` und die
+  Laufsperre. `abschluss eroeffnung|bestaetigen|ablehnen` nehmen ohne `--von`
+  `ACCOUNTI_BENUTZER` bzw. den Anmeldenamen (früher „supervisor“). Ohne Benutzer prüft
+  accounti weiterhin keine Rollen
+- **Zahlungsverkehr in der Rechteprüfung:** Mit eingerichteten Benutzern verlangt `zahlung
+  sepa` (die SEPA-Datei ist der Zahlungsauftrag) das Recht zur Zahlungsfreigabe, `zahlung
+  abgleichen` das Recht zu buchen — jeweils mit Einmalcode. Die 10a-Befehle (`zahlung …`,
+  `anlagen freigeben`, `ustva …`) und die Freigaben im Browser schreiben den Benutzer
+  geprüft ins Journal; eine Person, die ein Vorgang ohne Rechteprüfung selbst mitbringt
+  (`--von`), steht dort als „(ungeprüft)“. `opos bestaetigen` setzt `geprueft_von`, die
+  Entscheidung über einen Belegabgleich steht im Journal (`abgleich_bestaetigt`,
+  `abgleich_abgelehnt`). `anlagen freigeben` nimmt ohne `--von` `ACCOUNTI_BENUTZER` bzw. den
+  Anmeldenamen (früher „supervisor“)
+- **`journal uebernehmen` nur auf dem Upgrade-Weg:** solange das Journal außer Übernahmen
+  leer ist; danach lehnt accounti ab (was dann ohne Eintrag ist, entstand an accounti
+  vorbei), und `journal pruefen` meldet jede spätere Übernahme
+- **Schreibsperre und Lesestand:** Die Schreibsperre holt nur ein Flush mit Journal- oder
+  Sperrbezug (unter PostgreSQL warteten sonst Anmeldungen und Uploads auf jede
+  Buchungstransaktion), `fints freigeben` schreibt je Konto fest (keine offene
+  Transaktion während der TAN-Abfrage), `bank lauf` ebenso den Abruf; unter PostgreSQL holt
+  jede Transaktion, die bestehende Zeilen ändert, die Schreibsperre zuerst (keine
+  Deadlocks durch umgekehrte Sperrreihenfolge); `journal pruefen` liest unter PostgreSQL
+  aus einem Schnappschuss (`REPEATABLE READ READ ONLY`), hält niemanden auf und lässt die
+  Sitzung danach schreibbar; ein gleichzeitiges zweites Storno derselben Buchung endet mit
+  einer Meldung statt einem Traceback; ein Journaleintrag, dessen Vorher/Nachher kein
+  JSON-Objekt ist, ist ein Befund statt eines Absturzes; der Befund „ohne Eintrag“ empfiehlt
+  `journal uebernehmen` nur, solange es noch geht
+- **Kontenrahmen-Datei im Paket:** `config/skr03.yaml` liegt jetzt als
+  `accounti/pruefung/skr03.yaml` im Paket (Prüfregel und DATEV-Export unabhängig vom
+  Arbeitsverzeichnis); eine eigene Datei nennt `pruefung.kontenrahmen_datei`
+- **Laufsperre für weitere Sammelläufe:** `opos verbuchen` und `periode schliessen` halten
+  die Sperre der Bankkette (`bank`), `nachfordern` die von `aufgaben lauf` — ein zweiter
+  Lauf endet mit Exit 1 statt doppelt zu buchen bzw. während eines Buchungslaufs
+  festzuschreiben; `journal uebernehmen` holt die Schreibsperre, bevor es liest
+- **Sicherung vor einer Migration:** `sicherung erstellen` liest nur Spalten, die es in der
+  Datenbank gibt — eine Datenbank vor `alembic upgrade` lässt sich mit dem neuen Code sichern
+  (Upgrade-Reihenfolge in `docs/betrieb.md`), fehlende Spalten bleiben beim Zurückspielen
+  leer. Journal und Buchungskorrekturen kommen samt SQLite-Triggern zurück, `journal pruefen`
+  ist danach in Ordnung
+- **Aufbewahrung:** `accounti betrieb aufbewahrung` zählt Journal, Buchungskorrekturen und
+  Monatsabschlüsse als Bücher (10 Jahre); ein spät festgeschriebener Monat verschiebt den
+  Fristbeginn der Bücher seines Wirtschaftsjahres, ein wieder geöffneter Monat eines nicht
+  abgeschlossenen Jahres läuft nicht ab
 - `accounti zahlung freigeben`, `accounti ustva freigeben` und `accounti ustva dauerfrist
   --freigeben` verlangen, sobald Benutzer eingerichtet sind, die Rolle `freigeber` und den
   Einmalcode der handelnden Person; ohne Benutzer unverändert.
@@ -330,6 +434,21 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
+  Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
+  solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer
+  entfernen“ vor, und das Brutto einer Korrektur enthält die selbst berechnete Steuer nicht
+  (eine Verbindlichkeit über 100 € wurde zu 119 €). `opos verbuchen --buchungsdatum` mit
+  festem Tag nach einem offenen Eingangsmonat warnt, dass die Vorsteuer in den
+  Eingangsmonat gehört. Der DATEV-Export warnt bei einem Automatikkonto mit Steuerbetrag,
+  aber ohne Schlüssel. Die Anfrage an den Lieferanten ohne `antwort_an` bittet um den Beleg
+  „an die Absenderadresse dieser E-Mail“ statt „an uns“
+- **`korrigiere` zerstörte Buchungen mit Beleg** (Baustein 7): Die Korrektur einer
+  Transaktionsbuchung baute sie aus dem Umsatz neu auf — mit dem ganzen Umsatzbetrag statt
+  dem der Buchung und ohne `beleg_id`; Belegbuchungen, Ausgleichs- und Skontobuchungen und
+  Splitbuchungen behalten jetzt Beleg, Belegposition, Belegnummer und Betrag
+- **Kreditkartenabgleich umging die Jahressperre**: Vorläufige Buchungen wurden per
+  Massen-`DELETE` entfernt; jetzt einzeln über die Sitzung (Sperre und Journal greifen)
 - **Abschluss – Kontenrahmen SKR03/SKR04:** EÜR-Kennzahlen und Kontoarten gegen die
   DATEV-Kontenrahmen 2026 (Art.-Nr. 11174/11175, dazu 11079/11080 für § 4 Abs. 3 EStG) und
   die Anlage EÜR 2025 mit Anleitung geprüft und berichtigt. SKR04 ordnete 4700–4999

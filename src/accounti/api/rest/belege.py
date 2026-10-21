@@ -87,7 +87,10 @@ def _aufnehmen(
         f"API-Token {zugang.token.name}" + (f" von {absender}" if absender else "")
     )[:500]
     ergebnisse: list[dict[str, Any]] = []
-    with dienste.einlieferung(zugang.gesellschaft.kuerzel):
+    with (
+        dienste.einlieferung(zugang.gesellschaft.kuerzel),
+        zugang.journal(),
+    ):
         for name, inhalt in dateien:
             roh = RohBeleg(
                 dateiname=name, inhalt=inhalt, kanal=KANAL, herkunft=herkunft

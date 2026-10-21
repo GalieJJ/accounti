@@ -12,7 +12,7 @@ Versuch mit derselben PIN kann den Zugang sperren).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -99,12 +99,15 @@ def rufe_ab(
     konten: list[Bankkonto] | None = None,
     jetzt: datetime | None = None,
     freigabe: Freigabe | None = None,
+    sichern: Callable[[], None] | None = None,
 ) -> list[KontoAbruf]:
     """Holt neue Umsätze aller (oder der genannten) Konten.
 
     Ohne ``freigabe`` (Cron, ``bank lauf``) wird eine verlangte Freigabe zum Zustand
     am Konto; mit ihr fragt der Provider nach (``accounti fints freigeben``). Konten,
     die auf einen Menschen warten (``WARTET``), ruft nur ein Abruf mit Rückfrage ab.
+    ``sichern`` (z.B. ``session.commit``) läuft nach jedem Konto — so bleibt keine
+    Transaktion offen, während das nächste Konto auf TAN oder App-Freigabe wartet.
     """
     ergebnisse = []
     for konto in konten if konten is not None else lade_bankkonten(session):
@@ -168,6 +171,8 @@ def rufe_ab(
         aktualisiere_bankkonto(session, konto)
         ergebnis.konto = konto
         ergebnisse.append(ergebnis)
+        if sichern is not None:
+            sichern()
     return ergebnisse
 
 
@@ -186,13 +191,16 @@ def bank_lauf(
     einstellungen: Buchhaltung,
     schluessel: str | None = None,
     bank_einstellungen: BankEinstellungen | None = None,
+    sichern: Callable[[], None] | None = None,
 ) -> Banklauf:
     """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
     abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
-    bevor offene Posten oder das Regelwerk sie sehen."""
+    bevor offene Posten oder das Regelwerk sie sehen. ``sichern`` schreibt den
+    Abruf je Konto fest — die Buchungen danach beginnen eine eigene Transaktion
+    (unter PostgreSQL mit der Schreibsperre zuerst)."""
     bank = bank_einstellungen or lade_bank_einstellungen()
     return Banklauf(
-        abrufe=rufe_ab(session, schluessel),
+        abrufe=rufe_ab(session, schluessel, sichern=sichern),
         kreditkarten=gleiche_sammelbelastungen_ab(
             session, einstellungen, bank.kreditkarte
         ),

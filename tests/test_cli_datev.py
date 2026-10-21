@@ -295,3 +295,98 @@ def test_kontoauszuege_ohne_bankkonto(bank):
         "DE02120300000000202051",
     )
     assert r.exit_code == 0, r.output
+
+
+def _bu_spalte(datei):
+    """(Konto, Gegenkonto) → BU-Schlüssel aus einem Buchungsstapel."""
+    import csv
+
+    zeilen = list(
+        csv.reader(datei.read_text(encoding="cp1252").splitlines(), delimiter=";")
+    )
+    kopf = zeilen[1]
+    konto, gegen = kopf.index("Konto"), kopf.index("Gegenkonto (ohne BU-Schlüssel)")
+    bu = kopf.index("BU-Schlüssel")
+    return {(z[konto], z[gegen]): z[bu] for z in zeilen[2:]}
+
+
+def test_export_und_belege_mit_automatikkonten(umgebung, monkeypatch):
+    """Befund M-4/N-8 (Runde 3): beide Exporte, aus einem fremden Arbeitsverzeichnis —
+    passender Schlüssel auf Automatikkonto leer (DATEV 0907049 Kap. 3), ohne Steuer
+    BU 40 (Aufhebung der Automatik)."""
+    from datetime import date as tag
+
+    from accounti.db.repository import speichere_buchung
+    from accounti.models import Buchungssatz, BuchungStatus
+
+    tmp_path, basis, archiv = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        for soll, haben, schluessel, steuer in (
+            ("10001", "8400", 3, Decimal("19.00")),
+            ("3400", "70001", None, None),
+        ):
+            speichere_buchung(
+                s,
+                Buchungssatz(
+                    datum=tag(2026, 8, 20),
+                    soll_konto=soll,
+                    haben_konto=haben,
+                    betrag_netto=Decimal("100.00"),
+                    steuer_schluessel=schluessel,
+                    steuer_betrag=steuer,
+                    buchungstext="Automatik",
+                    status=BuchungStatus.GEPRUEFT,
+                ),
+            )
+        s.commit()
+    fremd = tmp_path / "anderswo"
+    fremd.mkdir()
+    monkeypatch.chdir(fremd)
+    ausgabe = tmp_path / "ex"
+    r = runner.invoke(
+        app,
+        ["export", "datev", "--berater", "1", "--mandant", "2"]
+        + ["--output", str(ausgabe), *basis],
+    )
+    assert r.exit_code == 0, r.output
+    (datei,) = ausgabe.glob("EXTF_*.csv")
+    bu = _bu_spalte(datei)
+    assert (bu[("10001", "8400")], bu[("3400", "70001")]) == ("", "40")
+    ziel = tmp_path / "aus" / "belege-08.zip"
+    r = runner.invoke(
+        app,
+        ["datev", "belege", "--period", "2026-08", "--ausgabe", str(ziel)]
+        + ["--archiv", str(archiv), *basis],
+    )
+    assert r.exit_code == 0, r.output
+    bu = _bu_spalte(
+        tmp_path / "aus" / "EXTF_Buchungsstapel_20260801_20260831_Beleglink.csv"
+    )
+    assert (bu[("10001", "8400")], bu[("3400", "70001")]) == ("", "40")
+
+
+def test_export_mit_kaputter_kontenrahmen_datei(umgebung):
+    """Befund N-8: klare Meldung statt Traceback, nichts als exportiert vermerkt."""
+    from accounti.db.repository import lade_buchungen
+    from accounti.models import BuchungStatus
+
+    tmp_path, basis, _ = umgebung
+    kaputt = tmp_path / "skr.yaml"
+    kaputt.write_text("konten: [unvollständig\n", encoding="utf-8")
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        konfig.read_text(encoding="utf-8")
+        + f"pruefung:\n  kontenrahmen_datei: {kaputt}\n",
+        encoding="utf-8",
+    )
+    r = runner.invoke(
+        app,
+        ["export", "datev", "--berater", "1", "--mandant", "2"]
+        + ["--output", str(tmp_path / "ex"), *basis],
+    )
+    assert r.exit_code == 1 and "Kontenrahmen-Datei" in r.output
+    assert "Traceback" not in r.output
+    _, make = session_factory(basis[1])
+    with make() as s:
+        assert all(b.status is not BuchungStatus.EXPORTIERT for b in lade_buchungen(s))

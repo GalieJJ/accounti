@@ -26,6 +26,7 @@ from accounti.db.repository import (
     setze_zuordnungen_status,
     speichere_zuordnung,
 )
+from accounti.db.tabellen_pruefung import gesperrte_monate
 from accounti.konfiguration import Buchhaltung
 from accounti.models import (
     AbgleichStatus,
@@ -79,11 +80,14 @@ def offene_transaktionen(
     }
     belegt |= gebuchte_transaktion_ids(session)
     gesperrt = lade_gesperrte_jahre(session)
+    monate = gesperrte_monate(session.connection())  # Baustein 7: festgeschrieben
     return sorted(
         (
             t
             for t in lade_transaktionen(session)
-            if t.id not in belegt and t.datum.year not in gesperrt
+            if t.id not in belegt
+            and t.datum.year not in gesperrt
+            and f"{t.datum:%Y-%m}" not in monate
         ),
         key=lambda t: t.datum,
     )
@@ -160,9 +164,13 @@ def _vorschlag_zu(session: Session, praefix: str) -> list[Zahlungszuordnung]:
 
 
 def bestaetige(
-    session: Session, praefix: str, einstellungen: Buchhaltung
+    session: Session,
+    praefix: str,
+    einstellungen: Buchhaltung,
+    von: str | None = None,
 ) -> list[Buchungssatz]:
-    """Bucht einen Vorschlag; die Buchungen gelten als vom Menschen geprüft."""
+    """Bucht einen Vorschlag; die Buchungen gelten als vom Menschen (``von``)
+    geprüft."""
     zuordnungen = _vorschlag_zu(session, praefix)
     tx = lade_transaktion(session, zuordnungen[0].transaktion_id)
     if tx is None:
@@ -174,7 +182,12 @@ def bestaetige(
     ]
     try:
         buchungen = gleiche_aus(
-            session, tx, anteile, einstellungen, status=BuchungStatus.GEPRUEFT
+            session,
+            tx,
+            anteile,
+            einstellungen,
+            status=BuchungStatus.GEPRUEFT,
+            geprueft_von=von[:50] if von else None,
         )
     except ValueError as fehler:
         raise ZahlungslaufError(f"Vorschlag veraltet: {fehler}") from fehler

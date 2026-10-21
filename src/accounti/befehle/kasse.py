@@ -8,7 +8,7 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 
@@ -26,20 +26,29 @@ def _kasse(config: str):  # type: ignore[no-untyped-def]
 def anfangsbestand_befehl(
     betrag_text: str = typer.Option(..., "--betrag", help="Bestand in Euro"),
     datum_text: str | None = typer.Option(None, "--datum", help="Datum"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer erfasst (mit eingerichteten Benutzern: der Benutzer, mit Rolle "
+        "und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Ersten Bestand eines leeren Kassenbuchs erfassen (ohne Buchung)."""
     from accounti.abschluss.kassenbuch import KassenbuchError, anfangsbestand
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     kasse = _kasse(config)
-    with sitzung(db)() as s:
+    wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — das Kassenbuch ist eine
+    # Grundaufzeichnung, erfasst hat der Benutzer, nicht ein Freitext
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = anfangsbestand(
-                s, betrag(betrag_text), datum(datum_text, "--datum"), kasse, von
-            )
+            v = anfangsbestand(s, wert, tag, kasse, person)
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
@@ -65,7 +74,11 @@ def buchen(
         None, "--konto", help="Gegenkonto — dann sofort gebucht, sonst über classify"
     ),
     steuer: str | None = typer.Option(None, "--steuer", help="Steuersatz, z.B. 19"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer erfasst (mit eingerichteten Benutzern: der Benutzer, mit Rolle "
+        "und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -73,22 +86,20 @@ def buchen(
     from accounti.abschluss.kassenbuch import KassenbuchError, bestand, buche_kasse
     from accounti.anzeige import betrag_de
     from accounti.db.repo_kasse import lade_kassenbuch
+    from accounti.models.auth import Recht
 
     kasse = _kasse(config)
     satz = betrag(steuer, "--steuer") if steuer else None
-    with sitzung(db)() as s:
+    wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
+    # mit Benutzern: buchen (buchhalter) und Einmalcode. Mit --konto entsteht sofort
+    # eine freigegebene Buchung (geprueft_von = Benutzer) — buchen schließt laut
+    # Rollenmatrix das Freigeben ein
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = buche_kasse(
-                s,
-                betrag(betrag_text),
-                text,
-                kasse,
-                datum(datum_text, "--datum"),
-                beleg,
-                konto,
-                satz,
-                von,
-            )
+            v = buche_kasse(s, wert, text, kasse, tag, beleg, konto, satz, person)
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         stand = bestand(lade_kassenbuch(s))
@@ -105,18 +116,29 @@ def storno(
     nr: int = typer.Argument(help="Nummer des Kassenvorgangs"),
     grund: str = typer.Option(..., "--grund", help="Warum storniert wird"),
     datum_text: str | None = typer.Option(None, "--datum", help="Datum (heute)"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer erfasst (mit eingerichteten Benutzern: der Benutzer, mit Rolle "
+        "und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Kassenvorgang stornieren (Gegeneintrag; das Original bleibt stehen)."""
     from accounti.abschluss.kassenbuch import KassenbuchError, storniere
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     kasse = _kasse(config)
-    with sitzung(db)() as s:
+    tag = datum(datum_text, "--datum")
+    # mit Benutzern: buchen (buchhalter) und Einmalcode; die Umkehrbuchung einer
+    # freigegebenen Buchung ist ein Storno (Baustein 7)
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = storniere(s, nr, grund, kasse, datum(datum_text, "--datum"), von)
+            v = storniere(s, nr, grund, kasse, tag, person)
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()

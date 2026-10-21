@@ -176,7 +176,7 @@ class KontierungPruefen:
                         f"{b.soll_konto} / Haben {b.haben_konto}, Steuerschlüssel "
                         f"{b.steuer_schluessel or '—'}. Freigeben: accounti bestaetige "
                         f"{kurz} · Korrigieren: accounti korrigiere {kurz} --soll … "
-                        "--haben …"
+                        "--haben … [--steuer … | --ohne-steuer]"
                     ),
                     faellig_am=b.datum + frist,
                     merkmale={

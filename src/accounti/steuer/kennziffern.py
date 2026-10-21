@@ -410,13 +410,18 @@ class _Ermittler:
 
     def _rechnungs_kz(self, b: Buchungssatz) -> tuple[set[int], set[int]]:
         """Umsatz-Kennziffern der Rechnungsbuchungen desselben Belegs (ohne
-        Zahlungen): über Konten mit fester Funktion und über Umsatzsteuerschlüssel."""
+        Zahlungen): über Konten mit fester Funktion und über Umsatzsteuerschlüssel.
+
+        Ein Storno-Paar (Original und Stornobuchung, Baustein 7) hebt sich auf und
+        bestimmt die Kennziffer nicht — die Neubuchung gilt."""
         rechnung = [
             andere
             for andere in self.alle
             if andere.beleg_id == b.beleg_id
             and andere.id != b.id
             and andere.transaktion_id is None
+            and andere.storniert_durch is None
+            and andere.storno_von is None
         ]
         ueber_konto = {
             kz

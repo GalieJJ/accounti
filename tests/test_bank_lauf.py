@@ -314,3 +314,73 @@ def test_zugang_auch_bei_noetiger_freigabe_gesichert(make_session, sitzungsbank)
     zugang, konto = _zugang(make_session)
     assert zugang["sitzung"] == "geheime-sitzung+"
     assert konto.meldung == "Bitte freigeben"
+
+
+def test_mit_freigabe_wird_je_konto_gesichert(make_session):
+    """Schlussprüfung T-M2: ``fints freigeben`` fragt je Konto nach TAN bzw. App —
+    was Konto 1 brachte, ist festgeschrieben, bevor Konto 2 auf den Menschen wartet;
+    keine Transaktion (und keine Sperre) bleibt über die Rückfrage offen.
+
+    Geprüft wird der Stand des Bankkontos 1 (letzter Abruf): Die Umsätze allein
+    taugen unter SQLite nicht als Beleg — das RELEASE des äußersten SAVEPOINT
+    (``begin_nested``) schreibt sie schon fest (Abschlussprüfung N-F)."""
+    _konto(make_session, iban="DE01")
+    _konto(make_session, iban="DE02")
+    Attrappe.antworten["DE01"] = Abruf([umsatz()])
+    Attrappe.antworten["DE02"] = Abruf([umsatz(betrag="-7")])
+    gesehen: list[object] = []
+    original = Attrappe.abrufen
+
+    def abrufen(self, konto, zugang, ab):  # type: ignore[no-untyped-def]
+        if konto.iban == "DE02":  # die Rückfrage: was sieht ein anderer Prozess?
+            with make_session() as anderer:
+                (de01,) = [k for k in lade_bankkonten(anderer) if k.iban == "DE01"]
+                gesehen.append(de01.letzter_abruf)
+        return original(self, konto, zugang, ab)
+
+    Attrappe.abrufen = abrufen  # type: ignore[method-assign]
+    try:
+        with make_session() as s:
+            rufe_ab(s, SCHLUESSEL, freigabe=lambda frage: "123456", sichern=s.commit)
+            s.commit()
+    finally:
+        Attrappe.abrufen = original  # type: ignore[method-assign]
+    assert len(gesehen) == 1 and gesehen[0] is not None
+
+
+@pytest.mark.parametrize(
+    "befehl",
+    [["fints", "freigeben"], ["bank", "lauf", "--no-llm"]],
+)
+def test_cli_sichert_je_konto(tmp_path, monkeypatch, befehl):
+    """N-F (F2): ``fints freigeben`` und ``bank lauf`` reichen ``sichern`` an den
+    Abruf weiter — sonst bliebe die Transaktion über TAN-Abfrage bzw. Netzabruf
+    offen, unter PostgreSQL mit der Schreibsperre."""
+    from typer.testing import CliRunner
+
+    from accounti.bank import lauf
+    from accounti.cli import app
+
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT"):
+        monkeypatch.delenv(name, raising=False)
+    url = f"sqlite:///{tmp_path / 'f.db'}"
+    if befehl[0] == "fints":
+        engine, fabrik = session_factory(url)
+        init_db(engine)
+        with fabrik() as s:
+            speichere_bankkonto(
+                s, Bankkonto(iban="DE01", bezeichnung="Giro", provider="fints")
+            )
+            s.commit()
+        engine.dispose()
+    aufrufe: list[dict[str, object]] = []
+
+    def rufe_ab_attrappe(session, *args, **kw):  # type: ignore[no-untyped-def]
+        aufrufe.append(kw)
+        return []
+
+    monkeypatch.setattr(lauf, "rufe_ab", rufe_ab_attrappe)
+    r = CliRunner().invoke(app, [*befehl, "--db", url])
+    assert r.exit_code == 0, r.output
+    assert len(aufrufe) == 1 and callable(aufrufe[0].get("sichern"))

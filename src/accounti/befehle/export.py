@@ -18,7 +18,7 @@ from pathlib import Path
 import typer
 from rich.markup import escape
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 
 NAME = "datev"
 befehl = typer.Typer(
@@ -43,6 +43,16 @@ def zeitraum(text: str) -> tuple[date, date]:
         raise typer.Exit(1)
     jahr, monat = int(treffer[1]), int(treffer[2])
     return date(jahr, monat, 1), date(jahr, monat, monthrange(jahr, monat)[1])
+
+
+def automatikkonten_aus(config: str) -> dict[str, int]:
+    """DATEV-Automatikkonten aus der Kontenrahmen-Datei der Konfiguration
+    (``pruefung.kontenrahmen_datei``, SKR03: mitgelieferte ``pruefung/skr03.yaml``)."""
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    return automatikkonten(lade_buchhaltung(config), lade_pruefung(config))
 
 
 def _fehler(fehler: Exception) -> typer.Exit:
@@ -124,20 +134,47 @@ def datev_belege(
     """Belegpaket (document.xml) und Buchungsstapel mit Beleglink für DATEV."""
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.export.datev_belege import BelegexportError, exportiere_belegpaket
+    from accounti.db.repository import lade_buchungen
+    from accounti.export.datev_belege import (
+        FREIGEGEBEN,
+        BelegexportError,
+        exportiere_belegpaket,
+    )
     from accounti.export.datev_format import DatevFormatError
     from accounti.export.datev_stammdaten import lade_datev_mandant
     from accounti.konfiguration import KonfigurationError
+    from accounti.models.auth import Recht
+    from accounti.pruefung.storno import markiere_exportiert
 
     von, bis = zeitraum(period)
     try:
         datev = lade_datev_mandant(config, von, berater, mandant)
+        automatik = automatikkonten_aus(config)
         engine, make_session = session_factory(db)
         init_db(engine)
-        with make_session() as s:
+        # wie export datev: Übergabe an den Steuerberater — Buchungen freigeben
+        with (
+            handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
+            make_session() as s,
+        ):
             ergebnis = exportiere_belegpaket(
-                s, BelegArchiv(archiv), datev, von, bis, Path(ausgabe), alle=alle
+                s,
+                BelegArchiv(archiv),
+                datev,
+                von,
+                bis,
+                Path(ausgabe),
+                alle=alle,
+                automatikkonten=automatik,
             )
+            # Baustein 7: exportierte Buchungen vermerken, Export ins Journal
+            exportiert = [
+                b
+                for b in lade_buchungen(s, status=None if alle else FREIGEGEBEN)
+                if von <= b.datum <= bis
+            ]
+            markiere_exportiert(s, exportiert, ergebnis.stapel_pfad, "datev_belege")
+            s.commit()
     except (KonfigurationError, BelegexportError, DatevFormatError) as fehler:
         raise _fehler(fehler) from fehler
     if ergebnis.zip_pfad is None:

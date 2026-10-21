@@ -9,10 +9,16 @@ https://developer.datev.de/datev/platform/de/dtvf
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
+from accounti.export.datev_format import (
+    automatik_widerspruch,
+    belegfeld2_storno,
+    bu_schluessel,
+)
 from accounti.models import Buchungssatz
 
 
@@ -28,6 +34,9 @@ class DATEVConfig:
     datum_bis: date = date(2026, 12, 31)
     bezeichnung: str = "accounti Export"
     waehrung: str = "EUR"
+    # DATEV-Automatikkonten (AV/AM) → Schlüssel; eine Buchung ohne Schlüssel darauf
+    # bekommt BU 40 (Aufhebung der Automatik), sonst rechnete DATEV Steuer heraus
+    automatikkonten: Mapping[str, int] = field(default_factory=dict)
 
 
 class DATEVExporter:
@@ -41,6 +50,8 @@ class DATEVExporter:
 
     def __init__(self, config: DATEVConfig) -> None:
         self.config = config
+        # vor dem Import zu klären (z.B. anderer Schlüssel auf einem Automatikkonto)
+        self.warnungen: list[str] = []
 
     def _erzeuge_header(self) -> str:
         """DATEV EXTF Header-Zeile generieren."""
@@ -100,10 +111,12 @@ class DATEVExporter:
             "WKZ Basis-Umsatz": "",
             "Konto": buchung.soll_konto,
             "Gegenkonto (ohne BU-Schlüssel)": buchung.haben_konto,
-            "BU-Schlüssel": str(buchung.steuer_schluessel or ""),
+            "BU-Schlüssel": bu_schluessel(buchung, self.config.automatikkonten),
             "Belegdatum": f"{buchung.datum:%d%m}",  # TTMM
             "Belegfeld 1": buchung.beleg_nummer or "",
-            "Belegfeld 2": "",
+            "Belegfeld 2": belegfeld2_storno(
+                buchung.storno_von, buchung.storniert_durch, buchung.id
+            ),
             "Skonto": "",
             "Buchungstext": buchung.buchungstext[:60],
             "Postensperre": "",
@@ -191,6 +204,11 @@ class DATEVExporter:
 
         zeilen: list[str] = [header]
         zeilen.append(";".join(spalten))  # Spaltenüberschriften unquoted
+        self.warnungen = [
+            w
+            for b in buchungen
+            if (w := automatik_widerspruch(b, self.config.automatikkonten)) is not None
+        ]
         for buchung in buchungen:
             roh = self._buchung_zu_zeile(buchung)
             zeilen.append(";".join(quote_text(s, roh[s]) for s in spalten))

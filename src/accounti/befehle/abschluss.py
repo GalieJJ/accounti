@@ -13,7 +13,7 @@ from rich.table import Table
 # Die CLI lädt jede Befehlsgruppe beim Start — so greift die Sperre auch in Befehlen,
 # die ``init_db`` nicht aufrufen (``bestaetige``, ``korrigiere``, ``classify`` …).
 import accounti.db.tabellen_abschluss  # noqa: F401
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 
 NAME = "abschluss"
@@ -22,6 +22,10 @@ befehl = typer.Typer(
 )
 
 CSV_OPTION = typer.Option("--csv", help="zusätzlich als CSV")
+_ENTSCHEIDET = (
+    "Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
+    "Benutzern: Rolle und Einmalcode)"
+)
 
 
 def _einstellungen(config: str):  # type: ignore[no-untyped-def]
@@ -160,7 +164,11 @@ def eroeffnung(
     saldo_text: str = typer.Option(
         ..., "--saldo", help="Eröffnungssaldo — Soll positiv, Haben negativ"
     ),
-    von: str = typer.Option("supervisor", help="Wer erfasst"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer erfasst (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -168,12 +176,19 @@ def eroeffnung(
     from accounti.abschluss.vortrag import AbschlussError, erfasse_eroeffnung
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
+    from accounti.pruefung.person import aktuelle_person
 
     einst = _einstellungen(config)
     wert = betrag(saldo_text, "--saldo")
-    with sitzung(db)() as s:
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — die EB-Buchung ist sofort
+    # freigegeben und geht auch in einen festgeschriebenen Januar (EB-Ausnahme)
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            b = erfasse_eroeffnung(s, jahr, konto, wert, von, einst)
+            b = erfasse_eroeffnung(s, jahr, konto, wert, aktuelle_person(person), einst)
         except (AbschlussError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
@@ -286,18 +301,25 @@ def abgrenzen(
 @befehl.command("bestaetigen")
 def bestaetigen(
     nr: str = typer.Argument(help="Nummer der Abgrenzung"),
-    von: str = typer.Option("supervisor", help="Wer entscheidet"),
+    von: str | None = typer.Option(None, help=_ENTSCHEIDET),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgrenzung bestätigen: bucht Abgrenzung (31.12.) und Auflösung(en) (01.01.)."""
     from accounti.abschluss.abgrenzung import AbgrenzungError, bestaetige_abgrenzung
     from accounti.db.repository import lade_buchungen
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
+    from accounti.pruefung.person import aktuelle_person
 
-    with sitzung(db)() as s:
+    # ein Vorschlag wird zur freigegebenen Buchung: Buchungen freigeben (buchhalter,
+    # freigeber) und Einmalcode — wie accounti bestaetige
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            a = bestaetige_abgrenzung(s, nr, von)
+            a = bestaetige_abgrenzung(s, nr, aktuelle_person(person))
         except (AbgrenzungError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
@@ -314,16 +336,22 @@ def bestaetigen(
 @befehl.command("ablehnen")
 def ablehnen(
     nr: str = typer.Argument(help="Nummer der Abgrenzung"),
-    von: str = typer.Option("supervisor", help="Wer entscheidet"),
+    von: str | None = typer.Option(None, help=_ENTSCHEIDET),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgrenzung ablehnen — nichts wird gebucht, der Vorschlag kommt nicht wieder."""
     from accounti.abschluss.abgrenzung import AbgrenzungError, lehne_abgrenzung_ab
+    from accounti.models.auth import Recht
+    from accounti.pruefung.person import aktuelle_person
 
-    with sitzung(db)() as s:
+    # dieselbe Entscheidung wie bestaetigen, nur mit anderem Ausgang
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            a = lehne_abgrenzung_ab(s, nr, von)
+            a = lehne_abgrenzung_ab(s, nr, aktuelle_person(person))
         except AbgrenzungError as fehler:
             ende(str(fehler))
         s.commit()
@@ -437,10 +465,16 @@ def vortrag(
     from accounti.abschluss.vortrag import AbschlussGesperrtError, trage_vor
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
-    with sitzung(db)() as s:
+    # Jahressperre: Buchungen freigeben (buchhalter, freigeber) und Einmalcode — im
+    # Protokoll und im Journal (auch an den EB-Buchungen) steht dann der Benutzer
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = trage_vor(s, kontext(s, jahr, config), von)
+            v = trage_vor(s, kontext(s, jahr, config), person or von)
         except AbschlussGesperrtError as fehler:
             _befunde_ausgeben(fehler.befunde)
             ende(
@@ -468,17 +502,31 @@ def oeffnen(
     grund: str = typer.Option(..., help="Warum das Jahr geöffnet wird (Protokoll)"),
     von: str = typer.Option(..., help="Wer öffnet (Protokoll)"),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgeschlossenes Jahr wieder öffnen — danach erneut vortragen."""
-    from accounti.abschluss.vortrag import AbschlussError, oeffne
+    from datetime import date
 
-    with sitzung(db)() as s:
+    from accounti.abschluss.vortrag import AbschlussError, oeffne
+    from accounti.models.auth import Recht
+    from accounti.pruefung.perioden import meldungen_im_zeitraum
+
+    if not grund.strip():
+        ende("Grund für das Öffnen fehlt")
+    # die Jahressperre aufheben ist Funktionstrennung (GoBD Rz. 100–102): wer
+    # Steuermeldungen freigibt (Rolle freigeber), mit Einmalcode und Grund
+    with (
+        handelnde_person(db, config, Recht.STEUER_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            oeffne(s, jahr, von, grund)
+            oeffne(s, jahr, person or von, grund)
         except AbschlussError as fehler:
             ende(str(fehler))
         s.commit()
+        hinweise = meldungen_im_zeitraum(s, date(jahr, 1, 1), date(jahr, 12, 31))
+    for hinweis in hinweise:
+        console.print(f"[yellow]{escape(hinweis)}[/yellow]")
     console.print(
         f"[yellow]Geschäftsjahr {jahr} geöffnet[/yellow] (protokolliert) — nach der "
         f"Änderung erneut: accounti abschluss vortrag --jahr {jahr}"

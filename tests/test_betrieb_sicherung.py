@@ -641,3 +641,118 @@ def test_zwischenkopie_liegt_neben_der_datenbank(tmp_path, monkeypatch):
     assert len(gesehen["datenbank"]) == 1 and gesehen["ziel"] == []
     assert [p.name for p in ziel.parent.iterdir()] == ["s.sicherung"]
     assert not list(tmp_path.glob(".accounti-sicherung-*"))
+
+
+# ---------------------------------------------------------------------------
+# Verzahnung mit Baustein 7: Journal, Korrekturen, Monatssperre
+# ---------------------------------------------------------------------------
+
+
+def _mit_journal(db: str) -> str:
+    """Buchungen mit Freigabe, Storno, Korrektur, Export-Eintrag und einem
+    festgeschriebenen Monat — gibt den Kopf des Journals zurück."""
+    from accounti.pruefung.journal import pruefe_journal, schreibe
+    from accounti.pruefung.perioden import schliesse
+    from accounti.pruefung.storno import freigeben, korrigiere, storniere
+
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    with fabrik() as s:
+        ids = []
+        for tag, netto in ((date(2026, 8, 3), "100.00"), (date(2026, 9, 1), "0.01")):
+            b = Buchungssatz(
+                datum=tag,
+                soll_konto="4930",
+                haben_konto="1200",
+                betrag_netto=Decimal(netto),
+                steuer_schluessel=9,
+                steuer_betrag=Decimal("19.00"),
+                buchungstext="Bürobedarf",
+                status=BuchungStatus.ZUR_PRUEFUNG,
+                confidence=0.5,
+            )
+            speichere_buchung(s, b)
+            ids.append(str(b.id))
+        s.flush()
+        for i in ids:
+            freigeben(s, i, "chef")
+        storniere(s, ids[0], grund="doppelt", von="chef")
+        korrigiere(s, ids[1], "4940", "1200", steuer=9, von="chef", grund="Konto")
+        schreibe(s, "export", "export", "datev", nachher={"anzahl": 3})
+        s.commit()
+        schliesse(s, "2026-08", "chef", trotzdem=True)
+        s.commit()
+        p = pruefe_journal(s)
+        assert p.in_ordnung, [b.text for b in p.befunde]
+    engine.dispose()
+    return f"{p.kopf_nr}:{p.kopf_hash}"
+
+
+def _baustein_7_rundlauf(tmp_path: Path, quelle: str, ziel_db: str) -> None:
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.db.tabellen_pruefung import BuchungssatzRow
+    from accounti.pruefung.journal import pruefe_journal
+
+    kopf = _mit_journal(quelle)
+    ziel = tmp_path / "b7.accounti"
+    e = erstelle(quelle, None, ziel, SCHLUESSEL)
+    assert e.tabellen["journal"] >= 10
+    assert e.tabellen["buchungskorrekturen"] == 2
+    assert e.tabellen["periodenabschluesse"] == 1
+    w = stelle_wieder_her(ziel, ziel_db, None, SCHLUESSEL)
+    assert w.tabellen == e.tabellen
+    vorher, nachher = tabelleninhalt(quelle), tabelleninhalt(ziel_db)
+    for name in ("journal", "buchungskorrekturen", "periodenabschluesse"):
+        assert nachher[name] == vorher[name], name
+    engine, fabrik = session_factory(ziel_db)
+    with fabrik() as s:
+        # Kette, Verlauf und Bestand passen — auch gegen den notierten Kopf
+        p = pruefe_journal(s, kopf=kopf)
+        assert p.in_ordnung, [b.text for b in p.befunde]
+        # die Sperren wirken nach der Wiederherstellung weiter
+        alt = s.execute(
+            select(BuchungssatzRow).where(
+                BuchungssatzRow.datum == date(2026, 8, 3),
+                BuchungssatzRow.storno_von.is_(None),
+            )
+        ).scalar_one()
+        alt.buchungstext = "geändert"
+        with pytest.raises((JahrGesperrtError, UnveraenderbarError)):
+            s.flush()
+        s.rollback()
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as v:
+            trigger = set(
+                v.execute(
+                    text("SELECT name FROM sqlite_master WHERE type = 'trigger'")
+                ).scalars()
+            )
+            assert {
+                "journal_kein_update",
+                "journal_kein_delete",
+                "buchungskorrekturen_kein_update",
+                "buchungskorrekturen_kein_delete",
+            } <= trigger
+            for sql in (
+                "UPDATE journal SET person = 'x'",
+                "DELETE FROM buchungskorrekturen",
+            ):
+                with pytest.raises(Exception, match="unveränderbar"):
+                    v.execute(text(sql))
+                v.rollback()
+    engine.dispose()
+
+
+def test_journal_und_korrekturen_im_rundlauf(tmp_path):
+    """Die Wiederherstellung schreibt per Core auf der Verbindung — an den
+    ORM-Sperren vorbei, und die Trigger nehmen Einfügen an. Danach ist das Journal
+    in Ordnung, und Trigger wie Sperren wirken weiter."""
+    _baustein_7_rundlauf(
+        tmp_path, url(tmp_path / "quelle.db"), url(tmp_path / "ziel.db")
+    )
+
+
+@mit_postgresql
+def test_journal_und_korrekturen_im_rundlauf_postgresql(tmp_path, pg_datenbank):
+    _baustein_7_rundlauf(tmp_path, pg_datenbank(), pg_datenbank())
