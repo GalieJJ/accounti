@@ -179,3 +179,45 @@ def test_benutzer_ohne_gesellschaft_kommt_nicht_hinein(tmp_path):
     w.person("jan", Rolle.BUCHHALTER, gesellschaft="gibtsnicht")
     r = w.anmelden(w.client(), "jan")
     assert r.status_code == 401
+
+
+def test_gleichzeitige_anmeldungen_sind_begrenzt(tmp_path, monkeypatch):
+    """Befund A-M2: scrypt braucht je Prüfung 128 MiB — ohne Anmeldung ließe sich
+    der Speicher füllen. Höchstens ``server.anmeldungen_gleichzeitig`` zugleich,
+    wer zu lange wartet, bekommt 503."""
+    import threading
+
+    from accounti.api.einstellungen import ServerEinstellungen
+    from accounti.auth import passwort
+
+    w = webwelt(tmp_path)
+    w.dienste.server = ServerEinstellungen(
+        anmeldungen_gleichzeitig=1, anmeldung_warten_sekunden=0.2
+    )
+    w.person("jan", Rolle.BUCHHALTER)
+    echt = passwort._scrypt
+    drin, weiter = threading.Event(), threading.Event()
+
+    def langsam(*a, **kw):
+        drin.set()
+        weiter.wait(10)
+        return echt(*a, **kw)
+
+    monkeypatch.setattr(passwort, "_scrypt", langsam)
+    erster = {}
+
+    def anmelden() -> None:
+        erster["r"] = melde_an(w.client(), "jan", "falsch falsch falsch", "000000")
+
+    t = threading.Thread(target=anmelden)
+    t.start()
+    assert drin.wait(10)
+    r = melde_an(w.client(), "jan", PASSWORT, w.code("jan"))
+    assert r.status_code == 503, r.text
+    assert "gleich noch einmal" in r.text
+    weiter.set()
+    t.join(10)
+    assert erster["r"].status_code == 401
+    monkeypatch.setattr(passwort, "_scrypt", echt)
+    r = melde_an(w.client(), "jan", PASSWORT, w.code("jan"))
+    assert r.status_code == 303

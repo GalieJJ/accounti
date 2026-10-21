@@ -6,11 +6,12 @@ committen nicht.
 
 from __future__ import annotations
 
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import CursorResult, delete, func, or_, select, update
+from sqlalchemy import CursorResult, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -98,28 +99,78 @@ def lade_alle_benutzer(session: Session) -> list[Benutzer]:
     return [_zu_benutzer(z) for z in zeilen]
 
 
-def erhoehe_fehlversuche(session: Session, benutzer_id: UUID) -> int:
-    """Zählt einen Fehlversuch in der Datenbank hoch (``x = x + 1``, auch bei
-    gleichzeitigen Versuchen ohne verlorene Zählung) und gibt den neuen Stand."""
+# Sperre bis „benutzer entsperren“ (Obergrenze der Fehlversuche in Folge erreicht)
+DAUERHAFT = datetime(9999, 12, 31, 23, 59, 59)
+
+
+@dataclass(frozen=True)
+class Versuch:
+    """Ein reservierter Versuch: Stand des Zählers danach und ob er sperrt."""
+
+    fehlversuche: int
+    gesperrt_bis: datetime | None
+    gesperrt: bool
+
+
+def reserviere_versuch(
+    session: Session,
+    benutzer_id: UUID,
+    jetzt: datetime,
+    *,
+    schwelle: int,
+    dauer: timedelta,
+    obergrenze: int,
+) -> Versuch | None:
+    """Zählt einen Versuch **vor** der Prüfung — ein einziges ``UPDATE … SET
+    fehlversuche = fehlversuche + 1 WHERE nicht gesperrt``, daher auch unter
+    Parallelität nie mehr als ``schwelle`` Versuche je Sperrfenster.
+
+    Der Zähler zählt Fehlversuche **in Folge** (über Sperren hinweg, erst Erfolg oder
+    ``entsperren`` setzen ihn zurück): jeder ``schwelle``-te sperrt für ``dauer``,
+    ab ``obergrenze`` bis ``entsperren``. Nach Ablauf einer Sperre gibt es wieder ein
+    volles Fenster — nicht schon ein Fehlversuch sperrt erneut. ``None``: gesperrt.
+    """
+    neu = BenutzerRow.fehlversuche + 1
+    zeile = session.execute(
+        update(BenutzerRow)
+        .where(
+            BenutzerRow.id == str(benutzer_id),
+            or_(BenutzerRow.gesperrt_bis.is_(None), BenutzerRow.gesperrt_bis <= jetzt),
+            BenutzerRow.fehlversuche < obergrenze,
+        )
+        .values(
+            fehlversuche=neu,
+            gesperrt_bis=case(
+                (neu >= obergrenze, DAUERHAFT),
+                ((neu % schwelle) == 0, jetzt + dauer),
+                else_=BenutzerRow.gesperrt_bis,
+            ),
+        )
+        .returning(BenutzerRow.fehlversuche, BenutzerRow.gesperrt_bis)
+        .execution_options(synchronize_session=False)
+    ).first()
+    if zeile is None:
+        return None
+    stand, bis = int(zeile[0]), zeile[1]
+    return Versuch(stand, bis, bis is not None and bis > jetzt)
+
+
+def setze_zurueck(session: Session, benutzer_id: UUID) -> None:
+    """Erfolg (oder ``entsperren``): Zähler auf null, keine Sperre."""
     session.execute(
         update(BenutzerRow)
         .where(BenutzerRow.id == str(benutzer_id))
-        .values(fehlversuche=BenutzerRow.fehlversuche + 1)
+        .values(gesperrt_bis=None, fehlversuche=0)
         .execution_options(synchronize_session=False)
     )
-    stand = session.scalar(
-        select(BenutzerRow.fehlversuche).where(BenutzerRow.id == str(benutzer_id))
-    )
-    return int(stand or 0)
 
 
-def setze_sperre(
-    session: Session, benutzer_id: UUID, bis: datetime | None, fehlversuche: int = 0
-) -> None:
+def setze_sperre(session: Session, benutzer_id: UUID, bis: datetime | None) -> None:
+    """Sperre von Hand — der Zähler der Fehlversuche bleibt, wie er ist."""
     session.execute(
         update(BenutzerRow)
         .where(BenutzerRow.id == str(benutzer_id))
-        .values(gesperrt_bis=bis, fehlversuche=fehlversuche)
+        .values(gesperrt_bis=bis)
         .execution_options(synchronize_session=False)
     )
 
@@ -263,6 +314,28 @@ def offene_wiederherstellungscodes(
         )
         for z in zeilen
     ]
+
+
+def verbrauche_wiederherstellungscode_mit_hash(
+    session: Session, benutzer_id: UUID, code_hash: str, jetzt: datetime
+) -> bool:
+    """Ein Nachschlagen statt einer Prüfung je Code: markiert den passenden, noch
+    offenen Code als verbraucht — ``False``, wenn es keinen gibt (oder er schon
+    verbraucht war)."""
+    ergebnis = cast(
+        CursorResult[Any],
+        session.execute(
+            update(WiederherstellungscodeRow)
+            .where(
+                WiederherstellungscodeRow.benutzer_id == str(benutzer_id),
+                WiederherstellungscodeRow.code_hash == code_hash,
+                WiederherstellungscodeRow.verbraucht_am.is_(None),
+            )
+            .values(verbraucht_am=jetzt)
+            .execution_options(synchronize_session=False)
+        ),
+    )
+    return ergebnis.rowcount == 1
 
 
 def verbrauche_wiederherstellungscode(
@@ -479,14 +552,26 @@ def protokolliere_ereignis(session: Session, e: AuthEreignis) -> None:
 
 
 def lade_ereignisse(
-    session: Session, benutzer: str | None = None, grenze: int = 1000
+    session: Session,
+    benutzer: str | None = None,
+    grenze: int = 1000,
+    *,
+    neueste: bool = False,
 ) -> list[AuthEreignis]:
+    """Ereignisse aufsteigend nach Zeit — die ersten ``grenze`` oder, mit
+    ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``)."""
     abfrage = select(AuthEreignisRow)
     if benutzer is not None:
         abfrage = abfrage.where(AuthEreignisRow.benutzer == benutzer)
-    zeilen = session.scalars(
-        abfrage.order_by(AuthEreignisRow.zeitpunkt, AuthEreignisRow.id).limit(grenze)
-    )
+    if neueste:
+        abfrage = abfrage.order_by(
+            AuthEreignisRow.zeitpunkt.desc(), AuthEreignisRow.id.desc()
+        )
+    else:
+        abfrage = abfrage.order_by(AuthEreignisRow.zeitpunkt, AuthEreignisRow.id)
+    zeilen = list(session.scalars(abfrage.limit(grenze)))
+    if neueste:
+        zeilen.reverse()
     return [
         AuthEreignis(
             id=UUID(z.id),

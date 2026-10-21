@@ -26,6 +26,9 @@ x-accounti: &accounti
   read_only: true
   tmpfs:
     - /tmp
+  # scrypt braucht je Passwort-Prüfung 128 MiB; die App prüft höchstens
+  # server.anmeldungen_gleichzeitig (2) zugleich — die Grenze fängt den Rest ab
+  mem_limit: ${ACCOUNTI_SPEICHER:-1g}
   cap_drop: [ALL]
   security_opt:
     - no-new-privileges:true

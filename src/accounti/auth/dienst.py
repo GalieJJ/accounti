@@ -1,13 +1,21 @@
 """Benutzer, zweiter Faktor, Anmeldung, Sperre, Sitzungen und Rollen.
 
 Alle Funktionen arbeiten in einer Sitzung der **Systemdatenbank**. Sie schreiben
-mit ``flush()``; nur Fehlversuche und Sperren werden sofort festgeschrieben
-(``commit``), damit eine Ausnahme beim Aufrufer sie nicht zurückrollt — sonst ließe
-sich die Sperre durch Fehler umgehen.
+mit ``flush()``; nur Versuche, Fehlversuche und Sperren werden sofort
+festgeschrieben (``commit``), damit eine Ausnahme beim Aufrufer sie nicht
+zurückrollt — sonst ließe sich die Sperre durch Fehler umgehen.
 
 Anmeldung = Passwort **und** zweiter Faktor (TOTP oder Wiederherstellungscode).
 Wer noch keinen zweiten Faktor eingerichtet hat, kommt nicht hinein (Akzeptanz 4).
 Die Ausnahme sagt nie, was falsch war.
+
+Sperre: Jeder Versuch wird **vor** der Prüfung atomar gezählt
+(``repo.reserviere_versuch``) — gleichzeitige Versuche bekommen nie mehr als
+``auth.sperre_nach_fehlversuchen`` Prüfungen je Fenster. Der Zähler läuft über die
+Sperren hinweg; ab ``auth.fehlversuche_obergrenze`` in Folge bleibt das Konto bis
+``benutzer entsperren`` gesperrt. Fehlversuche anderer beenden keine offenen
+Sitzungen (sonst könnte jeder, der den Namen kennt, den Freigeber hinauswerfen);
+``benutzer sperren`` tut es.
 """
 
 from __future__ import annotations
@@ -255,7 +263,8 @@ def bestaetige_2fa(
     """Aktiviert TOTP mit diesem Geheimnis, wenn der Code dazu passt.
 
     Gibt neue Wiederherstellungscodes zurück — im Klartext nur dieses eine Mal.
-    Ein schon eingerichteter zweiter Faktor wird ersetzt.
+    Ein schon eingerichteter zweiter Faktor wird ersetzt; offene Sitzungen enden
+    dann (das alte Gerät kann verloren sein).
     """
     jetzt = _jetzt(jetzt)
     chiffrat = verschluessele(
@@ -268,6 +277,7 @@ def bestaetige_2fa(
         raise AuthError(
             "Der Code passt nicht — Uhrzeit der App prüfen und neu eingeben"
         )
+    ersetzt = b.totp_aktiv
     b = b.model_copy(
         update={
             "totp_chiffrat": chiffrat,
@@ -276,8 +286,18 @@ def bestaetige_2fa(
         }
     )
     repo.speichere_benutzer(s, b)
-    codes = neue_wiederherstellungscodes(s, b, einstellungen, jetzt, protokoll=False)
-    ereignis(s, "zweiter_faktor_eingerichtet", jetzt, b.name)
+    if ersetzt:
+        repo.beende_sitzungen_von(s, b.id, jetzt)
+    codes = neue_wiederherstellungscodes(
+        s, b, einstellungen, jetzt, schluessel=schluessel, protokoll=False
+    )
+    ereignis(
+        s,
+        "zweiter_faktor_eingerichtet",
+        jetzt,
+        b.name,
+        hinweis="ersetzt, Sitzungen beendet" if ersetzt else None,
+    )
     return codes
 
 
@@ -287,12 +307,18 @@ def neue_wiederherstellungscodes(
     einstellungen: AuthEinstellungen,
     jetzt: datetime | None = None,
     *,
+    schluessel: str,
     protokoll: bool = True,
 ) -> list[str]:
+    """Zehn neue Codes (die alten werden ungültig), gespeichert als HMAC mit dem
+    Tresor-Schlüssel ``schluessel``."""
     jetzt = _jetzt(jetzt)
     codes = wiederherstellung.neue_codes()
     repo.ersetze_wiederherstellungscodes(
-        s, b.id, [wiederherstellung.hash_code(c) for c in codes], jetzt
+        s,
+        b.id,
+        [wiederherstellung.hash_code(c, schluessel, b.id) for c in codes],
+        jetzt,
     )
     if protokoll:
         ereignis(s, "wiederherstellungscodes_neu", jetzt, b.name)
@@ -313,27 +339,44 @@ def _pruefe_faktor(
     schluessel: str,
     einstellungen: AuthEinstellungen,
     jetzt: datetime,
+    geheimnis: bytes,
 ) -> str | None:
-    """``"totp"``, ``"wiederherstellungscode"`` oder ``None``."""
+    """``"totp"``, ``"wiederherstellungscode"`` oder ``None`` — beides kostet
+    gleich wenig (ein HMAC bzw. ein Nachschlagen), egal was eingegeben wurde."""
     rein = "".join(einmalcode.split())
     if len(rein) == totp.STELLEN and rein.isascii() and rein.isdigit():
         schritt = totp.finde_schritt(
-            _geheimnis(b, schluessel),
-            rein,
-            jetzt.timestamp(),
-            einstellungen.totp_toleranz_schritte,
+            geheimnis, rein, jetzt.timestamp(), einstellungen.totp_toleranz_schritte
         )
         if schritt is not None and repo.merke_totp_schritt(s, b.id, schritt):
             return "totp"
         return None
-    if wiederherstellung.normalisiere(einmalcode) is None:
+    try:
+        code_hash = wiederherstellung.hash_code(einmalcode, schluessel, b.id)
+    except ValueError:
         return None
-    for code in repo.offene_wiederherstellungscodes(s, b.id):
-        if wiederherstellung.passt(
-            einmalcode, code.code_hash
-        ) and repo.verbrauche_wiederherstellungscode(s, code.id, jetzt):
-            return "wiederherstellungscode"
+    if repo.verbrauche_wiederherstellungscode_mit_hash(s, b.id, code_hash, jetzt):
+        return "wiederherstellungscode"
     return None
+
+
+def _reserviere(
+    s: Session, b: Benutzer, einstellungen: AuthEinstellungen, jetzt: datetime
+) -> repo.Versuch | None:
+    """Versuch vor der Prüfung zählen und sofort festschreiben (``None``: gesperrt)."""
+    versuch = repo.reserviere_versuch(
+        s,
+        b.id,
+        jetzt,
+        schwelle=einstellungen.sperre_nach_fehlversuchen,
+        dauer=timedelta(minutes=einstellungen.sperre_minuten),
+        obergrenze=max(
+            einstellungen.fehlversuche_obergrenze,
+            einstellungen.sperre_nach_fehlversuchen,
+        ),
+    )
+    s.commit()
+    return versuch
 
 
 def _fehlversuch(
@@ -343,25 +386,23 @@ def _fehlversuch(
     jetzt: datetime,
     grund: str,
     quelle: str,
+    versuch: repo.Versuch,
 ) -> AnmeldungError:
-    zaehler = repo.erhoehe_fehlversuche(s, b.id)
-    gesperrt = zaehler >= einstellungen.sperre_nach_fehlversuchen
-    if gesperrt:
-        bis = jetzt + timedelta(minutes=einstellungen.sperre_minuten)
-        repo.setze_sperre(s, b.id, bis)
+    """Der Versuch ist schon gezählt — hier nur das Protokoll. Offene Sitzungen
+    bleiben (Befund A-M4: sonst wirft jeder, der den Namen kennt, das Opfer
+    hinaus)."""
     ereignis(s, grund, jetzt, b.name, ok=False, quelle=quelle)
-    if gesperrt:
-        repo.beende_sitzungen_von(s, b.id, jetzt)
-        ereignis(
-            s,
-            "gesperrt",
-            jetzt,
-            b.name,
-            ok=False,
-            quelle=quelle,
-            hinweis=f"{zaehler} Fehlversuche, {einstellungen.sperre_minuten} min",
-        )
-    s.commit()  # Fehlversuch und Sperre überstehen die Ausnahme beim Aufrufer
+    if versuch.gesperrt:
+        if versuch.gesperrt_bis == repo.DAUERHAFT:
+            hinweis = (
+                f"{versuch.fehlversuche} Fehlversuche in Folge — gesperrt bis "
+                "accounti benutzer entsperren"
+            )
+        else:
+            minuten = einstellungen.sperre_minuten
+            hinweis = f"{versuch.fehlversuche} Fehlversuche, {minuten} min"
+        ereignis(s, "gesperrt", jetzt, b.name, ok=False, quelle=quelle, hinweis=hinweis)
+    s.commit()  # Protokoll übersteht die Ausnahme beim Aufrufer
     return AnmeldungError(grund)
 
 
@@ -374,19 +415,27 @@ def pruefe_zweiten_faktor(
     jetzt: datetime | None = None,
     quelle: str = "cli",
 ) -> str:
-    """Nur der zweite Faktor — für Freigaben in der CLI. Zählt Fehlversuche."""
+    """Nur der zweite Faktor — für Freigaben in CLI und Browser. Zählt Versuche."""
     jetzt = _jetzt(jetzt)
-    if b.gesperrt(jetzt) or not b.aktiv:
+    if not b.aktiv:
         ereignis(s, "einmalcode_gesperrt", jetzt, b.name, ok=False, quelle=quelle)
         s.commit()
         raise AnmeldungError("gesperrt")
     if not b.totp_aktiv:
         msg = f"{b.name} hat keinen zweiten Faktor — accounti benutzer 2fa {b.name}"
         raise AuthError(msg)
-    art = _pruefe_faktor(s, b, einmalcode, schluessel, einstellungen, jetzt)
+    geheimnis = _geheimnis(b, schluessel)  # Schlüssel falsch: kein Fehlversuch
+    versuch = _reserviere(s, b, einstellungen, jetzt)
+    if versuch is None:
+        ereignis(s, "einmalcode_gesperrt", jetzt, b.name, ok=False, quelle=quelle)
+        s.commit()
+        raise AnmeldungError("gesperrt")
+    art = _pruefe_faktor(s, b, einmalcode, schluessel, einstellungen, jetzt, geheimnis)
     if art is None:
-        raise _fehlversuch(s, b, einstellungen, jetzt, "einmalcode_falsch", quelle)
-    repo.setze_sperre(s, b.id, None, 0)
+        raise _fehlversuch(
+            s, b, einstellungen, jetzt, "einmalcode_falsch", quelle, versuch
+        )
+    repo.setze_zurueck(s, b.id)
     if art == "wiederherstellungscode":
         ereignis(s, "wiederherstellungscode", jetzt, b.name, quelle=quelle)
     return art
@@ -400,6 +449,21 @@ def _gleiche_zeit(passwort: str) -> None:
     pw.pruefe_passwort(passwort, _dummy_hash[kosten])
 
 
+def _abgewiesen(
+    s: Session,
+    benutzer: str | None,
+    passwort: str,
+    grund: str,
+    jetzt: datetime,
+    quelle: str,
+) -> AnmeldungError:
+    """Abweisen ohne Prüfung — mit derselben Hash-Zeit wie eine Prüfung."""
+    _gleiche_zeit(passwort)
+    ereignis(s, "anmeldung", jetzt, benutzer, ok=False, quelle=quelle, hinweis=grund)
+    s.commit()
+    return AnmeldungError(grund)
+
+
 def pruefe_anmeldung(
     s: Session,
     name: str,
@@ -411,54 +475,50 @@ def pruefe_anmeldung(
     jetzt: datetime | None = None,
     quelle: str = "web",
 ) -> Benutzer:
-    """Passwort und zweiter Faktor — sonst ``AnmeldungError``."""
+    """Passwort und zweiter Faktor — sonst ``AnmeldungError``.
+
+    Jeder Weg kostet genau eine Passwort-Prüfung (scrypt): unbekannt, gesperrt,
+    falsches Passwort, richtiges Passwort mit falschem Code (Befund A-M1).
+    """
     jetzt = _jetzt(jetzt)
     name = name.strip().lower()
     b = repo.lade_benutzer(s, name) if name else None
     if b is None:
-        _gleiche_zeit(passwort)
         # der eingegebene Name kann ein vertipptes Passwort sein: nicht speichern
-        ereignis(
-            s,
-            "anmeldung",
-            jetzt,
-            None,
-            ok=False,
-            quelle=quelle,
-            hinweis="unbekannter Benutzer",
-        )
-        s.commit()
-        raise AnmeldungError("unbekannt")
-    if not b.aktiv or b.gesperrt(jetzt):
-        _gleiche_zeit(passwort)
-        grund = "deaktiviert" if not b.aktiv else "gesperrt"
-        ereignis(s, "anmeldung", jetzt, b.name, ok=False, quelle=quelle, hinweis=grund)
-        s.commit()
-        raise AnmeldungError(grund)
+        raise _abgewiesen(s, None, passwort, "unbekannter Benutzer", jetzt, quelle)
+    if not b.aktiv:
+        raise _abgewiesen(s, b.name, passwort, "deaktiviert", jetzt, quelle)
+    geheimnis = None
+    if b.totp_aktiv:
+        try:
+            geheimnis = _geheimnis(b, schluessel)
+        except TresorError:
+            _abgewiesen(
+                s, b.name, passwort, "Tresor-Schlüssel fehlt oder falsch", jetzt, quelle
+            )
+            raise
+    versuch = _reserviere(s, b, einstellungen, jetzt)
+    if versuch is None:
+        raise _abgewiesen(s, b.name, passwort, "gesperrt", jetzt, quelle)
     if not pw.pruefe_passwort(passwort, b.passwort_hash):
-        raise _fehlversuch(s, b, einstellungen, jetzt, "passwort_falsch", quelle)
-    if not b.totp_aktiv:
+        raise _fehlversuch(
+            s, b, einstellungen, jetzt, "passwort_falsch", quelle, versuch
+        )
+    if geheimnis is None:
         ereignis(s, "ohne_zweiten_faktor", jetzt, b.name, ok=False, quelle=quelle)
         s.commit()
         raise AnmeldungError("ohne_zweiten_faktor")
-    try:
-        art = _pruefe_faktor(s, b, einmalcode, schluessel, einstellungen, jetzt)
-    except TresorError:
-        ereignis(
-            s,
-            "anmeldung",
-            jetzt,
-            b.name,
-            ok=False,
-            quelle=quelle,
-            hinweis="Tresor-Schlüssel fehlt oder falsch",
-        )
-        s.commit()
-        raise
+    art = _pruefe_faktor(s, b, einmalcode, schluessel, einstellungen, jetzt, geheimnis)
     if art is None:
-        raise _fehlversuch(s, b, einstellungen, jetzt, "einmalcode_falsch", quelle)
+        raise _fehlversuch(
+            s, b, einstellungen, jetzt, "einmalcode_falsch", quelle, versuch
+        )
     aktuell = repo.lade_benutzer_id(s, b.id) or b
-    aenderung: dict[str, object] = {"fehlversuche": 0, "letzte_anmeldung_am": jetzt}
+    aenderung: dict[str, object] = {
+        "fehlversuche": 0,
+        "gesperrt_bis": None,
+        "letzte_anmeldung_am": jetzt,
+    }
     if pw.veraltet(aktuell.passwort_hash):
         aenderung["passwort_hash"] = pw.hash_passwort(passwort)
     b = aktuell.model_copy(update=aenderung)
@@ -512,12 +572,13 @@ def pruefe_sitzung(
         return None
     leerlauf = timedelta(minutes=einstellungen.sitzung_leerlauf_minuten)
     b = repo.lade_benutzer_id(s, sitzung.benutzer_id)
+    # eine Sperre nach Fehlversuchen beendet keine Sitzung (die Fehlversuche kann
+    # jeder auslösen, der den Namen kennt) — ``benutzer sperren`` (aktiv=False) schon
     if (
         jetzt >= sitzung.laeuft_ab_am
         or jetzt - sitzung.zuletzt_aktiv_am > leerlauf
         or b is None
         or not b.aktiv
-        or b.gesperrt(jetzt)
     ):
         repo.beende_sitzung(s, sitzung.id, jetzt)
         return None

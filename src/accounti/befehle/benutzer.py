@@ -219,16 +219,23 @@ def codes(
         verwaltung_oder_ende,
     )
     from accounti.auth.dienst import neue_wiederherstellungscodes
+    from accounti.bank.tresor import TresorError, lade_schluessel
 
     ziel = name.strip().lower()
     verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
+    try:
+        schluessel = lade_schluessel()
+    except TresorError as fehler:
+        raise _ende(str(fehler)) from fehler
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
         if not b.totp_aktiv:
             raise _ende(
                 f"Erst den zweiten Faktor einrichten: accounti benutzer 2fa {name}"
             )
-        neu = neue_wiederherstellungscodes(s, b, auth_einstellungen(config))
+        neu = neue_wiederherstellungscodes(
+            s, b, auth_einstellungen(config), schluessel=schluessel
+        )
         s.commit()
     console.print("Neue Wiederherstellungscodes — jeder gilt genau einmal:")
     for c in neu:
@@ -390,7 +397,8 @@ def protokoll(
 
     verwaltung_oder_ende(db, config)
     with systemsitzung(db) as s:
-        ereignisse = lade_ereignisse(s, name, grenze=100_000)[-anzahl:]
+        # die neuesten — absteigend mit LIMIT gelesen (Befund A-M5)
+        ereignisse = lade_ereignisse(s, name, grenze=max(anzahl, 1), neueste=True)
     tabelle = Table(title="Anmeldeprotokoll")
     for spalte in ("Zeitpunkt", "Ereignis", "Benutzer", "Ges.", "Quelle", "Hinweis"):
         tabelle.add_column(spalte, overflow="fold")

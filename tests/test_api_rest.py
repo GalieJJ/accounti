@@ -263,14 +263,13 @@ def test_laeufe_anstossen(welt):
 
 
 def test_lauf_nicht_doppelt(welt):
+    from accounti.betrieb.laufsperre import laufsperre
+
     token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
-    sperre = welt.dienste.laufsperre("a:bank")
-    sperre.acquire()
-    try:
+    with laufsperre(welt.umgebung.db["a"], "bank"):
         r = welt.client().post("/api/v1/laeufe/bank", headers=bearer(token))
-    finally:
-        sperre.release()
     assert r.status_code == 409
+    # über Prozesse: tests/test_betrieb_laufsperre.py
 
 
 def test_benutzer_mit_sitzung_braucht_trotzdem_ein_token(welt):

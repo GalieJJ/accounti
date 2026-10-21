@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy.orm import Session
 
-from accounti.auth import passwort, wiederherstellung
+from accounti.auth import passwort
 from accounti.auth.dienst import bestaetige_2fa, lege_benutzer_an
 from accounti.auth.einstellungen import AuthEinstellungen
 from accounti.auth.totp import code, neues_geheimnis
@@ -28,7 +28,6 @@ def billige_hashes(monkeypatch: pytest.MonkeyPatch) -> None:
     """scrypt mit N = 2^17 braucht 128 MiB und eine halbe Sekunde je Hash —
     in Tests reicht N = 2^10 (``autouse``-Fixture im Testmodul)."""
     monkeypatch.setattr(passwort, "KOSTEN", BILLIG)
-    monkeypatch.setattr(wiederherstellung, "KOSTEN", BILLIG)
 
 
 def setze_schluessel(monkeypatch: pytest.MonkeyPatch) -> str:

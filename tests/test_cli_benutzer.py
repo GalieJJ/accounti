@@ -245,3 +245,51 @@ def test_token_bei_mehreren_gesellschaften_nur_mit_auswahl(
     t = lade(u.system, lade_api_tokens)
     assert [(x.name, x.gesellschaft) for x in t] == [("erp", "b")]
     assert lade(u.db["b"], lade_api_tokens) == []
+
+
+def test_protokoll_zeigt_die_neuesten_auch_bei_vielen_ereignissen(db):
+    """Befund A-M5: absteigend mit LIMIT — 100 006 Fehlversuche unbekannter Namen
+    verdecken das neueste Ereignis nicht."""
+    import uuid
+    from datetime import timedelta
+
+    from sqlalchemy import insert
+
+    from accounti.db import init_db
+    from accounti.db.tabellen_auth import AuthEreignisRow
+
+    engine, _ = session_factory(db)
+    init_db(engine)
+    beginn = datetime(2026, 1, 1)
+    zeilen = [
+        {
+            "id": str(uuid.uuid4()),
+            "zeitpunkt": beginn + timedelta(seconds=i),
+            "art": "anmeldung",
+            "benutzer": None,
+            "gesellschaft": None,
+            "quelle": "web",
+            "ok": False,
+            "hinweis": "unbekannter Benutzer",
+        }
+        for i in range(100_005)
+    ]
+    zeilen.append(
+        {
+            "id": str(uuid.uuid4()),
+            "zeitpunkt": datetime(2026, 10, 21, 9),
+            "art": "gesperrt",
+            "benutzer": "chef",
+            "gesellschaft": None,
+            "quelle": "web",
+            "ok": False,
+            "hinweis": "NEUESTES EREIGNIS",
+        }
+    )
+    with engine.begin() as v:
+        v.execute(insert(AuthEreignisRow), zeilen)
+    engine.dispose()
+    r = run(db, "benutzer", "protokoll", "--anzahl", "5")
+    assert r.exit_code == 0, r.output
+    assert "NEUESTES" in r.output
+    assert r.output.count("unbekannter Benutzer") == 4

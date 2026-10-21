@@ -8,6 +8,8 @@ server:
   vertrauenswuerdige_proxies: ["127.0.0.1"]   # nur deren X-Forwarded-* gelten
   max_formular_kb: 64
   max_beleg_mb: 20                # je Anfrage an POST /api/v1/belege
+  anmeldungen_gleichzeitig: 2     # scrypt: 128 MiB je Passwort-Prüfung
+  anmeldung_warten_sekunden: 5    # länger → 503
 ```
 """
 
@@ -35,6 +37,15 @@ class ServerEinstellungen(BaseModel):
     )
     max_formular_kb: int = Field(default=64, ge=1, le=10_240)
     max_beleg_mb: float = Field(default=20, gt=0, le=200)
+    anmeldungen_gleichzeitig: int = Field(
+        default=2,
+        ge=1,
+        le=32,
+        description="Passwort-Prüfungen zugleich (scrypt braucht je 128 MiB)",
+    )
+    anmeldung_warten_sekunden: float = Field(
+        default=5, ge=0, le=60, description="so lange auf einen freien Platz, dann 503"
+    )
 
     @property
     def max_formular_bytes(self) -> int:

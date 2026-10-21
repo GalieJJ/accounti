@@ -32,6 +32,14 @@ def test_compose_mit_anwendung_datenbank_und_lauf():
         assert port.startswith("127.0.0.1:"), port
 
 
+def test_speichergrenze_fuer_app_und_lauf():
+    """Befund A-M2: scrypt braucht 128 MiB je Prüfung — der Container hat eine
+    Obergrenze (die Anwendung begrenzt zusätzlich die gleichzeitigen Anmeldungen)."""
+    dienste = compose()["services"]
+    for name in ("app", "lauf"):
+        assert dienste[name].get("mem_limit"), name
+
+
 def test_geheimnisse_nur_aus_der_umgebung():
     text = (WURZEL / "docker-compose.yml").read_text(encoding="utf-8")
     for zeile in text.splitlines():

@@ -2166,11 +2166,18 @@ def bank_lauf_befehl(
         regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
         llm=LLMEngine() if llm else None,
     )
+    from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
+
     db_engine, make_session = session_factory(db)
     init_db(db_engine)
-    with make_session() as s:
-        ergebnis = bank_lauf(s, engine, einstellungen)
-        s.commit()
+    try:
+        # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
+        with laufsperre(db, "bank"), make_session() as s:
+            ergebnis = bank_lauf(s, engine, einstellungen)
+            s.commit()
+    except LaufLaeuftError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     _abruf_ausgabe(ergebnis.abrufe)
     zeige_kartenabgleich(ergebnis.kreditkarten, still=True)
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung

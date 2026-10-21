@@ -78,8 +78,22 @@ async def anmelden_formular(request: Request, weiter: str = "/") -> Response:
     return _formular(request, sicheres_ziel(weiter), None, 200)
 
 
+UEBERLASTET = "überlastet"
+
+
 def _anmelden(dienste: Dienste, felder: dict[str, str]) -> str | None:
-    """Sitzungstoken oder ``None`` — die Fehlversuche zählt ``pruefe_anmeldung``."""
+    """Sitzungstoken, ``None`` oder ``UEBERLASTET`` — die Fehlversuche zählt
+    ``pruefe_anmeldung``. Höchstens ``server.anmeldungen_gleichzeitig`` Prüfungen
+    laufen zugleich (scrypt braucht je 128 MiB; Befund A-M2)."""
+    if not dienste.anmeldeplatz():
+        return UEBERLASTET
+    try:
+        return _pruefe(dienste, felder)
+    finally:
+        dienste.anmeldeplatz_frei()
+
+
+def _pruefe(dienste: Dienste, felder: dict[str, str]) -> str | None:
     with dienste.system() as s:
         try:
             b = pruefe_anmeldung(
@@ -116,6 +130,13 @@ async def anmelden(request: Request) -> Response:
             request, weiter, "Das Formular ist abgelaufen — bitte erneut senden.", 403
         )
     token = await run_in_threadpool(_anmelden, dienste, felder)
+    if token == UEBERLASTET:
+        return _formular(
+            request,
+            weiter,
+            "Gerade melden sich viele an — bitte gleich noch einmal versuchen.",
+            503,
+        )
     if token is None:
         return _formular(request, weiter, "Anmeldung fehlgeschlagen.", 401)
     antwort = RedirectResponse(weiter, status_code=303)

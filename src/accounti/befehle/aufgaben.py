@@ -564,8 +564,17 @@ def lauf(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Geplanter Lauf (Cron, nach 'accounti bank lauf'): prüfen, dann erinnern."""
+    from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
+
     einstellungen = _einstellungen(config)
     tag = _stichtag(stichtag)
-    _pruefausgabe(_pruefen(db, einstellungen, tag, None, None))
-    if not _erinnern(db, config, einstellungen, tag):
+    try:
+        # je Datenbank höchstens ein aufgaben lauf — auch gegen Dienst lauf und REST
+        with laufsperre(db, "aufgaben"):
+            _pruefausgabe(_pruefen(db, einstellungen, tag, None, None))
+            erinnert = _erinnern(db, config, einstellungen, tag)
+    except LaufLaeuftError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+        raise typer.Exit(1) from fehler
+    if not erinnert:
         raise typer.Exit(1)

@@ -148,8 +148,12 @@ def test_wiederherstellungscodes_genau_einmal(sitzung):
 
 
 def test_fehlversuche_in_der_datenbank_gezaehlt(tmp_path):
-    """Zwei Sitzungen mit veraltetem Stand verlieren keinen Fehlversuch."""
-    from accounti.db.repo_auth import erhoehe_fehlversuche, setze_sperre
+    """Zwei Sitzungen mit veraltetem Stand verlieren keinen Fehlversuch; die Sperre
+    setzt den Zähler nicht zurück (Befund A-H3: sonst wären Fehlversuche in Folge
+    unbegrenzt)."""
+    from datetime import timedelta
+
+    from accounti.db.repo_auth import reserviere_versuch, setze_sperre
 
     engine, fabrik = session_factory(f"sqlite:///{tmp_path / 's.db'}")
     init_db(engine)
@@ -157,17 +161,41 @@ def test_fehlversuche_in_der_datenbank_gezaehlt(tmp_path):
     with fabrik() as s:
         speichere_benutzer(s, b)
         s.commit()
+    regel = {"schwelle": 2, "dauer": timedelta(minutes=15), "obergrenze": 100}
     with fabrik() as s1:
         assert lade_benutzer(s1, "jan").fehlversuche == 0
-        assert erhoehe_fehlversuche(s1, b.id) == 1
+        assert reserviere_versuch(s1, b.id, JETZT, **regel).fehlversuche == 1
         s1.commit()
     with fabrik() as s2:
-        assert erhoehe_fehlversuche(s2, b.id) == 2
-        setze_sperre(s2, b.id, JETZT)
+        stand = reserviere_versuch(s2, b.id, JETZT, **regel)
+        assert stand.fehlversuche == 2 and stand.gesperrt
+        # gesperrt: kein weiterer Versuch frei, der Zähler bleibt
+        assert reserviere_versuch(s2, b.id, JETZT, **regel) is None
+        setze_sperre(s2, b.id, JETZT + timedelta(hours=1))
         s2.commit()
         gesperrt = lade_benutzer(s2, "jan")
-    assert gesperrt.fehlversuche == 0 and gesperrt.gesperrt_bis == JETZT
+    assert gesperrt.fehlversuche == 2
+    assert gesperrt.gesperrt_bis == JETZT + timedelta(hours=1)
     engine.dispose()
+
+
+def test_ereignisse_die_neuesten(sitzung):
+    """Befund A-M5: ``neueste`` liefert die letzten ``grenze`` Ereignisse."""
+    from datetime import timedelta
+
+    for i in range(10):
+        protokolliere_ereignis(
+            sitzung,
+            AuthEreignis(
+                zeitpunkt=JETZT + timedelta(minutes=i), art=f"e{i}", quelle="cli"
+            ),
+        )
+    assert [e.art for e in lade_ereignisse(sitzung, grenze=3, neueste=True)] == [
+        "e7",
+        "e8",
+        "e9",
+    ]
+    assert [e.art for e in lade_ereignisse(sitzung, grenze=2)] == ["e0", "e1"]
 
 
 def test_totp_schritt_nur_aufsteigend(sitzung):

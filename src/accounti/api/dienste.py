@@ -46,7 +46,8 @@ class Dienste:
         default_factory=dict, repr=False
     )
     _sperre: threading.Lock = field(default_factory=threading.Lock, repr=False)
-    _laeufe: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    _anmeldeplaetze: threading.BoundedSemaphore | None = field(default=None, repr=False)
+    _einlieferung: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
 
     def _fabrik(self, url: str) -> sessionmaker[Session]:
         with self._sperre:
@@ -66,10 +67,27 @@ class Dienste:
         with self._fabrik(self.gesellschaften[kuerzel].datenbank)() as s:
             yield s
 
-    def laufsperre(self, schluessel: str) -> threading.Lock:
-        """Eine Sperre je Gesellschaft und Lauf — kein Lauf zweimal gleichzeitig."""
+    def einlieferung(self, kuerzel: str) -> threading.Lock:
+        """Belege einer Gesellschaft nacheinander aufnehmen (Dublettenprüfung) —
+        im App-Prozess; Läufe sperren prozessübergreifend (``betrieb.laufsperre``)."""
         with self._sperre:
-            return self._laeufe.setdefault(schluessel, threading.Lock())
+            return self._einlieferung.setdefault(kuerzel, threading.Lock())
+
+    def anmeldeplatz(self) -> bool:
+        """Platz für eine Passwort-Prüfung (scrypt, 128 MiB) — höchstens
+        ``server.anmeldungen_gleichzeitig`` zugleich; ``False`` nach der Wartezeit.
+        Freigeben mit ``anmeldeplatz_frei``."""
+        with self._sperre:
+            if self._anmeldeplaetze is None:
+                self._anmeldeplaetze = threading.BoundedSemaphore(
+                    self.server.anmeldungen_gleichzeitig
+                )
+            plaetze = self._anmeldeplaetze
+        return plaetze.acquire(timeout=self.server.anmeldung_warten_sekunden)
+
+    def anmeldeplatz_frei(self) -> None:
+        assert self._anmeldeplaetze is not None
+        self._anmeldeplaetze.release()
 
     def schliesse(self) -> None:
         with self._sperre:

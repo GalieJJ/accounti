@@ -164,7 +164,9 @@ def test_wiederherstellungscode_genau_einmal(system):
         anmelden(system, "jan", PASSWORT, wc)
     assert any(e.art == "wiederherstellungscode" for e in lade_ereignisse(system))
     # neue Codes machen alle alten ungültig
-    neu = neue_wiederherstellungscodes(system, lade_benutzer(system, "jan"), E, JETZT)
+    neu = neue_wiederherstellungscodes(
+        system, lade_benutzer(system, "jan"), E, JETZT, schluessel=SCHLUESSEL
+    )
     with pytest.raises(AnmeldungError):
         anmelden(system, "jan", PASSWORT, jan.codes[0])
     anmelden(system, "jan", PASSWORT, neu[0])
@@ -289,11 +291,23 @@ def test_passwortwechsel_und_rollenaenderung_beenden_sitzungen(system):
 
 
 def test_gesperrter_benutzer_verliert_sitzung(system):
+    """Gesperrt von einem Verwalter (``benutzer sperren``): die Sitzung endet. Eine
+    Sperre nach Fehlversuchen beendet sie nicht — die kann jeder auslösen, der den
+    Namen kennt (Befund A-M4, ``tests/test_auth_befunde.py``)."""
+    from accounti.auth.dienst import setze_aktiv, sperre
+
     jan = lege_person_an(system, "jan", Rolle.BUCHHALTER)
     token, _ = oeffne_sitzung(system, jan.benutzer, "standard", E, JETZT)
     e = einstellungen(sperre_nach_fehlversuchen=1)
     with pytest.raises(AnmeldungError):
         anmelden(system, "jan", "falsch falsch falsch", "000000", e=e)
+    assert pruefe_sitzung(system, token, e, JETZT) is not None
+    setze_aktiv(system, lade_benutzer(system, "jan"), False, JETZT, durch="chef")
+    assert pruefe_sitzung(system, token, e, JETZT) is None
+    setze_aktiv(system, lade_benutzer(system, "jan"), True, JETZT, durch="chef")
+    token, _ = oeffne_sitzung(system, jan.benutzer, "standard", E, JETZT)
+    assert pruefe_sitzung(system, token, e, JETZT) is not None
+    sperre(system, lade_benutzer(system, "jan"), JETZT + timedelta(hours=1), JETZT, "c")
     assert pruefe_sitzung(system, token, e, JETZT) is None
 
 
