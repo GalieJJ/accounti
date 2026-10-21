@@ -29,6 +29,11 @@ class Zugang:
     token: ApiToken
     gesellschaft: Gesellschaft
 
+    @property
+    def person(self) -> str:
+        """Wer im Journal steht (Baustein 7): das Token, nicht der Server-Benutzer."""
+        return f"API-Token {self.token.name}"[:100]
+
 
 def _bearer(kopf: str | None) -> str | None:
     if not kopf:

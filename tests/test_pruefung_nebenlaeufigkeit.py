@@ -242,3 +242,39 @@ def test_periode_schliessen_wartet_und_prueft_danach(tmp_path):
     faden.join(timeout=30)
     assert len(ergebnis) == 1 and "Vorschlag" in ergebnis[0], ergebnis
     engine.dispose()
+
+
+def test_journal_uebernehmen_zweimal_gleichzeitig(make_session, monkeypatch):
+    """Verzahnung (M-3): ``journal uebernehmen`` holt die Schreibsperre, bevor es
+    Journal und Bestand liest — ein zweiter Lauf dazwischen wartet, statt denselben
+    Bestand ein zweites Mal einzutragen."""
+    import accounti.pruefung.journal as journal
+    from accounti.pruefung.journal import uebernehme_bestand
+
+    anlegen(make_session, buchung(steuer=None, schluessel=None))
+    with make_session() as s:
+        s.execute(text("DROP TRIGGER journal_kein_delete"))
+        s.execute(text("DELETE FROM journal"))
+        s.commit()
+    original = journal.lade_journal
+    zweiter: list[str] = []
+    gestartet: list[bool] = []
+
+    def lade_und_dazwischen(session, **kw):  # type: ignore[no-untyped-def]
+        eintraege = original(session, **kw)
+        if not gestartet:  # nur der erste Lauf lässt den zweiten dazwischen
+            gestartet.append(True)
+            zweiter.append(_zweiter(make_session, lambda s2: uebernehme_bestand(s2)))
+        return eintraege
+
+    monkeypatch.setattr(journal, "lade_journal", lade_und_dazwischen)
+    with make_session() as s:
+        assert uebernehme_bestand(s, person="jan") == 1
+        s.commit()
+    assert zweiter == ["gesperrt"]
+    with make_session() as s:
+        anzahl = s.execute(
+            text("SELECT count(*) FROM journal WHERE vorgang = 'bestand_uebernommen'")
+        ).scalar()
+    assert anzahl == 1
+    assert _in_ordnung(make_session)

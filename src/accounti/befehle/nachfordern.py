@@ -7,7 +7,7 @@ from datetime import date
 import typer
 from rich.markup import escape
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, laufsperre_oder_ende
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
 NAME = "nachfordern"
@@ -39,7 +39,12 @@ def nachfordern(
     except KonfigurationError as fehler:
         ende(str(fehler))
     tag = datum(stichtag, "--stichtag") if stichtag else date.today()
-    with sitzung(db)() as s, mit_pruefeinstellungen(pruefung):
+    # derselbe Prüflauf beleg_fehlt wie in aufgaben lauf: nie zwei gleichzeitig
+    with (
+        laufsperre_oder_ende(db, "aufgaben"),
+        sitzung(db)() as s,
+        mit_pruefeinstellungen(pruefung),
+    ):
         try:
             (lauf,) = fuehre_prueflaeufe_aus(
                 s, aufgaben, stichtag=tag, namen=[ART], zeitraum=period

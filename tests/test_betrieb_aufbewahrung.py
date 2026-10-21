@@ -223,3 +223,99 @@ def test_vor_dem_beg_iv_gelten_fuer_belege_zehn_jahre(tmp_path):
     engine.dispose()
     assert (alt.frist.jahre, alt.aussonderbar) == (10, 0)
     assert (neu.frist.jahre, neu.aussonderbar) == (8, 1)
+
+
+def _monat(s, monat, gesperrt, geschlossen, geoeffnet=None):
+    from accounti.db.tabellen_pruefung import PeriodenabschlussRow
+
+    s.add(
+        PeriodenabschlussRow(
+            monat=monat,
+            gesperrt=gesperrt,
+            geschlossen_am=geschlossen,
+            geschlossen_von="chef",
+            geoeffnet_am=geoeffnet,
+            geoeffnet_von="chef" if geoeffnet else None,
+            grund="Nachtrag" if geoeffnet else None,
+        )
+    )
+    s.commit()
+
+
+def test_journal_korrekturen_und_periodenabschluesse_im_bestand(tmp_path):
+    """Verzahnung mit Baustein 7: Journal, Buchungskorrekturen und Monatsabschlüsse
+    sind Bücher bzw. Aufzeichnungen (§ 147 Abs. 1 Nr. 1 AO, 10 Jahre)."""
+    from accounti.db.repository import lade_buchungen
+    from accounti.pruefung.storno import freigeben, storniere
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        _buchungen(s, date(2026, 6, 1))
+        (b,) = lade_buchungen(s)
+        freigeben(s, str(b.id), "chef")
+        storniere(s, str(b.id), grund="doppelt", von="chef")
+        s.commit()
+        _monat(s, "2026-07", True, datetime(2026, 8, 5))
+        zeilen = {z.bezeichnung: z for z in bericht(s, date(2026, 10, 20))}
+    engine.dispose()
+    for name, anzahl in (
+        ("Journal", 4),  # angelegt, freigegeben, Storno gebucht, storniert
+        ("Buchungskorrekturen", 1),
+        ("Periodenabschlüsse", 1),
+    ):
+        assert zeilen[name].frist.unterlage is Unterlage.BUCH, name
+        assert zeilen[name].frist.jahre == 10, name
+        assert zeilen[name].gesamt == anzahl, name
+        assert zeilen[name].aussonderbar == 0, name
+
+
+def test_monatsabschluss_ist_eine_spaete_eintragung(tmp_path):
+    """Ein Monat des Wirtschaftsjahres 2015, erst 2017 festgeschrieben: die Frist
+    der Bücher 2015 beginnt mit dem Schluss von 2017 (§ 147 Abs. 4 AO) — wie bei
+    einem spät aufgestellten Jahresabschluss."""
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        _buchungen(s, date(2015, 6, 1), date(2016, 6, 1))
+        _monat(s, "2015-12", True, datetime(2017, 3, 1))
+        _monat(s, "2016-01", True, datetime(2016, 2, 10))
+
+        def frei(tag):
+            return {z.bezeichnung: z for z in bericht(s, tag)}["Buchungen"].aussonderbar
+
+        assert frei(date(2027, 12, 31)) == 0  # 2015: Monatsabschluss 2017 → bis 2027
+        assert frei(date(2028, 1, 1)) == 2  # 2016: Beginn 2017 (Abschlussbuchungen)
+    engine.dispose()
+
+
+def test_wieder_geoeffneter_monat_laeuft_nicht_ab(tmp_path):
+    """Ein wieder geöffneter Monat kann noch bebucht werden — wie ein wieder
+    geöffnetes Jahr; ist das Jahr danach abgeschlossen, gilt dessen Abschluss."""
+    from sqlalchemy import insert
+
+    from accounti.db.tabellen_abschluss import AbschlussRow
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        _buchungen(s, date(2015, 6, 1), date(2016, 6, 1))
+        _monat(s, "2015-03", False, datetime(2015, 4, 2), datetime(2015, 5, 1))
+        _monat(s, "2016-03", False, datetime(2016, 4, 2), datetime(2016, 5, 1))
+        s.execute(
+            insert(AbschlussRow),
+            [
+                {
+                    "jahr": 2016,
+                    "gesperrt": True,
+                    "gewinnermittlung": "euer",
+                    "ergebnis": Decimal("0"),
+                    "abgeschlossen_am": datetime(2017, 3, 1),
+                    "von": "chef",
+                }
+            ],
+        )
+        s.commit()
+        zeilen = {z.bezeichnung: z for z in bericht(s, date(2030, 1, 1))}
+    engine.dispose()
+    assert zeilen["Buchungen"].aussonderbar == 1  # 2016 ja, 2015 (März offen) nicht

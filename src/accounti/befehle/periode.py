@@ -6,7 +6,13 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, console
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    handelnde_person,
+    laufsperre_oder_ende,
+)
 from accounti.befehle._anlagen_abschluss import ende, sitzung
 
 NAME = "periode"
@@ -22,16 +28,29 @@ def schliessen(
     trotzdem: bool = typer.Option(
         False, "--trotzdem", help="auch mit ungebuchten Umsätzen schließen"
     ),
-    von: str | None = typer.Option(None, help="Wer schließt"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer schließt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Monat festschreiben — danach nimmt er keine Buchung mehr an."""
+    from accounti.models.auth import Recht
     from accounti.pruefung.perioden import PeriodeError, schliesse
     from accounti.pruefung.person import aktuelle_person
 
-    with sitzung(db)() as s:
+    # Festschreiben ist eine Freigabe des Monats: Buchungen freigeben (buchhalter,
+    # freigeber) und Einmalcode. Nicht während eines Buchungslaufs (classify, bank
+    # lauf, opos verbuchen …): dessen Schreiben scheiterte sonst am gesperrten Monat
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        laufsperre_oder_ende(db),
+        sitzung(db)() as s,
+    ):
         try:
-            p = schliesse(s, monat, aktuelle_person(von), trotzdem=trotzdem)
+            p = schliesse(s, monat, aktuelle_person(person), trotzdem=trotzdem)
             s.commit()
         except PeriodeError as fehler:
             ende(str(fehler))
@@ -45,16 +64,29 @@ def schliessen(
 def oeffnen(
     monat: str = typer.Argument(help="Monat JJJJ-MM"),
     grund: str = typer.Option(..., "--grund", help="Begründung (Pflicht)"),
-    von: str | None = typer.Option(None, help="Wer öffnet"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer öffnet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Monat wieder öffnen — protokolliert und begründet."""
+    from accounti.models.auth import Recht
     from accounti.pruefung.perioden import PeriodeError, oeffne
     from accounti.pruefung.person import aktuelle_person
 
-    with sitzung(db)() as s:
+    if not grund.strip():
+        ende("Grund für das Öffnen fehlt")
+    # die Festschreibung aufheben: Buchungen freigeben, mit Einmalcode und Grund
+    # (Abschlussprotokoll und Journal nennen Person und Grund)
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            p = oeffne(s, monat, aktuelle_person(von), grund)
+            p = oeffne(s, monat, aktuelle_person(person), grund)
             s.commit()
         except PeriodeError as fehler:
             ende(str(fehler))

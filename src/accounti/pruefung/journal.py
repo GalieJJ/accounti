@@ -615,11 +615,16 @@ def uebernehme_bestand(session: Session, person: str | None = None) -> int:
     als ``sperre_uebernommen`` im Journal — sonst meldete ``pruefe_journal`` es auf
     jeder aktualisierten Datenbank als „an accounti vorbei gesperrt“. Ein Objekt, zu
     dem das Journal schon einen Sperrvorgang kennt, bleibt unberührt: Weicht es ab, ist
-    das ein echter Befund."""
+    das ein echter Befund.
+
+    Erst die Schreibsperre, dann lesen: Ein zweiter gleichzeitiger Lauf wartet und
+    findet danach nichts mehr ohne Eintrag — statt denselben Bestand noch einmal
+    einzutragen."""
     verbindung = session.connection()
     if not journal_vorhanden(verbindung):
         return 0
     session.flush()
+    schreibsperre(verbindung)
     eintraege = lade_journal(session)
     bekannt = {(e.objekt_typ, e.objekt_id) for e in eintraege}
     vorgaenge = []

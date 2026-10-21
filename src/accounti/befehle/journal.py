@@ -10,7 +10,7 @@ from rich.table import Table
 
 # Journal-Ereignisse und Storno-Regel hängen am Import der Tabellen — die CLI lädt
 # jede Befehlsgruppe beim Start, so gelten sie auch in Befehlen ohne init_db.
-from accounti.befehle import DB_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
 NAME = "journal"
@@ -137,15 +137,27 @@ def pruefen(
 
 @befehl.command("uebernehmen")
 def uebernehmen(
-    von: str | None = typer.Option(None, help="Wer übernimmt"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer übernimmt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Buchungen, Belege und Sperren von vor dem Journal als Bestand eintragen."""
+    from accounti.models.auth import Recht
     from accounti.pruefung.journal import uebernehme_bestand
     from accounti.pruefung.person import aktuelle_person
 
-    with sitzung(db)() as s:
-        anzahl = uebernehme_bestand(s, person=aktuelle_person(von))
+    # Was ohne Journaleintrag vorgefunden wird, gilt danach als Bestand — auch eine
+    # an accounti vorbei angelegte Buchung. Das bestätigt, wer Buchungen freigeben
+    # darf (buchhalter, freigeber), mit Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
+        anzahl = uebernehme_bestand(s, person=aktuelle_person(person))
         s.commit()
     console.print(
         f"[green]{anzahl} Objekte als Bestand ins Journal übernommen.[/green]"

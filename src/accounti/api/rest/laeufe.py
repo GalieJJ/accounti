@@ -20,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.rest import TokenDb, Zugang, erfordert_recht
 from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
 from accounti.models.auth import TokenRecht
+from accounti.pruefung.person import journal_kontext
 
 router = APIRouter()
 
@@ -132,7 +133,10 @@ def _gesperrt(
     s: Session,
 ) -> dict[str, Any]:
     try:
-        with laufsperre(zugang.gesellschaft.datenbank, art):
+        with (
+            laufsperre(zugang.gesellschaft.datenbank, art),
+            journal_kontext(person=zugang.person),
+        ):
             return lauf(zugang, s)
     except LaufLaeuftError as fehler:
         raise HTTPException(409, str(fehler)) from fehler

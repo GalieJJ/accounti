@@ -210,3 +210,31 @@ def test_classify_parallel_zu_bank_lauf_kontiert_nicht_doppelt(
     with fabrik() as s:
         assert s.execute(text("SELECT count(*) FROM buchungssaetze")).scalar() == 1
     engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Verzahnung mit Baustein 7 (Befund M-3): weitere Sammelläufe halten die Sperre
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("befehl", "art"),
+    [
+        # bucht erfasste Rechnungen — dieselben Belege, die classify und der
+        # Belegabgleich lesen: dieselbe Art wie die Bankkette
+        (["opos", "verbuchen"], "bank"),
+        # Festschreiben während eines Buchungslaufs ließe dessen Schreiben am
+        # gesperrten Monat scheitern — erst nach dem Lauf
+        (["periode", "schliessen", "2026-08"], "bank"),
+        # derselbe Prüflauf beleg_fehlt wie in aufgaben lauf
+        (["nachfordern"], "aufgaben"),
+    ],
+)
+def test_sammellaeufe_aus_baustein_7_halten_die_laufsperre(cli_umgebung, befehl, art):
+    db = cli_umgebung
+    with laufsperre(db, art):
+        r = CliRunner().invoke(app, [*befehl, "--db", db])
+    assert r.exit_code == 1, r.output
+    assert f"Der Lauf {art} läuft schon" in " ".join(r.output.split())
+    r = CliRunner().invoke(app, [*befehl, "--db", db])
+    assert r.exit_code == 0, r.output

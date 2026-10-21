@@ -8,7 +8,7 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 
@@ -105,18 +105,29 @@ def storno(
     nr: int = typer.Argument(help="Nummer des Kassenvorgangs"),
     grund: str = typer.Option(..., "--grund", help="Warum storniert wird"),
     datum_text: str | None = typer.Option(None, "--datum", help="Datum (heute)"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer erfasst (mit eingerichteten Benutzern: der Benutzer, mit Rolle "
+        "und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Kassenvorgang stornieren (Gegeneintrag; das Original bleibt stehen)."""
     from accounti.abschluss.kassenbuch import KassenbuchError, storniere
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     kasse = _kasse(config)
-    with sitzung(db)() as s:
+    tag = datum(datum_text, "--datum")
+    # mit Benutzern: buchen (buchhalter) und Einmalcode; die Umkehrbuchung einer
+    # freigegebenen Buchung ist ein Storno (Baustein 7)
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = storniere(s, nr, grund, kasse, datum(datum_text, "--datum"), von)
+            v = storniere(s, nr, grund, kasse, tag, person)
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()

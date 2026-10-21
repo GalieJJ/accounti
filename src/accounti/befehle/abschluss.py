@@ -13,7 +13,7 @@ from rich.table import Table
 # Die CLI lädt jede Befehlsgruppe beim Start — so greift die Sperre auch in Befehlen,
 # die ``init_db`` nicht aufrufen (``bestaetige``, ``korrigiere``, ``classify`` …).
 import accounti.db.tabellen_abschluss  # noqa: F401
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 
 NAME = "abschluss"
@@ -437,10 +437,16 @@ def vortrag(
     from accounti.abschluss.vortrag import AbschlussGesperrtError, trage_vor
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
-    with sitzung(db)() as s:
+    # Jahressperre: Buchungen freigeben (buchhalter, freigeber) und Einmalcode — im
+    # Protokoll und im Journal (auch an den EB-Buchungen) steht dann der Benutzer
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            v = trage_vor(s, kontext(s, jahr, config), von)
+            v = trage_vor(s, kontext(s, jahr, config), person or von)
         except AbschlussGesperrtError as fehler:
             _befunde_ausgeben(fehler.befunde)
             ende(
@@ -468,14 +474,21 @@ def oeffnen(
     grund: str = typer.Option(..., help="Warum das Jahr geöffnet wird (Protokoll)"),
     von: str = typer.Option(..., help="Wer öffnet (Protokoll)"),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Abgeschlossenes Jahr wieder öffnen — danach erneut vortragen."""
     from accounti.abschluss.vortrag import AbschlussError, oeffne
+    from accounti.models.auth import Recht
 
-    with sitzung(db)() as s:
+    if not grund.strip():
+        ende("Grund für das Öffnen fehlt")
+    # die Jahressperre aufheben: Buchungen freigeben, mit Einmalcode und Grund
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            oeffne(s, jahr, von, grund)
+            oeffne(s, jahr, person or von, grund)
         except AbschlussError as fehler:
             ende(str(fehler))
         s.commit()

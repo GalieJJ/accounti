@@ -1456,12 +1456,15 @@ def opos_verbuchen(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.betrieb.kontext import regeln_datei
 
     regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    # bucht dieselben Belege, die classify und der Belegabgleich lesen — wie die
+    # Schritte von bank lauf nie zwei gleichzeitig (sonst doppelt gebucht)
+    with laufsperre_oder_ende(db), make_session() as s:
         lauf = verbuche_belege(
             s,
             einstellungen,
@@ -2476,21 +2479,30 @@ def bestaetige(
     buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     von: str | None = typer.Option(
-        None, help="Wer gibt frei (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
+        None,
+        help="Wer gibt frei (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
     ),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Eine Buchung freigeben (geprüft) — die Freigabe steht im Journal."""
     from rich.markup import escape
 
+    from accounti.befehle import handelnde_person
     from accounti.db import session_factory
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
     from accounti.pruefung.storno import StornoError, freigeben
 
     _, make_session = session_factory(db)
-    with make_session() as s:
+    # mit Benutzern: Buchungen freigeben (buchhalter, freigeber) und Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        make_session() as s,
+    ):
         try:
-            b, geaendert = freigeben(s, buchung_id, von)
+            b, geaendert = freigeben(s, buchung_id, person)
             s.commit()
         except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2546,7 +2558,9 @@ def korrigiere(
         help="Steuerschlüssel entfernen (bei Buchungen mit Beleg nur mit --grund)",
     ),
     von: str | None = typer.Option(
-        None, help="Wer korrigiert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename)"
+        None,
+        help="Wer korrigiert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
     ),
     grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
     datum: str | None = typer.Option(
@@ -2560,11 +2574,13 @@ def korrigiere(
     from rich.markup import escape
 
     from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+    from accounti.befehle import handelnde_person
     from accounti.db import session_factory
     from accounti.db.repository import lade_transaktion
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.models.auth import Recht
     from accounti.pruefung.einstellungen import lade_pruefung
     from accounti.pruefung.storno import StornoError
     from accounti.pruefung.storno import korrigiere as korrigiere_buchung
@@ -2580,7 +2596,13 @@ def korrigiere(
     _, make_session = session_factory(db)
     gelernt = None
     gegenkonto = zweck = None
-    with make_session() as s:
+    # mit Benutzern: buchen (buchhalter) und Einmalcode. Korrigieren legt
+    # freigegebene Buchungen an (Neubuchung „korrigiert“, Storno „geprueft“) — wer
+    # buchen darf, darf laut Rollenmatrix auch Buchungen freigeben (ein Einmalcode)
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        make_session() as s,
+    ):
         try:
             k = korrigiere_buchung(
                 s,
@@ -2589,7 +2611,7 @@ def korrigiere(
                 haben,
                 steuer=steuer,
                 ohne_steuer=ohne_steuer,
-                von=von,
+                von=person,
                 grund=grund,
                 datum=tag,
                 kontenrahmen=kontenrahmen,

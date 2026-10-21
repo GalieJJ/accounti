@@ -5,7 +5,7 @@ from __future__ import annotations
 import typer
 from rich.markup import escape
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
 NAME = "buchung"
@@ -19,7 +19,11 @@ befehl = typer.Typer(
 def storniere(
     buchung_id: str = typer.Argument(help="(Anfang der) Buchungs-ID"),
     grund: str = typer.Option(..., "--grund", help="Begründung (Pflicht)"),
-    von: str | None = typer.Option(None, help="Wer storniert"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer storniert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     tag: str | None = typer.Option(
         None, "--datum", help="Storno-Datum, wenn der Zeitraum abgeschlossen ist"
     ),
@@ -31,6 +35,7 @@ def storniere(
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.models.auth import Recht
     from accounti.pruefung.storno import StornoError
     from accounti.pruefung.storno import storniere as storno
 
@@ -39,9 +44,16 @@ def storniere(
     except (KonfigurationError, KontenrahmenError) as fehler:
         ende(str(fehler))
     am = datum(tag, "--datum") if tag else None
-    with sitzung(db)() as s:
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — das Storno ist eine
+    # freigegebene Gegenbuchung; buchen schließt laut Rollenmatrix das Freigeben ein
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            k = storno(s, buchung_id, grund=grund, von=von, datum=am, kontenrahmen=kr)
+            k = storno(
+                s, buchung_id, grund=grund, von=person, datum=am, kontenrahmen=kr
+            )
             s.commit()
         except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
             ende(str(fehler))
