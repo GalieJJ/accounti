@@ -11,7 +11,12 @@ Stand 20.10.2026 (Quellen in ``docs/betrieb.md``):
   und Wertpapierinstitute behalten 10 Jahre** (Abs. 3).
 - § 14b Abs. 1 UStG: Rechnungen **8 Jahre**.
 - Beginn: Schluss des Kalenderjahres, in dem die Unterlage entstand bzw. die letzte
-  Eintragung gemacht wurde (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG).
+  Eintragung gemacht wurde (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG). Bücher und
+  Aufzeichnungen rechnet accounti **je Wirtschaftsjahr**: Die letzte Eintragung eines
+  Wirtschaftsjahres (Abschlussbuchungen) liegt frühestens im Jahr nach seinem Ende —
+  später, wenn der Abschluss (``abschluesse``) später festgeschrieben wurde. Wann eine
+  Buchung tatsächlich eingetragen wurde, speichert accounti nicht; die Annahme ist
+  deshalb die vorsichtige.
 - Kein Ablauf, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
   Festsetzungsfrist noch läuft (§ 147 Abs. 3 Satz 3 AO) — das prüft ein Mensch.
 
@@ -22,8 +27,9 @@ dürfte. Das Belegarchiv hat bewusst keinen Löschpfad.
 from __future__ import annotations
 
 import enum
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import Table, func, inspect, select
 from sqlalchemy.orm import Session
@@ -112,6 +118,41 @@ def _als_datum(wert: object) -> date | None:
     return wert if isinstance(wert, date) else None
 
 
+def wirtschaftsjahr(tag: date, beginn: date | None = None) -> tuple[date, date]:
+    """Beginn und Ende des Wirtschaftsjahres, in dem ``tag`` liegt (nur Tag und
+    Monat von ``beginn`` zählen; ohne: Kalenderjahr)."""
+    monat, erster = (beginn.month, beginn.day) if beginn else (1, 1)
+    erster = min(erster, 28) if monat == 2 else erster
+    anfang = date(tag.year, monat, erster)
+    if anfang > tag:
+        anfang = anfang.replace(year=tag.year - 1)
+    naechstes = anfang.replace(year=anfang.year + 1)
+    return anfang, naechstes - timedelta(days=1)
+
+
+def buecher_frist_ende(
+    wj_ende: date, abschluss: date | None = None, jahre: int = 10
+) -> date:
+    """Letzter Tag der Aufbewahrung der Bücher eines Wirtschaftsjahres: Frist ab
+    Schluss des Jahres der letzten Eintragung — frühestens dem nach dem
+    Wirtschaftsjahresende (Abschlussbuchungen), später bei späterem Abschluss."""
+    letzte = max(wj_ende.year + 1, abschluss.year if abschluss else 0)
+    return date(letzte + jahre, 12, 31)
+
+
+def _abschluesse(s: Session, vorhanden: set[str]) -> dict[int, date]:
+    """Geschäftsjahr → spätester Abschluss (``abschluesse.abgeschlossen_am``)."""
+    tabelle = Base.metadata.tables.get("abschluesse")
+    if tabelle is None or "abschluesse" not in vorhanden:
+        return {}
+    ergebnis: dict[int, date] = {}
+    for jahr, am in s.execute(select(tabelle.c.jahr, tabelle.c.abgeschlossen_am)):
+        tag = _als_datum(am)
+        if tag is not None and (jahr not in ergebnis or tag > ergebnis[jahr]):
+            ergebnis[int(jahr)] = tag
+    return ergebnis
+
+
 def _zeile(
     s: Session,
     tabelle: Table,
@@ -134,18 +175,70 @@ def _zeile(
     return Zeile(bezeichnung, f, aeltester, abgelaufen, gesamt)
 
 
-def bericht(s: Session, stichtag: date, institut: bool = False) -> list[Zeile]:
+def _buch_zeile(
+    s: Session,
+    tabelle: Table,
+    spaltenname: str,
+    bezeichnung: str,
+    f: Frist,
+    stichtag: date,
+    beginn: date | None,
+    abschluesse: dict[int, date],
+) -> Zeile:
+    """Bücher und Aufzeichnungen je Wirtschaftsjahr (§ 147 Abs. 4 AO)."""
+    spalte = tabelle.c[spaltenname]
+    je_wj: dict[date, int] = {}
+    aeltester: date | None = None
+    tage: Iterable[object] = s.execute(select(spalte)).scalars()
+    for wert in tage:
+        tag = _als_datum(wert)
+        if tag is None:
+            continue
+        aeltester = tag if aeltester is None or tag < aeltester else aeltester
+        _, ende = wirtschaftsjahr(tag, beginn)
+        je_wj[ende] = je_wj.get(ende, 0) + 1
+    abgelaufen = 0
+    for ende, anzahl in je_wj.items():
+        anfang, _ = wirtschaftsjahr(ende, beginn)
+        # Abschluss des Geschäftsjahres: nach Beginn- oder Endjahr benannt
+        abschluss = max(
+            (abschluesse[j] for j in {anfang.year, ende.year} if j in abschluesse),
+            default=None,
+        )
+        if stichtag > buecher_frist_ende(ende, abschluss, f.jahre):
+            abgelaufen += anzahl
+    return Zeile(bezeichnung, f, aeltester, abgelaufen, sum(je_wj.values()))
+
+
+def bericht(
+    s: Session,
+    stichtag: date,
+    institut: bool = False,
+    wirtschaftsjahr_beginn: date | None = None,
+) -> list[Zeile]:
     """Was am Stichtag frühestens ausgesondert werden dürfte — nur lesend."""
     registriere_tabellen()
     vorhanden = set(inspect(s.get_bind()).get_table_names())
+    abschluesse = _abschluesse(s, vorhanden)
     zeilen = []
     for name, spalte, bezeichnung, unterlage in BESTAND:
         tabelle = Base.metadata.tables.get(name)
         if tabelle is None or name not in vorhanden:
             continue
-        zeilen.append(
-            _zeile(
-                s, tabelle, spalte, bezeichnung, frist(unterlage, institut), stichtag
+        f = frist(unterlage, institut)
+        if unterlage is Unterlage.BUCH:
+            zeilen.append(
+                _buch_zeile(
+                    s,
+                    tabelle,
+                    spalte,
+                    bezeichnung,
+                    f,
+                    stichtag,
+                    wirtschaftsjahr_beginn,
+                    abschluesse,
+                )
             )
-        )
+        else:
+            zeilen.append(_zeile(s, tabelle, spalte, bezeichnung, f, stichtag))
     return zeilen

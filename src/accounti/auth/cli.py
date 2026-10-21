@@ -391,7 +391,9 @@ def _pruefe_zustaendig(s: Session, handelnder: str, ziel: str) -> None:
     darf = {r.gesellschaft for r in rollen_von(s, h.id) if r.rolle is Rolle.VERWALTER}
     fehlend = sorted(noetig - darf)
     if fehlend:
-        _verweigert(s, "recht_verweigert", h.name, Recht.VERWALTEN, ",".join(fehlend))
+        _verweigert(
+            s, "recht_verweigert", h.name, Recht.VERWALTEN, ",".join(fehlend)[:30]
+        )
         msg = (
             f"{ziel} hat Rollen in {', '.join(sorted(noetig))} — verwalten darf das "
             f"Konto nur, wer überall dort Verwalter ist ({handelnder} ist nicht "

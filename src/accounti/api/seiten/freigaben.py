@@ -2,9 +2,14 @@
 ``accounti ustva freigeben``, gebunden an Rolle **und** frischen Einmalcode.
 
 Freigebende Person ist der angemeldete Benutzer; mit ``zahlung.vier_augen`` braucht
-ein Lauf zwei verschiedene Benutzer, ``zahlung.freigeber`` gilt wie in der CLI.
+ein Lauf zwei verschiedene Benutzer, ``zahlung.freigeber`` gilt wie in der CLI, und
+wer den Lauf angelegt hat, gibt ihn nicht frei (``zahlung.ersteller_darf_freigeben``).
 Der Einmalcode (``auth.einmalcode_bestaetigung``) bindet jede einzelne Freigabe an
 den zweiten Faktor — eine offene Sitzung allein genügt nicht.
+
+Die Seite zeigt jede Zahlung (Empfänger, IBAN, Betrag, Verwendungszweck) und schickt
+den Freigabe-Hash des angezeigten Inhalts mit; hat sich der Entwurf bis zum Klick
+geändert, gibt es 409 statt einer Freigabe für etwas Ungesehenes.
 """
 
 from __future__ import annotations
@@ -32,9 +37,9 @@ from accounti.auth.dienst import pruefe_zweiten_faktor
 from accounti.auth.fehler import AnmeldungError, AuthError
 from accounti.bank.tresor import TresorError
 from accounti.db.repo_auth import lade_benutzer_id
-from accounti.db.repo_zahlung import lade_laeufe
+from accounti.db.repo_zahlung import lade_laeufe, lade_lauf
 from accounti.models.auth import Recht
-from accounti.models.zahlung import LaufStatus
+from accounti.models.zahlung import LaufStatus, Zahlungslauf
 
 router = APIRouter()
 NAVIGATION = [Navigationspunkt("Freigaben", "/freigaben", Recht.LESEN, 50)]
@@ -71,13 +76,18 @@ async def uebersicht(
     a: Annotated[Angemeldet, Depends(erfordert(Recht.LESEN))],
     s: Annotated[Session, Depends(gesellschaft_db)],
 ) -> HTMLResponse:
-    laeufe = await run_in_threadpool(lade_laeufe, s, [LaufStatus.ENTWURF])
+    from accounti.zahlung.freigabe import freigabe_hash
+
+    laeufe: list[Zahlungslauf] = await run_in_threadpool(
+        lade_laeufe, s, [LaufStatus.ENTWURF]
+    )
     return seite(
         request,
         "freigaben.html",
         {
             "titel": "Freigaben",
             "laeufe": laeufe,
+            "inhalt": {lauf.nr: freigabe_hash(lauf) for lauf in laeufe},
             "darf_zahlung": a.darf(Recht.ZAHLUNG_FREIGEBEN),
             "darf_steuer": a.darf(Recht.STEUER_FREIGEBEN),
             "mit_einmalcode": dienste_von(request).auth.einmalcode_bestaetigung,
@@ -85,14 +95,42 @@ async def uebersicht(
     )
 
 
-def _zahlungslauf(dienste: Dienste, a: Angemeldet, s: Session, nr: int) -> str:
+def _gesehen(s: Session, nr: int, gesehen: str) -> None:
+    """Vor dem Einmalcode: zeigt die Seite noch den aktuellen Entwurf? (409)"""
+    from accounti.zahlung.freigabe import freigabe_hash
+
+    try:
+        lauf = lade_lauf(s, nr)
+    except ValueError as fehler:
+        raise HTTPException(404, str(fehler)) from fehler
+    finally:
+        s.rollback()
+    if not gesehen or freigabe_hash(lauf) != gesehen:
+        msg = (
+            f"Zahlungslauf {nr} hat sich seit der Anzeige geändert — bitte neu laden "
+            "und erneut prüfen"
+        )
+        raise HTTPException(409, msg)
+
+
+def _zahlungslauf(
+    dienste: Dienste, a: Angemeldet, s: Session, nr: int, gesehen: str
+) -> str:
     from accounti.konfiguration import KonfigurationError
     from accounti.zahlung import freigabe
     from accounti.zahlung.konfiguration import lade_zahlung
 
     try:
         einstellungen = lade_zahlung(a.gesellschaft.konfiguration)
-        lauf = freigabe.freigeben(s, nr, a.benutzer.name, einstellungen, date.today())
+        lauf = freigabe.freigeben(
+            s,
+            nr,
+            a.benutzer.name,
+            einstellungen,
+            date.today(),
+            gesehen=gesehen,
+            ersteller_ausgeschlossen=not einstellungen.ersteller_darf_freigeben,
+        )
     except freigabe.LaufGesperrtError as fehler:
         s.rollback()
         raise HTTPException(409, str(fehler)) from fehler
@@ -123,10 +161,12 @@ async def zahlungslauf_freigeben(
 ) -> HTMLResponse:
     dienste = dienste_von(request)
     felder = await formular(request)
+    gesehen = felder.get("freigabe_hash", "")
+    await run_in_threadpool(_gesehen, s, nr, gesehen)
     await run_in_threadpool(
         bestaetige_einmalcode, dienste, a, felder.get("einmalcode", "")
     )
-    text = await run_in_threadpool(_zahlungslauf, dienste, a, s, nr)
+    text = await run_in_threadpool(_zahlungslauf, dienste, a, s, nr, gesehen)
     return seite(request, "meldung.html", {"meldung": text, "zurueck": "/freigaben"})
 
 

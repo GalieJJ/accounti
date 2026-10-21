@@ -8,7 +8,7 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 NAME = "betrieb"
 befehl = typer.Typer(
@@ -44,6 +44,28 @@ def lauf(
     planer.schleife(kontext, intervall_minuten)
 
 
+def _wirtschaftsjahr_beginn(config: str) -> date | None:
+    """``datev.wirtschaftsjahr_beginn`` (Tag und Monat) — ohne: Kalenderjahr."""
+    from pathlib import Path
+
+    from accounti.betrieb.gesellschaften import lies_yaml
+    from accounti.konfiguration import KonfigurationError
+
+    pfad = Path(config)
+    if not pfad.is_file():
+        return None
+    daten = lies_yaml(pfad)
+    datev = daten.get("datev") if isinstance(daten, dict) else None
+    wert = datev.get("wirtschaftsjahr_beginn") if isinstance(datev, dict) else None
+    if wert is None or isinstance(wert, date):
+        return wert
+    try:
+        return date.fromisoformat(str(wert))
+    except ValueError as fehler:
+        msg = f"datev.wirtschaftsjahr_beginn {wert!r}: Format JJJJ-MM-TT"
+        raise KonfigurationError(msg) from fehler
+
+
 @befehl.command("aufbewahrung")
 def aufbewahrung(
     stichtag: str | None = typer.Option(None, help="JJJJ-MM-TT (heute)"),
@@ -53,6 +75,7 @@ def aufbewahrung(
         help="Kreditinstitut, Versicherung oder Wertpapierinstitut: Belege 10 Jahre",
     ),
     db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Was frühestens ausgesondert werden dürfte — es wird nichts gelöscht."""
     from accounti.anzeige import datum_de
@@ -71,10 +94,15 @@ def aufbewahrung(
     except ValueError as fehler:
         console.print("[red]--stichtag: Datum im Format JJJJ-MM-TT[/red]")
         raise typer.Exit(1) from fehler
+    try:
+        beginn = _wirtschaftsjahr_beginn(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+        raise typer.Exit(1) from fehler
     engine, fabrik = session_factory(db)
     init_db(engine)
     with fabrik() as s:
-        zeilen = bericht(s, tag, institut)
+        zeilen = bericht(s, tag, institut, wirtschaftsjahr_beginn=beginn)
     engine.dispose()
     tabelle = Table(title=f"Aufbewahrung zum {datum_de(tag)}")
     for spalte in (

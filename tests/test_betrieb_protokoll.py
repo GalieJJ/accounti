@@ -113,3 +113,86 @@ def test_durchlauf_ohne_personenbezogene_inhalte_im_protokoll(tmp_path, ausgabe)
         "testclient",  # Client-Adresse
     ):
         assert geheim not in text, geheim
+
+
+def test_zugriffsprotokoll_mit_routenvorlage_statt_pfad(tmp_path, ausgabe):
+    """Befund A-N1: der dekodierte Pfad unbekannter Anfragen kam wörtlich ins
+    Protokoll — Namen und per ``%0A`` gefälschte Zeilen. Jetzt die Vorlage der Route
+    (``/freigaben/zahlungslauf/{nr}``), unbekannte Pfade nur als ``(unbekannt)``."""
+    welt = webwelt(tmp_path)
+    client = welt.client()
+    client.get(
+        "/api/v1/kunden/Max%20Mustermann%0A2026-10-21 09:00:00,000 INFO "
+        "accounti.zugriff: POST /freigaben/zahlungslauf/1 303 5 ms"
+    )
+    client.post("/freigaben/zahlungslauf/4711", follow_redirects=False)
+    client.get("/statisch/accounti.css")
+    zeilen = [z for z in ausgabe.getvalue().splitlines() if "accounti.zugriff" in z]
+    text = "\n".join(zeilen)
+    assert len(zeilen) == 3, text
+    assert "Mustermann" not in text and "4711" not in text
+    assert "GET (unbekannt) 404" in text
+    assert "POST /freigaben/zahlungslauf/{nr} 303" in text
+    assert "GET /statisch/accounti.css 200" in text
+
+
+def test_datenbankfehler_ohne_werte_im_protokoll(tmp_path, ausgabe):
+    """Befund B-M7/A-N2: SQLAlchemy hängt ``[parameters: …]`` an die Meldung —
+    Engines verbergen die Werte, und die App protokolliert unbehandelte Ausnahmen
+    nur mit ihrer Art (500 ohne Traceback)."""
+    from datetime import date, datetime
+
+    from fastapi.testclient import TestClient
+    from sqlalchemy import insert
+    from sqlalchemy.exc import IntegrityError
+
+    from accounti.api.app import erstelle_app
+    from accounti.db import session_factory
+    from accounti.db.repository import speichere_beleg
+    from accounti.db.tabellen import BelegRow
+    from accounti.models import Beleg
+    from tests.api_hilfe import BASIS
+
+    welt = webwelt(tmp_path)
+    beleg = Beleg(
+        datei_hash="0" * 64,
+        dateiname="Rechnung Max Mustermann Zahnarzt.pdf",
+        kanal="api",
+        herkunft="API-Token erp von Erika Musterfrau",
+        eingegangen_am=datetime(2026, 1, 1),
+        aufbewahren_bis=date(2036, 12, 31),
+    )
+    with welt.dienste.datenbank("a") as s:
+        speichere_beleg(s, beleg)
+        s.commit()
+        zeile = {
+            c.name: getattr(s.get(BelegRow, str(beleg.id)), c.key)
+            for c in BelegRow.__table__.columns
+        }
+    # 1. die Meldung der Datenbank selbst enthält keine Werte mehr
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:
+        try:
+            s.execute(insert(BelegRow), [zeile])
+            s.commit()
+        except IntegrityError as fehler:
+            meldung = str(fehler)
+        else:  # pragma: no cover
+            pytest.fail("doppelter Schlüssel ohne Fehler")
+    engine.dispose()
+    assert "Mustermann" not in meldung and "Musterfrau" not in meldung
+    # 2. eine fehlschlagende Anfrage: 500, im Protokoll nur die Art
+    app = erstelle_app(welt.dienste)
+
+    def kaputt() -> None:
+        with welt.dienste.datenbank("a") as s:
+            s.execute(insert(BelegRow), [zeile])
+
+    app.add_api_route("/kaputt", kaputt)
+    r = TestClient(app, base_url=BASIS).get("/kaputt")
+    assert r.status_code == 500
+    assert "Mustermann" not in r.text
+    text = ausgabe.getvalue()
+    assert "IntegrityError" in text
+    for geheim in ("Mustermann", "Zahnarzt", "Musterfrau", "INSERT INTO"):
+        assert geheim not in text, geheim

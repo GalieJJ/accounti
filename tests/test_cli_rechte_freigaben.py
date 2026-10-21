@@ -126,3 +126,111 @@ def test_ohne_benutzer_wie_bisher(tmp_path):
     _, basis = zahlungslauf(tmp_path)
     r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "jan"])
     assert r.exit_code == 0, r.output
+
+
+def test_vier_augen_wer_anlegt_gibt_nicht_frei(tmp_path, monkeypatch):
+    """Befund B-M10: ``zahlung anlegen`` braucht das Recht buchen (mit Einmalcode,
+    der Ersteller ist der angemeldete Benutzer), und wer anlegt, gibt nicht frei."""
+    from accounti.auth.dienst import fuege_rolle_hinzu
+    from accounti.db.repo_auth import lade_benutzer
+
+    url, config = zahlung._umgebung(tmp_path)
+    basis = ["--db", url, "--config", config]
+    p = personen(url)
+    for wer in ("jan", "chef"):  # betrachter, freigeber: kein Recht buchen
+        r = runner.invoke(app, ["zahlung", "anlegen", *basis, "--von", wer])
+        assert r.exit_code == 1, r.output
+        assert f"{wer} darf" in r.output and "buchen" in r.output
+    r = runner.invoke(
+        app, ["zahlung", "anlegen", *basis, "--von", "eva"], input="000000\n"
+    )
+    assert r.exit_code == 1 and "Einmalcode falsch" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = runner.invoke(app, ["zahlung", "anlegen", *basis, "--von", "eva"])
+    assert r.exit_code == 0, r.output
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        fuege_rolle_hinzu(
+            s, lade_benutzer(s, "eva"), "standard", Rolle.FREIGEBER, None, "t"
+        )
+        s.commit()
+    engine.dispose()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "eva"])
+    assert r.exit_code == 1, r.output
+    assert "angelegt" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "chef"])
+    assert r.exit_code == 0, r.output
+
+
+def test_ersteller_darf_freigeben_wenn_bewusst_eingestellt(tmp_path, monkeypatch):
+    """Kleine Firma: ``zahlung.ersteller_darf_freigeben: true`` hebt sie auf."""
+    from pathlib import Path
+
+    from accounti.auth.dienst import fuege_rolle_hinzu
+    from accounti.db.repo_auth import lade_benutzer
+
+    url, config = zahlung._umgebung(tmp_path)
+    Path(config).write_text(
+        Path(config).read_text(encoding="utf-8")
+        + "zahlung:\n  ersteller_darf_freigeben: true\n",
+        encoding="utf-8",
+    )
+    basis = ["--db", url, "--config", config]
+    p = personen(url)
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        fuege_rolle_hinzu(
+            s, lade_benutzer(s, "eva"), "standard", Rolle.FREIGEBER, None, "t"
+        )
+        s.commit()
+    engine.dispose()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert (
+        runner.invoke(app, ["zahlung", "anlegen", *basis, "--von", "eva"]).exit_code
+        == 0
+    )
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "eva"])
+    assert r.exit_code == 0, r.output
+
+
+def test_anlagen_freigeben_nur_mit_rolle(tmp_path, monkeypatch):
+    """Befund B-M12: die AfA-Freigabe ist eine Buchungsfreigabe — Rolle und
+    Einmalcode, freigebende Person ist der Benutzer, nicht ``--von``-Freitext."""
+    url = f"sqlite:///{(tmp_path / 'anlagen.db').as_posix()}"
+    config = str(tmp_path / "anlagen.yaml")
+    basis = ["--db", url, "--config", config]
+
+    def anlagen(*args, **kw):
+        return runner.invoke(app, ["anlagen", *args, *basis], **kw)
+
+    r = anlagen(
+        "anlegen", "--bezeichnung", "Schreibtisch", "--datum", "15.09.2026",
+        "--kosten", "3.600,00", "--nutzungsdauer", "3", "--konto", "0420",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    assert anlagen("afa", "--jahr", "2026").exit_code == 0
+    p = personen(url)
+    r = anlagen("freigeben", "--jahr", "2026", "--von", "jan")
+    assert r.exit_code == 1 and "jan darf" in r.output
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "eva")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = anlagen("freigeben", "--jahr", "2026")
+    assert r.exit_code == 0, r.output
+    assert "1 AfA-Buchung freigegeben" in " ".join(r.output.split())
+    engine, fabrik = session_factory(url)
+    from sqlalchemy import text
+
+    with fabrik() as s:
+        geprueft = set(
+            s.execute(
+                text(
+                    "SELECT geprueft_von FROM buchungssaetze "
+                    "WHERE geprueft_von IS NOT NULL"
+                )
+            ).scalars()
+        )
+    engine.dispose()
+    assert geprueft == {"eva"}

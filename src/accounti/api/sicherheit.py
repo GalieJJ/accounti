@@ -3,18 +3,40 @@
 Jede Antwort bekommt eine strenge Content-Security-Policy (nur eigene Skripte und
 Stile — Inline-Skripte sind gesperrt, HTMX-Attribute nicht), ``nosniff``, keine
 Einbettung in fremde Seiten und ``no-store`` außerhalb von ``/statisch``.
-Das Protokoll schreibt Methode, Pfad **ohne Abfrage**, Status und Dauer — keine
-IP-Adresse, keinen Benutzer, keine Abfrageparameter (dort könnten Namen stehen).
+Das Protokoll schreibt Methode, die **Vorlage** der Route (etwa
+``/freigaben/zahlungslauf/{nr}`` — keine IDs, keine Abfrage), Status und Dauer —
+keine IP-Adresse, keinen Benutzer. Pfade ohne Route (404) erscheinen als
+``(unbekannt)``: ein Name oder ein ``%0A`` im Pfad schreibt so nichts ins Protokoll.
+
+Unbehandelte Ausnahmen fängt die Middleware: Antwort 500, im Protokoll nur die
+Art der Ausnahme — keine Meldung, kein Traceback (dort stünden SQL und Werte).
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
+from starlette.responses import JSONResponse, PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 ZUGRIFF = logging.getLogger("accounti.zugriff")
+FEHLER = logging.getLogger("accounti.api")
+UNBEKANNT = "(unbekannt)"
+
+
+def protokollpfad(scope: Scope) -> str:
+    """Vorlage der Route; statische Dateien mit maskierten Steuerzeichen."""
+    route: Any = scope.get("route")
+    vorlage = getattr(route, "path", None)
+    if isinstance(vorlage, str) and vorlage:
+        return vorlage
+    pfad: str = scope.get("path", "")
+    if pfad.startswith("/statisch/"):
+        return pfad.encode("unicode_escape").decode("ascii")
+    return UNBEKANNT
+
 
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
@@ -44,10 +66,12 @@ class Sicherheit:
         beginn = time.perf_counter()
         pfad: str = scope.get("path", "")
         status = 500
+        begonnen = False
 
         async def senden(nachricht: Message) -> None:
-            nonlocal status
+            nonlocal status, begonnen
             if nachricht["type"] == "http.response.start":
+                begonnen = True
                 status = nachricht["status"]
                 kopf = list(nachricht.get("headers", []))
                 vorhanden = {k.lower() for k, _ in kopf}
@@ -62,11 +86,26 @@ class Sicherheit:
 
         try:
             await self.app(scope, receive, senden)
+        except Exception as fehler:  # noqa: BLE001 - jede Ausnahme, nur ihre Art
+            status = 500
+            FEHLER.error(
+                "Unbehandelte Ausnahme %s bei %s %s",
+                type(fehler).__name__,
+                scope.get("method", "?"),
+                protokollpfad(scope),
+            )
+            if not begonnen:
+                antwort: Response
+                if pfad.startswith("/api/"):
+                    antwort = JSONResponse({"fehler": "Interner Fehler"}, 500)
+                else:
+                    antwort = PlainTextResponse("Interner Fehler", 500)
+                await antwort(scope, receive, senden)
         finally:
             ZUGRIFF.info(
                 "%s %s %s %.0f ms",
                 scope.get("method", "?"),
-                pfad,
+                protokollpfad(scope),
                 status,
                 (time.perf_counter() - beginn) * 1000,
             )

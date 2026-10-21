@@ -130,6 +130,18 @@ def csrf(client: TestClient, pfad: str = "/") -> str:
     return formularwert(client.get(pfad).text, "csrf")
 
 
+def freigabe_hash(client: TestClient, nr: int) -> str | None:
+    """Der Inhalt des Zahlungslaufs, wie ihn die Seite ``/freigaben`` zeigt."""
+    seite = client.get("/freigaben").text
+    treffer = re.search(
+        rf'action="/freigaben/zahlungslauf/{nr}".*?name="freigabe_hash" '
+        r'value="([0-9a-f]{64})"',
+        seite,
+        re.S,
+    )
+    return treffer.group(1) if treffer else None
+
+
 def webwelt(tmp_path: Path, uhr: Uhr | None = None, **auth: object) -> Webwelt:
     u = zwei_gesellschaften(tmp_path)
     registry = lade_gesellschaften(u.registry)

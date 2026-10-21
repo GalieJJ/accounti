@@ -19,10 +19,30 @@
           {% if darf_zahlung %}
           <form method="post" action="/freigaben/zahlungslauf/{{ lauf.nr }}" class="freigabe">
             <input type="hidden" name="csrf" value="{{ csrf }}">
+            <input type="hidden" name="freigabe_hash" value="{{ inhalt[lauf.nr] }}">
             {% if mit_einmalcode %}<input name="einmalcode" autocomplete="one-time-code" placeholder="Einmalcode" required aria-label="Einmalcode">{% endif %}
             <button type="submit">Freigeben</button>
           </form>
           {% endif %}
+        </td>
+      </tr>
+      <tr class="zahlungen">
+        <td></td>
+        <td colspan="5">
+          <table class="liste">
+            <caption>Zahlungen in Lauf {{ lauf.nr }} — freigegeben wird genau dieser Inhalt</caption>
+            <thead><tr><th>Empfänger</th><th>IBAN</th><th class="zahl">Betrag</th><th>Verwendungszweck</th></tr></thead>
+            <tbody>
+            {% for z in lauf.zahlungen %}
+              <tr>
+                <td>{{ z.empfaenger }}</td>
+                <td class="iban">{{ z.iban | iban }}</td>
+                <td class="zahl">{{ z.betrag | betrag }} €</td>
+                <td>{{ z.verwendungszweck }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
         </td>
       </tr>
     {% endfor %}

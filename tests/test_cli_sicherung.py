@@ -224,3 +224,40 @@ def test_aufbewahrung(umgebung):
     assert r.exit_code == 0, r.output
     assert "Buchungen" in r.output and "10 Jahre" in r.output
     assert "8 Jahre" in r.output and "Nichts wird automatisch gelöscht" in r.output
+
+
+def test_aufbewahrung_mit_wirtschaftsjahr_aus_der_konfiguration(umgebung):
+    """Befund A-N4/B-M6: Bücher je Wirtschaftsjahr (datev.wirtschaftsjahr_beginn)."""
+    from datetime import date
+    from decimal import Decimal
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_buchung
+    from accounti.models import Buchungssatz
+
+    db = url(umgebung / "wj.db")
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    with fabrik() as s:
+        speichere_buchung(
+            s,
+            Buchungssatz(
+                datum=date(2015, 8, 1),  # WJ 2015/16 bei Beginn 1. Juli
+                soll_konto="4930",
+                haben_konto="1200",
+                betrag_netto=Decimal("1.00"),
+                buchungstext="x",
+            ),
+        )
+        s.commit()
+    engine.dispose()
+    config = umgebung / "wj.yaml"
+    config.write_text("datev:\n  wirtschaftsjahr_beginn: '2026-07-01'\n", "utf-8")
+    befehl = ["betrieb", "aufbewahrung", "--db", db, "--stichtag", "2027-06-01"]
+    mit = runner.invoke(app, [*befehl, "--config", str(config)], env={"COLUMNS": "200"})
+    ohne = runner.invoke(app, befehl, env={"COLUMNS": "200"})
+    assert mit.exit_code == 0 and ohne.exit_code == 0, mit.output + ohne.output
+    zeile = next(z for z in mit.output.splitlines() if "Buchungen" in z)
+    assert zeile.split("│")[-3].strip() == "0"  # bis 31.12.2027 aufzubewahren
+    zeile = next(z for z in ohne.output.splitlines() if "Buchungen" in z)
+    assert zeile.split("│")[-3].strip() == "1"  # Kalenderjahr 2015 → bis 2026

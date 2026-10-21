@@ -193,15 +193,22 @@ def anlegen(
 ) -> None:
     """Zahlungslauf (Entwurf) aus dem Vorschlag anlegen."""
     from accounti.anzeige import betrag_de, datum_de
+    from accounti.auth.cli import befehlsrecht_oder_ende
+    from accounti.models.auth import Recht
     from accounti.zahlung.freigabe import LaufError, lege_an
 
     e = _mit_filtern(_einstellungen(config), vorlauf, ohne_skonto, minimum, maximum)
     tag = _datum(stichtag, "--stichtag") or date.today()
     termin = _datum(ausfuehrung, "--ausfuehrung")
+    person = _person(von)
+    # mit eingerichteten Benutzern: Recht buchen und Einmalcode — der Ersteller ist
+    # dann der Benutzer, nicht ein Freitext (Vier-Augen: er gibt nicht selbst frei)
+    benutzer = befehlsrecht_oder_ende(db, config, Recht.BUCHEN, person)
+    ersteller = benutzer.name if benutzer is not None else person
     with _sitzung(db) as s:
         v = _vorschlag(s, e, tag, kontakt)
         try:
-            lauf = lege_an(s, v, e, _person(von), ausfuehrung=termin)
+            lauf = lege_an(s, v, e, ersteller, ausfuehrung=termin)
         except LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
         s.commit()
@@ -370,12 +377,21 @@ def freigeben(
         person = freigabe.person_fuer_freigabe(von, e)
     except freigabe.LaufError as fehler:
         raise _fehler(str(fehler)) from fehler
-    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10)
-    befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
+    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10);
+    # wer den Lauf angelegt hat, gibt ihn dann nicht frei
+    benutzer = befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
         try:
-            lauf = freigabe.freigeben(s, nr, person, e, date.today())
+            lauf = freigabe.freigeben(
+                s,
+                nr,
+                person,
+                e,
+                date.today(),
+                ersteller_ausgeschlossen=benutzer is not None
+                and not e.ersteller_darf_freigeben,
+            )
         except freigabe.LaufGesperrtError as fehler:
             raise _befunde(fehler.ergebnis.zeilen(), nr) from fehler
         except freigabe.LaufError as fehler:

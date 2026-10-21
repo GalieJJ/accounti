@@ -34,7 +34,13 @@ def seiten_ohne_parameter(app):
 
 
 def test_akzeptanz_5_wechsel_aendert_alle_ansichten(welt):
+    from tests.gesellschaft_hilfe import zahlungslauf
+
+    zahlungslauf(welt.umgebung, "a")
+    zahlungslauf(welt.umgebung, "b")
     client = welt.angemeldet("jan")
+    seite = client.get("/freigaben").text  # Befund B-N2: die Daten, nicht nur der Kopf
+    assert "A-RE-1" in seite and "111,00" in seite and "B-RE-7" not in seite
     start = client.get("/")
     assert "Alpha Papier GmbH" in start.text and "111,00" in start.text
     assert "Beta Rahmen KG" in start.text  # nur als Auswahl im Wechsler
@@ -52,6 +58,9 @@ def test_akzeptanz_5_wechsel_aendert_alle_ansichten(welt):
         assert "Gesellschaft: <strong>Beta Rahmen KG</strong>" in seite.text, pfad
     start = client.get("/")
     assert "777,00" in start.text and "111,00" not in start.text
+    seite = client.get("/freigaben").text
+    assert "B-RE-7" in seite and "777,00" in seite and "Beta Rahmen KG" in seite
+    assert "A-RE-1" not in seite and "Alpha Papier GmbH" not in seite.split("<main")[-1]
 
 
 def test_benutzer_von_a_sieht_b_nicht(welt):
@@ -96,8 +105,34 @@ def test_token_sieht_nur_seine_gesellschaft(welt):
 
 def test_eigene_konfiguration_je_gesellschaft(welt):
     from accounti.konfiguration import lade_buchhaltung
+    from tests.api_hilfe import freigabe_hash
+    from tests.gesellschaft_hilfe import zahlungslauf
 
     g = welt.dienste.gesellschaften
     assert lade_buchhaltung(g["a"].konfiguration).kontenrahmen == "SKR03"
     assert lade_buchhaltung(g["b"].konfiguration).kontenrahmen == "SKR04"
     assert g["a"].archiv != g["b"].archiv and g["a"].datenbank != g["b"].datenbank
+    # Befund B-N2: die Konfiguration wirkt im Browser je Gesellschaft —
+    # Vier-Augen nur in B
+    pfad = welt.umgebung.config["b"]
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace(
+            "zahlung:\n", "zahlung:\n  vier_augen: true\n"
+        ),
+        encoding="utf-8",
+    )
+    zahlungslauf(welt.umgebung, "a")
+    zahlungslauf(welt.umgebung, "b")
+    welt.person("chef", Rolle.FREIGEBER, gesellschaft="a")
+    welt.rolle("chef", "b", Rolle.FREIGEBER)
+    client = welt.angemeldet("chef")
+    for kuerzel, erwartet in (("a", "freigegeben von chef"), ("b", "zweite Person")):
+        client.post("/gesellschaft", data={"csrf": csrf(client), "kuerzel": kuerzel})
+        daten = {
+            "csrf": csrf(client),
+            "einmalcode": welt.personen["chef"].codes.pop(),
+            "freigabe_hash": freigabe_hash(client, 1),
+        }
+        r = client.post("/freigaben/zahlungslauf/1", data=daten)
+        assert r.status_code == 200, r.text
+        assert erwartet in r.text, kuerzel

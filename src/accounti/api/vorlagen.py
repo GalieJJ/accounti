@@ -27,6 +27,9 @@ UMGEBUNG = Environment(
 )
 UMGEBUNG.filters["betrag"] = betrag_de
 UMGEBUNG.filters["datum"] = datum_de
+UMGEBUNG.filters["iban"] = lambda wert: " ".join(
+    str(wert)[i : i + 4] for i in range(0, len(str(wert)), 4)
+)
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)
 
 

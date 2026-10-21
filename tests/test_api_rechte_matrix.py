@@ -10,7 +10,7 @@ from sqlalchemy import text
 from accounti.api.app import erstelle_app
 from accounti.db import session_factory
 from accounti.models.auth import Recht, Rolle, TokenRecht, rechte_der_rollen
-from tests.api_hilfe import csrf, webwelt
+from tests.api_hilfe import csrf, freigabe_hash, webwelt
 from tests.auth_hilfe import billige_hashes
 from tests.gesellschaft_hilfe import zahlungslauf
 from tests.pdf_hilfe import pdf_mit_text
@@ -76,6 +76,10 @@ def anfrage(welt, client, rolle, methode, pfad):
     """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode."""
     person = welt.personen[rolle.value]
     daten = {"csrf": csrf(client), "einmalcode": person.codes.pop()}
+    if pfad == "/freigaben/zahlungslauf/{nr}":
+        inhalt = freigabe_hash(client, 1)
+        if inhalt is not None:  # nur wer freigeben darf, sieht das Formular
+            daten["freigabe_hash"] = inhalt
     if pfad == "/freigaben/ustva":
         daten["zeitraum"] = "2026-09"
     if pfad == "/gesellschaft":
@@ -119,7 +123,11 @@ def test_akzeptanz_3_betrachter_nichts_buchhalter_kein_zahlungslauf(welt):
     freigeber = welt.angemeldet("freigeber")
     r = freigeber.post(
         "/freigaben/zahlungslauf/1",
-        data={"csrf": csrf(freigeber), "einmalcode": "000000"},
+        data={
+            "csrf": csrf(freigeber),
+            "einmalcode": "000000",
+            "freigabe_hash": freigabe_hash(freigeber, 1),
+        },
     )
     assert r.status_code == 403 and "Einmalcode" in r.text
     assert laufstatus(welt) == "entwurf"
@@ -146,7 +154,11 @@ def test_vier_augen_im_browser(welt):
     r = anfrage(welt, erster, Rolle.FREIGEBER, "POST", "/freigaben/zahlungslauf/{nr}")
     assert r.status_code == 409 and laufstatus(welt) == "entwurf"
     zweiter = welt.angemeldet("zweite")
-    daten = {"csrf": csrf(zweiter), "einmalcode": welt.personen["zweite"].codes.pop()}
+    daten = {
+        "csrf": csrf(zweiter),
+        "einmalcode": welt.personen["zweite"].codes.pop(),
+        "freigabe_hash": freigabe_hash(zweiter, 1),
+    }
     r = zweiter.post("/freigaben/zahlungslauf/1", data=daten)
     assert r.status_code == 200 and laufstatus(welt) == "freigegeben"
 
@@ -218,3 +230,53 @@ def test_ustva_freigabe_im_browser(tmp_path):
         freigaben = lade_freigaben(s, Meldeart.USTVA, "2026-08")
     engine.dispose()
     assert [f.freigegeben_von for f in freigaben] == ["chef"]
+
+
+def test_freigabe_gilt_nur_fuer_den_angezeigten_inhalt(welt):
+    """Befund B-M11: Die Seite zeigt Empfänger, IBAN und Betrag und schickt den
+    Freigabe-Hash mit; ändert sich der Entwurf bis zum Klick, gibt es 409."""
+    freigeber = welt.angemeldet("freigeber")
+    seite = freigeber.get("/freigaben").text
+    assert "Alpha Papier GmbH" in seite and "DE89 3704 0044 0532 0130 00" in seite
+    assert "A-RE-1" in seite and "111,00" in seite
+    gesehen = freigabe_hash(freigeber, 1)
+    assert gesehen is not None
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:  # jemand ändert den Entwurf zwischen Anzeige und Klick
+        s.execute(text("UPDATE zahlungen SET verwendungszweck = 'RE A-RE-1 NEU'"))
+        s.commit()
+    engine.dispose()
+    person = welt.personen["freigeber"]
+    for inhalt in (gesehen, None):
+        daten = {"csrf": csrf(freigeber), "einmalcode": person.codes.pop()}
+        if inhalt:
+            daten["freigabe_hash"] = inhalt
+        r = freigeber.post("/freigaben/zahlungslauf/1", data=daten)
+        assert r.status_code == 409, r.text
+        assert "geändert" in r.text
+        assert laufstatus(welt) == "entwurf"
+    neu = freigabe_hash(freigeber, 1)
+    assert neu != gesehen
+    assert "RE A-RE-1 NEU" in freigeber.get("/freigaben").text
+    daten = {
+        "csrf": csrf(freigeber),
+        "einmalcode": person.codes.pop(),
+        "freigabe_hash": neu,
+    }
+    r = freigeber.post("/freigaben/zahlungslauf/1", data=daten)
+    assert r.status_code == 200, r.text
+    assert laufstatus(welt) == "freigegeben"
+
+
+def test_wer_den_lauf_anlegt_gibt_ihn_im_browser_nicht_frei(welt):
+    """Befund B-M10: Ersteller ≠ Freigeber (``zahlung.ersteller_darf_freigeben``)."""
+    welt.person("eva", Rolle.FREIGEBER)  # eva hat den Lauf angelegt
+    eva = welt.angemeldet("eva")
+    daten = {
+        "csrf": csrf(eva),
+        "einmalcode": welt.personen["eva"].codes.pop(),
+        "freigabe_hash": freigabe_hash(eva, 1),
+    }
+    r = eva.post("/freigaben/zahlungslauf/1", data=daten)
+    assert r.status_code == 409, r.text
+    assert "angelegt" in r.text and laufstatus(welt) == "entwurf"
