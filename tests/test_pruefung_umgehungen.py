@@ -16,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import insert
+from sqlalchemy import insert, update
 from sqlalchemy.orm import Session
 
 import accounti
@@ -184,6 +184,7 @@ def _zeile(tag: date) -> dict[str, object]:
         "bulk_save_objects",
         "bulk_insert_mappings",
         "bulk_update_mappings",
+        "update_tabelle",
     ],
 )
 def test_massenwege_auf_buchungen_abgelehnt(make_session, weg):
@@ -198,10 +199,15 @@ def test_massenwege_auf_buchungen_abgelehnt(make_session, weg):
                 s.bulk_save_objects([BuchungssatzRow(**_zeile(date(2026, 2, 4)))])
             elif weg == "bulk_insert_mappings":
                 s.bulk_insert_mappings(BuchungssatzRow, [_zeile(date(2026, 2, 4))])
-            else:
+            elif weg == "bulk_update_mappings":
                 s.bulk_update_mappings(
                     BuchungssatzRow,
                     [{"id": str(fest.id), "betrag_netto": Decimal("1.00")}],
+                )
+            else:  # Core-Update auf die Tabelle, aber über die Sitzung
+                t = BuchungssatzRow.__table__
+                s.execute(
+                    update(t).where(t.c.id == str(fest.id)).values(soll_konto="1")
                 )
         s.rollback()
     with make_session() as s:
@@ -301,3 +307,36 @@ with fabrik() as s:
     r = _python(code)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "BuchungFestgeschriebenError"
+
+
+def test_export_vermerk_in_einem_flush(make_session):
+    """Befund A4: ``markiere_exportiert`` flusht nicht je Buchung (vorher ein
+    Autoflush je ``session.get`` mit Sperrabfragen und Journaleintrag)."""
+    from sqlalchemy import event
+
+    from accounti.db.repository import lade_buchungen
+    from accounti.pruefung.storno import markiere_exportiert
+
+    with make_session() as s:
+        for i in range(300):
+            speichere_buchung(
+                s, _vorschlag(i).model_copy(update={"status": BuchungStatus.GEPRUEFT})
+            )
+        s.commit()
+    flushes = 0
+
+    def zaehle(*_: object) -> None:
+        nonlocal flushes
+        flushes += 1
+
+    with make_session() as s:
+        buchungen = lade_buchungen(s)
+        event.listen(s, "before_flush", zaehle)
+        start = time.perf_counter()
+        assert markiere_exportiert(s, buchungen, None, "datev") == (300, 0)
+        dauer = time.perf_counter() - start
+        s.commit()
+        event.remove(s, "before_flush", zaehle)
+        assert pruefe_journal(s).in_ordnung
+    assert flushes <= 3, flushes
+    assert dauer < 30, f"{dauer:.1f} s"

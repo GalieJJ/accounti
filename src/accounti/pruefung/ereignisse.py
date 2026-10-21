@@ -551,8 +551,10 @@ def _nach_dem_schreiben(session: Session, _: UOWTransaction) -> None:
 def _keine_massenaenderung(zustand: ORMExecuteState) -> None:
     if not (zustand.is_insert or zustand.is_update or zustand.is_delete):
         return
-    for mapper in zustand.all_mappers:
-        name = mapper.local_table.name  # type: ignore[attr-defined]
+    namen = {mapper.local_table.name for mapper in zustand.all_mappers}  # type: ignore[attr-defined]
+    # auch Core-DML auf die Tabelle, wenn sie über die Sitzung läuft
+    namen.add(getattr(getattr(zustand.statement, "table", None), "name", None))
+    for name in sorted(n for n in namen if n):
         if name in GESCHUETZT:
             msg = (
                 f"Massenänderung an {name} ist gesperrt — Buchungen einzeln über die "
