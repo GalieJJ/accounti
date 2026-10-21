@@ -164,8 +164,11 @@ def test_vier_augen_wer_anlegt_gibt_nicht_frei(tmp_path, monkeypatch):
     assert r.exit_code == 0, r.output
 
 
-def test_ersteller_darf_freigeben_wenn_bewusst_eingestellt(tmp_path, monkeypatch):
-    """Kleine Firma: ``zahlung.ersteller_darf_freigeben: true`` hebt sie auf."""
+def test_ersteller_darf_freigeben_gilt_in_der_cli_nicht(tmp_path, monkeypatch):
+    """Nachprüfung R2-N4 = N1: ``zahlung.ersteller_darf_freigeben: true`` in einer
+    frei wählbaren Datei (auch über eine eigene Registry) hebt die Trennung in der
+    CLI nicht auf — der Schalter gilt nur im Browser, mit der Konfiguration, mit
+    der ``accounti serve`` startete."""
     from pathlib import Path
 
     from accounti.auth.dienst import fuege_rolle_hinzu
@@ -193,7 +196,8 @@ def test_ersteller_darf_freigeben_wenn_bewusst_eingestellt(tmp_path, monkeypatch
     )
     monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
     r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "eva"])
-    assert r.exit_code == 0, r.output
+    assert r.exit_code == 1, r.output
+    assert "angelegt" in r.output
 
 
 def test_anlagen_freigeben_nur_mit_rolle(tmp_path, monkeypatch):

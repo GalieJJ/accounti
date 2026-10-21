@@ -280,3 +280,25 @@ def test_wer_den_lauf_anlegt_gibt_ihn_im_browser_nicht_frei(welt):
     r = eva.post("/freigaben/zahlungslauf/1", data=daten)
     assert r.status_code == 409, r.text
     assert "angelegt" in r.text and laufstatus(welt) == "entwurf"
+
+
+def test_ersteller_darf_freigeben_im_browser_mit_der_serverkonfiguration(welt):
+    """Ein-Personen-Betrieb: ``zahlung.ersteller_darf_freigeben: true`` in der
+    Konfiguration der Gesellschaft (die ``accounti serve`` kennt) gilt im Browser."""
+    pfad = welt.umgebung.config["a"]
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8").replace(
+            "zahlung:\n", "zahlung:\n  ersteller_darf_freigeben: true\n"
+        ),
+        encoding="utf-8",
+    )
+    welt.person("eva", Rolle.FREIGEBER)  # eva hat den Lauf angelegt
+    eva = welt.angemeldet("eva")
+    daten = {
+        "csrf": csrf(eva),
+        "einmalcode": welt.personen["eva"].codes.pop(),
+        "freigabe_hash": freigabe_hash(eva, 1),
+    }
+    r = eva.post("/freigaben/zahlungslauf/1", data=daten)
+    assert r.status_code == 200, r.text
+    assert laufstatus(welt) == "freigegeben"

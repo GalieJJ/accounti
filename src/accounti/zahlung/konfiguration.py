@@ -68,8 +68,9 @@ class ZahlungEinstellungen(BaseModel):
     ersteller_darf_freigeben: bool = Field(
         default=False,
         description=(
-            "mit eingerichteten Benutzern: wer den Lauf anlegt, darf ihn freigeben "
-            "(nur für Ein-Personen-Betriebe)"
+            "mit eingerichteten Benutzern: wer den Lauf anlegt, darf ihn im Browser "
+            "freigeben (nur für Ein-Personen-Betriebe; in der CLI gilt immer die "
+            "Trennung)"
         ),
     )
     einzelbuchung: bool = Field(

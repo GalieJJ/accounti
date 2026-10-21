@@ -378,7 +378,9 @@ def freigeben(
     except freigabe.LaufError as fehler:
         raise _fehler(str(fehler)) from fehler
     # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10);
-    # wer den Lauf angelegt hat, gibt ihn dann nicht frei
+    # wer den Lauf angelegt hat, gibt ihn dann nicht frei — in der CLI immer:
+    # zahlung.ersteller_darf_freigeben käme hier aus einer frei wählbaren Datei
+    # (--config, ACCOUNTI_KONFIG, eigene Registry) und gilt nur im Browser
     benutzer = befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
     with _sitzung(db) as s:
         _lauf_oder_ende(s, nr)
@@ -389,8 +391,7 @@ def freigeben(
                 person,
                 e,
                 date.today(),
-                ersteller_ausgeschlossen=benutzer is not None
-                and not e.ersteller_darf_freigeben,
+                ersteller_ausgeschlossen=benutzer is not None,
             )
         except freigabe.LaufGesperrtError as fehler:
             raise _befunde(fehler.ergebnis.zeilen(), nr) from fehler
