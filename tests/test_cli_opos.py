@@ -279,3 +279,28 @@ def test_vorschlag_ablehnen(tmp_path):
     assert "RE-1001" in _run("opos", "liste", "--db", url).output
     unbekannt = _run("opos", "bestaetigen", tx, "--db", url)
     assert unbekannt.exit_code == 1
+
+
+def test_verbuchen_in_festgeschriebenen_monat_mit_buchungsdatum(tmp_path):
+    """Befund B-H3: die Rechnung vom 05.03. kommt nach der Festschreibung des März."""
+    from datetime import date
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+
+    url = _db(tmp_path)
+    archiv = str(tmp_path / "archiv")
+    datei = str(BELEGE / "rechnung_zwei_steuersaetze.txt")
+    r = _run("belege", "import", datei, "--db", url, "--archiv", archiv)
+    assert r.exit_code == 0, r.output
+    r = _run("periode", "schliessen", "2026-03", "--db", url, "--von", "erika")
+    assert r.exit_code == 0, r.output
+    basis = ["--db", url, "--archiv", archiv, "--config", str(tmp_path / "k.yaml")]
+    r = _run("opos", "verbuchen", *basis)
+    assert "Nicht verbucht" in r.output and "--buchungsdatum" in r.output
+    r = _run("opos", "verbuchen", *basis, "--buchungsdatum", "eingang")
+    assert r.exit_code == 0, r.output
+    assert "§ 15 Abs. 1 Nr. 1 UStG" in r.output
+    _, fabrik = session_factory(url)
+    with fabrik() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date.today()}

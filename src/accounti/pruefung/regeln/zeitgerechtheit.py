@@ -18,7 +18,13 @@ from accounti.db.repository import (
 )
 from accounti.db.tabellen_abschluss import AbschlussRow
 from accounti.db.tabellen_pruefung import PeriodenabschlussRow
-from accounti.models import AbgleichStatus, Belegart, BelegStatus, BuchungStatus
+from accounti.models import (
+    AbgleichStatus,
+    Belegart,
+    BelegStatus,
+    Buchungssatz,
+    BuchungStatus,
+)
 from accounti.models.pruefung import Befund, Kategorie, Schwere
 from accounti.pruefung.journal import lade_journal
 from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
@@ -26,6 +32,16 @@ from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
 _ANGELEGT = frozenset({"buchung_angelegt", "storno_gebucht"})
 _UEBERNOMMEN = "bestand_uebernommen"  # Zeitpunkt der Buchung unbekannt
+
+
+def _eb_buchung(x: Buchungssatz) -> bool:
+    """EB-Buchung des Saldovortrags bzw. Eröffnungssaldos (abschluss/vortrag.py)."""
+    return (
+        (x.datum.month, x.datum.day) == (1, 1)
+        and (x.beleg_nummer or "").startswith("EB-")
+        and x.transaktion_id is None
+        and x.beleg_id is None
+    )
 
 
 def ende_folgemonat(tag: date) -> date:
@@ -194,6 +210,8 @@ class BuchungInGesperrterPeriode:
             if treffer is None or not k.im_zeitraum(x.datum):
                 continue
             zeitraum, seit = treffer
+            if "-" in zeitraum and _eb_buchung(x):
+                continue  # Saldovortrag: nimmt die Monatssperre an (tabellen_pruefung)
             bekannt = str(x.id) in angelegt
             zeitpunkt = angelegt.get(str(x.id))
             if x.status in VORSCHLAG:

@@ -585,3 +585,42 @@ def test_pruefung_protokoll_meldet_manipulation(make_session, config, jahr_2026)
         (b,) = pruefe_abschluss(_k(s, config, 2027), nur=["protokoll"])
     assert b.schwere is Schwere.WARNUNG
     assert "Eintrag 1 wurde verändert" in b.text
+
+
+# --- Monatssperre und Saldovortrag (Baustein 7, Befund B-H3) -------------------------
+
+
+def test_vortrag_in_einen_festgeschriebenen_januar(make_session, config, jahr_2026):
+    """Der Januar ist mit der UStVA festgeschrieben, der Abschluss folgt später: Die
+    EB-Werte am 01.01. tragen die Schlussbilanz vor und ändern weder Verkehrszahlen
+    noch UStVA des Januars — sie nimmt die Monatssperre an, die Jahressperre nicht."""
+    from accounti.pruefung.journal import pruefe_journal
+    from accounti.pruefung.perioden import schliesse
+    from tests.test_pruefung_regeln import pruefe
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    with make_session() as s:
+        vortrag = trage_vor(s, _k(s, config), "E. Muster")
+        s.commit()
+        assert vortrag.buchungen and all(
+            b.datum == date(2027, 1, 1) for b in vortrag.buchungen
+        )
+        assert pruefe_journal(s).in_ordnung
+        # eine gewöhnliche Buchung im Januar bleibt gesperrt
+        speichere_buchung(
+            s,
+            Buchungssatz(
+                datum=date(2027, 1, 1),
+                soll_konto="4930",
+                haben_konto="1200",
+                betrag_netto=D("10"),
+                buchungstext="nachgereicht",
+                status=BuchungStatus.GEPRUEFT,
+            ),
+        )
+        with pytest.raises(JahrGesperrtError, match="2027-01"):
+            s.flush()
+    befunde = pruefe(make_session, "buchung_in_gesperrter_periode", period="2027-01")
+    assert befunde == []

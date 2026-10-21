@@ -4,6 +4,12 @@ Eingang:  Aufwand an Kreditor (Vorsteuer per BU-Schlüssel)
 Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
 
 Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
+
+Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
+Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
+(``eingang``), den ersten offenen Tag (``offen``) oder einen festen Tag — die
+Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
+Rechnung vorliegt. Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
 
 from __future__ import annotations
@@ -11,6 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from sqlalchemy.orm import Session
 
@@ -26,6 +33,7 @@ from accounti.db.repository import (
     verbuchte_beleg_ids,
 )
 from accounti.db.tabellen_abschluss import JahrGesperrtError
+from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.erechnung import ERechnungError, lies
 from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
@@ -64,6 +72,10 @@ _ERLOES_UNBEKANNT = "8200"
 
 class VerbuchungError(RuntimeError):
     """Der Beleg kann so nicht verbucht werden."""
+
+
+# Buchungsdatum einer Eingangsrechnung: Belegdatum, Eingang, erster offener Tag, fest
+Buchungsdatum = Literal["beleg", "eingang", "offen"] | date
 
 
 @dataclass
@@ -215,19 +227,38 @@ def verbuche_beleg(
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
+    buchungsdatum: Buchungsdatum = "beleg",
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
-    if ist_gesperrt(session, belegdatum.year):
+    gebucht_am, hinweis_datum = _buchungstag(
+        session, beleg, belegdatum, buchungsdatum if eingang else "beleg", anlass
+    )
+    if ist_gesperrt(session, gebucht_am.year) and gebucht_am == belegdatum:
         jahr = belegdatum.year
         msg = (
             f"{anlass}: Belegdatum {belegdatum:%d.%m.%Y} liegt im abgeschlossenen "
             f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
             f"--jahr {jahr}"
+            + (
+                " (oder auf einen offenen Tag: --buchungsdatum offen)"
+                if eingang
+                else ""
+            )
         )
         raise JahrGesperrtError(msg)
+    if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
+        ausweg = (
+            " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
+            "TT.MM.JJJJ in einen offenen Zeitraum buchen"
+            if eingang
+            else " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
+        )
+        raise type(fehler)(
+            f"{anlass}: gebucht am {gebucht_am:%d.%m.%Y}: {fehler}{ausweg}"
+        )
 
     if eingang:
         if not beleg.lieferant_name:
@@ -285,7 +316,7 @@ def verbuche_beleg(
     )
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
-    hinweise = []
+    hinweise = [hinweis_datum] if hinweis_datum else []
     ustid_bestaetigt = True
     if rechnung is not None and any(
         kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
@@ -315,7 +346,7 @@ def verbuche_beleg(
             soll, haben = haben, soll
         buchung = Buchungssatz(
             beleg_id=beleg.id,
-            datum=belegdatum,
+            datum=gebucht_am,
             soll_konto=soll,
             haben_konto=haben,
             betrag_netto=abs(g.netto),
@@ -358,6 +389,44 @@ def verbuche_beleg(
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
+def _buchungstag(
+    session: Session,
+    beleg: Beleg,
+    belegdatum: date,
+    buchungsdatum: Buchungsdatum,
+    anlass: str,
+) -> tuple[date, str | None]:
+    """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest."""
+    eingegangen = beleg.eingegangen_am.date()
+    if buchungsdatum == "beleg":
+        return belegdatum, None
+    if buchungsdatum == "eingang":
+        tag = eingegangen
+    elif buchungsdatum == "offen":
+        tag = erster_offener_tag(session.connection(), max(belegdatum, eingegangen))
+    else:
+        assert isinstance(buchungsdatum, date)
+        tag = buchungsdatum
+    if tag < belegdatum:
+        raise VerbuchungError(
+            f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt vor dem Belegdatum "
+            f"{belegdatum:%d.%m.%Y}"
+        )
+    if tag == belegdatum:
+        return tag, None
+    hinweis = (
+        f"gebucht am {tag:%d.%m.%Y} statt zum Belegdatum {belegdatum:%d.%m.%Y} "
+        f"(Eingang {eingegangen:%d.%m.%Y}) — die Vorsteuer zählt in diesem "
+        "Voranmeldungszeitraum (§ 15 Abs. 1 Nr. 1 UStG: Rechnung liegt vor)"
+    )
+    if sperrfehler(session.connection(), eingegangen) is not None and tag > eingegangen:
+        hinweis += (
+            "; der Eingang liegt in einem festgeschriebenen Zeitraum — dessen "
+            "Voranmeldung ist gegebenenfalls zu berichtigen"
+        )
+    return tag, hinweis
+
+
 @dataclass
 class Verbuchungslauf:
     verbucht: list[Verbuchung] = field(default_factory=list)
@@ -371,6 +440,7 @@ def verbuche_belege(
     regelwerk: RegelwerkEngine | None = None,
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
+    buchungsdatum: Buchungsdatum = "beleg",
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
@@ -396,6 +466,7 @@ def verbuche_belege(
                     regelwerk,
                     eigene_firma,
                     ustid_max_alter_tage,
+                    buchungsdatum,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:

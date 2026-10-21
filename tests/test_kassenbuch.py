@@ -211,3 +211,63 @@ def test_lange_freitexte_passen_in_die_spalten(make_session):
     with make_session() as s:
         v = lade_kassenbuch(s)[-1]
     assert (len(v.text), v.belegnummer, v.erfasst_von) == (200, "B" * 60, "V" * 50)
+
+
+# --- Kassen-Storno und Storno statt Änderung (Baustein 7, Befund B-M1) --------------
+
+
+def _kassenbuchung(make_session):
+    _start(make_session, "500")
+    aus = _buche(
+        make_session,
+        "-119",
+        date(2026, 3, 2),
+        "Bürobedarf",
+        gegenkonto="4930",
+        steuersatz=D("19"),
+    )
+    return aus
+
+
+def test_kassen_storno_nach_korrektur_kehrt_die_neubuchung_um(make_session):
+    from accounti.db.repository import finde_buchung
+    from accounti.pruefung.journal import pruefe_journal
+    from accounti.pruefung.storno import korrigiere
+
+    aus = _kassenbuchung(make_session)
+    with make_session() as s:
+        k = korrigiere(s, str(aus.buchung_id), "4940", "1000", steuer=9, von="erika")
+        s.commit()
+    with make_session() as s:
+        st = storniere(s, aus.nr, "falsch erfasst", KASSE, datum=date(2026, 3, 4))
+        s.commit()
+        gegen = finde_buchung(s, str(st.buchung_id))
+        neu = finde_buchung(s, str(k.neu.id))
+        assert (gegen.soll_konto, gegen.haben_konto) == ("1000", "4940")
+        assert gegen.storno_von == neu.id and neu.storniert_durch == gegen.id
+        assert gegen.storniert_durch is None
+        assert pruefe_journal(s).in_ordnung
+
+
+def test_kassen_storno_ist_ein_storno_der_buchung(make_session):
+    from accounti.db.repository import finde_buchung
+    from accounti.pruefung.storno import StornoError, korrigiere
+
+    aus = _kassenbuchung(make_session)
+    with make_session() as s:
+        st = storniere(s, aus.nr, "doppelt erfasst", KASSE, datum=date(2026, 3, 4))
+        s.commit()
+        assert finde_buchung(s, str(aus.buchung_id)).storniert_durch == st.buchung_id
+        with pytest.raises(StornoError, match="schon storniert"):
+            korrigiere(s, str(aus.buchung_id), "4940", "1000", steuer=9)
+
+
+def test_kassen_storno_ohne_gueltige_buchung_abgelehnt(make_session):
+    from accounti.pruefung.storno import storniere as storniere_buchung
+
+    aus = _kassenbuchung(make_session)
+    with make_session() as s:
+        storniere_buchung(s, str(aus.buchung_id), grund="falsch", von="erika")
+        s.commit()
+    with make_session() as s, pytest.raises(KassenbuchError, match="ohne Neubuchung"):
+        storniere(s, aus.nr, "falsch erfasst", KASSE)

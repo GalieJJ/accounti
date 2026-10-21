@@ -1394,6 +1394,12 @@ def opos_verbuchen(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     config: str = KONFIG_OPTION,
+    buchungsdatum: str = typer.Option(
+        "beleg",
+        help="Eingangsrechnungen buchen zum: beleg (Belegdatum), eingang "
+        "(Eingangsdatum), offen (erster offener Tag) oder JJJJ-MM-TT — für Rechnungen "
+        "zu einem festgeschriebenen Monat (Vorsteuer: § 15 Abs. 1 Nr. 1 UStG)",
+    ),
 ) -> None:
     """Erfasste Rechnungen auf Personenkonten buchen und offene Posten anlegen."""
     from rich.markup import escape
@@ -1410,8 +1416,13 @@ def opos_verbuchen(
         lade_ustid_pruefung,
     )
     from accounti.models import BuchungStatus, PostenRichtung
-    from accounti.opos.verbuchung import verbuche_belege
+    from accounti.opos.verbuchung import Buchungsdatum, verbuche_belege
 
+    tag: Buchungsdatum
+    if buchungsdatum in ("beleg", "eingang", "offen"):
+        tag = buchungsdatum  # type: ignore[assignment]
+    else:
+        tag = _datum_option(buchungsdatum, "--buchungsdatum")  # type: ignore[assignment]
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
@@ -1429,6 +1440,7 @@ def opos_verbuchen(
             regelwerk,
             eigene_firma=lade_eigene_firma(config),
             ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
+            buchungsdatum=tag,
         )
         s.commit()
     for v in lauf.verbucht:

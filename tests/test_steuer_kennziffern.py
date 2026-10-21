@@ -493,3 +493,25 @@ def test_manuelle_minderung_einer_mischrechnung_bleibt_mehrdeutig():
     e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
     ((buchung, grund),) = e.ohne_kennziffer
     assert buchung.soll_konto == "8730" and "mehreren Kennziffern" in grund
+
+
+def test_storno_paar_bestimmt_die_kennziffer_der_rechnung_nicht():
+    """Befund B-M4: Die Rechnung war erst mit 19 % gebucht, dann per Storno und
+    Neubuchung als ig. Lieferung (8125). Das Skonto gehört zu Kz 41 — das aufgehobene
+    Paar mit Schlüssel 3 macht die Rechnung nicht „mehrdeutig“. Das Paar selbst
+    hebt sich in Kz 81 weiter auf."""
+    beleg = uuid4()
+    original = b("10002", "8400", "5000.00", 3, "950.00", beleg_id=beleg)
+    storno = b(
+        "8400", "10002", "5000.00", 3, "950.00", beleg_id=beleg, storno_von=original.id
+    )
+    original = original.model_copy(update={"storniert_durch": storno.id})
+    buchungen = [
+        original,
+        storno,
+        b("10002", "8125", "5950.00", beleg_id=beleg),  # Neubuchung
+        b("8730", "10002", "100.00", beleg_id=beleg),  # Skonto ohne Schlüssel
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.ohne_kennziffer == []
+    assert e.voranmeldung.werte == {41: D("5850.00"), 81: D("0.00")}  # Paar hebt sich

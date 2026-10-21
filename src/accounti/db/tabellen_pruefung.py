@@ -18,6 +18,8 @@ der Import dieses Moduls.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any
 
@@ -35,7 +37,7 @@ from sqlalchemy import (
     select,
 )
 from sqlalchemy import text as sql_text
-from sqlalchemy.orm import Mapped, Mapper, mapped_column
+from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, object_session
 
 from accounti.db import Base
 from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
@@ -194,6 +196,21 @@ def sperrfehler(
     )
 
 
+def erster_offener_tag(verbindung: Connection, ab: date) -> date:
+    """Der erste Tag ab ``ab``, der weder im abgeschlossenen Jahr noch in einem
+    festgeschriebenen Monat liegt."""
+    tag = ab
+    for _ in range(1200):  # höchstens 100 Jahre
+        fehler = sperrfehler(verbindung, tag)
+        if fehler is None:
+            return tag
+        if isinstance(fehler, PeriodeGesperrtError):
+            tag = date(tag.year + tag.month // 12, tag.month % 12 + 1, 1)
+        else:
+            tag = date(tag.year + 1, 1, 1)
+    raise JahrGesperrtError(f"Kein offener Tag ab {ab:%d.%m.%Y} gefunden")
+
+
 def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
     # das alte Datum steht dank active_history auch nach dem Ablauf in der Historie
     tage = {ziel.datum} if ziel.datum else set()
@@ -204,7 +221,43 @@ def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
             raise fehler
 
 
+# session.info: IDs der EB-Buchungen, die gerade angelegt werden (Saldovortrag)
+_EROEFFNUNG = "accounti_eroeffnungsbuchungen"
+
+
+@contextmanager
+def eroeffnungsbuchungen(session: Session) -> Iterator[set[str]]:
+    """EB-Buchungen am 01.01. anlegen, auch wenn der Januar festgeschrieben ist.
+
+    Der Saldovortrag (und der erste Eröffnungssaldo) trägt die Schlussbilanz des
+    Vorjahres vor: Er ändert weder die Verkehrszahlen noch die UStVA des Januars, und
+    auf einen späteren Tag gebucht stimmten die Salden des Januars nicht mehr. Die
+    Monatssperre nimmt deshalb genau diese Buchungen an — nur angelegt, nur am 01.01.,
+    nur mit der hier gemeldeten ID. Die Jahressperre gilt weiter.
+    """
+    ids: set[str] = set()
+    session.info[_EROEFFNUNG] = ids
+    try:
+        yield ids
+    finally:
+        session.info.pop(_EROEFFNUNG, None)
+
+
+def _eroeffnung(ziel: BuchungssatzRow) -> bool:
+    session = object_session(ziel)
+    ids: set[str] = session.info.get(_EROEFFNUNG, set()) if session else set()
+    tag = ziel.datum
+    return str(ziel.id) in ids and (tag.month, tag.day) == (1, 1)
+
+
 @event.listens_for(BuchungssatzRow, "before_insert")
+def _neu_im_gesperrten_monat(
+    _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
+) -> None:
+    if not _eroeffnung(ziel):
+        _monatssperre(verbindung, ziel)
+
+
 @event.listens_for(BuchungssatzRow, "before_delete")
 def _buchung_im_gesperrten_monat(
     _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow

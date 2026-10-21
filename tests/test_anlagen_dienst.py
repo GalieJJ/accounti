@@ -237,3 +237,27 @@ def test_ausdrueckliche_nutzungsdauer_schlaegt_digitale_art_der_tabelle(
             nutzungsdauer=1,
         ).anlage
     assert (digital.afa_art, digital.nutzungsdauer) == (AfaArt.DIGITAL, 1)
+
+
+def test_stornierter_zugang_ist_kein_vorschlag(make_session, einst):
+    """Befund B-M4: ein per Storno korrigierter Zugang auf 0420 ist kein Anlagegut."""
+    from accounti.pruefung.storno import korrigiere
+
+    zugang = Buchungssatz(
+        datum=date(2026, 9, 1),
+        soll_konto="0420",
+        haben_konto="1200",
+        betrag_netto=D("1260.50"),
+        steuer_schluessel=9,
+        steuer_betrag=D("239.50"),
+        buchungstext="Notebook",
+        status=BuchungStatus.AUTO_GEBUCHT,
+    )
+    with make_session() as s:
+        speichere_buchung(s, zugang)
+        s.commit()
+        korrigiere(
+            s, str(zugang.id), "4855", "1200", steuer=9, grund="doch Aufwand", von="x"
+        )
+        s.commit()
+        assert vorschlaege(s, einst, 2026) == []

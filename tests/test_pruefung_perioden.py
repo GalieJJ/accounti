@@ -172,3 +172,48 @@ def test_entsperren_an_accounti_vorbei_faellt_auf(make_session):
         s.commit()
         (befund,) = pruefe_journal(s).befunde
     assert befund.art == "abweichung" and "2026-08" in befund.text
+
+
+# --- späte Eingangsrechnung für einen festgeschriebenen Monat (Befund B-H3) ---------
+
+
+def test_spaete_eingangsrechnung_mit_buchungsdatum(make_session):
+    """§ 15 Abs. 1 Nr. 1 UStG: Vorsteuer im Zeitraum, in dem die Rechnung vorliegt —
+    nicht den festgeschriebenen Monat des Belegdatums wieder öffnen."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    rechnung = beleg(tag=date(2026, 8, 10))  # eingegangen 11.08.2026
+    anlegen(make_session, rechnung)
+    _geschlossen(make_session)  # 2026-08
+    with make_session() as s:
+        for art in ("beleg", "eingang"):
+            with (
+                pytest.raises(PeriodeGesperrtError, match="--buchungsdatum"),
+                s.begin_nested(),
+            ):
+                verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum=art)
+        v = verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum="offen")
+        s.commit()
+    assert {b.datum for b in v.buchungen} == {date(2026, 9, 1)}
+    assert v.posten.belegdatum == date(2026, 8, 10)  # der Beleg bleibt, wie er ist
+    assert any("§ 15 Abs. 1 Nr. 1 UStG" in h for h in v.hinweise)
+
+
+def test_buchungsdatum_eingang_und_fester_tag(make_session):
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    erste = beleg(tag=date(2026, 7, 28), nummer="RE-1", datei_hash="1" * 64)
+    zweite = beleg(tag=date(2026, 7, 29), nummer="RE-2", datei_hash="2" * 64)
+    anlegen(make_session, erste, zweite)
+    _geschlossen(make_session, "2026-07")
+    with make_session() as s:
+        v = verbuche_beleg(s, erste, Buchhaltung(), buchungsdatum="eingang")
+        assert {b.datum for b in v.buchungen} == {date(2026, 8, 11)}
+        with pytest.raises(VerbuchungError, match="vor dem Belegdatum"):
+            verbuche_beleg(s, zweite, Buchhaltung(), buchungsdatum=date(2026, 7, 1))
+        v = verbuche_beleg(s, zweite, Buchhaltung(), buchungsdatum=date(2026, 8, 20))
+        assert {b.datum for b in v.buchungen} == {date(2026, 8, 20)}
