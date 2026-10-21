@@ -330,6 +330,28 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Abschluss – Kontenrahmen SKR03/SKR04:** EÜR-Kennzahlen und Kontoarten gegen die
+  DATEV-Kontenrahmen 2026 (Art.-Nr. 11174/11175, dazu 11079/11080 für § 4 Abs. 3 EStG) und
+  die Anlage EÜR 2025 mit Anleitung geprüft und berichtigt. SKR04 ordnete 4700–4999
+  pauschal Kz 103 zu: Erlösschmälerungen stehen jetzt bei der Kennzahl ihrer Erlöse (19 %
+  → 112, steuerfrei → 103, § 19 UStG → 111), Bestandsveränderungen (SKR03 8960–8989,
+  SKR04 4800–4819) außerhalb der EÜR, Anlagenverkäufe 4844/4850–4852 bei Kz 102. Außerdem
+  u. a.: Kleinunternehmerkonto 2026 ist 8192/4184; Erlöse 0 % USt und Innenumsätze Kz 103;
+  Erlöse/Erträge mit 7 %/16 %/19 % USt Kz 112; Forderungsverluste mindern die Erlöse;
+  doppelte Haushaltsführung 152, Arbeitszimmer 172/162 (auch dessen AfA), Tagespauschale
+  163; Gebäudeversicherung, -reparaturen und Grundsteuer 151; Fremdleistungen,
+  Verkaufsprovisionen 110; Abfall 226; Zinsen für Anlagevermögen 232; Kfz-Fahrtkosten des
+  Unternehmers 146 und Wege Wohnung–Betriebsstätte 142/176 (DATEV-Dok. 1036862);
+  Verpflegungsmehraufwand Unternehmer und doppelte Haushaltsführung 171; nicht abziehbare
+  Anteile (sonstige eingeschränkt abziehbare BA, Reisekosten, Werbe-/Repräsentationskosten,
+  Steuer-Nebenleistungen § 4 Abs. 5b EStG) 168, abzugsfähige Verspätungszuschläge 183;
+  Spenden, kalkulatorische Kosten und Ergebnisverwendung außerhalb der EÜR; SKR04-Konten,
+  die der Kontenrahmen 2026 verschoben hat (Reisekosten Unternehmer, Raumkosten, Leasing,
+  Ausgleichsabgabe, Gewährleistung). Kontoarten: SKR03 3990–3999 (verrechnete Stoffkosten)
+  sind Erfolgskonten; Vorsteuer nach § 15a UStG, aufzuteilende Vorsteuer (SKR03) und die
+  Vorsteuer-Gegenkonten § 4 Abs. 3 EStG (SKR04 1480–1482) sowie unberechtigt ausgewiesene
+  USt (SKR04 3851) sind Steuerkonten. Anlage EÜR: Zeilen für Kz 142, 162, 163 und 176.
+  Offene Punkte sind in den Zuordnungsdateien mit „prüfen:“ markiert
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
   erkannt“ zu melden
 - `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback

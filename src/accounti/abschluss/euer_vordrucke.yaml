@@ -57,14 +57,19 @@
     "175": [63, "Bewirtungsaufwendungen (abziehbar)"]
     "171": [64, "Verpflegungsmehraufwendungen"]
     "172": [65, "Aufwendungen für ein häusliches Arbeitszimmer"]
+    "163": [66, "Tagespauschale für die Tätigkeit in der häuslichen Wohnung"]
     "177": [67, "Sonstige beschränkt abziehbare Betriebsausgaben"]
     "144": [68, "Kfz: Leasingkosten"]
     "145": [69, "Kfz: Steuern, Versicherungen und Maut"]
     "146": [70, "Sonstige tatsächliche Fahrtkosten ohne AfA und Zinsen"]
     "147": [71, "Fahrtkosten für nicht zum Betriebsvermögen gehörende Fahrzeuge"]
+    # Zeile 72 mit negativem Betrag (mindert die Kfz-Kosten), Zeile 73 hinzu
+    "142": [72, "Fahrtkosten für Wege zwischen Wohnung und erster Betriebsstätte (−)"]
+    "176": [73, "Mindestens abziehbare Fahrtkosten (Entfernungspauschale)"]
   nicht_abziehbar:
     "164": [62, "Geschenke (nicht abziehbar)"]
     "165": [63, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    "162": [65, "Aufwendungen für ein häusliches Arbeitszimmer (nicht abziehbar)"]
     # u. a. Gewerbesteuer (§ 4 Abs. 5b EStG; Anleitung zur Anlage EÜR 2025, S. 9)
     "168": [67, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [75, "199", "Summe Betriebsausgaben"]
@@ -122,14 +127,20 @@
     "175": [64, "Bewirtungsaufwendungen (abziehbar)"]
     "171": [65, "Verpflegungsmehraufwendungen"]
     "172": [66, "Aufwendungen für ein häusliches Arbeitszimmer"]
+    # prüfen: Zeilen von 162, 163, 142 und 176 nach der Regel „2025 + 1“ übernommen,
+    # nicht am Vordruck 2026 gegengeprüft
+    "163": [67, "Tagespauschale für die Tätigkeit in der häuslichen Wohnung"]
     "177": [68, "Sonstige beschränkt abziehbare Betriebsausgaben"]
     "144": [69, "Kfz: Leasingkosten"]
     "145": [70, "Kfz: Steuern, Versicherungen und Maut"]
     "146": [71, "Sonstige tatsächliche Fahrtkosten ohne AfA und Zinsen"]
     "147": [72, "Fahrtkosten für nicht zum Betriebsvermögen gehörende Fahrzeuge"]
+    "142": [73, "Fahrtkosten für Wege zwischen Wohnung und erster Betriebsstätte (−)"]
+    "176": [74, "Mindestens abziehbare Fahrtkosten (Entfernungspauschale)"]
   nicht_abziehbar:
     "164": [63, "Geschenke (nicht abziehbar)"]
     "165": [64, "Bewirtungsaufwendungen (nicht abziehbar)"]
+    "162": [66, "Aufwendungen für ein häusliches Arbeitszimmer (nicht abziehbar)"]
     "168": [68, "Sonstige beschränkt abziehbare Betriebsausgaben (nicht abziehbar)"]
   summe_ausgaben: [76, "199", "Summe Betriebsausgaben"]
   gewinn: [77, 78]

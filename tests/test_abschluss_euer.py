@@ -172,3 +172,89 @@ def test_verrechnungskonten_im_ust_bereich_sind_keine_ust(make_session):
     assert euer.zeile("186") is None and euer.zeile("141") is None
     assert euer.summe_ausgaben == 0 and euer.gewinn == D("1000")
     assert susa.ergebnis == D("1000")
+
+
+def test_arbeitszimmer_abziehbar_und_nicht_abziehbar(make_session):
+    """Anlage EÜR Zeile 65 (2026: 66) „abziehbar“/„nicht abziehbar“, Zeile 66 (67)
+    Tagespauschale; die AfA des Arbeitszimmers gehört ebenfalls in Zeile 65."""
+    for jahr in (2025, 2026):
+        buche(make_session, date(jahr, 3, 1), "1200", "8400", "5000")
+        buche(make_session, date(jahr, 4, 1), "4288", "1200", "400")  # abziehbar
+        buche(make_session, date(jahr, 4, 2), "4833", "0149", "100")  # AfA
+        buche(make_session, date(jahr, 4, 3), "4289", "1200", "300")  # nicht abziehbar
+        buche(make_session, date(jahr, 4, 4), "4287", "1890", "120")  # Tagespauschale
+    for jahr, versatz in ((2025, 0), (2026, 1)):
+        susa, euer = _euer(make_session, jahr)
+        zeilen = {z.kz: (z.zeile, z.betrag) for z in euer.ausgaben}
+        assert zeilen == {
+            "172": (65 + versatz, D("500")),
+            "163": (66 + versatz, D("120")),
+        }
+        [nicht] = euer.nicht_abziehbar
+        assert (nicht.kz, nicht.zeile, nicht.betrag) == ("162", 65 + versatz, D("300"))
+        assert euer.nicht_zugeordnet == []
+        assert euer.summe_ausgaben == D("620")
+        assert euer.gewinn - euer.summe_nicht_abziehbar == susa.ergebnis == D("4080")
+
+
+def test_wege_wohnung_betriebsstaette(make_session):
+    """Zeile 72 (2026: 73) mindert die Kfz-Kosten um die tatsächlichen Aufwendungen für
+    die Wege, Zeile 73 (74) setzt die Entfernungspauschale an (DATEV-Dok. 1036862)."""
+    buche(make_session, date(2026, 2, 1), "1200", "8400", "10000")
+    buche(make_session, date(2026, 3, 1), "4530", "1200", "4000")  # Kfz-Kosten
+    buche(make_session, date(2026, 12, 31), "4679", "4680", "4320")  # 0,03 %-Wert
+    buche(make_session, date(2026, 12, 31), "4678", "4679", "2156")  # Pauschale
+    susa, euer = _euer(make_session)
+    zeilen = {z.kz: (z.zeile, z.betrag) for z in euer.ausgaben}
+    assert zeilen == {
+        "146": (71, D("4000")),
+        "142": (73, D("-4320")),
+        "176": (74, D("2156")),
+    }
+    assert euer.summe_ausgaben == D("1836")
+    # der nicht abziehbare Anteil ergibt sich aus den Zeilen 73/74 und steht außerhalb
+    assert [(z.konten, z.betrag) for z in euer.ausserhalb] == [
+        ({"4679": D("2164")}, D("2164"))
+    ]
+    assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("6000")
+
+
+def test_erloesschmaelerungen_mindern_ihre_erloeszeile(make_session):
+    buche(make_session, date(2026, 3, 1), "1200", "8400", "1000")
+    buche(make_session, date(2026, 3, 2), "8736", "1200", "20")  # Skonto 19 %
+    buche(make_session, date(2026, 3, 3), "1200", "8125", "2000")  # ig. Lieferung
+    buche(make_session, date(2026, 3, 4), "8743", "1200", "40")  # Skonto darauf
+    buche(make_session, date(2026, 3, 5), "1200", "8192", "500")  # Kleinunternehmer
+    buche(make_session, date(2026, 3, 6), "8707", "1200", "5")
+    _, euer = _euer(make_session)
+    betraege = {z.kz: z.betrag for z in euer.einnahmen}
+    assert betraege == {"112": D("980"), "103": D("1960"), "111": D("495")}
+    assert euer.ausgaben == []
+
+
+def test_bestandsveraenderungen_sind_keine_betriebseinnahmen(make_session):
+    buche(make_session, date(2026, 3, 1), "1200", "8400", "1000")
+    buche(make_session, date(2026, 12, 31), "7110", "8980", "300")
+    susa, euer = _euer(make_session)
+    assert euer.summe_einnahmen == D("1000")
+    assert [(z.konten, z.betrag) for z in euer.ausserhalb] == [
+        ({"8980": D("-300")}, D("-300"))
+    ]
+    assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("1300")
+
+
+def test_skr04_wege_und_kalkulatorische_kosten(make_session):
+    skr04 = lade_kontenrahmen("SKR04")
+    buche(make_session, date(2026, 2, 1), "1800", "4400", "10000")
+    buche(make_session, date(2026, 3, 1), "6530", "1800", "4000")
+    buche(make_session, date(2026, 12, 31), "6689", "6690", "4320")
+    buche(make_session, date(2026, 12, 31), "6688", "6689", "2156")
+    buche(make_session, date(2026, 12, 31), "6970", "6980", "30000")  # kalkulatorisch
+    with make_session() as s:
+        susa = summen_und_salden(s, 2026, skr04, "euer")
+    euer = erstelle_euer(susa, skr04)
+    betraege = {z.kz: z.betrag for z in euer.ausgaben}
+    assert betraege == {"146": D("4000"), "142": D("-4320"), "176": D("2156")}
+    assert euer.nicht_zugeordnet == []
+    assert euer.gewinn == D("8164")
+    assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("6000")
