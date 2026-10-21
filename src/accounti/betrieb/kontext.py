@@ -31,8 +31,11 @@ UMGEBUNG_ARCHIV = "ACCOUNTI_ARCHIV"
 UMGEBUNG_KONFIG = "ACCOUNTI_KONFIG"
 UMGEBUNG_SYSTEM_DB = "ACCOUNTI_SYSTEM_DB"
 
-# Befehlsgruppen, die ohne gewählte Gesellschaft laufen dürfen
-OHNE_GESELLSCHAFT = frozenset({"gesellschaft", "version", "serve"})
+# Befehlsgruppen, die ohne gewählte Gesellschaft starten dürfen; wer darin doch eine
+# braucht, ruft ``gesellschaft_noetig()`` (z.B. ``sicherung erstellen``)
+OHNE_GESELLSCHAFT = frozenset(
+    {"gesellschaft", "version", "serve", "benutzer", "token", "betrieb", "sicherung"}
+)
 
 _PARAMETER = {"db": "datenbank", "archiv": "archiv", "config": "konfiguration"}
 
@@ -72,6 +75,15 @@ def aktueller_kontext() -> Kontext:
     if kontext is None:
         pfad = globale_konfiguration()
         kontext = Kontext(pfad, Gesellschaften(quelle=pfad))
+    return kontext
+
+
+def gesellschaft_noetig() -> Kontext:
+    """Bei mehreren Gesellschaften ohne Wahl ein ``KonfigurationError``."""
+    kontext = aktueller_kontext()
+    if kontext.gesellschaft is None and kontext.registry.mehrere:
+        msg = "Mehrere Gesellschaften eingerichtet — --gesellschaft angeben"
+        raise KonfigurationError(msg)
     return kontext
 
 

@@ -147,6 +147,29 @@ def test_wiederherstellungscodes_genau_einmal(sitzung):
     ]
 
 
+def test_fehlversuche_in_der_datenbank_gezaehlt(tmp_path):
+    """Zwei Sitzungen mit veraltetem Stand verlieren keinen Fehlversuch."""
+    from accounti.db.repo_auth import erhoehe_fehlversuche, setze_sperre
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 's.db'}")
+    init_db(engine)
+    b = benutzer()
+    with fabrik() as s:
+        speichere_benutzer(s, b)
+        s.commit()
+    with fabrik() as s1:
+        assert lade_benutzer(s1, "jan").fehlversuche == 0
+        assert erhoehe_fehlversuche(s1, b.id) == 1
+        s1.commit()
+    with fabrik() as s2:
+        assert erhoehe_fehlversuche(s2, b.id) == 2
+        setze_sperre(s2, b.id, JETZT)
+        s2.commit()
+        gesperrt = lade_benutzer(s2, "jan")
+    assert gesperrt.fehlversuche == 0 and gesperrt.gesperrt_bis == JETZT
+    engine.dispose()
+
+
 def test_totp_schritt_nur_aufsteigend(sitzung):
     b = benutzer()
     speichere_benutzer(sitzung, b)

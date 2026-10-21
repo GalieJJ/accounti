@@ -29,7 +29,12 @@ from accounti.bank.tresor import TresorError
 
 router = APIRouter()
 
-ANMELDE_COOKIE = "accounti_anmeldung"
+
+def anmelde_cookie(dienste: Dienste) -> str:
+    """Wie beim Sitzungscookie mit TLS ``__Host-``: keine Subdomain kann es setzen."""
+    if dienste.server.cookie_sicher:
+        return "__Host-accounti_anmeldung"
+    return "accounti_anmeldung"
 
 
 def sicheres_ziel(weiter: str | None) -> str:
@@ -57,7 +62,7 @@ def _formular(
         status=status,
     )
     antwort.set_cookie(
-        ANMELDE_COOKIE,
+        anmelde_cookie(dienste),
         wert,
         max_age=900,
         path="/",
@@ -104,7 +109,7 @@ async def anmelden(request: Request) -> Response:
     dienste = dienste_von(request)
     felder = await formular(request)
     weiter = sicheres_ziel(felder.get("weiter"))
-    cookie = request.cookies.get(ANMELDE_COOKIE, "")
+    cookie = request.cookies.get(anmelde_cookie(dienste), "")
     gesendet = felder.get("anmeldung", "")
     if not cookie or not hmac.compare_digest(cookie.encode(), gesendet.encode()):
         return _formular(
@@ -123,7 +128,13 @@ async def anmelden(request: Request) -> Response:
         httponly=True,
         samesite="strict",
     )
-    antwort.delete_cookie(ANMELDE_COOKIE, path="/")
+    antwort.delete_cookie(
+        anmelde_cookie(dienste),
+        path="/",
+        secure=dienste.server.cookie_sicher,
+        httponly=True,
+        samesite="strict",
+    )
     return antwort
 
 

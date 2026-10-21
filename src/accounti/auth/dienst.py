@@ -344,16 +344,11 @@ def _fehlversuch(
     grund: str,
     quelle: str,
 ) -> AnmeldungError:
-    aktuell = repo.lade_benutzer_id(s, b.id) or b
-    zaehler = aktuell.fehlversuche + 1
-    aenderung: dict[str, object] = {"fehlversuche": zaehler}
+    zaehler = repo.erhoehe_fehlversuche(s, b.id)
     gesperrt = zaehler >= einstellungen.sperre_nach_fehlversuchen
     if gesperrt:
-        aenderung["gesperrt_bis"] = jetzt + timedelta(
-            minutes=einstellungen.sperre_minuten
-        )
-        aenderung["fehlversuche"] = 0
-    repo.speichere_benutzer(s, aktuell.model_copy(update=aenderung))
+        bis = jetzt + timedelta(minutes=einstellungen.sperre_minuten)
+        repo.setze_sperre(s, b.id, bis)
     ereignis(s, grund, jetzt, b.name, ok=False, quelle=quelle)
     if gesperrt:
         repo.beende_sitzungen_von(s, b.id, jetzt)
@@ -391,9 +386,7 @@ def pruefe_zweiten_faktor(
     art = _pruefe_faktor(s, b, einmalcode, schluessel, einstellungen, jetzt)
     if art is None:
         raise _fehlversuch(s, b, einstellungen, jetzt, "einmalcode_falsch", quelle)
-    repo.speichere_benutzer(
-        s, (repo.lade_benutzer_id(s, b.id) or b).model_copy(update={"fehlversuche": 0})
-    )
+    repo.setze_sperre(s, b.id, None, 0)
     if art == "wiederherstellungscode":
         ereignis(s, "wiederherstellungscode", jetzt, b.name, quelle=quelle)
     return art

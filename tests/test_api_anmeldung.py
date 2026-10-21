@@ -60,6 +60,9 @@ def test_akzeptanz_4_anmeldung_ohne_zweiten_faktor_scheitert(welt):
 
 def test_sitzungscookie_attribute(welt):
     client = welt.client()
+    formular = client.get("/anmelden").headers["set-cookie"].lower()
+    assert formular.startswith("__host-accounti_anmeldung=")
+    assert "secure" in formular and "samesite=strict" in formular
     r = welt.anmelden(client, "jan")
     kopf = r.headers["set-cookie"].lower()
     assert kopf.startswith("__host-accounti_sitzung=")

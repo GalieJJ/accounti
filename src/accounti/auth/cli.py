@@ -188,7 +188,10 @@ def pruefe_verwaltung(
 
     Einrichtungsphase: Solange kein aktiver Verwalter einen zweiten Faktor hat, ist
     alles erlaubt (sonst sperrte man sich beim Einrichten aus). Danach braucht es
-    einen Verwalter mit Einmalcode — oder, bei ``selbst``, den Benutzer selbst.
+    einen Verwalter mit Einmalcode — oder, bei ``selbst``, den Benutzer selbst mit
+    seinem eingerichteten zweiten Faktor. Den ersten zweiten Faktor eines Benutzers
+    richtet ein Verwalter ein: Sonst könnte jeder mit Zugang zur Server-Shell unter
+    fremdem Namen einen Faktor anlegen.
     """
     person = aktueller_benutzername()
     with systemsitzung(db) as s:
@@ -202,8 +205,8 @@ def pruefe_verwaltung(
         e = auth_einstellungen(config)
         if selbst is not None and person == selbst:
             b = lade_benutzer(s, person)
-            if b is not None and b.aktiv:
-                if b.totp_aktiv and e.einmalcode_bestaetigung:
+            if b is not None and b.aktiv and b.totp_aktiv:
+                if e.einmalcode_bestaetigung:
                     pruefe_zweiten_faktor(
                         s, b, frage(person), lade_schluessel(), e, quelle="cli"
                     )

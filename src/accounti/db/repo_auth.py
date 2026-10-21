@@ -97,6 +97,32 @@ def lade_alle_benutzer(session: Session) -> list[Benutzer]:
     return [_zu_benutzer(z) for z in zeilen]
 
 
+def erhoehe_fehlversuche(session: Session, benutzer_id: UUID) -> int:
+    """Zählt einen Fehlversuch in der Datenbank hoch (``x = x + 1``, auch bei
+    gleichzeitigen Versuchen ohne verlorene Zählung) und gibt den neuen Stand."""
+    session.execute(
+        update(BenutzerRow)
+        .where(BenutzerRow.id == str(benutzer_id))
+        .values(fehlversuche=BenutzerRow.fehlversuche + 1)
+        .execution_options(synchronize_session=False)
+    )
+    stand = session.scalar(
+        select(BenutzerRow.fehlversuche).where(BenutzerRow.id == str(benutzer_id))
+    )
+    return int(stand or 0)
+
+
+def setze_sperre(
+    session: Session, benutzer_id: UUID, bis: datetime | None, fehlversuche: int = 0
+) -> None:
+    session.execute(
+        update(BenutzerRow)
+        .where(BenutzerRow.id == str(benutzer_id))
+        .values(gesperrt_bis=bis, fehlversuche=fehlversuche)
+        .execution_options(synchronize_session=False)
+    )
+
+
 def merke_totp_schritt(session: Session, benutzer_id: UUID, schritt: int) -> bool:
     """Nimmt einen Zeitschritt nur an, wenn er jünger ist als der letzte.
 

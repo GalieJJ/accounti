@@ -30,7 +30,7 @@ def richte_kontext_ein(ctx: Any, gesellschaft: str | None) -> None:
     if (
         kontext.gesellschaft is None
         and kontext.registry.mehrere
-        and ctx.invoked_subcommand not in OHNE_GESELLSCHAFT | {"benutzer", "token"}
+        and ctx.invoked_subcommand not in OHNE_GESELLSCHAFT
     ):
         bekannt = ", ".join(sorted(kontext.registry.eintraege))
         console.print(

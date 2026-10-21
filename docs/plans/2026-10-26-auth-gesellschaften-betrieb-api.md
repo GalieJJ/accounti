@@ -74,9 +74,10 @@ Schnittstelle.
 2. **Paket 2 — Web-Gerüst und REST-API:** App-Fabrik, Sitzungs-Login mit zweitem Faktor,
    CSRF, Rollen-Dependency, Router-Registries, Jinja2-Grundlayout, Gesellschaftswechsel,
    Freigaben im Browser, REST `/api/v1`, `accounti serve`.
-3. **Paket 3 — Betrieb:** Protokollierung ohne Personenbezug, verschlüsselte Sicherung und
-   Wiederherstellung, Aufbewahrung und Löschkonzept, geplanter Lauf, Dockerfile, Compose,
-   `docs/betrieb.md`; Probe mit `docker compose up` und Alembic gegen PostgreSQL.
+3. **Paket 3 — Betrieb:** verschlüsselte Sicherung und Wiederherstellung, Aufbewahrung und
+   Löschkonzept, geplanter Lauf, Dockerfile, Compose, `docs/betrieb.md`; Probe mit
+   `docker compose up` und Alembic gegen PostgreSQL. (Die Protokollierung ohne Personenbezug
+   kam schon mit Paket 2, weil `accounti serve` sie braucht.)
 
 ## Entscheidungen
 
@@ -95,7 +96,8 @@ Schnittstelle.
 | Rollen → Rechte | `betrachter`: lesen · `buchhalter`: lesen, buchen, Belege einliefern, Läufe starten, Buchungen freigeben (prüfen) · `freigeber`: lesen, Buchungen, Zahlungsläufe und Steuermeldungen freigeben · `verwalter`: lesen, verwalten. Ein Benutzer kann je Gesellschaft mehrere Rollen haben; Rechte = Vereinigung | Spec 4.1; additive Rollen statt Hierarchie: Buchen und Zahlungsfreigabe bleiben trennbar (Vier-Augen) |
 | Rechte im Code | `Recht`-Enum und `erfordert(Recht.X)` als FastAPI-Dependency; in der CLI `pruefe_befehlsrecht(db, config, Recht.X, person)` | dieselbe Tabelle für Browser, API und CLI |
 | CLI-Identität | Person wie bisher (`zahlung`: mit Vier-Augen der Anmeldename des Betriebssystems, sonst `--von`/`ACCOUNTI_BENUTZER`; `ustva`: `--von`). Ohne eingerichtete Benutzer: keine Prüfung (wie bisher). Mit Benutzern: Person muss Benutzer mit dem Recht in der aktiven Gesellschaft sein; mit `auth.einmalcode_bestaetigung` (Standard an) fragt die CLI ihren Einmalcode ab (`ACCOUNTI_EINMALCODE` für Skripte) | ein Name in einer Umgebungsvariable beweist nichts; der zweite Faktor bindet die Freigabe an die Person |
-| Verwaltung in der CLI | `benutzer …`/`token …` brauchen einen `verwalter` mit Einmalcode — erst, sobald ein Verwalter seinen zweiten Faktor eingerichtet hat (vorher Einrichtungsphase); der erste Benutzer muss Verwalter sein | sonst sperrt man sich beim Einrichten aus |
+| Verwaltung in der CLI | `benutzer …`/`token …` brauchen einen `verwalter` mit Einmalcode — erst, sobald ein Verwalter seinen zweiten Faktor eingerichtet hat (vorher Einrichtungsphase); der erste Benutzer muss Verwalter sein. Eigenes Passwort, eigene Codes und eigenen Faktor ändert jeder selbst — mit seinem schon eingerichteten Faktor; den **ersten** Faktor richtet ein Verwalter ein | sonst sperrt man sich beim Einrichten aus; ohne die Einschränkung könnte jeder mit Shell-Zugang für fremde Benutzer einen Faktor anlegen (Prüfbefund) |
+| Fehlversuche | in der Datenbank hochgezählt (`fehlversuche = fehlversuche + 1`) und sofort festgeschrieben | parallele Versuche verlieren keine Zählung; eine Ausnahme beim Aufrufer rollt sie nicht zurück |
 | API-Token | `accounti_api_` + 256 Bit, gespeichert nur SHA-256 (wie Webhook-Token); je Token eine Gesellschaft und Rechte aus `opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`; optional Ablaufdatum; widerrufbar. Fehlendes/ungültiges Token → 401, fehlendes Recht → 403 mit `WWW-Authenticate: Bearer error="insufficient_scope"` (RFC 6750). **Kein** Recht zum Freigeben per Token | Integrationen Akz. 7; Freigaben bleiben menschlich mit zweitem Faktor |
 | REST-Belege | `POST /api/v1/belege` liest wie der Webhook (Rohdaten, Multipart, JSON/Base64), prüft Größe und Typ vor dem Speichern, nimmt über `belege.pipeline.nimm_auf` mit Kanal `api` auf, serialisiert je Gesellschaft | eine Pipeline für alle Kanäle |
 | REST-Läufe | `POST /api/v1/laeufe/bank` (= `bank lauf` ohne LLM) und `/laeufe/aufgaben` (Prüfläufe + Erinnerungen); synchron, je Gesellschaft und Art höchstens einer gleichzeitig (sonst 409) | kein Hintergrund-Job-System nötig |
@@ -109,7 +111,7 @@ Schnittstelle.
 | Protokollierung | `betrieb/protokoll.py`: ein Filter für alle Logger schwärzt IBAN, E-Mail-Adressen, Bearer-/accounti-Token, Passwörter in URLs und Schlüssel-Parameter; das Zugriffsprotokoll der App schreibt Methode, Pfad ohne Abfrage, Status und Dauer — ohne IP und ohne Benutzer; das Uvicorn-Zugriffsprotokoll ist aus | Spec 4.6: weder Zugangsdaten noch Belegtexte im Log |
 | Geplanter Lauf | `accounti betrieb lauf --intervall-minuten 60` ruft je Gesellschaft `bank lauf` und `aufgaben lauf` als eigene Prozesse; SIGTERM beendet sauber; `--einmal` für Cron | Compose-Dienst `lauf` ohne Cron im Abbild |
 | Docker | `python:3.12-slim-bookworm`, Benutzer `accounti` (UID 10001), Paket per `pip install .`, `tesseract-ocr-deu` optional (Build-Argument), Gesundheitsprüfung `/gesund`; Compose mit `db` (postgres:16-alpine, kein veröffentlichter Port), `app` (`accounti serve`, nur `127.0.0.1`) und `lauf`; Geheimnisse ausschließlich aus `.env`/Umgebung, `.dockerignore` hält `config/accounti.yaml`, `.env`, Datenbanken und Archive aus dem Abbild | Spec 4.6, Akzeptanz 6 |
-| Schema im Container | die Befehle legen fehlende Tabellen beim Start an (`init_db`, wie bisher); Upgrades bestehender Datenbanken mit `alembic upgrade head` | neue Tabellen bekommen ihre Migration beim Zusammenführen |
+| Schema im Container | die Befehle legen fehlende Tabellen beim Start an (`init_db`, wie bisher); Upgrades bestehender Datenbanken mit `alembic upgrade head` — `alembic.ini` und `alembic/` liegen unter `/app` im Abbild, `alembic/env.py` nimmt `ACCOUNTI_DB` (keine neue Migration) | neue Tabellen bekommen ihre Migration beim Zusammenführen; ohne die Umgebungsvariable müsste die Datenbank-URL samt Passwort in `alembic.ini` stehen |
 | `serve` | der vorhandene Platzhalter `accounti serve` in `cli.py` ruft jetzt `accounti.api.server.starte` (Uvicorn, ohne Zugriffsprotokoll, `proxy_headers` nur für `server.vertrauenswuerdige_proxies`) | Spec 4.7 nennt genau diesen Befehl |
 | Konfiguration | Abschnitte `auth` (`auth/einstellungen.py`), `server` (`api/einstellungen.py`, der Abschnitt steht schon in der Beispielkonfiguration), `gesellschaften` (`betrieb/gesellschaften.py`), `betrieb` (`betrieb/einstellungen.py`) — alle optional mit Standardwerten | Dateiregeln des Projekts |
 
@@ -141,12 +143,66 @@ Schnittstelle.
 
 ### Paket 3 — Betrieb
 
-- [ ] **Verschlüsselung** (`betrieb/verschluesselung.py`): Stückweise AES-GCM, falscher Schlüssel, manipuliert, abgeschnitten, umsortiert (`tests/test_betrieb_verschluesselung.py`).
-- [ ] **Sicherung** (`betrieb/sicherung.py`, `befehle/sicherung.py`): erstellen, prüfen, wiederherstellen in eine leere Umgebung — Buchungen und Belege vollständig (Akzeptanz 7), nicht leer → Abbruch, Pfade im Archiv, Typen (`tests/test_betrieb_sicherung.py`, `tests/test_cli_sicherung.py`).
-- [ ] **Aufbewahrung** (`betrieb/aufbewahrung.py`, `befehle/betrieb.py aufbewahrung`) (`tests/test_betrieb_aufbewahrung.py`).
-- [ ] **Geplanter Lauf** (`betrieb/planer.py`, `befehle/betrieb.py lauf`) (`tests/test_betrieb_planer.py`).
-- [ ] **Docker** (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/betrieb.md`): `docker compose up` mit Projekt `accounti-test-…` geprüft (Akzeptanz 6), Alembic gegen PostgreSQL; Abbild ohne Geheimnisse (`tests/test_betrieb_docker.py` prüft die Dateien statisch).
-- [ ] **Abschluss:** gegnerische Prüfung, `pytest`, `ruff`, `mypy` grün; Doku-Bausteine.
+- [x] **Verschlüsselung** (`betrieb/verschluesselung.py`): Stückweise AES-GCM, falscher Schlüssel, manipuliert, abgeschnitten, umsortiert, Kopf geprüft, Schlüssel aus der Umgebung (`tests/test_betrieb_verschluesselung.py`).
+- [x] **Sicherung** (`betrieb/sicherung.py`, `befehle/sicherung.py`): erstellen, prüfen, wiederherstellen in eine leere Umgebung — Buchungen und Belege vollständig (Akzeptanz 7), nicht leer → Abbruch, falscher Schlüssel/verändert → Rollback ohne Rest, fremde Archivdateien, Pfade und Einträge, unpassende Zeilen, typgetreue Werte, ohne Archiv, Ordner als Ziel, mit Gesellschaft (`tests/test_betrieb_sicherung.py`, `tests/test_cli_sicherung.py`).
+- [x] **Aufbewahrung** (`betrieb/aufbewahrung.py`, `accounti betrieb aufbewahrung`): Fristen nach § 147 AO/§ 14b UStG, Jahresende, Institute, Bericht ohne Löschen (`tests/test_betrieb_aufbewahrung.py`, `tests/test_cli_sicherung.py::test_aufbewahrung`).
+- [x] **Geplanter Lauf** (`betrieb/planer.py`, `accounti betrieb lauf`): Schritte je Gesellschaft, ein Fehler hält die anderen nicht auf, Ausgabe nur geschwärzt, SIGTERM, echter Kindprozess (`tests/test_betrieb_planer.py`).
+- [x] **Docker** (`Dockerfile`, `docker-compose.yml`, `.dockerignore`, `docs/betrieb.md`, `alembic/env.py` liest `ACCOUNTI_DB`): `docker compose up` mit Projekt `accounti-test-b10a` ausgeführt (Akzeptanz 6, Ergebnis unten), Alembic gegen PostgreSQL 16; Abbild ohne Geheimnisse (`tests/test_betrieb_docker.py` prüft die Dateien statisch und `alembic upgrade head` über `ACCOUNTI_DB`).
+- [x] **Abschluss:** gegnerische Prüfung (Befunde unten), `pytest`, `ruff`, `mypy` grün; Doku-Bausteine.
+
+### Probe mit Docker und PostgreSQL (ausgeführt am 21.10.2026)
+
+Projekt `accounti-test-b10a`, Port `127.0.0.1:18471`, Geheimnisse zufällig in einer `.env`
+unter `/tmp`; danach `docker compose down -v` und `docker rmi accounti:accounti-test-b10a`
+— keine Container, Volumes, Netze oder Abbilder mit `accounti` blieben zurück, fremde Container
+wurden nicht angefasst.
+
+- `docker compose up -d --build`: `db` (postgres:16-alpine) gesund, `app` gesund
+  (`HEALTHCHECK` → `/gesund` 200), `lauf` lief jede Minute: `bank lauf → 0`,
+  `aufgaben lauf → 1` (ohne Abschnitt `versand` scheitert die Tagesübersicht — Verhalten aus
+  Baustein 8). `docker compose stop lauf` beendete den Lauf sofort mit Exit 0 (SIGTERM).
+- Im Container mit PostgreSQL: `benutzer anlegen chef --rolle verwalter --rolle freigeber`,
+  `benutzer 2fa chef` (TOTP auf dem Host berechnet); Anmeldung ohne Code → 401, mit Code →
+  303 und `__Host-`-Cookie, Startseite 200; `token anlegen` mit Wiederherstellungscode;
+  `POST /api/v1/belege` → 200 (Belegerkennung lief; das Probe-PDF war absichtlich minimal
+  und ging „unlesbar“ zur Prüfung — Tesseract selbst wurde nicht ausgelöst), `GET /api/v1/offene-posten`
+  → 200, `GET /api/v1/buchungen` ohne Recht → 403 `insufficient_scope`.
+- Sicherung → `pruefen` → `wiederherstellen` in eine neue, leere PostgreSQL-Datenbank:
+  Belege, Archivdatei und Benutzer vollständig. Kreuzprobe: Testbestand aus SQLite gesichert,
+  in PostgreSQL zurückgespielt, dort wieder gesichert und in SQLite zurückgespielt — alle
+  Tabellen Zeile für Zeile gleich (Decimal, Datum, JSON, Wahrheitswerte).
+- Protokoll der Container: keine Benutzernamen, Dateinamen, Token, IP-Adressen.
+- **Alembic gegen PostgreSQL 16:** alle 18 Migrationen bis `33d478b807fc` laufen fehlerfrei
+  (die SQLite-Trigger sind per Dialekt bedingt, `batch_alter_table` wirkt auf PostgreSQL wie
+  ein normales `ALTER`). `compare_metadata` gegen die Modelle findet **nur** die sechs neuen
+  Tabellen dieses Bausteins samt Indizes (`auth_benutzer`, `auth_rollen`,
+  `auth_wiederherstellungscodes`, `auth_sitzungen`, `api_tokens`, `auth_ereignisse`) — keine
+  Abweichung bei Typen oder bestehenden Tabellen. Die Migration dafür entsteht beim
+  Zusammenführen (mit dem Trigger für `auth_ereignisse` unter SQLite).
+
+### Gegnerische Prüfung (21.10.2026) — Befunde und Behebung
+
+- Fehlversuche wurden als „lesen, +1, schreiben“ gezählt — parallele Versuche hätten Zählungen
+  verloren. Jetzt `UPDATE … SET fehlversuche = fehlversuche + 1` in der Datenbank
+  (`repo_auth.erhoehe_fehlversuche`, `tests/test_auth_repo.py::test_fehlversuche_in_der_datenbank_gezaehlt`).
+- Wer Zugang zur Server-Shell hatte, konnte als `ACCOUNTI_BENUTZER=eva` für einen Benutzer
+  **ohne** zweiten Faktor einen eigenen anlegen und sich dann im Browser als eva anmelden
+  (Passwort vorausgesetzt). Jetzt richtet den ersten zweiten Faktor nur ein Verwalter ein
+  (bzw. jeder in der Einrichtungsphase) (`tests/test_auth_cli.py::test_verwaltung_einrichtungsphase_und_danach`).
+- Das Cookie des Anmeldeformulars hatte kein `__Host-`-Präfix (eine Subdomain hätte es setzen
+  können) — jetzt wie das Sitzungscookie (`tests/test_api_anmeldung.py::test_sitzungscookie_attribute`).
+- Eine Sicherung mit Zeilen, die nicht zum Schema passen, endete mit einer rohen
+  Datenbankausnahme (deren Text SQL und Werte enthält) — jetzt `SicherungError` ohne Werte,
+  Rollback (`tests/test_betrieb_sicherung.py::test_unpassende_zeilen_werden_abgelehnt`);
+  fremde Einträge und Pfade (`../`) werden abgelehnt (`::test_fremde_eintraege_werden_abgelehnt`).
+- `--ziel /pfad/` für einen noch nicht vorhandenen Ordner schrieb eine Datei namens `pfad` —
+  jetzt legt ein `/` am Ende den Ordner an (`tests/test_cli_sicherung.py`).
+- Geprüft und in Ordnung: Sitzungs-ID neu nach der Anmeldung, Abmelden serverseitig, Rechte
+  bei jeder Anfrage neu gelesen, CSRF an jeder nicht lesenden Anfrage mit Sitzung, REST nur
+  mit Token (kein Cookie, also kein CSRF), keine CORS-Freigabe, Weiterleitung nur relativ,
+  Autoescape, TOTP-Schritt und Wiederherstellungscode atomar verbraucht, unbekannte Benutzer
+  kosten dieselbe Hash-Zeit, Token nur als SHA-256, Rechte-Matrix vollständig, jedes
+  Akzeptanzkriterium scheitert im Test, wenn die Prüfung fehlt.
 
 ## Schnittstelle für die Web-Oberfläche
 
@@ -242,12 +298,375 @@ async def freigeben(
 
 ## Akzeptanzkriterien → Tests
 
-*(wird beim Bau ausgefüllt)*
+| Nr. | Kriterium | Test |
+|-----|-----------|------|
+| Spec 3 | Ein `betrachter` kann nichts freigeben; ein `buchhalter` kann keinen Zahlungslauf freigeben | Browser: `tests/test_api_rechte_matrix.py::test_akzeptanz_3_betrachter_nichts_buchhalter_kein_zahlungslauf` (jede Freigabe-Route, Lauf bleibt `entwurf`, Freigeber ohne Code scheitert, mit Code `freigegeben`), `::test_jede_rolle_gegen_jeden_endpunkt` (Matrix), `::test_jeder_endpunkt_steht_in_der_matrix`, `::test_vier_augen_im_browser`, `::test_ustva_freigabe_im_browser`; CLI: `tests/test_cli_rechte_freigaben.py::test_akzeptanz_3_zahlungslauf_nur_durch_freigeber`, `::test_akzeptanz_3_ustva_nur_durch_freigeber`, `::test_dauerfrist_freigabe_nur_durch_freigeber`, `::test_ohne_benutzer_wie_bisher`; `tests/test_auth_cli.py::test_akzeptanz_3_rollen_in_der_cli` |
+| Spec 4 | Anmeldung ohne zweiten Faktor schlägt fehl | `tests/test_api_anmeldung.py::test_akzeptanz_4_anmeldung_ohne_zweiten_faktor_scheitert` (ohne Code, falscher Code, Benutzer ohne eingerichteten Faktor → 401 ohne Sitzung), `tests/test_auth_dienst.py::test_akzeptanz_4_anmeldung_ohne_zweiten_faktor_scheitert`; dazu `::test_totp_code_nur_einmal`, `::test_wiederherstellungscode_genau_einmal` (Teststrategie: „funktioniert genau einmal“), `::test_sperre_nach_fehlversuchen`; Docker-Probe (401 ohne Code im Container) |
+| Spec 5 | Der Wechsel der Gesellschaft ändert alle Ansichten konsistent | Browser: `tests/test_api_gesellschaften.py::test_akzeptanz_5_wechsel_aendert_alle_ansichten` (jede Seite der Registry zeigt danach Gesellschaft B), `::test_benutzer_von_a_sieht_b_nicht` (negativ, Teststrategie), `::test_rolle_entzogen_wirkt_sofort`, `::test_token_sieht_nur_seine_gesellschaft`, `::test_eigene_konfiguration_je_gesellschaft`; CLI: `tests/test_cli_gesellschaft.py::test_akzeptanz_5_wechsel_aendert_die_ansichten` (Kontakte, OPOS-Liste, Staffel, Zahlungsvorschlag, Belege), `::test_jeder_befehl_bekommt_datenbank_archiv_und_konfiguration` (alle Befehle mit `--db`/`--archiv`/`--config`), `::test_hilfe_zeigt_die_datenbank_der_gesellschaft`, `::test_gesellschaft_liste_und_zeigen_ohne_passwort` (eigener Kontenrahmen, eigenes Wirtschaftsjahr) |
+| Spec 6 | `docker compose up` startet Anwendung, Datenbank und geplanten Lauf | Probe oben (ausgeführt, Projekt `accounti-test-b10a`); statisch `tests/test_betrieb_docker.py::test_compose_mit_anwendung_datenbank_und_lauf`, `::test_geheimnisse_nur_aus_der_umgebung`, `::test_abbild_ohne_geheimnisse_und_nicht_als_root`, `::test_alembic_liest_accounti_db`; Lauf `tests/test_betrieb_planer.py` |
+| Spec 7 | Eine Sicherung lässt sich in eine leere Umgebung zurückspielen — Buchungen und Belege vollständig | `tests/test_betrieb_sicherung.py::test_akzeptanz_7_wiederherstellung_in_leere_umgebung` (jede Tabelle Zeile für Zeile, jede Archivdatei bytegleich, Hash-Kette gültig), `::test_falscher_schluessel_laesst_alles_leer`, `::test_veraenderte_sicherung_wird_zurueckgerollt`, `::test_nur_in_leere_umgebung`; `tests/test_cli_sicherung.py::test_sichern_pruefen_wiederherstellen` (Ansichten gleich); Docker-Probe (PostgreSQL, SQLite ↔ PostgreSQL) |
+| Integr. 7 | REST-API liefert offene Posten und nimmt Belege entgegen; ein Token ohne passende Berechtigung wird abgewiesen | `tests/test_api_rest.py::test_akzeptanz_7_offene_posten_lesen`, `::test_akzeptanz_7_belege_einliefern` (Archiv und Datenbank der Gesellschaft des Tokens, Dublette), `::test_akzeptanz_7_token_ohne_recht_wird_abgewiesen` (403 `insufficient_scope`, nichts gespeichert); `tests/test_api_rechte_matrix.py::test_jedes_token_recht_gegen_jeden_rest_endpunkt` |
+| Teststrategie | Kein personenbezogener Inhalt im Log | `tests/test_betrieb_protokoll.py::test_durchlauf_ohne_personenbezogene_inhalte_im_protokoll` (Anmeldung, Seiten, API mit Namen, IBAN, Token, Passwort), `::test_schwaerzung`, `::test_filter_gilt_fuer_alle_logger_und_ausnahmen` |
 
 ## Grenzen
 
-*(wird beim Bau ausgefüllt)*
+**Nicht in diesem Auftrag**
+- Spec 4.2, 4.3, 4.5 (Supervisions-Queue, Auswertungen, Zweisprachigkeit) und damit Akzeptanz 1
+  und 2 baut der nächste Auftrag auf der Schnittstelle oben. Das Grundlayout hat keinen
+  Übersetzungsmechanismus.
+- Keine Alembic-Migration für die sechs neuen Tabellen (`auth_benutzer`, `auth_rollen`,
+  `auth_wiederherstellungscodes`, `auth_sitzungen`, `api_tokens`, `auth_ereignisse`) — entsteht
+  beim Zusammenführen und muss unter SQLite die Trigger `auth_ereignisse_kein_update/_delete`
+  anlegen (wie `c7e19f7158a3` für `ustid_pruefungen`); der Index `uq_api_token_aktiv` ist ein
+  Teilindex (`sqlite_where`/`postgresql_where`).
+- Der Browser zeigt vor der Freigabe der USt-VA keine Kennziffern und keinen Zahlungslauf im
+  Einzelnen — die Freigabe hängt am Hash der Werte zum Zeitpunkt der Freigabe, aber wer im
+  Browser freigibt, sieht sie nicht. Eine Vorschau (Kennziffern, Befunde, Zahlungen) gehört
+  vor die Freigabe-Formulare; das ist Arbeit der Web-Oberfläche.
+
+**Anmeldung und Rechte**
+- In der CLI sind nur Freigaben (`zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist
+  --freigeben`) und die Verwaltung (`benutzer …`, `token …`) an Rollen gebunden. `bestaetige`,
+  `korrigiere`, `review`, `lerne` (Buchungen prüfen/freigeben) liegen in `cli.py`, das
+  Baustein 7 gerade umbaut — beim Zusammenführen dort
+  `befehlsrecht_oder_ende(db, config, Recht.BUCHUNG_FREIGEBEN, person)` bzw. `Recht.BUCHEN`
+  aufrufen. Alle anderen schreibenden CLI-Befehle prüfen keine Rolle: die CLI ist das Werkzeug
+  des Betreibers auf dem Server.
+- Die CLI-Identität ist `--von`/`ACCOUNTI_BENUTZER` (mit `zahlung.vier_augen` der Anmeldename);
+  belastbar wird sie erst durch den Einmalcode (`auth.einmalcode_bestaetigung`, Standard an).
+  Im Container ist der Anmeldename immer `accounti` — Vier-Augen-Freigaben in Docker also im
+  Browser.
+- Sind alle Verwalter gesperrt oder ohne zweiten Faktor, gilt wieder die Einrichtungsphase
+  (Notzugang über die Server-Shell) — gewollt, aber zu wissen.
+- Den zweiten Faktor richtet nur die CLI ein (`benutzer 2fa`, auf dem Server); es gibt keine
+  Selbstregistrierung im Browser, kein Zurücksetzen per E-Mail, keine Passkeys/WebAuthn.
+- TOTP nur SHA-1, 6 Stellen, 30 s (was Apps können); Toleranz ±1 Schritt — RFC 6238
+  empfiehlt höchstens einen Schritt für die Netzverzögerung, der Schritt nach vorn deckt
+  Uhrenabweichung (Wiederverwendung ist trotzdem ausgeschlossen).
+- Die Sperrliste der Passwörter ist klein; kein Abgleich mit Listen kompromittierter Passwörter
+  (bräuchte einen externen Dienst). Keine Begrenzung je IP — das gehört in den Proxy.
+- `ACCOUNTI_SCHLUESSEL` verschlüsselt auch die TOTP-Geheimnisse: wer ihn wechselt, muss den
+  zweiten Faktor aller Benutzer neu einrichten (wie die Bankzugänge); ein Befehl zum Umschlüsseln
+  fehlt.
+- Abgelaufene Sitzungen bleiben als Zeilen stehen (kein Aufräumen), `auth_ereignisse` wächst
+  ohne Löschung (Benutzernamen sind personenbezogen; eine Frist für das Anmeldeprotokoll ist
+  nicht umgesetzt). Keine Übersicht „meine Sitzungen“.
+
+**REST-API**
+- Keine Seitenaufteilung bei offenen Posten und Buchungen, keine OpenAPI-Seite, keine
+  Begrenzung der Aufrufe; Läufe laufen synchron (ein langer `bank lauf` kann in die
+  Zeitgrenze des Proxys laufen), die Belegerkennung (OCR) ebenfalls im Aufruf.
+
+**Mehrere Gesellschaften**
+- `classify`, `bank lauf`, `korrigiere --lernen` und `import banken` in `cli.py` lesen
+  `config/regeln.yaml` bzw. `config/banken.yaml` fest relativ zum Arbeitsverzeichnis; eigene
+  Regeln je Gesellschaft (`regeln:`) gelten nur im Browser und in der API. Der Abschnitt `bank`
+  wird in `bank/lauf.py`, `bank/kreditkarte.py` und `bank/fints.py` teils ohne Pfad geladen —
+  er gilt deshalb für die ganze Installation (FinTS-Produkt-ID ist ohnehin je Installation).
+- Rollen und Token verweisen auf das Kürzel; wer eine Gesellschaft in der Registry umbenennt,
+  verwaist sie.
+- Die Systemdatenbank wird bei mehreren Gesellschaften getrennt gesichert
+  (`sicherung erstellen --db … --ohne-archiv`).
+
+**Betrieb**
+- Sicherung: Tabellen über 16 MB werden beim Schreiben unverschlüsselt in eine Temporärdatei
+  (0600) ausgelagert und gleich wieder gelöscht (in Docker liegt `/tmp` im Speicher).
+  Wiederhergestellt wird in einer Transaktion (große Bestände → lange Transaktion); das Archiv
+  wird nach dem Festschreiben an seinen Platz umbenannt. Keine inkrementellen Sicherungen,
+  kein eingebauter Zeitplan (Cron/`docker compose run`). Das Ziel-Schema kommt aus den
+  aktuellen Modellen — eine ältere Sicherung in eine neuere Version mit neuen Pflichtspalten
+  ließe sich nicht zurückspielen.
+- Aufbewahrung: nur Bericht, kein protokolliertes Aussondern. `belege.aufbewahren_bis` setzt
+  `belege/archiv.py` (Baustein 2) noch auf 10 Jahre; rechtlich genügen seit dem BEG IV 8 Jahre
+  für Buchungsbelege — beim Zusammenführen entscheiden, ob das Feld umgestellt wird (länger
+  aufbewahren ist zulässig).
+- Protokollierung: Namen und Belegtexte erkennt kein Muster; geschützt ist nur, was der Code
+  nicht schreibt. Ausgaben der CLI (Tabellen mit Namen) gehen ins Terminal, nicht ins Protokoll;
+  der geplante Lauf gibt sie nur geschwärzt auf Stufe DEBUG weiter.
+- Docker: kein Java (KoSIT, Mustang), kein ERiC, kein python-fints im Abbild; `config/` ist
+  schreibgeschützt eingehängt (`korrigiere --lernen` kann dort nicht schreiben); das Abbild baut
+  mit den neuesten Versionen innerhalb der Grenzen aus `pyproject.toml` (keine Sperrdatei);
+  `aufgaben lauf` endet ohne Abschnitt `versand` mit 1, der Lauf meldet dann jede Runde eine
+  Warnung. Ohne TLS ist keine Anmeldung möglich, außer mit `server.cookie_sicher: false`.
+- `accounti serve` startet einen Uvicorn-Prozess ohne Worker-Option.
 
 ## Doku-Bausteine
 
-*(am Ende)*
+Fertige Texte zum Einarbeiten beim Zusammenführen (diese Dateien wurden hier nicht geändert).
+
+### README.md
+
+**Ersetzt die drei Zeilen** `| 🔲 | **REST-API** | …`, `| 🔲 | **Mehrere Gesellschaften** | …`
+und `| 🔲 | **Benutzer & Rollen** | …` in der Feature-Tabelle durch:
+
+```markdown
+| ✅ | **REST-API** | `/api/v1` mit API-Token und Rechten (`opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`): offene Posten und Buchungen abfragen, Belege einliefern (Pipeline wie der Webhook), `bank lauf` und `aufgaben lauf` anstoßen; Token nur als Hash gespeichert, ohne Recht 403 |
+| ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
+| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen, Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI), Vier-Augen-Freigabe; DE/EN folgt |
+| ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
+```
+
+**Ersetzt im Abschnitt „Installation“** die letzten Zeilen ab `# Starten` (bis zum Ende des
+Codeblocks) durch:
+
+```bash
+# Ersten Benutzer (Verwalter) anlegen und zweiten Faktor einrichten
+accounti bank schluessel            # die ausgegebene Zeile „export ACCOUNTI_SCHLUESSEL=…“ ausführen
+accounti benutzer anlegen chef --rolle verwalter --rolle freigeber
+accounti benutzer 2fa chef
+
+# Web-Oberfläche und REST-API (TLS über einen Reverse-Proxy, siehe docs/betrieb.md)
+accounti serve
+```
+
+**Neuer Abschnitt** nach „### Aufgaben und Rückfragen“ (vor „## Architektur“):
+
+````markdown
+### Betrieb, Benutzer und mehrere Gesellschaften
+
+```bash
+docker compose up -d --build                       # App, PostgreSQL, geplanter Lauf (docs/betrieb.md)
+accounti benutzer anlegen eva --rolle buchhalter   # Rollen: betrachter, buchhalter, freigeber, verwalter
+accounti benutzer 2fa eva                          # TOTP-App + zehn Wiederherstellungscodes
+accounti benutzer liste | rolle | passwort | sperren | entsperren | protokoll
+accounti token anlegen erp --recht opos:lesen --recht belege:schreiben
+accounti gesellschaft liste                        # Registry `gesellschaften`
+accounti --gesellschaft tochter opos liste         # setzt --db/--archiv/--config aller Befehle
+accounti sicherung erstellen --ziel /sicherungen/  # Datenbank + Belegarchiv, verschlüsselt
+accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
+accounti betrieb aufbewahrung                      # was frühestens ausgesondert werden dürfte
+accounti betrieb lauf --intervall-minuten 60       # bank lauf + aufgaben lauf je Gesellschaft
+```
+
+Mit eingerichteten Benutzern verlangen `zahlung freigeben` und `ustva freigeben` die Rolle
+`freigeber` und den Einmalcode der handelnden Person; ohne Benutzer bleibt alles wie bisher.
+````
+
+**Ersetzt in „### v0.5 — Oberfläche & Betrieb“** die Zeilen
+`- [ ] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, DE/EN` und
+`- [ ] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept` durch:
+
+```markdown
+- [x] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, mehrere Gesellschaften, REST-API
+- [x] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
+- [ ] DE/EN in der Oberfläche
+```
+
+### CHANGELOG.md
+
+**Unter `## [Unreleased]` → `### Hinzugefügt`** oben einfügen:
+
+```markdown
+- **Anmeldung, Rollen, mehrere Gesellschaften, Betrieb und REST-API** (Baustein 10a):
+  Benutzer mit scrypt-Passwort (OWASP: N = 2^17, r = 8, p = 1) und zweitem Faktor nach RFC 6238
+  (TOTP, jeder Code einmal; zehn Wiederherstellungscodes, je einer einmal), Sperre nach
+  Fehlversuchen, Sitzungen mit `__Host-`-Cookie, Leerlauf und Höchstdauer, nur anfügbares
+  Anmeldeprotokoll (`accounti benutzer anlegen|2fa|codes|liste|rolle|passwort|sperren|entsperren|protokoll`).
+  Rollen `betrachter`, `buchhalter`, `freigeber`, `verwalter` je Gesellschaft. Web-Gerüst mit
+  FastAPI und Jinja2 (`accounti serve`): Anmeldung nur mit zweitem Faktor, CSRF-Schutz,
+  Rollenprüfung als Dependency, Router-Registry, Grundlayout mit Gesellschaftswechsel,
+  Freigabe von Zahlungslauf und USt-VA mit frischem Einmalcode, strenge CSP. REST-API
+  `/api/v1` mit API-Token und Rechten (`accounti token anlegen|liste|widerrufen`): offene
+  Posten, Buchungen, Belege einliefern, `bank lauf`/`aufgaben lauf` anstoßen. Mehrere eigene
+  Gesellschaften über die Registry `gesellschaften` (je Datenbank, Archiv, Konfiguration) und
+  die globale Option `--gesellschaft`; `ACCOUNTI_DB`, `ACCOUNTI_ARCHIV`, `ACCOUNTI_KONFIG`
+  setzen die Standards aller Befehle (`accounti gesellschaft liste|zeigen`). Betrieb:
+  `Dockerfile` und `docker-compose.yml` (App, PostgreSQL 16, geplanter Lauf
+  `accounti betrieb lauf`), verschlüsselte Sicherung von Datenbank und Belegarchiv mit
+  Wiederherstellung in eine leere Umgebung (`accounti sicherung schluessel|erstellen|pruefen|wiederherstellen`),
+  Aufbewahrungsbericht nach § 147 AO/§ 14b UStG (`accounti betrieb aufbewahrung`),
+  Protokollierung ohne personenbezogene Inhalte, `docs/betrieb.md` mit Reverse-Proxy und TLS.
+  Neue Abschnitte `auth`, `gesellschaften` (optional); `server` wird jetzt gelesen.
+```
+
+**Unter `### Geändert`** oben einfügen:
+
+```markdown
+- `accounti zahlung freigeben`, `accounti ustva freigeben` und `accounti ustva dauerfrist
+  --freigeben` verlangen, sobald Benutzer eingerichtet sind, die Rolle `freigeber` und den
+  Einmalcode der handelnden Person; ohne Benutzer unverändert.
+- `accounti serve` startet die Web-Oberfläche und REST-API (bisher ein Platzhalter) und liest
+  `--db`, `--archiv`, `--config` sowie den Abschnitt `server`.
+- `alembic/env.py` nimmt die Datenbank aus `ACCOUNTI_DB`, wenn gesetzt.
+```
+
+**Unter `### Behoben`**: nichts.
+
+### docs/bauplan.md
+
+**Ersetzt in der Bausteinkarte** die Zeile `| 10 | Supervision-Web-UI, Auth & Betrieb | … | 🔲 geplant | … |` durch:
+
+```markdown
+| 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` `betrieb/` | 🟨 teilweise | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
+```
+
+**Ersetzt im Absatz „Baustein 11 ist teilweise fertig“** den Satz `Was fehlt, sind die REST-API
+(mit Baustein 10), JTL-Wawi, …` durch `Die REST-API kam mit Baustein 10a; was fehlt, sind
+JTL-Wawi, die Prüfungsdatenüberlassung und die Beleg-Connectoren.`
+
+**Neuer Absatz** nach dem Absatz zu Baustein 8:
+
+```markdown
+**Baustein 10 ist teilweise fertig** ([Plan](plans/2026-10-26-auth-gesellschaften-betrieb-api.md)):
+Benutzer mit Passwort und zweitem Faktor (TOTP nach RFC 6238, Wiederherstellungscodes), Sperre,
+Sitzungen, Rollen `betrachter`/`buchhalter`/`freigeber`/`verwalter` je Gesellschaft — Freigaben
+von Zahlungsläufen und Steuermeldungen nur mit Rolle und Einmalcode, im Browser wie in der CLI;
+mehrere eigene Gesellschaften mit eigener Datenbank, eigenem Archiv und eigener Konfiguration
+(`--gesellschaft`); das FastAPI-Gerüst mit Anmeldung, CSRF, Rollen-Dependency, Router-Registry
+und Grundlayout; die REST-API (Akzeptanz 7 aus Baustein 11); Docker Compose mit PostgreSQL und
+geplantem Lauf, verschlüsselte Sicherung mit Wiederherstellung, Aufbewahrungsbericht und
+Protokoll ohne Personenbezug ([Betrieb](betrieb.md)). Was fehlt, ist die Oberfläche selbst:
+Supervisions-Queue mit Belegansicht, Korrektur → Regel, Auswertungen und Zweisprachigkeit
+(Akzeptanz 1 und 2).
+```
+
+### docs/architektur.md
+
+**Ersetzt** den Abschnitt `### auth/ *(geplant — …)*` (ein Absatz) durch:
+
+```markdown
+### `auth/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
+
+Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **Systemdatenbank**
+(ohne Registry: die Datenbank der Gesellschaft). Modelle `models/auth.py`, Tabellen
+`db/tabellen_auth.py` (`auth_benutzer`, `auth_rollen`, `auth_wiederherstellungscodes`,
+`auth_sitzungen`, `api_tokens`, `auth_ereignisse` — nur anfügen, SQLite-Trigger), Repository
+`db/repo_auth.py`.
+
+- `passwort.py` — `hashlib.scrypt` (N = 2^17, r = 8, p = 1), Parameter im Hash, Neuberechnung
+  bei der Anmeldung; Regeln nach NIST 800-63B-4 (Länge, Sperrliste, keine Zusammensetzung).
+- `totp.py` — RFC 6238 mit `hmac` (Prüfwerte aus Anhang B), Toleranz ±1 Schritt, otpauth-URI;
+  jeder Schritt wird nur einmal angenommen (`UPDATE … WHERE letzter < schritt`).
+- `wiederherstellung.py` — zehn Codes je Benutzer, scrypt-gehasht, je einer genau einmal.
+- `dienst.py` — anlegen, 2FA bestätigen (Geheimnis im Tresor, an den Benutzer gebunden),
+  `pruefe_anmeldung` (Passwort **und** zweiter Faktor, sonst `AnmeldungError` ohne Grund;
+  unbekannte Namen kosten dieselbe Zeit), Sperre nach Fehlversuchen (atomar gezählt, sofort
+  festgeschrieben), Sitzungen (256-Bit-Token, nur SHA-256 gespeichert, Leerlauf, Höchstdauer;
+  Passwortwechsel, Sperre, Rollenänderung beenden sie), Rollen je Gesellschaft.
+- `token.py` — API-Token `accounti_api_…` mit Gesellschaft, Rechten (`TokenRecht`), Ablauf;
+  nur SHA-256. Kein Token kann freigeben.
+- `cli.py` — Rechte in der CLI: ohne Benutzer keine Prüfung; sonst Person mit Recht in der
+  aktiven Gesellschaft und Einmalcode (`auth.einmalcode_bestaetigung`). Verwaltung mit
+  Einrichtungsphase. Eingebunden in `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist`.
+- `einstellungen.py` — Abschnitt `auth`.
+
+Rollen → Rechte (`ROLLEN_RECHTE`): `betrachter` lesen · `buchhalter` lesen, buchen, Belege
+einliefern, Läufe starten, Buchungen freigeben · `freigeber` lesen, Buchungen, Zahlungsläufe,
+Steuermeldungen freigeben · `verwalter` lesen, verwalten. Additiv, nicht hierarchisch.
+```
+
+**Ersetzt** den Abschnitt `### api/` (REST-API-Liste, Web-UI, Kernansicht) durch:
+
+```markdown
+### `api/` *(Gerüst und REST-API vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
+
+FastAPI-Anwendung aus `app.erstelle_app(Dienste)`: Systemdatenbank, Gesellschaften und ihre
+Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Personenbezug
+(`sicherheit.py`), `/gesund`, `/statisch`. Gestartet mit `accounti serve` (`server.py`).
+
+- `sitzung.py` — Dependencies `angemeldet`, `erfordert(Recht.X)`, `gesellschaft_db`; CSRF-Token
+  aus dem Sitzungstoken, Pflicht bei jeder nicht lesenden Anfrage (Feld `csrf` oder Kopf
+  `X-CSRF-Token`). Die aktive Gesellschaft steht in der Sitzung; Mitgliedschaft und Rechte
+  werden je Anfrage neu gelesen.
+- `seiten/` — HTML-Router-Registry (jedes Modul mit `router`, optional `NAVIGATION`):
+  `anmeldung.py` (Passwort + Einmalcode, Double-Submit gegen Login-CSRF), `start.py`,
+  `gesellschaft.py` (Wechsel), `freigaben.py` (Zahlungslauf, USt-VA mit frischem Einmalcode).
+- `rest/` — REST-Registry unter `/api/v1`, nur mit API-Token (`erfordert_recht`, `TokenDb`):
+  `ich`, `offene-posten`, `buchungen`, `belege` (über `belege.pipeline`, Kanal `api`),
+  `laeufe/bank`, `laeufe/aufgaben`.
+- `vorlagen/` + `vorlagen.py` (Jinja2, Autoescape, `basis.html`), `statisch/` (CSS), `formular.py`
+  (urlencoded ohne `python-multipart`), `registry.py`, `einstellungen.py` (Abschnitt `server`).
+
+Die Oberfläche ruft dieselben Funktionen wie die CLI. Geplant auf diesem Gerüst: die
+Supervisions-Queue (links Beleg, rechts Vorschlag mit Confidence und Begründung, Korrektur in
+einem Schritt, Angebot einer Regel), Auswertungen, DE/EN.
+```
+
+**Neuer Abschnitt** nach `### api/`:
+
+```markdown
+### `betrieb/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md), [Betrieb](betrieb.md))*
+
+- `gesellschaften.py` — Registry `gesellschaften`: je Kürzel Name, Datenbank, Archiv,
+  Konfiguration, Regeln; Systemdatenbank; `${VAR}` erst bei Bedarf ersetzt.
+- `kontext.py`, `cli.py` — Kontext je CLI-Aufruf: `--gesellschaft`/`ACCOUNTI_GESELLSCHAFT` bzw.
+  `ACCOUNTI_DB`/`ARCHIV`/`KONFIG` setzen über `Context.default_map` die Standards von `--db`,
+  `--archiv`, `--config` **aller** Befehle (Callback in `cli.py`).
+- `verschluesselung.py`, `sicherung.py` — Sicherung als Tar-Strom (Tabellen als JSON-Zeilen,
+  typgetreu; Archivdateien; Manifest mit SHA-256), AES-256-GCM in Stücken (STREAM, HKDF je
+  Sicherung); Wiederherstellung nur in eine leere Umgebung, alles oder nichts.
+- `aufbewahrung.py` — Fristen nach § 147 AO (BEG IV) und § 14b UStG, Bericht ohne Löschen.
+- `planer.py` — geplanter Lauf (`bank lauf`, `aufgaben lauf` je Gesellschaft als Prozesse).
+- `protokoll.py` — Schwärzung (IBAN, E-Mail, Token, Passwörter in URLs) an jedem Handler.
+```
+
+**Ergänzt im Abschnitt „## Sicherheit“** am Ende:
+
+```markdown
+- Anmeldung nur mit zweitem Faktor; Passwörter mit scrypt, Sitzungs- und API-Token nur als
+  SHA-256, TOTP-Geheimnisse im Tresor; Freigaben mit Rolle und frischem Einmalcode
+- Protokolle ohne IP-Adressen, Abfrageparameter, Namen, Token und Passwörter; Sicherungen
+  verschlüsselt mit einem Schlüssel aus der Umgebung, getrennt aufzubewahren
+```
+
+**Ersetzt in „### Neuen Baustein anschließen“** nichts; ergänzt die Tabelle um:
+
+```markdown
+| HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
+| REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
+```
+
+### config/accounti.example.yaml
+
+**Ersetzt** den Abschnitt am Ende
+
+```yaml
+# Server
+server:
+  host: "127.0.0.1"
+  port: 8400
+```
+
+durch:
+
+```yaml
+# Web-Oberfläche und REST-API (accounti serve) — TLS über einen Reverse-Proxy (docs/betrieb.md)
+server:
+  host: "127.0.0.1"               # im Container 0.0.0.0
+  port: 8400
+  cookie_sicher: true             # Secure + __Host-; nur ohne TLS (lokal) false
+  vertrauenswuerdige_proxies: ["127.0.0.1"]   # nur deren X-Forwarded-* gelten
+  max_formular_kb: 64
+  max_beleg_mb: 20                # je Anfrage an POST /api/v1/belege
+
+# Anmeldung (optional — ohne Abschnitt gelten diese Werte)
+auth:
+  passwort_mindestlaenge: 12      # mit zweitem Faktor; NIST 800-63B-4 verlangt ≥ 8
+  sperre_nach_fehlversuchen: 5
+  sperre_minuten: 15
+  sitzung_leerlauf_minuten: 30
+  sitzung_hoechstdauer_stunden: 8
+  totp_toleranz_schritte: 1
+  einmalcode_bestaetigung: true   # Freigaben (Browser, CLI) und CLI-Verwaltung mit Einmalcode
+  aussteller: accounti            # Name in der Authenticator-App
+
+# Mehrere eigene Gesellschaften (optional — ohne Abschnitt gibt es eine: „standard“)
+# gesellschaften:
+#   systemdatenbank: "${ACCOUNTI_SYSTEM_DB}"   # Benutzer, Rollen, Sitzungen, Token
+#   standard: muster
+#   eintraege:
+#     muster:
+#       name: Muster GmbH
+#       datenbank: "${ACCOUNTI_DB_MUSTER}"
+#       archiv: archiv/muster
+#       konfiguration: config/muster.yaml     # eigener Kontenrahmen, Wirtschaftsjahr, Firmendaten
+#     tochter:
+#       name: Tochter UG
+#       datenbank: "${ACCOUNTI_DB_TOCHTER}"
+#       archiv: archiv/tochter
+#       konfiguration: config/tochter.yaml
+```
+
+(Der Eintrag `database: url:` am Anfang der Beispieldatei wird von keinem Befehl gelesen; die
+Datenbank kommt aus `--db` bzw. `ACCOUNTI_DB` — beim Zusammenführen den Kommentar dort
+entsprechend ändern: `# Datenbank: --db oder ACCOUNTI_DB (dieser Eintrag wird nicht gelesen)`.)

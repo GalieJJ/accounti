@@ -147,6 +147,12 @@ def test_verwaltung_einrichtungsphase_und_danach(db, monkeypatch):
         )
         == "eva"
     )
+    # den ersten zweiten Faktor richtet ein Verwalter ein, nicht der Benutzer selbst
+    with fabrik() as s:
+        lege_person_an(s, "neu", Rolle.BUCHHALTER, mit_2fa=False, jetzt=jetzt)
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "neu")
+    with pytest.raises(RechteError):
+        pruefe_verwaltung(url, str(config), selbst="neu", frage=lambda _: "000000")
     monkeypatch.setenv("ACCOUNTI_BENUTZER", "chef")
     assert (
         pruefe_verwaltung(url, str(config), frage=lambda _: chef.code(datetime.now()))
