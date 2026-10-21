@@ -452,10 +452,33 @@ def _pruefe_stornovermerke(
 # --- Ereignisse ---------------------------------------------------------------------
 
 
+# Tabellen, deren Änderung Prüfung oder Journal braucht: die erfassten (ERFASST),
+# die geschützten und die Sperren selbst
+_SPERRBEDARF = frozenset(
+    {"journal", "buchungskorrekturen", "abschluesse", "periodenabschluesse"}
+)
+
+
+def _braucht_sperre(session: Session) -> bool:
+    """Berührt der Flush eine Tabelle mit Journal- oder Sperrbezug?"""
+    namen = _SPERRBEDARF | GESCHUETZT | ERFASST.keys()
+    for menge in (session.new, session.dirty, session.deleted):
+        for obj in menge:
+            zustand: Any = inspect(obj, raiseerr=False)
+            if zustand is not None and zustand.mapper.local_table.name in namen:
+                return True
+    return False
+
+
 @event.listens_for(Session, "before_flush")
 def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
     # erst die Schreibsperre, dann lesen und prüfen: kein zweiter Schreiber ändert
-    # den geprüften Stand, bevor dieser Flush schreibt (auch nicht die Sperren)
+    # den geprüften Stand, bevor dieser Flush schreibt (auch nicht die Sperren). Ein
+    # Flush ohne Journal- und Sperrbezug (Umsätze, Anmeldungen, Sitzungen) holt sie
+    # nicht — unter PostgreSQL warteten sonst alle Schreiber auf jede Transaktion,
+    # die irgendwann einmal flushte (z.B. während einer TAN-Abfrage)
+    if not _braucht_sperre(session):
+        return
     schreibsperre(session.connection())
     cache: dict[str, Any] = {}  # Sperren für diesen Flush (auch für die Mapper)
     session.info[SPERRCACHE] = cache

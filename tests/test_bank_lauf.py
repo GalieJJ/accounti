@@ -314,3 +314,30 @@ def test_zugang_auch_bei_noetiger_freigabe_gesichert(make_session, sitzungsbank)
     zugang, konto = _zugang(make_session)
     assert zugang["sitzung"] == "geheime-sitzung+"
     assert konto.meldung == "Bitte freigeben"
+
+
+def test_mit_freigabe_wird_je_konto_gesichert(make_session):
+    """Schlussprüfung T-M2: ``fints freigeben`` fragt je Konto nach TAN bzw. App —
+    was Konto 1 brachte, ist festgeschrieben, bevor Konto 2 auf den Menschen wartet;
+    keine Transaktion (und keine Sperre) bleibt über die Rückfrage offen."""
+    _konto(make_session, iban="DE01")
+    _konto(make_session, iban="DE02")
+    Attrappe.antworten["DE01"] = Abruf([umsatz()])
+    Attrappe.antworten["DE02"] = Abruf([umsatz(betrag="-7")])
+    gesehen: list[int] = []
+    original = Attrappe.abrufen
+
+    def abrufen(self, konto, zugang, ab):  # type: ignore[no-untyped-def]
+        if konto.iban == "DE02":  # die Rückfrage: was sieht ein anderer Prozess?
+            with make_session() as anderer:
+                gesehen.append(len(lade_transaktionen(anderer)))
+        return original(self, konto, zugang, ab)
+
+    Attrappe.abrufen = abrufen  # type: ignore[method-assign]
+    try:
+        with make_session() as s:
+            rufe_ab(s, SCHLUESSEL, freigabe=lambda frage: "123456", sichern=s.commit)
+            s.commit()
+    finally:
+        Attrappe.abrufen = original  # type: ignore[method-assign]
+    assert gesehen == [1]

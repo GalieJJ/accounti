@@ -27,6 +27,7 @@ from accounti.models import Buchungssatz, BuchungStatus
 from accounti.pruefung.journal import pruefe_journal, schreibe
 from accounti.pruefung.perioden import schliesse
 from accounti.pruefung.storno import markiere_exportiert, storniere
+from tests.pg_hilfe import mit_postgresql
 from tests.pruefung_hilfe import anlegen, buchung, make_session_fixture
 
 _ = make_session_fixture
@@ -278,3 +279,142 @@ def test_journal_uebernehmen_zweimal_gleichzeitig(make_session, monkeypatch):
         ).scalar()
     assert anzahl == 1
     assert _in_ordnung(make_session)
+
+
+def test_flush_ohne_journalbezug_holt_keine_schreibsperre(make_session, monkeypatch):
+    """Schlussprüfung T-M2: Die Schreibsperre schützt Prüfung und Journal — ein Flush
+    ohne erfasste oder geschützte Tabelle (Umsätze, Anmeldeprotokoll, Sitzungen)
+    holt sie nicht. Unter PostgreSQL warteten sonst Anmeldungen ohne Frist auf eine
+    Buchungstransaktion (siehe den PostgreSQL-Test unten)."""
+    from datetime import datetime
+
+    import accounti.pruefung.ereignisse as ereignisse
+    from accounti.db import repo_auth
+    from accounti.db.repository import speichere_transaktion
+    from accounti.models.auth import AuthEreignis
+    from tests.pruefung_hilfe import umsatz
+
+    gerufen: list[str] = []
+    original = ereignisse.schreibsperre
+    monkeypatch.setattr(
+        ereignisse, "schreibsperre", lambda v: gerufen.append("x") or original(v)
+    )
+    with make_session() as s:
+        speichere_transaktion(s, umsatz())
+        repo_auth.protokolliere_ereignis(
+            s,
+            AuthEreignis(
+                zeitpunkt=datetime.now(),
+                art="anmeldung_fehlgeschlagen",
+                benutzer="eva",
+                quelle="web",
+                ok=False,
+            ),
+        )
+        s.flush()
+        assert gerufen == []
+        speichere_buchung(s, buchung(steuer=None, schluessel=None))
+        s.flush()
+        assert gerufen == ["x"]
+        s.commit()
+
+
+@mit_postgresql
+def test_anmeldung_wartet_nicht_auf_eine_buchung_postgresql(pg_datenbank):
+    """T-M2 unter PostgreSQL: Eine Buchungstransaktion hält die Advisory-Sperre bis
+    zum Commit; ein Auth-Ereignis daneben wartet trotzdem nicht."""
+    import threading
+    import time
+    from datetime import datetime
+
+    from accounti.db import init_db, repo_auth, session_factory
+    from accounti.models.auth import AuthEreignis
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    gehalten, frei = threading.Event(), threading.Event()
+
+    def halter() -> None:
+        with fabrik() as s:
+            speichere_buchung(s, buchung(steuer=None, schluessel=None))
+            s.flush()
+            gehalten.set()
+            frei.wait(timeout=10)
+            s.commit()
+
+    t = threading.Thread(target=halter)
+    t.start()
+    assert gehalten.wait(timeout=10)
+    start = time.monotonic()
+    with fabrik() as s:
+        repo_auth.protokolliere_ereignis(
+            s,
+            AuthEreignis(
+                zeitpunkt=datetime.now(),
+                art="anmeldung_fehlgeschlagen",
+                benutzer="eva",
+                quelle="web",
+                ok=False,
+            ),
+        )
+        s.commit()
+    dauer = time.monotonic() - start
+    frei.set()
+    t.join(timeout=10)
+    engine.dispose()
+    assert dauer < 1.0, dauer
+
+
+def test_journal_pruefen_schreibt_offene_aenderungen_nicht_fest(make_session):
+    """Schlussprüfung T-N1: Ruft jemand die Prüfung mit offenen Änderungen auf, darf
+    der Lesestand sie nicht festschreiben — ein späteres rollback nimmt sie zurück."""
+    from accounti.pruefung.journal import pruefe_journal
+
+    with make_session() as s:
+        speichere_buchung(s, buchung(steuer=None, schluessel=None))
+        assert pruefe_journal(s).in_ordnung
+        s.rollback()
+    with make_session() as s:
+        assert s.execute(text("SELECT count(*) FROM buchungssaetze")).scalar() == 0
+        assert s.execute(text("SELECT count(*) FROM journal")).scalar() == 0
+
+
+@mit_postgresql
+def test_journal_pruefen_haelt_schreiber_nicht_an_postgresql(pg_datenbank, monkeypatch):
+    """T-N2: Unter PostgreSQL liest die Prüfung aus einem Schnappschuss (REPEATABLE
+    READ READ ONLY) — ein Schreiber kommt währenddessen durch, die Prüfung sieht
+    trotzdem einen Stand (kein falscher Befund „ohne_eintrag“)."""
+    import accounti.pruefung.journal as journal
+    from accounti.db import init_db, session_factory
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    anlegen(fabrik, buchung(steuer=None, schluessel=None))
+    original = journal.lade_journal
+    zweiter: list[str] = []
+
+    def schreiber() -> str:
+        try:
+            with fabrik() as s2:
+                s2.execute(text("SET lock_timeout = '500ms'"))
+                speichere_buchung(s2, buchung(steuer=None, schluessel=None, netto="2"))
+                s2.commit()
+        except OperationalError:
+            return "gesperrt"
+        return "durchgekommen"
+
+    def lade_und_schreibe(session, **kw):  # type: ignore[no-untyped-def]
+        eintraege = original(session, **kw)
+        if not zweiter:
+            zweiter.append(schreiber())
+        return eintraege
+
+    monkeypatch.setattr(journal, "lade_journal", lade_und_schreibe)
+    with fabrik() as s:
+        p = journal.pruefe_journal(s)
+    assert p.in_ordnung, [b.text for b in p.befunde]
+    assert zweiter == ["durchgekommen"]
+    monkeypatch.undo()
+    with fabrik() as s:
+        assert journal.pruefe_journal(s).in_ordnung
+    engine.dispose()

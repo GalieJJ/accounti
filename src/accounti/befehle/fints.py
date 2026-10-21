@@ -221,7 +221,12 @@ def freigeben(
                     f"nicht versucht: accounti fints zugang --konto {k.iban}"
                 )
             konten = [k for k in konten if k not in abgelehnt]
-        abrufe = rufe_ab(s, konten=konten, freigabe=konsolen_freigabe) if konten else []
+        # je Konto festschreiben: keine offene Transaktion während der TAN-Abfrage
+        abrufe = (
+            rufe_ab(s, konten=konten, freigabe=konsolen_freigabe, sichern=s.commit)
+            if konten
+            else []
+        )
         s.commit()
     _ausgabe(abrufe)
 
