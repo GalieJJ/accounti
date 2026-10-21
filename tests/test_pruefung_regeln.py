@@ -490,10 +490,7 @@ def test_rechenprobe(make_session):
 
 @pytest.fixture
 def skr03(tmp_path, monkeypatch):
-    """config/skr03.yaml des Projekts, relativ zum Arbeitsverzeichnis wie in der CLI."""
-    (tmp_path / "config").mkdir(exist_ok=True)
-    quelle = Path(__file__).resolve().parents[1] / "config" / "skr03.yaml"
-    (tmp_path / "config" / "skr03.yaml").write_bytes(quelle.read_bytes())
+    """Die mitgelieferte SKR03-Datei gilt unabhängig vom Arbeitsverzeichnis."""
     monkeypatch.chdir(tmp_path)
 
 
@@ -1084,8 +1081,10 @@ def test_abhilfe_bietet_auf_automatikkonto_kein_ohne_steuer_an(make_session, skr
 
 
 def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
-    """Eine Buchung ohne Schlüssel auf einem Automatikkonto trägt BU 40
-    („Aufhebung der Automatik“), sonst rechnete DATEV Steuer heraus."""
+    """DATEV 0907049 Kap. 3: Steuerschlüssel nur auf Konten ohne Automatik. Auf einem
+    Automatikkonto bleibt das BU-Feld leer, wenn der Schlüssel der Automatik
+    entspricht (DATEV rechnet selbst); ohne Steuer steht BU 40 („Aufhebung der
+    Automatik“); ein abweichender Schlüssel wird vor dem Export gemeldet."""
     from accounti.export.datev import DATEVConfig, DATEVExporter
     from accounti.pruefung.regeln.richtigkeit import automatikkonten
 
@@ -1094,16 +1093,22 @@ def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
     buchungen = [
         buchung(soll="3400", haben="1200", schluessel=None, steuer=None),
         buchung(soll="3400", haben="1200", schluessel=9),
+        buchung(soll="10000", haben="8400", schluessel=3),
         buchung(soll="4900", haben="1200", schluessel=None, steuer=None),
+        buchung(soll="4900", haben="1200", schluessel=9),
         buchung(soll="1400", haben="8125", schluessel=None, steuer=None),
+        buchung(soll="3400", haben="70001", schluessel=8, steuer="7.00"),
     ]
     cfg = DATEVConfig(
         berater_nummer="1", mandanten_nummer="1", automatikkonten=automatik
     )
-    datei = DATEVExporter(cfg).exportiere(buchungen, tmp_path / "out")
+    exporter = DATEVExporter(cfg)
+    datei = exporter.exportiere(buchungen, tmp_path / "out")
     zeilen = datei.read_text(encoding="cp1252").splitlines()
     bu = zeilen[1].split(";").index("BU-Schlüssel")
-    assert [z.split(";")[bu] for z in zeilen[2:]] == ["40", "9", "", ""]
+    assert [z.split(";")[bu] for z in zeilen[2:]] == ["40", "", "", "", "9", "", "8"]
+    (warnung,) = exporter.warnungen
+    assert "3400" in warnung and "Schlüssel 8" in warnung
 
 
 def test_steuersatz_ohne_exponentenschreibweise(make_session):
@@ -1168,3 +1173,43 @@ def test_reverse_charge_im_inland_zitiert_14a(make_session, tmp_path):
     )
     (befund,) = pruefe(make_session, "pflichtangaben", archiv=archiv)
     assert "§ 14a Abs. 5 UStG" in befund.text and "Art. 226" not in befund.text
+
+
+# --- Runde 3: Automatikkonto, ausführbare Abhilfe ------------------------------------
+
+
+def test_automatikkonto_mit_steuerbetrag_ohne_schluessel(make_session, skr03):
+    """Befund N-13: Steuer ohne Schlüssel — accounti meldet sie in der UStVA nicht,
+    DATEV rechnet sie aus dem Bruttobetrag."""
+    anlegen(make_session, buchung(soll="3400", haben="1200", schluessel=None))
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert befund.schwere is Schwere.FEHLER and "ohne Schlüssel" in befund.text
+
+
+@pytest.mark.parametrize("mit_beleg", [False, True])
+def test_abhilfe_automatikkonto_ohne_schluessel_ist_ausfuehrbar(
+    make_session, skr03, tmp_path, mit_beleg
+):
+    """Befund N-10: Die Abhilfe lässt sich ausführen — ohne Beleg mit dem Schlüssel
+    der Automatik, mit Beleg auf ein Konto ohne Automatik (Platzhalter <Konto>)."""
+    import shlex
+
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+
+    b = buchung(
+        soll="3400",
+        haben="1200",
+        schluessel=None,
+        steuer=None,
+        status=BuchungStatus.ZUR_PRUEFUNG,
+        beleg_id=uuid4() if mit_beleg else None,
+    )
+    anlegen(make_session, b)
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    aufruf = befund.abhilfe[befund.abhilfe.index("accounti korrigiere") :]
+    args = shlex.split(aufruf.replace("<Konto>", "3200"))[1:]
+    r = CliRunner().invoke(app, [*args, "--db", db_url(tmp_path)])
+    assert r.exit_code == 0, (befund.abhilfe, r.output)
+    assert pruefe(make_session, "steuerschluessel_konto") == []

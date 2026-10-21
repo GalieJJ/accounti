@@ -24,6 +24,9 @@
 #
 # Die Prüfregel steuerschluessel_konto meldet einen Fehler nur bei Automatikkonten
 # (automatik: true) mit anderem Schlüssel; vorsteuer: false ergibt einen Hinweis.
+# Der DATEV-Export lässt auf Automatikkonten den passenden Schlüssel weg und setzt
+# ohne Steuer BU 40. Die Datei liegt im Paket (unabhängig vom Arbeitsverzeichnis);
+# eine eigene setzt pruefung.kontenrahmen_datei.
 
 kontenrahmen: SKR03
 version: "2026-01"

@@ -54,11 +54,10 @@ FREIGEGEBEN = frozenset(
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
 NULL = Decimal("0")
 _JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
-# reine Vorsteuer (8, 9): nur sie entfernt --ohne-steuer aus einer Belegbuchung
-_NUR_VORSTEUER = frozenset(
-    s
-    for s, r in STEUERSCHLUESSEL.items()
-    if r.vorsteuer is not None and r.bmg is None and r.steuer is None
+# ausgewiesene Umsatzsteuer (2, 3): --ohne-steuer entfernt sie aus keiner
+# Belegbuchung (§ 14c UStG) — Vorsteuer, ig. Erwerb und § 13b (Eingang) schon
+_AUSGEWIESENE_UST = frozenset(
+    s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer is None and r.bmg is not None
 )
 # DATEV-Schlüssel, deren Steuer im Zahlbetrag steckt → (Satz)
 _IM_BRUTTO = {
@@ -164,13 +163,12 @@ def _steuer(
             "bzw. aus dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit "
             "--ohne-steuer --grund … entfernen)"
         )
-    if b.beleg_id is not None and b.steuer_schluessel not in _NUR_VORSTEUER:
+    if b.beleg_id is not None and b.steuer_schluessel in _AUSGEWIESENE_UST:
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg mit Schlüssel {b.steuer_schluessel}: "
-            "ausgewiesene Umsatzsteuer (bzw. Steuerschuld nach § 13b) wird geschuldet, "
-            "bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG) — die Berichtigung "
-            "als neuen Beleg erfassen und verbuchen, nicht die Steuer aus der Buchung "
-            "entfernen"
+            "ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt "
+            "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen und "
+            "verbuchen, nicht die Steuer aus der Buchung entfernen"
         )
     if b.beleg_id is not None and not (grund or "").strip():
         raise StornoError(

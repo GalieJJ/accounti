@@ -102,7 +102,7 @@ class PruefEinstellungen(BaseModel):
     eigene_namen: list[str] = Field(default_factory=list)
     kontenrahmen_datei: str | None = Field(
         default=None,
-        description="Steuerautomatik der Konten (SKR03: config/skr03.yaml)",
+        description="Steuerautomatik der Konten (SKR03: mitgelieferte skr03.yaml)",
     )
     archiv: str = Field(default="archiv/belege", description="Belegarchiv")
     nachforderung: NachforderungEinstellungen = Field(

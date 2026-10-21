@@ -646,12 +646,7 @@ def test_korrektur_auf_automatikkonto_ohne_schluessel_abgelehnt(
     make_session, tmp_path, monkeypatch
 ):
     """Befund N-M3: 3400 ohne Schlüssel — DATEV rechnete trotzdem 19 % heraus."""
-    from pathlib import Path
-
-    (tmp_path / "config").mkdir(exist_ok=True)
-    quelle = Path(__file__).resolve().parents[1] / "config" / "skr03.yaml"
-    (tmp_path / "config" / "skr03.yaml").write_bytes(quelle.read_bytes())
-    monkeypatch.chdir(tmp_path)
+    monkeypatch.chdir(tmp_path)  # die SKR03-Datei kommt aus dem Paket
     tx = umsatz()
     b = buchung(
         tx, status=BuchungStatus.AUTO_GEBUCHT, soll="4360", schluessel=None, steuer=None
@@ -659,3 +654,30 @@ def test_korrektur_auf_automatikkonto_ohne_schluessel_abgelehnt(
     anlegen(make_session, tx, b)
     with make_session() as s, pytest.raises(StornoError, match="Automatikkonto"):
         korrigiere(s, str(b.id), "3400", "1200", von="erika")
+
+
+def test_ohne_steuer_bei_paragraph_13b_eingangsrechnung(make_session):
+    """Befund N-9: ein falsch erkannter § 13b-Fall (Schlüssel 94 auf einer
+    Eingangsrechnung) lässt sich mit Grund korrigieren — § 14c betrifft ihn nicht."""
+    b = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll="4610",
+        haben="70020",
+        netto="50.00",
+        steuer=None,
+        schluessel=94,
+        beleg_id=uuid4(),
+    )
+    anlegen(make_session, b)
+    with make_session() as s:
+        k = korrigiere(
+            s,
+            str(b.id),
+            "4610",
+            "70020",
+            ohne_steuer=True,
+            grund="kein § 13b: Leistender im Inland",
+            von="erika",
+        )
+        s.commit()
+    assert k.neu is not None and k.neu.steuer_schluessel is None

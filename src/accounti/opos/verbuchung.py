@@ -230,7 +230,7 @@ def verbuche_beleg(
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
-    gewinnermittlung: str = "bilanz",
+    gewinnermittlung: str | None = None,
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
@@ -404,7 +404,7 @@ def _buchungstag(
     belegdatum: date,
     buchungsdatum: Buchungsdatum,
     anlass: str,
-    gewinnermittlung: str = "bilanz",
+    gewinnermittlung: str | None = None,
 ) -> tuple[date, str | None]:
     """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest.
 
@@ -412,7 +412,8 @@ def _buchungstag(
     ist — der Rest eines Laufs bleibt beim Belegdatum. „Eingang“ ist der Zeitpunkt, zu
     dem accounti den Beleg erfasst hat (``eingegangen_am``, z.B. der Import). Bei
     Bilanzierung bleibt die Buchung im Geschäftsjahr des Belegs (§ 252 Abs. 1 Nr. 5
-    HGB, GoBD Rz. 51)."""
+    HGB, GoBD Rz. 51) — ebenso, wenn die Gewinnermittlung nicht angegeben ist
+    (``None``); nur ausdrücklich ``euer`` bucht über den Jahreswechsel."""
     eingegangen = beleg.eingegangen_am.date()
     if (
         buchungsdatum == "beleg"
@@ -433,16 +434,32 @@ def _buchungstag(
         )
     if tag == belegdatum:
         return tag, None
-    if tag.year != belegdatum.year and gewinnermittlung == "bilanz":
+    if tag.year != belegdatum.year and gewinnermittlung != "euer":
+        if ist_gesperrt(session, belegdatum.year):
+            oeffnen = (
+                f"das Geschäftsjahr mit Grund öffnen (accounti abschluss oeffnen "
+                f"--jahr {belegdatum.year})"
+            )
+        else:
+            oeffnen = (
+                f"den Monat mit Grund öffnen (accounti periode oeffnen "
+                f"{belegdatum:%Y-%m} --grund …)"
+            )
+        ohne_angabe = (
+            " — die Gewinnermittlung ist nicht angegeben (abschluss.gewinnermittlung: "
+            "bilanz oder euer in der Konfiguration); ohne Angabe gilt der Schutz der "
+            "Bilanzierung"
+            if gewinnermittlung is None
+            else ""
+        )
         raise VerbuchungError(
             f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt im Geschäftsjahr "
             f"{tag.year}, die Rechnung vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
             f"und Verbindlichkeit ins Geschäftsjahr {belegdatum.year} (§ 252 Abs. 1 "
-            f"Nr. 5 HGB, GoBD Rz. 51) — den Monat mit Grund öffnen (accounti periode "
-            f"oeffnen {belegdatum:%Y-%m} --grund …) und zum Belegdatum buchen; die "
+            f"Nr. 5 HGB, GoBD Rz. 51) — {oeffnen} und zum Belegdatum buchen; die "
             "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG) und "
             "gehört dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ (SKR03) — das "
-            "bucht accounti nicht selbst"
+            f"bucht accounti nicht selbst{ohne_angabe}"
         )
     hinweis = (
         f"gebucht am {tag:%d.%m.%Y} statt zum Belegdatum {belegdatum:%d.%m.%Y} "
@@ -476,7 +493,7 @@ def verbuche_belege(
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
-    gewinnermittlung: str = "bilanz",
+    gewinnermittlung: str | None = None,
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 

@@ -4,6 +4,7 @@ Stand — eine Änderung an Konfiguration oder System schlägt sich im Dokument 
 from datetime import date
 from pathlib import Path
 
+import pytest
 from pypdf import PdfReader
 from typer.testing import CliRunner
 
@@ -197,4 +198,23 @@ def test_cli(tmp_path):
     with fabrik() as s:
         (e,) = lade_journal(s, vorgang="verfahrensdoku_erstellt")
     assert e.bezug == fassung(ausgabe.read_text("utf-8"))
+    engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("gewinnermittlung", "erwartet"),
+    [("euer", "auch im Folgejahr"), ("bilanz", "desselben Geschäftsjahres")],
+)
+def test_buchungsdatum_nach_gewinnermittlung(tmp_path, gewinnermittlung, erwartet):
+    """Befund N-12: Bei EÜR darf die spätere Eingangsrechnung ins Folgejahr."""
+    engine, fabrik = _fabrik(tmp_path)
+    config = _konfig(tmp_path / "accounti.yaml")
+    config.write_text(
+        config.read_text(encoding="utf-8")
+        + f"abschluss:\n  gewinnermittlung: {gewinnermittlung}\n",
+        encoding="utf-8",
+    )
+    with fabrik() as s:
+        text = erzeuge(s, config, stand=date(2026, 10, 21))
+    assert erwartet in " ".join(text.split())
     engine.dispose()

@@ -1425,12 +1425,16 @@ def opos_verbuchen(
         tag = buchungsdatum  # type: ignore[assignment]
     else:
         tag = _datum_option(buchungsdatum, "--buchungsdatum")  # type: ignore[assignment]
-    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.abschluss.konfiguration import (
+        gewinnermittlung_angegeben,
+        lade_abschluss,
+    )
 
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
-        gewinnermittlung = lade_abschluss(config).gewinnermittlung
+        lade_abschluss(config)  # prüft den Abschnitt
+        gewinnermittlung = gewinnermittlung_angegeben(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2295,11 +2299,14 @@ def export_datev(
         cfg = DATEVConfig(
             berater_nummer=berater, mandanten_nummer=mandant, automatikkonten=automatik
         )
-        datei = DATEVExporter(cfg).exportiere(buchungen, output)
+        exporter = DATEVExporter(cfg)
+        datei = exporter.exportiere(buchungen, output)
         # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
         markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
         s.commit()
     console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
+    for warnung in exporter.warnungen:
+        console.print(f"[yellow]{escape(warnung)}[/yellow]")
     if markiert or gesperrt:
         console.print(
             f"[dim]{markiert} als exportiert vermerkt"

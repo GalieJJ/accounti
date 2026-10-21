@@ -86,6 +86,14 @@ def lade_abschluss(pfad: str | Path = STANDARD_PFAD) -> AbschlussEinstellungen:
         raise KonfigurationError(msg) from fehler
 
 
+def gewinnermittlung_angegeben(pfad: str | Path = STANDARD_PFAD) -> str | None:
+    """``abschluss.gewinnermittlung``, wenn sie ausdrücklich in der Konfiguration steht
+    (``bilanz`` oder ``euer``) — sonst ``None`` (der Standard ``euer`` gilt dann nur
+    dort, wo er nichts riskiert)."""
+    wert = _abschnitt(Path(pfad), "abschluss").get("gewinnermittlung")
+    return wert if wert in ("bilanz", "euer") else None
+
+
 def lade_kasse(pfad: str | Path = STANDARD_PFAD) -> KassenEinstellungen:
     pfad = Path(pfad)
     kontenrahmen = lade_buchhaltung(pfad).kontenrahmen.upper()

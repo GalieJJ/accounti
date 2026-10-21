@@ -283,3 +283,45 @@ def test_buchungsdatum_nur_fuer_belege_aus_gesperrten_monaten(make_session):
         "RE-JULI": {date(2026, 8, 11)},  # Eingang 11.08., nicht schon der 01.08.
         "RE-SEPT": {date(2026, 9, 3)},  # September offen: Belegdatum
     }
+
+
+@pytest.mark.parametrize("gewinnermittlung", ["bilanz", None])
+def test_jahreswechsel_bei_abgeschlossenem_jahr_rät_zum_jahr(
+    make_session, gewinnermittlung
+):
+    """Befund N-11: Ist das Geschäftsjahr abgeschlossen, hilft „periode oeffnen“
+    nicht — die Meldung nennt „abschluss oeffnen“; ohne Angabe der
+    Gewinnermittlung nennt sie die Einstellung (Befund M-1)."""
+    from datetime import datetime
+
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    dez = beleg(tag=date(2026, 12, 15), nummer="RE-DEZ", datei_hash="d" * 64)
+    dez = dez.model_copy(update={"eingegangen_am": datetime(2027, 1, 10, 9, 0)})
+    anlegen(make_session, dez)
+    with make_session() as s:
+        setze_jahresabschluss(
+            s,
+            Jahresabschluss(
+                jahr=2026,
+                gesperrt=True,
+                gewinnermittlung="bilanz",
+                ergebnis=Decimal("0"),
+                abgeschlossen_am=date(2027, 2, 1),
+                von="erika",
+            ),
+        )
+        s.commit()
+    with make_session() as s, pytest.raises(VerbuchungError) as fehler:
+        verbuche_beleg(
+            s,
+            dez,
+            Buchhaltung(),
+            buchungsdatum="offen",
+            gewinnermittlung=gewinnermittlung,
+        )
+    text = str(fehler.value)
+    assert "abschluss oeffnen --jahr 2026" in text and "periode oeffnen" not in text
+    assert ("abschluss.gewinnermittlung" in text) is (gewinnermittlung is None)

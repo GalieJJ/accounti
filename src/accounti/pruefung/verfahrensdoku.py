@@ -396,6 +396,13 @@ def _pruefung(d: _Doku) -> None:
 
 
 def _perioden(d: _Doku) -> None:
+    from accounti.abschluss.konfiguration import gewinnermittlung_angegeben
+
+    ziel = (
+        "— bei Einnahmenüberschussrechnung auch im Folgejahr, der Abfluss zählt —"
+        if gewinnermittlung_angegeben(d.config) == "euer"
+        else "desselben Geschäftsjahres"
+    )
     from accounti.db.repo_abschluss import lade_gesperrte_jahre
     from accounti.pruefung.perioden import lade_perioden
 
@@ -435,8 +442,8 @@ def _perioden(d: _Doku) -> None:
         "weder Verkehrszahlen noch Umsatzsteuer-Voranmeldung des Januars und stehen "
         "wie jede Buchung im Journal; die Sperre des Geschäftsjahres gilt für sie "
         "weiter. Eine Eingangsrechnung zu einem festgeschriebenen Monat wird mit "
-        "accounti opos verbuchen --buchungsdatum in einen offenen Monat desselben "
-        "Geschäftsjahres gebucht (Vorsteuer nach § 15 Abs. 1 Nr. 1 UStG).",
+        f"accounti opos verbuchen --buchungsdatum in einen offenen Monat {ziel} "
+        "gebucht (Vorsteuer nach § 15 Abs. 1 Nr. 1 UStG).",
         "",
     )
 

@@ -175,21 +175,49 @@ def belegfeld2_storno(
 AUFHEBUNG_DER_AUTOMATIK = "40"
 
 
+def _automatik(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> int | None:
+    for konto in (b.soll_konto, b.haben_konto):
+        if konto in automatikkonten:
+            return automatikkonten[konto]
+    return None
+
+
 def bu_schluessel(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> str:
     """BU-Schlüssel einer Buchung (Feld 9).
 
-    Auf einem DATEV-Automatikkonto (AV/AM, z.B. 3400, 8400) rechnet DATEV ohne
-    Schlüssel selbst Steuer heraus; eine Buchung, die dort bewusst ohne Steuer steht,
-    trägt deshalb BU 40 — „Aufhebung der Automatik“ (DATEV-Kontenrahmen SKR 03, Hinweis
-    zum Berichtigungsschlüssel 4). Sonst der Steuerschlüssel der Buchung oder leer.
+    DATEV-Steuerschlüssel-Tabelle (Dok.-Nr. 0907049, Kap. 3): Steuerschlüssel gelten
+    nur auf Konten ohne Automatik. Auf einem Automatikkonto (AV/AM, z.B. 3400, 8400)
+    bleibt das Feld deshalb leer, wenn der Schlüssel der Automatik entspricht — DATEV
+    rechnet die Steuer selbst heraus; steht die Buchung dort bewusst ohne Steuer,
+    trägt sie BU 40 „Aufhebung der Automatik“. Ein abweichender Schlüssel bleibt
+    stehen und wird vorab gemeldet (``automatik_widerspruch``). Sonst der
+    Steuerschlüssel der Buchung oder leer.
     """
+    automatik = _automatik(b, automatikkonten)
     if b.steuer_schluessel is not None:
+        if automatik is not None and b.steuer_schluessel == automatik:
+            return ""
         return str(b.steuer_schluessel)
-    if not b.steuer_betrag and (
-        b.soll_konto in automatikkonten or b.haben_konto in automatikkonten
-    ):
+    if automatik is not None and not b.steuer_betrag:
         return AUFHEBUNG_DER_AUTOMATIK
     return ""
+
+
+def automatik_widerspruch(
+    b: Buchungssatz, automatikkonten: Mapping[str, int]
+) -> str | None:
+    """Warnung vor dem Export: anderer Schlüssel auf einem Automatikkonto."""
+    automatik = _automatik(b, automatikkonten)
+    if automatik is None or b.steuer_schluessel in (None, automatik):
+        return None
+    konto = b.soll_konto if b.soll_konto in automatikkonten else b.haben_konto
+    return (
+        f"Buchung {b.beleg_nummer or str(b.id)[:8]} ({b.soll_konto} an "
+        f"{b.haben_konto}): Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+        f"{automatik}), gebucht mit Schlüssel {b.steuer_schluessel} — DATEV nimmt "
+        "Steuerschlüssel nur auf Konten ohne Automatik an; vor dem Import korrigieren "
+        "(accounti pruefen --regel steuerschluessel_konto)"
+    )
 
 
 def feldnummer(felder: tuple[Feld, ...], name: str) -> int:

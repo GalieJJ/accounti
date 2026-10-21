@@ -304,3 +304,39 @@ def test_verbuchen_in_festgeschriebenen_monat_mit_buchungsdatum(tmp_path):
     _, fabrik = session_factory(url)
     with fabrik() as s:
         assert {b.datum for b in lade_buchungen(s)} == {date.today()}
+
+
+def test_buchungsdatum_im_folgejahr_braucht_die_gewinnermittlung(tmp_path):
+    """Befund M-1 (Runde 3): Ohne abschluss.gewinnermittlung lehnt accounti ein
+    Buchungsdatum im nächsten Geschäftsjahr ab — still EÜR anzunehmen ließe eine
+    bilanzierende GmbH Aufwand ins falsche Jahr buchen."""
+    from datetime import date
+
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+
+    url = _db(tmp_path)
+    archiv = str(tmp_path / "archiv")
+    datei = str(BELEGE / "rechnung_zwei_steuersaetze.txt")  # Belegdatum 05.03.2026
+    assert (
+        _run("belege", "import", datei, "--db", url, "--archiv", archiv).exit_code == 0
+    )
+    r = _run("periode", "schliessen", "2026-03", "--db", url, "--von", "erika")
+    assert r.exit_code == 0, r.output
+    folgejahr = ["--buchungsdatum", "2027-01-10"]
+
+    def verbuchen(konfig: str) -> str:
+        pfad = tmp_path / "k.yaml"
+        pfad.write_text(konfig, encoding="utf-8")
+        basis = ["--db", url, "--archiv", archiv, "--config", str(pfad)]
+        return _run("opos", "verbuchen", *basis, *folgejahr).output
+
+    for konfig in ("", "abschluss:\n  rap_verzicht_bis_gwg: false\n"):
+        ausgabe = verbuchen(konfig)
+        assert "Nicht verbucht" in ausgabe and "gewinnermittlung" in ausgabe
+    assert "Nicht verbucht" in verbuchen("abschluss:\n  gewinnermittlung: bilanz\n")
+    ausgabe = verbuchen("abschluss:\n  gewinnermittlung: euer\n")
+    assert "Nicht verbucht" not in ausgabe, ausgabe
+    _, fabrik = session_factory(url)
+    with fabrik() as s:
+        assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}

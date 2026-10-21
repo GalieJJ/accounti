@@ -1,7 +1,7 @@
 """Abschlusszuordnung der Konten — Kontoart, Geld- und Steuerkonten, EÜR-Kennzahl.
 
 Die Zuordnung ist Konfiguration (``kontenrahmen_skr03.yaml``, ``…_skr04.yaml``), wie
-die BWA-Zuordnung in ``config/skr03.yaml``. Bereiche werden numerisch verglichen; die
+die BWA-Zuordnung in ``pruefung/skr03.yaml``. Bereiche werden numerisch verglichen; die
 engste passende Spanne gewinnt. Personenkonten sind fünfstellig; längere Sachkonten
 (6-stellig) werden an ihren ersten vier Ziffern eingeordnet.
 """

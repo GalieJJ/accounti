@@ -20,7 +20,7 @@ def _run(*args):
 
 
 def _umgebung(tmp_path, monkeypatch, config_text=""):
-    monkeypatch.chdir(tmp_path)  # config/skr03.yaml relativ zum Arbeitsverzeichnis
+    monkeypatch.chdir(tmp_path)
     url = db_url(tmp_path)
     engine, fabrik = session_factory(url)
     init_db(engine)
@@ -132,9 +132,6 @@ def test_eigene_belegverbuchung_mit_zwei_steuersaetzen_ohne_fehler(
     """Befund B-H2: Eine Rechnung mit 19 % und 7 % auf dem Standardaufwand (4900)
     ist richtig gebucht — die SKR03-Stammdaten nennen 4900 kein Automatikkonto."""
     url, _, config, engine = _umgebung(tmp_path, monkeypatch)
-    (tmp_path / "config").mkdir()
-    quelle = Path(__file__).resolve().parents[1] / "config" / "skr03.yaml"
-    (tmp_path / "config" / "skr03.yaml").write_bytes(quelle.read_bytes())
     archiv = tmp_path / "archiv"
     beispiel = Path(__file__).resolve().parents[1] / "examples" / "belege"
     datei = beispiel / "rechnung_zwei_steuersaetze.txt"

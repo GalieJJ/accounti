@@ -14,7 +14,11 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from accounti.export.datev_format import belegfeld2_storno, bu_schluessel
+from accounti.export.datev_format import (
+    automatik_widerspruch,
+    belegfeld2_storno,
+    bu_schluessel,
+)
 from accounti.models import Buchungssatz
 
 
@@ -46,6 +50,8 @@ class DATEVExporter:
 
     def __init__(self, config: DATEVConfig) -> None:
         self.config = config
+        # vor dem Import zu klären (z.B. anderer Schlüssel auf einem Automatikkonto)
+        self.warnungen: list[str] = []
 
     def _erzeuge_header(self) -> str:
         """DATEV EXTF Header-Zeile generieren."""
@@ -198,6 +204,11 @@ class DATEVExporter:
 
         zeilen: list[str] = [header]
         zeilen.append(";".join(spalten))  # Spaltenüberschriften unquoted
+        self.warnungen = [
+            w
+            for b in buchungen
+            if (w := automatik_widerspruch(b, self.config.automatikkonten)) is not None
+        ]
         for buchung in buchungen:
             roh = self._buchung_zu_zeile(buchung)
             zeilen.append(";".join(quote_text(s, roh[s]) for s in spalten))

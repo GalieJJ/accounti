@@ -6,6 +6,7 @@ import re
 from collections import defaultdict
 from decimal import Decimal
 from functools import cached_property
+from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from accounti.anzeige import betrag_de, datum_de
 from accounti.db.repository import lade_bankkonten
-from accounti.konfiguration import Buchhaltung
+from accounti.konfiguration import Buchhaltung, KonfigurationError
 from accounti.kontakte.erkennung import normalisiere_name
 from accounti.kontakte.ustid import aktuelle_bestaetigung, normalisiere
 from accounti.models import (
@@ -477,15 +478,36 @@ class Rechenprobe:
 def _lade_konten(
     einstellungen: PruefEinstellungen, kontenrahmen: str
 ) -> dict[str, dict[str, Any]]:
-    """Konten der Kontenrahmen-Datei (SKR03: ``config/skr03.yaml``)."""
-    datei = einstellungen.kontenrahmen_datei or (
-        "config/skr03.yaml" if kontenrahmen.upper() == "SKR03" else None
-    )
-    if datei is None or not Path(datei).is_file():
+    """Konten der Kontenrahmen-Datei: ``pruefung.kontenrahmen_datei`` oder für SKR03
+    die mitgelieferte ``accounti/pruefung/skr03.yaml`` — nicht abhängig vom
+    Arbeitsverzeichnis. Eine fehlende oder kaputte Datei ist ein Fehler der
+    Konfiguration."""
+    if einstellungen.kontenrahmen_datei:
+        pfad = Path(einstellungen.kontenrahmen_datei)
+        name = str(pfad)
+        if not pfad.is_file():
+            raise KonfigurationError(f"Kontenrahmen-Datei {name} fehlt")
+        text = pfad.read_text(encoding="utf-8")
+    elif kontenrahmen.upper() == "SKR03":
+        name = "accounti/pruefung/skr03.yaml"
+        text = (
+            resources.files("accounti.pruefung")
+            .joinpath("skr03.yaml")
+            .read_text(encoding="utf-8")
+        )
+    else:
         return {}
-    daten: Any = yaml.safe_load(Path(datei).read_text(encoding="utf-8")) or {}
+    try:
+        daten: Any = yaml.safe_load(text) or {}
+    except yaml.YAMLError as fehler:
+        raise KonfigurationError(f"Kontenrahmen-Datei {name}: {fehler}") from fehler
     konten = daten.get("konten") if isinstance(daten, dict) else None
-    return {str(n): w for n, w in (konten or {}).items() if isinstance(w, dict)}
+    if not isinstance(konten, dict):
+        raise KonfigurationError(
+            f"Kontenrahmen-Datei {name}: Abschnitt 'konten' fehlt oder ist keine "
+            "Zuordnung"
+        )
+    return {str(n): w for n, w in konten.items() if isinstance(w, dict)}
 
 
 def automatikkonten(
@@ -504,7 +526,7 @@ def automatikkonten(
 
 
 class _Kontenwissen:
-    """Steuerautomatik der Konten (``config/skr03.yaml``) und Bereiche."""
+    """Steuerautomatik der Konten (Kontenrahmen-Datei) und Bereiche."""
 
     def __init__(
         self,
@@ -631,6 +653,16 @@ class SteuerschluesselKonto:
                     "der Automatik)",
                 )
             )
+        elif auto is not None and s is None:
+            probleme.append(
+                (
+                    Schwere.FEHLER,
+                    f"Konto {konto} ist Automatikkonto mit Schlüssel "
+                    f"{_schluesselname(auto)}, gebucht mit Steuer, aber ohne Schlüssel "
+                    "— accounti meldet die Steuer nicht in der Voranmeldung, DATEV "
+                    "rechnet sie aus dem Bruttobetrag",
+                )
+            )
         ohne = w.ohne_vorsteuer(konto)
         if ohne is not None and s in VORSTEUER:
             probleme.append(
@@ -700,15 +732,25 @@ class SteuerschluesselKonto:
         automatik = {k: a for k in sachkonten if (a := w.automatik(k)) is not None}
         if automatik:  # auf einem Automatikkonto nie --ohne-steuer (DATEV rechnet)
             konto, auto = next(iter(automatik.items()))
-            if x.beleg_id is not None or x.steuer_schluessel is None:
+            if x.beleg_id is None:  # Schlüssel an die Automatik anpassen
+                return f"Schlüssel der Automatik von {konto}: {befehl} --steuer {auto}"
+            # mit Beleg bleibt die Steuer des Belegs: das Konto ist zu ändern
+            soll = "<Konto>" if x.soll_konto == konto else x.soll_konto
+            haben = "<Konto>" if x.haben_konto == konto else x.haben_konto
+            anders = (
+                f"accounti korrigiere {str(x.id)[:8]} --soll {soll} --haben {haben}"
+            )
+            if x.steuer_schluessel is None:
                 return (
-                    f"Konto {konto} rechnet automatisch mit Schlüssel {auto}: ein "
-                    "Sachkonto mit passender Automatik oder ohne Automatik wählen — "
-                    f"accounti korrigiere {str(x.id)[:8]} --soll … --haben … --steuer "
-                    f"{auto if x.steuer_schluessel is None else x.steuer_schluessel}"
+                    "bewusst ohne Steuer: nichts zu korrigieren (der DATEV-Export "
+                    f"setzt BU 40) — sonst ein Konto ohne Automatik: {anders}"
                 )
-            return f"{befehl} --steuer {auto} (Automatik des Kontos {konto})"
-        vorsteuer = x.steuer_schluessel in (8, 9)  # nur sie entfernt --ohne-steuer
+            return (
+                f"ein Konto mit Automatik {x.steuer_schluessel} oder ohne Automatik: "
+                f"{anders} --steuer {x.steuer_schluessel}"
+            )
+        # --ohne-steuer entfernt keine ausgewiesene Umsatzsteuer (§ 14c UStG)
+        vorsteuer = x.steuer_schluessel not in UMSATZSTEUER
         if not sachkonten:  # reine Geld-/Personenbewegung: ohne Steuer
             if x.status in _FREIGEGEBEN:
                 return (

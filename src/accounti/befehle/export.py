@@ -47,7 +47,7 @@ def zeitraum(text: str) -> tuple[date, date]:
 
 def automatikkonten_aus(config: str) -> dict[str, int]:
     """DATEV-Automatikkonten aus der Kontenrahmen-Datei der Konfiguration
-    (``pruefung.kontenrahmen_datei``, SKR03: ``config/skr03.yaml``)."""
+    (``pruefung.kontenrahmen_datei``, SKR03: mitgelieferte ``pruefung/skr03.yaml``)."""
     from accounti.konfiguration import lade_buchhaltung
     from accounti.pruefung.einstellungen import lade_pruefung
     from accounti.pruefung.regeln.richtigkeit import automatikkonten

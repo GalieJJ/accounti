@@ -37,6 +37,7 @@ from accounti.export.datev_felder import BUCHUNGSSTAPEL
 from accounti.export.datev_format import (
     Kopf,
     Wert,
+    automatik_widerspruch,
     belegfeld1,
     belegfeld2_storno,
     bu_schluessel,
@@ -264,6 +265,8 @@ def exportiere_belegpaket(
                     f"nicht zur Sachkontenlänge {mandant.sachkontenlaenge}"
                 )
         saetze.append(buchungsstapel_satz(b, link, automatikkonten))
+        if (warnung := automatik_widerspruch(b, automatikkonten or {})) is not None:
+            ergebnis.befunde.append(warnung)
     if angepasst:
         beispiele = ", ".join(angepasst[:3]) + (" …" if len(angepasst) > 3 else "")
         ergebnis.befunde.append(
