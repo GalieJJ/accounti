@@ -193,7 +193,9 @@ def test_steuerbereich_skr04_nur_vorsteuer():
         ("8310", "-100", "112"),
         ("8340", "-100", "112"),  # Erlöse 16 % USt
         ("8338", "-100", "103"),
-        ("1794", "-100", "140"),
+        # USt als letzter Abnehmer im Dreiecksgeschäft: Gegenstück zur Vorsteuer 1573,
+        # beide in Zeile 57, damit Zeile 17 nicht aufgebläht wird (vorher 140)
+        ("1794", "-100", "185"),
     ],
 )
 def test_euer_kennzahl_skr03_einzelregeln(konto, saldo, kz):
@@ -258,7 +260,9 @@ LEITKONTEN_SKR03 = [
     ("8910", "-100", "108"),  # Warenentnahme 19 % USt
     # Bestandsveränderungen: keine Betriebseinnahme (fehlen im KR-EÜR)
     ("8980", "-100", "-"),
-    ("8990", "-100", "103"),  # aktivierte Eigenleistungen (KR-EÜR: Neutrale Erträge)
+    # aktivierte Eigenleistungen: nicht umsatzsteuerbar, daher nur Zeile 16 möglich;
+    # ob sie Betriebseinnahme sind, ist offen (yaml: prüfen)
+    ("8990", "-100", "103"),
     # Wareneingang, Fremdleistungen (Anl Zeilen 27, 29)
     ("3400", "100", "100"),  # Wareneingang 19 % Vorsteuer
     ("4000", "100", "100"),  # Material- und Stoffverbrauch (KR-EÜR: Roh-, Hilfs- …)
@@ -325,7 +329,75 @@ LEITKONTEN_SKR03 = [
     ("2797", "-100", "-"),  # Entnahme aus Rücklagen: Ergebnisverwendung
     ("1556", "100", "185"),  # Vorsteuer § 15a Abs. 1 (KR-EÜR Posten „Vorsteuer“)
     ("1783", "-100", "140"),  # unberechtigt ausgewiesene USt: vereinnahmt (Zeile 17)
+    # Ergebnisanteile Personengesellschaften (KR-EÜR Fußnote 23): Zeile 91, nicht in
+    # den Zeilen 12–75 (Anleitung zu Zeile 91)
+    ("2603", "-100", "-"),
+    ("2614", "-100", "-"),
+    ("2618", "-100", "-"),
+    ("4872", "100", "-"),
+    # Umsatzsteuer (KR-EÜR Posten „Umsatzsteuer“, „Einnahmen“, „Neutrale Aufwendungen“)
+    ("1766", "-100", "140"),  # USt nicht fällig 19 % (wie SKR04 3816)
+    ("1767", "-100", "140"),  # USt aus im anderen EU-Land stpfl. Lieferungen (OSS)
+    ("1768", "-100", "140"),
+    ("1728", "-100", "140"),  # USt elektronische Dienstleistungen anderes EU-Land
+    ("1798", "-100", "140"),  # USt nur OSS
+    ("1754", "100", "186"),  # Steuerzahlungen an andere Länder
+    ("1729", "100", "186"),  # Steuerzahlungen aus im anderen EU-Land stpfl. Leistungen
+    ("1782", "-100", "140"),  # Nachsteuer: keine Erstattung vom Finanzamt (Zeile 18)
+    ("1782", "100", "140"),
+    ("1789", "-100", "186"),  # USt laufendes Jahr gleicht 1780 aus (DATEV 1037179)
+    ("1789", "100", "186"),
+    # USt mit gleich hoher Vorsteuer (§ 13b, ig. Erwerb, Dreieck, Auslagerung):
+    # beide in Zeile 57, Rechnungen ohne Vorsteuer (Anl zu Zeile 57)
+    ("1774", "-100", "185"),
+    ("1787", "-100", "185"),
+    ("1784", "-100", "185"),
+    ("1769", "-100", "185"),
+    ("1779", "-100", "140"),  # ig. Erwerb ohne Vorsteuerabzug: kein Gegenstück
+    # Konten ohne Steuersatz nach DATEV-Posten: „Neutrale Erträge“ → 103,
+    # „Sonstige Erlöse“/„Einnahmen“ → 112
+    ("8603", "-100", "103"),
+    ("8606", "-100", "103"),
+    ("8605", "-100", "112"),
+    ("8607", "-100", "112"),
+    ("8590", "-100", "112"),
+    ("8610", "-100", "112"),
+    # §§ 25, 25a UStG „ohne USt“: steuerpflichtiger Umsatz, Marge als BMG
+    ("8189", "-100", "112"),
+    ("8193", "-100", "112"),
+    ("8197", "-100", "112"),
+    ("8194", "-100", "103"),  # Reiseleistungen § 25 Abs. 2 UStG steuerfrei
+    ("2732", "-100", "112"),  # abgeschriebene Forderungen (§ 17 Abs. 2 Nr. 1 UStG)
+    ("8500", "-100", None),  # Sonderbetriebseinnahme (Fußnote 28: Sonderbilanz)
+    ("4964", "100", "183"),  # Lizenzen: keine beweglichen Wirtschaftsgüter
+    ("3950", "100", "-"),  # Bestandsveränderungen Waren (fehlen im KR-EÜR)
+    ("3960", "100", "-"),
+    ("3955", "100", "100"),  # Bestandsveränderungen RHB (im KR-EÜR)
+    # Rücklagen (Anl Zeilen 22 und 59, Übertrag der Kz 124 und 190)
+    ("2342", "100", "190"),  # Einstellung § 6b Abs. 3 EStG
+    ("2344", "100", "190"),  # Einstellung R 6.6 EStR
+    ("2339", "100", "190"),  # Ausgleichsposten § 4g EStG
+    ("2727", "-100", "124"),  # Auflösung § 6b Abs. 3 EStG
+    ("2737", "-100", "124"),  # Auflösung § 4g EStG
+    ("2345", "100", None),  # sonstige steuerliche Rücklagen: keine Zeile
+    ("2740", "-100", None),
 ]
+
+# Konten, die der Kontenrahmen 2026 reserviert hat; Buchungen bis 2025 behalten ihre
+# bisherige Kennzahl
+ALTKONTEN = [
+    ("SKR03", "8195", "-100", "111"),  # Kleinunternehmer bis 2025
+    ("SKR03", "8196", "-100", "112"),  # Geldspielautomaten 19 % USt
+    ("SKR03", "8330", "-100", "112"),
+    ("SKR04", "4185", "-100", "111"),
+    ("SKR04", "4186", "-100", "112"),
+]
+
+
+@pytest.mark.parametrize(("kr", "konto", "saldo", "kz"), ALTKONTEN)
+def test_euer_altkonten(kr, konto, saldo, kz):
+    rahmen = {"SKR03": SKR03, "SKR04": SKR04}[kr]
+    assert rahmen.euer_kz(konto, Decimal(saldo)) == kz
 
 
 @pytest.mark.parametrize(("konto", "saldo", "kz"), LEITKONTEN_SKR03)
@@ -437,6 +509,47 @@ LEITKONTEN_SKR04 = [
     ("1481", "100", "185"),  # Auflösung Vorsteuer aus Vorjahr § 4 Abs. 3 EStG
     ("3831", "-100", "140"),  # USt aus im Inland stpfl. EU-Lieferungen, nur OSS
     ("3851", "-100", "140"),  # unberechtigt ausgewiesene USt
+    # Ergebnisanteile Personengesellschaften (KR-EÜR Fußnote 23)
+    ("7003", "-100", "-"),
+    ("7004", "-100", "-"),
+    ("7008", "-100", "-"),
+    ("7208", "100", "-"),
+    # Umsatzsteuer
+    ("3798", "-100", "140"),  # USt elektronische Dienstleistungen anderes EU-Land
+    ("3854", "100", "186"),  # Steuerzahlungen an andere Länder
+    ("3799", "100", "186"),
+    ("3832", "-100", "140"),  # Nachsteuer
+    ("3840", "-100", "186"),  # USt laufendes Jahr
+    ("3804", "-100", "185"),  # USt ig. Erwerb 19 %
+    ("3837", "-100", "185"),  # USt § 13b UStG 19 %
+    ("3819", "-100", "185"),  # USt Dreiecksgeschäft letzter Abnehmer
+    ("3839", "-100", "185"),  # USt Auslagerung Umsatzsteuerlager
+    ("3809", "-100", "140"),  # ig. Erwerb ohne Vorsteuerabzug
+    # Konten ohne Steuersatz nach DATEV-Posten
+    ("4830", "-100", "103"),
+    ("4832", "-100", "103"),
+    ("4835", "-100", "112"),
+    ("4833", "-100", "112"),
+    ("4940", "-100", "112"),
+    ("4946", "-100", "112"),
+    ("4131", "-100", "112"),
+    ("4132", "-100", "112"),
+    ("4138", "-100", "112"),
+    ("4139", "-100", "103"),
+    ("4925", "-100", "112"),
+    ("4500", "-100", None),
+    ("6837", "100", "183"),
+    ("5880", "100", "-"),
+    ("5881", "100", "-"),
+    ("5885", "100", "100"),
+    # Rücklagen
+    ("6922", "100", "190"),
+    ("6928", "100", "190"),
+    ("6929", "100", "190"),
+    ("4927", "-100", "124"),
+    ("4938", "-100", "124"),
+    ("6927", "100", None),
+    ("4935", "-100", None),
 ]
 
 
@@ -475,7 +588,20 @@ def test_euer_leitkonten_skr04(konto, saldo, kz):
         # Umsatzsteuer
         ("SKR03", "1783", Kontenart.ERFOLG, Kontenart.BESTAND),
         ("SKR04", "3851", Kontenart.ERFOLG, Kontenart.BESTAND),
-        ("SKR04", "3854", Kontenart.BESTAND, Kontenart.BESTAND),  # Zahlung Ausland
+        # Steuerzahlungen an andere Länder (KR-EÜR Posten „Neutrale Aufwendungen“)
+        ("SKR04", "3854", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1754", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1729", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR04", "3799", Kontenart.ERFOLG, Kontenart.BESTAND),
+        # USt nicht fällig, OSS, Auslagerung: wie die SKR04-Gegenstücke 3810–3839
+        ("SKR03", "1760", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1767", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1769", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1798", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1728", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR04", "3798", Kontenart.ERFOLG, Kontenart.BESTAND),
+        ("SKR03", "1797", Kontenart.BESTAND, Kontenart.BESTAND),  # Verbindlichkeit
+        ("SKR03", "1730", Kontenart.BESTAND, Kontenart.BESTAND),  # Kreditkarten
         # Vortrag
         ("SKR03", "9000", Kontenart.VORTRAG, Kontenart.VORTRAG),
         ("SKR04", "9008", Kontenart.VORTRAG, Kontenart.VORTRAG),
@@ -485,3 +611,50 @@ def test_kontoart_leitkonten(kr, konto, euer, bilanz):
     rahmen = {"SKR03": SKR03, "SKR04": SKR04}[kr]
     assert rahmen.art(konto, "euer") is euer
     assert rahmen.art(konto, "bilanz") is bilanz
+
+
+# SKR03 ↔ SKR04: gleich bezeichnete Konten der DATEV-Kontenrahmen für § 4 Abs. 3 EStG
+# 2026 (11079/11080; automatisch über die Bezeichnung zugeordnet) sowie von Hand
+# ergänzte Gegenstücke. Gleicher Kontenzweck → gleiche Kontoart und EÜR-Kennzahl.
+PAARE = """
+8400:4400 8125:4125 8120:4120 8100:4100 8192:4184 8190:4180 8191:4136 8198:4133
+8189:4131 8290:4290 8320:4320 8336:4336 8337:4337 8338:4338 8510:4560 8514:4564
+8570:4570 8590:4940 8595:4945 8603:4830 8605:4835 8606:4832 8607:4833 8610:4946
+8611:4947 8614:4949 8705:4705 8707:4707 8736:4736 8743:4743 8800:6889 8850:4865
+8851:4866 8900:4600 8921:4645 8924:4639 8950:4690 8955:4695 8959:4699 8990:4820
+2400:6930 2402:6932 2406:6936 2600:7000 2618:7008 2650:7100 2660:4840 2732:4925
+2742:4970 2744:4980 2747:4982 2752:4862 2727:4927 2737:4938 2740:4935 2342:6922
+2339:6929 2345:6927 2100:7300 2102:7302 2103:7303 2105:7308 2113:7313 2124:7324
+2126:7326 2200:7600 2208:7608 2281:7641 2285:7690 2308:6968 2310:6895 2315:4855
+2327:6907 2350:6352 2380:6390 2383:6393 2890:6980 3000:5100 3100:5900 3123:5923
+3550:5550 3730:5730 3800:5800 3850:5840 4000:5000 4100:6000 4130:6110 4139:6440
+4140:6130 4210:6310 4212:6312 4240:6325 4260:6335 4287:6347 4288:6348 4289:6349
+4320:7610 4340:7650 4360:6400 4366:6405 4396:6436 4397:6437 4520:6520 4530:6530
+4570:6560 4590:6590 4595:6595 4630:6610 4632:6612 4635:6620 4638:6625 4639:6629
+4640:6630 4650:6640 4651:6641 4652:6642 4653:6643 4654:6644 4655:6645 4660:6650
+4672:6672 4673:6673 4674:6674 4676:6680 4678:6688 4679:6689 4680:6690 4681:6691
+4700:6700 4710:6710 4730:6740 4760:6770 4780:6780 4790:6790 4800:6460 4801:6450
+4806:6495 4810:6498 4822:6200 4830:6220 4831:6221 4832:6222 4833:6223 4841:6231
+4850:6240 4853:6243 4855:6260 4856:6245 4860:6262 4862:6264 4872:7208 4909:6303
+4945:6821 4946:6822 4950:6825 4958:6833 4960:6835 4964:6837 4969:6859 4970:6855
+4980:6850 4985:6845 4990:6970 1528:1376 1548:1434 1556:1396 1560:1410 1571:1401
+1576:1406 1577:1407 1580:1480 1581:1481 1588:1433 1754:3854 1729:3799 1728:3798
+1760:3810 1766:3816 1767:3817 1768:3818 1769:3839 1771:3801 1774:3804 1776:3806
+1779:3809 1780:3820 1782:3832 1783:3851 1784:3834 1787:3837 1789:3840 1790:3841
+1794:3819 1798:3831
+8300:4300 8334:4334 8625:4842 8640:4836 8700:4700 8720:4720 8820:4845 8910:4610
+8960:4810 8980:4800 2375:7680 3400:5400 3950:5881 3955:5885 3960:5880 3990:5860
+4200:6305 4300:6860 4510:7685 4560:6580 4600:6600 4670:6670 4910:6800 4920:6805
+4930:6815 1800:2100 1890:2180
+"""
+
+
+@pytest.mark.parametrize(
+    ("skr03", "skr04"), [tuple(p.split(":")) for p in PAARE.split()]
+)
+def test_paritaet_skr03_skr04(skr03, skr04):
+    for gewinnermittlung in ("euer", "bilanz"):
+        assert SKR03.art(skr03, gewinnermittlung) is SKR04.art(skr04, gewinnermittlung)
+    if SKR03.art(skr03, "euer") is Kontenart.ERFOLG:
+        for saldo in (Decimal(1), Decimal(-1)):
+            assert SKR03.euer_kz(skr03, saldo) == SKR04.euer_kz(skr04, saldo)

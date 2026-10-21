@@ -176,7 +176,8 @@ def test_verrechnungskonten_im_ust_bereich_sind_keine_ust(make_session):
 
 def test_arbeitszimmer_abziehbar_und_nicht_abziehbar(make_session):
     """Anlage EÜR Zeile 65 (2026: 66) „abziehbar“/„nicht abziehbar“, Zeile 66 (67)
-    Tagespauschale; die AfA des Arbeitszimmers gehört ebenfalls in Zeile 65."""
+    Tagespauschale; die AfA des Arbeitszimmers gehört ebenfalls in Zeile 65. Zeilen
+    2025 und 2026 nach den BMF-Vordrucken vom 29.08.2025 und 01.09.2026."""
     for jahr in (2025, 2026):
         buche(make_session, date(jahr, 3, 1), "1200", "8400", "5000")
         buche(make_session, date(jahr, 4, 1), "4288", "1200", "400")  # abziehbar
@@ -199,7 +200,8 @@ def test_arbeitszimmer_abziehbar_und_nicht_abziehbar(make_session):
 
 def test_wege_wohnung_betriebsstaette(make_session):
     """Zeile 72 (2026: 73) mindert die Kfz-Kosten um die tatsächlichen Aufwendungen für
-    die Wege, Zeile 73 (74) setzt die Entfernungspauschale an (DATEV-Dok. 1036862)."""
+    die Wege, Zeile 73 (74) setzt die Entfernungspauschale an (DATEV-Dok. 1036862;
+    Zeilen nach dem BMF-Vordruck 2026)."""
     buche(make_session, date(2026, 2, 1), "1200", "8400", "10000")
     buche(make_session, date(2026, 3, 1), "4530", "1200", "4000")  # Kfz-Kosten
     buche(make_session, date(2026, 12, 31), "4679", "4680", "4320")  # 0,03 %-Wert
@@ -217,6 +219,76 @@ def test_wege_wohnung_betriebsstaette(make_session):
         ({"4679": D("2164")}, D("2164"))
     ]
     assert euer.gewinn - euer.summe_ausserhalb == susa.ergebnis == D("6000")
+    # Zeile 73 ist ein Abzug: der negative Betrag trägt das Vorzeichen, der Text nicht
+    text = euer_csv(euer)
+    assert "(−)" not in text
+    assert (
+        "73;142;Fahrtkosten für Wege zwischen Wohnung und erster Betriebsstätte, "
+        "Familienheimfahrten (pauschaliert oder tatsächlich);-4320,00;4680 -4320,00"
+    ) in text
+
+
+def test_oss_umsatzsteuer_und_zahlung_gleichen_sich_aus(make_session):
+    """OSS: vereinnahmte USt (1767, Zeile 17) und Zahlung an andere Länder (1754,
+    Zeile 58) wirken beide in der EÜR (DATEV-Posten „Umsatzsteuer“/„Neutrale
+    Aufwendungen“) und heben sich im Gewinn auf."""
+    buche(make_session, date(2026, 3, 1), "1200", "8320", "1000")  # OSS-Erlös
+    buche(make_session, date(2026, 3, 1), "1200", "1767", "200")  # USt Frankreich
+    buche(make_session, date(2026, 4, 30), "1754", "1200", "200")  # Zahlung
+    susa, euer = _euer(make_session)
+    betraege = {z.kz: z.betrag for z in [*euer.einnahmen, *euer.ausgaben]}
+    assert betraege == {"103": D("1000"), "140": D("200"), "186": D("200")}
+    assert euer.gewinn == susa.ergebnis == D("1000")
+
+
+def test_paragraf_13b_blaeht_zeilen_17_18_57_nicht_auf(make_session):
+    """§ 13b UStG: Umsatzsteuer und gleich hohe Vorsteuer heben sich in Zeile 57 auf
+    (Anleitung zu Zeile 57: solche Rechnungen enthalten keine Vorsteuer)."""
+    buche(make_session, date(2026, 3, 1), "3123", "1200", "1000")
+    buche(make_session, date(2026, 3, 1), "1577", "1787", "190")
+    susa, euer = _euer(make_session)
+    assert euer.zeile("140") is None and euer.zeile("141") is None
+    vorsteuer = euer.zeile("185")
+    assert vorsteuer is not None and vorsteuer.betrag == 0
+    assert euer.summe_ausgaben == D("1000")
+    assert euer.gewinn == susa.ergebnis == D("-1000")
+
+
+def test_ust_laufendes_jahr_gleicht_vorauszahlungen_aus(make_session):
+    """DATEV-Dok. 1037179: 1789 neutralisiert die erst im Folgejahr gezahlte
+    Vorauszahlung in Zeile 58 — keine Erstattung in Zeile 18."""
+    buche(make_session, date(2026, 12, 31), "1780", "1704", "1000")  # § 11 Abs. 2
+    buche(make_session, date(2026, 12, 31), "1780", "1789", "2000")
+    _, euer = _euer(make_session)
+    zahlung = euer.zeile("186")
+    assert zahlung is not None and zahlung.betrag == D("1000")
+    assert euer.zeile("141") is None
+
+
+def test_ruecklagen_zeilen_22_und_59(make_session):
+    """Bildung (Kz 190, Zeile 59/2026: 60) und Auflösung (Kz 124, Zeile 22) nach
+    § 6c/§ 6b EStG, R 6.6 EStR, § 4g EStG; sonstige steuerliche Rücklagen haben keine
+    Zeile und erscheinen als „nicht zugeordnet“ mit Hinweis, zählen aber mit."""
+    for jahr in (2025, 2026):
+        buche(make_session, date(jahr, 3, 1), "1200", "8400", "1000")
+        buche(make_session, date(jahr, 12, 31), "2342", "0930", "300")  # Bildung
+        buche(make_session, date(jahr, 12, 31), "0930", "2727", "100")  # Auflösung
+        buche(make_session, date(jahr, 12, 31), "2345", "0940", "50")  # sonstige
+    for jahr, zeile in ((2025, 59), (2026, 60)):
+        susa, euer = _euer(make_session, jahr)
+        assert {z.kz: (z.zeile, z.betrag) for z in euer.einnahmen} == {
+            "112": (15, D("1000")),
+            "124": (22, D("100")),
+        }
+        assert {z.kz: (z.zeile, z.betrag) for z in euer.ausgaben} == {
+            "190": (zeile, D("300"))
+        }
+        [ohne] = euer.nicht_zugeordnet
+        assert (ohne.text, ohne.konten) == ("Ausgaben", {"2345": D("50")})
+        assert any("2345" in h for h in euer.hinweise)
+        assert euer.summe_einnahmen == D("1100")
+        assert euer.summe_ausgaben == D("350")
+        assert euer.gewinn == susa.ergebnis == D("750")
 
 
 def test_erloesschmaelerungen_mindern_ihre_erloeszeile(make_session):

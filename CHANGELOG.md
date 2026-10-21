@@ -350,8 +350,22 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Ausgleichsabgabe, Gewährleistung). Kontoarten: SKR03 3990–3999 (verrechnete Stoffkosten)
   sind Erfolgskonten; Vorsteuer nach § 15a UStG, aufzuteilende Vorsteuer (SKR03) und die
   Vorsteuer-Gegenkonten § 4 Abs. 3 EStG (SKR04 1480–1482) sowie unberechtigt ausgewiesene
-  USt (SKR04 3851) sind Steuerkonten. Anlage EÜR: Zeilen für Kz 142, 162, 163 und 176.
-  Offene Punkte sind in den Zuordnungsdateien mit „prüfen:“ markiert
+  USt (SKR04 3851) sind Steuerkonten. Nach Gegenprüfung außerdem: Ergebnisanteile aus
+  Personengesellschaften (SKR03 2603/2614/2618/4872, SKR04 7003/7004/7008/7208) außerhalb
+  der Zeilen 12–75; bis 2025 belegte, 2026 reservierte Konten (8195/8196/8330,
+  4185/4186) behalten ihre Kennzahl; USt nicht fällig, OSS-Umsatzsteuer und
+  Steuerzahlungen an andere Länder (SKR03 1728/1729/1754/1760–1769/1798, SKR04
+  3798/3799/3854) sind in beiden Rahmen Steuerkonten, sodass OSS-Umsatzsteuer und ihre
+  Zahlung sich ausgleichen; Umsatzsteuer aus § 13b, ig. Erwerb, Dreiecksgeschäft und
+  Auslagerung steht wie ihre Vorsteuer in Zeile 57; Nachsteuer Kz 140, USt laufendes Jahr
+  gleicht die Vorauszahlungen in Zeile 58 aus; Konten ohne Steuersatz in SKR03 und SKR04
+  einheitlich nach DATEV-Posten; §§ 25/25a „ohne USt“ und abgeschriebene Forderungen
+  Kz 112; Sonderbetriebseinnahmen ohne Zeile (Anlage SE); Lizenzen 183;
+  Bestandsveränderungen Waren außerhalb der EÜR; Rücklagen nach § 6c/§ 6b, R 6.6, § 4g
+  in Zeile 22 (Kz 124) und 59 (Kz 190). Anlage EÜR: Zeilen für Kz 124, 142, 162, 163,
+  176 und 190; alle Zeilen 2025 und 2026 gegen die BMF-Vordrucke (29.08.2025,
+  01.09.2026) geprüft. Offene Punkte sind in den Zuordnungsdateien mit „prüfen:“
+  markiert
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
   erkannt“ zu melden
 - `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback
