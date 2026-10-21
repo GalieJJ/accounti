@@ -472,7 +472,10 @@ def _braucht_sperre(session: Session) -> bool:
     Die Advisory-Sperre ist dann die erste Sperre jeder Transaktion, die beides
     braucht — holte eine Transaktion erst Zeilensperren und danach die
     Advisory-Sperre, während eine andere es umgekehrt tut, entstünde ein Deadlock.
-    Neue Zeilen sperren nichts, was andere sehen; Anmeldungen warten nicht."""
+    Neue Zeilen sperren nichts, was andere sehen — außer bei eindeutigen Schlüsseln:
+    Fügen zwei Transaktionen gleichzeitig denselben Wert ein, wartet die zweite auf
+    die erste, und mit der Advisory-Sperre dazwischen bricht eine davon als Deadlock
+    ab (Daten bleiben konsistent; siehe Plan, Grenzen). Anmeldungen warten nicht."""
     namen = _SPERRBEDARF | GESCHUETZT | ERFASST.keys()
     postgres = session.get_bind().dialect.name == "postgresql"
     for aendert, menge in (
