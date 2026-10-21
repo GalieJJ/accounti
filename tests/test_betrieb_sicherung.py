@@ -1,6 +1,7 @@
 """Verschlüsselte Sicherung von Datenbank und Belegarchiv (Spec 4.6, Akzeptanz 7)."""
 
 import secrets
+import tempfile
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
@@ -408,6 +409,32 @@ def test_sicherung_ist_ein_schnappschuss_ueber_alle_tabellen(tmp_path, monkeypat
     _schnappschuss_probe(
         monkeypatch, tmp_path, url(tmp_path / "a.db"), url(tmp_path / "leer.db")
     )
+
+
+def test_sqlite_wird_ueber_die_backup_api_gelesen(tmp_path, monkeypatch):
+    """Ein ausdrückliches ``BEGIN`` hielte Schreiber (ohne WAL) bis zum Ende der
+    Sicherung auf — „database is locked“ nach 5 s. Gelesen wird aus einer Kopie
+    (Backup-API), geschrieben in die Datei selbst: sogar im selben Thread."""
+    from accounti.betrieb import sicherung
+
+    db = url(tmp_path / "a.db")
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    engine.dispose()
+    k = kreditor("Alpha Papier GmbH", "70001")
+    speichere(fabrik, [k], [posten(k, "RE-1", "10.00")])
+    original = sicherung._zeilen
+
+    def zeilen(verbindung, tabelle):
+        yield from original(verbindung, tabelle)
+        if tabelle.name == "kontakte":
+            neu = kreditor("Beta Rahmen KG", "70002")
+            speichere(fabrik, [neu], [posten(neu, "RE-2", "20.00")])
+
+    monkeypatch.setattr(sicherung, "_zeilen", zeilen)
+    e = erstelle(db, None, tmp_path / "s.sicherung", SCHLUESSEL)
+    assert e.tabellen["kontakte"] == e.tabellen["offene_posten"] == 1
+    assert not list(Path(tempfile.gettempdir()).glob(".accounti-sicherung-*"))
 
 
 @mit_postgresql

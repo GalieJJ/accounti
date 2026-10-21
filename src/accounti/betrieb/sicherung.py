@@ -14,10 +14,12 @@ Datenbankwerkzeuge. Zeilen kommen bytegleich zurück — Hash-Ketten (USt-IdNr.-
 Sitzungen werden nicht gesichert.
 
 Alle Tabellen werden in **einer** Lese-Transaktion gelesen (PostgreSQL: ``REPEATABLE
-READ READ ONLY``, SQLite: ausdrückliches ``BEGIN``) — die Sicherung ist ein Stand,
-auch wenn ``app`` und ``lauf`` währenddessen schreiben. Belege, deren Datei im
-Archiv fehlt, nennt das Manifest; fehlt das Archiv ganz, obwohl Belege darauf
-verweisen, bricht die Sicherung ab (falscher ``--archiv``-Pfad).
+READ READ ONLY``) — die Sicherung ist ein Stand, auch wenn ``app`` und ``lauf``
+währenddessen schreiben. Eine SQLite-Datei wird zuerst mit der Backup-API von SQLite
+in eine Temporärdatei kopiert (ein Schritt, kurze Lesesperre) und dann aus der Kopie
+gelesen — Schreiber warten so nur Augenblicke statt der ganzen Sicherung. Belege,
+deren Datei im Archiv fehlt, nennt das Manifest; fehlt das Archiv ganz, obwohl Belege
+darauf verweisen, bricht die Sicherung ab (falscher ``--archiv``-Pfad).
 
 Wiederhergestellt wird nur in eine **leere** Umgebung, in einer Transaktion: Erst wenn
 alle Zeilenzahlen und Hashes zum Manifest passen, wird das Archiv an seinen Platz
@@ -33,6 +35,7 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import tarfile
 import tempfile
 from collections.abc import Iterator
@@ -53,6 +56,7 @@ from sqlalchemy import (
     func,
     insert,
     inspect,
+    make_url,
     select,
     text,
 )
@@ -199,6 +203,40 @@ def lesetransaktion(verbindung: Connection) -> Iterator[Connection]:
         verbindung.rollback()
 
 
+@contextmanager
+def lesequelle(db: str) -> Iterator[str]:
+    """Woraus gelesen wird: eine SQLite-Datei als Kopie über die Backup-API von
+    SQLite (``sqlite3.Connection.backup`` in einem Schritt — ein Stand, die
+    Lesesperre hält nur so lange wie das Kopieren der Seiten), alles andere direkt.
+    Die Kopie liegt mit Rechten 0600 im Temporärordner und wird gleich gelöscht."""
+    url = make_url(db)
+    pfad = url.database or ""
+    if (
+        url.get_backend_name() != "sqlite"
+        or pfad in ("", ":memory:")
+        or pfad.startswith("file:")
+        or not Path(pfad).is_file()
+    ):
+        yield db
+        return
+    griff, kopie = tempfile.mkstemp(prefix=".accounti-sicherung-", suffix=".db")
+    os.close(griff)
+    os.chmod(kopie, 0o600)
+    try:
+        quelle = sqlite3.connect(pfad)
+        try:
+            ziel = sqlite3.connect(kopie)
+            try:
+                quelle.backup(ziel)
+            finally:
+                ziel.close()
+        finally:
+            quelle.close()
+        yield f"sqlite:///{kopie}"
+    finally:
+        Path(kopie).unlink(missing_ok=True)
+
+
 def _verwiesene_dateien(verbindung: Connection, metadaten: MetaData) -> set[str]:
     """Hashes der Archivdateien, auf die Belege verweisen."""
     belege = metadaten.tables.get("belege")
@@ -284,6 +322,21 @@ def erstelle(
     if system and archiv is not None:
         raise SicherungError("Die Systemdatenbank wird ohne Belegarchiv gesichert")
     metadaten = _metadaten()
+    with lesequelle(db) as quelle:
+        return _erstelle(
+            quelle, archiv, ziel, schluessel, gesellschaft, system, metadaten
+        )
+
+
+def _erstelle(
+    db: str,
+    archiv: Path | None,
+    ziel: Path,
+    schluessel: bytes,
+    gesellschaft: str | None,
+    system: bool,
+    metadaten: MetaData,
+) -> Ergebnis:
     engine, _ = session_factory(db)
     ergebnis = Ergebnis()
     manifest: dict[str, Any] = {
