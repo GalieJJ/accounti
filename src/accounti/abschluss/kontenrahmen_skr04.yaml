@@ -2,8 +2,12 @@
 #
 # Grundlage: DATEV-Kontenrahmen SKR 04, „Gültig für 2026“ (Art.-Nr. 11175). Wie beim SKR03
 # ist die EÜR-Zuordnung eine Bereichsregel von accounti; die engste Spanne gewinnt.
-# Kontennamen der Einzelregeln abgeglichen mit der SKR04-Kontenliste
-# (steuerschroeder.de/Kontenrahmen-SKR04-Bilanzgliederungsprinzip.html, 20.10.2026).
+# Geprüft (21.10.2026) gegen die Kontenbezeichnungen des Kontenrahmens 2026, die Spalte
+# „Posten in der Gewinnermittlung“ des DATEV-Kontenrahmens für Gewinnermittlung nach
+# § 4 Abs. 3 EStG SKR 04 (Art.-Nr. 11080, 2026), die Anlage EÜR 2025 mit Anleitung
+# (BMF-Schreiben vom 29.08.2025) und die DATEV-Hilfe-Dokumente 1036862 (Kfz- und
+# Fahrtkosten), 1029703 (Schuldzinsen) und 1037171 (Vorsteuer ohne Zahlung).
+# „prüfen: …“ markiert Zuordnungen, die fachlich offen sind.
 # kz: null  — keine Zeile bekannt: zählt als „nicht zugeordnet“ mit (Warnung)
 # kz: "-"   — gehört nicht in die EÜR (z. B. Steuern vom Einkommen)
 
@@ -12,14 +16,27 @@ quelle: "DATEV-Kontenrahmen SKR 04, Gültig für 2026 (Art.-Nr. 11175)"
 
 arten:
   - {von: "0000", bis: "1999", art: bestand}  # Anlage- und Umlaufvermögen, ARAP
+  - {von: "1376", bis: "1377", art: steuer}   # Vorsteuer nach § 15a Abs. 2 UStG
+  - {von: "1396", bis: "1399", art: steuer}   # Vorsteuer nach § 15a Abs. 1 UStG
   - {von: "1400", bis: "1439", art: steuer}   # abziehbare und aufzuteilende Vorsteuer
-  - {von: "1420", bis: "1430", art: bestand}  # USt-Forderungen, Verbrauchsteuern
+  - {von: "1420", bis: "1430", art: bestand}  # Verbrauchsteuern (1427)
+  - {von: "1420", bis: "1420", art: steuer}   # USt-Forderungen aus Vorauszahlungen,
+  - {von: "1422", bis: "1422", art: steuer}   # Vorjahr, frühere Jahre (Posten „Umsatz-
+  - {von: "1425", bis: "1425", art: steuer}   # steuer-Zahlung“, DATEV 1037179)
   - {von: "1435", bis: "1435", art: bestand}  # Forderungen aus Gewerbesteuerüberzahlungen
+  - {von: "1480", bis: "1482", art: steuer}   # Vorsteuer § 4 Abs. 3 EStG (Gegenkonto,
+                                              # Auflösung Vorjahr, Investitionen)
   - {von: "2000", bis: "3999", art: bestand}  # Eigenkapital, Rückstellungen, Verbindlichkeiten
   - {von: "2100", bis: "2399", art: privat}   # Privat Vollhafter: Entnahmen, Sonderausgaben,
                                               # Spenden, agB, Grundstücksaufwand/-ertrag
   - {von: "2500", bis: "2799", art: privat}   # dasselbe für Teilhafter
+  - {von: "3798", bis: "3799", art: steuer}   # USt elektronische Dienstleistungen anderes
+                                              # EU-Land, Steuerzahlungen dorthin
   - {von: "3800", bis: "3849", art: steuer}   # Umsatzsteuer, USt-Vorauszahlungen
+  - {von: "3851", bis: "3851", art: steuer}   # unberechtigt ausgewiesene USt (§ 14c UStG)
+  - {von: "3854", bis: "3854", art: steuer}   # Steuerzahlungen an andere Länder
+  - {von: "3860", bis: "3860", art: steuer}   # Verbindlichkeiten aus USt-Vorauszahlungen
+  # prüfen: 3796 (wie SKR03 1795) und 3786 (wie 1796) bleiben Bestand, siehe SKR03
   - {von: "4000", bis: "8999", art: erfolg}
   - {von: "9000", bis: "9999", art: vortrag}
 
@@ -39,47 +56,143 @@ vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 # DATEV-BU-Schlüssel → Steuerkonto
 steuerkonten: {2: "3801", 3: "3806", 8: "1401", 9: "1406"}
 
+# Erlösschmälerungen und Forderungsverluste stehen bei der Kennzahl ihrer Erlöse und
+# mindern sie (Posten „Einnahmen“ im DATEV-Kontenrahmen für § 4 Abs. 3 EStG).
 euer:
-  # Betriebseinnahmen
+  # --- Betriebseinnahmen ------------------------------------------------------------
   - {von: "4000", bis: "4599", kz: "112"}
+  # Konten ohne Steuersatz (z. B. 4200 Erlöse, 4560 Provisionsumsätze, 4570, 4700, 4730,
+  # 4769, 4770, 4833, 4835, 4940, 4946) nach DATEV-Posten: „Einnahmen“ und „Sonstige
+  # Erlöse“ → 112, „Neutrale Erträge“ (4830, 4832, 4839) → 103 (wie im SKR03); die
+  # tatsächliche Kennzahl hängt vom Steuerschlüssel ab, accounti ordnet nach Konto
   - {von: "4100", bis: "4199", kz: "103"}   # steuerfreie Umsätze
+  - {von: "4131", bis: "4134", kz: "112"}   # §§ 25, 25a UStG (auch „ohne USt“: steuer-
+  - {von: "4136", bis: "4138", kz: "112"}   # pflichtiger Umsatz, Marge als Bemessungs-
+                                            # grundlage; 4139 Reiseleistungen bleibt 103)
   - {von: "4180", bis: "4180", kz: "104"}   # Durchschnittssätze § 24 UStG
-  - {von: "4185", bis: "4185", kz: "111"}   # Kleinunternehmer § 19 Abs. 1 UStG
-  - {von: "4186", bis: "4186", kz: "112"}   # Geldspielautomaten 19 % USt
-  - {von: "4320", bis: "4320", kz: "103"}   # im anderen EG-Land steuerpflichtig
-  - {von: "4335", bis: "4339", kz: "103"}   # § 13b, im Inland nicht steuerbar
-  - {von: "4600", bis: "4699", kz: "108"}   # unentgeltliche Wertabgaben
+  - {von: "4184", bis: "4184", kz: "111"}   # Kleinunternehmer § 19 Abs. 1 UStG
+  - {von: "4185", bis: "4185", kz: "111"}   # bis 2025 Kleinunternehmer, 2026 reserviert
+  - {von: "4186", bis: "4186", kz: "112"}   # bis 2025 Geldspielautomaten 19 % USt,
+                                            # 2026 reserviert
+  - {von: "4290", bis: "4299", kz: "103"}   # Erlöse 0 % USt (§ 12 Abs. 3 UStG: Zeile 16)
+  - {von: "4320", bis: "4339", kz: "103"}   # im anderen EU-Land/Drittland steuerbar, § 13b
+  - {von: "4334", bis: "4334", kz: "112"}   # Erlöse 7 % USt
+  - {von: "4500", bis: "4505", kz: null}    # Sonderbetriebseinnahmen: nur Sonderbilanz /
+                                            # Anlage SE (Fußnote 28 im Kontenrahmen)
+  - {von: "4564", bis: "4565", kz: "103"}   # Provisionsumsätze steuerfrei
+  - {von: "4582", bis: "4582", kz: "103"}   # statist. Konto Erlöse steuerfrei (EÜR)
+  - {von: "4600", bis: "4699", kz: "108"}   # unentgeltliche Wertabgaben, auch die
+                                            # Zuwendungen 4670–4689 (DATEV-Posten
+                                            # „Privatanteile“)
   - {von: "4639", bis: "4639", kz: "106"}   # Verwendung von Gegenständen (Fahrzeug)
   - {von: "4645", bis: "4645", kz: "106"}
-  - {von: "4700", bis: "4999", kz: "103"}   # sonstige Erträge
-  - {von: "4845", bis: "4849", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchgewinn)
+  - {von: "4690", bis: "4690", kz: "103"}   # nicht steuerbare Umsätze (Innenumsätze)
+  - {von: "4695", bis: "4695", kz: "104"}   # USt-Vergütungen § 24 UStG
+                                            # prüfen: nur Land- und Forstwirte
+  - {von: "4699", bis: "4699", kz: "183"}   # direkt mit dem Umsatz verbundene Steuern
+  - {von: "4700", bis: "4799", kz: "112"}   # Erlösschmälerungen
+  - {von: "4701", bis: "4706", kz: "103"}   # … steuerfreier, nicht steuerbarer Umsätze
+  - {von: "4707", bis: "4707", kz: "111"}   # … § 19 Abs. 1 UStG
+  - {von: "4719", bis: "4719", kz: "103"}   # … 0 % USt
+  - {von: "4724", bis: "4724", kz: "103"}   # … aus steuerfreien ig. Lieferungen
+  - {von: "4727", bis: "4727", kz: "103"}   # … im anderen EU-Land steuerpflichtig
+  - {von: "4734", bis: "4734", kz: "103"}   # gewährte Skonti 0 % USt
+  - {von: "4738", bis: "4738", kz: "103"}   # Skonti § 13b Abs. 2 Nr. 10 UStG
+  - {von: "4741", bis: "4743", kz: "103"}   # Skonti § 13b, EU-Leistungen, ig. Lieferungen
+  - {von: "4800", bis: "4819", kz: "-"}     # Bestandsveränderungen: kein Zufluss
+                                            # (fehlen im DATEV-Kontenrahmen § 4/3)
+  - {von: "4820", bis: "4829", kz: "103"}   # aktivierte Eigenleistungen
+                                            # prüfen: neutralisieren Herstellungskosten
+  - {von: "4830", bis: "4999", kz: "103"}   # sonstige Erträge
+  - {von: "4833", bis: "4836", kz: "112"}   # andere Nebenerlöse, sonstige Erträge
+                                            # regelmäßig (16 %, 19 %; Sonstige Erlöse)
+  - {von: "4844", bis: "4852", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchgewinn)
+  - {von: "4847", bis: "4847", kz: "103"}   # Erträge aus der Währungsumrechnung
   - {von: "4855", bis: "4859", kz: "135"}   # Restbuchwert (Buchgewinn)
-  - {von: "6885", bis: "6892", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchverlust)
+  - {von: "4862", bis: "4862", kz: "112"}   # Vermietung und Verpachtung 19 % USt
+  - {von: "4865", bis: "4865", kz: "112"}   # Umlaufvermögen § 4 Abs. 3 S. 4 EStG 19 %
+                                            # prüfen: 4869 (ohne Steuerangabe)
+  - {von: "4925", bis: "4925", kz: "112"}   # abgeschriebene Forderungen: USt lebt wieder
+                                            # auf (§ 17 Abs. 2 Nr. 1 S. 2 UStG)
+  - {von: "4927", bis: "4929", kz: "124"}   # Auflösung Rücklagen § 6c/§ 6b, R 6.6 EStR
+  - {von: "4938", bis: "4938", kz: "124"}   # Auflösung Ausgleichsposten § 4g EStG
+  - {von: "4935", bis: "4935", kz: null}    # sonstige steuerliche Rücklagen und
+  - {von: "4981", bis: "4981", kz: null}    # steuerfreie Auflösung: keine Zeile
+  - {von: "4940", bis: "4948", kz: "112"}   # Sachbezüge (DATEV-Posten „Einnahmen“)
+                                            # 4949 ohne Umsatzsteuer: 103
+  - {von: "6884", bis: "6892", kz: "102"}   # Erlöse aus Anlagenverkäufen (Buchverlust)
   - {von: "6895", bis: "6899", kz: "135"}   # Restbuchwert (Buchverlust)
   - {von: "7000", bis: "7199", kz: "103"}   # Beteiligungs- und Zinserträge
-  - {von: "3800", bis: "3819", kz: "140"}   # vereinnahmte Umsatzsteuer
+  - {von: "7003", bis: "7004", kz: "-"}     # Ergebnisanteile Personengesellschaften:
+  - {von: "7008", bis: "7008", kz: "-"}     # Zeile 91, nicht in den Zeilen 12–75
+                                            # (Fußnote 23 im Kontenrahmen § 4/3)
+  - {von: "7700", bis: "7799", kz: "-"}     # Ergebnisverwendung (Rücklagen, Vortrag)
+  - {von: "3798", bis: "3798", kz: "140"}   # USt elektron. Dienstleistungen anderes EU-Land
+  - {von: "3800", bis: "3819", kz: "140"}   # vereinnahmte Umsatzsteuer (auch nicht fällig,
+                                            # OSS)
   - {von: "3820", bis: "3849", kz: "186", kz_haben: "141"}
-  # Betriebsausgaben
-  - {von: "1400", bis: "1439", kz: "185"}   # Vorsteuer
-  - {von: "5000", bis: "5999", kz: "100"}   # Material, Waren
+  - {von: "3831", bis: "3832", kz: "140"}   # USt nur OSS, Nachsteuer (keine Erstattung)
+  - {von: "3840", bis: "3840", kz: "186"}   # USt laufendes Jahr: neutralisiert noch nicht
+                                            # gezahlte Vorauszahlungen (DATEV 1037179)
+  - {von: "3860", bis: "3860", kz: "186"}   # Verbindlichkeiten aus USt-Vorauszahlungen:
+                                            # ebenso (Posten „Umsatzsteuer-Erstattungen“)
+  - {von: "1420", bis: "1420", kz: "186", kz_haben: "141"}   # USt-Forderungen: Erstattung
+  - {von: "1422", bis: "1422", kz: "186", kz_haben: "141"}   # Zeile 18, Zahlung Zeile 58
+  - {von: "1425", bis: "1425", kz: "186", kz_haben: "141"}
+  - {von: "3851", bis: "3851", kz: "140"}   # unberechtigt ausgewiesene USt (§ 14c UStG)
+  # Umsatzsteuer mit gleich hoher Vorsteuer (ig. Erwerb, § 13b, Neufahrzeuge, Dreiecks-
+  # geschäft, Auslagerung aus USt-Lager): zur Vorsteuer in Zeile 57, die sich so aufhebt
+  # (Anleitung zu Zeile 57); 3809 (ig. Erwerb ohne Vorsteuerabzug) bleibt bei 140
+  - {von: "3802", bis: "3804", kz: "185"}
+  - {von: "3819", bis: "3819", kz: "185"}
+  - {von: "3834", bis: "3839", kz: "185"}
+  # --- Betriebsausgaben -------------------------------------------------------------
+  - {von: "3799", bis: "3799", kz: "186"}   # Steuerzahlungen in andere EU-Länder (OSS)
+  - {von: "3854", bis: "3854", kz: "186"}   # Steuerzahlungen an andere Länder
+  - {von: "1376", bis: "1377", kz: "185"}   # Vorsteuer § 15a Abs. 2 UStG
+  - {von: "1396", bis: "1399", kz: "185"}   # Vorsteuer § 15a Abs. 1 UStG
+  - {von: "1400", bis: "1439", kz: "185"}   # Vorsteuer (aufzuteilende zum Jahresende
+                                            # aufteilen)
+  - {von: "1480", bis: "1482", kz: "185"}   # Vorsteuer § 4 Abs. 3 EStG (DATEV 1037171)
+  - {von: "5000", bis: "5999", kz: "100"}   # Material, Waren (auch 5860 verrechnete
+                                            # Stoffkosten, 5885 Bestandsveränderungen
+                                            # RHB, im DATEV-Kontenrahmen § 4/3 enthalten)
+  - {von: "5880", bis: "5884", kz: "-"}     # Bestandsveränderungen RHB und Waren, Waren:
+                                            # fehlen im DATEV-Kontenrahmen § 4/3
   - {von: "5900", bis: "5999", kz: "110"}   # Fremdleistungen
   - {von: "6000", bis: "6199", kz: "120"}   # Personal
   - {von: "6200", bis: "6219", kz: "131"}   # AfA immaterielle Wirtschaftsgüter
   - {von: "6220", bis: "6239", kz: "130"}   # AfA Sachanlagen
   - {von: "6221", bis: "6221", kz: "136"}   # AfA Gebäude
-  - {von: "6240", bis: "6249", kz: "134"}   # Sonderabschreibungen
+  - {von: "6223", bis: "6223", kz: "172"}   # AfA Arbeitszimmer: Zeile 65 (AVEÜR Z. 31)
+  - {von: "6231", bis: "6231", kz: "136"}   # AfaA Gebäude
+  - {von: "6240", bis: "6249", kz: "134"}   # Sonderabschreibungen (auch § 7b EStG)
   - {von: "6243", bis: "6244", kz: "138"}   # Kürzung der AK nach § 7g Abs. 2 EStG
   - {von: "6250", bis: "6250", kz: "222"}   # Kaufleasing
   - {von: "6260", bis: "6263", kz: "132"}   # GWG
   - {von: "6264", bis: "6265", kz: "137"}   # Sammelposten
   - {von: "6266", bis: "6269", kz: "132"}
+  - {von: "6280", bis: "6289", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
   - {von: "6300", bis: "6999", kz: "183"}   # übrige Betriebsausgaben
-  - {von: "6310", bis: "6319", kz: "150"}   # Miete, Pacht
+  - {von: "6303", bis: "6303", kz: "110"}   # Fremdleistungen/Fremdarbeiten
+  - {von: "6305", bis: "6319", kz: "150"}   # Raumkosten, Miete, Pacht
+  - {von: "6312", bis: "6312", kz: "152"}   # doppelte Haushaltsführung Unternehmer
   - {von: "6320", bis: "6359", kz: "151"}   # sonstige Raum-/Grundstückskosten
+                                            # prüfen: 6352 nicht betriebsnotwendige Grundst.
+  - {von: "6347", bis: "6347", kz: "163"}   # Tagespauschale häusliche Wohnung
+  - {von: "6348", bis: "6348", kz: "172"}   # Arbeitszimmer, abziehbar
+  - {von: "6349", bis: "6349", kz: "162"}   # Arbeitszimmer, nicht abziehbar
+  - {von: "6390", bis: "6399", kz: "-"}     # Spenden: keine Betriebsausgabe
   - {von: "6400", bis: "6439", kz: "223"}   # Versicherungen, Beiträge, Abgaben
+  - {von: "6405", bis: "6405", kz: "151"}   # Versicherungen für Gebäude (nicht Zeile 49)
+  - {von: "6436", bis: "6436", kz: "183"}   # abzugsfähige Verspätungszuschläge: Zeile 60
   - {von: "6437", bis: "6437", kz: "168"}   # nicht abzugsfähige Verspätungszuschläge
-  - {von: "6450", bis: "6494", kz: "225"}   # Reparaturen und Instandhaltung
-  - {von: "6495", bis: "6499", kz: "228"}   # Wartung Hard- und Software
+  - {von: "6440", bis: "6440", kz: "120"}   # Ausgleichsabgabe Schwerbehindertengesetz
+  - {von: "6450", bis: "6450", kz: "151"}   # Reparaturen Bauten (Zeile 41)
+  - {von: "6460", bis: "6494", kz: "225"}   # Reparaturen und Instandhaltung
+  - {von: "6495", bis: "6497", kz: "228"}   # Wartung Hard- und Software
+  - {von: "6498", bis: "6499", kz: "222"}   # Mietleasing bewegliche WG
+  # Kfz (DATEV-Dok. 1036862)
   - {von: "6500", bis: "6519", kz: "146"}
   - {von: "6520", bis: "6529", kz: "145"}   # Kfz-Versicherung
   - {von: "6530", bis: "6559", kz: "146"}
@@ -89,29 +202,76 @@ euer:
   - {von: "6590", bis: "6594", kz: "147"}
   - {von: "6595", bis: "6599", kz: "146"}
   - {von: "6600", bis: "6609", kz: "224"}   # Werbung
-  - {von: "6610", bis: "6619", kz: "174"}   # Geschenke abzugsfähig
+  - {von: "6610", bis: "6619", kz: "174"}   # Geschenke abzugsfähig (auch Pauschsteuer)
   - {von: "6620", bis: "6629", kz: "164"}   # Geschenke nicht abzugsfähig
   - {von: "6625", bis: "6625", kz: "174"}   # Geschenke ausschließlich betrieblich genutzt
-  - {von: "6640", bis: "6643", kz: "175"}   # Bewirtung
+  - {von: "6629", bis: "6629", kz: "183"}   # Zugaben § 37b EStG: kein Geschenk
+                                            # prüfen: ggf. Werbekosten (224)
+  - {von: "6640", bis: "6640", kz: "175"}   # Bewirtung
+  - {von: "6641", bis: "6641", kz: "177"}   # sonstige eingeschränkt abziehbare BA
+  - {von: "6642", bis: "6642", kz: "168"}   # … nicht abziehbarer Anteil
+  - {von: "6643", bis: "6643", kz: "183"}   # Aufmerksamkeiten (R 4.10 Abs. 5 EStR)
   - {von: "6644", bis: "6644", kz: "165"}   # Bewirtung nicht abzugsfähig
+  - {von: "6645", bis: "6645", kz: "168"}   # nicht abzugsfähige Werbe-/Repräsentationsk.
   - {von: "6650", bis: "6669", kz: "120"}   # Reisekosten Arbeitnehmer
-  - {von: "6670", bis: "6679", kz: "221"}   # Reisekosten Unternehmer
-  - {von: "6700", bis: "6799", kz: "227"}   # Verpackung, Fracht
+  - {von: "6670", bis: "6680", kz: "221"}   # Reisekosten Unternehmer
+  - {von: "6672", bis: "6672", kz: "168"}   # … nicht abziehbarer Anteil: Spalte „nicht
+                                            # abziehbar“ der Zeile 67 (2026: 68); Kz 139
+                                            # (Zeile 74/75) gilt nur für Beträge, die
+                                            # schon in den Zeilen 27–73 stecken
+  - {von: "6673", bis: "6673", kz: "146"}   # … Fahrtkosten (DATEV-Dok. 1036862)
+  - {von: "6674", bis: "6674", kz: "171"}   # Verpflegungsmehraufwand
+  - {von: "6688", bis: "6688", kz: "176"}   # Wege Wohnung–Betriebsstätte, abziehbar
+  - {von: "6689", bis: "6689", kz: "-"}     # … nicht abziehbar: ergibt sich aus den
+                                            # Zeilen 72/73, eigene Zeile gibt es nicht
+  - {von: "6690", bis: "6690", kz: "142"}   # … Haben: Zeile 72, mindert die Kfz-Kosten
+  - {von: "6691", bis: "6691", kz: "171"}   # Verpflegung doppelte Haushaltsführung
+  - {von: "6700", bis: "6769", kz: "227"}   # Warenabgabe: Verpackung, Fracht
+  - {von: "6770", bis: "6789", kz: "110"}   # Verkaufsprovisionen, Fremdarbeiten Vertrieb
   - {von: "6800", bis: "6800", kz: "229"}   # Porto
   - {von: "6805", bis: "6810", kz: "280"}   # Telefon, Internet
   - {von: "6815", bis: "6820", kz: "229"}   # Bürobedarf, Fachliteratur
   - {von: "6821", bis: "6821", kz: "281"}   # Fortbildung
+  # 6822 freiwillige Sozialleistungen bleiben 183 (DATEV-Posten „Verschiedene Kosten“)
   - {von: "6825", bis: "6830", kz: "194"}   # Beratung, Abschluss, Buchführung
-  - {von: "6835", bis: "6844", kz: "222"}   # Miete/Leasing bewegliche WG
+  - {von: "6833", bis: "6844", kz: "222"}   # Miete/Leasing bewegliche WG
+  - {von: "6837", bis: "6837", kz: "183"}   # Lizenzen: Rechte sind keine bewegl. WG
   - {von: "6845", bis: "6850", kz: "229"}   # Werkzeuge, Betriebsbedarf
-  - {von: "7300", bis: "7399", kz: "234"}   # Zinsen
+  - {von: "6859", bis: "6859", kz: "226"}   # Abraum- und Abfallbeseitigung
+  - {von: "6875", bis: "6875", kz: "168"}   # nicht abziehbare Hälfte Aufsichtsratsvergüt.
+  - {von: "6907", bis: "6908", kz: "100"}   # Abgang UV § 4 Abs. 3 S. 4 EStG: Zeile der
+                                            # Waren (AVEÜR Zeile 95: 2025 Z. 27, 2026 Z. 29)
+  - {von: "6920", bis: "6929", kz: null}    # Wertberichtigungen (nur Bilanz), sonstige
+                                            # steuerliche Rücklagen (6927): keine Zeile
+  - {von: "6922", bis: "6922", kz: "190"}   # Einstellungen § 6c/§ 6b EStG
+  - {von: "6924", bis: "6924", kz: "190"}
+  - {von: "6928", bis: "6929", kz: "190"}   # R 6.6 EStR, Ausgleichsposten § 4g EStG
+  - {von: "6930", bis: "6939", kz: "112"}   # Forderungsverluste (mindern die Erlöse)
+  - {von: "6932", bis: "6932", kz: "103"}   # … aus steuerfreien EU-Lieferungen
+  - {von: "6968", bis: "6968", kz: "168"}   # sonstige nicht abziehbare Aufwendungen
+  - {von: "6970", bis: "6989", kz: "-"}     # kalkulatorische Kosten: keine Ausgabe
+  - {von: "7208", bis: "7208", kz: "-"}     # Verlustanteile Mitunternehmerschaften:
+                                            # Zeile 91 (Fußnote 23)
+  - {von: "7300", bis: "7399", kz: "234"}   # übrige Schuldzinsen (auch 7313: Hinzu-
+                                            # rechnung § 4 Abs. 4a erst in Zeile 96)
+  - {von: "7302", bis: "7302", kz: "168"}   # Nebenleistungen zu Steuern § 4 Abs. 5b EStG
+  - {von: "7303", bis: "7303", kz: "183"}   # abzugsfähige Nebenleistungen: Zeile 60
+  - {von: "7304", bis: "7304", kz: "168"}   # nicht abzugsfähige Nebenleistungen
+  - {von: "7306", bis: "7306", kz: "168"}   # Zinsen §§ 234–237 AO nicht abzugsfähig
+  - {von: "7308", bis: "7308", kz: "168"}   # Zinsen § 233a AO nicht abzugsfähig
+  - {von: "7324", bis: "7324", kz: "232"}   # Disagio Finanzierung Anlagevermögen
+  - {von: "7326", bis: "7326", kz: "232"}   # Zinsen zur Finanzierung des AV
+  # prüfen: 7325 Zinsen für Gebäude, 7327 Renten und dauernde Lasten, 7328 Zinsen an
+  # Mitunternehmer
+  - {von: "7390", bis: "7399", kz: "183"}   # Verlustübernahme, abgeführte Gewinne
   - {von: "7600", bis: "7609", kz: "-"}     # KSt, SolZ — keine Betriebsausgabe
   - {von: "7610", bis: "7610", kz: "168"}   # Gewerbesteuer — nicht abziehbar, § 4 Abs. 5b
   - {von: "7630", bis: "7639", kz: "-"}     # Kapitalertragsteuer, Quellensteuer
   - {von: "7640", bis: "7644", kz: "168"}   # Gewerbesteuer Vorjahre
   - {von: "7645", bis: "7649", kz: "-"}     # latente Steuern, Steuerstundung
   - {von: "7650", bis: "7699", kz: "183"}   # sonstige Betriebssteuern, Verbrauchsteuern
-  - {von: "7685", bis: "7685", kz: "145"}   # Kfz-Steuer
+  - {von: "7680", bis: "7680", kz: "151"}   # Grundsteuer (Anleitung zu Zeile 41)
+  - {von: "7685", bis: "7689", kz: "145"}   # Kfz-Steuer
 
 namen:
   "0135": "EDV-Software"

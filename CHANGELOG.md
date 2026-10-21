@@ -330,6 +330,48 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Abschluss – Kontenrahmen SKR03/SKR04:** EÜR-Kennzahlen und Kontoarten gegen die
+  DATEV-Kontenrahmen 2026 (Art.-Nr. 11174/11175, dazu 11079/11080 für § 4 Abs. 3 EStG) und
+  die Anlage EÜR 2025 mit Anleitung geprüft und berichtigt. SKR04 ordnete 4700–4999
+  pauschal Kz 103 zu: Erlösschmälerungen stehen jetzt bei der Kennzahl ihrer Erlöse (19 %
+  → 112, steuerfrei → 103, § 19 UStG → 111), Bestandsveränderungen (SKR03 8960–8989,
+  SKR04 4800–4819) außerhalb der EÜR, Anlagenverkäufe 4844/4850–4852 bei Kz 102. Außerdem
+  u. a.: Kleinunternehmerkonto 2026 ist 8192/4184; Erlöse 0 % USt und Innenumsätze Kz 103;
+  Erlöse/Erträge mit 7 %/16 %/19 % USt Kz 112; Forderungsverluste mindern die Erlöse;
+  doppelte Haushaltsführung 152, Arbeitszimmer 172/162 (auch dessen AfA), Tagespauschale
+  163; Gebäudeversicherung, -reparaturen und Grundsteuer 151; Fremdleistungen,
+  Verkaufsprovisionen 110; Abfall 226; Zinsen für Anlagevermögen 232; Kfz-Fahrtkosten des
+  Unternehmers 146 und Wege Wohnung–Betriebsstätte 142/176 (DATEV-Dok. 1036862);
+  Verpflegungsmehraufwand Unternehmer und doppelte Haushaltsführung 171; nicht abziehbare
+  Anteile (sonstige eingeschränkt abziehbare BA, Reisekosten, Werbe-/Repräsentationskosten,
+  Steuer-Nebenleistungen § 4 Abs. 5b EStG) 168, abzugsfähige Verspätungszuschläge 183;
+  Spenden, kalkulatorische Kosten und Ergebnisverwendung außerhalb der EÜR; SKR04-Konten,
+  die der Kontenrahmen 2026 verschoben hat (Reisekosten Unternehmer, Raumkosten, Leasing,
+  Ausgleichsabgabe, Gewährleistung). Kontoarten: SKR03 3990–3999 (verrechnete Stoffkosten)
+  sind Erfolgskonten; Vorsteuer nach § 15a UStG, aufzuteilende Vorsteuer (SKR03) und die
+  Vorsteuer-Gegenkonten § 4 Abs. 3 EStG (SKR04 1480–1482) sowie unberechtigt ausgewiesene
+  USt (SKR04 3851) sind Steuerkonten. Nach Gegenprüfung außerdem: Ergebnisanteile aus
+  Personengesellschaften (SKR03 2603/2614/2618/4872, SKR04 7003/7004/7008/7208) außerhalb
+  der Zeilen 12–75; bis 2025 belegte, 2026 reservierte Konten (8195/8196/8330,
+  4185/4186) behalten ihre Kennzahl, außer 8330/4330: accounti hatte 8330 als
+  OSS-Erlöskonto vorgeschlagen, es bleibt wie 8320–8329 bei Kz 103, und das Beispiel
+  `oss_erloes_ermaessigt` in `config/accounti.example.yaml` nennt jetzt 8328 (8330/4330
+  sind 2026 reserviert, 8331/4331 nur für elektronische Dienstleistungen);
+  USt-Forderungen (SKR03 1539/1545/1546, SKR04 1420/1422/1425) und Verbindlichkeiten aus
+  USt-Vorauszahlungen (1797/3860) wirken bei der EÜR wie die USt-Zahlungskonten
+  (Erstattung Zeile 18, Zahlung Zeile 58); USt nicht fällig, OSS-Umsatzsteuer und
+  Steuerzahlungen an andere Länder (SKR03 1728/1729/1754/1760–1769/1798, SKR04
+  3798/3799/3854) sind in beiden Rahmen Steuerkonten, sodass OSS-Umsatzsteuer und ihre
+  Zahlung sich ausgleichen; Umsatzsteuer aus § 13b, ig. Erwerb, Dreiecksgeschäft und
+  Auslagerung steht wie ihre Vorsteuer in Zeile 57; Nachsteuer Kz 140, USt laufendes Jahr
+  gleicht die Vorauszahlungen in Zeile 58 aus; Konten ohne Steuersatz in SKR03 und SKR04
+  einheitlich nach DATEV-Posten; §§ 25/25a „ohne USt“ und abgeschriebene Forderungen
+  Kz 112; Sonderbetriebseinnahmen ohne Zeile (Anlage SE); Lizenzen 183;
+  Bestandsveränderungen Waren außerhalb der EÜR; Rücklagen nach § 6c/§ 6b, R 6.6, § 4g
+  in Zeile 22 (Kz 124) und 59 (Kz 190). Anlage EÜR: Zeilen für Kz 124, 142, 162, 163,
+  176 und 190; alle Zeilen 2025 und 2026 gegen die BMF-Vordrucke (29.08.2025,
+  01.09.2026) geprüft. Offene Punkte sind in den Zuordnungsdateien mit „prüfen:“
+  markiert
 - `import bank --format auto` erkennt MT940- und CAMT-Dateien, statt „Bankformat nicht
   erkannt“ zu melden
 - `import bank` endet bei einem unlesbaren Auszug mit einer Meldung statt einem Traceback
