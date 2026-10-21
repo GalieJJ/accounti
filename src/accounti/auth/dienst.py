@@ -431,10 +431,12 @@ def pruefe_zweiten_faktor(
     schluessel: str,
     einstellungen: AuthEinstellungen,
     jetzt: datetime | None = None,
-    quelle: str = "cli",
+    *,
+    quelle: str,
 ) -> str:
     """Nur der zweite Faktor — für Freigaben in CLI und Browser. Zählt Versuche,
-    getrennt nach Kanal (``quelle`` ``cli`` oder Browser)."""
+    getrennt nach Kanal: ``quelle`` (``cli`` oder ``web``) ist Pflicht, damit kein
+    Aufrufer versehentlich im falschen Kanal zählt."""
     jetzt = _jetzt(jetzt)
     kanal = _kanal(quelle)
     if not b.aktiv:

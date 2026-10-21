@@ -615,15 +615,29 @@ def test_fehlende_oder_fremde_sqlite_datei_wird_nicht_gesichert(tmp_path):
     assert not (tmp_path / "s2.sicherung").exists()
 
 
-def test_zwischendateien_liegen_neben_dem_ziel(tmp_path, monkeypatch):
-    """R2-N5: Kopie und Auslagerung nicht im Temporärordner (im Container ein
-    tmpfs im Speicher), sondern neben der Sicherung — und hinterher weg."""
+def test_zwischenkopie_liegt_neben_der_datenbank(tmp_path, monkeypatch):
+    """R2-N5, Runde 3 (N-R3-4): die Kopie der SQLite-Datei nicht im Temporärordner
+    (im Container ein tmpfs im Speicher) und nicht im Sicherungsordner (oft ein
+    entferntes Laufwerk), sondern neben der Datenbank — und hinterher weg."""
+    from accounti.betrieb import sicherung
+
     db, archiv = befuelle(tmp_path)
+    ziel = tmp_path / "sicherungen" / "s.sicherung"
+    gesehen: dict[str, list[str]] = {}
+    original = sicherung._zeilen
+
+    def zeilen(verbindung, tabelle):
+        if not gesehen:
+            for ort, ordner in (("datenbank", tmp_path), ("ziel", ziel.parent)):
+                gesehen[ort] = [p.name for p in ordner.glob(".accounti-sicherung-*")]
+        yield from original(verbindung, tabelle)
 
     def verboten() -> str:
         raise AssertionError("Temporärordner benutzt")
 
+    monkeypatch.setattr(sicherung, "_zeilen", zeilen)
     monkeypatch.setattr(tempfile, "gettempdir", verboten)
-    ziel = tmp_path / "sicherungen" / "s.sicherung"
     erstelle(db, archiv, ziel, SCHLUESSEL)
+    assert len(gesehen["datenbank"]) == 1 and gesehen["ziel"] == []
     assert [p.name for p in ziel.parent.iterdir()] == ["s.sicherung"]
+    assert not list(tmp_path.glob(".accounti-sicherung-*"))

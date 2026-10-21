@@ -12,6 +12,7 @@ from pathlib import Path
 
 import typer
 from rich.markup import escape
+from sqlalchemy.exc import SQLAlchemyError
 
 from accounti.befehle import DB_OPTION, console
 
@@ -75,6 +76,17 @@ def _zusammenfassung(wort: str, e: object) -> None:
             "Manifest unter fehlende_archivdateien)",
             soft_wrap=True,
         )
+
+
+def _nicht_erreichbar(db: str, fehler: Exception) -> typer.Exit:
+    """Datenbank nicht erreichbar oder abgelehnt — die Art und die Adresse ohne
+    Passwort, nicht die Meldung des Treibers."""
+    from accounti.betrieb.kontext import ohne_passwort
+
+    return _ende(
+        f"Die Datenbank ist nicht erreichbar oder lehnt ab ({type(fehler).__name__}) "
+        f"— Adresse {ohne_passwort(db)} prüfen"
+    )
 
 
 def _ausdruecklich(ctx: typer.Context, name: str) -> bool:
@@ -157,6 +169,8 @@ def erstellen(
         )
     except (SicherungError, OSError) as fehler:
         raise _ende(str(fehler)) from fehler
+    except SQLAlchemyError as fehler:
+        raise _nicht_erreichbar(quelle, fehler) from fehler
     _zusammenfassung(f"Gesichert nach {escape(str(datei))}", e)
     console.print(
         "[dim]Wiederherstellung üben: accounti sicherung wiederherstellen DATEI "
@@ -235,6 +249,8 @@ def wiederherstellen(
         )
     except (SicherungError, ManipuliertError, SicherungsschluesselError, OSError) as f:
         raise _ende(str(f)) from f
+    except SQLAlchemyError as fehler:
+        raise _nicht_erreichbar(ziel_db, fehler) from fehler
     _zusammenfassung("Wiederhergestellt", e)
     if fremde and kuerzel is not None:
         _binde_neu(ziel_db, kuerzel)

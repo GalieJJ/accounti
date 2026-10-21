@@ -178,7 +178,7 @@ def test_zweiter_faktor_allein_unter_parallelitaet(tmp_path):
             b = lade_benutzer(s, "eva")
             falsch = f"{(richtig + i) % 1_000_000:06d}"
             try:
-                pruefe_zweiten_faktor(s, b, falsch, SCHLUESSEL, E, JETZT)
+                pruefe_zweiten_faktor(s, b, falsch, SCHLUESSEL, E, JETZT, quelle="cli")
             except AnmeldungError as f:
                 ergebnis.append(f.grund)
 

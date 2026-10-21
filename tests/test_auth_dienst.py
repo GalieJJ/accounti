@@ -230,15 +230,19 @@ def test_veralteter_hash_wird_bei_anmeldung_erneuert(system, monkeypatch):
 def test_zweiter_faktor_allein(system):
     jan = lege_person_an(system, "jan", Rolle.FREIGEBER)
     b = lade_benutzer(system, "jan")
-    assert pruefe_zweiten_faktor(system, b, jan.code(JETZT), SCHLUESSEL, E, JETZT) == (
-        "totp"
-    )
+    assert pruefe_zweiten_faktor(
+        system, b, jan.code(JETZT), SCHLUESSEL, E, JETZT, quelle="cli"
+    ) == ("totp")
     with pytest.raises(AnmeldungError):
-        pruefe_zweiten_faktor(system, b, jan.code(JETZT), SCHLUESSEL, E, JETZT)
+        pruefe_zweiten_faktor(
+            system, b, jan.code(JETZT), SCHLUESSEL, E, JETZT, quelle="cli"
+        )
     falscher = neuer_schluessel()
     spaeter = JETZT + timedelta(seconds=30)
     with pytest.raises(TresorError):
-        pruefe_zweiten_faktor(system, b, jan.code(spaeter), falscher, E, spaeter)
+        pruefe_zweiten_faktor(
+            system, b, jan.code(spaeter), falscher, E, spaeter, quelle="cli"
+        )
 
 
 def test_sitzung_leerlauf_und_hoechstdauer(system):

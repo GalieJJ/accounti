@@ -206,3 +206,60 @@ def test_sperre_minuten_hat_eine_obergrenze():
     with pytest.raises(ValidationError):
         AuthEinstellungen(sperre_minuten=1_000_000_000)
     assert AuthEinstellungen(sperre_minuten=24 * 60).sperre_minuten == 1440
+
+
+def test_selbst_entsperren_eines_stillgelegten_kontos_meldet_das_ehrlich(
+    welt, monkeypatch
+):
+    """Runde 3 (N-R3-1): chef legt sich als einziger Verwalter selbst still — in der
+    Einrichtungsphase meldete ``entsperren chef`` durch chef „entsperrt“ (Exit 0),
+    das Konto blieb aber stillgelegt."""
+    from accounti.auth.dienst import setze_aktiv
+
+    url, _, fabrik, _ = welt
+    with fabrik() as s:
+        setze_aktiv(s, lade_benutzer(s, "chef"), False, None, "chef")
+        s.commit()
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "chef")
+    r = runner.invoke(app, ["benutzer", "entsperren", "chef", "--db", url])
+    assert r.exit_code == 1, r.output
+    assert "stillgelegt" in r.output and "entsperrt." not in r.output
+    assert not lade(fabrik, "chef").aktiv
+
+
+def test_verwalter_hebt_auch_die_cli_sperre_auf(welt, monkeypatch):
+    """Runde 3 (N-R3-6): 100 falsche Codes auf der Shell sperren chefs CLI bis zum
+    Entsperren — ein anderer Verwalter hebt beide Sperren auf."""
+    from sqlalchemy import update
+
+    from accounti.db.tabellen_auth import BenutzerRow
+
+    url, config, fabrik, p = welt
+    with fabrik() as s:
+        anna = lege_person_an(s, "anna", Rolle.VERWALTER, jetzt=datetime.now())
+        s.execute(
+            update(BenutzerRow)
+            .where(BenutzerRow.name == "chef")
+            .values(
+                cli_fehlversuche=100,
+                cli_gesperrt_bis=DAUERHAFT,
+                fehlversuche=100,
+                gesperrt_bis=DAUERHAFT,
+            )
+        )
+        s.commit()
+    assert lade(fabrik, "chef").cli_gesperrt(datetime.now())
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "anna")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", anna.codes.pop())
+    r = runner.invoke(app, ["benutzer", "entsperren", "chef", "--db", url])
+    assert r.exit_code == 0, r.output
+    chef = lade(fabrik, "chef")
+    assert (chef.cli_fehlversuche, chef.cli_gesperrt_bis) == (0, None)
+    assert (chef.fehlversuche, chef.gesperrt_bis) == (0, None)
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = runner.invoke(
+        app,
+        ["zahlung", "freigeben", "1", "--db", url, "--config", config]
+        + ["--von", "chef"],
+    )
+    assert r.exit_code == 0, r.output

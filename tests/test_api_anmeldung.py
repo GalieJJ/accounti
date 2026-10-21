@@ -240,7 +240,7 @@ def test_wartende_anmeldungen_blockieren_keine_arbeitsthreads(tmp_path, monkeypa
 
     w = webwelt(tmp_path)
     w.dienste.server = ServerEinstellungen(
-        anmeldungen_gleichzeitig=1, anmeldung_warten_sekunden=2
+        anmeldungen_gleichzeitig=1, anmeldung_warten_sekunden=1
     )
     w.person("jan", Rolle.BUCHHALTER)
     echt = passwort._scrypt
@@ -270,8 +270,10 @@ def test_wartende_anmeldungen_blockieren_keine_arbeitsthreads(tmp_path, monkeypa
                 asyncio.create_task(c.post("/anmelden", data=daten, headers=kopf))
                 for _ in range(45)
             ]
-            await asyncio.sleep(0.5)  # eine prüft (blockiert), 44 warten
+            # ab hier misst die Uhr: hielte das Warten den Event-Loop an (statt im
+            # Loop zu warten), käme /gesund erst nach den Wartezeiten aller dran
             beginn = time.perf_counter()
+            await asyncio.sleep(0.5)  # eine prüft (blockiert), 44 warten
             gesund = await c.get("/gesund")
             dauer = time.perf_counter() - beginn
             assert gesund.status_code == 200
@@ -288,6 +290,26 @@ def test_wartende_anmeldungen_blockieren_keine_arbeitsthreads(tmp_path, monkeypa
         )
 
     dauer, status, warte = asyncio.run(ablauf())
-    assert dauer < 1.0, f"/gesund brauchte {dauer:.2f} s"
+    assert dauer < 1.5, f"/gesund brauchte {dauer:.2f} s (davon 0,5 s Pause)"
     assert set(status) <= {401, 503}
     assert all(int(x) >= 1 for x in warte)
+
+
+def test_anmeldeplatz_wartet_selbst_nie(tmp_path):
+    """Runde 3 (N-R3-6): ``Dienste.anmeldeplatz`` darf nicht blockieren — gewartet
+    wird im Event-Loop der Seite, nie im Aufruf selbst."""
+    import time
+
+    from accounti.api.einstellungen import ServerEinstellungen
+
+    w = webwelt(tmp_path)
+    w.dienste.server = ServerEinstellungen(
+        anmeldungen_gleichzeitig=1, anmeldung_warten_sekunden=5
+    )
+    assert w.dienste.anmeldeplatz()
+    beginn = time.perf_counter()
+    assert not w.dienste.anmeldeplatz()
+    assert time.perf_counter() - beginn < 0.5
+    w.dienste.anmeldeplatz_frei()
+    assert w.dienste.anmeldeplatz()
+    w.dienste.anmeldeplatz_frei()

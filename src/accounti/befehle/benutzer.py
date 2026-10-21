@@ -387,7 +387,12 @@ def entsperren(
     durch = verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
-        if not b.aktiv and durch != b.name:
+        if not b.aktiv:
+            if durch == b.name:
+                raise _ende(
+                    f"{b.name} ist stillgelegt (benutzer sperren) — wieder aktivieren "
+                    "kann nur ein Verwalter; nichts geändert"
+                )
             b = setze_aktiv(s, b, True, None, durch)
         entsperre(s, b, None, durch)
         s.commit()

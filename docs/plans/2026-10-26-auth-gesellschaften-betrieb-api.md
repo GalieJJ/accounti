@@ -365,6 +365,25 @@ Prüfung lässt ihren Test scheitern), fanden aber zwei neue mittlere Befunde.
   im Protokoll), `localhost` ↔ `127.0.0.1` und `file:`-URIs im Registry-Abgleich, leere
   SQLite-Dateien aus Tippfehlern bei anderen Befehlen als `sicherung` (A-N3-Nebenwirkung).
 
+### Nachprüfung Runde 3 (21.10.2026) — mergefähig, Niedrig-Befunde nachgezogen
+
+- Selbst-Entsperren eines mit `benutzer sperren` stillgelegten Kontos meldete „entsperrt“
+  (Exit 0) und ließ es stillgelegt — jetzt ehrliche Meldung, Exit 1, nichts geändert
+  (N-R3-1, `tests/test_cli_sperre.py::test_selbst_entsperren_eines_stillgelegten_kontos_meldet_das_ehrlich`).
+- `fints freigeben` hält die Laufsperre (N-R3-2, `tests/test_cli_fints.py::test_freigeben_haelt_die_laufsperre`).
+- Nicht erreichbare Datenbank bei `sicherung erstellen|wiederherstellen`: Meldung ohne
+  Passwort, Exit 1 (N-R3-3, `tests/test_cli_sicherung.py::test_datenbank_nicht_erreichbar`).
+- Die Zwischenkopie der SQLite-Datei liegt neben der Datenbank, nicht im Sicherungsordner
+  (N-R3-4, `tests/test_betrieb_sicherung.py::test_zwischenkopie_liegt_neben_der_datenbank`).
+- Die Meldung „wer anlegt, gibt nicht frei“ nennt CLI und Browser (N-R3-5, Meldungstext in
+  `tests/test_cli_rechte_freigaben.py::test_ersteller_darf_freigeben_gilt_in_der_cli_nicht`).
+- Testlücken, die Mutationen überleben ließen (N-R3-6):
+  `tests/test_cli_sperre.py::test_verwalter_hebt_auch_die_cli_sperre_auf`,
+  `tests/test_api_anmeldung.py::test_anmeldeplatz_wartet_selbst_nie`; die Zeitmessung in
+  `::test_wartende_anmeldungen_blockieren_keine_arbeitsthreads` beginnt vor der Pause.
+- `pruefe_zweiten_faktor(…, quelle=…)` ist Pflicht (Kanal der Zählung), `*.lauf-*.sperre`
+  in `.gitignore`.
+
 ## Schnittstelle für die Web-Oberfläche
 
 Die Supervisions-Queue, Auswertungen und die Zweisprachigkeit (Spec 4.2, 4.3, 4.5) entstehen

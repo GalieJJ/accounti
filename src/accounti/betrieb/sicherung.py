@@ -204,13 +204,14 @@ def lesetransaktion(verbindung: Connection) -> Iterator[Connection]:
 
 
 @contextmanager
-def lesequelle(db: str, ordner: Path) -> Iterator[str]:
+def lesequelle(db: str) -> Iterator[str]:
     """Woraus gelesen wird: eine SQLite-Datei als Kopie über die Backup-API von
     SQLite (``sqlite3.Connection.backup`` in einem Schritt — ein Stand, die
     Lesesperre hält nur so lange wie das Kopieren der Seiten), alles andere direkt.
 
-    Die Kopie liegt mit Rechten 0600 in ``ordner`` (neben der Sicherung, nicht im
-    Temporärordner — im Container ein tmpfs im Speicher) und wird gleich gelöscht.
+    Die Kopie liegt mit Rechten 0600 **neben der Datenbank** — nicht im
+    Temporärordner (im Container ein tmpfs im Speicher) und nicht im
+    Sicherungsordner (oft ein entferntes Laufwerk) — und wird gleich gelöscht.
     Eine SQLite-Datei, die es nicht gibt, wird nicht angelegt: Abbruch (Cron aus
     einem anderen Arbeitsverzeichnis, Tippfehler)."""
     url = make_url(db)
@@ -228,9 +229,8 @@ def lesequelle(db: str, ordner: Path) -> Iterator[str]:
             "Arbeitsverzeichnis prüfen (es wurde nichts angelegt)"
         )
         raise SicherungError(msg)
-    ordner.mkdir(parents=True, exist_ok=True)
     griff, kopie = tempfile.mkstemp(
-        prefix=".accounti-sicherung-", suffix=".db", dir=ordner
+        prefix=".accounti-sicherung-", suffix=".db", dir=Path(pfad).resolve().parent
     )
     os.close(griff)
     os.chmod(kopie, 0o600)
@@ -334,7 +334,7 @@ def erstelle(
     if system and archiv is not None:
         raise SicherungError("Die Systemdatenbank wird ohne Belegarchiv gesichert")
     metadaten = _metadaten()
-    with lesequelle(db, ziel.parent) as quelle:
+    with lesequelle(db) as quelle:
         return _erstelle(
             quelle, archiv, ziel, schluessel, gesellschaft, system, metadaten
         )

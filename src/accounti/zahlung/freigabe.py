@@ -360,7 +360,8 @@ def freigeben(
     if ersteller_ausgeschlossen and person == lauf.erstellt_von:
         msg = (
             f"{person} hat den Lauf {lauf_nr} angelegt — freigeben muss eine andere "
-            "Person (zahlung.ersteller_darf_freigeben)"
+            "Person (in der CLI immer; im Browser abschaltbar mit "
+            "zahlung.ersteller_darf_freigeben)"
         )
         raise LaufError(msg)
     if einstellungen.freigeber and person not in einstellungen.freigeber:

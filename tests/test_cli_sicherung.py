@@ -335,3 +335,20 @@ def test_fremde_gesellschaft_bekommt_den_merker_des_ziels(umgebung, monkeypatch)
     r = runner.invoke(app, ["-g", "b", "zahlung", "freigeben", "1", "--von", "bert"])
     assert "gehört zur Gesellschaft a" not in r.output
     assert r.exit_code == 0, r.output
+
+
+def test_datenbank_nicht_erreichbar(umgebung):
+    """Runde 3 (N-R3-3): eine nicht erreichbare Datenbank ist eine Meldung mit
+    Exit 1 — kein Traceback, kein Passwort aus der URL."""
+    db = "postgresql+psycopg://accounti:streng-geheim@127.0.0.1:1/acc"
+    datei = umgebung / "irgendeine.sicherung"
+    datei.write_bytes(b"x")
+    for befehl in (
+        ["sicherung", "erstellen", "--ziel", str(umgebung / "s"), "--ohne-archiv"],
+        ["sicherung", "wiederherstellen", str(datei), "--ohne-archiv"],
+    ):
+        r = runner.invoke(app, [*befehl, "--db", db])
+        assert r.exit_code == 1, r.output
+        assert isinstance(r.exception, SystemExit), r.exception
+        assert "nicht erreichbar" in r.output, r.output
+        assert "streng-geheim" not in r.output

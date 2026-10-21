@@ -180,8 +180,9 @@ Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
   seinem zweiten Faktor,
   `ACCOUNTI_BENUTZER=chef accounti benutzer entsperren chef` (Einmalcode wird abgefragt;
   in Docker `docker compose exec -e ACCOUNTI_BENUTZER=chef app accounti benutzer
-  entsperren chef`). Andere entsperrt ein Verwalter. Ein mit `benutzer sperren`
-  stillgelegtes Konto öffnet nur ein Verwalter wieder. Gesperrte Verwalter zählen weiter
+  entsperren chef`). Andere entsperrt ein Verwalter — damit auch eine Sperre des
+  Einmalcodes in der CLI. Ein mit `benutzer sperren` stillgelegtes Konto öffnet nur ein
+  Verwalter wieder (wer es selbst versucht, bekommt diese Meldung und Exit 1). Gesperrte Verwalter zählen weiter
   als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase. Ist auch der
   Einmalcode in der CLI gesperrt (100 falsche Codes auf der Shell) und kein anderer
   Verwalter da, bleibt nur die Datenbank:
@@ -265,9 +266,10 @@ Recht 403 (`WWW-Authenticate: Bearer error="insufficient_scope"`). Freigeben kan
 Je Gesellschaft läuft `bank lauf` bzw. `aufgaben lauf` höchstens einmal zugleich — über
 API, Dienst `lauf` und CLI hinweg (PostgreSQL: Advisory-Lock; SQLite: Dateisperre neben
 der Datenbank, `*.lauf-bank.sperre`); ein zweiter Lauf wartet nicht (API 409, CLI Exit 1).
-Dieselbe Sperre halten die Einzelschritte der Bankkette (`bank abrufen`, `kreditkarte
-abgleich`, `opos zuordnen`, `bank abgleich`, `classify`) — ein `classify` neben dem
-geplanten Lauf kontiert denselben Umsatz nicht doppelt.
+Dieselbe Sperre halten die Einzelschritte der Bankkette (`bank abrufen`, `fints
+freigeben`, `kreditkarte abgleich`, `opos zuordnen`, `bank abgleich`, `classify`) — ein
+`classify` neben dem geplanten Lauf kontiert denselben Umsatz nicht doppelt. Die
+Sperrdateien (`*.lauf-*.sperre`) stehen in `.gitignore`.
 
 ## Reverse-Proxy mit TLS
 
@@ -346,11 +348,13 @@ accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --a
   (PostgreSQL `REPEATABLE READ READ ONLY`) — die Sicherung ist ein Stand, auch wenn `app`
   und `lauf` gerade schreiben. Eine SQLite-Datei kopiert accounti zuerst mit der
   Backup-API von SQLite in eine Zwischendatei und liest aus der Kopie — Schreiber warten
-  nur, solange die Seiten kopiert werden. Die Kopie und große, ausgelagerte Tabellen
-  liegen **neben der Sicherung** (`.accounti-sicherung-*.db`, Rechte 0600, danach
-  gelöscht; der Zielordner braucht so viel Platz wie die Datenbank) — nicht im
-  Temporärordner, der im Container im Speicher liegt. Bricht der Prozess hart ab (z. B.
-  `kill -9`), kann dort eine unverschlüsselte Kopie liegen bleiben: löschen.
+  nur, solange die Seiten kopiert werden. Die Kopie liegt **neben der Datenbank**
+  (`.accounti-sicherung-*.db`, Rechte 0600, danach gelöscht; dort braucht es so viel
+  freien Platz wie die Datenbank groß ist), große Tabellen werden neben der Sicherung
+  ausgelagert — beides nicht im Temporärordner, der im Container im Speicher liegt, und
+  keine unverschlüsselte Kopie im Sicherungsordner (oft ein entferntes Laufwerk). Bricht
+  der Prozess hart ab (z. B. `kill -9`), kann neben der Datenbank eine Kopie liegen
+  bleiben: löschen.
 - **Nur aus einer echten Datenbank:** Gibt es die SQLite-Datei nicht (relativer Pfad aus
   einem anderen Arbeitsverzeichnis, Tippfehler), bricht `erstellen` ab und legt nichts
   an; ebenso, wenn die Datenbank keine Tabellen von accounti hat.

@@ -198,6 +198,9 @@ def test_ersteller_darf_freigeben_gilt_in_der_cli_nicht(tmp_path, monkeypatch):
     r = runner.invoke(app, ["zahlung", "freigeben", "1", *basis, "--von", "eva"])
     assert r.exit_code == 1, r.output
     assert "angelegt" in r.output
+    # die Meldung sagt, dass der Schalter hier nicht wirkt (Runde 3, N-R3-5)
+    text = " ".join(r.output.split())
+    assert "in der CLI immer" in text and "im Browser" in text
 
 
 def test_anlagen_freigeben_nur_mit_rolle(tmp_path, monkeypatch):
