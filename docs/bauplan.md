@@ -38,7 +38,7 @@ Tatsachen.
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
 | 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
-| 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` | 🔲 geplant | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
+| 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` `betrieb/` | 🟨 teilweise | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
 | 11 | Integrationen & Export | `importers/` `export/` `api/` | 🟨 teilweise | [Spec](specs/2026-08-10-integrationen-export.md) |
 | 12 | Anlagenbuchhaltung & Jahresabschluss | `anlagen/` `abschluss/` | 🟨 teilweise | [Spec](specs/2026-08-10-anlagen-jahresabschluss.md) |
 
@@ -99,10 +99,22 @@ E-Mail oder Webhook. Die Bausteine 7 und 9 melden ihre Aufgaben über `accounti.
 Offen: Einhängen in `bank lauf` (bis dahin `accounti aufgaben lauf` im selben Cron-Eintrag),
 Benutzerkonten und Rechte (Baustein 10).
 
+**Baustein 10 ist teilweise fertig** ([Plan](plans/2026-10-26-auth-gesellschaften-betrieb-api.md)):
+Benutzer mit Passwort und zweitem Faktor (TOTP nach RFC 6238, Wiederherstellungscodes), Sperre,
+Sitzungen, Rollen `betrachter`/`buchhalter`/`freigeber`/`verwalter` je Gesellschaft — Freigaben
+von Zahlungsläufen und Steuermeldungen nur mit Rolle und Einmalcode, im Browser wie in der CLI;
+mehrere eigene Gesellschaften mit eigener Datenbank, eigenem Archiv und eigener Konfiguration
+(`--gesellschaft`); das FastAPI-Gerüst mit Anmeldung, CSRF, Rollen-Dependency, Router-Registry
+und Grundlayout; die REST-API (Akzeptanz 7 aus Baustein 11); Docker Compose mit PostgreSQL und
+geplantem Lauf, verschlüsselte Sicherung mit Wiederherstellung, Aufbewahrungsbericht und
+Protokoll ohne Personenbezug ([Betrieb](betrieb.md)). Was fehlt, ist die Oberfläche selbst:
+Supervisions-Queue mit Belegansicht, Korrektur → Regel, Auswertungen und Zweisprachigkeit
+(Akzeptanz 1 und 2).
+
 **Baustein 11 ist teilweise fertig,** weil Marktplatz-Abrechnungen (Amazon, eBay, PayPal,
 Shopify) mit Summenprobe, Auszahlungsabgleich und OSS-Zuordnung sowie die vollständige
 DATEV-Übergabe — Stammdaten, Belege mit Beleglink, lückenlos nummerierte Kontoauszüge — stehen
-([Plan](plans/2026-10-25-integrationen-export.md)). Was fehlt, sind die REST-API (mit Baustein 10),
+([Plan](plans/2026-10-25-integrationen-export.md)). Die REST-API kam mit Baustein 10a; was fehlt, sind
 JTL-Wawi, die Prüfungsdatenüberlassung und die Beleg-Connectoren.
 
 **Baustein 12 ist teilweise fertig,** weil die Anlagenbuchhaltung (AfA linear, degressiv, GWG,

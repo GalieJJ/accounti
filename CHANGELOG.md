@@ -7,6 +7,27 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Anmeldung, Rollen, mehrere Gesellschaften, Betrieb und REST-API** (Baustein 10a):
+  Benutzer mit scrypt-Passwort (OWASP: N = 2^17, r = 8, p = 1) und zweitem Faktor nach RFC 6238
+  (TOTP, jeder Code einmal; zehn Wiederherstellungscodes, je einer einmal), Sperre nach
+  Fehlversuchen (Browser und Server-Shell getrennt; auf der Shell entsperrt man sich mit dem
+  zweiten Faktor selbst), Sitzungen mit `__Host-`-Cookie, Leerlauf und Höchstdauer, nur anfügbares
+  Anmeldeprotokoll (`accounti benutzer anlegen|2fa|codes|liste|rolle|passwort|sperren|entsperren|protokoll`).
+  Rollen `betrachter`, `buchhalter`, `freigeber`, `verwalter` je Gesellschaft. Web-Gerüst mit
+  FastAPI und Jinja2 (`accounti serve`): Anmeldung nur mit zweitem Faktor, CSRF-Schutz,
+  Rollenprüfung als Dependency, Router-Registry, Grundlayout mit Gesellschaftswechsel,
+  Freigabe von Zahlungslauf und USt-VA mit frischem Einmalcode, strenge CSP. REST-API
+  `/api/v1` mit API-Token und Rechten (`accounti token anlegen|liste|widerrufen`): offene
+  Posten, Buchungen, Belege einliefern, `bank lauf`/`aufgaben lauf` anstoßen. Mehrere eigene
+  Gesellschaften über die Registry `gesellschaften` (je Datenbank, Archiv, Konfiguration) und
+  die globale Option `--gesellschaft`; `ACCOUNTI_DB`, `ACCOUNTI_ARCHIV`, `ACCOUNTI_KONFIG`
+  setzen die Standards aller Befehle (`accounti gesellschaft liste|zeigen`). Betrieb:
+  `Dockerfile` und `docker-compose.yml` (App, PostgreSQL 16, geplanter Lauf
+  `accounti betrieb lauf`), verschlüsselte Sicherung von Datenbank und Belegarchiv mit
+  Wiederherstellung in eine leere Umgebung (`accounti sicherung schluessel|erstellen|pruefen|wiederherstellen`),
+  Aufbewahrungsbericht nach § 147 AO/§ 14b UStG (`accounti betrieb aufbewahrung`),
+  Protokollierung ohne personenbezogene Inhalte, `docs/betrieb.md` mit Reverse-Proxy und TLS.
+  Neue Abschnitte `auth`, `gesellschaften` (optional); `server` wird jetzt gelesen.
 - **Live-Bankanbindung, Paket 3 – FinTS & Kreditkarten** (Baustein 5): Provider `fints` über
   python-fints — Produkt-ID je Installation (`ACCOUNTI_FINTS_PRODUKT_ID` oder `bank.fints`),
   Benutzerkennung, PIN und Sitzung (Kundensystem-ID) verschlüsselt im Tresor, camt.052
@@ -232,6 +253,22 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- `accounti zahlung freigeben`, `accounti ustva freigeben` und `accounti ustva dauerfrist
+  --freigeben` verlangen, sobald Benutzer eingerichtet sind, die Rolle `freigeber` und den
+  Einmalcode der handelnden Person; ohne Benutzer unverändert.
+- `accounti serve` startet die Web-Oberfläche und REST-API (bisher ein Platzhalter) und liest
+  `--db`, `--archiv`, `--config` sowie den Abschnitt `server`.
+- `alembic/env.py` nimmt die Datenbank aus `ACCOUNTI_DB`, wenn gesetzt.
+- Mit eingerichteten Benutzern brauchen auch `accounti zahlung anlegen`, `iban-klaeren`,
+  `entfernen`, `sperre` (Recht buchen) und `stornieren` (Recht Zahlungsfreigabe) sowie
+  `accounti anlagen freigeben` Rolle und Einmalcode; ins Protokoll kommt der angemeldete Benutzer
+  statt `--von`. Wer einen Zahlungslauf anlegt, gibt ihn in der CLI nicht selbst frei.
+- `classify`, `bank lauf`, `bank abrufen`, `bank abgleich`, `opos zuordnen`,
+  `kreditkarte abgleich` und `fints freigeben` halten eine Laufsperre je Gesellschaft; ein
+  zweiter gleichzeitiger Lauf endet mit Exit 1 statt doppelt zu kontieren.
+- `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
+  Regeldatei der Gesellschaft (`regeln:` in der Registry) statt immer `config/regeln.yaml`.
+- Neu abgelegte Belegdateien bekommen eine bereinigte Endung.
 - **Dublettenschutz** über die Bankreferenz (camt `AcctSvcrRef`, MT940 `//Referenz`), wo
   vorhanden: derselbe Umsatz aus zwei Dateien eines Abrufs oder aus camt.053 und camt.054 bleibt
   einer. Ohne Referenz zählt die laufende Nummer gleicher Umsätze je Auszug bzw. Datei statt je
