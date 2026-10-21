@@ -34,7 +34,8 @@ Sicherungen und einem Löschkonzept, das die Aufbewahrungsfristen kennt.
    legt accounti beim ersten Befehl selbst an. `app` und `lauf` haben eine
    Speichergrenze (`${ACCOUNTI_SPEICHER:-1g}`): jede Passwort-Prüfung (scrypt) braucht
    128 MiB, die App prüft höchstens `server.anmeldungen_gleichzeitig` (2) zugleich und
-   antwortet sonst nach `server.anmeldung_warten_sekunden` (5) mit 503.
+   antwortet sonst nach `server.anmeldung_warten_sekunden` (5) mit 503 und `Retry-After`
+   (wer wartet, belegt keinen Arbeitsthread).
 4. Ersten Benutzer anlegen — er muss Verwalter sein — und den zweiten Faktor einrichten:
 
    ```bash
@@ -146,9 +147,17 @@ gesellschaften:
 Rollen sind nicht hierarchisch, ein Benutzer kann mehrere haben. Sobald Benutzer
 eingerichtet sind, legt `zahlung anlegen` nur an, wer buchen darf (`buchhalter`, mit
 Einmalcode — angelegt hat dann der Benutzer, nicht ein Freitext), und **wer einen
-Zahlungslauf angelegt hat, gibt ihn nicht frei** (CLI und Browser;
-`zahlung.ersteller_darf_freigeben: true` nur für Ein-Personen-Betriebe). Mit
-`zahlung.vier_augen: true` braucht die Freigabe zusätzlich zwei verschiedene Freigeber.
+Zahlungslauf angelegt hat, gibt ihn nicht frei** — in der CLI immer, im Browser, solange
+die Konfiguration der Gesellschaft nicht `zahlung.ersteller_darf_freigeben: true` sagt
+(nur für Ein-Personen-Betriebe; in der CLI gilt der Schalter nicht, weil die Datei dort
+frei wählbar ist). Mit `zahlung.vier_augen: true` braucht die Freigabe zusätzlich zwei
+verschiedene Freigeber. Grenze: `vier_augen` steht in der Konfiguration der
+Gesellschaft — wer die CLI mit einer eigenen `ACCOUNTI_KONFIG` (auch einer eigenen
+Registry) aufruft, kann die Vier-Augen-Pflicht dort abschalten; der eigene Einmalcode
+bleibt Pflicht, und das Protokoll zeigt, wer allein freigab. `zahlung entfernen`,
+`sperre` und `iban-klaeren` (die Betrugskontrolle) verlangen das Recht buchen,
+`zahlung stornieren` das Recht zur Zahlungsfreigabe — jeweils mit Einmalcode; ins
+Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
 
 - **Anmeldung im Browser** nur mit Passwort **und** Einmalcode (TOTP-App nach RFC 6238 oder
   ein Wiederherstellungscode, der genau einmal gilt). Jeder Code gilt einmal. Passwörter:
@@ -158,13 +167,29 @@ Zahlungslauf angelegt hat, gibt ihn nicht frei** (CLI und Browser;
 - **Sperre:** Jeder Versuch wird vor der Prüfung in der Datenbank gezählt, auch bei
   gleichzeitigen Versuchen. Nach 5 Fehlversuchen ist das Konto 15 Minuten gesperrt, danach
   gibt es wieder 5 Versuche; der Zähler läuft über die Sperren hinweg, ab 100
-  Fehlversuchen in Folge bleibt das Konto bis `accounti benutzer entsperren` gesperrt
-  (`auth.sperre_nach_fehlversuchen`, `auth.sperre_minuten`, `auth.fehlversuche_obergrenze`;
-  NIST 800-63B-4: höchstens 100). Eine Sperre durch Fehlversuche beendet **keine** offenen
-  Sitzungen (sonst könnte jeder, der einen Namen kennt, den Freigeber hinauswerfen) —
-  wer jemanden wirklich aussperren will, nimmt `accounti benutzer sperren`. Grenze: Wer
-  den Namen kennt, kann neue Anmeldungen dieses Benutzers 15 Minuten lang blockieren und
-  nach 100 Versuchen bis zum Entsperren; eine Begrenzung je IP gehört in den Proxy.
+  Fehlversuchen in Folge bleibt es bis zum Entsperren gesperrt (NIST 800-63B-4: höchstens
+  100). Browser und Server-Shell **zählen getrennt**: Fehlversuche aus dem Netz sperren
+  die Anmeldung im Browser (und Freigaben dort), nie den Einmalcode in der CLI. Im Browser
+  gelten `auth.sperre_nach_fehlversuchen`, `auth.sperre_minuten` (höchstens 1440) und
+  `auth.fehlversuche_obergrenze` aus der Konfiguration von `accounti serve`; die CLI
+  zählt immer mit 5 / 15 Minuten / 100 — eine eigene `--config` setzt dort keine
+  Sperrwerte. Eine Sperre durch Fehlversuche beendet **keine** offenen Sitzungen (sonst
+  könnte jeder, der einen Namen kennt, den Freigeber hinauswerfen) — wer jemanden wirklich
+  aussperren will, nimmt `accounti benutzer sperren`.
+- **Rückweg nach einer Sperre:** Auf der Server-Shell entsperrt sich jeder selbst mit
+  seinem zweiten Faktor,
+  `ACCOUNTI_BENUTZER=chef accounti benutzer entsperren chef` (Einmalcode wird abgefragt;
+  in Docker `docker compose exec -e ACCOUNTI_BENUTZER=chef app accounti benutzer
+  entsperren chef`). Andere entsperrt ein Verwalter. Ein mit `benutzer sperren`
+  stillgelegtes Konto öffnet nur ein Verwalter wieder. Gesperrte Verwalter zählen weiter
+  als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase. Ist auch der
+  Einmalcode in der CLI gesperrt (100 falsche Codes auf der Shell) und kein anderer
+  Verwalter da, bleibt nur die Datenbank:
+  `UPDATE auth_benutzer SET fehlversuche = 0, gesperrt_bis = NULL, cli_fehlversuche = 0,
+  cli_gesperrt_bis = NULL WHERE name = 'chef'`. Grenze: Wer den Namen kennt, kann neue
+  Anmeldungen im Browser je 15 Minuten und nach 100 Versuchen bis zum Entsperren
+  blockieren; eine Begrenzung je IP gehört in den Proxy (z. B. `limit_req` für
+  `/anmelden`).
 - **Sitzungen:** Cookie `__Host-accounti_sitzung` (Secure, HttpOnly, SameSite=Strict),
   30 Minuten Leerlauf, höchstens 8 Stunden; Abmelden, Passwortwechsel, `benutzer sperren`,
   Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Jede Freigabe im
@@ -175,9 +200,11 @@ Zahlungslauf angelegt hat, gibt ihn nicht frei** (CLI und Browser;
   `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist --freigeben` (Rolle
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
-  `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename). Der Einmalcode lässt sich in der
-  CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort nur
-  strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im Browser).
+  `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
+  `sperre`, `iban-klaeren` und `stornieren` (siehe oben). Der Einmalcode lässt sich in
+  der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
+  höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
+  Browser), Sperrwerte gar nicht.
 - **Bindung an Gesellschaft und Systemdatenbank:** Mit Registry gelten für Freigaben
   Datenbank und Konfiguration der gewählten Gesellschaft — ein abweichendes `--db` oder
   `--config` wird abgewiesen. Jede Gesellschafts-Datenbank trägt einen Merker
@@ -189,7 +216,22 @@ Zahlungslauf angelegt hat, gibt ihn nicht frei** (CLI und Browser;
   bewusst einer neuen Benutzerverwaltung zuordnet (z. B. nach Verlust der
   Systemdatenbank), löscht den Merker in deren Datenbank von Hand
   (`DELETE FROM auth_merker WHERE schluessel = 'benutzerverwaltung'`) — ein Eingriff,
-  der Zugang zur Datenbank voraussetzt.
+  der Zugang zur Datenbank voraussetzt. `sicherung wiederherstellen
+  --fremde-gesellschaft` setzt die Bindung selbst neu (an das Ziel).
+- **Grenzen des Merkers:**
+  - *Trust on first use:* Eine Gesellschaft, die noch nie gebunden wurde (kein `benutzer
+    anlegen`, noch keine Prüfung), bindet die erste Prüfung — auch eine mit fremder
+    Registry oder leerer `ACCOUNTI_SYSTEM_DB`. Danach fällt der Fehler auf, weil die
+    echte Prüfung abbricht. Deshalb den ersten Verwalter gleich nach dem Einrichten
+    der Registry anlegen.
+  - Der Merker hält die **Kennung** der Systemdatenbank fest, nicht ihren Ort: eine
+    **Kopie** (oder ältere Sicherung) der Systemdatenbank besteht die Prüfung. Wer sie
+    lesen kann, kann darin Rollen ändern und mit seinem eigenen zweiten Faktor freigeben;
+    der Einmalcode wird dann nur in der Kopie verbraucht, das Ereignis fehlt im echten
+    Protokoll. Das setzt Lesezugriff auf die Systemdatenbank voraus — sie gehört so
+    geschützt wie die Gesellschafts-Datenbanken.
+  - Der **Browser** prüft den Merker nicht: welche Systemdatenbank er nutzt, legt der
+    Betreiber beim Start von `accounti serve` fest (Registry bzw. `ACCOUNTI_SYSTEM_DB`).
 - **Verwaltung:** `benutzer 2fa|codes|passwort|sperren|entsperren|rolle` für ein fremdes
   Konto darf nur, wer in **jeder** Gesellschaft Verwalter ist, in der dieses Konto Rollen
   hat (Passwort und zweiter Faktor gelten für alle Gesellschaften). `token liste` und
@@ -223,6 +265,9 @@ Recht 403 (`WWW-Authenticate: Bearer error="insufficient_scope"`). Freigeben kan
 Je Gesellschaft läuft `bank lauf` bzw. `aufgaben lauf` höchstens einmal zugleich — über
 API, Dienst `lauf` und CLI hinweg (PostgreSQL: Advisory-Lock; SQLite: Dateisperre neben
 der Datenbank, `*.lauf-bank.sperre`); ein zweiter Lauf wartet nicht (API 409, CLI Exit 1).
+Dieselbe Sperre halten die Einzelschritte der Bankkette (`bank abrufen`, `kreditkarte
+abgleich`, `opos zuordnen`, `bank abgleich`, `classify`) — ein `classify` neben dem
+geplanten Lauf kontiert denselben Umsatz nicht doppelt.
 
 ## Reverse-Proxy mit TLS
 
@@ -247,6 +292,9 @@ accounti.example.de {
 **nginx:**
 
 ```nginx
+# im http-Block: Anmeldeversuche je Adresse bremsen (die Kontosperre zählt je Konto)
+limit_req_zone $binary_remote_addr zone=anmelden:10m rate=10r/m;
+
 server {
     listen 443 ssl;
     http2 on;
@@ -257,6 +305,13 @@ server {
     add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
     client_max_body_size 25m;
     access_log off;            # accounti protokolliert selbst ohne IP und Abfrage
+    location = /anmelden {
+        limit_req zone=anmelden burst=5 nodelay;
+        proxy_pass http://127.0.0.1:8400;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
     location / {
         proxy_pass http://127.0.0.1:8400;
         proxy_set_header Host $host;
@@ -290,9 +345,15 @@ accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --a
 - **Im laufenden Betrieb:** alle Tabellen werden in einer Lese-Transaktion gelesen
   (PostgreSQL `REPEATABLE READ READ ONLY`) — die Sicherung ist ein Stand, auch wenn `app`
   und `lauf` gerade schreiben. Eine SQLite-Datei kopiert accounti zuerst mit der
-  Backup-API von SQLite in eine Temporärdatei (0600, danach gelöscht; braucht so viel
-  Platz wie die Datenbank) und liest aus der Kopie — Schreiber warten nur, solange die
-  Seiten kopiert werden.
+  Backup-API von SQLite in eine Zwischendatei und liest aus der Kopie — Schreiber warten
+  nur, solange die Seiten kopiert werden. Die Kopie und große, ausgelagerte Tabellen
+  liegen **neben der Sicherung** (`.accounti-sicherung-*.db`, Rechte 0600, danach
+  gelöscht; der Zielordner braucht so viel Platz wie die Datenbank) — nicht im
+  Temporärordner, der im Container im Speicher liegt. Bricht der Prozess hart ab (z. B.
+  `kill -9`), kann dort eine unverschlüsselte Kopie liegen bleiben: löschen.
+- **Nur aus einer echten Datenbank:** Gibt es die SQLite-Datei nicht (relativer Pfad aus
+  einem anderen Arbeitsverzeichnis, Tippfehler), bricht `erstellen` ab und legt nichts
+  an; ebenso, wenn die Datenbank keine Tabellen von accounti hat.
 - **Datenbank und Archiv passen zusammen:** fehlt das Archiv oder ist es leer, obwohl
   Belege darauf verweisen (z. B. Cron aus einem anderen Arbeitsverzeichnis, falsches
   `--archiv`), bricht `erstellen` ab. Fehlen einzelne Dateien, nennt die Ausgabe ihre
@@ -312,9 +373,10 @@ accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --a
   `accounti-system-<Zeit>.sicherung`).
 - Eine **ältere** Sicherung der Systemdatenbank bringt den Stand von damals zurück:
   inzwischen widerrufene Token gelten wieder, verbrauchte Wiederherstellungscodes und alte
-  Passwörter auch. Nach dem Zurückspielen `accounti token liste` prüfen, nicht mehr
-  gewollte Token widerrufen und betroffenen Benutzern neue Codes geben
-  (`benutzer codes`). Die Merker der Gesellschaften stehen in ihren Datenbanken: wer nur
+  Passwörter auch, gesperrte Benutzer sind wieder aktiv, entzogene Rollen wieder da. Nach
+  dem Zurückspielen `accounti benutzer liste` und `accounti token liste` prüfen, nicht
+  mehr gewollte Token widerrufen, Benutzer sperren bzw. Rollen entziehen und betroffenen
+  Benutzern neue Codes geben (`benutzer codes`). Die Merker der Gesellschaften stehen in ihren Datenbanken: wer nur
   eine Gesellschaft zurückspielt, braucht die passende Systemdatenbank (sonst brechen
   Freigaben ab, siehe Bindung oben).
 - `sicherung erstellen` prüft keine Rolle (läuft per Cron, ohne Einmalcode); die Datei
@@ -366,7 +428,10 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   Abschluss 2016 — aufzubewahren bis 31.12.2026, nicht bis 31.12.2025. Wann eine Buchung
   tatsächlich eingetragen wurde, speichert accounti nicht; wer ein Wirtschaftsjahr mehr als
   ein Jahr nach seinem Ende noch bebucht hat, ohne es abzuschließen, prüft die Frist von
-  Hand. Die 8 Jahre gelten für alle Belege, deren alte Frist am 31.12.2024 noch lief.
+  Hand. Ein **wieder geöffnetes** Geschäftsjahr (`abschluesse.gesperrt` falsch) läuft
+  nicht ab — es kann noch bebucht werden. Die 8 Jahre gelten für alle Belege, deren alte
+  Frist am 31.12.2024 noch lief; ein Bericht mit `--stichtag` vor dem 01.01.2025 rechnet
+  Belege nach altem Recht mit 10 Jahren.
 - Sie läuft nicht ab, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
   Festsetzungsfrist noch läuft — etwa bei Außenprüfung, Einspruch, vorläufiger Festsetzung
   (§ 147 Abs. 3 Satz 3 AO). Handelsrechtlich gilt § 257 HGB entsprechend.

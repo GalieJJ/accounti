@@ -3,8 +3,8 @@
 ```yaml
 auth:
   passwort_mindestlaenge: 12      # NIST 800-63B-4: mit zweitem Faktor ≥ 8
-  sperre_nach_fehlversuchen: 5
-  sperre_minuten: 15
+  sperre_nach_fehlversuchen: 5    # Sperrwerte gelten im Browser; die CLI zählt
+  sperre_minuten: 15              # getrennt und immer mit 5 / 15 / 100 (höchstens 1440)
   fehlversuche_obergrenze: 100    # in Folge, dann bis „benutzer entsperren“
   sitzung_leerlauf_minuten: 30    # OWASP: 15–30 min (geringes Risiko)
   sitzung_hoechstdauer_stunden: 8 # OWASP: z. B. 4–8 h

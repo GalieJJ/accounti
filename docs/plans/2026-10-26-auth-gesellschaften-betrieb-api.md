@@ -89,7 +89,7 @@ Schnittstelle.
 | Zweiter Faktor | TOTP nach RFC 6238 mit `hmac` (SHA-1, 6 Stellen, 30 s — was Authenticator-Apps können), 20-Byte-Geheimnis, Toleranz ±1 Schritt, **jeder Schritt nur einmal** (letzter angenommener Schritt am Benutzer); Geheimnis mit dem Tresor (`ACCOUNTI_SCHLUESSEL`, AES-GCM, an die Benutzer-ID gebunden) verschlüsselt; aktiv erst nach Eingabe eines gültigen Codes | RFC 6238 5.1/5.2; Geheimnis muss lesbar bleiben, also verschlüsseln statt hashen |
 | Wiederherstellungscodes | 10 Codes `xxxxx-xxxxx` (Alphabet ohne 0/O/1/I/L, ~50 Bit), gespeichert als HMAC-SHA-256 über Benutzer-ID und Code mit einem aus `ACCOUNTI_SCHLUESSEL` abgeleiteten Schlüssel (Pepper), geprüft mit einem Nachschlagen; je Code genau einmal; neue Codes ersetzen alle alten | gleiche Arbeit je Anmeldeversuch (zehn scrypt-Hashes verrieten über die Antwortzeit, ob das Passwort stimmte — Prüfbefund). Abweichung von NIST (unter 112 Bit: Passwort-Hash): ohne den Schlüssel ist aus der Datenbank allein nichts zu erraten; wer den Schlüssel hat, entschlüsselt ohnehin das TOTP-Geheimnis |
 | Anmeldung | ein Formular: Benutzer, Passwort, Einmalcode (TOTP oder Wiederherstellungscode). Ohne eingerichteten zweiten Faktor keine Anmeldung. Fehler sagen nie, was falsch war; unbekannte Benutzer kosten dieselbe Hash-Zeit | Akzeptanz 4; kein halb angemeldeter Zustand, keine Benutzeraufzählung |
-| Sperre | jeder Versuch wird vor der Prüfung atomar gezählt (`UPDATE … SET fehlversuche = fehlversuche + 1 WHERE nicht gesperrt`); jeder `auth.sperre_nach_fehlversuchen`-te (5) Fehlversuch in Folge sperrt `auth.sperre_minuten` (15), ab `auth.fehlversuche_obergrenze` (100) bis `benutzer entsperren` — für Web, CLI-Einmalcode und Wiederherstellungscode gleich; Erfolg setzt zurück; eine Sperre nach Fehlversuchen beendet keine Sitzungen | NIST: höchstens 100 in Folge; 5 bremst Raten bei 6-stelligen Codes wirksam; unter Parallelität keine Prüfung über das Fenster hinaus; Sitzungen nicht beenden, sonst wirft jeder, der den Namen kennt, den Freigeber hinaus (Prüfbefund) |
+| Sperre | jeder Versuch wird vor der Prüfung atomar gezählt (`UPDATE … SET fehlversuche = fehlversuche + 1 WHERE nicht gesperrt`); jeder `auth.sperre_nach_fehlversuchen`-te (5) Fehlversuch in Folge sperrt `auth.sperre_minuten` (15, höchstens 1440), ab `auth.fehlversuche_obergrenze` (100) bis `benutzer entsperren`; **Browser und CLI zählen getrennt** (`fehlversuche`/`cli_fehlversuche`), die CLI immer mit den Standardwerten; mit gültigem zweitem Faktor entsperrt sich jeder auf der Server-Shell selbst; Erfolg setzt den Zähler des Kanals zurück; eine Sperre nach Fehlversuchen beendet keine Sitzungen | NIST: höchstens 100 in Folge; 5 bremst Raten bei 6-stelligen Codes wirksam; unter Parallelität keine Prüfung über das Fenster hinaus; Sitzungen nicht beenden, sonst wirft jeder, der den Namen kennt, den Freigeber hinaus; getrennte Zähler, damit niemand aus dem Netz den letzten Verwalter dauerhaft aussperrt — ohne gesperrte Verwalter als „nicht vorhanden“ zu werten (das öffnete die Einrichtungsphase aus dem Netz); Sperrwerte nicht aus frei wählbaren Dateien, sonst sperrt eine `fehlversuche_obergrenze: 1` jeden mit einem falschen Code (Nachprüfung R2-M1) |
 | Sitzungen | 256-Bit-Zufallstoken im Cookie `__Host-accounti_sitzung` (`Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`), in der Datenbank nur SHA-256; Leerlauf 30 min, absolut 8 h (`auth.sitzung_*`); Abmelden, Passwortwechsel, Sperre und Rollenänderung beenden Sitzungen serverseitig; ohne TLS (Entwicklung) `server.cookie_sicher: false` → Cookie `accounti_sitzung` ohne `Secure` | OWASP Session Management |
 | CSRF | Token = HMAC-SHA-256 des Sitzungstokens (nichts zu speichern), Pflicht bei jeder nicht lesenden Anfrage mit Sitzung (Formularfeld `csrf` oder Kopf `X-CSRF-Token` für HTMX); Anmeldeformular mit Double-Submit-Cookie; dazu `SameSite=Strict` | Synchronizer-Token ohne Serverzustand; Login-CSRF abgedeckt |
 | Formulare | `application/x-www-form-urlencoded` selbst lesen (`api/formular.py`, Größengrenze), Multipart über `belege.webhook.anfrage` | keine neue Abhängigkeit (`python-multipart`) |
@@ -310,6 +310,61 @@ ohne die Korrektur scheitert (Präfix A = Technik, B = Fachlich, wie im Prüfber
   Sicherungen widerrufene Token und verbrauchte Codes zurückbringen und `sicherung
   erstellen` keine Rolle prüft, steht als Grenze unten und in `docs/betrieb.md`.
 
+### Nachprüfung Runde 2 (21.10.2026) — Befunde und Behebung
+
+Beide Nachprüfer bestätigten die Behebung der Befunde oben (Mutationen: jede entfernte
+Prüfung lässt ihren Test scheitern), fanden aber zwei neue mittlere Befunde.
+
+- **Dauersperre ohne Rückweg (R2-M1 = NEU-M1):** Die Obergrenze (100) sperrte bis
+  `entsperren` — aus dem Netz auslösbar in knapp 5 Stunden, und weil auch die CLI an der
+  Sperre scheiterte, half selbst der gesperrte Verwalter mit gültigem Code nicht mehr;
+  `streng()` übernahm „strengere“ Sperrwerte aus einer frei wählbaren Datei
+  (`fehlversuche_obergrenze: 1` sperrte mit einem falschen Code), `sperre_minuten` war
+  unbegrenzt. Jetzt zählen Browser und CLI getrennt, die CLI immer mit den Standardwerten,
+  `sperre_minuten` ≤ 1440, und `benutzer entsperren NAME` geht auf der Server-Shell für
+  sich selbst mit gültigem zweitem Faktor. Gesperrte Verwalter zählen weiter (keine
+  Einrichtungsphase aus dem Netz) (`tests/test_cli_sperre.py`: `::test_netzflut_sperrt_die_server_shell_nicht`,
+  `::test_jeder_entsperrt_sich_selbst_mit_dem_zweiten_faktor`,
+  `::test_praeparierte_konfiguration_setzt_keine_sperrwerte`,
+  `::test_sperre_minuten_hat_eine_obergrenze`, Schutztests
+  `::test_selbst_entsperren_aktiviert_kein_gesperrtes_konto`,
+  `::test_gesperrter_verwalter_oeffnet_keine_einrichtungsphase`;
+  `tests/test_auth_cli.py::test_strenge_einstellungen_ohne_sperrwerte_aus_der_datei` —
+  korrigiert, er bestätigte die übernommenen Sperrwerte).
+- **Einzelschritte ohne Laufsperre (R2-M2):** `classify`, `opos zuordnen`, `bank
+  abgleich`, `bank abrufen` und `kreditkarte abgleich` halten dieselbe Sperre wie `bank
+  lauf` (`befehle.laufsperre_oder_ende`) — bevorzugt vor einer Eindeutigkeit je
+  `transaktion_id`, weil Storno-Paare später mehrere Buchungen je Umsatz anlegen
+  (`tests/test_betrieb_laufsperre.py::test_einzelschritte_der_bankkette_halten_die_laufsperre`,
+  `::test_classify_parallel_zu_bank_lauf_kontiert_nicht_doppelt`).
+- **Sicherung aus dem falschen Arbeitsverzeichnis (NEU-M2 = R2-N6):** fehlt die
+  SQLite-Datei oder hat die Datenbank keine Tabellen von accounti, bricht `erstellen` ab
+  und legt nichts an (`tests/test_betrieb_sicherung.py::test_fehlende_oder_fremde_sqlite_datei_wird_nicht_gesichert`,
+  `tests/test_cli_sicherung.py::test_sicherung_aus_dem_falschen_arbeitsverzeichnis`).
+- **Vier-Augen-Schalter (R2-N4 = N1):** `zahlung.ersteller_darf_freigeben` gilt in der CLI
+  nicht mehr (nur strenger), im Browser mit der Konfiguration von `accounti serve`
+  (`tests/test_cli_rechte_freigaben.py::test_ersteller_darf_freigeben_gilt_in_der_cli_nicht`
+  — korrigiert, `tests/test_api_rechte_matrix.py::test_ersteller_darf_freigeben_im_browser_mit_der_serverkonfiguration`);
+  `vier_augen` als Grenze dokumentiert.
+- **Wo billig:** `--fremde-gesellschaft` bindet das Ziel neu (R2-N2,
+  `tests/test_cli_sicherung.py::test_fremde_gesellschaft_bekommt_den_merker_des_ziels`);
+  Warten auf einen Anmeldeplatz im Event-Loop, 503 mit `Retry-After` (R2-N3,
+  `tests/test_api_anmeldung.py::test_wartende_anmeldungen_blockieren_keine_arbeitsthreads`);
+  Zwischendateien der Sicherung neben dem Ziel (R2-N5,
+  `tests/test_betrieb_sicherung.py::test_zwischendateien_liegen_neben_dem_ziel`); wieder
+  geöffnetes Geschäftsjahr läuft nicht ab, Stichtag vor 2025 rechnet Belege mit 10 Jahren
+  (N2, N3, `tests/test_betrieb_aufbewahrung.py::test_wieder_geoeffnetes_geschaeftsjahr_laeuft_nicht_ab`,
+  `::test_vor_dem_beg_iv_gelten_fuer_belege_zehn_jahre`); `zahlung iban-klaeren`,
+  `entfernen`, `sperre` (Recht buchen) und `stornieren` (Zahlungsfreigabe) mit Einmalcode und
+  Benutzer im Protokoll (Rest B-M12, `tests/test_cli_rechte_freigaben.py::test_weitere_zahlungsbefehle_mit_rolle_und_angemeldetem_benutzer`).
+- **Doku (R2-N1, N4):** Grenzen des Merkers (Trust on first use, Kopie der
+  Systemdatenbank, Browser prüft ihn nicht), Rückweg nach einer Sperre und ältere
+  Sicherungen (auch gesperrte Benutzer und entzogene Rollen kommen zurück) stehen in
+  `docs/betrieb.md`.
+- Nicht behoben: kosmetischer Rest von A-N1 (unter `/statisch/…` steht der maskierte Pfad
+  im Protokoll), `localhost` ↔ `127.0.0.1` und `file:`-URIs im Registry-Abgleich, leere
+  SQLite-Dateien aus Tippfehlern bei anderen Befehlen als `sicherung` (A-N3-Nebenwirkung).
+
 ## Schnittstelle für die Web-Oberfläche
 
 Die Supervisions-Queue, Auswertungen und die Zweisprachigkeit (Spec 4.2, 4.3, 4.5) entstehen
@@ -424,7 +479,8 @@ async def freigeben(
 - Spec 4.2, 4.3, 4.5 (Supervisions-Queue, Auswertungen, Zweisprachigkeit) und damit Akzeptanz 1
   und 2 baut der nächste Auftrag auf der Schnittstelle oben. Das Grundlayout hat keinen
   Übersetzungsmechanismus.
-- Keine Alembic-Migration für die sieben neuen Tabellen (`auth_benutzer`, `auth_rollen`,
+- Keine Alembic-Migration für die sieben neuen Tabellen (`auth_benutzer` — mit
+  `cli_fehlversuche`/`cli_gesperrt_bis` —, `auth_rollen`,
   `auth_wiederherstellungscodes`, `auth_sitzungen`, `api_tokens`, `auth_ereignisse`,
   `auth_merker`) — entsteht beim Zusammenführen und muss unter SQLite die Trigger
   `auth_ereignisse_kein_update/_delete` anlegen (wie `c7e19f7158a3` für `ustid_pruefungen`);
@@ -451,24 +507,35 @@ async def freigeben(
   eingerichtet sind).
   Im Container ist der Anmeldename immer `accounti` — Vier-Augen-Freigaben in Docker also im
   Browser.
-- Sind alle Verwalter gesperrt oder ohne zweiten Faktor, gilt wieder die Einrichtungsphase
-  (Notzugang über die Server-Shell) — gewollt, aber zu wissen. Freigaben öffnet sie nicht:
+- Sind alle Verwalter stillgelegt (`benutzer sperren`) oder ohne zweiten Faktor, gilt wieder
+  die Einrichtungsphase (Notzugang über die Server-Shell) — gewollt, aber zu wissen. Eine
+  Sperre nach Fehlversuchen zählt dafür nicht (sonst öffnete eine Flut aus dem Netz die
+  Einrichtungsphase); dagegen hilft `benutzer entsperren NAME` mit eigenem Einmalcode. Freigaben öffnet sie nicht:
   eine leere oder fremde Systemdatenbank scheitert am Merker der Gesellschaft.
 - Merker `auth_merker`: wer die CLI mit einer fremden Registry aufruft, **bevor** eine
   Gesellschaft je gebunden wurde (kein `benutzer anlegen`, keine Prüfung), bindet sie an
   diese (Trust on first use) — danach ist der Fehler sichtbar, weil die echte Prüfung
-  abbricht. Bewusst neu binden (Systemdatenbank verloren) geht nur über die Datenbank
-  (`DELETE FROM auth_merker WHERE schluessel = 'benutzerverwaltung'`). Der Browser
-  (`accounti serve`) prüft den Merker nicht; seine Systemdatenbank legt der Betreiber beim
-  Start fest.
-- Kontosperre: wer einen Benutzernamen kennt, blockiert dessen **neue** Anmeldungen je 15
-  Minuten und nach 100 Fehlversuchen bis zum Entsperren (offene Sitzungen laufen weiter).
-  Eine Bremsung je IP gehört in den Proxy; eine schrittweise verlängerte Sperre statt der
-  festen 15 Minuten ist nicht umgesetzt.
-- `zahlung.ersteller_darf_freigeben` und `zahlung.vier_augen` stehen in der Konfiguration der
-  Gesellschaft — ohne Registry ist das die Datei aus `--config`, die der Aufrufer wählt (mit
-  Registry wird eine abweichende Datei abgewiesen). Den zweiten Faktor schalten beide nicht
-  ab.
+  abbricht. Bewusst neu binden (Systemdatenbank verloren) geht über die Datenbank
+  (`DELETE FROM auth_merker WHERE schluessel = 'benutzerverwaltung'`) oder beim
+  Zurückspielen mit `--fremde-gesellschaft`. Der Merker vergleicht die Kennung, nicht den
+  Ort: eine **Kopie** der Systemdatenbank besteht ihn (wer sie lesen kann, kann darin
+  Rollen ändern und mit eigenem zweitem Faktor freigeben; der Code wird nur in der Kopie
+  verbraucht). Der Browser (`accounti serve`) prüft den Merker nicht; seine
+  Systemdatenbank legt der Betreiber beim Start fest. Alles auch in `docs/betrieb.md`.
+- Kontosperre: wer einen Benutzernamen kennt, blockiert dessen **neue** Anmeldungen im
+  Browser je 15 Minuten und nach 100 Fehlversuchen bis zum Entsperren (offene Sitzungen
+  laufen weiter, die CLI zählt getrennt; Rückweg: `benutzer entsperren NAME` auf der
+  Server-Shell mit eigenem Einmalcode). Eine Bremsung je IP gehört in den Proxy
+  (`limit_req`-Beispiel in `docs/betrieb.md`); eine schrittweise verlängerte Sperre ist
+  nicht umgesetzt. 100 falsche Codes **auf der Shell** sperren auch die CLI bis zum
+  Entsperren — dann ein anderer Verwalter oder SQL (Shell-Zugang ist Betreiberebene).
+- `zahlung.ersteller_darf_freigeben` gilt nur im Browser (Konfiguration von `accounti
+  serve`); in der CLI gilt mit Benutzern immer „wer anlegt, gibt nicht frei“.
+  `zahlung.vier_augen` steht in der Konfiguration der Gesellschaft — die wählt in der CLI
+  der Aufrufer (`--config` ohne Registry, eine eigene `ACCOUNTI_KONFIG`/Registry mit
+  Registry; der Abgleich `--config` ↔ Registry prüft nur gegen die Registry des
+  Aufrufers). Vier-Augen lässt sich in der CLI so abschalten; den eigenen zweiten Faktor
+  nicht, und das Protokoll zeigt, wer allein freigab.
 - Den zweiten Faktor richtet nur die CLI ein (`benutzer 2fa`, auf dem Server); es gibt keine
   Selbstregistrierung im Browser, kein Zurücksetzen per E-Mail, keine Passkeys/WebAuthn.
 - TOTP nur SHA-1, 6 Stellen, 30 s (was Apps können); Toleranz ±1 Schritt — RFC 6238
