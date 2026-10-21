@@ -405,21 +405,79 @@ Berechnet die BWA aus Buchungssätzen. Standard: DATEV BWA-Form 01. Unterstützt
 - Kumuliert (Jahresanfang bis Stichtag)
 - Vorjahresvergleich
 
-### `auth/` *(geplant — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
+### `auth/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
 
-Benutzer, Rollen, Sitzungen, Zwei-Faktor-Authentifizierung. Rollen `betrachter` / `buchhalter` / `freigeber` / `verwalter`; die Trennung von Buchen und Freigeben ist die Voraussetzung dafür, dass das Vier-Augen-Prinzip überhaupt greifen kann. Ab hier trägt jeder Journaleintrag einen echten Benutzer statt einer freien Zeichenkette.
+Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **Systemdatenbank**
+(ohne Registry: die Datenbank der Gesellschaft). Modelle `models/auth.py`, Tabellen
+`db/tabellen_auth.py` (`auth_benutzer`, `auth_rollen`, `auth_wiederherstellungscodes`,
+`auth_sitzungen`, `api_tokens`, `auth_ereignisse` — nur anfügen, SQLite-Trigger —,
+`auth_merker`), Repository `db/repo_auth.py`.
 
-### `api/`
+- `passwort.py` — `hashlib.scrypt` (N = 2^17, r = 8, p = 1), Parameter im Hash, Neuberechnung
+  bei der Anmeldung; Regeln nach NIST 800-63B-4 (Länge, Sperrliste, keine Zusammensetzung).
+- `totp.py` — RFC 6238 mit `hmac` (Prüfwerte aus Anhang B), Toleranz ±1 Schritt, otpauth-URI;
+  jeder Schritt wird nur einmal angenommen (`UPDATE … WHERE letzter < schritt`).
+- `wiederherstellung.py` — zehn Codes je Benutzer, als HMAC mit einem Pepper aus dem Tresor
+  gespeichert (ein Nachschlagen, gleiche Arbeit je Versuch), je einer genau einmal.
+- `dienst.py` — anlegen, 2FA bestätigen (Geheimnis im Tresor, an den Benutzer gebunden),
+  `pruefe_anmeldung` (Passwort **und** zweiter Faktor, sonst `AnmeldungError` ohne Grund;
+  jeder Weg kostet eine Passwort-Prüfung), Sperre (jeder Versuch vor der Prüfung atomar
+  gezählt, Obergrenze in Folge; Browser und Server-Shell getrennt), Sitzungen (256-Bit-Token, nur SHA-256 gespeichert,
+  Leerlauf, Höchstdauer; Passwortwechsel, `benutzer sperren`, Rollenänderung und neuer
+  zweiter Faktor beenden sie — Fehlversuche anderer nicht), Rollen je Gesellschaft.
+- `token.py` — API-Token `accounti_api_…` mit Gesellschaft, Rechten (`TokenRecht`), Ablauf;
+  nur SHA-256. Kein Token kann freigeben.
+- `cli.py` — Rechte in der CLI: ohne Benutzer keine Prüfung; sonst Person mit Recht in der
+  Gesellschaft der benutzten Datenbank und Einmalcode (in der CLI immer). Bindung jeder
+  Gesellschafts-Datenbank an ihre Systemdatenbank (Merker `auth_merker`, fail-closed).
+  Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
+  Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
+  `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben`. Sperrwerte gelten in der CLI immer
+  mit den Standardwerten, nie aus `--config`.
+- `einstellungen.py` — Abschnitt `auth`.
 
-REST-API (FastAPI) für:
-- Supervision: Buchungen prüfen, korrigieren, freigeben
-- BWA-Abfrage
-- Import-Trigger
-- Statusübersicht
+Rollen → Rechte (`ROLLEN_RECHTE`): `betrachter` lesen · `buchhalter` lesen, buchen, Belege
+einliefern, Läufe starten, Buchungen freigeben · `freigeber` lesen, Buchungen, Zahlungsläufe,
+Steuermeldungen freigeben · `verwalter` lesen, verwalten. Additiv, nicht hierarchisch.
 
-Web-UI: Minimalistisch mit HTMX + Jinja2 (kein SPA-Build-Step).
+### `api/` *(Gerüst und REST-API vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
 
-Kernansicht ist die Supervisions-Queue: links die Belegvorschau, rechts der Buchungsvorschlag mit Confidence und Begründung, Korrektur in einem Schritt — und das Angebot, aus der Korrektur eine Regel zu machen. Die Oberfläche ruft dieselben Funktionen auf wie die CLI; Logik, die nur im Browser existiert, gibt es nicht.
+FastAPI-Anwendung aus `app.erstelle_app(Dienste)`: Systemdatenbank, Gesellschaften und ihre
+Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Personenbezug
+(`sicherheit.py`), `/gesund`, `/statisch`. Gestartet mit `accounti serve` (`server.py`).
+
+- `sitzung.py` — Dependencies `angemeldet`, `erfordert(Recht.X)`, `gesellschaft_db`; CSRF-Token
+  aus dem Sitzungstoken, Pflicht bei jeder nicht lesenden Anfrage (Feld `csrf` oder Kopf
+  `X-CSRF-Token`). Die aktive Gesellschaft steht in der Sitzung; Mitgliedschaft und Rechte
+  werden je Anfrage neu gelesen.
+- `seiten/` — HTML-Router-Registry (jedes Modul mit `router`, optional `NAVIGATION`):
+  `anmeldung.py` (Passwort + Einmalcode, Double-Submit gegen Login-CSRF), `start.py`,
+  `gesellschaft.py` (Wechsel), `freigaben.py` (Zahlungslauf, USt-VA mit frischem Einmalcode).
+- `rest/` — REST-Registry unter `/api/v1`, nur mit API-Token (`erfordert_recht`, `TokenDb`):
+  `ich`, `offene-posten`, `buchungen`, `belege` (über `belege.pipeline`, Kanal `api`),
+  `laeufe/bank`, `laeufe/aufgaben`.
+- `vorlagen/` + `vorlagen.py` (Jinja2, Autoescape, `basis.html`), `statisch/` (CSS), `formular.py`
+  (urlencoded ohne `python-multipart`), `registry.py`, `einstellungen.py` (Abschnitt `server`).
+
+Die Oberfläche ruft dieselben Funktionen wie die CLI. Geplant auf diesem Gerüst: die
+Supervisions-Queue (links Beleg, rechts Vorschlag mit Confidence und Begründung, Korrektur in
+einem Schritt, Angebot einer Regel), Auswertungen, DE/EN.
+
+### `betrieb/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md), [Betrieb](betrieb.md))*
+
+- `gesellschaften.py` — Registry `gesellschaften`: je Kürzel Name, Datenbank, Archiv,
+  Konfiguration, Regeln; Systemdatenbank; `${VAR}` erst bei Bedarf ersetzt.
+- `kontext.py`, `cli.py` — Kontext je CLI-Aufruf: `--gesellschaft`/`ACCOUNTI_GESELLSCHAFT` bzw.
+  `ACCOUNTI_DB`/`ARCHIV`/`KONFIG` setzen über `Context.default_map` die Standards von `--db`,
+  `--archiv`, `--config` **aller** Befehle (Callback in `cli.py`).
+- `verschluesselung.py`, `sicherung.py` — Sicherung als Tar-Strom (Tabellen als JSON-Zeilen,
+  typgetreu; Archivdateien; Manifest mit SHA-256), AES-256-GCM in Stücken (STREAM, HKDF je
+  Sicherung); Wiederherstellung nur in eine leere Umgebung, alles oder nichts.
+- `aufbewahrung.py` — Fristen nach § 147 AO (BEG IV) und § 14b UStG, Bericht ohne Löschen.
+- `planer.py` — geplanter Lauf (`bank lauf`, `aufgaben lauf` je Gesellschaft als Prozesse).
+- `laufsperre.py` — je Gesellschaft und Art höchstens ein Lauf, über Prozesse hinweg
+  (PostgreSQL-Advisory-Lock, SQLite-Dateisperre).
+- `protokoll.py` — Schwärzung (IBAN, E-Mail, Token, Passwörter in URLs) an jedem Handler.
 
 ## Datenmodell
 
@@ -475,6 +533,10 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 - DATEV-Exports werden lokal erzeugt, nie über externe APIs
 - Self-Hosted: Deine Daten bleiben auf deinem Server. Deshalb ist auch die OCR-Engine standardmäßig lokal und Cloud-Verarbeitung opt-in
 - Belege, Buchungen, Journale und Übermittlungsprotokolle unterliegen der zehnjährigen Aufbewahrungsfrist; das Löschkonzept kennt sie, statt sie zu ignorieren
+- Anmeldung nur mit zweitem Faktor; Passwörter mit scrypt, Sitzungs- und API-Token nur als
+  SHA-256, TOTP-Geheimnisse im Tresor; Freigaben mit Rolle und frischem Einmalcode
+- Protokolle ohne IP-Adressen, Abfrageparameter, Namen, Token und Passwörter; Sicherungen
+  verschlüsselt mit einem Schlüssel aus der Umgebung, getrennt aufzubewahren
 
 ## Erweiterungspunkte
 
@@ -490,6 +552,8 @@ können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen 
 | Repository-Funktionen | `src/accounti/db/repo_<bereich>.py` | Import im Baustein |
 | CLI-Befehlsgruppe | `src/accounti/befehle/<bereich>.py` mit `NAME` und `befehl = typer.Typer(...)` | `haenge_befehle_ein()` in `cli.py` |
 | Konfiguration | eigener Abschnitt in `config/accounti.yaml`, eigener Lader im Baustein | — |
+| HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
+| REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
 
 Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`.
 

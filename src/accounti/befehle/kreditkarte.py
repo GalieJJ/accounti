@@ -372,7 +372,9 @@ def abgleich(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
     except KonfigurationError as fehler:
         _ende(str(fehler))
         return
-    with _sitzung(db) as s:
+    from accounti.befehle import laufsperre_oder_ende
+
+    with laufsperre_oder_ende(db), _sitzung(db) as s:
         ergebnis = gleiche_sammelbelastungen_ab(s, buchhaltung, einst)
         s.commit()
     zeige_kartenabgleich(ergebnis)

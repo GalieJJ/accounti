@@ -20,7 +20,10 @@ class Base(DeclarativeBase):
 def session_factory(
     url: str = "sqlite:///accounti.db",
 ) -> tuple[Engine, sessionmaker[Session]]:
-    engine = create_engine(url)
+    """Engine und Sitzungsfabrik. ``hide_parameters``: Fehlermeldungen der Datenbank
+    enthalten kein ``[parameters: …]`` — sonst landeten Namen und Belegtexte über
+    jede Ausnahme im Protokoll (Spec 4.6)."""
+    engine = create_engine(url, hide_parameters=True)
     return engine, sessionmaker(bind=engine)
 
 

@@ -9,6 +9,14 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+# Wie die Anwendung: ACCOUNTI_DB ersetzt sqlalchemy.url aus alembic.ini (Docker)
+import os  # noqa: E402
+
+if os.environ.get("ACCOUNTI_DB"):
+    config.set_main_option(
+        "sqlalchemy.url", os.environ["ACCOUNTI_DB"].replace("%", "%%")
+    )
+
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:

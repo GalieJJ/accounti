@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from datetime import date
 from pathlib import Path
 
 # § 147 Abs. 3 AO: Buchungsbelege zehn Jahre aufbewahren.
 AUFBEWAHRUNG_JAHRE = 10
+
+
+_ENDUNG = re.compile(r"[a-z0-9]{1,10}")
+
+
+def bereinige_endung(endung: str) -> str:
+    """``.pdf`` o. Ä. — Leerzeichen und Großbuchstaben aus Dateinamen wie
+    „Quittung 12.03. Shell“ werden entfernt; was dann keine Endung ist, entfällt."""
+    rein = "".join(endung.lower().split()).rsplit(".", 1)[-1]
+    return f".{rein}" if _ENDUNG.fullmatch(rein) else ""
 
 
 def aufbewahrungsende(eingang: date) -> date:
@@ -51,9 +62,7 @@ class BelegArchiv:
         datei_hash = hashlib.sha256(inhalt).hexdigest()
         if self.enthaelt(datei_hash):
             return datei_hash
-        endung = endung.lower()
-        if endung and not endung.startswith("."):
-            endung = f".{endung}"
+        endung = bereinige_endung(endung)
         ordner = self._ordner(datei_hash)
         ordner.mkdir(parents=True, exist_ok=True)
         ziel = ordner / f"{datei_hash}{endung}"
