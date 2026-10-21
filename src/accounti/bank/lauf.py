@@ -191,13 +191,16 @@ def bank_lauf(
     einstellungen: Buchhaltung,
     schluessel: str | None = None,
     bank_einstellungen: BankEinstellungen | None = None,
+    sichern: Callable[[], None] | None = None,
 ) -> Banklauf:
     """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
     abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
-    bevor offene Posten oder das Regelwerk sie sehen."""
+    bevor offene Posten oder das Regelwerk sie sehen. ``sichern`` schreibt den
+    Abruf je Konto fest — die Buchungen danach beginnen eine eigene Transaktion
+    (unter PostgreSQL mit der Schreibsperre zuerst)."""
     bank = bank_einstellungen or lade_bank_einstellungen()
     return Banklauf(
-        abrufe=rufe_ab(session, schluessel),
+        abrufe=rufe_ab(session, schluessel, sichern=sichern),
         kreditkarten=gleiche_sammelbelastungen_ab(
             session, einstellungen, bank.kreditkarte
         ),

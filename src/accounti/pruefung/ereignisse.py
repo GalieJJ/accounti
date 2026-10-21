@@ -459,13 +459,35 @@ _SPERRBEDARF = frozenset(
 )
 
 
+def _ohne_buchungsbezug(name: str) -> bool:
+    """Anmeldedaten (Systemdatenbank) — nie in einer Transaktion mit Buchungen."""
+    return name.startswith("auth_") or name == "api_tokens"
+
+
 def _braucht_sperre(session: Session) -> bool:
-    """Berührt der Flush eine Tabelle mit Journal- oder Sperrbezug?"""
+    """Braucht dieser Flush die Schreibsperre?
+
+    Ja, wenn er eine Tabelle mit Journal- oder Sperrbezug berührt. Unter PostgreSQL
+    außerdem, wenn er bestehende Zeilen ändert oder löscht (außer Anmeldedaten):
+    Die Advisory-Sperre ist dann die erste Sperre jeder Transaktion, die beides
+    braucht — holte eine Transaktion erst Zeilensperren und danach die
+    Advisory-Sperre, während eine andere es umgekehrt tut, entstünde ein Deadlock.
+    Neue Zeilen sperren nichts, was andere sehen; Anmeldungen warten nicht."""
     namen = _SPERRBEDARF | GESCHUETZT | ERFASST.keys()
-    for menge in (session.new, session.dirty, session.deleted):
+    postgres = session.get_bind().dialect.name == "postgresql"
+    for aendert, menge in (
+        (False, session.new),
+        (True, session.dirty),
+        (True, session.deleted),
+    ):
         for obj in menge:
             zustand: Any = inspect(obj, raiseerr=False)
-            if zustand is not None and zustand.mapper.local_table.name in namen:
+            if zustand is None:  # pragma: no cover — kein ORM-Objekt
+                continue
+            name = zustand.mapper.local_table.name
+            if name in namen or (
+                postgres and aendert and not _ohne_buchungsbezug(name)
+            ):
                 return True
     return False
 

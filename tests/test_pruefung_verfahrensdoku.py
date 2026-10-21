@@ -246,3 +246,47 @@ def test_buchungsdatum_nach_gewinnermittlung(tmp_path, gewinnermittlung, erwarte
         text = erzeuge(s, config, stand=date(2026, 10, 21))
     assert erwartet in " ".join(text.split())
     engine.dispose()
+
+
+def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
+    tmp_path, monkeypatch
+):
+    """Abschlussprüfung N-C: Zeigt die Systemdatenbank ins Leere, steht in der Doku
+    nicht „keine Benutzer“, wenn die Datenbank zu einer Benutzerverwaltung gehört —
+    und es entsteht keine leere SQLite-Datei. Die Benutzerliste zeigt nur die
+    Rollen der aktiven Gesellschaft."""
+    from datetime import datetime
+
+    from accounti.db.repo_auth import setze_merker_einmal
+    from accounti.models.auth import Rolle
+    from tests.auth_hilfe import billige_hashes, lege_person_an
+
+    billige_hashes(monkeypatch)
+    engine, fabrik = _fabrik(tmp_path)
+    config = _konfig(tmp_path / "accounti.yaml")
+    fehlt = tmp_path / "gibt-es-nicht.db"
+    with fabrik() as s:
+        setze_merker_einmal(
+            s,
+            "benutzerverwaltung",
+            '{"gesellschaft": "a", "system": "x"}',
+            datetime.now(),
+        )
+        s.commit()
+        text = erzeuge(s, config, system_db=f"sqlite:///{fehlt}", gesellschaft="a")
+    assert "keine Benutzer eingerichtet" not in text
+    assert "nicht lesbar" in text and "ACCOUNTI_SYSTEM_DB" in text
+    assert not fehlt.exists()
+
+    system = tmp_path / "system.db"
+    s_engine, s_fabrik = session_factory(f"sqlite:///{system}")
+    init_db(s_engine)
+    with s_fabrik() as s:
+        lege_person_an(s, "eva", Rolle.BUCHHALTER, gesellschaft="a")
+        lege_person_an(s, "bob", Rolle.FREIGEBER, gesellschaft="b")
+    s_engine.dispose()
+    with fabrik() as s:
+        text = erzeuge(s, config, system_db=f"sqlite:///{system}", gesellschaft="a")
+    engine.dispose()
+    assert "| eva | buchhalter (a) |" in text
+    assert "bob" not in text

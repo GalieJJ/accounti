@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 
 import yaml
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from accounti import __version__
@@ -76,11 +77,13 @@ class _Doku:
         config: Path,
         db_url: str | None,
         system_db: str | None = None,
+        gesellschaft: str | None = None,
     ) -> None:
         self.s = session
         self.config = config
         self.db_url = db_url
         self.system_db = system_db
+        self.gesellschaft = gesellschaft
         self.zeilen: list[str] = []
 
     def __call__(self, *zeilen: str) -> None:
@@ -364,8 +367,11 @@ def _freigabe(d: _Doku) -> None:
 
 
 def _benutzerliste(d: _Doku) -> list[list[object]] | None:
-    """Benutzer mit Rollen aus der Systemdatenbank — ``None``: keine eingerichtet."""
+    """Benutzer mit ihren Rollen in der aktiven Gesellschaft (sonst allen) aus der
+    Systemdatenbank — ``None``: keine Benutzer oder Systemdatenbank nicht lesbar.
+    Eine SQLite-Systemdatenbank, die es nicht gibt, wird nicht angelegt."""
     from sqlalchemy import inspect as sql_inspect
+    from sqlalchemy import make_url
 
     from accounti.db import session_factory
     from accounti.db.repo_auth import lade_alle_benutzer, rollen_von
@@ -373,31 +379,49 @@ def _benutzerliste(d: _Doku) -> list[list[object]] | None:
     def lies(s: Session) -> list[list[object]] | None:
         if not sql_inspect(s.get_bind()).has_table("auth_benutzer"):
             return None
+        alle = lade_alle_benutzer(s)
         zeilen: list[list[object]] = []
-        for b in lade_alle_benutzer(s):
-            rollen = sorted(
-                f"{r.rolle.value} ({r.gesellschaft})" for r in rollen_von(s, b.id)
-            )
+        for b in alle:
+            rollen = [
+                r
+                for r in rollen_von(s, b.id)
+                if d.gesellschaft is None or r.gesellschaft == d.gesellschaft
+            ]
+            if d.gesellschaft is not None and not rollen:
+                continue  # Benutzer anderer Gesellschaften gehören nicht hierher
+            text = sorted(f"{r.rolle.value} ({r.gesellschaft})" for r in rollen)
             zeilen.append(
-                [b.name, ", ".join(rollen) or "—", _ja(b.totp_aktiv), _ja(b.aktiv)]
+                [b.name, ", ".join(text) or "—", _ja(b.totp_aktiv), _ja(b.aktiv)]
             )
-        return zeilen or None
+        return zeilen if alle else None
 
     if d.system_db is None or d.system_db == d.db_url:
         return lies(d.s)
+    url = make_url(d.system_db)
+    datei = url.database or ""
+    if (
+        url.get_backend_name() == "sqlite"
+        and datei not in ("", ":memory:")
+        and not datei.startswith("file:")
+        and not Path(datei).is_file()
+    ):
+        return None
     engine, fabrik = session_factory(d.system_db)
     try:
         with fabrik() as s:
             return lies(s)
+    except SQLAlchemyError:
+        return None
     finally:
         engine.dispose()
 
 
 def _benutzer(d: _Doku) -> None:
     from accounti.models.auth import FREIGABEWEGE, RECHT_TEXT, ROLLEN_RECHTE, Recht
+    from accounti.pruefung.journal import benutzer_eingerichtet
 
     benutzer = _benutzerliste(d)
-    if benutzer is None:
+    if benutzer is None and not benutzer_eingerichtet(d.s.connection()):
         d(
             "Benutzer und Rechte: keine Benutzer eingerichtet — accounti prüft keine "
             "Rollen; die handelnde Person ist ein Freitext (--von, ACCOUNTI_BENUTZER, "
@@ -405,12 +429,22 @@ def _benutzer(d: _Doku) -> None:
             "",
         )
         return
-    d(
-        f"Benutzer und Rechte: {len(benutzer)} Benutzer (Anmeldung mit Passwort und "
-        "zweitem Faktor, Rollen je Gesellschaft):",
-        "",
-    )
-    d(*_tabelle(["Benutzer", "Rollen", "zweiter Faktor", "aktiv"], benutzer))
+    if benutzer is None:  # gebunden, aber die Systemdatenbank fehlt oder ist leer
+        d(
+            "Benutzer und Rechte: Die Datenbank gehört zu einer Benutzerverwaltung "
+            "(Bindung an eine Systemdatenbank), deren Benutzerliste hier nicht lesbar "
+            "ist — ACCOUNTI_SYSTEM_DB bzw. gesellschaften.systemdatenbank prüfen. "
+            "Rollen und Einmalcode gelten trotzdem:",
+            "",
+        )
+    else:
+        wo = f" in der Gesellschaft {d.gesellschaft}" if d.gesellschaft else ""
+        d(
+            f"Benutzer und Rechte: {len(benutzer)} Benutzer mit Rolle{wo} (Anmeldung "
+            "mit Passwort und zweitem Faktor, Rollen je Gesellschaft):",
+            "",
+        )
+        d(*_tabelle(["Benutzer", "Rollen", "zweiter Faktor", "aktiv"], benutzer))
     d(
         "Rechte je Rolle: "
         + " · ".join(
@@ -656,14 +690,16 @@ def erzeuge(
     archiv: str | Path | None = None,
     stand: date | None = None,
     system_db: str | None = None,
+    gesellschaft: str | None = None,
 ) -> str:
     """Die Verfahrensdokumentation als Markdown — aus dem Systemzustand.
 
     ``system_db``: Datenbank mit Benutzern und Rollen (Registry bzw.
-    ``ACCOUNTI_SYSTEM_DB``); ohne Angabe die Datenbank der Sitzung."""
+    ``ACCOUNTI_SYSTEM_DB``); ohne Angabe die Datenbank der Sitzung.
+    ``gesellschaft``: nur Benutzer mit Rollen in dieser Gesellschaft."""
     from accounti.pruefung.journal import lade_journal
 
-    d = _Doku(session, Path(config), db_url, system_db)
+    d = _Doku(session, Path(config), db_url, system_db, gesellschaft)
     stand = stand or date.today()
     name = (d.roh().get("mandant") or {}).get("name") or "nicht eingerichtet"
     d(

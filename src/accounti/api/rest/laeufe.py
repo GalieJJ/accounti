@@ -46,6 +46,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
         engine,
         lade_buchhaltung(g.konfiguration),
         bank_einstellungen=lade_bank_einstellungen(g.konfiguration),
+        sichern=s.commit,
     )
     s.commit()
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung

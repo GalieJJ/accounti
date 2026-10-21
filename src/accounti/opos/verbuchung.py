@@ -473,6 +473,13 @@ def _buchungstag(
             f"{gebucht} — die Vorsteuer zählt in diesem Voranmeldungszeitraum "
             "(§ 15 Abs. 1 Nr. 1 UStG: Rechnung liegt vor)"
         )
+    elif tag < massgeblich:
+        hinweis = (
+            f"{gebucht} — Achtung: die Vorsteuer zählt erst ab dem Zeitraum, in dem "
+            f"die Rechnung vorliegt ({massgeblich:%m/%Y}); gebucht am "
+            f"{tag:%d.%m.%Y} zählt sie zu früh (§ 15 Abs. 1 Nr. 1 UStG) — zum ersten "
+            "offenen Tag ab Eingang buchen: --buchungsdatum offen"
+        )
     elif sperrfehler(session.connection(), massgeblich) is not None:
         hinweis = (
             f"{gebucht} — die Vorsteuer gehört in den Zeitraum, in dem die Rechnung "

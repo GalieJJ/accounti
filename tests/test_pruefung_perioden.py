@@ -350,3 +350,27 @@ def test_fester_tag_lange_nach_dem_eingang_warnt_zur_vorsteuer(make_session):
     assert "zählt in diesem Voranmeldungszeitraum" not in text
     assert "04/2026" in text and "kein Wahlrecht" in text
     assert "--buchungsdatum offen" in text
+
+
+def test_fester_tag_vor_dem_eingang_warnt_zu_frueh(make_session):
+    """Abschlussprüfung N-B: gebucht am 15.04., die Rechnung kam erst am 02.05. —
+    die Vorsteuer zählt nicht „erst später“, sondern zu früh (§ 15 Abs. 1 Nr. 1
+    UStG: erst, wenn die Rechnung vorliegt)."""
+    from datetime import datetime
+
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    rechnung = beleg(tag=date(2026, 3, 10), nummer="RE-Y", datei_hash="f" * 64)
+    rechnung = rechnung.model_copy(
+        update={"eingegangen_am": datetime(2026, 5, 2, 9, 0)}
+    )
+    anlegen(make_session, rechnung)
+    _geschlossen(make_session, "2026-03")
+    with make_session() as s:
+        v = verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum=date(2026, 4, 15))
+        s.rollback()
+    text = " ".join(v.hinweise)
+    assert "erst später" not in text
+    assert "zu früh" in text and "05/2026" in text and "--buchungsdatum offen" in text

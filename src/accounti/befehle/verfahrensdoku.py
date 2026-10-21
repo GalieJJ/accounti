@@ -33,9 +33,17 @@ def verfahrensdoku(
     from accounti.betrieb.kontext import aktueller_kontext
     from accounti.pruefung.verfahrensdoku import als_pdf, erzeuge, fassung, vermerke
 
-    system_db = aktueller_kontext().systemdatenbank(db)
+    kontext = aktueller_kontext()
+    system_db = kontext.systemdatenbank(db)
     with sitzung(db)() as s:
-        text = erzeuge(s, config, db_url=db, archiv=archiv, system_db=system_db)
+        text = erzeuge(
+            s,
+            config,
+            db_url=db,
+            archiv=archiv,
+            system_db=system_db,
+            gesellschaft=kontext.kuerzel,
+        )
         ziel = Path(ausgabe)
         ziel.write_text(text, encoding="utf-8")
         vermerke(s, text, ziel.name)

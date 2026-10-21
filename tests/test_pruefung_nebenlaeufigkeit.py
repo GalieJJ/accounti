@@ -418,3 +418,84 @@ def test_journal_pruefen_haelt_schreiber_nicht_an_postgresql(pg_datenbank, monke
     with fabrik() as s:
         assert journal.pruefe_journal(s).in_ordnung
     engine.dispose()
+
+
+@mit_postgresql
+def test_kein_deadlock_durch_sperrreihenfolge_postgresql(pg_datenbank):
+    """Abschlussprüfung N-A: T1 ändert erst einen Umsatz und bucht danach, T2 bucht
+    und ändert danach denselben Umsatz. Holte T1 die Advisory-Sperre erst beim
+    Buchen, hielte es die Zeile und wartete auf die Sperre, T2 umgekehrt — ein
+    Deadlock. Unter PostgreSQL holt jede Transaktion, die Zeilen ändert, die
+    Schreibsperre zuerst: T2 wartet, beide kommen durch."""
+    import threading
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_transaktion
+    from accounti.db.tabellen import TransaktionRow
+    from tests.pruefung_hilfe import umsatz
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    tx = umsatz()
+    with fabrik() as s:
+        speichere_transaktion(s, tx)
+        s.commit()
+    e1, e2 = threading.Event(), threading.Event()
+    ergebnis: dict[str, str] = {}
+
+    def b(netto: str):  # type: ignore[no-untyped-def]
+        return buchung(tx, steuer=None, schluessel=None, netto=netto)
+
+    def t1() -> None:
+        try:
+            with fabrik() as s:
+                s.get(TransaktionRow, str(tx.id)).sachkonto = "1200"  # type: ignore[union-attr]
+                s.flush()
+                e1.set()
+                e2.wait(2)
+                speichere_buchung(s, b("1.00"))
+                s.flush()
+                s.commit()
+            ergebnis["T1"] = "ok"
+        except Exception as fehler:  # noqa: BLE001
+            ergebnis["T1"] = type(fehler).__name__
+            e2.set()
+
+    def t2() -> None:
+        e1.wait(10)
+        try:
+            with fabrik() as s:
+                speichere_buchung(s, b("2.00"))
+                s.flush()
+                e2.set()
+                s.get(TransaktionRow, str(tx.id)).sachkonto = "1210"  # type: ignore[union-attr]
+                s.flush()
+                s.commit()
+            ergebnis["T2"] = "ok"
+        except Exception as fehler:  # noqa: BLE001
+            ergebnis["T2"] = type(fehler).__name__
+
+    faeden = [threading.Thread(target=t1), threading.Thread(target=t2)]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(timeout=30)
+    engine.dispose()
+    assert ergebnis == {"T1": "ok", "T2": "ok"}
+
+
+@mit_postgresql
+def test_nach_der_pruefung_schreibt_die_sitzung_wieder_postgresql(pg_datenbank):
+    """Abschlussprüfung N-D: Der Schnappschuss der Prüfung (READ ONLY) endet mit
+    ihr — dieselbe Sitzung kann danach schreiben."""
+    from accounti.db import init_db, session_factory
+    from accounti.pruefung.journal import pruefe_journal
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    with fabrik() as s:
+        assert pruefe_journal(s).in_ordnung
+        speichere_buchung(s, buchung(steuer=None, schluessel=None))
+        s.commit()
+        assert pruefe_journal(s).in_ordnung
+    engine.dispose()
