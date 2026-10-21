@@ -461,15 +461,31 @@ def _buchungstag(
             "gehört dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ (SKR03) — das "
             f"bucht accounti nicht selbst{ohne_angabe}"
         )
-    hinweis = (
+    # Vorsteuer: im Zeitraum, in dem Leistung und Rechnung vorliegen — ohne Wahlrecht
+    # (§ 15 Abs. 1 Nr. 1 UStG); maßgeblich ist hier das spätere von Beleg und Eingang
+    massgeblich = max(belegdatum, eingegangen)
+    gebucht = (
         f"gebucht am {tag:%d.%m.%Y} statt zum Belegdatum {belegdatum:%d.%m.%Y} "
-        f"(Eingang {eingegangen:%d.%m.%Y}) — die Vorsteuer zählt in diesem "
-        "Voranmeldungszeitraum (§ 15 Abs. 1 Nr. 1 UStG: Rechnung liegt vor)"
+        f"(Eingang {eingegangen:%d.%m.%Y})"
     )
-    if sperrfehler(session.connection(), eingegangen) is not None and tag > eingegangen:
-        hinweis += (
-            "; der Eingang liegt in einem festgeschriebenen Zeitraum — dessen "
-            "Voranmeldung ist gegebenenfalls zu berichtigen"
+    if (tag.year, tag.month) == (massgeblich.year, massgeblich.month):
+        hinweis = (
+            f"{gebucht} — die Vorsteuer zählt in diesem Voranmeldungszeitraum "
+            "(§ 15 Abs. 1 Nr. 1 UStG: Rechnung liegt vor)"
+        )
+    elif sperrfehler(session.connection(), massgeblich) is not None:
+        hinweis = (
+            f"{gebucht} — die Vorsteuer gehört in den Zeitraum, in dem die Rechnung "
+            f"vorlag ({massgeblich:%m/%Y}), der ist festgeschrieben: dessen "
+            "Voranmeldung ist gegebenenfalls zu berichtigen (§ 15 Abs. 1 Nr. 1 UStG, "
+            "kein Wahlrecht beim Zeitpunkt)"
+        )
+    else:
+        hinweis = (
+            f"{gebucht} — Achtung: die Vorsteuer gehört in den Voranmeldungszeitraum "
+            f"{massgeblich:%m/%Y}, in dem die Rechnung vorlag (offen); gebucht am "
+            f"{tag:%d.%m.%Y} zählt sie erst später (§ 15 Abs. 1 Nr. 1 UStG, kein "
+            "Wahlrecht) — zum ersten offenen Tag buchen: --buchungsdatum offen"
         )
     if tag.year != belegdatum.year:  # Einnahmenüberschussrechnung
         hinweis += (

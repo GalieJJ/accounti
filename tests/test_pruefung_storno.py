@@ -681,3 +681,60 @@ def test_ohne_steuer_bei_paragraph_13b_eingangsrechnung(make_session):
         )
         s.commit()
     assert k.neu is not None and k.neu.steuer_schluessel is None
+
+
+@pytest.mark.parametrize("schluessel", [94, 19])
+def test_ohne_steuer_bei_13b_und_ig_erwerb_eigener_hinweis(make_session, schluessel):
+    """Schlussprüfung M-5: Bei § 13b (94) und ig. Erwerb (19) entfernt --ohne-steuer
+    Steuerschuld **und** Vorsteuer — richtig nur, wenn gar kein § 13b-Fall bzw. kein
+    ig. Erwerb vorliegt. Die Meldung schlägt deshalb nicht „kein Vorsteuerabzug,
+    Rechnung unvollständig“ vor (dann bliebe die Steuer geschuldet), die Korrektur
+    warnt, und das Brutto enthält die selbst berechnete Steuer nicht (sie steckt
+    nicht im Zahlbetrag): aus 100 € wird keine Verbindlichkeit über 119 €."""
+    b = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll="4900",
+        haben="70001",
+        netto="100.00",
+        steuer="19.00",
+        schluessel=schluessel,
+        beleg_id=uuid4(),
+    )
+    anlegen(make_session, b)
+    with make_session() as s:
+        with pytest.raises(StornoError) as fehler:
+            korrigiere(s, str(b.id), "4900", "70001", ohne_steuer=True, von="erika")
+        text = str(fehler.value)
+        assert "Rechnung unvollständig" not in text
+        assert "nur, wenn" in text and "kein" in text
+        k = korrigiere(
+            s,
+            str(b.id),
+            "4900",
+            "70001",
+            ohne_steuer=True,
+            grund="Leistender im Inland, kein § 13b",
+            von="erika",
+        )
+        s.commit()
+    assert k.neu is not None and k.neu.steuer_schluessel is None
+    assert k.neu.betrag_netto == Decimal("100.00")  # nicht 119
+    assert any("§ 13b Abs. 5" in w and "§ 15 Abs. 1" in w for w in k.warnungen)
+
+
+def test_gleichzeitiges_storno_meldet_klar(make_session, monkeypatch):
+    """Schlussprüfung T-N4: Zwei Prozesse stornieren dieselbe Buchung; der zweite
+    hatte sie vor dem Commit des ersten gelesen. Die Unique-Indizes verhindern das
+    zweite Storno — gemeldet als StornoError, nicht als IntegrityError-Traceback."""
+    import accounti.pruefung.storno as storno_modul
+
+    b = buchung(status=BuchungStatus.GEPRUEFT, steuer=None, schluessel=None)
+    anlegen(make_session, b)
+    with make_session() as s:
+        alt = storno_modul._lade(s, str(b.id))  # noqa: SLF001 — Stand vor dem Storno
+    with make_session() as s:
+        storniere(s, str(b.id), grund="doppelt", von="erika")
+        s.commit()
+    monkeypatch.setattr(storno_modul, "_lade", lambda _s, _id: alt)
+    with make_session() as s, pytest.raises(StornoError, match="inzwischen"):
+        storniere(s, str(b.id), grund="doppelt", von="jan")

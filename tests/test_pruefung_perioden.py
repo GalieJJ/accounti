@@ -325,3 +325,28 @@ def test_jahreswechsel_bei_abgeschlossenem_jahr_rät_zum_jahr(
     text = str(fehler.value)
     assert "abschluss oeffnen --jahr 2026" in text and "periode oeffnen" not in text
     assert ("abschluss.gewinnermittlung" in text) is (gewinnermittlung is None)
+
+
+def test_fester_tag_lange_nach_dem_eingang_warnt_zur_vorsteuer(make_session):
+    """Schlussprüfung N-1: Belegmonat März festgeschrieben, Eingang im offenen April,
+    gebucht am 15.11. — die Vorsteuer gehört in den April (§ 15 Abs. 1 Nr. 1 UStG,
+    kein Wahlrecht); der Hinweis darf nicht „zählt in diesem Zeitraum“ sagen."""
+    from datetime import datetime
+
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    rechnung = beleg(tag=date(2026, 3, 10), nummer="RE-X", datei_hash="e" * 64)
+    rechnung = rechnung.model_copy(
+        update={"eingegangen_am": datetime(2026, 4, 2, 9, 0)}
+    )
+    anlegen(make_session, rechnung)
+    _geschlossen(make_session, "2026-03")
+    with make_session() as s:
+        v = verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum=date(2026, 11, 15))
+        s.rollback()
+    text = " ".join(v.hinweise)
+    assert "zählt in diesem Voranmeldungszeitraum" not in text
+    assert "04/2026" in text and "kein Wahlrecht" in text
+    assert "--buchungsdatum offen" in text

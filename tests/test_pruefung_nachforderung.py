@@ -197,6 +197,9 @@ def test_anfrage_ohne_empfaenger(make_session):
     anlegen(make_session, tx)
     with make_session() as s:
         entwurf = baue_anfrage(s, str(tx.id), PruefEinstellungen(), "Firma")
+        # Schlussprüfung N-6: ohne antwort_an kein „… an uns.“
+        assert "an uns." not in entwurf.text
+        assert "an die Absenderadresse dieser E-Mail" in entwurf.text
         assert entwurf.an is None
         postfach = _Postfach()
         with pytest.raises(NachforderungError, match="Kein Empfänger"):
@@ -210,3 +213,34 @@ def test_falscher_platzhalter_in_der_vorlage(make_session):
     e = PruefEinstellungen.model_validate({"nachforderung": {"betreff": "{rechnung}"}})
     with make_session() as s, pytest.raises(NachforderungError, match="Platzhalter"):
         baue_anfrage(s, str(tx.id), e, "Firma")
+
+
+def test_beleg_ueber_die_buchung_zugeordnet(make_session):
+    """Schlussprüfung N-4: Ein Umsatz, dessen Buchung den Beleg trägt (z.B. die
+    Sammelbelastung einer Kreditkarte gegen die Abrechnung), braucht keine
+    Nachforderung — auch ohne Belegabgleich. Eine offene Aufgabe wird hinfällig."""
+    from accounti.models import BuchungStatus
+    from tests.pruefung_hilfe import buchung
+
+    tx = umsatz("-250.00", tag=TAG, zweck="KREDITKARTE ABRECHNUNG 08", name="Visa")
+    anlegen(make_session, tx)
+    (aufgabe,) = _nachfordern(make_session).neu
+    abrechnung = beleg(tag=TAG, nummer="KK-08", brutto="250.00", positionen=[])
+    anlegen(
+        make_session,
+        abrechnung,
+        buchung(
+            tx,
+            status=BuchungStatus.GEPRUEFT,
+            soll="1361",
+            steuer=None,
+            schluessel=None,
+            netto="250.00",
+            beleg_id=abrechnung.id,
+        ),
+    )
+    abgleich = _nachfordern(make_session)
+    assert abgleich.neu == []
+    (zu,) = abgleich.hinfaellig
+    assert zu.id == aufgabe.id
+    assert "Beleg über die Buchung zugeordnet" in (zu.abschluss_grund or "")

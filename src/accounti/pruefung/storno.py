@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.abschluss.kontenrahmen import Kontenrahmen, lade_kontenrahmen
@@ -58,6 +59,19 @@ _JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
 # Belegbuchung (§ 14c UStG) — Vorsteuer, ig. Erwerb und § 13b (Eingang) schon
 _AUSGEWIESENE_UST = frozenset(
     s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer is None and r.bmg is not None
+)
+# § 13b und ig. Erwerb (18, 19, 91, 94): Steuerschuld und Vorsteuer berechnet der
+# Empfänger selbst — die Steuer steckt nicht im Zahlbetrag, und --ohne-steuer ist nur
+# richtig, wenn gar kein solcher Fall vorliegt
+SELBST_BERECHNET = frozenset(
+    s
+    for s, r in STEUERSCHLUESSEL.items()
+    if r.vorsteuer is not None and r.bmg is not None
+)
+HINWEIS_SELBST_BERECHNET = (
+    "liegt ein § 13b-Fall bzw. ein ig. Erwerb vor, bleibt die Steuer geschuldet "
+    "(§ 13b Abs. 5, § 13a Abs. 1 Nr. 2 UStG), und der Vorsteuerabzug hängt nicht an "
+    "der Rechnung (§ 15 Abs. 1 Nr. 3/4 UStG)"
 )
 # DATEV-Schlüssel, deren Steuer im Zahlbetrag steckt → (Satz)
 _IM_BRUTTO = {
@@ -170,13 +184,26 @@ def _steuer(
             "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen und "
             "verbuchen, nicht die Steuer aus der Buchung entfernen"
         )
+    selbst = ohne_steuer and b.steuer_schluessel in SELBST_BERECHNET
+    if selbst and not (grund or "").strip():
+        raise StornoError(
+            f"Buchung {_kurz(b)}, Schlüssel {b.steuer_schluessel}: --ohne-steuer "
+            "entfernt Steuerschuld und Vorsteuer — nur, wenn kein § 13b-Fall bzw. kein "
+            f"ig. Erwerb vorliegt; {HINWEIS_SELBST_BERECHNET}. Mit Grund (steht im "
+            'Journal): --ohne-steuer --grund "kein § 13b: …"'
+        )
     if b.beleg_id is not None and not (grund or "").strip():
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg — die Steuer daraus entfernt nur, "
             "wer einen Grund nennt (steht im Journal): --ohne-steuer --grund "
             '"z.B. kein Vorsteuerabzug, Rechnung unvollständig"'
         )
-    brutto = b.betrag_netto + (b.steuer_betrag or NULL)
+    # Brutto = Zahlbetrag: die selbst berechnete Steuer (§ 13b, ig. Erwerb) steckt
+    # nicht darin
+    steuer_im_zahlbetrag = b.steuer_schluessel not in SELBST_BERECHNET
+    brutto = b.betrag_netto + (
+        (b.steuer_betrag or NULL) if steuer_im_zahlbetrag else NULL
+    )
     if schluessel in _IM_BRUTTO:
         netto = UStBerechner().brutto_zu_netto(brutto, _IM_BRUTTO[schluessel])
         return schluessel, netto, brutto - netto
@@ -250,14 +277,23 @@ def _storno(
         person=von,
     )
     with journal_kontext(person=von, grund=grund, bezug=f"korrektur {korrektur.id}"):
-        speichere_buchung(session, storno)
-        session.flush()
-        setze_storniert_durch(session, b.id, storno.id)
-        if neu is not None:
-            neu = neu.model_copy(update={"datum": tag})
-            speichere_buchung(session, neu)
+        try:
+            speichere_buchung(session, storno)
             session.flush()
-        speichere_korrektur(session, korrektur)
+            setze_storniert_durch(session, b.id, storno.id)
+            if neu is not None:
+                neu = neu.model_copy(update={"datum": tag})
+                speichere_buchung(session, neu)
+                session.flush()
+            speichere_korrektur(session, korrektur)
+        except IntegrityError as fehler:
+            # zwei gleichzeitige Stornos derselben Buchung: der Unique-Index auf
+            # storno_von bzw. storniert_durch hält den zweiten auf
+            session.rollback()
+            raise StornoError(
+                f"Buchung {_kurz(b)} wurde inzwischen von einem anderen Vorgang "
+                f"storniert — nichts geändert (accounti buchung zeige {_kurz(b)})"
+            ) from fehler
     return Korrektur(
         _lade(session, str(b.id)),
         neu,
@@ -365,7 +401,7 @@ def korrigiere(
                 session, str(b.id), b.model_copy(update=aenderung)
             )
             session.flush()
-        return Korrektur(b, neu)
+        return Korrektur(b, neu, warnungen=_warnung_selbst(b, ohne_steuer))
     if all(
         getattr(b, k) == v
         for k, v in aenderung.items()
@@ -380,7 +416,20 @@ def korrigiere(
     ):
         raise StornoError(f"Die Korrektur ändert an Buchung {_kurz(b)} nichts")
     neu = b.model_copy(update={**aenderung, "id": uuid4(), "storniert_durch": None})
-    return _storno(session, b, person, text, datum, kr, neu)
+    k = _storno(session, b, person, text, datum, kr, neu)
+    k.warnungen.extend(_warnung_selbst(b, ohne_steuer))
+    return k
+
+
+def _warnung_selbst(b: Buchungssatz, ohne_steuer: bool) -> list[str]:
+    """--ohne-steuer bei § 13b bzw. ig. Erwerb: nur richtig ohne einen solchen Fall."""
+    if not ohne_steuer or b.steuer_schluessel not in SELBST_BERECHNET:
+        return []
+    return [
+        f"Steuerschuld und Vorsteuer (Schlüssel {b.steuer_schluessel}) entfernt — "
+        "richtig nur, wenn tatsächlich kein § 13b-Fall bzw. kein ig. Erwerb vorliegt; "
+        f"{HINWEIS_SELBST_BERECHNET}"
+    ]
 
 
 def _pruefe_steuerschluessel(

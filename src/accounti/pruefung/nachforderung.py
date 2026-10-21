@@ -183,7 +183,7 @@ def baue_anfrage(
         "verwendungszweck": tx.verwendungszweck,
         "gegenpartei": tx.gegenkonto_name or "",
         "firma": firma,
-        "antwort": vorlage.antwort_an or antwort or "uns",
+        "antwort": vorlage.antwort_an or antwort or "die Absenderadresse dieser E-Mail",
     }
     try:
         return Anfrage(

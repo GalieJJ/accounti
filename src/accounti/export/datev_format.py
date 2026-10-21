@@ -206,11 +206,24 @@ def bu_schluessel(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> str:
 def automatik_widerspruch(
     b: Buchungssatz, automatikkonten: Mapping[str, int]
 ) -> str | None:
-    """Warnung vor dem Export: anderer Schlüssel auf einem Automatikkonto."""
+    """Warnung vor dem Export: anderer Schlüssel auf einem Automatikkonto — oder
+    Steuer ohne Schlüssel (BU bleibt leer, DATEV rechnet, accounti meldet nichts)."""
     automatik = _automatik(b, automatikkonten)
-    if automatik is None or b.steuer_schluessel in (None, automatik):
+    if automatik is None:
         return None
     konto = b.soll_konto if b.soll_konto in automatikkonten else b.haben_konto
+    if b.steuer_schluessel is None and b.steuer_betrag:
+        return (
+            f"Buchung {b.beleg_nummer or str(b.id)[:8]} ({b.soll_konto} an "
+            f"{b.haben_konto}): Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+            f"{automatik}), gebucht mit Steuerbetrag, aber ohne Schlüssel — DATEV "
+            "rechnet die Steuer aus dem Betrag heraus, accounti meldet sie in keiner "
+            f"Voranmeldung; vor dem Import korrigieren (accounti korrigiere "
+            f"{str(b.id)[:8]} --soll {b.soll_konto} --haben {b.haben_konto} "
+            f"--steuer {automatik})"
+        )
+    if b.steuer_schluessel in (None, automatik):
+        return None
     return (
         f"Buchung {b.beleg_nummer or str(b.id)[:8]} ({b.soll_konto} an "
         f"{b.haben_konto}): Konto {konto} ist DATEV-Automatikkonto (Schlüssel "

@@ -1213,3 +1213,44 @@ def test_abhilfe_automatikkonto_ohne_schluessel_ist_ausfuehrbar(
     r = CliRunner().invoke(app, [*args, "--db", db_url(tmp_path)])
     assert r.exit_code == 0, (befund.abhilfe, r.output)
     assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
+def test_abhilfe_bei_13b_schlaegt_nicht_vorsteuer_entfernen_vor(make_session, skr03):
+    """Schlussprüfung M-5: Schlüssel 94 (§ 13b) mit Beleg auf einem Erlöskonto — das
+    Sachkonto ist falsch; „Vorsteuer entfernen“ wäre falsch, die Steuerschuld bliebe
+    (§ 13b Abs. 5 UStG), der Vorsteuerabzug hängt nicht an der Rechnung."""
+    rb = beleg()
+    falsch = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll="8000",
+        haben="70001",
+        steuer="19.00",
+        schluessel=94,
+        beleg_id=rb.id,
+    )
+    anlegen(make_session, rb, falsch)
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert "--ohne-steuer" not in befund.abhilfe
+    assert "Vorsteuer entfernen" not in befund.abhilfe
+    assert "--steuer 94" in befund.abhilfe
+
+
+def test_datev_export_warnt_bei_steuer_ohne_schluessel_auf_automatikkonto(tmp_path):
+    """Schlussprüfung N-5 (zu N-13): 3400 mit Steuerbetrag, aber ohne Schlüssel —
+    das BU-Feld bleibt leer, DATEV rechnet die Steuer aus dem Betrag; accounti
+    meldet sie nicht. Das sagt der Export vorab, nicht erst ``pruefen``."""
+    from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    cfg = DATEVConfig(
+        berater_nummer="1",
+        mandanten_nummer="1",
+        automatikkonten=automatikkonten(Buchhaltung()),
+    )
+    exporter = DATEVExporter(cfg)
+    exporter.exportiere(
+        [buchung(soll="3400", haben="1200", schluessel=None, steuer="19.00")],
+        tmp_path / "out",
+    )
+    (warnung,) = exporter.warnungen
+    assert "3400" in warnung and "ohne Schlüssel" in warnung and "--steuer 9" in warnung

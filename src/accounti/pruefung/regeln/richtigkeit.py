@@ -44,6 +44,10 @@ if TYPE_CHECKING:
 
 NULL = Decimal("0")
 VORSTEUER = frozenset(s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer)
+# § 13b und ig. Erwerb: Steuer und Vorsteuer berechnet der Empfänger selbst
+SELBST_BERECHNET = frozenset(
+    s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer and r.bmg is not None
+)
 UMSATZSTEUER = frozenset({2, 3})
 IG_ERWERB = frozenset({18, 19})
 # Aufwandskonten je Kontenrahmen (Wareneingang, betriebliche und neutrale Aufwendungen)
@@ -770,6 +774,10 @@ class SteuerschluesselKonto:
                 f"--haben … --steuer {x.steuer_schluessel}"
             )
             if not vorsteuer:  # ausgewiesene USt bleibt (§ 14c UStG)
+                return konto_aendern
+            if x.steuer_schluessel in SELBST_BERECHNET:
+                # § 13b bzw. ig. Erwerb: Steuerschuld und Vorsteuer bleiben, auch
+                # ohne ordnungsgemäße Rechnung — nur das Konto ist falsch
                 return konto_aendern
             return (
                 f"{konto_aendern} — oder Vorsteuer entfernen: {befehl} "
