@@ -2,12 +2,14 @@
 
 from datetime import date
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import update
 
 from accounti.abschluss.kassenbuch import anfangsbestand, buche_kasse
 from accounti.abschluss.konfiguration import KassenEinstellungen
+from accounti.abschluss.kontenrahmen import lade_kontenrahmen
 from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.pruefungen import (
     erfasse_kontoauszugssaldo,
@@ -39,6 +41,7 @@ from tests.abschluss_hilfe import anlegen, buche, datenbank
 
 D = Decimal
 IBAN = "DE02120300000000202051"
+KR = lade_kontenrahmen("SKR03")
 
 
 @pytest.fixture
@@ -656,18 +659,21 @@ def _eb(tag, soll="1200", haben="9000", **kw):
         ("ohne vortragskonto", _eb(date(2027, 1, 1), "1200", "0880")),
         ("andere belegnummer", _eb(date(2027, 1, 1), beleg_nummer="RE-1")),
         ("am 02.01.", _eb(date(2027, 1, 2), beleg_nummer="EB-2027")),
+        ("erfolgskonto gegen 9000", _eb(date(2027, 1, 1), "4900", "9000")),
+        ("eb-storno", _eb(date(2027, 1, 1), "9000", "1200", storno_von=uuid4())),
     ],
 )
 def test_eb_ausnahme_nur_fuer_die_form_einer_eb_buchung(make_session, fall, buchung):
-    """Befund N4/N-N7: gemeldete ID allein genügt nicht — ohne Steuer, eine Seite ein
-    Saldenvortragskonto, Belegnummer EB-JJJJ, am 01.01."""
+    """Befund N4/N-N7, N-3: gemeldete ID allein genügt nicht — ohne Steuer, eine Seite
+    ein Saldenvortragskonto des Kontenrahmens, die andere ein Bestandskonto,
+    Belegnummer EB-JJJJ, am 01.01., kein Storno."""
     from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
     from accounti.pruefung.perioden import schliesse
 
     with make_session() as s:
         schliesse(s, "2027-01", "erika", trotzdem=True)
         s.commit()
-    with make_session() as s, eroeffnungsbuchungen(s, {"9000", "9008", "9009"}) as eb:
+    with make_session() as s, eroeffnungsbuchungen(s, KR, "bilanz") as eb:
         eb.add(str(buchung.id))
         speichere_buchung(s, buchung)
         with pytest.raises(JahrGesperrtError, match="2027-01"):
@@ -682,12 +688,11 @@ def test_eb_ausnahme_verschachtelt_und_nicht_ueber_session_info(make_session):
         schliesse(s, "2027-01", "erika", trotzdem=True)
         s.commit()
     aussen, innen = _eb(date(2027, 1, 1)), _eb(date(2027, 1, 1), "9000", "0880")
-    konten = {"9000", "9008", "9009"}
     with make_session() as s:
-        with eroeffnungsbuchungen(s, konten) as eb_aussen:
+        with eroeffnungsbuchungen(s, KR, "bilanz") as eb_aussen:
             eb_aussen.add(str(aussen.id))
             speichere_buchung(s, aussen)
-            with eroeffnungsbuchungen(s, konten) as eb_innen:
+            with eroeffnungsbuchungen(s, KR, "bilanz") as eb_innen:
                 eb_innen.add(str(innen.id))
                 speichere_buchung(s, innen)
                 s.flush()
@@ -703,3 +708,23 @@ def test_eb_ausnahme_verschachtelt_und_nicht_ueber_session_info(make_session):
         speichere_buchung(s, direkt)
         with pytest.raises(JahrGesperrtError, match="2027-01"):
             s.flush()
+
+
+def test_eb_rahmen_mit_gleichem_inhalt_verschachtelt(make_session):
+    """Befund N-2: Der innere Rahmen entfernt beim Verlassen nicht den äußeren, auch
+    wenn beide denselben Inhalt haben."""
+    from accounti.db.tabellen_pruefung import eroeffnungsbuchungen
+    from accounti.pruefung.perioden import schliesse
+
+    with make_session() as s:
+        schliesse(s, "2027-01", "erika", trotzdem=True)
+        s.commit()
+    eb = _eb(date(2027, 1, 1))
+    with make_session() as s:
+        with eroeffnungsbuchungen(s, KR, "bilanz") as aussen:
+            with eroeffnungsbuchungen(s, KR, "bilanz"):
+                pass
+            aussen.add(str(eb.id))
+            speichere_buchung(s, eb)
+            s.flush()
+        s.commit()

@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -405,8 +406,10 @@ def _pruefe_verlauf(eintraege: list[Journaleintrag], p: Journalpruefung) -> None
             and (e.vorher, e.nachher) != paar.get(schluessel)
         ):
             zuletzt, stand = letzter[schluessel], json.loads(e.vorher)
-            if stand != zuletzt:
-                felder = "; ".join(_unterschiede(zuletzt, stand))
+            # über die Felder: eine später hinzugekommene Spalte fehlt in alten
+            # Einträgen und gilt dort als None (keine dauerhaften Befunde)
+            if unterschiede := _unterschiede(zuletzt, stand):
+                felder = "; ".join(unterschiede)
                 p.befunde.append(
                     Journalbefund(
                         "verlauf",
@@ -474,8 +477,8 @@ def _pruefe_bestand(
                         objekt=ident,
                     )
                 )
-            elif zuletzt != jetzt:
-                felder = "; ".join(_unterschiede(zuletzt, jetzt))
+            elif unterschiede := _unterschiede(zuletzt, jetzt):
+                felder = "; ".join(unterschiede)
                 p.befunde.append(
                     Journalbefund(
                         "abweichung",
@@ -555,13 +558,43 @@ def _pruefe_sperren(
             )
 
 
+@contextmanager
+def lesestand(verbindung: Connection) -> Iterator[None]:
+    """Journal und Bestand aus *einem* Stand lesen, auch wenn andere schreiben.
+
+    SQLite: eine (verzögerte) Lesetransaktion — die erste Abfrage hält ihren Stand
+    bis zum Ende (Schreiber warten mit dem Commit, busy timeout); eine schon laufende
+    schreibende Transaktion hält ohnehin die Sperre. PostgreSQL: die Schreibsperre
+    der accounti-Schreiber (Advisory-Sperre) — wer schreibt, hält sie bis zum Commit.
+    """
+    begonnen = False
+    if verbindung.dialect.name == "sqlite":
+        roh: Any = verbindung.connection.dbapi_connection
+        if roh is not None and not roh.in_transaction:
+            verbindung.exec_driver_sql("BEGIN")
+            begonnen = True
+    else:
+        schreibsperre(verbindung)
+    try:
+        yield
+    finally:
+        if begonnen:
+            verbindung.connection.dbapi_connection.commit()  # type: ignore[union-attr]
+
+
 def pruefe_journal(session: Session, kopf: str | None = None) -> Journalpruefung:
     """Kette, optional Anker ``NR:HASH``, Verlauf je Objekt und Abgleich mit dem
-    Bestand."""
+    Bestand — alles aus einem Stand (``lesestand``)."""
     p = Journalpruefung()
-    if not journal_vorhanden(session.connection()):
+    verbindung = session.connection()
+    if not journal_vorhanden(verbindung):
         p.vorhanden = False
         return p
+    with lesestand(verbindung):
+        return _pruefe(session, kopf, p)
+
+
+def _pruefe(session: Session, kopf: str | None, p: Journalpruefung) -> Journalpruefung:
     eintraege = lade_journal(session)
     p.anzahl = len(eintraege)
     if eintraege:

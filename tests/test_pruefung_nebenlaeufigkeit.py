@@ -119,8 +119,8 @@ def test_freigabe_waehrend_einer_aenderung(make_session):
 
 
 def test_festschreibung_waehrend_einer_verschiebung(make_session):
-    """A verschiebt einen Vorschlag in den Februar, B schreibt den Februar dazwischen
-    fest — B wartet; danach scheitert B am Vorschlag im Februar."""
+    """A verschiebt einen Vorschlag in den Februar, B will den Februar dazwischen
+    festschreiben — B bekommt die Sperre nicht (hier nach 50 ms: „gesperrt“)."""
     x = buchung(tag=date(2026, 3, 5), steuer=None, schluessel=None)
     anlegen(make_session, x)
     with make_session() as s:
@@ -156,3 +156,89 @@ def test_journalnummer_ohne_vorheriges_schreiben(make_session):
         s.commit()
     assert ergebnis == ["gesperrt"]
     assert _in_ordnung(make_session)
+
+
+def test_journal_pruefen_liest_einen_gemeinsamen_stand(make_session, monkeypatch):
+    """Befund M-2 (Runde 3): Zwischen dem Lesen des Journals und dem des Bestands
+    schreibt ein anderer Prozess — die Prüfung sieht trotzdem einen Stand und meldet
+    keinen falschen Befund („ohne_eintrag“)."""
+    import accounti.pruefung.journal as journal
+
+    anlegen(make_session, buchung(steuer=None, schluessel=None))
+    original = journal.lade_journal
+    zweiter: list[str] = []
+
+    def lade_und_schreibe(session, **kw):  # type: ignore[no-untyped-def]
+        eintraege = original(session, **kw)
+        if not zweiter:
+            zweiter.append(
+                _zweiter(
+                    make_session,
+                    lambda s2: speichere_buchung(
+                        s2, buchung(steuer=None, schluessel=None, netto="2.00")
+                    ),
+                )
+            )
+        return eintraege
+
+    monkeypatch.setattr(journal, "lade_journal", lade_und_schreibe)
+    with make_session() as s:
+        p = journal.pruefe_journal(s)
+    assert p.in_ordnung, [b.text for b in p.befunde]
+    assert zweiter == ["gesperrt"]  # SQLite: der Leser hält seinen Stand bis zum Ende
+    monkeypatch.undo()
+    assert _in_ordnung(make_session)
+
+
+def test_sqlite_wartet_dreissig_sekunden_auf_die_sperre(tmp_path):
+    """Befund N-5: Ein langer Lauf hält die Schreibsperre länger als die 5 s, die
+    sqlite3 sonst wartet — session_factory stellt 30 s ein (nur SQLite)."""
+    from accounti.db import session_factory
+    from tests.pruefung_hilfe import db_url
+
+    engine, fabrik = session_factory(db_url(tmp_path))
+    with fabrik() as s:
+        assert s.execute(text("PRAGMA busy_timeout")).scalar() == 30000
+    engine.dispose()
+
+
+def test_periode_schliessen_wartet_und_prueft_danach(tmp_path):
+    """Befund N-4: B (eigener Thread, übliche Wartezeit) will den Februar schließen,
+    während A einen Vorschlag hineinverschiebt. B holt die Sperre vor seinen Prüfungen,
+    wartet auf A und lehnt dann wegen des Vorschlags ab."""
+    import threading
+    import time
+
+    from accounti.db import init_db, session_factory
+    from accounti.pruefung.perioden import PeriodeError
+    from tests.pruefung_hilfe import db_url
+
+    url = db_url(tmp_path)
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    x = buchung(tag=date(2026, 3, 5), steuer=None, schluessel=None)
+    with fabrik() as s:
+        speichere_buchung(s, x)
+        s.commit()
+    ergebnis: list[str] = []
+
+    def b() -> None:
+        _, fabrik_b = session_factory(url)  # eigene Verbindung im eigenen Thread
+        try:
+            with fabrik_b() as s2:
+                schliesse(s2, "2026-02", "b", trotzdem=True)
+                s2.commit()
+            ergebnis.append("geschlossen")
+        except PeriodeError as fehler:
+            ergebnis.append(str(fehler))
+
+    with fabrik() as s:
+        s.get(BuchungssatzRow, str(x.id)).datum = date(2026, 2, 20)
+        s.flush()  # A hält die Schreibsperre
+        faden = threading.Thread(target=b)
+        faden.start()
+        time.sleep(0.5)  # B steht jetzt an der Sperre
+        s.commit()
+    faden.join(timeout=30)
+    assert len(ergebnis) == 1 and "Vorschlag" in ergebnis[0], ergebnis
+    engine.dispose()

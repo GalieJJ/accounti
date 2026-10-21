@@ -126,11 +126,6 @@ def _eb_buchung(
     )
 
 
-def _vortragskonten(kr: Kontenrahmen) -> set[str]:
-    v = kr.vortragskonten
-    return {v.sachkonten, v.debitoren, v.kreditoren}
-
-
 def erfasse_eroeffnung(
     session: Session,
     jahr: int,
@@ -158,7 +153,7 @@ def erfasse_eroeffnung(
         konto, differenz, date(jahr, 1, 1), einst, kr, "Eröffnungssaldo", von
     )
     # auch in einen festgeschriebenen Januar (Baustein 7)
-    with eroeffnungsbuchungen(session, _vortragskonten(kr)) as eb:
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
         eb.add(str(b.id))
         speichere_buchung(session, b)
         session.flush()
@@ -184,7 +179,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     ergebnis = k.susa.ergebnis
     vortrag = Vortrag(jahr, ziel, ergebnis, befunde=befunde)
     # EB-Buchungen am 01.01. auch in einen schon festgeschriebenen Januar (Baustein 7)
-    with eroeffnungsbuchungen(session, _vortragskonten(kr)) as eb:
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
         for konto in sorted(set(ziel) | set(vorhanden), key=lambda x: (len(x), x)):
             differenz = ziel.get(konto, NULL) - vorhanden.get(konto, NULL)
             if differenz == 0:

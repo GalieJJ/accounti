@@ -575,9 +575,16 @@ def _keine_massenaenderung(zustand: ORMExecuteState) -> None:
     if not (zustand.is_insert or zustand.is_update or zustand.is_delete):
         return
     namen = {mapper.local_table.name for mapper in zustand.all_mappers}  # type: ignore[attr-defined]
-    # auch Core-DML auf die Tabelle, wenn sie über die Sitzung läuft — der Name ohne
-    # Schema und Groß-/Kleinschreibung (SQLite unterscheidet sie nicht)
-    namen.add(getattr(getattr(zustand.statement, "table", None), "name", None))
+    # auch Core-DML auf die Tabelle, wenn sie über die Sitzung läuft — durch Aliase
+    # hindurch, der Name ohne Schema und Groß-/Kleinschreibung (SQLite unterscheidet
+    # sie nicht)
+    ziel = getattr(zustand.statement, "table", None)
+    for _ in range(10):
+        weiter = getattr(ziel, "element", None)
+        if weiter is None or weiter is ziel:
+            break
+        ziel = weiter
+    namen.add(getattr(ziel, "name", None))
     for name in sorted(
         str(n).split(".")[-1].strip('"`[] ').lower() for n in namen if n
     ):

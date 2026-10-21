@@ -409,3 +409,70 @@ def test_hinweise_nennen_die_steuerangabe(make_session):
         with pytest.raises(BuchungFestgeschriebenError) as fehler:
             s.flush()
     assert "--steuer" in str(fehler.value) and "--ohne-steuer" in str(fehler.value)
+
+
+def test_stornovermerk_auf_ein_storno_mit_ungetauschten_konten(make_session):
+    """Befund N-7: Ein „Storno“ mit denselben Seiten hebt nichts auf."""
+    orig = _fest(date(2026, 3, 5))
+    anlegen(make_session, orig)
+    schein = BuchungssatzRow(
+        id=str(uuid4()),
+        datum=date(2026, 3, 6),
+        soll_konto=orig.soll_konto,
+        haben_konto=orig.haben_konto,
+        betrag_netto=orig.betrag_netto,
+        buchungstext="Storno ohne Tausch",
+        status="geprueft",
+        confidence=1.0,
+        storno_von=str(orig.id),
+    )
+    with make_session() as s:
+        s.add(schein)
+        s.get(BuchungssatzRow, str(orig.id)).storniert_durch = schein.id
+        with pytest.raises(BuchungFestgeschriebenError, match="Stornobuchung"):
+            s.commit()
+
+
+def test_core_dml_ueber_einen_alias_abgelehnt(make_session):
+    """Befund N-1: update/delete über einen Alias der Tabelle."""
+    from sqlalchemy import delete
+
+    fest = _fest(date(2026, 3, 5))
+    anlegen(make_session, fest)
+    a = BuchungssatzRow.__table__.alias("b")
+    for anweisung in (
+        update(a).where(a.c.id == str(fest.id)).values(soll_konto="1800"),
+        delete(a).where(a.c.id == str(fest.id)),
+    ):
+        with (
+            make_session() as s,
+            pytest.raises(UnveraenderbarError, match="buchungssaetze"),
+        ):
+            s.execute(anweisung)
+    assert _in_ordnung(make_session)
+
+
+def test_neue_spalte_erzeugt_keinen_dauerhaften_befund(make_session, monkeypatch):
+    """Befund N-6: Nach einer Migration mit neuer Spalte fehlt der Schlüssel in den
+    alten Einträgen — er zählt als None, weder Bestand noch Verlauf melden etwas."""
+    from dataclasses import replace
+
+    import accounti.pruefung.ereignisse as ereignisse
+
+    alt = ereignisse.ERFASST["buchungssaetze"]
+    # „vor der Migration“: die Spalte storno_von gab es noch nicht
+    monkeypatch.setitem(
+        ereignisse.ERFASST,
+        "buchungssaetze",
+        replace(alt, ohne=frozenset({"storno_von"})),
+    )
+    b = buchung(status=BuchungStatus.ZUR_PRUEFUNG, steuer=None, schluessel=None)
+    anlegen(make_session, b)
+    monkeypatch.setitem(ereignisse.ERFASST, "buchungssaetze", alt)
+    assert _in_ordnung(make_session)
+    from accounti.pruefung.storno import freigeben
+
+    with make_session() as s:
+        freigeben(s, str(b.id), von="erika")
+        s.commit()
+    assert _in_ordnung(make_session)

@@ -18,11 +18,11 @@ der Import dieses Moduls.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -41,6 +41,9 @@ from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, object_session
 
 from accounti.db import Base
+
+if TYPE_CHECKING:
+    from accounti.abschluss.kontenrahmen import Kontenrahmen
 from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
 from accounti.db.tabellen_abschluss import (
     JahrGesperrtError,
@@ -226,15 +229,16 @@ def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
 _EROEFFNUNG = "accounti_eroeffnungsbuchungen"
 
 
-@dataclass
+@dataclass(eq=False)  # ein Rahmen ist er selbst — nicht gleich jedem gleichen Inhalts
 class _Eroeffnung:
     ids: set[str]
-    vortragskonten: frozenset[str]
+    kontenrahmen: Kontenrahmen
+    gewinnermittlung: str
 
 
 @contextmanager
 def eroeffnungsbuchungen(
-    session: Session, vortragskonten: Iterable[str]
+    session: Session, kontenrahmen: Kontenrahmen, gewinnermittlung: str
 ) -> Iterator[set[str]]:
     """EB-Buchungen am 01.01. anlegen, auch wenn der Januar festgeschrieben ist.
 
@@ -243,10 +247,11 @@ def eroeffnungsbuchungen(
     auf einen späteren Tag gebucht stimmten die Salden des Januars nicht mehr. Die
     Monatssperre nimmt deshalb genau diese Buchungen an — nur angelegt, nur mit der
     hier gemeldeten ID und nur in der Form einer EB-Buchung: am 01.01., ohne Steuer,
-    Belegnummer ``EB-JJJJ``, genau eine Seite ein Saldenvortragskonto
-    (``vortragskonten``). Die Jahressperre gilt weiter; Rahmen lassen sich schachteln.
+    Belegnummer ``EB-JJJJ``, kein Storno, eine Seite ein Saldenvortragskonto des
+    Kontenrahmens, die andere ein Bestandskonto. Die Jahressperre gilt weiter;
+    Rahmen lassen sich schachteln.
     """
-    rahmen = _Eroeffnung(set(), frozenset(vortragskonten))
+    rahmen = _Eroeffnung(set(), kontenrahmen, gewinnermittlung)
     stapel = session.info.get(_EROEFFNUNG)
     if not isinstance(stapel, list):
         stapel = session.info[_EROEFFNUNG] = []
@@ -259,14 +264,22 @@ def eroeffnungsbuchungen(
             session.info.pop(_EROEFFNUNG, None)
 
 
-def _eb_form(ziel: BuchungssatzRow, vortragskonten: frozenset[str]) -> bool:
-    tag = ziel.datum
+def _eb_form(ziel: BuchungssatzRow, rahmen: _Eroeffnung) -> bool:
+    tag, kr = ziel.datum, rahmen.kontenrahmen
+    v = kr.vortragskonten
+    vortrag = {v.sachkonten, v.debitoren, v.kreditoren}
+    seiten = [k for k in (ziel.soll_konto, ziel.haben_konto) if k not in vortrag]
+    if len(seiten) != 1:  # genau eine Seite ein Saldenvortragskonto
+        return False
+    art = kr.art(seiten[0], rahmen.gewinnermittlung)  # type: ignore[arg-type]
     return (
         (tag.month, tag.day) == (1, 1)
         and ziel.steuer_schluessel is None
         and not ziel.steuer_betrag
         and ziel.beleg_nummer == f"EB-{tag.year}"
-        and (ziel.soll_konto in vortragskonten) != (ziel.haben_konto in vortragskonten)
+        and ziel.storno_von is None
+        and ziel.storniert_durch is None
+        and str(getattr(art, "value", art)) not in ("erfolg", "vortrag")
     )
 
 
@@ -276,9 +289,7 @@ def _eroeffnung(ziel: BuchungssatzRow) -> bool:
     if not isinstance(stapel, list):
         return False
     return any(
-        isinstance(r, _Eroeffnung)
-        and str(ziel.id) in r.ids
-        and _eb_form(ziel, r.vortragskonten)
+        isinstance(r, _Eroeffnung) and str(ziel.id) in r.ids and _eb_form(ziel, r)
         for r in stapel
     )
 

@@ -33,6 +33,7 @@ from accounti.db.tabellen_pruefung import PeriodenabschlussRow, monat_gesperrt
 from accounti.models import BuchungStatus
 from accounti.models.pruefung import Periodenabschluss
 from accounti.opos.zahlungslauf import offene_transaktionen
+from accounti.pruefung.journal import schreibsperre
 
 _MONAT = re.compile(r"^(\d{4})-(0[1-9]|1[0-2])$")
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
@@ -100,8 +101,13 @@ def lade_perioden(session: Session) -> list[Periodenabschluss]:
 def schliesse(
     session: Session, monat: str, von: str, *, trotzdem: bool = False
 ) -> Periodenabschluss:
-    """Monat festschreiben; protokolliert im Abschlussprotokoll und im Journal."""
+    """Monat festschreiben; protokolliert im Abschlussprotokoll und im Journal.
+
+    Erst die Schreibsperre, dann die Prüfungen: Ein gleichzeitiger Schreiber kann
+    keinen Vorschlag mehr in den Monat legen, nachdem „keine Vorschläge“ geprüft ist.
+    """
     monat = pruefe_monat(monat)
+    schreibsperre(session.connection())
     jahr = int(monat[:4])
     if ist_gesperrt(session, jahr):
         raise PeriodeError(
