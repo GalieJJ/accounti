@@ -26,6 +26,7 @@ from accounti.db.repo_integrationen import (
     setze_abrechnungsstatus,
     setze_bank_transaktion,
 )
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     gebuchte_transaktion_ids,
     lade_buchungen,
@@ -306,21 +307,26 @@ def _buche(session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion) ->
     pruefen = status_von(a) is AbrechnungStatus.ABWEICHUNG
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     art = "Auszahlung" if t.betrag > 0 else "Einzahlung"
-    speichere_buchung(
-        session,
-        Buchungssatz(
-            transaktion_id=t.id,
-            beleg_id=a.beleg_id,
-            datum=t.datum,
-            soll_konto=soll,
-            haben_konto=haben,
-            betrag_netto=abs(t.betrag),
-            buchungstext=f"{markt} {art} {a.nummer}"[:60],
-            beleg_nummer=a.nummer[:36],
-            status=BuchungStatus.ZUR_PRUEFUNG
-            if pruefen
-            else BuchungStatus.AUTO_GEBUCHT,
-            confidence=0.5 if pruefen else 1.0,
-        ),
+    buchung = Buchungssatz(
+        transaktion_id=t.id,
+        beleg_id=a.beleg_id,
+        datum=t.datum,
+        soll_konto=soll,
+        haben_konto=haben,
+        betrag_netto=abs(t.betrag),
+        buchungstext=f"{markt} {art} {a.nummer}"[:60],
+        beleg_nummer=a.nummer[:36],
+        status=BuchungStatus.ZUR_PRUEFUNG if pruefen else BuchungStatus.AUTO_GEBUCHT,
+        confidence=0.5 if pruefen else 1.0,
+    )
+    speichere_buchung(session, buchung)
+    grund = f"{markt}-{art} {a.nummer} zur Abrechnung, gegen {gegen}"
+    if pruefen:
+        fehler = [b.text for b in a.offene_befunde][:3]
+        grund += " — Abrechnung mit Abweichung" + (
+            ": " + "; ".join(fehler) if fehler else ""
+        )
+    speichere_kontierungsgrund(
+        session, buchung.id, quelle="marktplatz", begruendung=grund
     )
     session.flush()

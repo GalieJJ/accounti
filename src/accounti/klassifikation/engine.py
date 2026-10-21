@@ -20,8 +20,24 @@ from accounti.models import (
 # ---------------------------------------------------------------------------
 
 
+RICHTUNGEN = ("ausgabe", "einnahme")
+
+
+def text_muster(text: str) -> str:
+    """Regulärer Ausdruck für ein Text-Muster: wörtlich (``re.escape``), nur als ganzes
+    Wort — „Müller“ trifft nicht „Müllerstraße“. Lookarounds statt ``\\b``: das
+    Muster darf auch mit Satzzeichen beginnen oder enden."""
+    return rf"(?<!\w){re.escape(text.strip())}(?!\w)"
+
+
 class Regel:
-    """Eine deterministische Kontierungsregel."""
+    """Eine deterministische Kontierungsregel.
+
+    ``richtung`` (``ausgabe``/``einnahme``) beschränkt sie auf das Vorzeichen des
+    Betrags (Ausgabe: negativ); ohne Angabe gilt sie in beide Richtungen wie bisher.
+    ``confidence`` unter der Schwelle von ``buchung.mapper`` legt einen Treffer nur zur
+    Prüfung vor (gelernte Regeln mit ``buchhaltung.gelernte_regeln: pruefen``).
+    """
 
     def __init__(
         self,
@@ -32,7 +48,13 @@ class Regel:
         steuer_schluessel: int | None = None,
         buchungstext: str | None = None,
         feld: str = "verwendungszweck",  # oder "gegenkonto_name"
+        richtung: str | None = None,
+        confidence: float = 1.0,
+        hinweis: str | None = None,
     ) -> None:
+        if richtung is not None and richtung not in RICHTUNGEN:
+            msg = f"Regel {name}: richtung muss ausgabe oder einnahme sein"
+            raise ValueError(msg)
         self.name = name
         self.muster = re.compile(muster, re.IGNORECASE)
         self.soll_konto = soll_konto
@@ -40,18 +62,38 @@ class Regel:
         self.steuer_schluessel = steuer_schluessel
         self.buchungstext = buchungstext
         self.feld = feld
+        self.richtung = richtung
+        self.confidence = confidence
+        self.hinweis = hinweis
 
-    def passt(self, transaktion: Transaktion) -> bool:
-        """Prüft ob die Regel auf die Transaktion zutrifft.
+    @classmethod
+    def aus_text(
+        cls, name: str, text: str, soll_konto: str, haben_konto: str, **kw: object
+    ) -> Regel:
+        """Regel aus einem Text-Muster (kein regulärer Ausdruck, ganze Wörter)."""
+        return cls(name, text_muster(text), soll_konto, haben_konto, **kw)  # type: ignore[arg-type]
 
-        feld="beide" durchsucht Verwendungszweck UND Gegenkonto-Name —
-        nützlich, weil Banken den Händlernamen mal hier, mal dort führen.
-        """
+    def passt_richtung(self, transaktion: Transaktion) -> bool:
+        if self.richtung == "ausgabe":
+            return transaktion.betrag < 0
+        if self.richtung == "einnahme":
+            return transaktion.betrag > 0
+        return True
+
+    def passt_muster(self, transaktion: Transaktion) -> bool:
         if self.feld == "beide":
             text = f"{transaktion.verwendungszweck} {transaktion.gegenkonto_name or ''}"
         else:
             text = getattr(transaktion, self.feld, "") or ""
         return bool(self.muster.search(text))
+
+    def passt(self, transaktion: Transaktion) -> bool:
+        """Prüft ob die Regel auf die Transaktion zutrifft (Muster und Richtung).
+
+        feld="beide" durchsucht Verwendungszweck UND Gegenkonto-Name —
+        nützlich, weil Banken den Händlernamen mal hier, mal dort führen.
+        """
+        return self.passt_richtung(transaktion) and self.passt_muster(transaktion)
 
 
 # Standard-Regelwerk für häufige Geschäftsvorfälle (SKR03)
@@ -99,7 +141,6 @@ STANDARD_REGELN: list[Regel] = [
         steuer_schluessel=None,
         buchungstext="Versicherung",
     ),
-    # TODO: Weitere Regeln aus YAML laden (config/regeln.yaml)
 ]
 
 
@@ -123,9 +164,11 @@ class RegelwerkEngine:
                     steuer_schluessel=regel.steuer_schluessel,
                     buchungstext=regel.buchungstext
                     or transaktion.verwendungszweck[:60],
-                    confidence=1.0,  # Regelwerk = volle Confidence
-                    begruendung=f"Regel '{regel.name}' greift auf Feld '{regel.feld}'",
+                    confidence=regel.confidence,  # Regelwerk: volle Confidence
+                    begruendung=f"Regel '{regel.name}' greift auf Feld '{regel.feld}'"
+                    + (f" ({regel.hinweis})" if regel.hinweis else ""),
                     quelle="regelwerk",
+                    regel=regel.name,
                 )
         return None
 

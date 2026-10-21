@@ -40,6 +40,7 @@ from accounti.integrationen.auszahlung import (
 )
 from accounti.integrationen.buchung import (
     ANZEIGE,
+    Buchungsergebnis,
     Buchungskontext,
     buche_abrechnung,
     ergaenze_auszahlung,
@@ -52,6 +53,7 @@ from accounti.models import (
     Beleg,
     Belegart,
     BelegStatus,
+    Buchungssatz,
     Eingangsergebnis,
     Transaktion,
     TransaktionQuelle,
@@ -86,6 +88,18 @@ class Importergebnis:
     abgleich: list[Abgleich] = field(default_factory=list)
     # Bericht widerspricht der bekannten Abrechnung: nichts nachgetragen
     widerspruch: Befund | None = None
+
+
+def _grund(session: Session, gebucht: Buchungsergebnis, b: Buchungssatz) -> None:
+    """Herkunft der Marktplatz-Buchung (Baustein 10b)."""
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+
+    speichere_kontierungsgrund(
+        session,
+        b.id,
+        quelle="marktplatz",
+        begruendung=gebucht.gruende.get(b.id, b.buchungstext),
+    )
 
 
 def _erkenner(markt: str, abrechnungen: list[Abrechnung]) -> Erkenner:
@@ -332,6 +346,7 @@ def _nachtrag(
     aktualisiere_abrechnung(session, a)
     for buchung in gebucht.buchungen:
         speichere_buchung(session, buchung)
+        _grund(session, gebucht, buchung)
     session.flush()
     abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
     return Importergebnis(
@@ -458,6 +473,7 @@ def importiere(
         speichere_abrechnung(session, a)
         for b in gebucht.buchungen:
             speichere_buchung(session, b)
+            _grund(session, gebucht, b)
         session.flush()
         abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
         ergebnisse.append(

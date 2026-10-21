@@ -29,22 +29,20 @@ LaufRecht = Annotated[Zugang, Depends(erfordert_recht(TokenRecht.LAEUFE_STARTEN)
 def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
-    from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
-        KlassifikationsEngine,
-        RegelwerkEngine,
-    )
-    from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.klassifikation.engine import KlassifikationsEngine
+    from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.konfiguration import lade_buchhaltung
 
     g = zugang.gesellschaft
+    buchhaltung = lade_buchhaltung(g.konfiguration)
+    # gelernte Regeln der Gesellschaft → ihre Regeldatei → Standard (wie die CLI)
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(g.regeln) + STANDARD_REGELN), llm=None
+        regelwerk=lade_regelwerk(s, g.regeln, buchhaltung.gelernte_regeln), llm=None
     )
     ergebnis = bank_lauf(
         s,
         engine,
-        lade_buchhaltung(g.konfiguration),
+        buchhaltung,
         bank_einstellungen=lade_bank_einstellungen(g.konfiguration),
         sichern=s.commit,
     )

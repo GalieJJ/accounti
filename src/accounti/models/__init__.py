@@ -532,6 +532,8 @@ class Klassifikationsergebnis(BaseModel):
         description="Erklärung der KI warum dieses Konto gewählt wurde"
     )
     quelle: str = Field(description="'regelwerk' oder 'llm'")
+    regel: str | None = Field(default=None, description="Name der Regel (Regelwerk)")
+    modell: str | None = Field(default=None, description="LLM-Modell (Stufe 2)")
 
 
 # ---------------------------------------------------------------------------

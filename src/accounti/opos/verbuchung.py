@@ -26,8 +26,9 @@ from sqlalchemy.orm import Session
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
-from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
+from accounti.buchung.mit_beleg import Sachkonto, sachkonto_fuer_beleg
 from accounti.db.repo_abschluss import ist_gesperrt
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     lade_belege,
     speichere_buchung,
@@ -146,10 +147,10 @@ def _sachkonto_eingang(
     treffer: KontaktTreffer,
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None,
-) -> tuple[str, bool]:
-    """(Sachkonto, zur Prüfung?) — Kontakt-Vorschlag, Regelwerk, Standard."""
-    s = sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
-    return s.konto, s.pruefen
+) -> Sachkonto:
+    """Sachkonto (mit „zur Prüfung?“ und Quelle) — Kontakt-Vorschlag, Regelwerk,
+    Standard."""
+    return sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
 
 
 def _gruppen(
@@ -318,11 +319,12 @@ def verbuche_beleg(
     if personenkonto is None:  # pragma: no cover — kontakt_fuer vergibt immer eins
         raise VerbuchungError(f"{anlass}: kein Personenkonto")
 
-    sachkonto, sachkonto_pruefen = (
+    sk = (
         _sachkonto_eingang(beleg, treffer, einstellungen, regelwerk)
         if eingang
-        else ("", False)
+        else None
     )
+    sachkonto, sachkonto_pruefen = (sk.konto, sk.pruefen) if sk else ("", False)
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
     hinweise = [hinweis_datum] if hinweis_datum else []
@@ -370,6 +372,20 @@ def verbuche_beleg(
         )
         speichere_buchung(session, buchung)
         buchungen.append(buchung)
+    grund = f"{anlass} von {treffer.kontakt.name} auf Personenkonto {personenkonto}"
+    grund += (
+        f": Sachkonto {sk.konto} — {sk.quelle}"
+        if sk is not None
+        else ": Erlöskonto nach der Steuerkategorie der Rechnung"
+    )
+    for buchung in buchungen:
+        speichere_kontierungsgrund(
+            session,
+            buchung.id,
+            quelle="opos",
+            regel=sk.regel if sk is not None else None,
+            begruendung="; ".join([grund, *hinweise]),
+        )
 
     faellig, skonto_bis, skonto_prozent, skonto_betrag = _faelligkeit(
         beleg, treffer, einstellungen, belegdatum

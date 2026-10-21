@@ -19,6 +19,7 @@ from accounti.anlagen.rechtsstand import Rechtsstand
 from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import lade_anlagen, speichere_anlage
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     lade_belegbuchungen,
     lade_belege,
@@ -204,6 +205,15 @@ def _pruefe_zugang(
         confidence=1.0,
     )
     speichere_buchung(session, umbuchung)
+    speichere_kontierungsgrund(
+        session,
+        umbuchung.id,
+        quelle="anlagen",
+        begruendung=f"Beleg {beleg.belegnummer} ist auf {', '.join(konten)} gebucht, "
+        f"nicht auf dem Anlagekonto {anlage.konto}: Umbuchung Anlagezugang "
+        f"{anlage.bezeichnung} (Anschaffungskosten "
+        f"{betrag_de(anlage.anschaffungskosten)})",
+    )
     ergebnis.umbuchung = umbuchung
     ergebnis.hinweise.append(
         f"Umbuchung {anlage.konto} an {konten[0]} {betrag_de(betrag)} vorgeschlagen"

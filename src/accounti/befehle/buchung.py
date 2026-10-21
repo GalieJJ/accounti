@@ -31,16 +31,19 @@ def storniere(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Freigegebene Buchung durch Gegenbuchung aufheben (ohne Neubuchung)."""
-    from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
+    from accounti.buchung.pruefschlange import PruefschlangeError, stornieren
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.konfiguration import KonfigurationError
     from accounti.models.auth import Recht
-    from accounti.pruefung.storno import StornoError
-    from accounti.pruefung.storno import storniere as storno
+    from accounti.pruefung.person import aktuelle_person
+    from accounti.pruefung.storno import StornoError, lade_korrekturumgebung
 
     try:
-        kr = lade_kontenrahmen(lade_buchhaltung(config).kontenrahmen)
+        # Kontenrahmen samt abschluss.kontenzuordnung der Gesellschaft (wie die SuSa
+        # und die Oberfläche)
+        umgebung = lade_korrekturumgebung(config)
     except (KonfigurationError, KontenrahmenError) as fehler:
         ende(str(fehler))
     am = datum(tag, "--datum") if tag else None
@@ -51,11 +54,16 @@ def storniere(
         sitzung(db)() as s,
     ):
         try:
-            k = storno(
-                s, buchung_id, grund=grund, von=person, datum=am, kontenrahmen=kr
+            k = stornieren(
+                s, buchung_id, grund, aktuelle_person(person), None, umgebung, am
             )
             s.commit()
-        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+        except (
+            PruefschlangeError,
+            StornoError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+        ) as fehler:
             ende(str(fehler))
     assert k.storno is not None
     console.print(

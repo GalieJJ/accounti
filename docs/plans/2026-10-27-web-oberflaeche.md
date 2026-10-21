@@ -761,7 +761,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
 
 ### Paket 1 — Fachkern für die Oberfläche (PR 10b-1)
 
-- [ ] **Tabellen, Repository, Migration** (`db/tabellen_kontierung.py`, `db/repo_kontierung.py`,
+- [x] **Tabellen, Repository, Migration** (`db/tabellen_kontierung.py`, `db/repo_kontierung.py`,
   `models/kontierung.py`, `alembic/versions/<rev>_add_kontierung.py` mit `down_revision =
   "ddc9a184ddb4"`; Muster `ddc9a184ddb4`: vorhandene Tabellen, Indizes und Trigger übernehmen,
   SQLite-Trigger von Hand; `db.GESCHUETZT` um beide Tabellen ergänzt): `kontierungsgruende`
@@ -779,14 +779,14 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   Tabellen und Trigger da), `::test_migration_uebernimmt_was_init_db_schon_anlegte`,
   `::test_downgrade_und_wieder_hinauf` — Alembic als Unterprozess mit `ACCOUNTI_DB` wie
   `tests/test_migration_belegvollstaendigkeit.py`; rot; Umsetzung; grün.
-- [ ] **Journal** (`ereignisse.erfasse` für `kontierungsregeln` mit `_regel`: `regel_gelernt`,
+- [x] **Journal** (`ereignisse.erfasse` für `kontierungsregeln` mit `_regel`: `regel_gelernt`,
   `regel_uebernommen`, `regel_deaktiviert`; `journal.BESTAND["kontierungsregel"]`): *Tests*
   `tests/test_kontierungsgrund.py::test_journal_bleibt_in_ordnung` (Schutz: Bestand mit Journal
   aus 7, Kontierungslauf mit Gründen → `pruefe_journal(...).in_ordnung`),
   `tests/test_lernen.py::test_lernen_im_journal_mit_person`,
   `::test_an_accounti_vorbei_geaenderte_regel_meldet_journal_pruefen` (rohes `UPDATE` auf
   `soll_konto` → Befund „abweichung“), `::test_verlauf_einer_regel` (gelernt → deaktiviert).
-- [ ] **Herkunft schreiben** (`models.Klassifikationsergebnis.regel`, `klassifikation/engine.py`,
+- [x] **Herkunft schreiben** (`models.Klassifikationsergebnis.regel`, `klassifikation/engine.py`,
   `klassifikation/llm.py` (Modellname), `buchung/kontierung.py`, `buchung/mit_beleg.py`,
   `opos/verbuchung.py` (auch Hinweis zum Buchungsdatum), `bank/kreditkarte.py`,
   `anlagen/lauf.py`, `anlagen/abgang.py`, `anlagen/dienst.py`, `integrationen/auszahlung.py`,
@@ -797,12 +797,12 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_afa_vorschlag_mit_rechenweg`, `::test_anlagenzugang_umbuchung_mit_grund`,
   `::test_marktplatz_auszahlung_und_abrechnung_mit_grund`, `::test_grund_in_derselben_transaktion`
   (Rollback nimmt Buchung und Grund zurück); rot; Umsetzung; grün.
-- [ ] **Richtung** (`klassifikation/engine.Regel`, `klassifikation/regeln_loader.py` (optionales
+- [x] **Richtung** (`klassifikation/engine.Regel`, `klassifikation/regeln_loader.py` (optionales
   Feld `richtung`)): *Tests* `tests/test_lernen.py::test_gelernte_regel_nur_in_ihrer_richtung`
   (Ausgaberegel „Müller“ trifft die Erstattung von Müller nicht),
   `::test_yaml_regel_ohne_richtung_wie_bisher`, `::test_belegdaten_passen_zu_ausgaberegel`; rot;
   Umsetzung; grün.
-- [ ] **Regelwerk-Lader und Schalter** (`klassifikation/lernen.py::lade_regelwerk`;
+- [x] **Regelwerk-Lader und Schalter** (`klassifikation/lernen.py::lade_regelwerk`;
   `konfiguration.Buchhaltung.gelernte_regeln`; `cli.py` `classify`, `bank lauf`, `opos verbuchen`
   mit `regeln_datei()`, Engine **in** der Sitzung nach der Laufsperre; `api/rest/laeufe._bank` mit
   `g.regeln`): *Tests* `tests/test_lernen.py::test_reihenfolge_gelernt_eigene_standard`,
@@ -810,7 +810,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_deaktivierte_regel_greift_nicht`, `::test_schalter_pruefen_legt_vor` (Confidence 0,9 →
   `zur Prüfung`), `::test_schalter_aus_laedt_keine_gelernten`; `tests/test_api_rest.py::test_bank_lauf_mit_gelernter_regel`.
   Der 10a-Test `test_regeln_je_gesellschaft_auch_in_der_cli` bleibt für `classify` grün (Schutz).
-- [ ] **Lernschleife** (`klassifikation/lernen.py`: `RegelEntwurf`, `entwurf_aus_korrektur`,
+- [x] **Lernschleife** (`klassifikation/lernen.py`: `RegelEntwurf`, `entwurf_aus_korrektur`,
   `pruefe_entwurf`, `lerne`, `lerne_regex`, `lerne_sachkonto`, `deaktiviere`,
   `uebernehme_aus_datei`): *Tests* `tests/test_lernen.py::test_entwurf_erstes_wort_sonst_zwei_woerter`,
   `::test_text_muster_ist_kein_regex` (`.*` und `(a+)+$` werden wörtlich gesucht),
@@ -823,7 +823,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_lerne_regex_wird_geprueft` (ungültiger Ausdruck, > 200 Zeichen → Fehler),
   `::test_deaktivieren_zweimal_fehler`, `::test_uebernahme_gelernter_eintraege_aus_datei` (Datei
   unverändert, Doppelte übersprungen, Journal `regel_uebernommen`); rot; Umsetzung; grün.
-- [ ] **Storno-Anpassungen** (`pruefung/storno.py`: `StornoError(meldung, *, feld, cli)` an allen
+- [x] **Storno-Anpassungen** (`pruefung/storno.py`: `StornoError(meldung, *, feld, cli)` an allen
   Stellen, `steuer_optionen(b)` aus `_steuer` herausgelöst und von dort genutzt,
   `lade_korrekturumgebung(pfad)`; `cli.korrigiere` und `befehle/buchung.storniere` auf
   `lade_korrekturumgebung`): *Tests* `tests/test_pruefung_storno.py::test_meldung_ohne_cli_optionen`
@@ -833,7 +833,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `tests/test_cli_supervisor.py::test_korrigiere_nutzt_die_kontenzuordnung_der_gesellschaft`
   (eigene `abschluss.kontenzuordnung`); die CLI-Tests aus 7 (`test_cli_supervisor.py`,
   `test_cli_journal_storno.py`, `test_pruefung_storno.py`) bleiben grün (Schutz).
-- [ ] **Prüfschlange** (`buchung/pruefschlange.py`, `belege/zuordnung.py`, `buchung/konten.py`):
+- [x] **Prüfschlange** (`buchung/pruefschlange.py`, `belege/zuordnung.py`, `buchung/konten.py`):
   *Tests* `tests/test_pruefschlange.py::test_reihenfolge_stabil`, `::test_ansichten_offen_und_zurueckgestellt`,
   `::test_beleg_zur_buchung_direkt_abgleich_posten_keiner`,
   `::test_herkunft_fuer_jede_quelle` (parametrisiert: Regelwerk, LLM, Beleg, Kontakt, Standard,
@@ -853,7 +853,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   Automatikprüfung stimmen), `::test_sperre_im_eintrag` (Jahr abgeschlossen),
   `::test_belegnachforderung_und_belegfrei_im_eintrag`, `::test_kontonummer_geprueft`; rot;
   Umsetzung; grün.
-- [ ] **CLI auf die Fachfunktionen** (`cli.py` `review`, `bestaetige`, `korrigiere`, `lerne`;
+- [x] **CLI auf die Fachfunktionen** (`cli.py` `review`, `bestaetige`, `korrigiere`, `lerne`;
   `_regel_speichern` und `_lerne_sachkonto` entfallen; `befehle.handelnde_person(…, weitere=…)`
   und `auth/cli.pruefe_recht_in` mit einer Menge von Rechten und einem Code; neu
   `befehle/regeln.py`: `accounti regeln liste|deaktivieren|uebernehmen`): *Tests* **umgestellt**
@@ -866,16 +866,50 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_regeln_uebernehmen_probe_und_echt`, `::test_gelernte_regel_greift_beim_naechsten_classify`,
   `tests/test_cli_rechte_pruefung.py::test_korrigiere_lernen_braucht_regeln_lernen_ein_code`
   (freigeber ohne `BUCHEN`, buchhalter mit einem Einmalcode), `::test_lerne_und_regeln_mit_recht`.
-- [ ] **Recht** `REGELN_LERNEN` in `models/auth.py` (`Recht`, `RECHT_TEXT`, `ROLLEN_RECHTE`
+- [x] **Recht** `REGELN_LERNEN` in `models/auth.py` (`Recht`, `RECHT_TEXT`, `ROLLEN_RECHTE`
   für `buchhalter` und `verwalter`): *Test* `tests/test_auth_dienst.py::test_regeln_lernen_nur_buchhalter_und_verwalter`;
   `test_buchen_umfasst_die_freigabe` (7) bleibt grün (Schutz).
-- [ ] **Verfahrensdoku und Aufbewahrung** (`pruefung/verfahrensdoku._kontierung`: Regeldatei über
+- [x] **Verfahrensdoku und Aufbewahrung** (`pruefung/verfahrensdoku._kontierung`: Regeldatei über
   `regeln_datei()` statt fest `config/regeln.yaml`, gelernte Regeln aus der Datenbank (aktiv,
   deaktiviert, Richtung, angelegt von/am), Schalter `buchhaltung.gelernte_regeln`;
   `betrieb/aufbewahrung.BESTAND`: `kontierungsgruende` nach `erstellt_am` und
   `kontierungsregeln` nach `angelegt_am`, je `Unterlage.BUCH`): *Tests*
   `tests/test_pruefung_verfahrensdoku.py::test_gelernte_regeln_in_der_verfahrensdoku`,
   `tests/test_betrieb_aufbewahrung.py::test_kontierungstabellen_im_bericht`.
+
+**Umsetzung Paket 1 (21.10.2026) — Abweichungen vom Plan:**
+
+- Migration `d5a849692843_add_kontierung` (auf `ddc9a184ddb4`), idempotent wie
+  `ddc9a184ddb4`; die Tests in `tests/test_migration_web.py` heißen wie geplant, die
+  Kette prüft `test_ein_kopf_nach_ddc9a184ddb4`. Umgestellt (B8):
+  `test_migration_belegvollstaendigkeit.py::test_downgrade_und_wieder_hinauf`.
+- `StornoError(meldung, *, feld, cli)`: `cli` ist der vollständige bisherige Text (B4).
+  Getestet über `test_meldung_ohne_cli_optionen` (sieben Fallgruppen),
+  `test_meldung_ohne_cli_optionen_beim_storno`, `test_feld_bei_steuer_datum_grund`,
+  `test_steuer_optionen_wie_korrigiere` (sechs Buchungsarten gegen `_steuer` und
+  `korrigiere`), dazu `test_lade_korrekturumgebung_mit_kontenzuordnung`.
+- Herkunft bei Belegbuchungen aus `kontiere_umsaetze`: `quelle` ist `kontakt`,
+  `regelwerk` (mit Regelname) oder `standard` je nach Herkunft des Sachkontos
+  (Ausgang: `beleg`) — so gilt das Regelangebot (Regelwerk/LLM/Standard) auch für eine
+  Belegbuchung mit Umsatz, deren Sachkonto aus einer Regel oder dem Standard kam.
+  Marktplatz: `Buchungsergebnis.gruende` je Buchung (Befunde seit der letzten Buchung).
+- `herkunft()`: Reihenfolge Grund → Korrektur (Neubuchung `korrektur`, Storno `storno`)
+  → AfA → bestätigter Abgleich → Zuordnung → Prüfgrund Beleg/Kontakt. Test aufgeteilt in
+  `test_herkunft_fuer_jede_gespeicherte_quelle` (neun Quellen) und
+  `test_herkunft_ohne_zeile_abgeleitet`; die Schreiber je Quelle prüft
+  `tests/test_kontierungsgrund.py`.
+- `lerne_sachkonto` schreibt `sachkonto_gelernt` mit `nachher={sachkonto, bisher}` und
+  **ohne** `vorher` — `kontakte bearbeiten` ändert Kontakte ohne Journal, ein
+  `vorher` ergäbe sonst falsche Verlaufsbefunde in `journal pruefen`.
+- Vorschau: Warnung „zu breit“ erst ab 10 Umsätzen im Zeitraum; „Konto unbekannt“ nur
+  mit übergebenem Kontenrahmen (`pruefe_entwurf(…, kontenrahmen=…)`).
+- Gelernte Regel mit (an accounti vorbei) ungültigem Ausdruck wird beim Laden
+  übersprungen statt den Lauf abzubrechen (`journal pruefen` meldet die Änderung).
+- `accounti review --zurueckgestellt` zeigt die zweite Ansicht; `korrigiere --muster`
+  setzt das Text-Muster der Regel. `lerne` hat `--feld`, `--richtung`, `--von`, `--db`,
+  `--config`.
+- Kontonummern prüft `pruefschlange.korrigieren` nach dem Laden der Buchung (eine
+  unbekannte ID meldet weiter „Keine Buchung“, Test aus 7 unverändert).
 
 ### Paket 2 — Zweisprachiges Seitengerüst (PR 10b-1)
 

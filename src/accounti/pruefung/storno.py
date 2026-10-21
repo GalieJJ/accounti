@@ -83,11 +83,86 @@ _IM_BRUTTO = {
 
 
 class StornoError(ValueError):
-    """Storno, Korrektur oder Freigabe ist so nicht möglich."""
+    """Storno, Korrektur oder Freigabe ist so nicht möglich.
+
+    ``meldung`` ist der Text ohne CLI-Optionen (für die Oberfläche), ``feld`` das
+    betroffene Formularfeld (``steuer``, ``datum``, ``grund`` oder ``None``), ``cli``
+    der vollständige Text mit den Optionen der CLI (``--steuer`` …) — ``str()`` liefert
+    ihn unverändert wie bisher (Baustein 10b)."""
+
+    def __init__(
+        self, meldung: str, *, feld: str | None = None, cli: str | None = None
+    ) -> None:
+        super().__init__(cli or meldung)
+        self.meldung = meldung
+        self.feld = feld
+        self.cli = cli
 
 
 def ist_freigegeben(b: Buchungssatz) -> bool:
     return b.status in FREIGEGEBEN
+
+
+@dataclass(frozen=True)
+class SteuerOptionen:
+    """Was eine Korrektur am Steuerschlüssel dieser Buchung zulässt — dieselbe
+    Prüfung, mit der ``korrigiere`` ablehnt (für das Formular der Oberfläche)."""
+
+    aktuell: int | None
+    andere_schluessel: bool  # anderen Schlüssel wählen (nicht bei Belegbuchungen)
+    schluessel: tuple[int, ...]  # wählbare Schlüssel (mit dem aktuellen)
+    ohne_steuer: bool  # „ohne Steuer“ wählbar
+    ohne_nur_mit_grund: bool  # … dann nur mit Grund
+    hinweis: str | None = None
+
+
+def steuer_optionen(b: Buchungssatz) -> SteuerOptionen:
+    beleg = b.beleg_id is not None
+    ausgewiesen = beleg and b.steuer_schluessel in _AUSGEWIESENE_UST
+    hinweis = None
+    if ausgewiesen:
+        hinweis = (
+            "Ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt "
+            "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen"
+        )
+    elif b.steuer_schluessel in SELBST_BERECHNET:
+        hinweis = HINWEIS_SELBST_BERECHNET
+    elif beleg:
+        hinweis = "Die Steuer kommt aus dem Beleg — nur die Konten korrigieren"
+    alle = tuple(sorted(STEUERSCHLUESSEL))
+    aktuell = (b.steuer_schluessel,) if b.steuer_schluessel is not None else ()
+    return SteuerOptionen(
+        aktuell=b.steuer_schluessel,
+        andere_schluessel=not beleg,
+        schluessel=aktuell if beleg else alle,
+        ohne_steuer=not ausgewiesen,
+        ohne_nur_mit_grund=beleg or b.steuer_schluessel in SELBST_BERECHNET,
+        hinweis=hinweis,
+    )
+
+
+@dataclass(frozen=True)
+class Korrekturumgebung:
+    """Kontenrahmen (mit ``abschluss.kontenzuordnung``), Buchhaltung und
+    Prüfeinstellungen **der Gesellschaft** — für CLI und Browser gleich."""
+
+    kontenrahmen: Kontenrahmen
+    buchhaltung: Buchhaltung
+    pruefung: PruefEinstellungen
+
+
+def lade_korrekturumgebung(pfad: str | Path) -> Korrekturumgebung:
+    """Aus der Konfiguration der Gesellschaft (``KonfigurationError``,
+    ``KontenrahmenError`` bei Fehlern)."""
+    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.pruefung.einstellungen import lade_pruefung
+
+    return Korrekturumgebung(
+        kontenrahmen=lade_abschluss(pfad).lade_kontenrahmen(),
+        buchhaltung=lade_buchhaltung(pfad),
+        pruefung=lade_pruefung(pfad),
+    )
 
 
 @dataclass
@@ -154,9 +229,12 @@ def _pruefe_ausdruecklich(
     von = "/".join(sorted(alt)) or "—"
     nach = "/".join(sorted(neu)) or "nur Geld- und Personenkonten"
     raise StornoError(
-        f"Buchung {_kurz(b)}: Das Sachkonto ändert sich ({von} → {nach}) — "
+        f"Das Sachkonto ändert sich ({von} → {nach}) — Steuerschlüssel "
+        f"{b.steuer_schluessel} ausdrücklich bestätigen oder „ohne Steuer“ wählen",
+        feld="steuer",
+        cli=f"Buchung {_kurz(b)}: Das Sachkonto ändert sich ({von} → {nach}) — "
         f"Steuerschlüssel {b.steuer_schluessel} ausdrücklich bestätigen mit "
-        f"--steuer {b.steuer_schluessel} oder entfernen mit --ohne-steuer"
+        f"--steuer {b.steuer_schluessel} oder entfernen mit --ohne-steuer",
     )
 
 
@@ -165,38 +243,56 @@ def _steuer(
 ) -> tuple[int | None, Decimal, Decimal | None]:
     """(Schlüssel, Netto, Steuer) nach der Korrektur — aus dem Brutto der Buchung."""
     if ohne_steuer and steuer is not None:
-        raise StornoError("--steuer und --ohne-steuer schließen sich aus")
+        raise StornoError(
+            "Steuerschlüssel und „ohne Steuer“ schließen sich aus",
+            feld="steuer",
+            cli="--steuer und --ohne-steuer schließen sich aus",
+        )
     if not ohne_steuer and steuer is None:  # Schlüssel bleibt
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
     schluessel = None if ohne_steuer else steuer
     if schluessel == b.steuer_schluessel:
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
-    if b.beleg_id is not None and not ohne_steuer:
+    optionen = steuer_optionen(b)
+    if not ohne_steuer and not optionen.andere_schluessel:
         raise StornoError(
-            f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
+            "Die Buchung hat einen Beleg — ihre Steuer kommt aus dem Beleg bzw. aus "
+            "dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit „ohne "
+            "Steuer“ und Grund entfernen)",
+            feld="steuer",
+            cli=f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
             "bzw. aus dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit "
-            "--ohne-steuer --grund … entfernen)"
+            "--ohne-steuer --grund … entfernen)",
         )
-    if b.beleg_id is not None and b.steuer_schluessel in _AUSGEWIESENE_UST:
+    if ohne_steuer and not optionen.ohne_steuer:
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg mit Schlüssel {b.steuer_schluessel}: "
             "ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt "
             "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen und "
-            "verbuchen, nicht die Steuer aus der Buchung entfernen"
+            "verbuchen, nicht die Steuer aus der Buchung entfernen",
+            feld="steuer",
         )
     selbst = ohne_steuer and b.steuer_schluessel in SELBST_BERECHNET
     if selbst and not (grund or "").strip():
         raise StornoError(
-            f"Buchung {_kurz(b)}, Schlüssel {b.steuer_schluessel}: --ohne-steuer "
+            f"Schlüssel {b.steuer_schluessel}: „ohne Steuer“ entfernt Steuerschuld und "
+            "Vorsteuer — nur, wenn kein § 13b-Fall bzw. kein ig. Erwerb vorliegt; "
+            f"{HINWEIS_SELBST_BERECHNET}. Bitte einen Grund angeben (steht im Journal)",
+            feld="grund",
+            cli=f"Buchung {_kurz(b)}, Schlüssel {b.steuer_schluessel}: --ohne-steuer "
             "entfernt Steuerschuld und Vorsteuer — nur, wenn kein § 13b-Fall bzw. kein "
             f"ig. Erwerb vorliegt; {HINWEIS_SELBST_BERECHNET}. Mit Grund (steht im "
-            'Journal): --ohne-steuer --grund "kein § 13b: …"'
+            'Journal): --ohne-steuer --grund "kein § 13b: …"',
         )
     if b.beleg_id is not None and not (grund or "").strip():
         raise StornoError(
-            f"Buchung {_kurz(b)} hat einen Beleg — die Steuer daraus entfernt nur, "
+            "Die Buchung hat einen Beleg — die Steuer daraus entfernt nur, wer einen "
+            "Grund nennt (steht im Journal), z.B. „kein Vorsteuerabzug, Rechnung "
+            "unvollständig“",
+            feld="grund",
+            cli=f"Buchung {_kurz(b)} hat einen Beleg — die Steuer daraus entfernt nur, "
             "wer einen Grund nennt (steht im Journal): --ohne-steuer --grund "
-            '"z.B. kein Vorsteuerabzug, Rechnung unvollständig"'
+            '"z.B. kein Vorsteuerabzug, Rechnung unvollständig"',
         )
     # Brutto = Zahlbetrag: die selbst berechnete Steuer (§ 13b, ig. Erwerb) steckt
     # nicht darin
@@ -229,11 +325,17 @@ def _stornodatum(session: Session, b: Buchungssatz, datum: date | None) -> date:
     if gesperrt(session.connection(), tag):
         if datum is None:
             raise StornoError(
-                f"Buchung {_kurz(b)} liegt in einem abgeschlossenen Zeitraum "
+                f"Die Buchung liegt in einem abgeschlossenen Zeitraum "
+                f"({datum_de(b.datum)}) — für Storno und Neubuchung ein Datum in einem "
+                "offenen Zeitraum angeben",
+                feld="datum",
+                cli=f"Buchung {_kurz(b)} liegt in einem abgeschlossenen Zeitraum "
                 f"({datum_de(b.datum)}) — Storno und Neubuchung mit --datum in einen "
-                "offenen Zeitraum legen"
+                "offenen Zeitraum legen",
             )
-        raise StornoError(f"{datum_de(tag)} liegt in einem abgeschlossenen Zeitraum")
+        raise StornoError(
+            f"{datum_de(tag)} liegt in einem abgeschlossenen Zeitraum", feld="datum"
+        )
     return tag
 
 
@@ -292,7 +394,9 @@ def _storno(
             session.rollback()
             raise StornoError(
                 f"Buchung {_kurz(b)} wurde inzwischen von einem anderen Vorgang "
-                f"storniert — nichts geändert (accounti buchung zeige {_kurz(b)})"
+                "storniert — nichts geändert",
+                cli=f"Buchung {_kurz(b)} wurde inzwischen von einem anderen Vorgang "
+                f"storniert — nichts geändert (accounti buchung zeige {_kurz(b)})",
             ) from fehler
     return Korrektur(
         _lade(session, str(b.id)),
@@ -330,7 +434,7 @@ def storniere(
 ) -> Korrektur:
     """Hebt eine freigegebene Buchung durch eine Gegenbuchung auf (ohne Neubuchung)."""
     if not grund.strip():
-        raise StornoError("Grund für das Storno fehlt")
+        raise StornoError("Grund für das Storno fehlt", feld="grund")
     b = _lade(session, buchung_id)
     person = aktuelle_person(von)
     return _storno(
@@ -394,7 +498,9 @@ def korrigiere(
     if not ist_freigegeben(b):
         if datum is not None:
             raise StornoError(
-                "--datum gilt nur für das Storno einer freigegebenen Buchung"
+                "Ein Datum gilt nur für das Storno einer freigegebenen Buchung",
+                feld="datum",
+                cli="--datum gilt nur für das Storno einer freigegebenen Buchung",
             )
         with journal_kontext(person=person, grund=text):
             neu = aktualisiere_buchung(
@@ -454,8 +560,13 @@ def _pruefe_steuerschluessel(
                 raise StornoError(
                     f"Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
                     f"{automatik[konto]}) — ohne Schlüssel rechnete DATEV trotzdem "
+                    f"Steuer heraus: Steuerschlüssel {automatik[konto]} wählen oder "
+                    "ein Konto ohne Automatik",
+                    feld="steuer",
+                    cli=f"Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+                    f"{automatik[konto]}) — ohne Schlüssel rechnete DATEV trotzdem "
                     f"Steuer heraus: --steuer {automatik[konto]} angeben oder ein "
-                    "Konto ohne Automatik wählen"
+                    "Konto ohne Automatik wählen",
                 )
     fehler = [
         text
@@ -465,10 +576,14 @@ def _pruefe_steuerschluessel(
         if schwere is Schwere.FEHLER
     ]
     if fehler:
-        raise StornoError(
+        kopf = (
             f"Korrektur {kandidat.soll_konto} an {kandidat.haben_konto} mit "
             f"Schlüssel {kandidat.steuer_schluessel}: " + "; ".join(fehler) + " — "
-            "anderen Schlüssel mit --steuer angeben oder --ohne-steuer"
+        )
+        raise StornoError(
+            kopf + "anderen Steuerschlüssel wählen oder „ohne Steuer“",
+            feld="steuer",
+            cli=kopf + "anderen Schlüssel mit --steuer angeben oder --ohne-steuer",
         )
 
 

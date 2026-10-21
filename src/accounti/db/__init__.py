@@ -21,7 +21,16 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 # Tabellen, die nur einzeln über die Sitzung geändert werden (Journal, Storno-Regel,
 # Sperren); Massenwege des ORM lehnen ``ereignisse`` bzw. ``AccountiSitzung`` ab
-GESCHUETZT = frozenset({"buchungssaetze", "journal", "buchungskorrekturen"})
+GESCHUETZT = frozenset(
+    {
+        "buchungssaetze",
+        "journal",
+        "buchungskorrekturen",
+        # Baustein 10b: Herkunft je Buchung (nur anfügen), gelernte Regeln (Journal)
+        "kontierungsgruende",
+        "kontierungsregeln",
+    }
+)
 
 
 class Base(DeclarativeBase):

@@ -40,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from accounti.db.tabellen import BelegRow, BuchungssatzRow
 from accounti.db.tabellen_abschluss import AbschlussRow
+from accounti.db.tabellen_kontierung import KontierungsregelRow
 from accounti.db.tabellen_pruefung import JournalRow, PeriodenabschlussRow
 from accounti.models.pruefung import Journaleintrag
 from accounti.pruefung.person import aktuelle_person, kontext
@@ -341,7 +342,19 @@ def lade_eintrag(session: Session, nr: int) -> Journaleintrag | None:
 BESTAND: dict[str, Table] = {
     "buchung": BuchungssatzRow.__table__,  # type: ignore[dict-item]
     "beleg": BelegRow.__table__,  # type: ignore[dict-item]
+    # gelernte Regeln buchen künftig automatisch — eine an accounti vorbei geänderte
+    # Regel soll auffallen (Baustein 10b)
+    "kontierungsregel": KontierungsregelRow.__table__,  # type: ignore[dict-item]
 }
+
+
+def _bestandstabellen(verbindung: Connection) -> list[tuple[str, Table]]:
+    """Nur vorhandene Tabellen — vor der Migration fehlt etwa ``kontierungsregeln``."""
+    return [
+        (typ, tabelle)
+        for typ, tabelle in BESTAND.items()
+        if verbindung.dialect.has_table(verbindung, tabelle.name)
+    ]
 
 
 # Vorgänge der Bestandsübernahme — nur vor dem ersten regulären Eintrag zulässig
@@ -560,7 +573,7 @@ def _pruefe_bestand(
         "klären, eine falsche Buchung mit accounti buchung storniere aufheben bzw. "
         "einen Beleg neu erfassen"
     )
-    for typ, tabelle in BESTAND.items():
+    for typ, tabelle in _bestandstabellen(verbindung):
         aktuell = {
             str(z["id"]): schnappschuss(tabelle, z)
             for z in verbindung.execute(select(tabelle)).mappings()
@@ -771,7 +784,7 @@ def uebernehme_bestand(session: Session, person: str | None = None) -> int:
                     person=person,
                 )
             )
-    for typ, tabelle in BESTAND.items():
+    for typ, tabelle in _bestandstabellen(verbindung):
         for z in verbindung.execute(select(tabelle)).mappings():
             ident = str(z["id"])
             if (typ, ident) in bekannt:

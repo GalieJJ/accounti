@@ -67,6 +67,7 @@ def test_benutzer_anlegen_speichert_nur_den_hash(system):
         Recht.BELEGE_EINLIEFERN,
         Recht.LAEUFE_STARTEN,
         Recht.BUCHUNG_FREIGEBEN,
+        Recht.REGELN_LERNEN,  # Baustein 10b
     }
     assert rechte_in(system, b.id, "andere") == set()
     assert [e.art for e in lade_ereignisse(system)] == ["benutzer_angelegt"]
@@ -326,3 +327,14 @@ def test_zeitpunkte_in_der_zukunft_sind_kein_problem(system):
     jan = lege_person_an(system, "jan", Rolle.BUCHHALTER)
     t = datetime(2030, 1, 1, 12, 0)
     assert anmelden(system, "jan", PASSWORT, jan.code(t), jetzt=t).name == "jan"
+
+
+def test_regeln_lernen_nur_buchhalter_und_verwalter():
+    """Baustein 10b: gelernte Regeln buchen künftig automatisch — eigenes Recht für
+    buchhalter (lernt aus Korrekturen) und verwalter (sieht und deaktiviert)."""
+    from accounti.models.auth import FREIGABEWEGE, ROLLEN_RECHTE, Recht, Rolle
+
+    mit = {r for r, rechte in ROLLEN_RECHTE.items() if Recht.REGELN_LERNEN in rechte}
+    assert mit == {Rolle.BUCHHALTER, Rolle.VERWALTER}
+    assert Recht.BUCHEN not in ROLLEN_RECHTE[Rolle.VERWALTER]
+    assert "lerne" in FREIGABEWEGE[Recht.REGELN_LERNEN]

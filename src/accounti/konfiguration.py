@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -158,6 +158,9 @@ class Buchhaltung(BaseModel):
     skonto_gewaehrt: dict[str, str] = Field(
         default_factory=lambda: {"19": "8736", "7": "8731", "0": "8730"}
     )
+    # gelernte Kontierungsregeln (Datenbank, Baustein 10b): automatisch buchen (wie
+    # jede Regel), nur vorschlagen (Confidence 0,9 → zur Prüfung) oder nicht laden
+    gelernte_regeln: Literal["automatisch", "pruefen", "aus"] = "automatisch"
 
 
 def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:

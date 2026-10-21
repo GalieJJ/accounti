@@ -62,6 +62,7 @@ class LLMEngine:
             steuer_schluessel=daten.get("steuer_schluessel"),
             buchungstext=daten.get("buchungstext", transaktion.verwendungszweck[:60]),
             confidence=float(daten.get("confidence", 0.0)),
-            begruendung=daten.get("begruendung", ""),
+            begruendung=str(daten.get("begruendung", "")),
             quelle="llm",
+            modell=self.model,
         )

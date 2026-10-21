@@ -290,3 +290,34 @@ def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
     engine.dispose()
     assert "| eva | buchhalter (a) |" in text
     assert "bob" not in text
+
+
+def test_gelernte_regeln_in_der_verfahrensdoku(tmp_path, monkeypatch):
+    """Baustein 10b: Regeldatei der Gesellschaft, gelernte Regeln aus der Datenbank
+    (aktiv, deaktiviert, Richtung, wer und wann) und der Schalter."""
+    from accounti.klassifikation.lernen import deaktiviere, lerne_regex
+    from accounti.models.kontierung import Richtung
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: miete\n  muster: miete\n  soll_konto: '4210'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    config = tmp_path / "accounti.yaml"
+    config.write_text("buchhaltung:\n  gelernte_regeln: pruefen\n", encoding="utf-8")
+    with fabrik() as s:
+        lerne_regex(
+            s, "telekom", "telekom", "4920", "1200", 9, "jan", richtung=Richtung.AUSGABE
+        )
+        alt = lerne_regex(s, "aral", "aral", "4530", "1200", 9, "eva")
+        deaktiviere(s, alt.id, "chef", "Privatwagen")
+        s.commit()
+        text = erzeuge(s, config, db_url="sqlite:///x.db", stand=date(2026, 10, 21))
+    engine.dispose()
+    assert "1 gelernte Regeln" in text and "1 eigenen Regeln" in text
+    assert "gelernte_regeln: **pruefen**" in text
+    assert "| telekom | /telekom/ | ausgabe | 4920 | 1200 | 9 | jan, " in text
+    assert "deaktiviert (chef: Privatwagen)" in text
+    assert "Kontierungsregeln lernen" in text  # Recht in der Rechtetabelle

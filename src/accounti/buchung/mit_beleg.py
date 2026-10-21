@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from accounti.anzeige import betrag_de
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.erkennung import finde_kontakt
@@ -37,7 +38,15 @@ _ERLOES_UNBEKANNT = "8200"
 class Sachkonto:
     konto: str
     pruefen: bool
-    quelle: str
+    quelle: str  # „Kontakt …“, „Regel (Belegdaten)“, „Regel (Umsatz)“, „Standard“
+    regel: str | None = None  # Name der Regel, die das Konto lieferte
+
+    @property
+    def herkunft(self) -> str:
+        """Quelle für ``kontierungsgruende``: kontakt, regelwerk oder standard."""
+        if self.regel is not None:
+            return "regelwerk"
+        return "kontakt" if self.quelle.startswith("Kontakt") else "standard"
 
 
 def sachkonto_fuer_beleg(
@@ -76,7 +85,12 @@ def sachkonto_fuer_beleg(
                 ergebnis is not None
                 and ergebnis.haben_konto == einstellungen.bank_konto
             ):
-                return Sachkonto(ergebnis.soll_konto, ungeprueft, f"Regel ({quelle})")
+                return Sachkonto(
+                    ergebnis.soll_konto,
+                    ungeprueft,
+                    f"Regel '{ergebnis.regel}' ({quelle})",
+                    ergebnis.regel,
+                )
     return Sachkonto(einstellungen.standard_aufwand, True, "Standard")
 
 
@@ -110,6 +124,16 @@ def _saetze(beleg: Beleg) -> list[tuple[Decimal | None, Decimal, Decimal]]:
     return [(None, beleg.brutto or NULL, NULL)]
 
 
+@dataclass
+class Belegkontierung:
+    """Buchungen aus dem Beleg samt Herkunft (für ``kontierungsgruende``)."""
+
+    buchungen: list[Buchungssatz]
+    quelle: str  # kontakt, regelwerk, standard (Eingang) bzw. beleg (Ausgang)
+    begruendung: str
+    regel: str | None = None
+
+
 def kontiere_mit_beleg(
     tx: Transaktion,
     beleg: Beleg,
@@ -118,6 +142,17 @@ def kontiere_mit_beleg(
     kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
 ) -> list[Buchungssatz]:
     """Bucht den Umsatz aus dem Beleg: je Steuersatz ein Buchungssatz."""
+    return kontiere_beleg(tx, beleg, einstellungen, regelwerk, kontakte).buchungen
+
+
+def kontiere_beleg(
+    tx: Transaktion,
+    beleg: Beleg,
+    einstellungen: Buchhaltung,
+    regelwerk: RegelwerkEngine | None = None,
+    kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
+) -> Belegkontierung:
+    """Wie ``kontiere_mit_beleg`` — dazu woher das Sachkonto kommt und warum."""
     eingang = beleg.richtung is Belegrichtung.EINGANG
     sachkonto = None
     if eingang:
@@ -160,6 +195,21 @@ def kontiere_mit_beleg(
         groesste.pruefen = True
 
     text = f"{beleg.lieferant_name or ''} {beleg.belegnummer or ''}".strip()
+    nummer = beleg.belegnummer or beleg.dateiname
+    if sachkonto is not None:
+        begruendung = (
+            f"Aus Beleg {nummer} ({beleg.lieferant_name or 'Lieferant unbekannt'}): "
+            f"Sachkonto {sachkonto.konto} — {sachkonto.quelle}"
+        )
+        quelle, regel = sachkonto.herkunft, sachkonto.regel
+    else:
+        begruendung = f"Aus Beleg {nummer}: Erlöskonto nach dem Steuersatz des Belegs"
+        quelle, regel = "beleg", None
+    if differenz:
+        begruendung += (
+            f"; Zahlbetrag weicht um {betrag_de(differenz)} € vom Beleg ab — "
+            "Differenz ohne Steuer, zur Prüfung"
+        )
     buchungen = []
     for g in gruppen.values():
         soll, haben = g.konto, tx.sachkonto or einstellungen.bank_konto
@@ -185,4 +235,4 @@ def kontiere_mit_beleg(
                 confidence=0.5 if g.pruefen else 1.0,
             )
         )
-    return buchungen
+    return Belegkontierung(buchungen, quelle, begruendung, regel)

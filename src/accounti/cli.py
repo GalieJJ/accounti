@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from accounti.kontakte.ustid import Bewertung
     from accounti.models import (
         Beleg,
-        Buchungssatz,
         Kontakt,
         PostenRichtung,
         Transaktion,
@@ -1427,8 +1426,7 @@ def opos_verbuchen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import STANDARD_REGELN, RegelwerkEngine
-    from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.konfiguration import (
         KonfigurationError,
         lade_buchhaltung,
@@ -1459,12 +1457,13 @@ def opos_verbuchen(
     from accounti.befehle import laufsperre_oder_ende
     from accounti.betrieb.kontext import regeln_datei
 
-    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
     engine, make_session = session_factory(db)
     init_db(engine)
     # bucht dieselben Belege, die classify und der Belegabgleich lesen — wie die
     # Schritte von bank lauf nie zwei gleichzeitig (sonst doppelt gebucht)
     with laufsperre_oder_ende(db), make_session() as s:
+        # gelernte Regeln (Datenbank) → Regeldatei der Gesellschaft → Standard
+        regelwerk = lade_regelwerk(s, regeln_datei(), einstellungen.gelernte_regeln)
         lauf = verbuche_belege(
             s,
             einstellungen,
@@ -2222,13 +2221,9 @@ def bank_lauf_befehl(
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
-        KlassifikationsEngine,
-        RegelwerkEngine,
-    )
+    from accounti.klassifikation.engine import KlassifikationsEngine
+    from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
-    from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     try:
@@ -2237,12 +2232,6 @@ def bank_lauf_befehl(
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     from accounti.betrieb.kontext import regeln_datei
-
-    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
-    engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
-        llm=LLMEngine() if llm else None,
-    )
     from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
 
     db_engine, make_session = session_factory(db)
@@ -2250,6 +2239,14 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
+            # gelernte Regeln (Datenbank, nach der Laufsperre geladen) → eigene Regeln
+            # der Gesellschaft (Registry regeln:, sonst config/regeln.yaml) → Standard
+            engine = KlassifikationsEngine(
+                regelwerk=lade_regelwerk(
+                    s, regeln_datei(), einstellungen.gelernte_regeln
+                ),
+                llm=LLMEngine() if llm else None,
+            )
             ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
             s.commit()
     except LaufLaeuftError as fehler:
@@ -2280,13 +2277,9 @@ def classify(
 
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
-        KlassifikationsEngine,
-        RegelwerkEngine,
-    )
+    from accounti.klassifikation.engine import KlassifikationsEngine
+    from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
-    from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     try:
@@ -2294,26 +2287,20 @@ def classify(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
-
-    # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
-    # das Standard-Regelwerk.
-    regeln = lade_regeln(regeln_datei())
-    if regeln:
-        regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
-    else:
-        regelwerk = RegelwerkEngine()
-    engine = KlassifikationsEngine(
-        regelwerk=regelwerk,
-        llm=LLMEngine() if llm else None,
-    )
-
     from accounti.befehle import laufsperre_oder_ende
+    from accounti.betrieb.kontext import regeln_datei
 
     db_engine, make_session = session_factory(db)
     init_db(db_engine)
     # derselbe Schritt wie in bank lauf — nie zwei gleichzeitig (Doppelbuchung)
     with laufsperre_oder_ende(db), make_session() as s:
+        # Vorrang: gelernte Regeln (Datenbank, neueste zuerst) → eigene Regeln der
+        # Gesellschaft (sonst config/regeln.yaml) → Standard-Regelwerk. Geladen erst
+        # unter der Laufsperre: eine gerade gelernte Regel greift sofort
+        engine = KlassifikationsEngine(
+            regelwerk=lade_regelwerk(s, regeln_datei(), einstellungen.gelernte_regeln),
+            llm=LLMEngine() if llm else None,
+        )
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
         lauf = kontiere_umsaetze(s, engine, einstellungen)
@@ -2417,55 +2404,74 @@ def export_datev(
         )
 
 
-def _regel_speichern(
-    name: str,
-    muster: str,
-    soll: str,
-    haben: str,
-    steuer: int | None,
-    feld: str = "beide",
-) -> None:
-    """Hängt eine Regel an die Regeldatei der Gesellschaft an (Registry ``regeln:``,
-    sonst config/regeln.yaml)."""
-    from pathlib import Path
-
-    import yaml
-
-    from accounti.betrieb.kontext import regeln_datei
-
-    pfad = Path(regeln_datei())
-    if pfad.exists():
-        regeln = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
-    else:
-        regeln = []
-    regeln.append(
-        {
-            "name": name,
-            "muster": muster,
-            "feld": feld,
-            "soll_konto": soll,
-            "haben_konto": haben,
-            "steuer_schluessel": steuer,
-            "buchungstext": name,
-        }
-    )
-    pfad.parent.mkdir(parents=True, exist_ok=True)
-    pfad.write_text(
-        yaml.safe_dump(regeln, allow_unicode=True, sort_keys=False), encoding="utf-8"
-    )
-
-
 @app.command()
 def lerne(
-    muster: str = typer.Option(..., help="Text-Muster (Regex)"),
+    muster: str = typer.Option(
+        ..., help="Muster (regulärer Ausdruck, höchstens 200 Zeichen)"
+    ),
     soll: str = typer.Option(..., help="Soll-Konto"),
     haben: str = typer.Option(..., help="Haben-Konto"),
     name: str = typer.Option(..., help="Regel-Name"),
     steuer: int | None = typer.Option(None, help="Steuerschlüssel"),
+    feld: str = typer.Option(
+        "beide", help="verwendungszweck, gegenkonto_name oder beide"
+    ),
+    richtung: str | None = typer.Option(
+        None, help="nur ausgabe (Abgang) oder einnahme (Eingang); sonst beide"
+    ),
+    von: str | None = typer.Option(
+        None,
+        help="Wer lernt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """Korrektur als neue Regel speichern (Lernschleife)."""
-    _regel_speichern(name, muster, soll, haben, steuer)
-    console.print(f"[green]Regel '{name}' gespeichert.[/green]")
+    """Regel lernen — in der Datenbank der Gesellschaft, mit Vorrang vor der
+    Regeldatei (Lernschleife; die Regeldatei bleibt unverändert)."""
+    from rich.markup import escape
+
+    from accounti.befehle import handelnde_person
+    from accounti.db import init_db, session_factory
+    from accounti.klassifikation.lernen import FELDER, RegelError, lerne_regex
+    from accounti.models.auth import Recht
+    from accounti.models.kontierung import Richtung
+    from accounti.pruefung.person import aktuelle_person
+
+    if feld not in FELDER:
+        console.print(f"[red]--feld: eines von {', '.join(FELDER)}[/red]")
+        raise typer.Exit(1)
+    try:
+        r_richtung = Richtung(richtung) if richtung else None
+    except ValueError as fehler:
+        console.print("[red]--richtung: ausgabe oder einnahme[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with (
+        handelnde_person(db, config, Recht.REGELN_LERNEN, von) as person,
+        make_session() as s,
+    ):
+        try:
+            regel = lerne_regex(
+                s,
+                name,
+                muster,
+                soll,
+                haben,
+                steuer,
+                aktuelle_person(person),
+                feld=feld,
+                richtung=r_richtung,
+            )
+            s.commit()
+        except RegelError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+    console.print(
+        f"[green]Regel '{escape(regel.name)}' gespeichert[/green] (Datenbank, Vorrang "
+        "vor der Regeldatei; accounti regeln liste)."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2474,18 +2480,26 @@ def lerne(
 @app.command()
 def review(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    zurueckgestellt: bool = typer.Option(
+        False, "--zurueckgestellt", help="die zurückgestellten statt der offenen"
+    ),
 ) -> None:
-    """Buchungen zur Prüfung anzeigen (Supervisor-Übersicht)."""
+    """Buchungen zur Prüfung anzeigen (Supervisor-Übersicht) — dieselbe Reihenfolge
+    wie die Prüfseite im Browser."""
+    from rich.markup import escape
     from rich.table import Table
 
-    from accounti.db import session_factory
-    from accounti.db.repository import lade_buchungen, lade_pruefliste
+    from accounti.buchung.pruefschlange import Ansicht, lade_pruefschlange
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_buchungen
     from accounti.models import BuchungStatus
 
-    _, make_session = session_factory(db)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    ansicht = Ansicht.ZURUECKGESTELLT if zurueckgestellt else Ansicht.OFFEN
     with make_session() as s:
         alle = lade_buchungen(s)
-        pruefliste = lade_pruefliste(s)
+        seite = lade_pruefschlange(s, ansicht)
 
     zaehler: dict[BuchungStatus, int] = {}
     for b in alle:
@@ -2493,6 +2507,11 @@ def review(
     console.print("[bold]Status-Übersicht:[/bold]")
     for status, anzahl in zaehler.items():
         console.print(f"  {status.value:12} {anzahl}")
+    if seite.zurueckgestellt:
+        console.print(
+            f"  {'zurückgest.':12} {seite.zurueckgestellt} (offene Rückfrage; "
+            "accounti review --zurueckgestellt)"
+        )
     storniert = sum(1 for b in alle if b.storniert_durch is not None)
     if storniert:
         console.print(
@@ -2500,32 +2519,42 @@ def review(
             "accounti buchung zeige <ID>)"
         )
 
-    if not pruefliste:
-        console.print("[green]Nichts zu prüfen — alles freigegeben.[/green]")
+    if not seite.eintraege:
+        if ansicht is Ansicht.OFFEN:
+            console.print("[green]Nichts zu prüfen — alles freigegeben.[/green]")
+        else:
+            console.print("[green]Nichts zurückgestellt.[/green]")
         return
 
-    tabelle = Table(title="Zur Prüfung")
+    tabelle = Table(title="Zurückgestellt" if zurueckgestellt else "Zur Prüfung")
     tabelle.add_column("ID")
-    tabelle.add_column("Verwendungszweck")
+    tabelle.add_column("Verwendungszweck", min_width=20)
     tabelle.add_column("Soll")
     tabelle.add_column("Haben")
     tabelle.add_column("St")
     tabelle.add_column("Conf", justify="right")
-    for buchung, tx in pruefliste:
+    tabelle.add_column("Begründung", max_width=40)
+    for e in seite.eintraege:
+        b, tx = e.buchung, e.umsatz
         tabelle.add_row(
-            str(buchung.id)[:8],
-            (tx.verwendungszweck[:35] if tx else buchung.buchungstext),
-            buchung.soll_konto,
-            buchung.haben_konto,
-            str(buchung.steuer_schluessel or "—"),
-            f"{buchung.confidence:.2f}",
+            str(b.id)[:8],
+            escape(tx.verwendungszweck[:35] if tx else b.buchungstext),
+            b.soll_konto,
+            b.haben_konto,
+            str(b.steuer_schluessel or "—"),
+            f"{b.confidence:.2f}",
+            escape(e.herkunft.text[:60]) if e.herkunft.bekannt else "—",
         )
     console.print(tabelle)
+    if seite.seiten > 1:
+        console.print(
+            f"[dim]Die ersten {len(seite.eintraege)} von {seite.gesamt}.[/dim]"
+        )
     console.print(
         "[dim]Freigeben: accounti bestaetige <ID> · "
         "Korrigieren: accounti korrigiere <ID> --soll .. --haben .. "
-        "[--steuer .. | --ohne-steuer] (neues Sachkonto: Steuer ausdrücklich; "
-        "freigegebene Buchungen: Storno mit Neubuchung)[/dim]"
+        "[--steuer .. | --ohne-steuer] [--lernen] (neues Sachkonto: Steuer "
+        "ausdrücklich; freigegebene Buchungen: Storno mit Neubuchung)[/dim]"
     )
 
 
@@ -2544,22 +2573,33 @@ def bestaetige(
     from rich.markup import escape
 
     from accounti.befehle import handelnde_person
+    from accounti.buchung.pruefschlange import PruefschlangeError, freigeben
     from accounti.db import session_factory
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.models.auth import Recht
-    from accounti.pruefung.storno import StornoError, freigeben
+    from accounti.pruefung.person import aktuelle_person
+    from accounti.pruefung.storno import StornoError
 
     _, make_session = session_factory(db)
-    # mit Benutzern: Buchungen freigeben (buchhalter, freigeber) und Einmalcode
+    # mit Benutzern: Buchungen freigeben (buchhalter, freigeber) und Einmalcode;
+    # dieselbe Funktion wie die Prüfseite (schließt Rückfrage und Aufgabe), aber auch
+    # für automatisch gebuchte Buchungen und ohne Stand
     with (
         handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
         make_session() as s,
     ):
         try:
-            b, geaendert = freigeben(s, buchung_id, person)
+            b, geaendert = freigeben(
+                s, buchung_id, aktuelle_person(person), nur_vorschlaege=False
+            )
             s.commit()
-        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+        except (
+            PruefschlangeError,
+            StornoError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+        ) as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
     if geaendert:
@@ -2568,32 +2608,6 @@ def bestaetige(
         console.print(
             f"[yellow]Schon freigegeben:[/yellow] {str(b.id)[:8]} ({b.status.value})"
         )
-
-
-def _lerne_sachkonto(
-    session: "Session", buchung: "Buchungssatz", soll: str, haben: str
-) -> str | None:
-    """Lernschleife für Belegbuchungen: das Sachkonto wird zum Vorschlag am Kontakt."""
-    from accounti.db.repository import (
-        aktualisiere_kontakt,
-        lade_kontakt,
-        lade_posten_fuer_beleg,
-    )
-
-    if buchung.beleg_id is None:
-        return None
-    posten = lade_posten_fuer_beleg(session, buchung.beleg_id)
-    if posten is None:
-        return None
-    kontakt = lade_kontakt(session, str(posten.kontakt_id))
-    if kontakt.kreditor_konto == haben:
-        sachkonto = soll  # Eingang: Aufwand an Kreditor
-    elif kontakt.debitor_konto == soll:
-        sachkonto = haben  # Ausgang: Debitor an Erlös
-    else:
-        return None
-    aktualisiere_kontakt(session, kontakt.model_copy(update={"sachkonto": sachkonto}))
-    return f"Sachkonto {sachkonto} als Vorschlag für {kontakt.name}"
 
 
 @app.command()
@@ -2622,67 +2636,76 @@ def korrigiere(
         None,
         help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist",
     ),
-    lernen: bool = typer.Option(False, "--lernen", help="Korrektur als Regel merken"),
+    lernen: bool = typer.Option(
+        False,
+        "--lernen",
+        help="Korrektur als Regel merken (Datenbank, nur in der Zahlungsrichtung des "
+        "Umsatzes; Belegbuchung: Sachkonto am Kontakt)",
+    ),
+    muster: str | None = typer.Option(
+        None, help="mit --lernen: Text-Muster statt des ersten Worts der Gegenpartei"
+    ),
     config: str = KONFIG_OPTION,
 ) -> None:
     """Eine Buchung korrigieren — nach der Freigabe als Storno mit Neubuchung."""
     from rich.markup import escape
 
-    from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
     from accounti.befehle import handelnde_person
-    from accounti.db import session_factory
-    from accounti.db.repository import lade_transaktion
+    from accounti.buchung.pruefschlange import (
+        Aenderung,
+        LernWunsch,
+        PruefschlangeError,
+        korrigieren,
+    )
+    from accounti.db import init_db, session_factory
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.konfiguration import KonfigurationError
     from accounti.models.auth import Recht
-    from accounti.pruefung.einstellungen import lade_pruefung
-    from accounti.pruefung.storno import StornoError
-    from accounti.pruefung.storno import korrigiere as korrigiere_buchung
+    from accounti.pruefung.person import aktuelle_person
+    from accounti.pruefung.storno import StornoError, lade_korrekturumgebung
 
     try:
-        buchhaltung = lade_buchhaltung(config)
-        kontenrahmen = lade_kontenrahmen(buchhaltung.kontenrahmen)
-        pruefung = lade_pruefung(config)
+        # Kontenrahmen (mit abschluss.kontenzuordnung), Buchhaltung und
+        # Prüfeinstellungen der Gesellschaft — wie die Oberfläche
+        umgebung = lade_korrekturumgebung(config)
     except (KonfigurationError, KontenrahmenError) as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     tag = _datum_option(datum, "--datum")
-    _, make_session = session_factory(db)
-    gelernt = None
-    gegenkonto = zweck = None
-    # mit Benutzern: buchen (buchhalter) und Einmalcode. Korrigieren legt
-    # freigegebene Buchungen an (Neubuchung „korrigiert“, Storno „geprueft“) — wer
-    # buchen darf, darf laut Rollenmatrix auch Buchungen freigeben (ein Einmalcode)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — mit --lernen zusätzlich
+    # Regeln lernen, mit demselben Code. Korrigieren legt freigegebene Buchungen an
+    # (Neubuchung „korrigiert“, Storno „geprueft“) — wer buchen darf, darf laut
+    # Rollenmatrix auch Buchungen freigeben
+    weitere = (Recht.REGELN_LERNEN,) if lernen else ()
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, weitere) as person,
         make_session() as s,
     ):
         try:
-            k = korrigiere_buchung(
+            e = korrigieren(
                 s,
                 buchung_id,
-                soll,
-                haben,
-                steuer=steuer,
-                ohne_steuer=ohne_steuer,
-                von=person,
-                grund=grund,
-                datum=tag,
-                kontenrahmen=kontenrahmen,
-                buchhaltung=buchhaltung,
-                einstellungen=pruefung,
+                Aenderung(soll, haben, steuer, ohne_steuer, grund, tag),
+                aktuelle_person(person),
+                None,
+                umgebung,
+                lernen=LernWunsch(muster=muster) if lernen else None,
+                nur_vorschlaege=False,
             )
-            if lernen and k.original.transaktion_id is None:
-                gelernt = _lerne_sachkonto(s, k.original, soll, haben)
-            elif lernen and k.original.transaktion_id is not None:
-                tx = lade_transaktion(s, k.original.transaktion_id)
-                if tx is not None:
-                    gegenkonto, zweck = tx.gegenkonto_name, tx.verwendungszweck
             s.commit()
-        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+        except (
+            PruefschlangeError,
+            StornoError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+        ) as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
+    k = e.korrektur
     kurz = str(k.original.id)[:8]
     if k.storno is None:
         console.print(
@@ -2700,21 +2723,14 @@ def korrigiere(
         )
     for warnung in k.warnungen:
         console.print(f"[yellow]{escape(warnung)}[/yellow]")
-    if gelernt:
-        console.print(f"[green]Gelernt:[/green] {gelernt}")
-    if lernen and (gegenkonto or zweck):
-        import re
-
-        basis = (gegenkonto or zweck or "").strip()
-        muster = re.escape(basis.split()[0]) if basis else ""
-        if muster:
-            # der Schlüssel der Neubuchung: bei neuem Sachkonto ausdrücklich angegeben,
-            # sonst der des unveränderten Sachkontos
-            schluessel = k.neu.steuer_schluessel if k.neu else steuer
-            _regel_speichern(
-                f"gelernt_{muster}".lower(), muster, soll, haben, schluessel
-            )
-            console.print(f"[green]Regel gelernt:[/green] Muster '{muster}'")
+    if e.gelernt:
+        console.print(f"[green]Gelernt:[/green] {escape(e.gelernt)}")
+    if e.regel is not None:
+        richtung = e.regel.richtung.value if e.regel.richtung else "beide"
+        console.print(
+            f"[green]Regel gelernt:[/green] {escape(e.regel.name)} — Muster "
+            f"'{escape(e.regel.muster)}' ({richtung}), Vorrang vor der Regeldatei"
+        )
 
 
 # ---------------------------------------------------------------------------

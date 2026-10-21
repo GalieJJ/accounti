@@ -1,4 +1,9 @@
-"""Lädt Kontierungsregeln aus config/regeln.yaml."""
+"""Lädt Kontierungsregeln aus der Regeldatei der Gesellschaft (``config/regeln.yaml``).
+
+accounti schreibt die Datei nicht (mehr): gelernte Regeln liegen in der Datenbank
+(``klassifikation.lernen``), die Datei pflegt der Betreiber. Optionales Feld
+``richtung`` (``ausgabe``/``einnahme``) beschränkt eine Regel auf eine Zahlungsrichtung.
+"""
 
 from __future__ import annotations
 
@@ -25,6 +30,8 @@ def lade_regeln(pfad: str | Path) -> list[Regel]:
                 steuer_schluessel=eintrag.get("steuer_schluessel"),
                 buchungstext=eintrag.get("buchungstext"),
                 feld=eintrag.get("feld", "verwendungszweck"),
+                # optional: nur Ausgaben (negativ) bzw. Einnahmen (Baustein 10b)
+                richtung=eintrag.get("richtung"),
             )
         )
     return regeln

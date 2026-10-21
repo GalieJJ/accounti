@@ -268,22 +268,74 @@ def _bank(d: _Doku) -> None:
 
 
 def _kontierung(d: _Doku) -> None:
+    from accounti.betrieb.kontext import regeln_datei as regeldatei_der_gesellschaft
     from accounti.buchung.mapper import zu_buchungssatz
+    from accounti.db.repo_kontierung import lade_kontierungsregeln
     from accounti.klassifikation.engine import STANDARD_REGELN
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.konfiguration import lade_buchhaltung
 
     d("### 2.3 Kontierung", "")
-    regeln_datei = Path("config/regeln.yaml")  # wie classify: im Arbeitsverzeichnis
+    # wie classify: die Regeldatei der Gesellschaft (Registry regeln:), sonst
+    # config/regeln.yaml im Arbeitsverzeichnis
+    regeln_datei = Path(regeldatei_der_gesellschaft())
     eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
     schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
     llm = inspect.signature(LLMEngine).parameters
+    buchhaltung = d.lade(lade_buchhaltung, "buchhaltung")
+    schalter = buchhaltung.gelernte_regeln if buchhaltung is not None else "automatisch"
+    verbindung = d.s.connection()
+    gelernt = (
+        lade_kontierungsregeln(d.s)
+        if verbindung.dialect.has_table(verbindung, "kontierungsregeln")
+        else []
+    )
+    aktiv = [r for r in gelernt if r.aktiv]
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
-        f"Regelwerk: {len(eigene)} eigene Regeln ({_zelle(regeln_datei)}) vor "
-        f"{len(STANDARD_REGELN)} Standardregeln.",
+        f"Regelwerk: {len(aktiv)} gelernte Regeln (Datenbank, neueste zuerst) vor "
+        f"{len(eigene)} eigenen Regeln ({_zelle(regeln_datei)}) vor "
+        f"{len(STANDARD_REGELN)} Standardregeln. Gelernte Regeln entstehen aus einer "
+        "Korrektur (Browser, accounti korrigiere --lernen) oder per accounti lerne — "
+        "nur mit dem Recht „Kontierungsregeln lernen“; sie gelten nur in der "
+        "Zahlungsrichtung ihres Quellumsatzes, werden nicht geändert, nur deaktiviert, "
+        f"und stehen im Journal. Schalter buchhaltung.gelernte_regeln: **{schalter}** "
+        "(automatisch: wie jede Regel; pruefen: nur Vorschlag zur Prüfung; aus: nicht "
+        "geladen).",
         "",
     )
+    if gelernt:
+        d(
+            *_tabelle(
+                [
+                    "Regel",
+                    "Muster",
+                    "Richtung",
+                    "Soll",
+                    "Haben",
+                    "Schlüssel",
+                    "Angelegt",
+                    "Stand",
+                ],
+                [
+                    [
+                        r.name,
+                        r.muster if r.ist_text else f"/{r.muster}/",
+                        r.richtung.value if r.richtung else "beide",
+                        r.soll_konto,
+                        r.haben_konto,
+                        r.steuer_schluessel,
+                        f"{r.angelegt_von}, {datum_de(r.angelegt_am.date())}",
+                        "aktiv"
+                        if r.aktiv
+                        else f"deaktiviert ({r.deaktiviert_von}: "
+                        f"{r.deaktiviert_grund or '—'})",
+                    ]
+                    for r in gelernt[:40]
+                ],
+            )
+        )
     if eigene:
         d(
             *_tabelle(

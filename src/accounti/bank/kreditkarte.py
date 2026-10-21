@@ -58,6 +58,7 @@ from accounti.db.repo_bank import (
     speichere_abrechnung,
     speichere_kreditkarte,
 )
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     aktualisiere_buchung,
     gebuchte_transaktion_ids,
@@ -920,22 +921,30 @@ class _Abgleich:
                 )
                 status = AbrechnungStatus.ABWEICHUNG
         else:
-            speichere_buchung(
+            belastung = Buchungssatz(
+                transaktion_id=tx.id,
+                beleg_id=a.beleg_id,
+                datum=tx.datum,
+                soll_konto=soll,
+                haben_konto=tx.sachkonto or k.giro.sachkonto,
+                betrag_netto=-tx.betrag,
+                buchungstext=f"Kreditkarte {k.konto.bezeichnung}"[:60],
+                status=(
+                    BuchungStatus.AUTO_GEBUCHT
+                    if status is AbrechnungStatus.ABGEGLICHEN
+                    else BuchungStatus.ZUR_PRUEFUNG
+                ),
+                confidence=1.0 if status is AbrechnungStatus.ABGEGLICHEN else 0.5,
+            )
+            speichere_buchung(self.session, belastung)
+            speichere_kontierungsgrund(
                 self.session,
-                Buchungssatz(
-                    transaktion_id=tx.id,
-                    beleg_id=a.beleg_id,
-                    datum=tx.datum,
-                    soll_konto=soll,
-                    haben_konto=tx.sachkonto or k.giro.sachkonto,
-                    betrag_netto=-tx.betrag,
-                    buchungstext=f"Kreditkarte {k.konto.bezeichnung}"[:60],
-                    status=(
-                        BuchungStatus.AUTO_GEBUCHT
-                        if status is AbrechnungStatus.ABGEGLICHEN
-                        else BuchungStatus.ZUR_PRUEFUNG
-                    ),
-                    confidence=1.0 if status is AbrechnungStatus.ABGEGLICHEN else 0.5,
+                belastung.id,
+                quelle="kreditkarte",
+                begruendung="; ".join(befunde)
+                or (
+                    f"Sammelbelastung {k.konto.bezeichnung} = Summe der {a.anzahl} "
+                    "Einzelumsätze der Abrechnung"
                 ),
             )
             self.session.flush()
@@ -1039,21 +1048,34 @@ class _Abgleich:
                             ),
                         )
                     continue
-                speichere_buchung(
+                ausgleich = Buchungssatz(
+                    transaktion_id=t.id,
+                    datum=t.datum,
+                    soll_konto=t.sachkonto or k.konto.sachkonto,
+                    haben_konto=self.geldtransit,
+                    betrag_netto=t.betrag,
+                    buchungstext=f"Ausgleich {k.konto.bezeichnung}"[:60],
+                    status=(
+                        BuchungStatus.AUTO_GEBUCHT
+                        if passend
+                        else BuchungStatus.ZUR_PRUEFUNG
+                    ),
+                    confidence=1.0 if passend else 0.5,
+                )
+                speichere_buchung(self.session, ausgleich)
+                speichere_kontierungsgrund(
                     self.session,
-                    Buchungssatz(
-                        transaktion_id=t.id,
-                        datum=t.datum,
-                        soll_konto=t.sachkonto or k.konto.sachkonto,
-                        haben_konto=self.geldtransit,
-                        betrag_netto=t.betrag,
-                        buchungstext=f"Ausgleich {k.konto.bezeichnung}"[:60],
-                        status=(
-                            BuchungStatus.AUTO_GEBUCHT
-                            if passend
-                            else BuchungStatus.ZUR_PRUEFUNG
-                        ),
-                        confidence=1.0 if passend else 0.5,
+                    ausgleich.id,
+                    quelle="kreditkarte",
+                    begruendung=(
+                        f"Ausgleich {k.konto.bezeichnung} über Geldtransit "
+                        f"{self.geldtransit} gegen eine gleich hohe, bestätigte "
+                        "Sammelbelastung"
+                        if passend
+                        else f"Ausgleich {k.konto.bezeichnung}: keine gleich hohe, "
+                        "bestätigte Sammelbelastung über Geldtransit"
+                        + (" (nur vorläufig gebucht)" if gegen_vorlaeufig else "")
+                        + " — prüfen"
                     ),
                 )
                 self.ergebnis.ausgleich_gebucht += 1

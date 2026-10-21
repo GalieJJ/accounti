@@ -29,7 +29,11 @@ KONFIG_OPTION = typer.Option("config/accounti.yaml", "--config", help="Konfigura
 
 @contextmanager
 def handelnde_person(
-    db: str, config: str, recht: Recht, von: str | None
+    db: str,
+    config: str,
+    recht: Recht,
+    von: str | None,
+    weitere: tuple[Recht, ...] = (),
 ) -> Iterator[str | None]:
     """Wer handelt — mit eingerichteten Benutzern (Baustein 10) geprüft.
 
@@ -38,11 +42,12 @@ def handelnde_person(
     zurück kommt der Benutzername — er steht dann in ``geprueft_von``, im
     Protokoll und als Person im Journal (``journal_kontext``), nicht ein frei
     gewählter Text. Ohne Benutzer bleibt alles wie bisher: zurück kommt ``von``
-    (auch ``None``). Fehlt das Recht: Meldung und Exit 1."""
+    (auch ``None``). Fehlt das Recht: Meldung und Exit 1. ``weitere``: zusätzlich
+    nötige Rechte, geprüft mit demselben Einmalcode (``korrigiere --lernen``)."""
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.pruefung.person import aktuelle_person, journal_kontext
 
-    benutzer = befehlsrecht_oder_ende(db, config, recht, aktuelle_person(von))
+    benutzer = befehlsrecht_oder_ende(db, config, recht, aktuelle_person(von), weitere)
     if benutzer is not None:
         with journal_kontext(person=benutzer.name, geprueft=True):
             yield benutzer.name

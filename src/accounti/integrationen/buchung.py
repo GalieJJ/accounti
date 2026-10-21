@@ -66,6 +66,8 @@ class Buchungskontext:
 class Buchungsergebnis:
     buchungen: list[Buchungssatz] = field(default_factory=list)
     befunde: list[Befund] = field(default_factory=list)
+    # Herkunft je Buchung für kontierungsgruende (Baustein 10b)
+    gruende: dict[UUID, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -169,6 +171,8 @@ class _Lauf:
     ergebnis: Buchungsergebnis = field(default_factory=Buchungsergebnis)
     gesammelt: dict[str, list[str]] = field(default_factory=lambda: defaultdict(list))
     schwelle_gemeldet: bool = False
+    # Befunde seit der letzten Buchung — sie erklären, warum diese zur Prüfung geht
+    seit_letzter: list[str] = field(default_factory=list)
 
     @property
     def markt(self) -> str:
@@ -200,7 +204,7 @@ class _Lauf:
         soll, haben = (eigenes, gegenkonto) if betrag > 0 else (gegenkonto, eigenes)
         pruefen = pruefen or self.pruefen_alle
         self.ergebnis.buchungen.append(
-            Buchungssatz(
+            buchung := Buchungssatz(
                 transaktion_id=self.umsaetze.get(referenz or ""),
                 beleg_id=self.abrechnung.beleg_id,
                 datum=datum,
@@ -217,9 +221,24 @@ class _Lauf:
                 confidence=0.5 if pruefen else 1.0,
             )
         )
+        self.ergebnis.gruende[buchung.id] = self.grund(text, pruefen)
+
+    def grund(self, text: str, pruefen: bool) -> str:
+        befunde = [
+            _BEFUNDTEXTE[c][1] if c in _BEFUNDTEXTE else c.replace("_", " ")
+            for c in dict.fromkeys(self.seit_letzter)
+        ]
+        self.seit_letzter.clear()
+        if self.pruefen_alle:
+            befunde.append("Abrechnung mit Fehlerbefund — alle Buchungen zur Prüfung")
+        elif pruefen and not befunde:
+            befunde.append("zur Prüfung")
+        kopf = f"{self.markt}-Abrechnung {self.abrechnung.nummer}: {text}"
+        return kopf + (" — " + "; ".join(befunde) if befunde else "")
 
     def sammle(self, code: str, bestellung: str) -> None:
         self.gesammelt[code].append(bestellung)
+        self.seit_letzter.append(code)
 
 
 def _gruppen(

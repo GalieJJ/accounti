@@ -1,8 +1,10 @@
 """Kontierungslauf für Bankumsätze (``accounti classify``).
 
 Ein Umsatz mit bestätigtem Beleg wird aus dem Beleg gebucht; alle anderen gehen wie
-bisher durch Regelwerk und LLM. Schon gebuchte und offenen Posten zugeordnete Umsätze
-bleiben unangetastet, ebenso solche mit offenem Beleg-Vorschlag.
+bisher durch Regelwerk und LLM. Jede Buchung bekommt in derselben Transaktion ihre
+Herkunft und Begründung (``kontierungsgruende``, Baustein 10b). Schon gebuchte und
+offenen Posten zugeordnete Umsätze bleiben unangetastet, ebenso solche mit offenem
+Beleg-Vorschlag.
 """
 
 from __future__ import annotations
@@ -12,7 +14,8 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from accounti.buchung.mapper import zu_buchungssatz
-from accounti.buchung.mit_beleg import kontiere_mit_beleg
+from accounti.buchung.mit_beleg import kontiere_beleg
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     lade_abgleiche,
     lade_belege,
@@ -46,10 +49,16 @@ def kontiere_umsaetze(
         abgleich = abgleiche.get(tx.id)
         if abgleich is not None and abgleich.beleg_id in belege:
             beleg = belege[abgleich.beleg_id]
-            for buchung in kontiere_mit_beleg(
-                tx, beleg, einstellungen, engine.regelwerk, kontakte
-            ):
+            bk = kontiere_beleg(tx, beleg, einstellungen, engine.regelwerk, kontakte)
+            for buchung in bk.buchungen:
                 speichere_buchung(session, buchung)
+                speichere_kontierungsgrund(
+                    session,
+                    buchung.id,
+                    quelle=bk.quelle,  # type: ignore[arg-type]
+                    regel=bk.regel,
+                    begruendung=bk.begruendung,
+                )
             lauf.kontiert += 1
             lauf.mit_beleg += 1
             continue
@@ -69,5 +78,13 @@ def kontiere_umsaetze(
                 }
             )
         speichere_buchung(session, buchung)
+        speichere_kontierungsgrund(
+            session,
+            buchung.id,
+            quelle="llm" if ergebnis.quelle == "llm" else "regelwerk",
+            regel=ergebnis.regel,
+            modell=ergebnis.modell,
+            begruendung=ergebnis.begruendung,
+        )
         lauf.kontiert += 1
     return lauf

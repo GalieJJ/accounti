@@ -182,8 +182,8 @@ def test_kaputte_konfiguration_blockiert_befehle_ohne_konfigurationsbedarf_nicht
 
 
 def test_regeln_je_gesellschaft_auch_in_der_cli(umgebung, monkeypatch):
-    """Befund B-M4: ``classify``/``bank lauf`` und ``lerne`` nutzen die Regeldatei
-    der Gesellschaft, nicht config/regeln.yaml."""
+    """Befund B-M4: ``classify``/``bank lauf`` nutzen die Regeldatei der
+    Gesellschaft, nicht config/regeln.yaml; ``lerne`` schreibt in ihre Datenbank."""
     from datetime import date
     from decimal import Decimal
 
@@ -232,8 +232,17 @@ def test_regeln_je_gesellschaft_auch_in_der_cli(umgebung, monkeypatch):
         "--name", "Farbe",
     )  # fmt: skip
     assert r.exit_code == 0, r.output
-    assert "FARBE" in (umgebung.wurzel / "b-regeln.yaml").read_text(encoding="utf-8")
-    assert "FARBE" not in (umgebung.wurzel / "a-regeln.yaml").read_text(
-        encoding="utf-8"
-    )
+    # (umgestellt, Baustein 10b) gelernt wird in die Datenbank der Gesellschaft b —
+    # die Regeldateien bleiben unverändert
+    from accounti.db.repo_kontierung import lade_kontierungsregeln
+
+    for k, erwartet in (("a", []), ("b", ["FARBE"])):
+        engine, fabrik = session_factory(umgebung.db[k])
+        with fabrik() as s:
+            assert [x.muster for x in lade_kontierungsregeln(s)] == erwartet, k
+        engine.dispose()
+    for k, konto in (("a", "3400"), ("b", "5400")):
+        assert (umgebung.wurzel / f"{k}-regeln.yaml").read_text(
+            encoding="utf-8"
+        ) == regel.format(konto=konto)
     assert not (umgebung.wurzel / "config" / "regeln.yaml").exists()
