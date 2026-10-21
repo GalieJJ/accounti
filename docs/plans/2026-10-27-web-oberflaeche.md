@@ -54,7 +54,7 @@ Kontenrahmen mit EÜR-Kennzahlen, korrigiert in #28) · **Nicht hier:** Spec 4.1
               auswertungen.py ─ BWA · SuSa · Kontenblatt · OPOS · /export/{csv|pdf}
               sprache.py ─ POST /einstellungen/sprache
     │  aus 10a: erfordert(Recht.X) → gesellschaft_db → a.gesellschaft (Archiv, Konfig, Regeln)
-    │  api/handeln.im_namen(a) → journal_kontext(person=a.benutzer.name) (7) · api/einmalcode.py (10a, verschoben)
+    │  api/handeln.im_namen(a) → geprueft_als(a.benutzer.name) (7) · api/einmalcode.py (10a, verschoben)
     ▼
  i18n/ ── Katalog en.yaml, Sprachwahl, Zahlen-/Datumsformate (Jinja-i18n, ohne Babel)
     ▼
@@ -273,6 +273,51 @@ nach dem Merge der Stand von `main` ist; Abweichungen zu `main` sind genannt.
 | A28 | CLI-Läufe laden das Regelwerk | `classify`, `bank lauf` bauen die Engine **vor** Sitzung und Laufsperre | `lade_regelwerk` in der Sitzung nach der Laufsperre |
 | A29 | htmx 2.0.11 | unverändert `latest`, Werte erneut nachgerechnet (Recherche) | — |
 
+### Abgleich mit `main` ec32890 (Umsetzung PR 10b-1, 21.10.2026)
+
+Fassung 3 las Baustein 7 bei 81d3b51; `main` (ec32890, 7 als #29) bringt danach u. a.
+`FREIGABEWEGE`, die Kennzeichnung „(ungeprüft)“, `geprueft_als`, die Rechtebindung von
+`opos bestaetigen|ablehnen`, `bank bestaetigen|ablehnen`, `export datev`, die Schreibsperre bei
+UPDATE/DELETE unter PostgreSQL und weitere Storno-Prüfungen. Gelesen mit
+`git diff 81d3b51 ec32890 -- src/`; Alembic-Kopf unverändert `ddc9a184ddb4`.
+
+| # | Fassung 3 nahm an | Stand `main` ec32890 | Folge |
+|---|-------------------|----------------------|-------|
+| B1 | `im_namen(a)` = `journal_kontext(person=a.benutzer.name)` | `fuege_an` kennzeichnet Personen ohne `geprueft=True` als „(ungeprüft)“, sobald die Datenbank an eine Benutzerverwaltung gebunden ist (`journal.benutzer_eingerichtet`); 10a-Freigaben nutzen `pruefung.person.geprueft_als(a.benutzer.name)` | `im_namen(a)` = `geprueft_als(a.benutzer.name)`; die Storno-Funktionen setzen innen `journal_kontext(person=von)` mit **derselben** Person — `geprueft` bleibt dann erhalten (`person == alt.person`). Test: gebundene Datenbank, jeder Web-Eintrag ohne „(ungeprüft)“ |
+| B2 | Recht `REGELN_LERNEN` nur in `Recht`, `RECHT_TEXT`, `ROLLEN_RECHTE` | `models.auth.FREIGABEWEGE` listet je Recht die gebundenen CLI-Befehle (Verfahrensdoku 2.x) | Eintrag `Recht.REGELN_LERNEN: ("lerne", "korrigiere --lernen", "regeln deaktivieren\|uebernehmen")` |
+| B3 | Stellen von `raise StornoError` wie bei 81d3b51 | neu: `--ohne-steuer` bei § 13b/ig. Erwerb (`SELBST_BERECHNET`) nur mit Grund, Warnung `_warnung_selbst`, gleichzeitiges Storno (`IntegrityError` → `StornoError`) | `steuer_optionen` kennt „ohne Steuer nur mit Grund“ auch für 18/19/91/94 (Hinweis `HINWEIS_SELBST_BERECHNET`); die neuen Stellen bekommen `meldung`/`feld` |
+| B4 | `StornoError(meldung, *, feld, cli)` mit `str() = meldung + cli` | die CLI-Optionen stehen in den Texten aus 7 **mitten im Satz** („… bestätigen mit --steuer 9 oder entfernen mit --ohne-steuer“) — Anhängen ergäbe nicht den bisherigen Wortlaut | `cli` ist der **vollständige** bisherige Text, `meldung` die Fassung ohne Optionen; `str()` liefert `cli` (sonst `meldung`) — Wortlaut der CLI und der Tests aus 7 unverändert |
+| B5 | `bank_lauf(s, engine, einstellungen)` | `bank_lauf(…, sichern=s.commit)` in CLI und REST (Zwischencommit nach dem Abruf) | Regelwerk wird vor `bank_lauf` in derselben Sitzung geladen; an `sichern` ändert sich nichts |
+| B6 | REST setzt `journal_kontext(person=zugang.person)` | `zugang.journal()` (geprüft) | nichts zu tun; Akzeptanz 2 erwartet „API-Token erp“ ohne „(ungeprüft)“ |
+| B7 | Schreibsperre nur für erfasste/geschützte Tabellen | unter PostgreSQL holt jeder Flush mit UPDATE/DELETE die Sperre (`ereignisse._braucht_sperre`) | `kontierungsgruende`/`kontierungsregeln` stehen in `GESCHUETZT` bzw. `ERFASST` und holen sie ohnehin; keine Änderung |
+| B8 | Migrationstest von 7 bleibt unberührt | `test_migration_belegvollstaendigkeit.py::test_downgrade_und_wieder_hinauf` geht mit `downgrade -1` vom Kopf aus — nach 10b nimmt das nur die Sprachspalte zurück | **umgestellt:** `downgrade a684d10751de` (der Stand vor 7), Absicht unverändert |
+| B9 | `journal.BESTAND` nur mit vorhandenen Tabellen | Bestandsabgleich liest jede Tabelle aus `BESTAND` | Abgleich überspringt Tabellen, die (vor der Migration) fehlen — `kontierungsregeln` ist in Altdatenbanken noch nicht da |
+
+### Browser-Spike (21.10.2026, vor Paket 3)
+
+Durchgeführt mit einer Wegwerf-App (Middleware `api/sicherheit.Sicherheit` aus 10a, htmx 2.0.11
+aus dem Tarball, `htmx-config` wie unter „HTMX“, eigenes Fehlerskript) auf 127.0.0.1, gesteuert
+mit Playwright 1.59.1 (lokal vorhanden; der Playwright-MCP-Server startet als root kein Chromium
+ohne `--no-sandbox`). **Browser:** Chromium-Build 1223 (neuer Headless-Modus) und
+`chrome-headless-shell` 1223. **Firefox ist auf dem Server nicht vorhanden — die Firefox-Probe
+bleibt offen (Browserprobe beim Nutzer).**
+
+| Frage | Ergebnis Chromium |
+|-------|-------------------|
+| (1) PDF im `<iframe>`, Antwort-CSP = Seiten-CSP mit `form-action 'none'` | Betrachter lädt und zeigt das PDF (Seitenleiste, Text sichtbar) |
+| (1) strengere Antwort-CSP `default-src 'none'; object-src 'self'; form-action 'none'` | Betrachter lädt ebenso |
+| (1) `chrome-headless-shell` | zeigt PDFs nie an (kein Betrachter) — für die Probe ungeeignet, kein Befund |
+| (2) 409 und 422 mit Fragment | eingetauscht (`responseHandling` `409\|422` mit `swap:true, error:false`) |
+| (2) 500 und 503 | nicht eingetauscht, `htmx:responseError` → versteckter Hinweis wird sichtbar (Status im Hinweis) |
+| (2) CSP-Meldungen in der Konsole | keine (kein `eval`, kein Indikatorstil, keine Inline-Skripte); nur die üblichen „Failed to load resource“ je 4xx/5xx |
+| (3) ohne Sitzung: 200 mit `HX-Redirect: /anmelden?weiter=…` | ganze Seite navigiert zur Anmeldung, `weiter` bleibt erhalten |
+| CSRF-403 mit `HX-Refresh: true` | Seite lädt neu |
+
+**Entscheidung:** Belegdateien (PDF) bekommen die Seiten-CSP mit `form-action 'none'` statt
+`form-action 'self'` (Variante A). Die strengere Variante B funktioniert in Chromium, ist aber
+ohne Firefox-Probe nicht belegt — sie wird erst nach der Firefox-Probe erwogen (Grenze).
+`test_pdf_inline_mit_sicheren_kopfzeilen` prüft Variante A.
+
 ### Bestandsaufnahme — was die Oberfläche nicht einfach anzeigen kann
 
 | # | Befund (Quelltext, Stand 7) | Folge für 10b |
@@ -407,7 +452,7 @@ Paket kleiner gemacht (markiert mit **[7]**/**[10a]**: vorhanden, nur nutzen).
 | Stile | eigene Datei je Bereich (`statisch/pruefen.css`, `statisch/auswertungen.css`) über Block `kopf`; keine `style=`-Attribute (CSP `style-src 'self'` sperrt sie); Breiten und Höhen über Klassen; **alle** eigenen Dateien (auch `accounti.css` aus 10a) mit `?v={{ version }}` | 10a-CSP; `StaticFiles` sendet kein `Cache-Control`, Browser speichern heuristisch — ohne Versionsanhang liefe nach einem Update altes `pruefen.js` |
 | IDs im Pfad | Starlette-Konverter `{buchung_id:uuid}`, `{beleg_id:uuid}`, `{regel_id:uuid}`; nie eine Präfixsuche im Web; an Fachfunktionen geht `str(uuid)` (ein voller UUID-Text trifft in `finde_buchung` genau eine Zeile) | `LIKE '<eingabe>%'` würde `_`/`%` als Muster lesen; feste Routen wie `/pruefen/regeln` kollidieren nicht mit `{id}` |
 | Seiten ohne Parameter | `/pruefen`, `/pruefen/regeln`, `/auswertungen`, `/auswertungen/bwa`, `/auswertungen/susa`, `/auswertungen/kontenblatt`, `/auswertungen/opos` liefern ohne Angaben **200** (Standardzeitraum bzw. Auswahlformular), Recht `LESEN` | Akzeptanz-5-Test aus 10a ruft jede solche Seite als buchhalter auf |
-| Blockierendes und Commit | Datenbank, PDF-Erzeugung, Bildumwandlung in `run_in_threadpool`; die Thread-Funktion öffnet `with im_namen(a):` (`api/handeln.py`: `journal_kontext(person=a.benutzer.name)`, gibt den Namen zurück), ruft die Fachfunktion mit `person=`/`von=` und committet selbst (`s.commit()`, im Fehlerfall `s.rollback()`), wie die 10a-Seiten | `gesellschaft_db` committet nicht (10a); der Kontext soll nicht davon abhängen, ob Context-Variablen in den Thread wandern; 7 liest die Person aus dem Kontext |
+| Blockierendes und Commit | Datenbank, PDF-Erzeugung, Bildumwandlung in `run_in_threadpool`; die Thread-Funktion öffnet `with im_namen(a):` (`api/handeln.py`: `geprueft_als(a.benutzer.name)` — Person aus der 2FA-Sitzung, im Journal ohne „(ungeprüft)“ —, gibt den Namen zurück), ruft die Fachfunktion mit `person=`/`von=` und committet selbst (`s.commit()`, im Fehlerfall `s.rollback()`), wie die 10a-Seiten | `gesellschaft_db` committet nicht (10a); der Kontext soll nicht davon abhängen, ob Context-Variablen in den Thread wandern; 7 liest die Person aus dem Kontext |
 | Schema beim Start | `api/server.starte_aus_cli` prüft in der Systemdatenbank, ob `auth_benutzer.sprache` vorhanden ist (`Dienste.pruefe_schema()`); fehlt sie, bricht `serve` mit „`alembic upgrade head` für die Systemdatenbank ausführen (siehe docs/betrieb.md)“ ab (Exit 2, ohne URL/Passwort). Die Gesellschaftsdatenbanken prüft der Start nicht: `kontierungsgruende`/`kontierungsregeln` legt `init_db` beim ersten Zugriff an (samt SQLite-Triggern über `after_create`), die Migration übernimmt sie später | `init_db` (`create_all`) legt keine Spalten an — ein bestehendes `auth_benutzer` ohne `sprache` ließe jede Anmeldung mit einem SQL-Fehler scheitern; fehlende Tabellen dagegen entstehen von selbst |
 
 ### Belegvorschau
@@ -455,7 +500,7 @@ Paket kleiner gemacht (markiert mit **[7]**/**[10a]**: vorhanden, nur nutzen).
 
 | Thema | Entscheidung | Grund |
 |-------|--------------|-------|
-| Person im Web | Jede schreibende Thread-Funktion läuft in `api/handeln.im_namen(a)` (`journal_kontext(person=a.benutzer.name)`) und übergibt dieselbe Person ausdrücklich an jede Fachfunktion (`von=`, `person=`, `autor=`, `angelegt_von`). Nie `aktuelle_person(None)` im Web. Test über **alle** POST-Endpunkte der Registry mit `ACCOUNTI_BENUTZER=mallory` und einem Prozess-Login „mallory“: kein Journaleintrag, kein `geprueft_von`, keine Korrektur, Regel oder Rückfrage trägt „mallory“ | Spec 4.1 „echter Benutzer statt Zeichenkette“; in der CLI setzt `handelnde_person` den Kontext nach Recht und Einmalcode, in REST `Zugang.person` — im Browser ist es die Sitzung; `storno` setzt einen inneren Kontext mit `aktuelle_person(von)`, ohne `von` stünde dort der Server-Prozess |
+| Person im Web | Jede schreibende Thread-Funktion läuft in `api/handeln.im_namen(a)` (`geprueft_als(a.benutzer.name)`, siehe B1) und übergibt dieselbe Person ausdrücklich an jede Fachfunktion (`von=`, `person=`, `autor=`, `angelegt_von`). Nie `aktuelle_person(None)` im Web. Test über **alle** POST-Endpunkte der Registry mit `ACCOUNTI_BENUTZER=mallory` und einem Prozess-Login „mallory“: kein Journaleintrag, kein `geprueft_von`, keine Korrektur, Regel oder Rückfrage trägt „mallory“ | Spec 4.1 „echter Benutzer statt Zeichenkette“; in der CLI setzt `handelnde_person` den Kontext nach Recht und Einmalcode, in REST `Zugang.person` — im Browser ist es die Sitzung; `storno` setzt einen inneren Kontext mit `aktuelle_person(von)`, ohne `von` stünde dort der Server-Prozess |
 | Einmalcode in der Queue | **Kein** Einmalcode für Freigeben, Korrigieren (auch mit Regel) und Zurückstellen von **Vorschlägen** in `/pruefen` | **Spec 4.2:** „Korrigieren, freigeben oder zurückstellen in einem Schritt, Tastaturbedienung für schnelles Durcharbeiten“ — ein Code je Buchung bricht beides. **Spec 4.1:** der `buchhalter` „erfasst, prüft, korrigiert“; Freigaben mit Vier-Augen-Bezug sind Zahlungsläufe und Steuermeldungen (`freigeber`, Baustein 6). **Authentisierung:** Eine Browser-Sitzung entsteht nur mit Passwort **und** zweitem Faktor (Akzeptanz 4, 10a), sie endet nach 30 min Leerlauf bzw. 8 h; die CLI hat keine Sitzung — dort *ist* der Einmalcode der Nachweis der Person („Ein Name in `ACCOUNTI_BENUTZER` oder `--von` beweist nichts, der zweite Faktor schon“, `auth/cli.py`). Gleiches Schutzziel, verschiedene Mittel; deshalb verlangt `bestaetige` in der CLI weiterhin den Code. **GoBD:** verlangt sind Unveränderbarkeit und Protokollierung (Rz. 58, 59, 107–110), rückbeziehbare Korrekturen (Rz. 64) und ein IKS mit Zugriffskontrollen und Funktionstrennung, dessen Ausgestaltung sich nach der Komplexität richtet (Rz. 100) — kein zweiter Faktor je Buchung. Erfüllt durch Rolle je Gesellschaft, 2FA-Anmeldung, Journal mit dem angemeldeten Benutzer, Storno statt Änderung, Festschreibung. **Umkehrbar:** ein freigegebener Vorschlag lässt sich jederzeit per Storno korrigieren, sichtbar im Journal |
 | Einmalcode auf `/buchungen/{id}` | **Mit** frischem Einmalcode (`api/einmalcode.bestaetige_einmalcode`, aus `api/seiten/freigaben.py` verschoben, Schalter `auth.einmalcode_bestaetigung`): „Korrigieren (Storno und Neubuchung)“ und „Stornieren“ freigegebener Buchungen; Feld `einmalcode` im Formular, Prüfung **vor** dem Storno, falscher Code 403 ohne Änderung | Hier gilt die 10a-Schnittstelle („Freigaben mit frischem Einmalcode … wie bei Zahlungslauf und USt-VA“): Ein Storno ist in accounti endgültig (eine Stornobuchung wird nicht storniert, `_nicht_storniert`), betrifft oft schon exportierte oder gemeldete Zeiträume (Warnung „berichtigte Voranmeldung“) und ist selten — kein Tastaturfluss leidet. Der Schritt entspricht in Gewicht den Freigaben aus 10a |
 | Vier-Augen bei Buchungen | `ersteller_ausgeschlossen` (10a) gilt für Zahlungsläufe, nicht für Buchungsvorschläge | Vorschläge legt die Klassifikation an, nicht eine Person; weder Spec noch GoBD verlangen für Buchungen ein Vier-Augen-Prinzip (Grenze) |
@@ -691,7 +736,7 @@ speichere_kontierungsgrund(s, buchung_id, quelle="llm", regel=None, modell="…"
 lade_kontierungsgrund(s, buchung_id) -> Kontierungsgrund | None   # der neueste
 
 # Web
-with im_namen(a) as person: ...                   # api/handeln.py: journal_kontext(person=a.benutzer.name)
+with im_namen(a) as person: ...                   # api/handeln.py: geprueft_als(a.benutzer.name)
 bestaetige_einmalcode(dienste, a, felder["einmalcode"])   # api/einmalcode.py (aus seiten/freigaben.py)
 
 # CLI (7, erweitert)
@@ -890,7 +935,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
 
 ### Paket 3 — Supervisions-Queue, Belegvorschau, Korrektur → Regel (PR 10b-1)
 
-- [ ] **Browser-Spike** (vor allen Kopfzeilentests, Ergebnis als Absatz „Spike“ in diesem Plan):
+- [x] **Browser-Spike** (erledigt 21.10.2026 in Chromium, Ergebnis unter „Browser-Spike“ oben; Firefox offen) (vor allen Kopfzeilentests, Ergebnis als Absatz „Spike“ in diesem Plan):
   `accounti serve` mit Testbestand, Chrome und Firefox (Playwright oder von Hand): (1) PDF im
   `<iframe>` mit der Seiten-CSP plus `form-action 'none'` und mit der strengeren Variante
   `default-src 'none'; object-src 'self'; form-action 'none'` — welche zeigt der Betrachter in
@@ -1310,9 +1355,9 @@ Durchlaufs mit Markern in allen Fremddaten.
 
 ## Offene Punkte (vor bzw. bei der Umsetzung)
 
-1. **Merge von 7 abwarten** und die Signaturen aus „Was 7 liefert“ gegen `main` prüfen; ändert
+1. *(erledigt: Abschnitt „Abgleich mit `main` ec32890“, Kopf unverändert `ddc9a184ddb4`)* **Merge von 7 abwarten** und die Signaturen aus „Was 7 liefert“ gegen `main` prüfen; ändert
    der Merge den Alembic-Kopf, die `down_revision` der Kontierungs-Migration anpassen.
-2. **Browser-Spike** zu Beginn von Paket 3 (PDF-Antwort-CSP, 409/422-Fragment, `HX-Redirect`).
+2. *(in Chromium erledigt, Firefox offen — Abschnitt „Browser-Spike“)* **Browser-Spike** zu Beginn von Paket 3 (PDF-Antwort-CSP, 409/422-Fragment, `HX-Redirect`).
 3. **„(prüfen)“-Stellen der BWA-Startzuordnung** gegen DATEV-Kontenliste 2026 und BWA-Form-01-Hilfe
    entscheiden (Zeilen 1, 7, 13, 17, 23–26; Grundsteuer 2375/7680 angleichen).
 4. **GoBD-Randziffern** (Rz. 100 Wortlaut) gegen das BMF-Schreiben in der Fassung vom 14.07.2025
