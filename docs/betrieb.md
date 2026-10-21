@@ -31,7 +31,10 @@ Sicherungen und einem Löschkonzept, das die Aufbewahrungsfristen kennt.
 3. Starten: `docker compose up -d --build`. Es laufen `db` (ohne veröffentlichten Port),
    `app` (nur auf `127.0.0.1:${ACCOUNTI_PORT:-8400}`) und `lauf` (alle
    `${ACCOUNTI_LAUF_MINUTEN:-60}` Minuten `bank lauf` und `aufgaben lauf`). Die Tabellen
-   legt accounti beim ersten Befehl selbst an.
+   legt accounti beim ersten Befehl selbst an. `app` und `lauf` haben eine
+   Speichergrenze (`${ACCOUNTI_SPEICHER:-1g}`): jede Passwort-Prüfung (scrypt) braucht
+   128 MiB, die App prüft höchstens `server.anmeldungen_gleichzeitig` (2) zugleich und
+   antwortet sonst nach `server.anmeldung_warten_sekunden` (5) mit 503.
 4. Ersten Benutzer anlegen — er muss Verwalter sein — und den zweiten Faktor einrichten:
 
    ```bash
@@ -68,16 +71,22 @@ Gesundheit: `GET /gesund` (prüft auch die Datenbank); das Abbild hat einen `HEA
 | `ACCOUNTI_ARCHIV` | Belegarchiv (statt `--archiv`), im Abbild `/arbeit/daten/belege` |
 | `ACCOUNTI_KONFIG` | Konfigurationsdatei (statt `--config`) und Ort der Registry `gesellschaften` |
 | `ACCOUNTI_GESELLSCHAFT` | Gesellschaft (statt `--gesellschaft`) |
-| `ACCOUNTI_SYSTEM_DB` | Systemdatenbank (Benutzer, Rollen, Sitzungen, Token), überstimmt die Registry |
+| `ACCOUNTI_SYSTEM_DB` | Systemdatenbank (Benutzer, Rollen, Sitzungen, Token), überstimmt die Registry — gehört eine Gesellschaft schon zu einer anderen, bricht jede Rechteprüfung ab (Merker, unten) |
 | `ACCOUNTI_SCHLUESSEL` | Tresor-Schlüssel (Bankzugänge, TOTP-Geheimnisse) — ohne ihn keine Anmeldung |
 | `ACCOUNTI_SICHERUNG_SCHLUESSEL` | Schlüssel der Sicherungen (sonst `ACCOUNTI_SCHLUESSEL`) |
 | `ACCOUNTI_BENUTZER` | handelnde Person in der CLI |
 | `ACCOUNTI_EINMALCODE` | Einmalcode für einen CLI-Befehl in Skripten (gilt einmal) |
 | `ACCOUNTI_PROTOKOLL_STUFE` / `_FORMAT` | `INFO` … / `text` oder `json` |
 | `ACCOUNTI_FINTS_PRODUKT_ID` | Produkt-ID der Installation (FinTS) |
+| `ACCOUNTI_SPEICHER` | Speichergrenze der Container `app` und `lauf` (Compose, Standard `1g`) |
 
 Vorrang: ausdrückliche Option → Gesellschaft aus der Registry → Umgebungsvariable →
 bisheriger Standard (`sqlite:///accounti.db`, `archiv/belege`, `config/accounti.yaml`).
+
+Ist die globale Konfiguration kaputt (YAML-Syntax, Registry), laufen `accounti version`
+und Befehle mit ausdrücklichem `--db` mit einem Hinweis weiter; wer eine Gesellschaft
+wählt (`-g`), eine Rechteprüfung braucht (Freigaben, `benutzer …`, `token …`) oder
+`serve`, `betrieb lauf`, `sicherung` startet, bekommt den Fehler.
 
 ## Mehrere Gesellschaften
 
@@ -103,9 +112,17 @@ gesellschaften:
       regeln: /arbeit/config/tochter-regeln.yaml   # sonst regeln.yaml neben der Konfiguration
 ```
 
+- Die Registry prüft die Trennung **nach** dem Ersetzen der `${VARIABLEN}` und auf
+  normalisierten Werten (`archiv/a` = `./archiv/a`; Datenbank-URLs ohne Treiber,
+  Benutzer und Passwort): keine zwei Gesellschaften teilen Datenbank, Archiv,
+  Konfiguration oder Regeldatei. Ohne `konfiguration:` gilt die globale Datei — das
+  darf höchstens eine Gesellschaft; ohne `regeln:` gilt `regeln.yaml` neben der
+  Konfiguration (liegen zwei Konfigurationen im selben Ordner, `regeln:` angeben).
 - CLI: `accounti --gesellschaft tochter opos liste` — die Option setzt `--db`, `--archiv` und
   `--config` **aller** Befehle. Ohne Option gilt `standard`; gibt es keinen und mehrere
   Gesellschaften, bricht ein Datenbefehl ab. `accounti gesellschaft liste|zeigen`.
+  `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
+  Regeldatei der Gesellschaft (ohne Registry wie bisher `config/regeln.yaml`).
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle
   buchhalter`); der Wechsler oben rechts schaltet alle Seiten um. Wer in einer Gesellschaft
   keine Rolle hat, sieht sie nicht.
@@ -114,9 +131,8 @@ gesellschaften:
   (`docker compose exec db createdb -U accounti tochter`), die URLs in `.env` und unter
   `environment` ergänzen; `lauf` arbeitet alle Gesellschaften der Registry ab.
 - Grenze: Die Abschnitte `bank` (FinTS-Produkt-ID, Kreditkarten-Muster) gelten für die
-  Installation; `classify`, `bank lauf`, `korrigiere --lernen` in der **CLI** lesen
-  `config/regeln.yaml` relativ zum Arbeitsverzeichnis — eigene Regeln je Gesellschaft gibt es
-  bisher nur im Browser und in der API (`regeln:` in der Registry).
+  Installation; `import banken` liest `config/banken.yaml` relativ zum
+  Arbeitsverzeichnis.
 
 ## Benutzer, Rollen, Anmeldung
 
@@ -127,27 +143,62 @@ gesellschaften:
 | `freigeber` | lesen, Buchungen, **Zahlungsläufe** und **Steuermeldungen** freigeben |
 | `verwalter` | lesen, Benutzer, Token und Einstellungen verwalten |
 
-Rollen sind nicht hierarchisch, ein Benutzer kann mehrere haben. Wer Zahlungen anlegt
-(`buchhalter`), gibt sie nicht frei — das trägt das Vier-Augen-Prinzip
-(`zahlung.vier_augen: true`: zwei verschiedene Freigeber).
+Rollen sind nicht hierarchisch, ein Benutzer kann mehrere haben. Sobald Benutzer
+eingerichtet sind, legt `zahlung anlegen` nur an, wer buchen darf (`buchhalter`, mit
+Einmalcode — angelegt hat dann der Benutzer, nicht ein Freitext), und **wer einen
+Zahlungslauf angelegt hat, gibt ihn nicht frei** (CLI und Browser;
+`zahlung.ersteller_darf_freigeben: true` nur für Ein-Personen-Betriebe). Mit
+`zahlung.vier_augen: true` braucht die Freigabe zusätzlich zwei verschiedene Freigeber.
 
 - **Anmeldung im Browser** nur mit Passwort **und** Einmalcode (TOTP-App nach RFC 6238 oder
-  ein Wiederherstellungscode, der genau einmal gilt). Jeder Code gilt einmal. Nach 5
-  Fehlversuchen ist das Konto 15 Minuten gesperrt (`auth.sperre_*`, `accounti benutzer
-  entsperren`). Passwörter: mindestens 12 Zeichen, keine Zusammensetzungsregeln, scrypt
-  (N = 2^17).
+  ein Wiederherstellungscode, der genau einmal gilt). Jeder Code gilt einmal. Passwörter:
+  mindestens 12 Zeichen, keine Zusammensetzungsregeln, scrypt (N = 2^17). Jeder Weg
+  kostet genau eine Passwort-Prüfung — die Antwortzeit verrät nicht, ob das Passwort
+  stimmte (Wiederherstellungscodes liegen als HMAC mit dem Tresor-Schlüssel vor).
+- **Sperre:** Jeder Versuch wird vor der Prüfung in der Datenbank gezählt, auch bei
+  gleichzeitigen Versuchen. Nach 5 Fehlversuchen ist das Konto 15 Minuten gesperrt, danach
+  gibt es wieder 5 Versuche; der Zähler läuft über die Sperren hinweg, ab 100
+  Fehlversuchen in Folge bleibt das Konto bis `accounti benutzer entsperren` gesperrt
+  (`auth.sperre_nach_fehlversuchen`, `auth.sperre_minuten`, `auth.fehlversuche_obergrenze`;
+  NIST 800-63B-4: höchstens 100). Eine Sperre durch Fehlversuche beendet **keine** offenen
+  Sitzungen (sonst könnte jeder, der einen Namen kennt, den Freigeber hinauswerfen) —
+  wer jemanden wirklich aussperren will, nimmt `accounti benutzer sperren`. Grenze: Wer
+  den Namen kennt, kann neue Anmeldungen dieses Benutzers 15 Minuten lang blockieren und
+  nach 100 Versuchen bis zum Entsperren; eine Begrenzung je IP gehört in den Proxy.
 - **Sitzungen:** Cookie `__Host-accounti_sitzung` (Secure, HttpOnly, SameSite=Strict),
-  30 Minuten Leerlauf, höchstens 8 Stunden; Abmelden, Passwortwechsel, Sperre und
-  Rollenänderung beenden sie serverseitig. Jede Freigabe im Browser verlangt zusätzlich einen
-  frischen Einmalcode.
+  30 Minuten Leerlauf, höchstens 8 Stunden; Abmelden, Passwortwechsel, `benutzer sperren`,
+  Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Jede Freigabe im
+  Browser verlangt zusätzlich einen frischen Einmalcode und gilt nur für den angezeigten
+  Inhalt (Empfänger, IBAN, Betrag, Verwendungszweck; hat sich der Entwurf seitdem
+  geändert, 409).
 - **CLI:** Ohne eingerichtete Benutzer prüft accounti nichts. Mit Benutzern verlangen
-  `zahlung freigeben`, `ustva freigeben` und `ustva dauerfrist --freigeben` die Rolle
-  `freigeber` und den Einmalcode der handelnden Person (`--von` bzw. `ACCOUNTI_BENUTZER`,
-  mit Vier-Augen der Anmeldename). Die CLI läuft auf dem Server: wer sie aufrufen kann,
-  kommt meist auch an die Datenbank — die Prüfung bindet Freigaben an eine Person, sie
-  ersetzt keine Zugriffskontrolle auf den Server.
-- Protokoll: `accounti benutzer protokoll` (Anmeldungen, Fehlversuche, Sperren, Rollen,
-  Token; nur anfügen).
+  `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist --freigeben` (Rolle
+  `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
+  (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
+  `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename). Der Einmalcode lässt sich in der
+  CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort nur
+  strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im Browser).
+- **Bindung an Gesellschaft und Systemdatenbank:** Mit Registry gelten für Freigaben
+  Datenbank und Konfiguration der gewählten Gesellschaft — ein abweichendes `--db` oder
+  `--config` wird abgewiesen. Jede Gesellschafts-Datenbank trägt einen Merker
+  (`auth_merker`, Schlüssel `benutzerverwaltung`), zu welcher Systemdatenbank und
+  Gesellschaft sie gehört; `benutzer anlegen` setzt ihn für alle Gesellschaften der
+  Registry, `benutzer rolle` und jede Prüfung für die gewählte. Zeigt
+  `ACCOUNTI_SYSTEM_DB` (oder eine andere Registry) auf eine leere oder fremde
+  Systemdatenbank, bricht die Prüfung ab, statt zu entfallen. Wer eine Gesellschaft
+  bewusst einer neuen Benutzerverwaltung zuordnet (z. B. nach Verlust der
+  Systemdatenbank), löscht den Merker in deren Datenbank von Hand
+  (`DELETE FROM auth_merker WHERE schluessel = 'benutzerverwaltung'`) — ein Eingriff,
+  der Zugang zur Datenbank voraussetzt.
+- **Verwaltung:** `benutzer 2fa|codes|passwort|sperren|entsperren|rolle` für ein fremdes
+  Konto darf nur, wer in **jeder** Gesellschaft Verwalter ist, in der dieses Konto Rollen
+  hat (Passwort und zweiter Faktor gelten für alle Gesellschaften). `token liste` und
+  `token widerrufen` wirken nur in der gewählten Gesellschaft.
+- Die CLI läuft auf dem Server: wer sie aufrufen kann, kommt meist auch an die
+  Datenbank — die Prüfung bindet Freigaben an eine Person und fängt Versehen und
+  einfache Umwege ab, sie ersetzt keine Zugriffskontrolle auf den Server.
+- Protokoll: `accounti benutzer protokoll [--anzahl 50]` (die neuesten Anmeldungen,
+  Fehlversuche, Sperren, Rollen, Token; nur anfügen).
 
 ## REST-API
 
@@ -169,6 +220,9 @@ curl -H "Authorization: Bearer accounti_api_…" -H "X-Dateiname: re-77.pdf" \
 
 Token werden nur als SHA-256 gespeichert und einmal angezeigt; ohne gültiges Token 401, ohne
 Recht 403 (`WWW-Authenticate: Bearer error="insufficient_scope"`). Freigeben kann kein Token.
+Je Gesellschaft läuft `bank lauf` bzw. `aufgaben lauf` höchstens einmal zugleich — über
+API, Dienst `lauf` und CLI hinweg (PostgreSQL: Advisory-Lock; SQLite: Dateisperre neben
+der Datenbank, `*.lauf-bank.sperre`); ein zweiter Lauf wartet nicht (API 409, CLI Exit 1).
 
 ## Reverse-Proxy mit TLS
 
@@ -222,6 +276,7 @@ Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in d
 ```bash
 accounti sicherung schluessel                                 # einmal: Schlüssel erzeugen
 accounti sicherung erstellen --ziel /sicherungen/             # Datenbank + Belegarchiv
+accounti sicherung erstellen --system --ziel /sicherungen/    # Systemdatenbank (mehrere Gesellschaften)
 accounti sicherung pruefen /sicherungen/accounti-standard-20261020-0300.sicherung
 accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --archiv /leer/belege
 ```
@@ -230,14 +285,41 @@ accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --a
   beide Richtungen) und alle Dateien des Belegarchivs, verschlüsselt mit AES-256-GCM in
   Stücken; der Schlüssel jeder Sicherung wird per HKDF aus `ACCOUNTI_SICHERUNG_SCHLUESSEL`
   abgeleitet. Ein Manifest hält Zeilenzahl und SHA-256 je Tabelle und Datei fest; Sitzungen
-  werden nicht gesichert. Die Datei hat die Rechte 0600 und wird nie überschrieben.
+  werden nicht gesichert. Die Datei hat die Rechte 0600 und wird nie überschrieben;
+  Dateinamen sind auch in derselben Sekunde eindeutig (`…-2.sicherung`).
+- **Im laufenden Betrieb:** alle Tabellen werden in einer Lese-Transaktion gelesen
+  (PostgreSQL `REPEATABLE READ READ ONLY`) — die Sicherung ist ein Stand, auch wenn `app`
+  und `lauf` gerade schreiben. Eine SQLite-Datei kopiert accounti zuerst mit der
+  Backup-API von SQLite in eine Temporärdatei (0600, danach gelöscht; braucht so viel
+  Platz wie die Datenbank) und liest aus der Kopie — Schreiber warten nur, solange die
+  Seiten kopiert werden.
+- **Datenbank und Archiv passen zusammen:** fehlt das Archiv oder ist es leer, obwohl
+  Belege darauf verweisen (z. B. Cron aus einem anderen Arbeitsverzeichnis, falsches
+  `--archiv`), bricht `erstellen` ab. Fehlen einzelne Dateien, nennt die Ausgabe ihre
+  Zahl und das Manifest ihre Hashes (`fehlende_archivdateien`).
 - **Den Schlüssel getrennt von den Sicherungen aufbewahren** (Passwortmanager, Tresor):
   ohne ihn ist keine Sicherung lesbar, mit ihm und der Datei alles.
 - Wiederhergestellt wird nur in eine **leere** Datenbank und ein leeres Archiv, in einer
   Transaktion: erst wenn alles zum Manifest passt, wird festgeschrieben; sonst bleibt nichts
   zurück. Hash-Ketten der Protokolle bleiben gültig.
+- Wiederhergestellt wird nur, was zum Ziel passt: eine Sicherung der Gesellschaft a nicht
+  in b (`--fremde-gesellschaft` übernimmt bewusst), eine Sicherung der Systemdatenbank
+  nur mit `--system` (Ziel: `--db`, sonst die Systemdatenbank der Registry bzw.
+  `ACCOUNTI_SYSTEM_DB`). Das Archiv kommt vor dem Festschreiben an seinen Platz; scheitert
+  etwas, bleiben Datenbank und Archiv leer.
 - Mehrere Gesellschaften: je Gesellschaft `accounti -g K sicherung erstellen …`, dazu die
-  Systemdatenbank `accounti sicherung erstellen --db "$ACCOUNTI_SYSTEM_DB" --ohne-archiv …`.
+  Systemdatenbank `accounti sicherung erstellen --system …` (ohne Gesellschaft, Datei
+  `accounti-system-<Zeit>.sicherung`).
+- Eine **ältere** Sicherung der Systemdatenbank bringt den Stand von damals zurück:
+  inzwischen widerrufene Token gelten wieder, verbrauchte Wiederherstellungscodes und alte
+  Passwörter auch. Nach dem Zurückspielen `accounti token liste` prüfen, nicht mehr
+  gewollte Token widerrufen und betroffenen Benutzern neue Codes geben
+  (`benutzer codes`). Die Merker der Gesellschaften stehen in ihren Datenbanken: wer nur
+  eine Gesellschaft zurückspielt, braucht die passende Systemdatenbank (sonst brechen
+  Freigaben ab, siehe Bindung oben).
+- `sicherung erstellen` prüft keine Rolle (läuft per Cron, ohne Einmalcode); die Datei
+  enthält Passwort-Hashes und verschlüsselte TOTP-Geheimnisse — Sicherungsschlüssel und
+  Dateien so schützen wie die Datenbank selbst.
 - In Docker:
   `docker compose exec app accounti sicherung erstellen --ziel /arbeit/daten/sicherungen/`
   und die Datei vom Server weg kopieren (z. B. per `restic`/`borg` — die Datei ist schon
@@ -268,20 +350,29 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 
 | Unterlagen in accounti | Frist | Grundlage |
 |------------------------|-------|-----------|
-| Buchungen (`buchungssaetze`), Journale, Kassenbuch, Protokolle (USt-IdNr., Übermittlung, Zahlungslauf, Abschluss), Jahresabschluss | **10 Jahre** | § 147 Abs. 1 Nr. 1, Abs. 3 AO |
+| Buchungen (`buchungssaetze`), Journale, Kassenbuch, Protokolle (USt-IdNr., Übermittlung, Zahlungslauf, Abschluss), Jahresabschluss | **10 Jahre** ab Schluss des Jahres der letzten Eintragung je Wirtschaftsjahr | § 147 Abs. 1 Nr. 1, Abs. 3, Abs. 4 AO |
 | Belege (`belege`, Belegarchiv) als Buchungsbelege | **8 Jahre** | § 147 Abs. 1 Nr. 4, Abs. 3 AO |
 | Rechnungen (Ein- und Ausgang) | **8 Jahre** | § 14b Abs. 1 UStG |
 | Handels- und Geschäftsbriefe, sonstige Unterlagen | **6 Jahre** | § 147 Abs. 1 Nr. 2, 3, 5 AO |
 | Kreditinstitute, Versicherungen, Wertpapierinstitute: Buchungsbelege | **10 Jahre** | Art. 97 § 19a Abs. 3 EGAO |
 
-- Die Frist beginnt mit dem Schluss des Kalenderjahres, in dem die Unterlage entstand
-  (§ 147 Abs. 4 AO). Die 8 Jahre gelten für alle Belege, deren alte Frist am 31.12.2024 noch
-  lief.
+- Die Frist beginnt mit dem Schluss des Kalenderjahres, in dem die Unterlage entstand —
+  für Bücher und Aufzeichnungen mit dem Schluss des Kalenderjahres, in dem die **letzte
+  Eintragung** gemacht wurde, für Jahresabschlüsse mit dem der Aufstellung (§ 147 Abs. 4
+  AO). accounti rechnet Bücher je Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`):
+  Beginn frühestens mit dem Schluss des Jahres **nach** dem Wirtschaftsjahresende
+  (Abschlussbuchungen fallen ins Folgejahr), später, wenn der Abschluss (`abschluesse`)
+  später festgeschrieben wurde. Ein Beispiel: Buchungen des Kalenderjahres 2015 mit
+  Abschluss 2016 — aufzubewahren bis 31.12.2026, nicht bis 31.12.2025. Wann eine Buchung
+  tatsächlich eingetragen wurde, speichert accounti nicht; wer ein Wirtschaftsjahr mehr als
+  ein Jahr nach seinem Ende noch bebucht hat, ohne es abzuschließen, prüft die Frist von
+  Hand. Die 8 Jahre gelten für alle Belege, deren alte Frist am 31.12.2024 noch lief.
 - Sie läuft nicht ab, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
   Festsetzungsfrist noch läuft — etwa bei Außenprüfung, Einspruch, vorläufiger Festsetzung
   (§ 147 Abs. 3 Satz 3 AO). Handelsrechtlich gilt § 257 HGB entsprechend.
 - **accounti löscht nichts von selbst.** `accounti betrieb aufbewahrung [--stichtag]
-  [--institut]` zeigt je Bestand, was frühestens ausgesondert werden **dürfte**. Das
+  [--institut]` zeigt je Bestand, was frühestens ausgesondert werden **dürfte** (das
+  Wirtschaftsjahr aus `--config` bzw. der Gesellschaft). Das
   Belegarchiv hat bewusst keinen Löschpfad; Buchungen und Protokolle sind unveränderbar.
   `belege.aufbewahren_bis` rechnet noch mit 10 Jahren (vor dem BEG IV angelegt) — länger
   aufzubewahren ist zulässig.
@@ -294,9 +385,15 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 
 ## Protokollierung
 
-- Das Zugriffsprotokoll schreibt Methode, Pfad **ohne Abfrage**, Status und Dauer — keine
-  IP-Adresse, keinen Benutzer. Das Protokoll von Uvicorn ist aus, HTTP-Bibliotheken schreiben
-  erst ab Warnung (ihre Adressen tragen oft Token).
+- Das Zugriffsprotokoll schreibt Methode, die **Vorlage** der Route (z. B.
+  `/freigaben/zahlungslauf/{nr}`, ohne IDs und ohne Abfrage), Status und Dauer — keine
+  IP-Adresse, keinen Benutzer. Pfade ohne Route stehen dort als `(unbekannt)`: ein Name
+  oder ein `%0A` im Pfad kann so keine Zeile ins Protokoll schreiben. Das Protokoll von
+  Uvicorn ist aus, HTTP-Bibliotheken schreiben erst ab Warnung (ihre Adressen tragen oft
+  Token).
+- Unbehandelte Ausnahmen der App protokollieren nur ihre Art (z. B. `IntegrityError`) —
+  keinen Traceback, keine Meldung; Datenbank-Engines verbergen die SQL-Parameter
+  (`hide_parameters`), Belegtexte und Namen erscheinen auch in Fehlermeldungen nicht.
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
   Passwörter in URLs und Parameter wie `passwort=`, `token=`, `code=` — auch in Stacktraces.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
