@@ -342,10 +342,12 @@ def _vor_dem_schreiben(session: Session, _: UOWTransaction, __: object) -> None:
                 verbindung, gespeichert["datum"]
             ):
                 _pruefe_festschreibung(b, gespeichert, geloescht)
-    vorher: dict[tuple[str, str], Zeile] = session.info.setdefault(_INFO, {})
+    # je Flush frisch: Reste eines gescheiterten Flushs gelten nicht mehr
+    vorher: dict[tuple[str, str], Zeile] = {}
+    session.info[_INFO] = vorher
     for name, schluessel in ziele.items():
         for pk, zeile in _lies(session, tabellen[name], schluessel).items():
-            vorher.setdefault((name, pk), zeile)
+            vorher[(name, pk)] = zeile
 
 
 @event.listens_for(Session, "after_flush")
