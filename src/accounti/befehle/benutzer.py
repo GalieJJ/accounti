@@ -4,7 +4,9 @@ Benutzer liegen in der Systemdatenbank, Rollen gelten je Gesellschaft
 (``accounti -g K benutzer rolle …``). Der erste Benutzer muss Verwalter sein.
 Sobald ein Verwalter seinen zweiten Faktor eingerichtet hat, verlangen alle
 Befehle hier einen Verwalter mit Einmalcode (Passwort, 2FA und Codes des eigenen
-Kontos darf jeder selbst ändern).
+Kontos darf jeder selbst ändern). Ein Konto verwaltet nur, wer in **jeder**
+Gesellschaft Verwalter ist, in der es Rollen hat. ``anlegen`` und ``rolle`` binden
+die Gesellschafts-Datenbanken an diese Systemdatenbank (Merker, ``auth.cli``).
 """
 
 from __future__ import annotations
@@ -97,6 +99,7 @@ def anlegen(
     """Benutzer mit Rollen in der aktiven Gesellschaft anlegen (Passwort verdeckt)."""
     from accounti.auth.cli import (
         auth_einstellungen,
+        bindung_oder_ende,
         systemsitzung,
         verwaltung_oder_ende,
     )
@@ -112,6 +115,7 @@ def anlegen(
     except ValueError as fehler:
         raise _ende(str(fehler)) from fehler
     durch = verwaltung_oder_ende(db, config)
+    bindung_oder_ende(db, alle=True)  # keine Gesellschaft gehört einer anderen
     with systemsitzung(db) as s:
         if anzahl_benutzer(s) == 0 and Rolle.VERWALTER not in rollen:
             raise _ende(
@@ -133,6 +137,7 @@ def anlegen(
         except (ValueError, PasswortRegelError) as fehler:
             raise _ende(str(fehler)) from fehler
         s.commit()
+    bindung_oder_ende(db, alle=True, binden=True)
     console.print(
         f"[green]Benutzer {escape(name)} angelegt[/green] "
         f"({', '.join(r.value for r in rollen)} in {escape(gesellschaft)}). "
@@ -158,7 +163,8 @@ def zweiter_faktor(
     from accounti.auth.totp import base32, neues_geheimnis, otpauth_uri
     from accounti.bank.tresor import TresorError, lade_schluessel
 
-    verwaltung_oder_ende(db, config, selbst=name.strip().lower())
+    ziel = name.strip().lower()
+    verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     einstellungen = auth_einstellungen(config)
     try:
         schluessel = lade_schluessel()
@@ -214,7 +220,8 @@ def codes(
     )
     from accounti.auth.dienst import neue_wiederherstellungscodes
 
-    verwaltung_oder_ende(db, config, selbst=name.strip().lower())
+    ziel = name.strip().lower()
+    verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
         if not b.totp_aktiv:
@@ -273,12 +280,18 @@ def rolle(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Rolle in der aktiven Gesellschaft geben oder nehmen (Sitzungen enden)."""
-    from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
+    from accounti.auth.cli import (
+        bindung_oder_ende,
+        systemsitzung,
+        verwaltung_oder_ende,
+    )
     from accounti.auth.dienst import entferne_rolle, fuege_rolle_hinzu
 
     rollen = _rollen(rolle)
     gesellschaft = _gesellschaft()
-    durch = verwaltung_oder_ende(db, config)
+    durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
+    if not entfernen:
+        bindung_oder_ende(db)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
         for r in rollen:
@@ -287,6 +300,8 @@ def rolle(
             else:
                 fuege_rolle_hinzu(s, b, gesellschaft, r, None, durch)
         s.commit()
+    if not entfernen:
+        bindung_oder_ende(db, binden=True)
     wort = "entfernt" if entfernen else "gegeben"
     console.print(
         f"[green]{', '.join(r.value for r in rollen)} in {escape(gesellschaft)} "
@@ -310,7 +325,8 @@ def passwort(
     from accounti.auth.dienst import aendere_passwort
     from accounti.auth.passwort import PasswortRegelError
 
-    durch = verwaltung_oder_ende(db, config, selbst=name.strip().lower())
+    ziel = name.strip().lower()
+    durch = verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
     neu = _neues_passwort(b.name, config)
@@ -333,7 +349,7 @@ def sperren(
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.dienst import setze_aktiv
 
-    durch = verwaltung_oder_ende(db, config)
+    durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
         setze_aktiv(s, b, False, None, durch)
@@ -351,7 +367,7 @@ def entsperren(
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.dienst import entsperre, setze_aktiv
 
-    durch = verwaltung_oder_ende(db, config)
+    durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
         if not b.aktiv:

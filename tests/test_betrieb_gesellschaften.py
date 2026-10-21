@@ -114,3 +114,86 @@ def test_eine_gesellschaft_ist_von_selbst_standard(tmp_path):
     assert g.standard == "a"
     # ohne Systemdatenbank liegen die Benutzer in der Datenbank der Gesellschaft
     assert g.system() == "x"
+
+
+# ---------------------------------------------------------------------------
+# Befund B-M3: Trennung nach dem Ersetzen und auf normalisierten Werten
+# ---------------------------------------------------------------------------
+
+ZWEI = """
+gesellschaften:
+  systemdatenbank: "sqlite:///system.db"
+  eintraege:
+    a:
+      name: A
+      datenbank: {db_a}
+      archiv: {archiv_a}
+      konfiguration: {konfig_a}
+      regeln: {regeln_a}
+    b:
+      name: B
+      datenbank: {db_b}
+      archiv: {archiv_b}
+      konfiguration: {konfig_b}
+      regeln: {regeln_b}
+"""
+
+GETRENNT = {
+    "db_a": "sqlite:///a.db",
+    "db_b": "sqlite:///b.db",
+    "archiv_a": "archiv/a",
+    "archiv_b": "archiv/b",
+    "konfig_a": "config/a.yaml",
+    "konfig_b": "config/b.yaml",
+    "regeln_a": "config/a-regeln.yaml",
+    "regeln_b": "config/b-regeln.yaml",
+}
+
+
+@pytest.mark.parametrize(
+    ("abweichung", "meldung"),
+    [
+        ({"db_a": "'${PROBE_DB_A}'", "db_b": "'${PROBE_DB_B}'"}, "dieselbe Datenbank"),
+        ({"db_b": "sqlite:///./a.db"}, "dieselbe Datenbank"),
+        (
+            {
+                "db_a": "postgresql+psycopg://x:geheim@DB:5432/acc",
+                "db_b": "postgresql://y@db/acc",
+            },
+            "dieselbe Datenbank",
+        ),
+        ({"archiv_b": "./archiv/a"}, "dasselbe Archiv"),
+        ({"archiv_b": "archiv/x/../a"}, "dasselbe Archiv"),
+        ({"konfig_b": "./config/a.yaml"}, "dieselbe Konfiguration"),
+        ({"konfig_a": "null", "konfig_b": "null"}, "dieselbe Konfiguration"),
+        ({"regeln_b": "config/a-regeln.yaml"}, "dieselbe Regeldatei"),
+        (
+            {"regeln_a": "null", "regeln_b": "null"},  # regeln.yaml im selben Ordner
+            "dieselbe Regeldatei",
+        ),
+    ],
+)
+def test_trennung_nach_ersetzen_und_normalisieren(
+    tmp_path, monkeypatch, abweichung, meldung
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("PROBE_DB_A", "sqlite:///gemeinsam.db")
+    monkeypatch.setenv("PROBE_DB_B", "sqlite:///gemeinsam.db")
+    werte = {**GETRENNT, **abweichung}
+    with pytest.raises(KonfigurationError, match=meldung):
+        lade_gesellschaften(schreibe(tmp_path, ZWEI.format(**werte)))
+
+
+def test_getrennte_registry_wird_angenommen(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    g = lade_gesellschaften(schreibe(tmp_path, ZWEI.format(**GETRENNT)))
+    assert sorted(g.eintraege) == ["a", "b"]
+    # höchstens eine Gesellschaft darf die globale Konfiguration nutzen
+    werte = {**GETRENNT, "konfig_a": "null", "regeln_a": "null"}
+    assert lade_gesellschaften(schreibe(tmp_path, ZWEI.format(**werte))).mehrere
+
+
+def test_yaml_fehler_wird_zum_konfigurationsfehler(tmp_path):
+    """Befund B-M8: ein Syntaxfehler ist ein KonfigurationError, kein Absturz."""
+    with pytest.raises(KonfigurationError, match="kein gültiges YAML"):
+        lade_gesellschaften(schreibe(tmp_path, "gesellschaften:\n  eintraege: [\n"))

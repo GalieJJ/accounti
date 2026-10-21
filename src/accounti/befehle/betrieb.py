@@ -28,9 +28,14 @@ def lauf(
     from accounti.betrieb import planer
     from accounti.betrieb.kontext import aktueller_kontext
     from accounti.betrieb.protokoll import richte_protokoll_ein
+    from accounti.konfiguration import KonfigurationError
 
     richte_protokoll_ein()
-    kontext = aktueller_kontext()
+    try:
+        kontext = aktueller_kontext().pruefe()
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+        raise typer.Exit(2) from fehler
     if nur_einmal:
         ergebnisse = planer.einmal(kontext)
         if any(e.code != 0 for e in ergebnisse):

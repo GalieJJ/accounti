@@ -41,6 +41,10 @@ def liste() -> None:
     from accounti.konfiguration import KonfigurationError
 
     kontext = aktueller_kontext()
+    try:
+        kontext.pruefe()
+    except KonfigurationError as fehler:
+        raise _ende(str(fehler)) from fehler
     registry = kontext.registry
     if not registry.eintraege:
         console.print(
@@ -80,7 +84,7 @@ def zeigen(kuerzel: str = typer.Argument(help="Kürzel der Gesellschaft")) -> No
 
     kontext = aktueller_kontext()
     try:
-        g = kontext.registry.finde(kuerzel)
+        g = kontext.pruefe().registry.finde(kuerzel)
         rahmen = lade_buchhaltung(g.konfiguration).kontenrahmen
         system = kontext.systemdatenbank(g.datenbank)
     except KonfigurationError as fehler:

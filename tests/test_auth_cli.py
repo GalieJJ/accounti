@@ -102,14 +102,48 @@ def test_wiederherstellungscode_in_der_cli(db, monkeypatch):
         pruefe_befehlsrecht(url, str(config), Recht.STEUER_FREIGEBEN, "chef")
 
 
-def test_ohne_einmalcode_wenn_abgeschaltet(db):
+def test_abgeschalteter_einmalcode_gilt_in_der_cli_nicht(db):
+    """Befund B-H1: ``--config`` wählt, wer den Befehl aufruft — eine Datei mit
+    ``einmalcode_bestaetigung: false`` hebt die Bindung an die Person nicht auf
+    (der Schalter gilt nur für den Browser, mit der Datei von ``accounti serve``)."""
     url, fabrik, config = db
-    personen(fabrik)
+    p = personen(fabrik)
     config.write_text("auth:\n  einmalcode_bestaetigung: false\n", encoding="utf-8")
-    nie = lambda person: pytest.fail("abgeschaltet")  # noqa: E731
-    assert pruefe_befehlsrecht(url, str(config), Recht.ZAHLUNG_FREIGEBEN, "chef", nie)
+    gefragt = []
+
+    def frage(person):
+        gefragt.append(person)
+        return p[person].code(datetime.now())
+
+    assert pruefe_befehlsrecht(url, str(config), Recht.ZAHLUNG_FREIGEBEN, "chef", frage)
+    assert gefragt == ["chef"]
+    with pytest.raises(AnmeldungError):
+        pruefe_befehlsrecht(
+            url, str(config), Recht.ZAHLUNG_FREIGEBEN, "chef", lambda _: "000000"
+        )
+    nie = lambda person: pytest.fail("ohne Recht kein Code")  # noqa: E731
     with pytest.raises(RechteError):
         pruefe_befehlsrecht(url, str(config), Recht.ZAHLUNG_FREIGEBEN, "eva", nie)
+
+
+def test_strenge_einstellungen_nur_in_die_strengere_richtung():
+    from accounti.auth.cli import streng
+    from tests.auth_hilfe import einstellungen
+
+    locker = streng(
+        einstellungen(
+            einmalcode_bestaetigung=False,
+            sperre_nach_fehlversuchen=100,
+            sperre_minuten=1,
+            totp_toleranz_schritte=2,
+            passwort_mindestlaenge=8,
+        )
+    )
+    assert locker.einmalcode_bestaetigung
+    assert (locker.sperre_nach_fehlversuchen, locker.sperre_minuten) == (5, 15)
+    assert (locker.totp_toleranz_schritte, locker.passwort_mindestlaenge) == (1, 12)
+    strenger = streng(einstellungen(sperre_nach_fehlversuchen=3, sperre_minuten=60))
+    assert (strenger.sperre_nach_fehlversuchen, strenger.sperre_minuten) == (3, 60)
 
 
 def test_ende_mit_meldung(db, capsys):

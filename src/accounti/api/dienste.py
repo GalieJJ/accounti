@@ -105,6 +105,7 @@ def einzelne_gesellschaft(db: str, archiv: str, config: str) -> Gesellschaft:
 
 def dienste_aus_kontext(kontext: Kontext, db: str, archiv: str, config: str) -> Dienste:
     """Für ``accounti serve``: Registry, sonst die eine Gesellschaft der Optionen."""
+    kontext.pruefe()
     if kontext.registry.eintraege:
         gesellschaften = {g.kuerzel: g for g in kontext.registry.alle()}
         pfad = kontext.globale_konfiguration

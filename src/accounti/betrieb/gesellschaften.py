@@ -22,6 +22,12 @@ gesellschaften:
 ``${VARIABLE}`` wird erst ersetzt, wenn eine Gesellschaft gebraucht wird — eine
 fehlende Variable betrifft nur sie. Gemeint sind ausdrücklich **eigene**
 Gesellschaften, kein Mandantenportal (Bauplan, Nicht-Ziele).
+
+Die Trennung prüft die Registry nach dem Ersetzen und auf normalisierten Werten
+(``archiv/a`` = ``./archiv/a``, ``postgresql+psycopg://x@DB/acc`` =
+``postgresql://y@db:5432/acc``): keine zwei Gesellschaften teilen Datenbank, Archiv,
+Konfiguration oder Regeldatei. Ohne ``konfiguration`` gilt die globale Datei — das
+darf höchstens eine Gesellschaft.
 """
 
 from __future__ import annotations
@@ -32,10 +38,44 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from sqlalchemy import make_url
+from sqlalchemy.exc import ArgumentError
 
 from accounti.erechnung.versand import _ersetze_variablen
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.auth import pruefe_gesellschaft
+
+_STANDARD_PORTS = {"postgresql": 5432, "mysql": 3306, "mariadb": 3306}
+
+
+def datenbank_schluessel(url: str) -> str:
+    """Vergleichswert einer Datenbank-URL: ohne Treiber, Benutzer und Passwort;
+    SQLite mit aufgelöstem Pfad, sonst Rechner (klein) und Port."""
+    try:
+        u = make_url(url.strip())
+    except ArgumentError:
+        return url.strip()
+    art = u.get_backend_name()
+    if art == "sqlite":
+        pfad = u.database or ""
+        if pfad and pfad != ":memory:" and not pfad.startswith("file:"):
+            pfad = str(Path(pfad).expanduser().resolve())
+        return f"sqlite:///{pfad}"
+    rechner = (u.host or "").lower()
+    port = u.port or _STANDARD_PORTS.get(art)
+    return f"{art}://{rechner}:{port}/{u.database or ''}"
+
+
+def pfad_schluessel(pfad: str | Path) -> str:
+    return str(Path(pfad).expanduser().resolve())
+
+
+def gleiche_datenbank(a: str, b: str) -> bool:
+    return datenbank_schluessel(a) == datenbank_schluessel(b)
+
+
+def gleicher_pfad(a: str | Path, b: str | Path) -> bool:
+    return pfad_schluessel(a) == pfad_schluessel(b)
 
 
 class Eintrag(BaseModel):
@@ -84,18 +124,56 @@ class Gesellschaften(BaseModel):
                 "und Token in einer eigenen Datenbank"
             )
             raise ValueError(msg)
-        for feld, wort in (
-            ("datenbank", "dieselbe Datenbank"),
-            ("archiv", "dasselbe Archiv"),
+        self._pruefe_trennung()
+        return self
+
+    def _vergleichswerte(self) -> dict[str, dict[str, str]]:
+        """Je Gesellschaft die normalisierten Werte nach dem Ersetzen — eine
+        Gesellschaft mit fehlender Variable bleibt außen vor (sie scheitert erst,
+        wenn sie gebraucht wird)."""
+        werte: dict[str, dict[str, str]] = {}
+        for kuerzel, e in self.eintraege.items():
+            try:
+                roh: dict[str, Any] = _ersetze_variablen(e.model_dump())
+            except KonfigurationError:
+                continue
+            konfiguration = roh["konfiguration"] or self.quelle
+            regeln = roh["regeln"] or str(Path(konfiguration).parent / "regeln.yaml")
+            werte[kuerzel] = {
+                "datenbank": datenbank_schluessel(roh["datenbank"]),
+                "archiv": pfad_schluessel(roh["archiv"]),
+                "konfiguration": pfad_schluessel(konfiguration),
+                "regeln": pfad_schluessel(regeln),
+            }
+        return werte
+
+    def _pruefe_trennung(self) -> None:
+        werte = self._vergleichswerte()
+        for feld, wort, hinweis in (
+            ("datenbank", "dieselbe Datenbank", ""),
+            ("archiv", "dasselbe Archiv", ""),
+            (
+                "konfiguration",
+                "dieselbe Konfiguration",
+                " — je Gesellschaft eine eigene Datei unter konfiguration: "
+                "(höchstens eine darf die globale nutzen)",
+            ),
+            (
+                "regeln",
+                "dieselbe Regeldatei",
+                " — regeln: je Gesellschaft angeben (sonst regeln.yaml neben der "
+                "Konfiguration)",
+            ),
         ):
             gesehen: dict[str, str] = {}
-            for kuerzel, e in self.eintraege.items():
-                wert = getattr(e, feld)
+            for kuerzel in self.eintraege:
+                if kuerzel not in werte:
+                    continue
+                wert = werte[kuerzel][feld]
                 if wert in gesehen:
-                    msg = f"{gesehen[wert]} und {kuerzel} nutzen {wort}"
+                    msg = f"{gesehen[wert]} und {kuerzel} nutzen {wort}{hinweis}"
                     raise ValueError(msg)
                 gesehen[wert] = kuerzel
-        return self
 
     @property
     def mehrere(self) -> bool:
@@ -145,12 +223,23 @@ def _fehlertext(fehler: ValidationError) -> str:
     return "; ".join(teile)
 
 
+def lies_yaml(pfad: Path) -> Any:
+    """YAML-Datei lesen — ein Syntaxfehler wird zum ``KonfigurationError``."""
+    try:
+        return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as fehler:
+        stelle = getattr(fehler, "problem_mark", None)
+        wo = f", Zeile {stelle.line + 1}" if stelle is not None else ""
+        msg = f"{pfad}: kein gültiges YAML{wo}"
+        raise KonfigurationError(msg) from fehler
+
+
 def lade_gesellschaften(pfad: str | Path = STANDARD_PFAD) -> Gesellschaften:
     """Abschnitt ``gesellschaften``; ohne ihn gibt es keine Einträge."""
     pfad = Path(pfad)
     if not pfad.is_file():
         return Gesellschaften(quelle=str(pfad))
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("gesellschaften") if isinstance(daten, dict) else None
     if abschnitt is None:
         return Gesellschaften(quelle=str(pfad))

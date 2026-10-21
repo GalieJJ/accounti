@@ -120,6 +120,18 @@ class ApiTokenRow(Base):
     zuletzt_genutzt_am: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class AuthMerkerRow(Base):
+    """Kleine Merker der Benutzerverwaltung — in der Systemdatenbank deren Kennung
+    (``systemkennung``), in jeder Gesellschafts-Datenbank, zu welcher
+    Systemdatenbank und Gesellschaft sie gehört (``benutzerverwaltung``)."""
+
+    __tablename__ = "auth_merker"
+
+    schluessel: Mapped[str] = mapped_column(String(40), primary_key=True)
+    wert: Mapped[str] = mapped_column(String(500))
+    gesetzt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
 class AuthEreignisRow(Base):
     __tablename__ = "auth_ereignisse"
 

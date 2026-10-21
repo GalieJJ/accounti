@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from accounti.db.tabellen_auth import (
     ApiTokenRow,
     AuthEreignisRow,
+    AuthMerkerRow,
     BenutzerRow,
     RollenzuordnungRow,
     SitzungRow,
@@ -499,3 +500,32 @@ def lade_ereignisse(
         )
         for z in zeilen
     ]
+
+
+# ---------------------------------------------------------------------------
+# Merker
+# ---------------------------------------------------------------------------
+
+
+def lade_merker(session: Session, schluessel: str) -> str | None:
+    zeile = session.get(AuthMerkerRow, schluessel, populate_existing=True)
+    return zeile.wert if zeile else None
+
+
+def setze_merker_einmal(
+    session: Session, schluessel: str, wert: str, jetzt: datetime
+) -> str:
+    """Setzt den Merker, wenn es ihn noch nicht gibt — gibt den gültigen Wert
+    zurück (bei gleichzeitigem Setzen den, der zuerst kam)."""
+    vorhanden = lade_merker(session, schluessel)
+    if vorhanden is not None:
+        return vorhanden
+    session.add(AuthMerkerRow(schluessel=schluessel, wert=wert, gesetzt_am=jetzt))
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        gespeichert = lade_merker(session, schluessel)
+        assert gespeichert is not None
+        return gespeichert
+    return wert

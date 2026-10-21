@@ -157,3 +157,83 @@ def test_gesellschaft_liste_und_zeigen_ohne_passwort(umgebung, monkeypatch):
     assert "accounti:***@db/b" in r.output
     assert "SKR04" in r.output  # eigener Kontenrahmen
     assert "2026-07-01" in r.output  # eigenes Wirtschaftsjahr
+
+
+def test_kaputte_konfiguration_blockiert_befehle_ohne_konfigurationsbedarf_nicht(
+    tmp_path, monkeypatch
+):
+    """Befund B-M8: ``version`` und Befehle mit ``--db`` laufen weiter; wer eine
+    Gesellschaft braucht oder Rechte prüft, bekommt den Fehler."""
+    kaputt = tmp_path / "accounti.yaml"
+    kaputt.write_text("mandant:\n  name: [kaputt\n", encoding="utf-8")
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(kaputt))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_ARCHIV", "ACCOUNTI_GESELLSCHAFT"):
+        monkeypatch.delenv(name, raising=False)
+    r = run("version")
+    assert r.exit_code == 0, r.output
+    db = f"sqlite:///{tmp_path / 'x.db'}"
+    r = run("opos", "liste", "--db", db)
+    assert r.exit_code == 0, r.output
+    assert "kein gültiges YAML" in r.output  # als Warnung
+    r = run("-g", "a", "opos", "liste")
+    assert r.exit_code == 2 and "kein gültiges YAML" in r.output
+    r = run("zahlung", "freigeben", "1", "--db", db, "--von", "x")
+    assert r.exit_code == 1 and "kein gültiges YAML" in r.output
+
+
+def test_regeln_je_gesellschaft_auch_in_der_cli(umgebung, monkeypatch):
+    """Befund B-M4: ``classify``/``bank lauf`` und ``lerne`` nutzen die Regeldatei
+    der Gesellschaft, nicht config/regeln.yaml."""
+    from datetime import date
+    from decimal import Decimal
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_buchungen, speichere_transaktion
+    from accounti.models import Transaktion, TransaktionQuelle
+
+    monkeypatch.chdir(umgebung.wurzel)
+    regel = (
+        "- name: Galerie Rahmen\n  muster: RAHMENWERK\n  feld: beide\n"
+        "  soll_konto: '{konto}'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "  buchungstext: Rahmen\n"
+    )
+    (umgebung.wurzel / "a-regeln.yaml").write_text(
+        regel.format(konto="3400"), encoding="utf-8"
+    )
+    (umgebung.wurzel / "b-regeln.yaml").write_text(
+        regel.format(konto="5400"), encoding="utf-8"
+    )
+    for k in ("a", "b"):
+        engine, fabrik = session_factory(umgebung.db[k])
+        init_db(engine)
+        with fabrik() as s:
+            speichere_transaktion(
+                s,
+                Transaktion(
+                    datum=date(2026, 10, 1),
+                    quelle=TransaktionQuelle.BANK,
+                    betrag=Decimal("-119.00"),
+                    verwendungszweck="RAHMENWERK Lieferung 77",
+                    gegenkonto_name="Rahmenwerk GmbH",
+                    rohtext="RAHMENWERK",
+                ),
+            )
+            s.commit()
+        engine.dispose()
+    for k, konto in (("a", "3400"), ("b", "5400")):
+        r = run("-g", k, "classify", "--no-llm")
+        assert r.exit_code == 0, r.output
+        engine, fabrik = session_factory(umgebung.db[k])
+        with fabrik() as s:
+            assert [b.soll_konto for b in lade_buchungen(s)] == [konto], k
+        engine.dispose()
+    r = run(
+        "-g", "b", "lerne", "--muster", "FARBE", "--soll", "5400", "--haben", "1200",
+        "--name", "Farbe",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    assert "FARBE" in (umgebung.wurzel / "b-regeln.yaml").read_text(encoding="utf-8")
+    assert "FARBE" not in (umgebung.wurzel / "a-regeln.yaml").read_text(
+        encoding="utf-8"
+    )
+    assert not (umgebung.wurzel / "config" / "regeln.yaml").exists()

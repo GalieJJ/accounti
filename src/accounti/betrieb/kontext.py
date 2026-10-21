@@ -6,6 +6,10 @@ Gesellschaft aus der Registry. Der Typer-Callback in ``cli.py`` setzt damit übe
 **jedes** Befehls — die Optionen heißen in allen Befehlen gleich. Ausdrücklich
 angegebene Optionen gewinnen. Ohne Gesellschaft gelten ``ACCOUNTI_DB``,
 ``ACCOUNTI_ARCHIV`` und ``ACCOUNTI_KONFIG``, sonst die bisherigen Standards.
+
+Ist die globale Konfiguration kaputt (YAML-Syntax, Registry), laufen Befehle ohne
+Gesellschaft weiter (``version``, ``--db``-Befehle); der Fehler steht im Kontext und
+bricht ab, wo eine Gesellschaft oder eine Rechteprüfung gebraucht wird.
 """
 
 from __future__ import annotations
@@ -38,6 +42,7 @@ OHNE_GESELLSCHAFT = frozenset(
 )
 
 _PARAMETER = {"db": "datenbank", "archiv": "archiv", "config": "konfiguration"}
+STANDARD_REGELN = "config/regeln.yaml"
 
 
 @dataclass(frozen=True)
@@ -46,10 +51,25 @@ class Kontext:
     registry: Gesellschaften
     gesellschaft: Gesellschaft | None = None
     standardwerte: dict[str, str] = field(default_factory=dict)
+    # die globale Konfiguration ließ sich nicht lesen — Registry unbekannt
+    fehler: str | None = None
 
     @property
     def kuerzel(self) -> str:
         return self.gesellschaft.kuerzel if self.gesellschaft else STANDARD_GESELLSCHAFT
+
+    def pruefe(self) -> Kontext:
+        """``KonfigurationError``, wenn die Registry unbekannt ist (fail-closed)."""
+        if self.fehler is not None:
+            raise KonfigurationError(self.fehler)
+        return self
+
+    @property
+    def regeln(self) -> str:
+        """Regeldatei der aktiven Gesellschaft, ohne Registry ``config/regeln.yaml``."""
+        if self.gesellschaft is not None:
+            return self.gesellschaft.regeln
+        return STANDARD_REGELN
 
     def systemdatenbank(self, db: str) -> str:
         """Wo Benutzer und Token liegen; ohne Registry: die Datenbank ``db``."""
@@ -78,9 +98,14 @@ def aktueller_kontext() -> Kontext:
     return kontext
 
 
+def regeln_datei() -> str:
+    """Regeldatei für ``classify``, ``bank lauf``, ``lerne`` … im aktuellen Aufruf."""
+    return aktueller_kontext().regeln
+
+
 def gesellschaft_noetig() -> Kontext:
     """Bei mehreren Gesellschaften ohne Wahl ein ``KonfigurationError``."""
-    kontext = aktueller_kontext()
+    kontext = aktueller_kontext().pruefe()
     if kontext.gesellschaft is None and kontext.registry.mehrere:
         msg = "Mehrere Gesellschaften eingerichtet — --gesellschaft angeben"
         raise KonfigurationError(msg)
@@ -95,10 +120,7 @@ def ruecksetzen(token: Any) -> None:
     _AKTUELL.reset(token)
 
 
-def bestimme_kontext(gesellschaft: str | None) -> Kontext:
-    """Kontext aus Option/Umgebung und Registry — wirft ``KonfigurationError``."""
-    pfad = globale_konfiguration()
-    registry = lade_gesellschaften(pfad)
+def _umgebungswerte() -> dict[str, str]:
     werte: dict[str, str] = {}
     for parameter, variable in (
         ("db", UMGEBUNG_DB),
@@ -107,6 +129,20 @@ def bestimme_kontext(gesellschaft: str | None) -> Kontext:
     ):
         if os.environ.get(variable):
             werte[parameter] = os.environ[variable]
+    return werte
+
+
+def kontext_ohne_registry(fehler: str) -> Kontext:
+    """Die Registry ließ sich nicht lesen: nur Umgebung, Fehler gemerkt."""
+    pfad = globale_konfiguration()
+    return Kontext(pfad, Gesellschaften(quelle=pfad), None, _umgebungswerte(), fehler)
+
+
+def bestimme_kontext(gesellschaft: str | None) -> Kontext:
+    """Kontext aus Option/Umgebung und Registry — wirft ``KonfigurationError``."""
+    pfad = globale_konfiguration()
+    registry = lade_gesellschaften(pfad)
+    werte = _umgebungswerte()
     kuerzel = gesellschaft or registry.standard
     if kuerzel is None:
         return Kontext(pfad, registry, None, werte)

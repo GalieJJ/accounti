@@ -1436,7 +1436,9 @@ def opos_verbuchen(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    regelwerk = RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN)
+    from accounti.betrieb.kontext import regeln_datei
+
+    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
@@ -2157,8 +2159,11 @@ def bank_lauf_befehl(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+    from accounti.betrieb.kontext import regeln_datei
+
+    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln("config/regeln.yaml") + STANDARD_REGELN),
+        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
         llm=LLMEngine() if llm else None,
     )
     db_engine, make_session = session_factory(db)
@@ -2205,8 +2210,11 @@ def classify(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    # Eigene Regeln (config/regeln.yaml) haben Vorrang, dann das Standard-Regelwerk.
-    regeln = lade_regeln("config/regeln.yaml")
+    from accounti.betrieb.kontext import regeln_datei
+
+    # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
+    # das Standard-Regelwerk.
+    regeln = lade_regeln(regeln_datei())
     if regeln:
         regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
     else:
@@ -2293,12 +2301,15 @@ def _regel_speichern(
     steuer: int | None,
     feld: str = "beide",
 ) -> None:
-    """Hängt eine Regel an config/regeln.yaml an."""
+    """Hängt eine Regel an die Regeldatei der Gesellschaft an (Registry ``regeln:``,
+    sonst config/regeln.yaml)."""
     from pathlib import Path
 
     import yaml
 
-    pfad = Path("config/regeln.yaml")
+    from accounti.betrieb.kontext import regeln_datei
+
+    pfad = Path(regeln_datei())
     if pfad.exists():
         regeln = yaml.safe_load(pfad.read_text(encoding="utf-8")) or []
     else:
@@ -2314,6 +2325,7 @@ def _regel_speichern(
             "buchungstext": name,
         }
     )
+    pfad.parent.mkdir(parents=True, exist_ok=True)
     pfad.write_text(
         yaml.safe_dump(regeln, allow_unicode=True, sort_keys=False), encoding="utf-8"
     )

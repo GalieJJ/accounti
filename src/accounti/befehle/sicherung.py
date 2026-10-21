@@ -89,7 +89,7 @@ def _systemdatenbank(ctx: typer.Context, db: str) -> str:
 
     if _ausdruecklich(ctx, "db"):
         return db
-    return aktueller_kontext().systemdatenbank(db)
+    return aktueller_kontext().pruefe().systemdatenbank(db)
 
 
 def freier_name(ordner: Path, bezeichnung: str) -> Path:

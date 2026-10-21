@@ -64,6 +64,7 @@ def zwei_gesellschaften(tmp_path: Path, standard: str | None = None) -> Umgebung
             f"      datenbank: '{db[k]}'\n"
             f"      archiv: '{archiv[k].as_posix()}'\n"
             f"      konfiguration: '{config[k].as_posix()}'\n"
+            f"      regeln: '{(tmp_path / f'{k}-regeln.yaml').as_posix()}'\n"
             for k in ("a", "b")
         ),
         encoding="utf-8",

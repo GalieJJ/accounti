@@ -1,7 +1,8 @@
 """``accounti token`` — API-Token für Fremdsysteme (Integrationen, Akzeptanz 7).
 
 Ein Token gehört zu genau einer Gesellschaft (``accounti -g K token anlegen …``) und
-trägt ausdrücklich genannte Rechte. Freigeben kann kein Token.
+trägt ausdrücklich genannte Rechte. Freigeben kann kein Token. ``liste`` und
+``widerrufen`` wirken nur in der gewählten Gesellschaft.
 """
 
 from __future__ import annotations
@@ -26,6 +27,16 @@ def _ende(text: str) -> typer.Exit:
     return typer.Exit(1)
 
 
+def _gesellschaft() -> str:
+    from accounti.auth.cli import gesellschaft_fuer_rechte
+    from accounti.auth.fehler import AuthError
+
+    try:
+        return gesellschaft_fuer_rechte()
+    except AuthError as fehler:
+        raise _ende(str(fehler)) from fehler
+
+
 RECHT_OPTION = typer.Option(
     ...,
     "--recht",
@@ -44,12 +55,7 @@ def anlegen(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Token erzeugen — der Klartext wird nur dieses eine Mal angezeigt."""
-    from accounti.auth.cli import (
-        gesellschaft_fuer_rechte,
-        systemsitzung,
-        verwaltung_oder_ende,
-    )
-    from accounti.auth.fehler import AuthError
+    from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.token import lege_api_token_an
     from accounti.models.auth import TokenRecht
 
@@ -64,10 +70,7 @@ def anlegen(
             bis = date.fromisoformat(gueltig_bis)
         except ValueError as fehler:
             raise _ende("--gueltig-bis: Datum im Format JJJJ-MM-TT") from fehler
-    try:
-        gesellschaft = gesellschaft_fuer_rechte()
-    except AuthError as fehler:
-        raise _ende(str(fehler)) from fehler
+    gesellschaft = _gesellschaft()
     durch = verwaltung_oder_ende(db, config)
     with systemsitzung(db) as s:
         try:
@@ -93,14 +96,15 @@ def anlegen(
 
 @befehl.command("liste")
 def liste(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
-    """Token mit Gesellschaft, Rechten und letzter Nutzung (ohne Klartext)."""
+    """Token der Gesellschaft mit Rechten und letzter Nutzung (ohne Klartext)."""
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.db.repo_auth import lade_api_tokens
 
+    gesellschaft = _gesellschaft()
     verwaltung_oder_ende(db, config)
     jetzt = datetime.now()
     with systemsitzung(db) as s:
-        tokens = lade_api_tokens(s)
+        tokens = [t for t in lade_api_tokens(s) if t.gesellschaft == gesellschaft]
     if not tokens:
         console.print("[dim]Keine Token — accounti token anlegen NAME --recht …[/dim]")
         return
@@ -128,18 +132,31 @@ def widerrufen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Token sofort sperren."""
+    """Token der gewählten Gesellschaft sofort sperren."""
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.dienst import ereignis
-    from accounti.db.repo_auth import widerrufe_api_token
+    from accounti.db.repo_auth import lade_api_tokens, widerrufe_api_token
 
+    gesellschaft = _gesellschaft()
     durch = verwaltung_oder_ende(db, config)
     jetzt = datetime.now()
     with systemsitzung(db) as s:
+        fremd = {
+            t.gesellschaft
+            for t in lade_api_tokens(s)
+            if t.name == name and t.widerrufen_am is None
+        } - {gesellschaft}
+        if fremd:
+            raise _ende(
+                f"Das Token {name} gehört zur Gesellschaft {', '.join(sorted(fremd))} "
+                f"— dort widerrufen (accounti -g {sorted(fremd)[0]} token widerrufen)"
+            )
         try:
             widerrufe_api_token(s, name, jetzt)
         except ValueError as fehler:
             raise _ende(str(fehler)) from fehler
-        ereignis(s, "token_widerrufen", jetzt, durch, hinweis=name)
+        ereignis(
+            s, "token_widerrufen", jetzt, durch, gesellschaft=gesellschaft, hinweis=name
+        )
         s.commit()
     console.print(f"[green]Widerrufen:[/green] {escape(name)}")

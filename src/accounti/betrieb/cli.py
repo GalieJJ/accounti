@@ -11,6 +11,7 @@ from rich.markup import escape
 from accounti.betrieb.kontext import (
     OHNE_GESELLSCHAFT,
     bestimme_kontext,
+    kontext_ohne_registry,
     ruecksetzen,
     setze_kontext,
     standardwerte_fuer,
@@ -21,12 +22,19 @@ console = Console(stderr=True)
 
 
 def richte_kontext_ein(ctx: Any, gesellschaft: str | None) -> None:
-    """Kontext bestimmen, ``default_map`` setzen und beim Ende zurücksetzen."""
+    """Kontext bestimmen, ``default_map`` setzen und beim Ende zurücksetzen.
+
+    Lässt sich die Registry nicht lesen, bricht nur ab, wer ausdrücklich eine
+    Gesellschaft wählt; alle anderen Befehle laufen mit einem Hinweis weiter —
+    wer Gesellschaft oder Rechte braucht, scheitert später an ``Kontext.pruefe``.
+    """
     try:
         kontext = bestimme_kontext(gesellschaft)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
-        raise typer.Exit(2) from fehler
+        if gesellschaft is not None:
+            raise typer.Exit(2) from fehler
+        kontext = kontext_ohne_registry(str(fehler))
     if (
         kontext.gesellschaft is None
         and kontext.registry.mehrere
