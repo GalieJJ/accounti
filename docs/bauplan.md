@@ -35,7 +35,7 @@ Tatsachen.
 | 4 | Kreditoren, Debitoren & offene Posten | `kontakte/` `opos/` | ✅ fertig | [Spec](specs/2026-08-10-kreditoren-debitoren-opos.md) |
 | 5 | Live-Bankanbindung & Belegabgleich | `bank/` | ✅ fertig | [Spec](specs/2026-08-10-bankanbindung-live.md) |
 | 6 | Zahlungsverkehr & Mahnwesen | `zahlung/` `mahnwesen/` | ✅ fertig | [Spec](specs/2026-08-10-zahlungsverkehr-mahnwesen.md) |
-| 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | 🔲 geplant | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
+| 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | ✅ fertig | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
 | 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
 | 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` `betrieb/` | 🟨 teilweise | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
@@ -51,8 +51,8 @@ Sondervorauszahlung, Zusammenfassende Meldung als Portaldatei und Fristenkalende
 ([Plan](plans/2026-10-25-steuermeldungen-elster.md)). Was fehlt, ist der erste echte Lauf: Er
 braucht die Registrierung als Entwickler beim Bayerischen Landesamt für Steuern, eine eigene
 Hersteller-ID (die Test-ID 74931 ist seit ERiC 39.4 gesperrt) und ein ELSTER-Zertifikat. Fristen
-werden Aufgaben, sobald Baustein 8 steht; Periodenabschluss und Prüfbefunde prüft die
-Plausibilisierung, sobald Baustein 7 steht.
+werden Aufgaben, sobald Baustein 8 steht; Periodenabschluss und Prüfbefunde aus Baustein 7
+kann die Plausibilisierung jetzt einbeziehen (noch nicht angeschlossen).
 
 **Baustein 2 ist fertig:** Ordner- und Upload-Kanal, Archiv, Dublettenprüfung, Eingangsprotokoll
 ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)), Erkennung, OCR und Positionssplit
@@ -90,6 +90,19 @@ als Erweiterungen: Einreichung über den Bank-Provider (braucht FinTS aus Bauste
 Sammelmahnung je Kunde, Verrechnung von Gutschriften im Zahlungslauf, Zahlungen außerhalb des
 EWR (BIC am Kontakt). Annahme der SEPA-Datei durch eine Bank vom Nutzer zu bestätigen.
 
+**Baustein 7 ist fertig** ([Plan](plans/2026-10-26-belegvollstaendigkeit-gobd.md)): 17
+benannte Prüfregeln mit Schweregrad und Schwellen aus dem Abschnitt `pruefung`
+(Vollständigkeit, Richtigkeit mit § 14 UStG/§ 33 UStDV aus dem Original, Zeitgerechtheit,
+Ordnung), Nachforderung als Aufgabe über den Prüflauf `beleg_fehlt` (verstummt, sobald der
+Beleg abgeglichen ist), hash-verkettetes Journal über alle buchungsrelevanten Vorgänge mit
+Verlauf und Bestandsabgleich, Storno statt Änderung ab der Freigabe, Monatsabschluss neben der
+Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Mit Baustein 10a
+verzahnt: Freigabe, Korrektur, Storno und Festschreibung nur mit Rolle und Einmalcode, im
+Journal der angemeldete Benutzer, Sammelläufe unter der Laufsperre, Journal und Korrekturen in
+Sicherung und Aufbewahrungsbericht; Migration für bestehende Datenbanken. Offen: Prüfbefunde
+und Perioden in der UStVA-Plausibilisierung (Baustein 9), Generalumkehr im DATEV-Export,
+Historisierung von Stammdaten, Prüfbefunde in der Oberfläche (Baustein 10).
+
 **Baustein 8 ist fertig** ([Plan](plans/2026-10-25-aufgaben-rueckfragen.md)): Aufgaben mit
 Bezug auf ein beliebiges Objekt, idempotent über (Art, Objekt), mit Zuständigkeit (Benutzer,
 Rolle oder gemeinsame Liste), Fälligkeit, Verlauf und Selbstabschluss als `hinfaellig`;
@@ -102,7 +115,8 @@ Benutzerkonten und Rechte (Baustein 10).
 **Baustein 10 ist teilweise fertig** ([Plan](plans/2026-10-26-auth-gesellschaften-betrieb-api.md)):
 Benutzer mit Passwort und zweitem Faktor (TOTP nach RFC 6238, Wiederherstellungscodes), Sperre,
 Sitzungen, Rollen `betrachter`/`buchhalter`/`freigeber`/`verwalter` je Gesellschaft — Freigaben
-von Zahlungsläufen und Steuermeldungen nur mit Rolle und Einmalcode, im Browser wie in der CLI;
+von Zahlungsläufen und Steuermeldungen nur mit Rolle und Einmalcode, im Browser wie in der CLI
+(dazu Buchungsfreigabe, Korrektur, Storno und Festschreibung aus Baustein 7);
 mehrere eigene Gesellschaften mit eigener Datenbank, eigenem Archiv und eigener Konfiguration
 (`--gesellschaft`); das FastAPI-Gerüst mit Anmeldung, CSRF, Rollen-Dependency, Router-Registry
 und Grundlayout; die REST-API (Akzeptanz 7 aus Baustein 11); Docker Compose mit PostgreSQL und

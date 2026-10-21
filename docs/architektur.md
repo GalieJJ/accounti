@@ -235,11 +235,44 @@ Mahngebühren; Gebühren verlangt eine Mahnung nur für Mahnungen im Verzug. Mah
 über den Versandweg aus `erechnung/versand.py`); dann zählt die Mahnstufe am offenen Posten hoch,
 das PDF liegt im Belegarchiv, und die versendeten Mahnungen sind die Historie.
 
-### `pruefung/` *(geplant — [Baustein 7](specs/2026-08-10-belegvollstaendigkeit-gobd.md))*
+### `pruefung/` *(vorhanden — [Baustein 7](specs/2026-08-10-belegvollstaendigkeit-gobd.md))*
 
-Die Mechanik hinter den Prinzipien 6 und 7. Benannte Prüfregeln mit Schweregrad liefern Befunde und ändern nie Daten: Umsatz ohne Beleg, Beleg ohne Zahlung, Lücken in Nummernkreisen, § 14 UStG-Pflichtangaben, Rechenprobe, Steuerschlüssel ./. Sachkonto, Zeitgerechtheit.
+Die Mechanik hinter den Prinzipien 6 und 7.
 
-`journal.py` führt das hashverkettete, append-only Journal. `perioden.py` schließt Zeiträume ab. `verfahrensdoku.py` generiert die Verfahrensdokumentation aus dem tatsächlichen Systemzustand statt aus einem Textbaustein, der nach der ersten Konfigurationsänderung nicht mehr stimmt.
+- `regeln/` — Registry `PRUEFREGELN` (`registriere_pruefregel`): Regel = `name`, `kategorie`,
+  `schwere`, `beschreibung`, Pydantic-`Parameter` (Schwellen) und `pruefe(kontext, p)`;
+  liest nur. `vollstaendigkeit.py` (Umsatz ohne Beleg über `offen_in_der_bank`, Rechnung ohne
+  Zahlung, Nummernkreise, Kontoauszüge über `export/kontoauszuege.pruefe_auszuege` und
+  Kontoauszugssalden), `richtigkeit.py` (Pflichtangaben, Rechenprobe, Steuerschlüssel ./.
+  Sachkonto über die mitgelieferte `pruefung/skr03.yaml` — DATEV-Automatikkonten — und
+  `steuer/kennziffern`, Steuersatz zum Land, Adressat, ig. Erwerb gegen das
+  USt-IdNr.-Protokoll, Dubletten), `zeitgerechtheit.py`, `ordnung.py`. *(vorhanden)*
+- `belegangaben.py` — liest Pflichtangaben aus dem archivierten Original (E-Rechnung,
+  Textebene, OCR auf Wunsch). *(vorhanden)*
+- `einstellungen.py` — Abschnitt `pruefung` (`lade_pruefung`). *(vorhanden)*
+- `nachforderung.py` + `aufgaben_anbindung.py` — ersetzt den Prüflauf `beleg_fehlt` aus
+  Baustein 8 durch den mit Schwellen und `belegfrei`-Mustern; Anfrage an den Lieferanten als
+  Entwurf, Versand nur auf Befehl. *(vorhanden)*
+- `journal.py` + `ereignisse.py` — Journal (`journal`, nur anfügen, SHA-256-Kette,
+  SQLite-Trigger); Sitzungsereignisse `before_flush`/`after_flush` schreiben je Vorgang einen
+  Eintrag (Buchungen, Belege, verworfene Dubletten, Zahlungslauf- und Abschlussprotokoll),
+  `do_orm_execute` sperrt Massenänderungen; jede schreibende Transaktion hält ab dem ersten
+  Flush die Schreibsperre (`schreibsperre`). `pruefe_journal` prüft Kette, Anker, Verlauf je
+  Objekt und den Bestand (Buchungen, Belege, Sperren) aus einem Stand (`lesestand`). Person
+  und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung der CLI
+  (`befehle.handelnde_person`), für API-Token die REST-API. *(vorhanden)*
+- `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
+  Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
+  sitzt in `ereignisse.py`. *(vorhanden)*
+- `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
+  Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
+  gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
+- `verfahrensdoku.py` — Verfahrensdokumentation aus Konfiguration, Datenbank und
+  Code-Standards (GoBD Rz. 151 ff.), Markdown/PDF, Fassung im Journal. *(vorhanden)*
+
+Befehle: `accounti pruefen`, `nachfordern`, `journal`, `buchung`, `periode`,
+`verfahrensdoku`; `korrigiere`, `bestaetige`, `review` aus `cli.py` nutzen `storno.py`.
+Tabellen in `db/tabellen_pruefung.py`, Migration `ddc9a184ddb4`.
 
 ### `aufgaben/` *(vorhanden — [Baustein 8](specs/2026-08-10-aufgaben-rueckfragen.md))*
 
@@ -432,8 +465,11 @@ Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **System
   Gesellschafts-Datenbank an ihre Systemdatenbank (Merker `auth_merker`, fail-closed).
   Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
   Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
-  `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben`. Sperrwerte gelten in der CLI immer
-  mit den Standardwerten, nie aus `--config`.
+  `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben` und — über
+  `befehle.handelnde_person`, das zugleich die Person im Journal setzt — in `bestaetige`,
+  `korrigiere`, `buchung storniere`, `kasse storno`, `periode schliessen|oeffnen`,
+  `abschluss vortrag|oeffnen`, `journal uebernehmen` (Baustein 7). Sperrwerte gelten in der
+  CLI immer mit den Standardwerten, nie aus `--config`.
 - `einstellungen.py` — Abschnitt `auth`.
 
 Rollen → Rechte (`ROLLEN_RECHTE`): `betrachter` lesen · `buchhalter` lesen, buchen, Belege
@@ -473,10 +509,13 @@ einem Schritt, Angebot einer Regel), Auswertungen, DE/EN.
 - `verschluesselung.py`, `sicherung.py` — Sicherung als Tar-Strom (Tabellen als JSON-Zeilen,
   typgetreu; Archivdateien; Manifest mit SHA-256), AES-256-GCM in Stücken (STREAM, HKDF je
   Sicherung); Wiederherstellung nur in eine leere Umgebung, alles oder nichts.
-- `aufbewahrung.py` — Fristen nach § 147 AO (BEG IV) und § 14b UStG, Bericht ohne Löschen.
+- `aufbewahrung.py` — Fristen nach § 147 AO (BEG IV) und § 14b UStG, Bericht ohne Löschen;
+  Journal, Buchungskorrekturen und Monatsabschlüsse als Bücher, ein spät festgeschriebener
+  Monat als letzte Eintragung seines Wirtschaftsjahres.
 - `planer.py` — geplanter Lauf (`bank lauf`, `aufgaben lauf` je Gesellschaft als Prozesse).
 - `laufsperre.py` — je Gesellschaft und Art höchstens ein Lauf, über Prozesse hinweg
-  (PostgreSQL-Advisory-Lock, SQLite-Dateisperre).
+  (PostgreSQL-Advisory-Lock, SQLite-Dateisperre). Art `bank`: `bank lauf` und seine Schritte,
+  `opos verbuchen`, `periode schliessen`; Art `aufgaben`: `aufgaben lauf`, `nachfordern`.
 - `protokoll.py` — Schwärzung (IBAN, E-Mail, Token, Passwörter in URLs) an jedem Handler.
 
 ## Datenmodell
@@ -499,10 +538,13 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `Aufgabe` | Art, Titel, Objektbezug, Zuständigkeit, Fälligkeit, Status, Idempotenzschlüssel | → beliebiges Objekt |
 | `Kommentar` | Art (Kommentar, Rückfrage, Ereignis), Autor, Text, Zeitpunkt, Anhang-Beleg | → `Aufgabe` und/oder beliebiges Objekt (nur anfügen) |
 | `Anlagegut` | Anschaffungsdatum und -kosten, Nutzungsdauer, AfA-Art, Restbuchwert, Abgang | → `Beleg`, `Buchungssatz` |
-| `Journaleintrag` | Laufende Nummer, Zeitpunkt, Benutzer, Vorgang, Vorher/Nachher, Hash des Vorgängers | → alles Buchungsrelevante |
+| `Journaleintrag` | Laufende Nummer, Zeitpunkt, Person, Vorgang, Objekt, Vorher/Nachher (JSON), Grund, Bezug, Hash des Vorgängers, Hash | → Buchung, Beleg, Zahlungslauf, Periode, Geschäftsjahr, Export (nur anfügen) |
+| `Buchungskorrektur` | Original, Storno, Neubuchung, Datum, Grund, Person | → `Buchungssatz` (nur anfügen) |
+| `Periodenabschluss` | Monat, gesperrt, geschlossen/geöffnet (Zeit, Person), Grund | → Buchungen des Monats |
+| `Befund` | Regel, Kategorie, Schwere, Objekt, Datum, Betrag, Gegenpartei, Begründung, Abhilfe | nicht gespeichert |
 
-`Buchungssatz` bekommt zwei Ergänzungen: `beleg_position_id` für den Belegbezug (Prinzip 7) und
-`storniert_durch` / `storno_von` für Korrekturen nach Freigabe (Prinzip 6).
+`Buchungssatz` hat zwei Ergänzungen: `beleg_position_id` für den Belegbezug (Prinzip 7) und
+`storniert_durch` / `storno_von` (je eindeutig) für Korrekturen nach Freigabe (Prinzip 6).
 
 ## Datenfluss
 
@@ -516,7 +558,7 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
                     │  buchungssaetze              │
   Klassifikation ──▶│  regeln · konten             │
                     │  offene_posten · zahlungen   │
-  Prüfung ────────▶ │  befunde · journal           │
+  Prüfung ────────▶ │  journal · korrekturen       │
                     │  aufgaben                    │
   Steuer ─────────▶ │  meldungen · protokolle      │
   Abschluss ──────▶ │  anlagegueter · abschluesse  │
@@ -607,11 +649,17 @@ providerunabhängig. Vorbild: `bank/fints.py`.
 Weil der bestehende Dateiimport selbst als Provider eingehängt ist, bleibt accounti auch dann
 vollständig nutzbar, wenn kein einziger Live-Provider eingerichtet ist.
 
-### Neue Prüfregel hinzufügen *(geplant)*
+### Neue Prüfregel hinzufügen
 
 Prüfregeln aus `pruefung/regeln/` sind benannt, tragen einen Schweregrad und liefern Befunde —
 sie ändern nie Daten. Schwellenwerte (ab welchem Betrag ein fehlender Beleg auffällt, wie viele
 Tage Zeitgerechtheit bedeutet) gehören in die Konfiguration, nicht in den Code.
+
+Eine Klasse mit `name`, `kategorie`, `schwere`, `beschreibung`, einem Pydantic-Modell
+`Parameter` (Schwellen mit Standardwerten) und `pruefe(kontext, parameter) -> list[Befund]`,
+eingetragen mit `registriere_pruefregel`. Der `Kontext` bringt Sitzung, Zeitraum, Stichtag,
+Einstellungen und einmal geladene Bestände mit; Schwellen setzt der Betrieb unter
+`pruefung.regeln.<name>`, den Schweregrad unter `pruefung.schwere.<name>`.
 
 ### Aufgaben aus einem anderen Baustein melden
 

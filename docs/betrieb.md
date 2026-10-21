@@ -159,6 +159,17 @@ bleibt Pflicht, und das Protokoll zeigt, wer allein freigab. `zahlung entfernen`
 `zahlung stornieren` das Recht zur Zahlungsfreigabe — jeweils mit Einmalcode; ins
 Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
 
+Buchungen (Baustein 7): `bestaetige`, `periode schliessen|oeffnen`, `abschluss
+vortrag|oeffnen` und `journal uebernehmen` verlangen das Recht, Buchungen freizugeben
+(`buchhalter`, `freigeber`); `korrigiere`, `buchung storniere` und `kasse storno` das Recht
+zu buchen (`buchhalter`) — Korrektur und Storno legen freigegebene Buchungen an, das Recht
+zu buchen schließt laut Rollen das Freigeben ein (ein Test hält das fest). Wer festschreibt
+oder öffnet, gibt einen Einmalcode und beim Öffnen einen Grund an. Im Journal, in
+`geprueft_von` und im Abschlussprotokoll steht der Benutzer; was ein API-Token anstößt,
+steht als „API-Token <Name>“ im Journal. Nicht an eine Rolle gebunden sind (wie in 10a)
+Läufe und Importe (`classify`, `opos verbuchen`, `import`, `export datev`) — dort steht im
+Journal `ACCOUNTI_BENUTZER` bzw. der Anmeldename.
+
 - **Anmeldung im Browser** nur mit Passwort **und** Einmalcode (TOTP-App nach RFC 6238 oder
   ein Wiederherstellungscode, der genau einmal gilt). Jeder Code gilt einmal. Passwörter:
   mindestens 12 Zeichen, keine Zusammensetzungsregeln, scrypt (N = 2^17). Jeder Weg
@@ -202,7 +213,7 @@ Protokoll kommt der Benutzer, nicht der Freitext aus `--von`.
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
-  `sperre`, `iban-klaeren` und `stornieren` (siehe oben). Der Einmalcode lässt sich in
+  `sperre`, `iban-klaeren` und `stornieren` sowie die Befehle aus Baustein 7 (siehe oben). Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
   Browser), Sperrwerte gar nicht.
@@ -268,7 +279,9 @@ API, Dienst `lauf` und CLI hinweg (PostgreSQL: Advisory-Lock; SQLite: Dateisperr
 der Datenbank, `*.lauf-bank.sperre`); ein zweiter Lauf wartet nicht (API 409, CLI Exit 1).
 Dieselbe Sperre halten die Einzelschritte der Bankkette (`bank abrufen`, `fints
 freigeben`, `kreditkarte abgleich`, `opos zuordnen`, `bank abgleich`, `classify`) — ein
-`classify` neben dem geplanten Lauf kontiert denselben Umsatz nicht doppelt. Die
+`classify` neben dem geplanten Lauf kontiert denselben Umsatz nicht doppelt —, dazu
+`opos verbuchen` (bucht dieselben Belege) und `periode schliessen` (nicht festschreiben,
+während ein Lauf in den Monat bucht); `nachfordern` hält die Sperre von `aufgaben lauf`. Die
 Sperrdateien (`*.lauf-*.sperre`) stehen in `.gitignore`.
 
 ## Reverse-Proxy mit TLS
@@ -366,7 +379,10 @@ accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --a
   ohne ihn ist keine Sicherung lesbar, mit ihm und der Datei alles.
 - Wiederhergestellt wird nur in eine **leere** Datenbank und ein leeres Archiv, in einer
   Transaktion: erst wenn alles zum Manifest passt, wird festgeschrieben; sonst bleibt nichts
-  zurück. Hash-Ketten der Protokolle bleiben gültig.
+  zurück. Hash-Ketten der Protokolle und des Journals bleiben gültig: Die Zeilen kommen
+  über die Verbindung zurück (an den ORM-Sperren vorbei), die SQLite-Trigger von `journal`
+  und `buchungskorrekturen` nehmen Einfügen an und wirken danach weiter; `accounti journal
+  pruefen` ist nach dem Zurückspielen in Ordnung (auch mit dem notierten `--kopf`).
 - Wiederhergestellt wird nur, was zum Ziel passt: eine Sicherung der Gesellschaft a nicht
   in b (`--fremde-gesellschaft` übernimmt bewusst), eine Sicherung der Systemdatenbank
   nur mit `--system` (Ziel: `--db`, sonst die Systemdatenbank der Registry bzw.
@@ -400,6 +416,7 @@ mkdir -p /tmp/probe
 accounti sicherung pruefen DATEI
 accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
 accounti opos liste --db sqlite:////tmp/probe/x.db         # mit dem Original vergleichen
+accounti journal pruefen --db sqlite:////tmp/probe/x.db --kopf NR:HASH   # Kopf vom Original
 accounti export datev --db sqlite:////tmp/probe/x.db …     # Stichprobe Buchungen
 rm -rf /tmp/probe
 ```
@@ -416,7 +433,7 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 
 | Unterlagen in accounti | Frist | Grundlage |
 |------------------------|-------|-----------|
-| Buchungen (`buchungssaetze`), Journale, Kassenbuch, Protokolle (USt-IdNr., Übermittlung, Zahlungslauf, Abschluss), Jahresabschluss | **10 Jahre** ab Schluss des Jahres der letzten Eintragung je Wirtschaftsjahr | § 147 Abs. 1 Nr. 1, Abs. 3, Abs. 4 AO |
+| Buchungen (`buchungssaetze`), Journal, Buchungskorrekturen, Monatsabschlüsse, Kassenbuch, Protokolle (USt-IdNr., Übermittlung, Zahlungslauf, Abschluss), Jahresabschluss | **10 Jahre** ab Schluss des Jahres der letzten Eintragung je Wirtschaftsjahr | § 147 Abs. 1 Nr. 1, Abs. 3, Abs. 4 AO |
 | Belege (`belege`, Belegarchiv) als Buchungsbelege | **8 Jahre** | § 147 Abs. 1 Nr. 4, Abs. 3 AO |
 | Rechnungen (Ein- und Ausgang) | **8 Jahre** | § 14b Abs. 1 UStG |
 | Handels- und Geschäftsbriefe, sonstige Unterlagen | **6 Jahre** | § 147 Abs. 1 Nr. 2, 3, 5 AO |
@@ -428,12 +445,16 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   AO). accounti rechnet Bücher je Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`):
   Beginn frühestens mit dem Schluss des Jahres **nach** dem Wirtschaftsjahresende
   (Abschlussbuchungen fallen ins Folgejahr), später, wenn der Abschluss (`abschluesse`)
-  später festgeschrieben wurde. Ein Beispiel: Buchungen des Kalenderjahres 2015 mit
-  Abschluss 2016 — aufzubewahren bis 31.12.2026, nicht bis 31.12.2025. Wann eine Buchung
-  tatsächlich eingetragen wurde, speichert accounti nicht; wer ein Wirtschaftsjahr mehr als
-  ein Jahr nach seinem Ende noch bebucht hat, ohne es abzuschließen, prüft die Frist von
-  Hand. Ein **wieder geöffnetes** Geschäftsjahr (`abschluesse.gesperrt` falsch) läuft
-  nicht ab — es kann noch bebucht werden. Die 8 Jahre gelten für alle Belege, deren alte
+  oder ein Monat des Wirtschaftsjahres (`periodenabschluesse`) später festgeschrieben
+  wurde. Ein Beispiel: Buchungen des Kalenderjahres 2015 mit Abschluss 2016 —
+  aufzubewahren bis 31.12.2026, nicht bis 31.12.2025. Wann eine Buchung eingetragen wurde,
+  steht seit Baustein 7 im Journal; der Bericht wertet das nicht aus — wer ein
+  Wirtschaftsjahr mehr als ein Jahr nach seinem Ende noch bebucht hat, ohne es oder seine
+  Monate festzuschreiben, prüft die Frist von Hand (`accounti journal --von …`). Ein
+  **wieder geöffnetes** Geschäftsjahr (`abschluesse.gesperrt` falsch) läuft nicht ab — es
+  kann noch bebucht werden; ebenso ein wieder geöffneter Monat, solange sein Jahr nicht
+  abgeschlossen ist. Das Journal ist eine Hash-Kette: Wer alte Einträge aussondert, prüft
+  danach mit einem Anker ab dem verbliebenen Anfang (`journal pruefen --kopf`). Die 8 Jahre gelten für alle Belege, deren alte
   Frist am 31.12.2024 noch lief; ein Bericht mit `--stichtag` vor dem 01.01.2025 rechnet
   Belege nach altem Recht mit 10 Jahren.
 - Sie läuft nicht ab, solange die Unterlagen für eine Steuer von Bedeutung sind, deren
@@ -482,3 +503,20 @@ docker compose up -d
 
 Alembic liest die Datenbank aus `ACCOUNTI_DB`. Tabellen, für die es noch keine Migration
 gibt, legt accounti beim ersten Befehl selbst an (`init_db`).
+
+**Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
+Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher
+liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `alembic
+upgrade head` einmal
+
+```bash
+docker compose run --rm app journal uebernehmen    # Bestand von vor dem Journal eintragen
+docker compose run --rm app journal pruefen        # in Ordnung; den Kopf notieren
+```
+
+— sonst meldet `journal pruefen` jede ältere Buchung und jeden älteren Beleg als „ohne
+Eintrag“ und jedes früher abgeschlossene Jahr als „an accounti vorbei gesperrt“. Mit
+eingerichteten Benutzern braucht `journal uebernehmen` das Recht, Buchungen freizugeben
+(Einmalcode, z. B. `-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`). Hat ein Befehl
+des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`),
+übernimmt die Migration sie und ergänzt nur, was fehlt.

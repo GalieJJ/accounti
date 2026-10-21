@@ -89,7 +89,8 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 | Sperre freigegebener Buchungen | `before_flush`: liest den gespeicherten Stand **aus der Datenbank** (nie aus der Attribut-Historie, die nach `commit` leer ist) und prüft damit Jahres- und Monatssperre (gespeichertes und neues Datum) und die Storno-Regel — auch im gesperrten Zeitraum; erlaubt bei freigegebenen Buchungen nur `auto → geprueft` (mit `geprueft_von`), `auto/geprueft/korrigiert → exportiert` und das einmalige Setzen von `storniert_durch`, das auf eine Stornobuchung mit `storno_von` zeigen muss; Löschen nie. Der Primärschlüssel erfasster Zeilen ändert sich nie. `datum` und `storniert_durch` haben zusätzlich `active_history`, damit auch die Mapper-Sperre das alte Datum kennt. Massen-`INSERT`/`UPDATE`/`DELETE` über die Sitzung (ORM und Core-DML) auf `buchungssaetze`, `journal`, `buchungskorrekturen` werden abgelehnt (`do_orm_execute`), die alten `bulk_*`-Wege sperrt die Sitzungsklasse `AccountiSitzung` aus `session_factory`; `repo_bank.loesche_buchung` löscht über `session.delete` | Akzeptanz 6 in der Datenbankschicht statt nur im Befehl; der bisherige Massen-Delete umging auch die Jahressperre |
 | Unique | `storno_von` und `storniert_durch` eindeutig | eine Buchung wird höchstens einmal storniert — auch bei zwei Prozessen |
 | `korrigiere` | Vorschlag: direkt (Status `korrigiert`, Journal „korrigiert“ und „freigegeben“). Freigegeben: Storno + Neubuchung. In beiden Fällen bleiben Transaktion, **Beleg, Belegposition, Belegnummer, Datum, Text und Betrag der Buchung** erhalten; mit `--steuer` werden Netto/Steuer aus dem **Brutto der Buchung** neu gerechnet, nicht aus dem Umsatz. **Ändert sich das Sachkonto** (die Seite, die kein Geld-/Personenkonto ist) einer Buchung mit Schlüssel, muss `--steuer` (bestätigen oder ändern) oder `--ohne-steuer` angegeben werden; bleibt das Sachkonto (nur das Geldkonto wechselt), bleibt der Schlüssel. Eine Kombination, die die Regel `steuerschluessel_konto` als Fehler einstuft, wird abgelehnt. `--steuer` mit anderem Schlüssel bei Buchungen mit Beleg (Belegbuchung, Split, Ausgleich, Skonto) abgelehnt; `--ohne-steuer` dort nicht für ausgewiesene Umsatzsteuer (Schlüssel 2, 3) und nur mit `--grund` (steht im Journal) — ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG), die Berichtigung ist ein neuer Beleg. Ein DATEV-Automatikkonto ohne Schlüssel lehnt `korrigiere` ab (DATEV rechnete trotzdem Steuer heraus). Geprüft wird mit der Kontenrahmen-Datei der Konfiguration (`pruefung.kontenrahmen_datei`). `--lernen` lernt den Schlüssel der Neubuchung (bei neuem Sachkonto ausdrücklich angegeben, sonst der des unveränderten Sachkontos). Storno- und stornierte Buchungen werden nicht korrigiert | behebt: `zu_buchungssatz(tx)` setzte den ganzen Umsatzbetrag ein und verlor `beleg_id` (Belegbuchung, Ausgleich, Skonto, Split); ein still mitgenommener Schlüssel ergab Vorsteuer auf Versicherung (4360), Privatentnahme (1800) oder Umsatzsteuer auf eine Auszahlung (1200 an 1361) |
-| Person | `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename (wie `zahlung/freigabe.py`); im Journal aus dem Kontext (`journal_kontext`), bei Freigaben `geprueft_von` | Benutzer bringt Baustein 10; bis dahin Zeichenkette |
+| Person | Ohne Benutzer: `--von`, sonst `ACCOUNTI_BENUTZER`, sonst Anmeldename (wie `zahlung/freigabe.py`). Mit Benutzern (Baustein 10a): `befehle.handelnde_person` prüft Recht und Einmalcode und setzt den Benutzer in `journal_kontext`, `geprueft_von` und das Protokoll; API-Token stehen als „API-Token <Name>“ im Journal | Freitext beweist nichts, der zweite Faktor schon |
+| Rechte (Verzahnung 10a) | `bestaetige`, `periode schliessen|oeffnen`, `abschluss vortrag|oeffnen`, `journal uebernehmen` → `BUCHUNG_FREIGEBEN` (buchhalter, freigeber); `korrigiere`, `buchung storniere`, `kasse storno` → `BUCHEN` (buchhalter); `review` zeigt nur an (kein Recht) | Festschreiben und Öffnen sind Freigaben des Zeitraums — die Matrix kennt kein eigenes Recht dafür, `VERWALTEN` ist kein Buchhaltungsrecht; Öffnen zusätzlich mit Pflichtgrund und Protokoll. Korrektur und Storno legen freigegebene Buchungen an: `BUCHEN` genügt, weil jede Rolle mit `BUCHEN` auch `BUCHUNG_FREIGEBEN` hat (Test `test_buchen_umfasst_die_freigabe`) — zwei Prüfungen verlangten zwei Einmalcodes. `journal uebernehmen` macht Unprotokolliertes zum Bestand und ist deshalb eine Freigabe |
 | Journal-Einhängung | Session-Ereignisse, eingehängt von `session_factory`/`init_db` (`accounti.db.registriere_ereignisse`), nicht durch einen Import: `before_flush` liest den gespeicherten Stand geänderter/gelöschter Zeilen, `after_flush` liest den neuen Stand immer aus der Datenbank und hängt je Vorgang einen Eintrag an (über die Verbindung, in derselben Transaktion — ein Rollback nimmt beides zurück). Tabellen: `buchungssaetze`, `belege`, `beleg_eingaenge` (nur Dubletten = „verworfen“), `zahlungslaeufe` (Anlage), `zahlungslauf_protokoll` (Statuswechsel), `abschlussprotokoll` (Jahres- und Monatsabschlüsse) — die Sperrtabellen `abschluesse`/`periodenabschluesse` selbst gleicht `journal pruefen` ab. Explizit: Export, Verfahrensdoku, Bestandsübernahme, Anfrage an Lieferanten. Fehlt die Tabelle `journal` (alte Datenbank), wird nicht protokolliert und `journal pruefen` meldet es. Sperren werden je Flush einmal gelesen. **Vor dem Lesen** holt jeder Flush und jedes `schreibe` die Schreibsperre der Transaktion (`journal.schreibsperre`: SQLite ein UPDATE ohne Treffer = RESERVED-Sperre, PostgreSQL die Advisory-Sperre der Nummernvergabe) — Prüfung, Nummernvergabe und Schreiben sind atomar gegenüber anderen accounti-Schreibern; die Mapper-Sperre überspringt nur Zeilen, die `before_flush` unter dieser Sperre geprüft hat | zentral statt in jedem Befehl; jeder Weg über eine Sitzung aus `session_factory` ist erfasst (Grenzen: rohes SQL, Sitzungen an `session_factory` vorbei) |
 | Vorgänge | `buchung_angelegt`, `storno_gebucht`, `buchung_korrigiert`, `buchung_freigegeben`, `buchung_exportiert`, `buchung_storniert`, `buchung_geaendert`, `buchung_verworfen`, `beleg_importiert`, `beleg_verworfen`, `beleg_geaendert`, `zahlungslauf_<status>`, `jahr_abgeschlossen`/`jahr_geoeffnet`, `periode_geschlossen`/`periode_geoeffnet`, `export`, `verfahrensdoku_erstellt`, `bestand_uebernommen`, `sperre_uebernommen`, `beleg_angefordert`. Löschen und Neuanlegen derselben ID in einem Flush ist eine Änderung | Spec 4.3 vollständig plus Perioden |
 | Journal-Eintrag | laufende Nummer, Zeitpunkt, Person, Vorgang, Objekt (Typ, ID), Vorher/Nachher als kanonisches JSON (alle Spalten, Beträge mit Spaltenskala; `zahlungslaeufe` ohne die erzeugte Datei `datei` und ohne `version`), Grund, Bezug, Vorgänger-Hash, Hash = SHA-256 über alles außer dem Hash | Muster `kontakte/ustid.py`; vorher/nachher aus der Datenbank, damit der spätere Abgleich exakt vergleicht |
@@ -107,7 +108,7 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 | Anfrage an Lieferanten | `nachfordern anfrage TX` zeigt den Entwurf aus der Vorlage (`pruefung.nachforderung`); `--senden` verschickt **diese eine** Anfrage über den SMTP-Zugang aus `versand`, Kommentar an der Aufgabe, Journal `beleg_angefordert`. Kein Lauf verschickt etwas | Spec 4.2: Nachrichten an Dritte sind Entscheidung des Betriebs |
 | Verfahrensdoku | aus dem Systemzustand: Mandant, Kontenrahmen, Gewinnermittlung, Belegkanäle (Postfächer, Webhook, Connectoren — ohne Geheimnisse), OCR/LLM (Modell, opt-in), Bankkonten mit Provider/Zustand, Kontierungsregeln, Auto-Schwelle, Freigabe/Storno, Vier-Augen, Rollen, Zuständigkeit, Prüfregeln mit Schwellen, Perioden, Aufbewahrung, Journal-Kopf, Protokolle; gegliedert nach GoBD Rz. 151 ff.; Stand-Datum; Hash und Historie über das Journal (Rz. 154); PDF mit fpdf2 (Liberation Sans aus `erechnung/schriften`) | Akzeptanz 7 |
 | Export | `export datev` und `datev belege` setzen nach dem Schreiben die exportierten **freigegebenen** Buchungen auf `exportiert` (blockweise geladen, ein Flush, Sperren je Monat einmal gelesen) und schreiben einen Journal-Eintrag `export` (Datei, SHA-256, Anzahl). Eine Buchung ohne Schlüssel auf einem DATEV-Automatikkonto (aus der Kontenrahmen-Datei) trägt BU 40 „Aufhebung der Automatik“ | Spec 4.3 „exportiert“; vorher setzte niemand den Status |
-| Keine Migration | Tabellen und Spalten entstehen mit `init_db`; Alembic beim Zusammenführen. **Hinweis dafür:** Die SQLite-Trigger für `journal` und `buchungskorrekturen` entstehen nur per `after_create` — die Migration muss sie wie in `3444cfa0b99c` von Hand anlegen, ebenso die Unique-Constraints auf `storniert_durch`/`storno_von` | Dateiregeln |
+| Migration | `ddc9a184ddb4` auf `a684d10751de`: Tabellen `journal`, `buchungskorrekturen`, `periodenabschluesse`; `storniert_durch`/`storno_von` per `batch_alter_table` mit benannten Unique-Indizes (`ix_buchungssaetze_…`, auch im Modell: `unique=True, index=True`); SQLite-Trigger von Hand (`after_create` greift in Migrationen nicht). Schon von `init_db` angelegte Tabellen, Spalten, Indizes und Trigger übernimmt sie | Upgrade-Weg: Migration, dann `journal uebernehmen`; ein Befehl des neuen Codes vor der Migration darf das Upgrade nicht blockieren |
 
 ## Aufgaben
 
@@ -162,6 +163,35 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 - [x] **DATEV-Export auf Automatikkonten** (M-4, `test_pruefung_regeln.py::test_datev_export_hebt_die_automatik_auf`, `test_cli_datev.py::test_export_und_belege_mit_automatikkonten`): passender Schlüssel leer, ohne Steuer BU 40, abweichender gemeldet; Kontenrahmen-Datei im Paket, kaputte Datei = Meldung (N-8, `::test_export_mit_kaputter_kontenrahmen_datei`).
 - [x] Sammelläufe als Grenze (M-3, Laufsperre aus Baustein 10a); Alias in Core-DML (N-1), EB-Rahmen `eq=False`, Kontenrahmen statt Kontenliste, Bestandskonto, kein EB-Storno (N-2, N-3, `test_abschluss_vortrag.py`), neue Spalte ohne Dauerbefund (N-6), Storno mit ungetauschten Konten (N-7), `--ohne-steuer` bei § 13b/ig. Erwerb (N-9), ausführbare Abhilfe (N-10), Verfahrensdoku bei EÜR (N-12), Steuerbetrag ohne Schlüssel auf Automatikkonto (N-13).
 
+### Verzahnung mit Baustein 10a, je mit Regressionstest
+
+- [x] **Rollen in der CLI** (`tests/test_cli_rechte_pruefung.py`): `befehle.handelnde_person`
+  in `bestaetige`, `periode schliessen|oeffnen`, `abschluss vortrag|oeffnen`, `journal
+  uebernehmen` (Buchungen freigeben) und `korrigiere`, `buchung storniere`, `kasse storno`
+  (buchen); Betrachter und — beim Buchen — Freigeber werden abgewiesen, ein Freitext ist kein
+  Benutzer, falscher Einmalcode scheitert; im Journal, in `geprueft_von`, in
+  `buchungskorrekturen` und im Abschlussprotokoll steht der Benutzer, auch an den
+  EB-Buchungen des Vortrags; Rollenmatrix: buchen schließt Freigeben ein
+  (`::test_buchen_umfasst_die_freigabe`). REST: „API-Token <Name>“ im Journal
+  (`test_api_rest.py::test_im_journal_steht_das_token`).
+- [x] **Laufsperre** (`test_betrieb_laufsperre.py::test_sammellaeufe_aus_baustein_7_halten_die_laufsperre`):
+  `opos verbuchen`, `periode schliessen` (Art `bank`), `nachfordern` (Art `aufgaben`);
+  `journal uebernehmen` sperrt vor dem Lesen
+  (`test_pruefung_nebenlaeufigkeit.py::test_journal_uebernehmen_zweimal_gleichzeitig`).
+- [x] **Aufbewahrung** (`test_betrieb_aufbewahrung.py`): Journal, Buchungskorrekturen,
+  Monatsabschlüsse als Bücher; spät festgeschriebener Monat verschiebt den Fristbeginn;
+  wieder geöffneter Monat läuft nicht ab.
+- [x] **Sicherung** (`test_betrieb_sicherung.py::test_journal_und_korrekturen_im_rundlauf`,
+  auch `…_postgresql`): Rundlauf mit Journal, Korrekturen und Monatssperre, Trigger und
+  Sperren wirken danach, `journal pruefen --kopf` in Ordnung; Sicherung einer Datenbank vor der
+  Migration mit dem neuen Code (nur vorhandene Spalten).
+- [x] **Migration** `ddc9a184ddb4` (`tests/test_migration_belegvollstaendigkeit.py`): Bestand
+  auf `a684d10751de` → Upgrade → `journal uebernehmen` → `journal pruefen` in Ordnung;
+  `alembic check` ohne Abweichung, Downgrade und erneutes Upgrade; schon von `init_db`
+  angelegte Tabellen; Sicherung vor der Migration zurückgespielt und migriert. Zusätzlich
+  lokal gegen PostgreSQL 16 (Upgrade mit Bestand, Übernahme, Downgrade, `check`,
+  `init_db` vor der Migration, PG-Tests der Sicherung).
+
 ### Befunde der Nachprüfung (Runde 2), je mit Regressionstest
 
 - [x] **Nebenläufigkeit** (`tests/test_pruefung_nebenlaeufigkeit.py`): Schreibsperre vor dem Lesen in `before_flush` und `fuege_an`; Export gegen Storno, Freigabe gegen Änderung, Festschreibung gegen Verschiebung, Journalnummer (N1, N3); die Abkürzung über den Vorher-Stand ist entfernt (M1). Zusätzlich lokal gegen PostgreSQL 16 und unter Last (4 Prozesse × 250 Vorgänge: Journal in Ordnung).
@@ -211,22 +241,40 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   neuen Stand: Ein einzelner Vorgang, der dem inzwischen geschriebenen Stand widerspricht,
   wird abgelehnt (zweites Storno derselben Buchung: Unique; Freigabe einer inzwischen
   freigegebenen Buchung: Storno-Regel), nicht zusammengeführt. **Sammelläufe sind dagegen
-  nicht gegeneinander geschützt:** Zwei gleichzeitige `classify`, `opos verbuchen`,
-  `opos zuordnen` oder `bank abgleich` lesen dieselben offenen Umsätze bzw. Belege, bevor
-  einer schreibt, und buchen sie doppelt (das gilt schon in main). Das übernimmt die
-  Laufsperre aus Baustein 10a, die beim Zusammenführen dazukommt; bis dahin darf je
-  Datenbank nur ein Sammellauf zur Zeit laufen. Unter PostgreSQL serialisiert die Sperre
+  nicht durch die Schreibsperre geschützt** (zwei gleichzeitige lesen dieselben offenen
+  Umsätze bzw. Belege, bevor einer schreibt) — das übernimmt die Laufsperre aus Baustein 10a
+  (`betrieb.laufsperre`, je Datenbank und Art höchstens ein Lauf, über Prozesse hinweg; ein
+  zweiter endet mit Exit 1 bzw. HTTP 409 statt zu warten): Art `bank` für `bank lauf` und
+  seine Schritte (`bank abrufen`, `fints freigeben`, `kreditkarte abgleich`, `opos
+  zuordnen`, `bank abgleich`, `classify`), `opos verbuchen` (bucht dieselben Belege) und
+  `periode schliessen` (nicht festschreiben, während ein Lauf in den Monat bucht); Art
+  `aufgaben` für `aufgaben lauf` und `nachfordern` (derselbe Prüflauf `beleg_fehlt`).
+  `journal uebernehmen` holt die Schreibsperre, bevor es liest. Nicht gesperrt sind
+  `aufgaben pruefen` (Baustein 8) und Läufe an der CLI vorbei. Unter PostgreSQL serialisiert die Sperre
   alle schreibenden Transaktionen (Durchsatz statt Parallelität). Lange Befehle halten die
   Sperre bis zu ihrem Commit. `journal pruefen` liest Journal und Bestand aus einem Stand:
   unter SQLite warten Schreiber mit ihrem Commit, solange die Prüfung liest. Rohes SQL
   nimmt die Sperre nicht.
-- **Personen sind Zeichenketten** (`--von`, `ACCOUNTI_BENUTZER`, Anmeldename); wer die CLI
-  bedient, kann jeden Namen angeben. Echte Benutzer bringt Baustein 10. Zeitstempel sind
-  lokale Zeit ohne Zeitzone, ohne qualifizierten Zeitstempel.
-- **Bestehende Datenbanken** brauchen die Migration (neue Spalten `storniert_durch`,
-  `storno_von`, neue Tabellen); ohne Tabelle `journal` wird nicht protokolliert, und
-  `journal pruefen` meldet das. Bestand von vor dem Journal einmal mit
-  `accounti journal uebernehmen` eintragen.
+- **Personen:** Ohne eingerichtete Benutzer sind sie Zeichenketten (`--von`,
+  `ACCOUNTI_BENUTZER`, Anmeldename) — wer die CLI bedient, kann jeden Namen angeben. Mit
+  Benutzern (Baustein 10a) brauchen Freigabe, Korrektur, Storno, Festschreiben, Öffnen,
+  Saldovortrag und Bestandsübernahme Rolle und Einmalcode, und im Journal steht der
+  Benutzer. Nicht gebunden sind (wie in 10a) Läufe, Importe und Exporte (`classify`, `opos
+  verbuchen`, `import`, `export datev`, `verfahrensdoku`, `nachfordern anfrage --senden`):
+  dort bleibt die Person der Freitext. Die Prüfung gilt in der CLI auf dem Server; wer die
+  Datenbankdatei schreiben kann, umgeht sie (Grenze aus 10a). Zeitstempel sind lokale Zeit
+  ohne Zeitzone, ohne qualifizierten Zeitstempel.
+- **Bestehende Datenbanken** brauchen die Migration `ddc9a184ddb4` (neue Spalten
+  `storniert_durch`, `storno_von`, neue Tabellen, Trigger); ohne Tabelle `journal` wird nicht
+  protokolliert, und `journal pruefen` meldet das. Bestand von vor dem Journal einmal mit
+  `accounti journal uebernehmen` eintragen (geprüft: Datenbank mit Buchungen, Belegen und
+  abgeschlossenem Jahr auf `a684d10751de`, Migration, Übernahme — `journal pruefen` in
+  Ordnung). Die Sicherung aus 10a liest eine Datenbank vor der Migration mit dem neuen Code
+  (nur vorhandene Spalten) und bringt Journal und Korrekturen samt Triggern zurück.
+- **Aufbewahrung:** Journal, Buchungskorrekturen und Monatsabschlüsse zählen als Bücher (10
+  Jahre); ein spät festgeschriebener Monat verschiebt den Fristbeginn seines
+  Wirtschaftsjahres, ein wieder geöffneter Monat eines offenen Jahres läuft nicht ab. Den
+  Zeitpunkt einzelner Buchungen aus dem Journal wertet der Bericht nicht aus.
 - **Storno als Gegenbuchung**, nicht als DATEV-Generalumkehr (GU-Kennzeichen). Haben beide
   Seiten dieselbe Natur und einen Steuerschlüssel, lehnt accounti das Storno ab. Storno und
   Korrektur ändern keine offenen Posten, Zahlungszuordnungen, Belegabgleiche,
@@ -340,257 +388,4 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
 
 ## Doku-Bausteine
 
-### README.md
-
-**Features-Tabelle** — die vier Zeilen `🔲 Belegvollständigkeit`, `🔲 Ordnungsmäßigkeit`,
-`🔲 Belegnachforderung`, `🔲 Unveränderbares Journal` ersetzen durch:
-
-```markdown
-| ✅ | **Belegvollständigkeit** | Prüfregeln mit Schweregrad und Schwellen aus der Konfiguration: Umsatz ohne Beleg (mit Betrag, Datum, Gegenpartei), Rechnung ohne Zahlung nach Zahlungsziel, Lücken in Nummernkreisen und Kontoauszügen; begründet belegfreie Umsätze per Muster |
-| ✅ | **Ordnungsmäßigkeit** | Pflichtangaben nach § 14 Abs. 4 UStG aus dem Original (Kleinbetragsrechnung § 33 UStDV bis 250 €), Rechenprobe, Steuerschlüssel ./. Sachkonto, Steuersatz zum Land, Adressat, Vorsteuer aus ig. Erwerb ohne USt-IdNr., Dubletten, Zeitgerechtheit, Festschreibung — `accounti pruefen` |
-| ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
-| ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; Verfahrensdokumentation aus dem eingerichteten System |
-```
-
-**Quickstart** — nach dem Abschnitt `### Aufgaben und Rückfragen` (vor `---` / `## Architektur`)
-einfügen:
-
-````markdown
-### Prüfung, Journal und Festschreibung
-
-accounti sagt, was der Buchhaltung fehlt und was daran nicht stimmt — die Prüfregeln lesen
-nur. Was freigegeben ist, ändert sich nur noch per Storno; jede Änderung steht im Journal.
-
-```bash
-accounti pruefen --period 2026-08              # alle Regeln; Exit 1 bei Fehler-Befunden
-accounti pruefen --regel umsatz_ohne_beleg --period 2026-08
-accounti pruefen --archiv archiv/belege        # Pflichtangaben aus dem Original (--ocr für Scans)
-accounti pruefen regeln                        # Regeln, Schweregrade, Schwellen
-accounti nachfordern --period 2026-08          # Aufgaben „Beleg fehlt“; schließen sich selbst
-accounti nachfordern anfrage 3fa2c1 --an beleg@lieferant.example   # Entwurf; senden mit --senden
-
-accounti korrigiere 3fa2c1 --soll 4930 --haben 1200 --steuer 9   # freigegeben: Storno + Neubuchung
-accounti buchung zeige 3fa2c1                  # Original, Storno, Neubuchung, Journal
-accounti buchung storniere 3fa2c1 --grund "doppelt erfasst"
-accounti journal --von 2026-08-01 --bis 2026-08-31
-accounti journal pruefen                       # Verkettung + Bestand; Kopf zum Notieren
-accounti periode schliessen 2026-08            # keine Buchung mehr im August
-accounti periode oeffnen 2026-08 --grund "Rechnung nachgereicht"
-accounti opos verbuchen --buchungsdatum eingang   # Rechnung zu einem festgeschriebenen Monat
-accounti verfahrensdoku --ausgabe verfahrensdoku.md --pdf verfahrensdoku.pdf
-```
-
-Ab der Freigabe (auch automatisch gebuchte Buchungen) ist eine Korrektur eine Stornobuchung
-mit Neubuchung; beide bleiben sichtbar und verweisen aufeinander. Ändert sich das Sachkonto,
-gehört `--steuer` oder `--ohne-steuer` dazu. Einen festgeschriebenen Monat öffnet nur, wer
-einen Grund angibt — protokolliert wie der Jahresabschluss. Nur die EB-Werte des
-Saldovortrags am 01.01. nimmt ein festgeschriebener Januar noch an; eine Eingangsrechnung zu
-einem festgeschriebenen Monat bucht `opos verbuchen --buchungsdatum` in einen offenen Monat
-desselben Geschäftsjahres.
-````
-
-**Kontenrahmen & Steuer** — im YAML-Beispiel die Kopfzeile `# config/skr03.yaml (Auszug)`
-ersetzen durch `# accounti/pruefung/skr03.yaml (Auszug; mitgeliefert, eigene Datei:
-pruefung.kontenrahmen_datei)` und das Konto `"4970"` so (kein Automatikkonto, laut DATEV
-ohne Schlüssel):
-
-```yaml
-  "4970":
-    name: "Nebenkosten des Geldverkehrs"
-    typ: aufwand
-    bwa_zeile: 14
-    steuer:
-      schluessel: null
-      automatik: false
-```
-
-Danach einfügen: „`automatik: true` tragen nur DATEV-Automatikkonten (AV/AM). Im
-DATEV-Export bleibt auf ihnen der passende Steuerschlüssel weg, ohne Steuer steht BU 40.“
-
-**Roadmap** — unter `### v0.4 — Zahlung & Prüfung` die drei offenen Punkte abhaken:
-`- [ ] Prüfregeln …` → `- [x] Prüfregeln …`, `- [ ] Belegnachforderung, …` →
-`- [x] Belegnachforderung, …`, `- [ ] Generierte Verfahrensdokumentation` →
-`- [x] Generierte Verfahrensdokumentation`.
-
-### CHANGELOG.md (unter `## [Unreleased]`)
-
-**Hinzugefügt** — als ersten Eintrag:
-
-```markdown
-- **Belegvollständigkeit & Ordnungsmäßigkeit** (Baustein 7): Prüfregeln als Registry mit
-  Schweregrad (`hinweis`, `warnung`, `fehler`) und Schwellen aus dem neuen, optionalen
-  Abschnitt `pruefung` — Vollständigkeit (Umsatz ohne Beleg mit Betrag, Datum und
-  Gegenpartei; Rechnung ohne Zahlung nach Zahlungsziel; Lücken in Nummernkreisen,
-  Kontoauszügen und im Saldoverlauf), Richtigkeit (Pflichtangaben nach § 14 Abs. 4 UStG aus
-  dem archivierten Original, Kleinbetragsrechnung nach § 33 UStDV bis 250 €; Rechenprobe;
-  Steuerschlüssel ./. Sachkonto über Steuerautomatik und Kontenbereiche; Steuersatz zum
-  Land; Adressat; Vorsteuer aus ig. Erwerb ohne gültige USt-IdNr.; Dubletten),
-  Zeitgerechtheit (unbearbeitete Belege, nach Ablauf des Folgemonats gebucht, Buchung in
-  abgeschlossener Periode) und Ordnung (Buchung ohne Beleg, offene Posten mit unplausiblem
-  Alter, Monat nicht festgeschrieben) — `accounti pruefen [--period] [--regel]`,
-  `pruefen regeln`. Nachforderung: Baustein 7 übernimmt den Prüflauf `beleg_fehlt`
-  (Schwellen, begründet belegfreie Umsätze per Muster), `accounti nachfordern`; Anfrage an
-  den Lieferanten als Entwurf aus einer Vorlage, gesendet nur mit `--senden`.
-  Hash-verkettetes, nur anfügbares Journal über Buchungen (angelegt, korrigiert, freigegeben,
-  exportiert, storniert, verworfen), Belege (importiert, verworfene Dubletten, geändert),
-  Zahlungsläufe, Jahres- und Monatsabschlüsse, Exporte (`accounti journal`, `journal zeige`,
-  `journal pruefen [--kopf]` mit Abgleich von Buchungen, Belegen und Sperren,
-  `journal uebernehmen`). Storno statt Änderung: `storniert_durch`/`storno_von` am
-  Buchungssatz, Tabelle `buchungskorrekturen`, `accounti buchung storniere|zeige`.
-  Periodenabschluss je Monat (`accounti periode schliessen|oeffnen|liste`); EB-Werte des
-  Saldovortrags nimmt ein festgeschriebener Januar weiter an; `opos verbuchen
-  --buchungsdatum eingang|offen|JJJJ-MM-TT` für Eingangsrechnungen zu einem
-  festgeschriebenen Monat (Vorsteuer nach § 15 Abs. 1 Nr. 1 UStG, bei Bilanzierung nicht über
-  den Jahreswechsel). `journal pruefen` prüft auch den Verlauf je Objekt. Generierte
-  Verfahrensdokumentation nach GoBD Rz. 151 ff. als Markdown und PDF, Fassung im Journal
-  (`accounti verfahrensdoku`)
-```
-
-**Geändert:**
-
-```markdown
-- **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
-  `korrigiert`, `exportiert` lehnt die Datenbankschicht jede Änderung außer
-  `auto → geprueft`, `→ exportiert` und dem einmaligen Stornovermerk ab, Löschen immer;
-  `accounti korrigiere` erzeugt dann Storno und Neubuchung (mit `--datum`, wenn der Zeitraum
-  abgeschlossen ist). Ändert sich das Sachkonto einer Buchung mit Steuerschlüssel, verlangt
-  `korrigiere` `--steuer` oder `--ohne-steuer` (früher fiel der Schlüssel still weg);
-  `bestaetige` und `korrigiere` nehmen ohne `--von` `ACCOUNTI_BENUTZER` bzw. den
-  Anmeldenamen. `export datev` und `datev belege` vermerken exportierte Buchungen als
-  `exportiert` und schreiben den Export ins Journal; eine Buchung ohne Schlüssel auf einem
-  DATEV-Automatikkonto trägt dort BU 40 (Aufhebung der Automatik), ein Storno-Paar in
-  Belegfeld 2 den Bezug zum Original. Massenänderungen über die Sitzung (ORM, Core,
-  `bulk_*`) auf Buchungen und Journal sind gesperrt. Die Jahressperre nimmt den
-  Stornovermerk an; Sammelläufe (`classify`, `opos zuordnen`, `bank abgleich`) überspringen
-  festgeschriebene Monate. Ein reines Storno macht den Bankumsatz wieder offen
-```
-
-**Behoben:**
-
-```markdown
-- **`korrigiere` zerstörte Buchungen mit Beleg** (Baustein 7): Die Korrektur einer
-  Transaktionsbuchung baute sie aus dem Umsatz neu auf — mit dem ganzen Umsatzbetrag statt
-  dem der Buchung und ohne `beleg_id`; Belegbuchungen, Ausgleichs- und Skontobuchungen und
-  Splitbuchungen behalten jetzt Beleg, Belegposition, Belegnummer und Betrag
-- **Kreditkartenabgleich umging die Jahressperre**: Vorläufige Buchungen wurden per
-  Massen-`DELETE` entfernt; jetzt einzeln über die Sitzung (Sperre und Journal greifen)
-```
-
-### docs/bauplan.md
-
-**Bausteinkarte** — Zeile 7 ersetzen:
-
-```markdown
-| 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | ✅ fertig | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
-```
-
-**Absatz** — nach dem Absatz zu Baustein 6 einfügen:
-
-```markdown
-**Baustein 7 ist fertig** ([Plan](plans/2026-10-26-belegvollstaendigkeit-gobd.md)): 17
-benannte Prüfregeln mit Schweregrad und Schwellen aus dem Abschnitt `pruefung`
-(Vollständigkeit, Richtigkeit mit § 14 UStG/§ 33 UStDV aus dem Original, Zeitgerechtheit,
-Ordnung), Nachforderung als Aufgabe über den Prüflauf `beleg_fehlt` (verstummt, sobald der
-Beleg abgeglichen ist), hash-verkettetes Journal über alle buchungsrelevanten Vorgänge mit
-Bestandsabgleich, Storno statt Änderung ab der Freigabe, Monatsabschluss neben der
-Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Offen:
-Prüfbefunde und Perioden in der UStVA-Plausibilisierung (Baustein 9), echte Benutzer im
-Journal (Baustein 10), Generalumkehr im DATEV-Export, Historisierung von Stammdaten.
-```
-
-Im Absatz zu Baustein 9 den Satz „Periodenabschluss und Prüfbefunde prüft die
-Plausibilisierung, sobald Baustein 7 steht.“ ersetzen durch „Periodenabschluss und
-Prüfbefunde aus Baustein 7 kann die Plausibilisierung jetzt einbeziehen (noch nicht
-angeschlossen).“
-
-### docs/architektur.md
-
-**Modulabschnitt** `### \`pruefung/\` *(geplant — …)*` vollständig ersetzen durch:
-
-```markdown
-### `pruefung/` *(vorhanden — [Baustein 7](specs/2026-08-10-belegvollstaendigkeit-gobd.md))*
-
-Die Mechanik hinter den Prinzipien 6 und 7.
-
-- `regeln/` — Registry `PRUEFREGELN` (`registriere_pruefregel`): Regel = `name`, `kategorie`,
-  `schwere`, `beschreibung`, Pydantic-`Parameter` (Schwellen) und `pruefe(kontext, p)`;
-  liest nur. `vollstaendigkeit.py` (Umsatz ohne Beleg über `offen_in_der_bank`, Rechnung ohne
-  Zahlung, Nummernkreise, Kontoauszüge über `export/kontoauszuege.pruefe_auszuege` und
-  Kontoauszugssalden), `richtigkeit.py` (Pflichtangaben, Rechenprobe, Steuerschlüssel ./.
-  Sachkonto über `pruefung/skr03.yaml` und `steuer/kennziffern`, Steuersatz zum Land,
-  Adressat, ig. Erwerb gegen das USt-IdNr.-Protokoll, Dubletten), `zeitgerechtheit.py`,
-  `ordnung.py`. *(vorhanden)*
-- `belegangaben.py` — liest Pflichtangaben aus dem archivierten Original (E-Rechnung,
-  Textebene, OCR auf Wunsch). *(vorhanden)*
-- `einstellungen.py` — Abschnitt `pruefung` (`lade_pruefung`). *(vorhanden)*
-- `nachforderung.py` + `aufgaben_anbindung.py` — ersetzt den Prüflauf `beleg_fehlt` aus
-  Baustein 8 durch den mit Schwellen und `belegfrei`-Mustern; Anfrage an den Lieferanten als
-  Entwurf, Versand nur auf Befehl. *(vorhanden)*
-- `journal.py` + `ereignisse.py` — Journal (`journal`, nur anfügen, SHA-256-Kette,
-  SQLite-Trigger); Sitzungsereignisse `before_flush`/`after_flush` schreiben je Vorgang einen
-  Eintrag (Buchungen, Belege, verworfene Dubletten, Zahlungslauf- und Abschlussprotokoll),
-  `do_orm_execute` sperrt Massenänderungen; `pruefe_journal` prüft Kette, Anker und den
-  Bestand (Buchungen, Belege, Sperren). Person und Grund aus `person.journal_kontext`.
-  *(vorhanden)*
-- `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
-  Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
-  sitzt in `ereignisse.py`. *(vorhanden)*
-- `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
-  Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
-  gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
-- `verfahrensdoku.py` — Verfahrensdokumentation aus Konfiguration, Datenbank und
-  Code-Standards (GoBD Rz. 151 ff.), Markdown/PDF, Fassung im Journal. *(vorhanden)*
-
-Befehle: `accounti pruefen`, `nachfordern`, `journal`, `buchung`, `periode`,
-`verfahrensdoku`; `korrigiere`, `bestaetige`, `review` aus `cli.py` nutzen `storno.py`.
-```
-
-**Erweiterungspunkte** — Überschrift `### Neue Prüfregel hinzufügen *(geplant)*` ersetzen durch
-`### Neue Prüfregel hinzufügen` und den Absatz darunter ergänzen um:
-
-```markdown
-Eine Klasse mit `name`, `kategorie`, `schwere`, `beschreibung`, einem Pydantic-Modell
-`Parameter` (Schwellen mit Standardwerten) und `pruefe(kontext, parameter) -> list[Befund]`,
-eingetragen mit `registriere_pruefregel`. Der `Kontext` bringt Sitzung, Zeitraum, Stichtag,
-Einstellungen und einmal geladene Bestände mit; Schwellen setzt der Betrieb unter
-`pruefung.regeln.<name>`, den Schweregrad unter `pruefung.schwere.<name>`.
-```
-
-**Datenmodell** — Zeile `| Journaleintrag | … |` ersetzen durch:
-
-```markdown
-| `Journaleintrag` | Laufende Nummer, Zeitpunkt, Person, Vorgang, Objekt, Vorher/Nachher (JSON), Grund, Bezug, Hash des Vorgängers, Hash | → Buchung, Beleg, Zahlungslauf, Periode, Geschäftsjahr, Export (nur anfügen) |
-| `Buchungskorrektur` | Original, Storno, Neubuchung, Datum, Grund, Person | → `Buchungssatz` (nur anfügen) |
-| `Periodenabschluss` | Monat, gesperrt, geschlossen/geöffnet (Zeit, Person), Grund | → Buchungen des Monats |
-| `Befund` | Regel, Kategorie, Schwere, Objekt, Datum, Betrag, Gegenpartei, Begründung, Abhilfe | nicht gespeichert |
-```
-
-### config/accounti.example.yaml
-
-Nach dem Abschnitt `aufgaben:` (vor `# Versand von Ausgangsrechnungen …`) einfügen:
-
-```yaml
-# Belegvollständigkeit & Ordnungsmäßigkeit (optional — ohne diesen Abschnitt gelten die Standards)
-pruefung:
-  archiv: archiv/belege          # Originale für die Pflichtangaben (accounti pruefen --archiv)
-  kleinbetrag_grenze: 250.00     # § 33 UStDV: darunter gelten die Pflichtangaben der Kleinbetragsrechnung
-  eigene_namen: []               # weitere Namen der Gesellschaft für die Adressat-Prüfung
-  # kontenrahmen_datei: config/eigene_konten.yaml   # sonst die mitgelieferte SKR03-Datei
-  abgeschaltet: []               # z.B. [kontoauszug_luecke]
-  schwere: {}                    # Schweregrad je Regel, z.B. {dublette: fehler}
-  regeln:                        # Schwellen je Regel (accounti pruefen regeln zeigt alle)
-    umsatz_ohne_beleg: {ab_betrag: 0.00, nach_tagen: 0}
-    beleg_ohne_zahlung: {karenz_tage: 0, quittung_tage: 30}
-    beleg_unbearbeitet: {frist_tage: 10}   # GoBD Rz. 47
-    dublette: {fenster_tage: 7}
-    op_alter: {max_tage: 365}
-  belegfrei:                     # Umsätze ohne eigenen Beleg — mit Begründung
-    # - name: kontofuehrung
-    #   muster: "kontoführung|kontoentgelt|rechnungsabschluss"
-    #   feld: verwendungszweck   # verwendungszweck, gegenpartei oder beide
-    #   begruendung: "Bankentgelt — der Kontoauszug ist der Beleg"
-  nachforderung:                 # Vorlage der Anfrage beim Lieferanten (gesendet nur mit --senden)
-    # betreff: "Beleg zu unserer Zahlung vom {datum} über {betrag} €"
-    # text: "…{datum} {betrag} {verwendungszweck} {gegenpartei} {firma} {antwort}…"
-    # antwort_an: "belege@meine-firma.example"
-```
+In README, CHANGELOG, Bauplan und Architektur eingearbeitet.

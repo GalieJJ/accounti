@@ -218,7 +218,8 @@ anlagen:
 
 # Jahresabschluss (optional)
 abschluss:
-  gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP)
+  gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP); ohne Angabe
+                                 # bucht opos verbuchen --buchungsdatum nie ins Folgejahr
   ergebnis_konto: "0880"         # Kapitalkonto für Ergebnis und Privatkonten (SKR04: 2010)
   rap_verzicht_bis_gwg: false    # § 5 Abs. 5 Satz 2 EStG, einheitlich für alle
   verrechnungskonten: ["1360", "1590", "1792"]   # sollen zum Stichtag ausgeglichen sein
@@ -312,6 +313,30 @@ aufgaben:
     # webhook:
     #   url: "${ACCOUNTI_AUFGABEN_WEBHOOK}"   # http(s); Slack/Mattermost-kompatibel (Feld "text")
     #   timeout_sekunden: 10
+
+# Belegvollständigkeit & Ordnungsmäßigkeit (optional — ohne diesen Abschnitt gelten die Standards)
+pruefung:
+  archiv: archiv/belege          # Originale für die Pflichtangaben (accounti pruefen --archiv)
+  kleinbetrag_grenze: 250.00     # § 33 UStDV: bis dahin gelten die Pflichtangaben der Kleinbetragsrechnung
+  eigene_namen: []               # weitere Namen der Gesellschaft für die Adressat-Prüfung
+  # kontenrahmen_datei: config/eigene_konten.yaml   # sonst die mitgelieferte accounti/pruefung/skr03.yaml
+  abgeschaltet: []               # z.B. [kontoauszug_luecke]
+  schwere: {}                    # Schweregrad je Regel, z.B. {dublette: fehler}
+  regeln:                        # Schwellen je Regel (accounti pruefen regeln zeigt alle)
+    umsatz_ohne_beleg: {ab_betrag: 0.00, nach_tagen: 0}
+    beleg_ohne_zahlung: {karenz_tage: 0, quittung_tage: 30}
+    beleg_unbearbeitet: {frist_tage: 10}   # GoBD Rz. 47
+    dublette: {fenster_tage: 7}
+    op_alter: {max_tage: 365}
+  belegfrei: []                  # Umsätze ohne eigenen Beleg — mit Begründung, z.B.:
+    # - name: kontofuehrung
+    #   muster: "kontoführung|kontoentgelt|rechnungsabschluss"
+    #   feld: verwendungszweck   # verwendungszweck, gegenpartei oder beide
+    #   begruendung: "Bankentgelt — der Kontoauszug ist der Beleg"
+  nachforderung: {}              # Vorlage der Anfrage beim Lieferanten (gesendet nur mit --senden):
+    # betreff: "Beleg zu unserer Zahlung vom {datum} über {betrag} €"
+    # text: "…{datum} {betrag} {verwendungszweck} {gegenpartei} {firma} {antwort}…"
+    # antwort_an: "belege@meine-firma.example"
 
 # Versand von Ausgangsrechnungen per E-Mail (accounti rechnung senden)
 versand:
