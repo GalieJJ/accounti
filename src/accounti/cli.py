@@ -1624,9 +1624,11 @@ def opos_zuordnen(
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+    from accounti.befehle import laufsperre_oder_ende
+
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         lauf = zuordne_zahlungen(s, einstellungen, zeitraum=period)
         s.commit()
 
@@ -1808,11 +1810,12 @@ def bank_abgleich(
     from rich.markup import escape
 
     from accounti.bank.abgleichslauf import gleiche_belege_ab
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         ergebnis = gleiche_belege_ab(s, zeitraum=period)
         s.commit()
     for k in ergebnis.automatisch:
@@ -2115,12 +2118,13 @@ def bank_abrufen(
     from rich.markup import escape
 
     from accounti.bank.lauf import rufe_ab
+    from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonto
 
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:
         konten = None
         if konto is not None:
             try:
@@ -2231,9 +2235,12 @@ def classify(
         llm=LLMEngine() if llm else None,
     )
 
+    from accounti.befehle import laufsperre_oder_ende
+
     db_engine, make_session = session_factory(db)
     init_db(db_engine)
-    with make_session() as s:
+    # derselbe Schritt wie in bank lauf — nie zwei gleichzeitig (Doppelbuchung)
+    with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
         lauf = kontiere_umsaetze(s, engine, einstellungen)

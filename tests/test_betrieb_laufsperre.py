@@ -120,3 +120,93 @@ def test_cli_bank_lauf_wartet_nicht_auf_einen_laufenden(tmp_path, monkeypatch):
         halter.frei()
     r = CliRunner().invoke(app, ["bank", "lauf", "--db", db, "--no-llm"])
     assert r.exit_code == 0, r.output
+
+
+# ---------------------------------------------------------------------------
+# Nachprüfung R2-M2: auch die Einzelschritte der Bankkette halten die Sperre
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def cli_umgebung(tmp_path, monkeypatch):
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_SYSTEM_DB"):
+        monkeypatch.delenv(name, raising=False)
+    return f"sqlite:///{tmp_path / 'a.db'}"
+
+
+@pytest.mark.parametrize(
+    "befehl",
+    [
+        ["classify", "--no-llm"],
+        ["opos", "zuordnen"],
+        ["bank", "abgleich"],
+        ["bank", "abrufen"],
+        ["kreditkarte", "abgleich"],
+    ],
+)
+def test_einzelschritte_der_bankkette_halten_die_laufsperre(cli_umgebung, befehl):
+    db = cli_umgebung
+    with laufsperre(db, "bank"):
+        r = CliRunner().invoke(app, [*befehl, "--db", db])
+    assert r.exit_code == 1, r.output
+    assert "läuft schon" in r.output
+    r = CliRunner().invoke(app, [*befehl, "--db", db])
+    assert r.exit_code == 0, r.output
+
+
+def test_classify_parallel_zu_bank_lauf_kontiert_nicht_doppelt(
+    cli_umgebung, monkeypatch
+):
+    """``bank lauf`` (Dienst ``lauf``) kontiert, zugleich startet jemand
+    ``accounti classify`` — ein Umsatz, eine Buchung."""
+    import threading
+
+    from sqlalchemy import text
+
+    from accounti.buchung import kontierung
+    from accounti.buchung.kontierung import kontiere_umsaetze
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_transaktion
+    from accounti.klassifikation import regeln_loader
+    from accounti.klassifikation.engine import KlassifikationsEngine, RegelwerkEngine
+    from accounti.konfiguration import Buchhaltung
+    from tests.test_bank_abgleich import umsatz
+    from tests.test_buchung_mit_beleg import TANKEN
+
+    db = cli_umgebung
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    with fabrik() as s:
+        speichere_transaktion(s, umsatz(betrag="-70.20"))
+        s.commit()
+    gelesen = threading.Event()
+    weiter = threading.Event()
+    original = kontierung.offene_transaktionen
+
+    def offene(session, **kw):
+        ergebnis = list(original(session, **kw))
+        if threading.current_thread() is not threading.main_thread():
+            gelesen.set()
+            weiter.wait(timeout=20)  # der Lauf hat gelesen, bucht aber noch nicht
+        return ergebnis
+
+    monkeypatch.setattr(kontierung, "offene_transaktionen", offene)
+    monkeypatch.setattr(regeln_loader, "lade_regeln", lambda _: [TANKEN])
+
+    def bank() -> None:
+        e = KlassifikationsEngine(regelwerk=RegelwerkEngine([TANKEN]))
+        with laufsperre(db, "bank"), fabrik() as s:
+            kontiere_umsaetze(s, e, Buchhaltung())
+            s.commit()
+
+    t = threading.Thread(target=bank)
+    t.start()
+    assert gelesen.wait(timeout=20)
+    r = CliRunner().invoke(app, ["classify", "--db", db, "--no-llm"])
+    weiter.set()
+    t.join(timeout=30)
+    assert r.exit_code == 1 and "läuft schon" in r.output
+    with fabrik() as s:
+        assert s.execute(text("SELECT count(*) FROM buchungssaetze")).scalar() == 1
+    engine.dispose()
