@@ -45,6 +45,16 @@ def zeitraum(text: str) -> tuple[date, date]:
     return date(jahr, monat, 1), date(jahr, monat, monthrange(jahr, monat)[1])
 
 
+def automatikkonten_aus(config: str) -> dict[str, int]:
+    """DATEV-Automatikkonten aus der Kontenrahmen-Datei der Konfiguration
+    (``pruefung.kontenrahmen_datei``, SKR03: ``config/skr03.yaml``)."""
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    return automatikkonten(lade_buchhaltung(config), lade_pruefung(config))
+
+
 def _fehler(fehler: Exception) -> typer.Exit:
     console.print(f"[red]{escape(str(fehler))}[/red]")
     return typer.Exit(1)
@@ -138,11 +148,19 @@ def datev_belege(
     von, bis = zeitraum(period)
     try:
         datev = lade_datev_mandant(config, von, berater, mandant)
+        automatik = automatikkonten_aus(config)
         engine, make_session = session_factory(db)
         init_db(engine)
         with make_session() as s:
             ergebnis = exportiere_belegpaket(
-                s, BelegArchiv(archiv), datev, von, bis, Path(ausgabe), alle=alle
+                s,
+                BelegArchiv(archiv),
+                datev,
+                von,
+                bis,
+                Path(ausgabe),
+                alle=alle,
+                automatikkonten=automatik,
             )
             # Baustein 7: exportierte Buchungen vermerken, Export ins Journal
             exportiert = [

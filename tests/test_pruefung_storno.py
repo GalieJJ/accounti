@@ -614,3 +614,48 @@ def test_storno_mit_datum_in_anderem_voranmeldungszeitraum_warnt(make_session):
     (warnung,) = k.warnungen
     assert "08/2026" in warnung and "berichtigte Voranmeldung" in warnung
     assert k2.warnungen == []
+
+
+@pytest.mark.parametrize("haben", ["8125", "8400"])
+def test_ausgewiesene_umsatzsteuer_nicht_per_ohne_steuer_entfernen(make_session, haben):
+    """Befund N-M2: Eine Ausgangsrechnung mit ausgewiesener USt — die Steuer wird
+    geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG)."""
+    b = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll="10002",
+        haben="8400",
+        netto="5000.00",
+        steuer="950.00",
+        schluessel=3,
+        beleg_id=uuid4(),
+    )
+    anlegen(make_session, b)
+    with make_session() as s, pytest.raises(StornoError, match="§ 14c"):
+        korrigiere(
+            s,
+            str(b.id),
+            "10002",
+            haben,
+            ohne_steuer=True,
+            grund="doch ig. Lieferung",
+            von="erika",
+        )
+
+
+def test_korrektur_auf_automatikkonto_ohne_schluessel_abgelehnt(
+    make_session, tmp_path, monkeypatch
+):
+    """Befund N-M3: 3400 ohne Schlüssel — DATEV rechnete trotzdem 19 % heraus."""
+    from pathlib import Path
+
+    (tmp_path / "config").mkdir(exist_ok=True)
+    quelle = Path(__file__).resolve().parents[1] / "config" / "skr03.yaml"
+    (tmp_path / "config" / "skr03.yaml").write_bytes(quelle.read_bytes())
+    monkeypatch.chdir(tmp_path)
+    tx = umsatz()
+    b = buchung(
+        tx, status=BuchungStatus.AUTO_GEBUCHT, soll="4360", schluessel=None, steuer=None
+    )
+    anlegen(make_session, tx, b)
+    with make_session() as s, pytest.raises(StornoError, match="Automatikkonto"):
+        korrigiere(s, str(b.id), "3400", "1200", von="erika")

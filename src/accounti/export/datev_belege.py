@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import re
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -38,6 +39,7 @@ from accounti.export.datev_format import (
     Wert,
     belegfeld1,
     belegfeld2_storno,
+    bu_schluessel,
     feldnummer,
     kontoart,
     schreibe_extf,
@@ -167,7 +169,9 @@ _F = {
 }
 
 
-def buchungsstapel_satz(b: Buchungssatz, link: str | None) -> dict[int, Wert]:
+def buchungsstapel_satz(
+    b: Buchungssatz, link: str | None, automatikkonten: Mapping[str, int] | None = None
+) -> dict[int, Wert]:
     """Ein Buchungssatz im Buchungsstapel; Umsatz brutto wie im vorhandenen Export."""
     umsatz = abs(b.betrag_netto) + (abs(b.steuer_betrag) if b.steuer_betrag else 0)
     return {
@@ -175,7 +179,7 @@ def buchungsstapel_satz(b: Buchungssatz, link: str | None) -> dict[int, Wert]:
         _F["sh"]: "S",
         _F["konto"]: b.soll_konto,
         _F["gegenkonto"]: b.haben_konto,
-        _F["bu"]: str(b.steuer_schluessel) if b.steuer_schluessel is not None else None,
+        _F["bu"]: bu_schluessel(b, automatikkonten or {}) or None,
         _F["belegdatum"]: b.datum,
         _F["belegfeld1"]: belegfeld1(b.beleg_nummer),
         _F["belegfeld2"]: belegfeld2_storno(b.storno_von, b.storniert_durch, b.id)
@@ -195,6 +199,7 @@ def exportiere_belegpaket(
     zip_pfad: str | Path,
     erzeugt_am: datetime | None = None,
     alle: bool = False,
+    automatikkonten: Mapping[str, int] | None = None,
 ) -> Belegexport:
     """Belegpaket und Buchungsstapel mit Beleglink für ``von``–``bis``."""
     if von.year != bis.year or von > bis:
@@ -258,7 +263,7 @@ def exportiere_belegpaket(
                     f"Buchung {b.beleg_nummer or str(b.id)[:8]}: Konto {konto} passt "
                     f"nicht zur Sachkontenlänge {mandant.sachkontenlaenge}"
                 )
-        saetze.append(buchungsstapel_satz(b, link))
+        saetze.append(buchungsstapel_satz(b, link, automatikkonten))
     if angepasst:
         beispiele = ", ".join(angepasst[:3]) + (" …" if len(angepasst) > 3 else "")
         ergebnis.befunde.append(

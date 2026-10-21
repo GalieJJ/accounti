@@ -1041,6 +1041,130 @@ def test_ig_lieferung_braucht_ustid_und_hinweis(make_session, tmp_path):
     )
     anlegen(make_session, erwerb)
     (befund,) = pruefe(make_session, "pflichtangaben", archiv=archiv)
-    assert "§ 33 UStDV" not in befund.text and "§ 14a Abs. 3" in befund.text
+    assert "§ 33 UStDV" not in befund.text
+    # Lieferer im Ausland: dessen Recht (Art. 226 MwStSystRL), nicht § 14a UStG
+    assert "Art. 226 Nr. 4 MwStSystRL" in befund.text
+    assert "§ 14a Abs. 3" not in befund.text
     assert "USt-IdNr. des Leistungsempfängers" in befund.text
     assert "steuerfreie innergemeinschaftliche Lieferung" in befund.text
+
+
+# --- Automatikkonto ohne Schlüssel (Befund N-M3) ------------------------------------
+
+
+def test_automatikkonto_ohne_schluessel_ist_eine_warnung(make_session, skr03):
+    """DATEV rechnet auf einem AV/AM-Konto ohne Schlüssel selbst Steuer heraus."""
+    anlegen(
+        make_session, buchung(soll="3400", haben="1200", schluessel=None, steuer=None)
+    )
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert befund.schwere is Schwere.WARNUNG
+    assert "Automatikkonto" in befund.text and "40" in befund.text
+    assert "--ohne-steuer" not in befund.abhilfe
+
+
+def test_abhilfe_bietet_auf_automatikkonto_kein_ohne_steuer_an(make_session, skr03):
+    """3400 (19 % automatisch) mit 7 % aus dem Beleg: das Konto ist falsch (3300),
+    nicht die Steuer zu entfernen."""
+    rb = beleg(
+        steuer="7.00", brutto="107.00", positionen=[("Ware", "100.00", "7", "7.00")]
+    )
+    falsch = buchung(
+        status=BuchungStatus.AUTO_GEBUCHT,
+        soll="3400",
+        haben="70001",
+        steuer="7.00",
+        schluessel=8,
+        beleg_id=rb.id,
+    )
+    anlegen(make_session, rb, falsch)
+    (befund,) = pruefe(make_session, "steuerschluessel_konto")
+    assert "--ohne-steuer" not in befund.abhilfe
+    assert "--steuer 8" in befund.abhilfe and "Automatik" in befund.abhilfe
+
+
+def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
+    """Eine Buchung ohne Schlüssel auf einem Automatikkonto trägt BU 40
+    („Aufhebung der Automatik“), sonst rechnete DATEV Steuer heraus."""
+    from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    automatik = automatikkonten(Buchhaltung())
+    assert automatik["3400"] == 9 and automatik["8400"] == 3 and "8125" not in automatik
+    buchungen = [
+        buchung(soll="3400", haben="1200", schluessel=None, steuer=None),
+        buchung(soll="3400", haben="1200", schluessel=9),
+        buchung(soll="4900", haben="1200", schluessel=None, steuer=None),
+        buchung(soll="1400", haben="8125", schluessel=None, steuer=None),
+    ]
+    cfg = DATEVConfig(
+        berater_nummer="1", mandanten_nummer="1", automatikkonten=automatik
+    )
+    datei = DATEVExporter(cfg).exportiere(buchungen, tmp_path / "out")
+    zeilen = datei.read_text(encoding="cp1252").splitlines()
+    bu = zeilen[1].split(";").index("BU-Schlüssel")
+    assert [z.split(";")[bu] for z in zeilen[2:]] == ["40", "9", "", ""]
+
+
+def test_steuersatz_ohne_exponentenschreibweise(make_session):
+    """Befund N-N2: 20 % und 10 % stehen nicht als „2E+1 %“ im Befund."""
+    de20 = beleg(positionen=[("x", "100.00", "20", "20.00")], datei_hash="1" * 64)
+    anlegen(make_session, de20)
+    (befund,) = pruefe(make_session, "steuersatz_land")
+    assert "Steuersatz 20 %" in befund.text and "E+" not in befund.text
+
+
+def test_eigene_ustid_verdeckt_nicht_den_auslaendischen_lieferanten(make_session):
+    """Befund N-N3: Hat die Erkennung die eigene USt-IdNr. als die des Lieferanten
+    übernommen, zählt das Land des Kontakts."""
+    fr = kontakt(name="Papeterie SARL", land="FR", kreditor_konto="70002")
+    rechnung = beleg(kontakt_id=fr.id, ust_id="DE999999999", datei_hash="3" * 64)
+    vst = buchung(
+        soll="4930",
+        haben="70002",
+        status=BuchungStatus.AUTO_GEBUCHT,
+        beleg_id=rechnung.id,
+    )
+    anlegen(make_session, fr, rechnung, vst)
+    befunde = pruefe(make_session, "steuersatz_land")
+    assert any(
+        b.objekt_id == str(vst.id) and b.schwere is Schwere.FEHLER for b in befunde
+    ), [b.text for b in befunde]
+
+
+def test_reverse_charge_im_inland_zitiert_14a(make_session, tmp_path):
+    """Befund N-N4: Inländischer Leistender (§ 13b Abs. 2, z.B. Bauleistung) —
+    dann gilt § 14a Abs. 5 UStG."""
+    bau = kontakt(name="Bau GmbH", land="DE", kreditor_konto="70005")
+    text = (
+        "Bau GmbH · Hauptstraße 1 · 20095 Hamburg\nSteuernummer: 12/345/67890\n"
+        "Rechnung B-1 vom 10.08.2026 · Leistungsdatum: 05.08.2026\n"
+        "Dachreparatur 300,00 EUR\n"
+    )
+    archiv, rb = _archiviert(
+        make_session,
+        tmp_path,
+        text.encode(),
+        nummer="B-1",
+        lieferant="Bau GmbH",
+        netto="300.00",
+        steuer="0.00",
+        brutto="300.00",
+        positionen=[("Dach", "300.00", "0", "0.00")],
+        kontakt_id=bau.id,
+    )
+    anlegen(
+        make_session,
+        bau,
+        buchung(
+            soll="4260",
+            haben="70005",
+            netto="300.00",
+            steuer=None,
+            schluessel=94,
+            status=BuchungStatus.AUTO_GEBUCHT,
+            beleg_id=rb.id,
+        ),
+    )
+    (befund,) = pruefe(make_session, "pflichtangaben", archiv=archiv)
+    assert "§ 14a Abs. 5 UStG" in befund.text and "Art. 226" not in befund.text

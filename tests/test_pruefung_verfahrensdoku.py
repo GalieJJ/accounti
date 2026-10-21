@@ -90,6 +90,9 @@ def test_akzeptanz_7_beschreibt_den_eingerichteten_stand(tmp_path):
         "Vier-Augen-Prinzip ja",
         "| buchhaltung | jan, erika |",
         "2026-08 | festgeschrieben",
+        # Befund N-M4: die Ausnahme der Festschreibung steht im Verfahren
+        "Eröffnungsbuchungen (EB-Werte) des Saldovortrags",
+        "nur neu angelegt, nur am 01.01.",
         "ab Confidence 0.95",
         # alle Wege, auf denen accounti ohne Freigabe bucht (Status auto)
         "accounti opos verbuchen",

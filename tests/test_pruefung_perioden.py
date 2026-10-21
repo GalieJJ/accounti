@@ -194,6 +194,8 @@ def test_spaete_eingangsrechnung_mit_buchungsdatum(make_session):
                 s.begin_nested(),
             ):
                 verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum=art)
+        with pytest.raises(PeriodeGesperrtError, match="JJJJ-MM-TT"):  # wie die CLI
+            verbuche_beleg(s, rechnung, Buchhaltung())
         v = verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum="offen")
         s.commit()
     assert {b.datum for b in v.buchungen} == {date(2026, 9, 1)}
@@ -217,3 +219,67 @@ def test_buchungsdatum_eingang_und_fester_tag(make_session):
             verbuche_beleg(s, zweite, Buchhaltung(), buchungsdatum=date(2026, 7, 1))
         v = verbuche_beleg(s, zweite, Buchhaltung(), buchungsdatum=date(2026, 8, 20))
         assert {b.datum for b in v.buchungen} == {date(2026, 8, 20)}
+
+
+def _dezember_rechnung(make_session):
+    from datetime import datetime
+
+    from tests.pruefung_hilfe import beleg
+
+    dez = beleg(tag=date(2026, 12, 15), nummer="RE-DEZ", datei_hash="d" * 64)
+    dez = dez.model_copy(update={"eingegangen_am": datetime(2027, 1, 10, 9, 0)})
+    anlegen(make_session, dez)
+    _geschlossen(make_session, "2026-12")
+    return dez
+
+
+@pytest.mark.parametrize("art", ["eingang", "offen"])
+def test_buchungsdatum_nicht_ueber_den_jahreswechsel_bei_bilanz(make_session, art):
+    """Befund N-M1: Aufwand und Verbindlichkeit gehören ins Geschäftsjahr des Belegs
+    (§ 252 Abs. 1 Nr. 5 HGB, GoBD Rz. 51) — Dezember öffnen, Vorsteuer 1548."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+
+    dez = _dezember_rechnung(make_session)
+    with make_session() as s, pytest.raises(VerbuchungError, match="1548") as fehler:
+        verbuche_beleg(
+            s, dez, Buchhaltung(), buchungsdatum=art, gewinnermittlung="bilanz"
+        )
+    assert "accounti periode oeffnen 2026-12" in str(fehler.value)
+
+
+def test_buchungsdatum_ueber_den_jahreswechsel_bei_euer_mit_hinweis(make_session):
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+
+    dez = _dezember_rechnung(make_session)
+    with make_session() as s:
+        v = verbuche_beleg(
+            s, dez, Buchhaltung(), buchungsdatum="eingang", gewinnermittlung="euer"
+        )
+    assert {b.datum for b in v.buchungen} == {date(2027, 1, 10)}
+    assert any("Geschäftsjahr 2027" in h for h in v.hinweise)
+
+
+def test_buchungsdatum_nur_fuer_belege_aus_gesperrten_monaten(make_session):
+    """Befund N-N8/N-N7: Der Lauf verschiebt nur Belege, deren Monat gesperrt ist —
+    und „offen“ beginnt beim späteren von Belegdatum und Eingang."""
+    from datetime import datetime
+
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_belege
+    from tests.pruefung_hilfe import beleg
+
+    juli = beleg(tag=date(2026, 7, 28), nummer="RE-JULI", datei_hash="1" * 64)
+    sept = beleg(tag=date(2026, 9, 3), nummer="RE-SEPT", datei_hash="2" * 64)
+    sept = sept.model_copy(update={"eingegangen_am": datetime(2026, 10, 20, 9, 0)})
+    anlegen(make_session, juli, sept)
+    _geschlossen(make_session, "2026-07")
+    with make_session() as s:
+        lauf = verbuche_belege(s, Buchhaltung(), buchungsdatum="offen")
+        s.commit()
+    datum = {v.beleg.belegnummer: {b.datum for b in v.buchungen} for v in lauf.verbucht}
+    assert datum == {
+        "RE-JULI": {date(2026, 8, 11)},  # Eingang 11.08., nicht schon der 01.08.
+        "RE-SEPT": {date(2026, 9, 3)},  # September offen: Belegdatum
+    }

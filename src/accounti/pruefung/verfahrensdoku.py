@@ -427,7 +427,16 @@ def _perioden(d: _Doku) -> None:
     )
     d(
         "Ein festgeschriebener Zeitraum nimmt keine Buchung an; geöffnet wird nur mit "
-        "Begründung, protokolliert im Abschlussprotokoll und im Journal.",
+        "Begründung, protokolliert im Abschlussprotokoll und im Journal. Einzige "
+        "Ausnahme: Eröffnungsbuchungen (EB-Werte) des Saldovortrags (accounti "
+        "abschluss vortrag) und des ersten Eröffnungssaldos — nur neu angelegt, nur "
+        "am 01.01., ohne Steuer, Belegnummer EB-JJJJ, eine Seite ein "
+        "Saldenvortragskonto. Sie tragen die Schlussbilanz des Vorjahres vor, ändern "
+        "weder Verkehrszahlen noch Umsatzsteuer-Voranmeldung des Januars und stehen "
+        "wie jede Buchung im Journal; die Sperre des Geschäftsjahres gilt für sie "
+        "weiter. Eine Eingangsrechnung zu einem festgeschriebenen Monat wird mit "
+        "accounti opos verbuchen --buchungsdatum in einen offenen Monat desselben "
+        "Geschäftsjahres gebucht (Vorsteuer nach § 15 Abs. 1 Nr. 1 UStG).",
         "",
     )
 

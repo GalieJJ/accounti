@@ -7,7 +7,7 @@ from collections import defaultdict
 from decimal import Decimal
 from functools import cached_property
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -28,7 +28,6 @@ from accounti.models import (
     Kontakt,
 )
 from accounti.models.pruefung import Befund, Kategorie, Schwere
-from accounti.pruefung.belegangaben import Belegangaben, lies_angaben
 from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
@@ -38,6 +37,9 @@ from accounti.steuer.kennziffern import (
     Kontenplan,
 )
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+
+if TYPE_CHECKING:
+    from accounti.pruefung.belegangaben import Belegangaben
 
 NULL = Decimal("0")
 VORSTEUER = frozenset(s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer)
@@ -64,6 +66,20 @@ def _land_aus_ustid(ust_id: str | None) -> str | None:
         return None
     land = ust_id[:2].upper()
     return _USTID_LAND.get(land, land)
+
+
+def _lies_angaben(b: Beleg, k: Kontext) -> Belegangaben:
+    """Angaben aus dem Original — erst hier geladen: ``belegangaben`` zieht die
+    Belegerkennung nach (Sekunden beim Import), die Steuerschlüssel-Prüfung von
+    ``korrigiere`` und der Export brauchen sie nicht."""
+    from accounti.pruefung.belegangaben import lies_angaben
+
+    return lies_angaben(b, k.archiv, k.ocr)
+
+
+def _prozent(satz: Decimal) -> str:
+    """Steuersatz ohne Exponentenschreibweise: 20 %, 5,5 % (nicht „2E+1 %“)."""
+    return f"{satz.normalize():f}".replace(".", ",") + " %"
 
 
 def _saetze(b: Beleg) -> list[Decimal]:
@@ -164,22 +180,31 @@ class Pflichtangaben:
         land = kontakt.land.upper() if kontakt else None
         land = land or next((_land_aus_ustid(x) for x in fremde), None)
         nicht_gelesen = "" if a.gelesen else " nicht erkannt — Original nicht geprüft"
+        inland = land == "DE"
+
+        def zitat(absatz: str, nummer: str) -> str:
+            """Inländischer Leistender: § 14a UStG; sonst das Recht seines Staats."""
+            if inland:
+                return f"§ 14a {absatz} UStG"
+            return f"Art. 226 {nummer} MwStSystRL, Recht des Sitzstaats"
+
         fehlt: list[tuple[Schwere, str]] = []
         if fall == "§ 13b":
-            if land != "DE":  # Leistender im Ausland: § 14a Abs. 1
+            if not inland:  # Leistender im Ausland: § 13b Abs. 1 bzw. Abs. 2 Nr. 1
                 if not fremde:
                     fehlt.append(
                         (
                             Schwere.WARNUNG,
-                            "USt-IdNr. des leistenden Unternehmers (§ 14a Abs. 1 UStG)"
-                            + nicht_gelesen,
+                            "USt-IdNr. des leistenden Unternehmers "
+                            f"({zitat('Abs. 1', 'Nr. 3')})" + nicht_gelesen,
                         )
                     )
                 if a.gelesen and not empfaenger:
                     fehlt.append(
                         (
                             Schwere.WARNUNG,
-                            "USt-IdNr. des Leistungsempfängers (§ 14a Abs. 1 UStG)",
+                            "USt-IdNr. des Leistungsempfängers "
+                            f"({zitat('Abs. 1', 'Nr. 4')})",
                         )
                     )
             hinweis = "AE" in a.steuerkategorien or _HINWEIS_13B.search(a.text or "")
@@ -188,7 +213,7 @@ class Pflichtangaben:
                     (
                         Schwere.WARNUNG,
                         "Hinweis „Steuerschuldnerschaft des Leistungsempfängers“ "
-                        "(§ 14a Abs. 5 UStG)",
+                        f"({zitat('Abs. 5', 'Nr. 11a')})",
                     )
                 )
             return fehlt
@@ -196,14 +221,15 @@ class Pflichtangaben:
             fehlt.append(
                 (
                     Schwere.WARNUNG,
-                    "USt-IdNr. des Lieferers (§ 14a Abs. 3 UStG)" + nicht_gelesen,
+                    f"USt-IdNr. des Lieferers ({zitat('Abs. 3', 'Nr. 3')})"
+                    + nicht_gelesen,
                 )
             )
         if a.gelesen and not empfaenger:
             fehlt.append(
                 (
                     Schwere.WARNUNG,
-                    "USt-IdNr. des Leistungsempfängers (§ 14a Abs. 3 UStG)",
+                    f"USt-IdNr. des Leistungsempfängers ({zitat('Abs. 3', 'Nr. 4')})",
                 )
             )
         hinweis = "K" in a.steuerkategorien or _HINWEIS_6A.search(a.text or "")
@@ -211,8 +237,13 @@ class Pflichtangaben:
             fehlt.append(
                 (
                     Schwere.WARNUNG,
-                    "Hinweis auf die steuerfreie innergemeinschaftliche Lieferung "
-                    "(§ 14 Abs. 4 Nr. 8, § 14a Abs. 3 UStG)",
+                    "Hinweis auf die steuerfreie innergemeinschaftliche Lieferung ("
+                    + (
+                        "§ 14 Abs. 4 Nr. 8, § 14a Abs. 3 UStG"
+                        if inland
+                        else "Art. 226 Nr. 11 MwStSystRL, Recht des Sitzstaats"
+                    )
+                    + ")",
                 )
             )
         return fehlt
@@ -290,7 +321,7 @@ class Pflichtangaben:
                 continue
             if not k.im_zeitraum(b.belegdatum or b.eingegangen_am.date()):
                 continue
-            a = lies_angaben(b, k.archiv, k.ocr)
+            a = _lies_angaben(b, k)
             nur_felder += not a.gelesen
             fall = self._sonderfall(b, a, schluessel[b.id], b.id in oss)
             klein = b.brutto is not None and abs(b.brutto) <= grenze and fall is None
@@ -390,7 +421,7 @@ class Rechenprobe:
             soll = (x.netto * x.steuersatz / 100).quantize(Decimal("0.01"))
             if abs(soll - x.steuer_betrag) > p.toleranz:
                 fehler.append(
-                    f"Position „{x.bezeichnung}“: {x.steuersatz.normalize()} % auf "
+                    f"Position „{x.bezeichnung}“: {_prozent(x.steuersatz)} auf "
                     f"{betrag_de(x.netto)} sind {betrag_de(soll)}, ausgewiesen "
                     f"{betrag_de(x.steuer_betrag)}"
                 )
@@ -443,6 +474,35 @@ class Rechenprobe:
 # --- Steuerschlüssel ./. Sachkonto (Akzeptanz 3) ------------------------------
 
 
+def _lade_konten(
+    einstellungen: PruefEinstellungen, kontenrahmen: str
+) -> dict[str, dict[str, Any]]:
+    """Konten der Kontenrahmen-Datei (SKR03: ``config/skr03.yaml``)."""
+    datei = einstellungen.kontenrahmen_datei or (
+        "config/skr03.yaml" if kontenrahmen.upper() == "SKR03" else None
+    )
+    if datei is None or not Path(datei).is_file():
+        return {}
+    daten: Any = yaml.safe_load(Path(datei).read_text(encoding="utf-8")) or {}
+    konten = daten.get("konten") if isinstance(daten, dict) else None
+    return {str(n): w for n, w in (konten or {}).items() if isinstance(w, dict)}
+
+
+def automatikkonten(
+    buchhaltung: Buchhaltung, einstellungen: PruefEinstellungen | None = None
+) -> dict[str, int]:
+    """DATEV-Automatikkonten (AV/AM) mit dem Schlüssel ihrer Automatik — ohne die
+    steuerfreien (8100, 8125: Automatik ohne Schlüssel)."""
+    ergebnis = {}
+    for konto, eintrag in _lade_konten(
+        einstellungen or PruefEinstellungen(), buchhaltung.kontenrahmen
+    ).items():
+        steuer = eintrag.get("steuer") or {}
+        if steuer.get("automatik") and steuer.get("schluessel") is not None:
+            ergebnis[konto] = int(steuer["schluessel"])
+    return ergebnis
+
+
 class _Kontenwissen:
     """Steuerautomatik der Konten (``config/skr03.yaml``) und Bereiche."""
 
@@ -470,14 +530,7 @@ class _Kontenwissen:
 
     @cached_property
     def konten(self) -> dict[str, dict[str, Any]]:
-        datei = self.einstellungen.kontenrahmen_datei or (
-            "config/skr03.yaml" if self.kr == "SKR03" else None
-        )
-        if datei is None or not Path(datei).is_file():
-            return {}
-        daten: Any = yaml.safe_load(Path(datei).read_text(encoding="utf-8")) or {}
-        konten = daten.get("konten") if isinstance(daten, dict) else None
-        return {str(n): w for n, w in (konten or {}).items() if isinstance(w, dict)}
+        return _lade_konten(self.einstellungen, self.kr)
 
     def ist_aufwand(self, konto: str) -> bool:
         eintrag = self.konten.get(konto)
@@ -571,9 +624,11 @@ class SteuerschluesselKonto:
         elif auto is not None and s is None and not x.steuer_betrag:
             probleme.append(
                 (
-                    Schwere.HINWEIS,
+                    Schwere.WARNUNG,
                     f"Konto {konto} ist Automatikkonto mit Schlüssel "
-                    f"{_schluesselname(auto)}, gebucht ohne Steuer",
+                    f"{_schluesselname(auto)}, gebucht ohne Steuer — DATEV rechnet "
+                    "dort selbst Steuer heraus (accounti exportiert BU 40, Aufhebung "
+                    "der Automatik)",
                 )
             )
         ohne = w.ohne_vorsteuer(konto)
@@ -641,19 +696,42 @@ class SteuerschluesselKonto:
             f"--haben {x.haben_konto}"
         )
         grund = ' --grund "…"' if x.beleg_id is not None else ""
-        if not self._sachkonten(x, w):  # reine Geld-/Personenbewegung: ohne Steuer
+        sachkonten = self._sachkonten(x, w)
+        automatik = {k: a for k in sachkonten if (a := w.automatik(k)) is not None}
+        if automatik:  # auf einem Automatikkonto nie --ohne-steuer (DATEV rechnet)
+            konto, auto = next(iter(automatik.items()))
+            if x.beleg_id is not None or x.steuer_schluessel is None:
+                return (
+                    f"Konto {konto} rechnet automatisch mit Schlüssel {auto}: ein "
+                    "Sachkonto mit passender Automatik oder ohne Automatik wählen — "
+                    f"accounti korrigiere {str(x.id)[:8]} --soll … --haben … --steuer "
+                    f"{auto if x.steuer_schluessel is None else x.steuer_schluessel}"
+                )
+            return f"{befehl} --steuer {auto} (Automatik des Kontos {konto})"
+        vorsteuer = x.steuer_schluessel in (8, 9)  # nur sie entfernt --ohne-steuer
+        if not sachkonten:  # reine Geld-/Personenbewegung: ohne Steuer
             if x.status in _FREIGEGEBEN:
                 return (
                     "nicht per Storno korrigierbar (beide Seiten Geld- oder "
                     "Personenkonto, die Gegenbuchung höbe die Steuer nicht auf) — "
                     "mit dem Steuerberater klären"
                 )
+            if x.beleg_id is not None and not vorsteuer:
+                return (
+                    "ausgewiesene Steuer aus dem Beleg (§ 14c UStG): die "
+                    "Rechnungsberichtigung als neuen Beleg erfassen"
+                )
             return f"{befehl} --ohne-steuer{grund}"
         if x.beleg_id is not None:  # Steuer aus dem Beleg: Konto ändern oder entfernen
-            return (
+            konto_aendern = (
                 f"Sachkonto ändern: accounti korrigiere {str(x.id)[:8]} --soll … "
-                f"--haben … --steuer {x.steuer_schluessel} — oder Steuer entfernen: "
-                f"{befehl} --ohne-steuer{grund}"
+                f"--haben … --steuer {x.steuer_schluessel}"
+            )
+            if not vorsteuer:  # ausgewiesene USt bleibt (§ 14c UStG)
+                return konto_aendern
+            return (
+                f"{konto_aendern} — oder Vorsteuer entfernen: {befehl} "
+                f"--ohne-steuer{grund}"
             )
         return f"{befehl} --steuer <Schlüssel> (oder --ohne-steuer)"
 
@@ -691,9 +769,14 @@ class SteuersatzLand:
         pass
 
     def _land(self, k: Kontext, b: Beleg) -> str | None:
-        if b.richtung is Belegrichtung.EINGANG:
+        eigene = _kompakt(k.firma.ust_id) if k.firma and k.firma.ust_id else ""
+        if (
+            b.richtung is Belegrichtung.EINGANG
+            and _kompakt(b.lieferant_ust_id) != eigene
+        ):
             # Steuer nach der USt-IdNr. auf der Rechnung: Amazon EU S.à r.l. (LU)
-            # rechnet unter ihrer DE-USt-IdNr. deutsche Umsatzsteuer ab
+            # rechnet unter ihrer DE-USt-IdNr. deutsche Umsatzsteuer ab — die eigene
+            # USt-IdNr. (von der Erkennung übernommen) sagt über den Lieferanten nichts
             land = _land_aus_ustid(b.lieferant_ust_id)
             if land is not None and ist_eu_land(land):
                 return land
@@ -720,9 +803,9 @@ class SteuersatzLand:
                 self,
                 "beleg",
                 b.id,
-                f"{_rechnung(b)}: Steuersatz {', '.join(f'{s} %' for s in fremd)} "
+                f"{_rechnung(b)}: Steuersatz {', '.join(_prozent(s) for s in fremd)} "
                 f"ist in {'/'.join(laender)} unüblich (üblich: "
-                f"{', '.join(f'{s} %' for s in sorted(erlaubt))})",
+                f"{', '.join(_prozent(s) for s in sorted(erlaubt))})",
                 datum=b.belegdatum,
                 betrag=b.brutto,
                 gegenpartei=b.lieferant_name,
@@ -856,7 +939,7 @@ class Adressat:
                 continue  # § 33 UStDV: der Empfänger ist keine Pflichtangabe
             if not k.im_zeitraum(b.belegdatum or b.eingegangen_am.date()):
                 continue
-            a = lies_angaben(b, k.archiv, k.ocr)
+            a = _lies_angaben(b, k)
             if (ergebnis := self._pruefe(b, a, eigene, eigene_ustid)) is not None:
                 befunde.append(ergebnis)
         return befunde

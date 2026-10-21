@@ -171,25 +171,25 @@ def test_korrigiere_lernen(tmp_path, monkeypatch):
     assert any(r["muster"] == "Stadtwerke" for r in regeln)
 
 
-def test_korrigiere_lernt_keinen_bloss_beibehaltenen_schluessel(tmp_path, monkeypatch):
-    """Befund B-H1: --lernen übernimmt nur einen ausdrücklich angegebenen Schlüssel."""
+def test_korrigiere_lernt_den_schluessel_der_neubuchung(tmp_path, monkeypatch):
+    """Befund N-N5: Die Regel bucht künftig wie die Korrektur — bleibt das Sachkonto
+    (nur das Geldkonto wechselt), bleibt der Schlüssel und wird mit gelernt; ein neues
+    Sachkonto verlangt ihn ohnehin ausdrücklich."""
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "regeln.yaml").write_text("[]\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     url = _url(tmp_path)
     bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
     pid = str(bs[0].id)[:8]
-    # nur das Geldkonto wechselt: der Schlüssel bleibt an der Buchung …
     args = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
     res = runner.invoke(app, [*args, "--db", url])
     assert res.exit_code == 0, res.output
     _, make_session = session_factory(url)
     with make_session() as s:
         assert finde_buchung(s, pid).steuer_schluessel == 9
-    # … wird aber nicht als Regel gelernt
     regeln = yaml.safe_load((tmp_path / "config" / "regeln.yaml").read_text("utf-8"))
     (regel,) = regeln
-    assert regel["steuer_schluessel"] is None
+    assert regel["steuer_schluessel"] == 9
 
 
 def test_korrigiere_neues_sachkonto_braucht_steuerangabe(tmp_path):
@@ -202,3 +202,22 @@ def test_korrigiere_neues_sachkonto_braucht_steuerangabe(tmp_path):
     assert "--ohne-steuer" in res.output and "Traceback" not in res.output
     res = runner.invoke(app, [*args, "--ohne-steuer"])
     assert res.exit_code == 0, res.output
+
+
+def test_korrigiere_nutzt_die_kontenrahmen_datei_der_konfiguration(tmp_path):
+    """Befund N-N6: wie accounti pruefen — pruefung.kontenrahmen_datei zählt."""
+    url = _url(tmp_path)
+    bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
+    pid = str(bs[0].id)[:8]
+    eigene = tmp_path / "konten.yaml"
+    eigene.write_text(
+        "konten:\n  '4930':\n    typ: aufwand\n"
+        "    steuer: {schluessel: 9, automatik: true}\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "accounti.yaml"
+    config.write_text(f"pruefung:\n  kontenrahmen_datei: {eigene}\n", encoding="utf-8")
+    args = ["korrigiere", pid, "--soll", "4930", "--haben", "1200", "--steuer", "8"]
+    res = runner.invoke(app, [*args, "--db", url, "--config", str(config)])
+    assert res.exit_code == 1, res.output
+    assert "Automatikkonto" in res.output

@@ -36,9 +36,11 @@ from accounti.db.tabellen import BuchungssatzRow
 from accounti.konfiguration import Buchhaltung
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.pruefung import Buchungskorrektur
+from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.ereignisse import gesperrt
 from accounti.pruefung.journal import schreibe
 from accounti.pruefung.person import aktuelle_person, journal_kontext
+from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 FREIGEGEBEN = frozenset(
@@ -52,6 +54,12 @@ FREIGEGEBEN = frozenset(
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
 NULL = Decimal("0")
 _JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
+# reine Vorsteuer (8, 9): nur sie entfernt --ohne-steuer aus einer Belegbuchung
+_NUR_VORSTEUER = frozenset(
+    s
+    for s, r in STEUERSCHLUESSEL.items()
+    if r.vorsteuer is not None and r.bmg is None and r.steuer is None
+)
 # DATEV-Schlüssel, deren Steuer im Zahlbetrag steckt → (Satz)
 _IM_BRUTTO = {
     3: Decimal("19"),
@@ -155,6 +163,14 @@ def _steuer(
             f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
             "bzw. aus dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit "
             "--ohne-steuer --grund … entfernen)"
+        )
+    if b.beleg_id is not None and b.steuer_schluessel not in _NUR_VORSTEUER:
+        raise StornoError(
+            f"Buchung {_kurz(b)} hat einen Beleg mit Schlüssel {b.steuer_schluessel}: "
+            "ausgewiesene Umsatzsteuer (bzw. Steuerschuld nach § 13b) wird geschuldet, "
+            "bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG) — die Berichtigung "
+            "als neuen Beleg erfassen und verbuchen, nicht die Steuer aus der Buchung "
+            "entfernen"
         )
     if b.beleg_id is not None and not (grund or "").strip():
         raise StornoError(
@@ -307,6 +323,7 @@ def korrigiere(
     datum: date | None = None,
     kontenrahmen: Kontenrahmen | None = None,
     buchhaltung: Buchhaltung | None = None,
+    einstellungen: PruefEinstellungen | None = None,
 ) -> Korrektur:
     """Vorschlag: direkt korrigieren. Freigegeben: Storno und Neubuchung.
 
@@ -337,7 +354,9 @@ def korrigiere(
         f"Korrektur: {b.soll_konto} an {b.haben_konto} → {soll} an {haben}"
         + (f", Schlüssel {schluessel}" if schluessel != b.steuer_schluessel else "")
     )
-    _pruefe_steuerschluessel(session, b.model_copy(update=aenderung), buchhaltung)
+    _pruefe_steuerschluessel(
+        session, b.model_copy(update=aenderung), buchhaltung, einstellungen
+    )
     if not ist_freigegeben(b):
         if datum is not None:
             raise StornoError(
@@ -367,16 +386,34 @@ def korrigiere(
 
 
 def _pruefe_steuerschluessel(
-    session: Session, kandidat: Buchungssatz, buchhaltung: Buchhaltung | None
+    session: Session,
+    kandidat: Buchungssatz,
+    buchhaltung: Buchhaltung | None,
+    einstellungen: PruefEinstellungen | None,
 ) -> None:
-    """Die Prüfregel ``steuerschluessel_konto`` auf die korrigierte Buchung."""
+    """Die Prüfregel ``steuerschluessel_konto`` auf die korrigierte Buchung — mit der
+    Kontenrahmen-Datei der Konfiguration (``pruefung.kontenrahmen_datei``)."""
     from accounti.models.pruefung import Schwere
-    from accounti.pruefung.regeln.richtigkeit import steuerschluessel_probleme
+    from accounti.pruefung.regeln.richtigkeit import (
+        automatikkonten,
+        steuerschluessel_probleme,
+    )
 
+    buchhaltung = buchhaltung or Buchhaltung()
+    if kandidat.steuer_schluessel is None and not kandidat.steuer_betrag:
+        automatik = automatikkonten(buchhaltung, einstellungen)
+        for konto in (kandidat.soll_konto, kandidat.haben_konto):
+            if konto in automatik:
+                raise StornoError(
+                    f"Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+                    f"{automatik[konto]}) — ohne Schlüssel rechnete DATEV trotzdem "
+                    f"Steuer heraus: --steuer {automatik[konto]} angeben oder ein "
+                    "Konto ohne Automatik wählen"
+                )
     fehler = [
         text
         for schwere, text in steuerschluessel_probleme(
-            session, kandidat, buchhaltung or Buchhaltung()
+            session, kandidat, buchhaltung, einstellungen
         )
         if schwere is Schwere.FEHLER
     ]

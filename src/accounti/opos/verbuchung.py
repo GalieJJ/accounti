@@ -7,9 +7,11 @@ Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
 
 Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
 Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
-(``eingang``), den ersten offenen Tag (``offen``) oder einen festen Tag — die
+(``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und Eingangsdatum
+(``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt ist; die
 Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
-Rechnung vorliegt. Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
+Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel. Offener
+Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
 
 from __future__ import annotations
@@ -228,13 +230,19 @@ def verbuche_beleg(
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
+    gewinnermittlung: str = "bilanz",
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
     gebucht_am, hinweis_datum = _buchungstag(
-        session, beleg, belegdatum, buchungsdatum if eingang else "beleg", anlass
+        session,
+        beleg,
+        belegdatum,
+        buchungsdatum if eingang else "beleg",
+        anlass,
+        gewinnermittlung,
     )
     if ist_gesperrt(session, gebucht_am.year) and gebucht_am == belegdatum:
         jahr = belegdatum.year
@@ -243,7 +251,8 @@ def verbuche_beleg(
             f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
             f"--jahr {jahr}"
             + (
-                " (oder auf einen offenen Tag: --buchungsdatum offen)"
+                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
+                "--buchungsdatum offen)"
                 if eingang
                 else ""
             )
@@ -252,7 +261,7 @@ def verbuche_beleg(
     if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
         ausweg = (
             " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
-            "TT.MM.JJJJ in einen offenen Zeitraum buchen"
+            "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
             if eingang
             else " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
         )
@@ -395,10 +404,20 @@ def _buchungstag(
     belegdatum: date,
     buchungsdatum: Buchungsdatum,
     anlass: str,
+    gewinnermittlung: str = "bilanz",
 ) -> tuple[date, str | None]:
-    """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest."""
+    """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest.
+
+    Ein anderes Datum als das Belegdatum gilt nur für Belege, deren Zeitraum gesperrt
+    ist — der Rest eines Laufs bleibt beim Belegdatum. „Eingang“ ist der Zeitpunkt, zu
+    dem accounti den Beleg erfasst hat (``eingegangen_am``, z.B. der Import). Bei
+    Bilanzierung bleibt die Buchung im Geschäftsjahr des Belegs (§ 252 Abs. 1 Nr. 5
+    HGB, GoBD Rz. 51)."""
     eingegangen = beleg.eingegangen_am.date()
-    if buchungsdatum == "beleg":
+    if (
+        buchungsdatum == "beleg"
+        or sperrfehler(session.connection(), belegdatum) is None
+    ):
         return belegdatum, None
     if buchungsdatum == "eingang":
         tag = eingegangen
@@ -414,6 +433,17 @@ def _buchungstag(
         )
     if tag == belegdatum:
         return tag, None
+    if tag.year != belegdatum.year and gewinnermittlung == "bilanz":
+        raise VerbuchungError(
+            f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt im Geschäftsjahr "
+            f"{tag.year}, die Rechnung vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
+            f"und Verbindlichkeit ins Geschäftsjahr {belegdatum.year} (§ 252 Abs. 1 "
+            f"Nr. 5 HGB, GoBD Rz. 51) — den Monat mit Grund öffnen (accounti periode "
+            f"oeffnen {belegdatum:%Y-%m} --grund …) und zum Belegdatum buchen; die "
+            "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG) und "
+            "gehört dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ (SKR03) — das "
+            "bucht accounti nicht selbst"
+        )
     hinweis = (
         f"gebucht am {tag:%d.%m.%Y} statt zum Belegdatum {belegdatum:%d.%m.%Y} "
         f"(Eingang {eingegangen:%d.%m.%Y}) — die Vorsteuer zählt in diesem "
@@ -423,6 +453,11 @@ def _buchungstag(
         hinweis += (
             "; der Eingang liegt in einem festgeschriebenen Zeitraum — dessen "
             "Voranmeldung ist gegebenenfalls zu berichtigen"
+        )
+    if tag.year != belegdatum.year:  # Einnahmenüberschussrechnung
+        hinweis += (
+            f"; gebucht im Geschäftsjahr {tag.year} statt {belegdatum.year} — bei der "
+            "Einnahmenüberschussrechnung zählt der Abfluss (§ 11 EStG)"
         )
     return tag, hinweis
 
@@ -441,6 +476,7 @@ def verbuche_belege(
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
+    gewinnermittlung: str = "bilanz",
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
@@ -467,6 +503,7 @@ def verbuche_belege(
                     eigene_firma,
                     ustid_max_alter_tage,
                     buchungsdatum,
+                    gewinnermittlung,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:

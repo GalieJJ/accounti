@@ -9,11 +9,12 @@ https://developer.datev.de/datev/platform/de/dtvf
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
 
-from accounti.export.datev_format import belegfeld2_storno
+from accounti.export.datev_format import belegfeld2_storno, bu_schluessel
 from accounti.models import Buchungssatz
 
 
@@ -29,6 +30,9 @@ class DATEVConfig:
     datum_bis: date = date(2026, 12, 31)
     bezeichnung: str = "accounti Export"
     waehrung: str = "EUR"
+    # DATEV-Automatikkonten (AV/AM) → Schlüssel; eine Buchung ohne Schlüssel darauf
+    # bekommt BU 40 (Aufhebung der Automatik), sonst rechnete DATEV Steuer heraus
+    automatikkonten: Mapping[str, int] = field(default_factory=dict)
 
 
 class DATEVExporter:
@@ -101,7 +105,7 @@ class DATEVExporter:
             "WKZ Basis-Umsatz": "",
             "Konto": buchung.soll_konto,
             "Gegenkonto (ohne BU-Schlüssel)": buchung.haben_konto,
-            "BU-Schlüssel": str(buchung.steuer_schluessel or ""),
+            "BU-Schlüssel": bu_schluessel(buchung, self.config.automatikkonten),
             "Belegdatum": f"{buchung.datum:%d%m}",  # TTMM
             "Belegfeld 1": buchung.beleg_nummer or "",
             "Belegfeld 2": belegfeld2_storno(

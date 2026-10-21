@@ -18,12 +18,14 @@ verändert, sondern als ``DatevFormatError`` gemeldet.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from accounti.export.datev_felder import Feld
+from accounti.models import Buchungssatz
 
 
 class DatevFormatError(ValueError):
@@ -167,6 +169,27 @@ def belegfeld2_storno(
     """
     original = storno_von or (ident if storniert_durch else None)
     return f"ST{original.hex[:8].upper()}" if original else ""
+
+
+# Berichtigungsschlüssel 4 + Steuerschlüssel 0: Aufhebung der Automatik (DATEV)
+AUFHEBUNG_DER_AUTOMATIK = "40"
+
+
+def bu_schluessel(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> str:
+    """BU-Schlüssel einer Buchung (Feld 9).
+
+    Auf einem DATEV-Automatikkonto (AV/AM, z.B. 3400, 8400) rechnet DATEV ohne
+    Schlüssel selbst Steuer heraus; eine Buchung, die dort bewusst ohne Steuer steht,
+    trägt deshalb BU 40 — „Aufhebung der Automatik“ (DATEV-Kontenrahmen SKR 03, Hinweis
+    zum Berichtigungsschlüssel 4). Sonst der Steuerschlüssel der Buchung oder leer.
+    """
+    if b.steuer_schluessel is not None:
+        return str(b.steuer_schluessel)
+    if not b.steuer_betrag and (
+        b.soll_konto in automatikkonten or b.haben_konto in automatikkonten
+    ):
+        return AUFHEBUNG_DER_AUTOMATIK
+    return ""
 
 
 def feldnummer(felder: tuple[Feld, ...], name: str) -> int:

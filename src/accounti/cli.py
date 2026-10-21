@@ -1396,9 +1396,11 @@ def opos_verbuchen(
     config: str = KONFIG_OPTION,
     buchungsdatum: str = typer.Option(
         "beleg",
-        help="Eingangsrechnungen buchen zum: beleg (Belegdatum), eingang "
-        "(Eingangsdatum), offen (erster offener Tag) oder JJJJ-MM-TT — für Rechnungen "
-        "zu einem festgeschriebenen Monat (Vorsteuer: § 15 Abs. 1 Nr. 1 UStG)",
+        help="Eingangsrechnungen zu einem festgeschriebenen Monat buchen zum: beleg "
+        "(Belegdatum, Standard), eingang (Erfassung in accounti, z.B. Import), offen "
+        "(erster offener Tag ab Beleg bzw. Eingang) oder JJJJ-MM-TT — gilt nur für "
+        "Rechnungen, deren Monat gesperrt ist; bei Bilanzierung nicht über den "
+        "Jahreswechsel (Vorsteuer: § 15 Abs. 1 Nr. 1 UStG)",
     ),
 ) -> None:
     """Erfasste Rechnungen auf Personenkonten buchen und offene Posten anlegen."""
@@ -1423,9 +1425,12 @@ def opos_verbuchen(
         tag = buchungsdatum  # type: ignore[assignment]
     else:
         tag = _datum_option(buchungsdatum, "--buchungsdatum")  # type: ignore[assignment]
+    from accounti.abschluss.konfiguration import lade_abschluss
+
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
+        gewinnermittlung = lade_abschluss(config).gewinnermittlung
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -1441,6 +1446,7 @@ def opos_verbuchen(
             eigene_firma=lade_eigene_firma(config),
             ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
             buchungsdatum=tag,
+            gewinnermittlung=gewinnermittlung,
         )
         s.commit()
     for v in lauf.verbucht:
@@ -2254,11 +2260,16 @@ def export_datev(
     alle: bool = typer.Option(
         False, "--alle", help="Auch ungeprüfte Buchungen exportieren"
     ),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """DATEV-konformen Buchungsstapel exportieren (nur freigegebene Buchungen)."""
+    from rich.markup import escape
+
+    from accounti.befehle.export import automatikkonten_aus
     from accounti.db import session_factory
     from accounti.db.repository import lade_buchungen
     from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.konfiguration import KonfigurationError
     from accounti.models import BuchungStatus
 
     freigegeben = (
@@ -2273,10 +2284,17 @@ def export_datev(
     )
     from accounti.pruefung.storno import markiere_exportiert
 
+    try:
+        automatik = automatikkonten_aus(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     _, make_session = session_factory(db)
     with make_session() as s:
         buchungen = lade_buchungen(s, status=freigegeben)
-        cfg = DATEVConfig(berater_nummer=berater, mandanten_nummer=mandant)
+        cfg = DATEVConfig(
+            berater_nummer=berater, mandanten_nummer=mandant, automatikkonten=automatik
+        )
         datei = DATEVExporter(cfg).exportiere(buchungen, output)
         # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
         markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
@@ -2496,12 +2514,14 @@ def korrigiere(
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.pruefung.einstellungen import lade_pruefung
     from accounti.pruefung.storno import StornoError
     from accounti.pruefung.storno import korrigiere as korrigiere_buchung
 
     try:
         buchhaltung = lade_buchhaltung(config)
         kontenrahmen = lade_kontenrahmen(buchhaltung.kontenrahmen)
+        pruefung = lade_pruefung(config)
     except (KonfigurationError, KontenrahmenError) as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2523,6 +2543,7 @@ def korrigiere(
                 datum=tag,
                 kontenrahmen=kontenrahmen,
                 buchhaltung=buchhaltung,
+                einstellungen=pruefung,
             )
             if lernen and k.original.transaktion_id is None:
                 gelernt = _lerne_sachkonto(s, k.original, soll, haben)
@@ -2559,9 +2580,12 @@ def korrigiere(
         basis = (gegenkonto or zweck or "").strip()
         muster = re.escape(basis.split()[0]) if basis else ""
         if muster:
-            # nur ein ausdrücklich angegebener Schlüssel wird gelernt — ein bloß
-            # beibehaltener stammt aus dem alten Vorschlag
-            _regel_speichern(f"gelernt_{muster}".lower(), muster, soll, haben, steuer)
+            # der Schlüssel der Neubuchung: bei neuem Sachkonto ausdrücklich angegeben,
+            # sonst der des unveränderten Sachkontos
+            schluessel = k.neu.steuer_schluessel if k.neu else steuer
+            _regel_speichern(
+                f"gelernt_{muster}".lower(), muster, soll, haben, schluessel
+            )
             console.print(f"[green]Regel gelernt:[/green] Muster '{muster}'")
 
 
