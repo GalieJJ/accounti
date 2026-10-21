@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.orm import Session
@@ -49,6 +50,7 @@ FREIGEGEBEN = frozenset(
 )
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
 NULL = Decimal("0")
+_JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
 # DATEV-Schlüssel, deren Steuer im Zahlbetrag steckt → (Satz)
 _IM_BRUTTO = {
     3: Decimal("19"),
@@ -320,20 +322,28 @@ def markiere_exportiert(
 
     Buchungen in abgeschlossenen Zeiträumen bleiben, wie sie sind (die Sperre nimmt
     keinen Statuswechsel an); sie stehen im Journaleintrag. Ergebnis: (markiert,
-    gesperrt).
+    gesperrt). Die Zeilen werden blockweise geladen und in einem Flush geschrieben —
+    nicht je Buchung (jeder Zwischen-Flush kostete Sperrabfragen und Journal).
     """
     verbindung = session.connection()
-    markiert, gesperrt_ids = [], []
+    sperren: dict[str, Any] = {}  # gesperrte Jahre/Monate, einmal gelesen
+    offen, gesperrt_ids = [], []
     for b in buchungen:
         if b.status not in FREIGEGEBEN - {BuchungStatus.EXPORTIERT}:
             continue
-        if gesperrt(verbindung, b.datum):
+        if gesperrt(verbindung, b.datum, sperren):
             gesperrt_ids.append(str(b.id))
-            continue
-        zeile = session.get(BuchungssatzRow, str(b.id))
-        if zeile is not None:
-            zeile.status = BuchungStatus.EXPORTIERT.value
-            markiert.append(str(b.id))
+        else:
+            offen.append(str(b.id))
+    markiert = []
+    with session.no_autoflush:
+        for start in range(0, len(offen), _JE_ABFRAGE):
+            teil = offen[start : start + _JE_ABFRAGE]
+            for zeile in session.query(BuchungssatzRow).filter(
+                BuchungssatzRow.id.in_(teil)
+            ):
+                zeile.status = BuchungStatus.EXPORTIERT.value
+                markiert.append(zeile.id)
     session.flush()
     inhalt = datei.read_bytes() if datei is not None and datei.is_file() else b""
     schreibe(

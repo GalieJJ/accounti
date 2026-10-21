@@ -6,7 +6,6 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-import accounti.db.tabellen_pruefung  # noqa: F401 — Monatssperre und Journal
 from accounti.befehle import DB_OPTION, console
 from accounti.befehle._anlagen_abschluss import ende, sitzung
 

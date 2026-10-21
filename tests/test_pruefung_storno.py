@@ -431,3 +431,48 @@ def test_export_setzt_exportiert_und_steht_im_journal(make_session, tmp_path):
     daten = json.loads(export.nachher)
     assert daten["markiert"] == [str(a.id)] and daten["anzahl"] == 2
     assert len(daten["sha256"]) == 64
+
+
+# --- reines Storno: der Umsatz ist wieder offen (Befund A7 / B-M3) ------------------
+
+
+def test_reines_storno_macht_den_umsatz_wieder_offen(make_session):
+    from accounti.db.repository import gebuchte_transaktion_ids
+    from accounti.opos.zahlungslauf import offene_transaktionen
+
+    tx = umsatz()
+    b = buchung(tx, status=BuchungStatus.AUTO_GEBUCHT, soll="4240")
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        assert tx.id in gebuchte_transaktion_ids(s)
+        storniere(s, str(b.id), grund="falsches Konto, neu kontieren", von="erika")
+        s.commit()
+        assert tx.id not in gebuchte_transaktion_ids(s)
+        assert [t.id for t in offene_transaktionen(s)] == [tx.id]
+
+
+def test_storno_mit_neubuchung_laesst_den_umsatz_gebucht(make_session):
+    from accounti.db.repository import gebuchte_transaktion_ids
+
+    tx = umsatz()
+    b = buchung(tx, status=BuchungStatus.AUTO_GEBUCHT)
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        korrigiere(s, str(b.id), "4930", "1200", steuer=9, von="erika")
+        s.commit()
+        assert tx.id in gebuchte_transaktion_ids(s)
+
+
+def test_gegenbuchung_auf_anderem_umsatz_laesst_beide_gebucht(make_session):
+    """Kassen-Storno: die Gegenbuchung hängt am Storno-Umsatz, nicht am Original."""
+    from accounti.db.repository import gebuchte_transaktion_ids
+
+    tx, gegen = umsatz(), umsatz("119.00", zweck="Storno")
+    b = buchung(tx, status=BuchungStatus.GEPRUEFT)
+    s_b = buchung(
+        gegen, status=BuchungStatus.GEPRUEFT, soll="1200", haben="4900", storno_von=b.id
+    )
+    anlegen(make_session, tx, gegen, b.model_copy(update={"storniert_durch": s_b.id}))
+    anlegen(make_session, s_b)
+    with make_session() as s:
+        assert {tx.id, gegen.id} <= gebuchte_transaktion_ids(s)

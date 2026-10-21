@@ -1,6 +1,7 @@
 """Journal: nur anfügen, hash-verkettet, Abgleich mit dem Bestand (Spec 4.3, Akz. 5)."""
 
 import json
+from datetime import date
 
 import pytest
 from sqlalchemy import text
@@ -249,6 +250,50 @@ def test_bestand_von_vor_dem_journal_uebernehmen(make_session):
         assert uebernehme_bestand(s) == 0
     (e,) = _journal(make_session)
     assert (e.vorgang, e.person) == ("bestand_uebernommen", "jan")
+
+
+def test_sperren_von_vor_dem_journal_uebernehmen(make_session):
+    """Aktualisierte Datenbank: Jahr und Monat waren vor dem Journal gesperrt."""
+    b = buchung(tag=date(2025, 6, 1))
+    anlegen(make_session, b)
+    with make_session() as s:
+        s.execute(text("DROP TRIGGER journal_kein_delete"))
+        s.execute(text("DELETE FROM journal"))
+        s.execute(
+            text(
+                "INSERT INTO abschluesse (jahr, gesperrt, gewinnermittlung, ergebnis, "
+                "abgeschlossen_am, von) VALUES (2025, 1, 'euer', 0, "
+                "'2026-02-01 10:00:00', 'erika')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO periodenabschluesse (monat, gesperrt, geschlossen_am, "
+                "geschlossen_von) VALUES ('2026-01', 1, '2026-02-10 10:00:00', 'erika')"
+            )
+        )
+        s.execute(
+            text(
+                "INSERT INTO periodenabschluesse (monat, gesperrt, geschlossen_am, "
+                "geschlossen_von) VALUES ('2026-02', 0, '2026-03-10 10:00:00', 'erika')"
+            )
+        )
+        s.commit()
+        texte = [x.text for x in pruefe_journal(s).befunde]
+        assert any(
+            "Geschäftsjahr 2025 ist gesperrt, laut Journal offen" in x for x in texte
+        )
+        assert any("Monat 2026-01 ist gesperrt" in x for x in texte)
+        assert uebernehme_bestand(s, person="jan") == 3  # Buchung, Jahr, Monat
+        s.commit()
+        p = pruefe_journal(s)
+        assert p.in_ordnung, [x.text for x in p.befunde]
+        assert uebernehme_bestand(s) == 0
+    assert {(e.vorgang, e.objekt_typ, e.objekt_id) for e in _journal(make_session)} == {
+        ("bestand_uebernommen", "buchung", str(b.id)),
+        ("sperre_uebernommen", "geschaeftsjahr", "2025"),
+        ("sperre_uebernommen", "periode", "2026-01"),
+    }
 
 
 def test_ohne_journaltabelle_wird_nicht_protokolliert(tmp_path):

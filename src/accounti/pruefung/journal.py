@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
@@ -50,40 +50,62 @@ def kanonisch(daten: Mapping[str, Any] | None) -> str | None:
     return json.dumps(daten, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
-def _wert(spalte: Column[Any], wert: Any) -> Any:
-    """Spaltenwert so, dass Python-Stand und Datenbankstand gleich aussehen."""
-    if wert is None:
-        return None
-    typ = spalte.type
-    if isinstance(typ, Float):
-        return float(wert)
-    if isinstance(typ, Numeric):
-        skala = typ.scale
-        zahl = Decimal(str(wert))
-        return f"{zahl:.{skala}f}" if skala is not None else str(zahl)
+def _allgemein(wert: Any) -> Any:
+    if wert is None or isinstance(wert, bool | int | str):
+        return wert
     if isinstance(wert, datetime | date):
         return wert.isoformat()
-    if isinstance(wert, bool | int | str):
-        return wert
     return str(wert)
+
+
+def _umwandler(spalte: Column[Any]) -> Callable[[Any], Any]:
+    """Wie ein Spaltenwert normiert wird — je Spaltentyp einmal bestimmt."""
+    typ = spalte.type
+    if isinstance(typ, Float):
+        return lambda wert: None if wert is None else float(wert)
+    if isinstance(typ, Numeric):
+        skala = typ.scale
+
+        def zahl(wert: Any) -> Any:
+            if wert is None:
+                return None
+            d = Decimal(str(wert))
+            return f"{d:.{skala}f}" if skala is not None else str(d)
+
+        return zahl
+    return _allgemein
+
+
+def _wert(spalte: Column[Any], wert: Any) -> Any:
+    """Spaltenwert so, dass Python-Stand und Datenbankstand gleich aussehen."""
+    return _umwandler(spalte)(wert)
+
+
+_SPALTEN: dict[tuple[int, frozenset[str]], list[tuple[str, Callable[[Any], Any]]]] = {}
 
 
 def schnappschuss(
     tabelle: Table, zeile: Mapping[Any, Any], ohne: Iterable[str] = ()
 ) -> dict[str, Any]:
     """Alle Spalten einer Zeile, normiert — ohne die genannten."""
-    weg = set(ohne)
-    return {
-        s.name: _wert(s, zeile[s.name])
-        for s in tabelle.columns
-        if s.name not in weg and s.name in zeile
-    }
+    weg = frozenset(ohne)
+    schluessel = (id(tabelle), weg)
+    spalten = _SPALTEN.get(schluessel)
+    if spalten is None:
+        spalten = [
+            (s.name, _umwandler(s)) for s in tabelle.columns if s.name not in weg
+        ]
+        _SPALTEN[schluessel] = spalten
+    return {name: f(zeile[name]) for name, f in spalten if name in zeile}
+
+
+def _hash(daten: Mapping[str, Any]) -> str:
+    roh = json.dumps(daten, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(roh.encode()).hexdigest()
 
 
 def eintrag_hash(e: Journaleintrag) -> str:
-    daten = e.model_dump(mode="json", exclude={"hash"})
-    roh = json.dumps(daten, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(roh.encode()).hexdigest()
+    return _hash(e.model_dump(mode="json", exclude={"hash"}))
 
 
 def journal_vorhanden(verbindung: Connection) -> bool:
@@ -126,27 +148,32 @@ def fuege_an(verbindung: Connection, vorgaenge: list[Vorgang]) -> list[Journalei
     nr, vorgaenger = (letzter[0], letzter[1]) if letzter else (0, GENESIS)
     ctx = kontext()
     jetzt = datetime.now()
-    eintraege = []
+    # der Zeitpunkt so, wie ihn eintrag_hash serialisiert — einmal je Aufruf
+    vorlage = Journaleintrag(
+        zeitpunkt=jetzt, person="", vorgang="", objekt_typ="", objekt_id=""
+    )
+    zeit = vorlage.model_dump(mode="json")["zeitpunkt"]
+    person = ctx.person or aktuelle_person()
+    zeilen = []
     for v in vorgaenge:
         nr += 1
-        e = Journaleintrag(
-            nr=nr,
-            zeitpunkt=jetzt,
-            person=(v.person or ctx.person or aktuelle_person())[:PERSON_LAENGE],
-            vorgang=v.vorgang,
-            objekt_typ=v.objekt_typ,
-            objekt_id=v.objekt_id,
-            vorher=kanonisch(v.vorher),
-            nachher=kanonisch(v.nachher),
-            grund=_kurz(v.grund if v.grund is not None else ctx.grund, GRUND_LAENGE),
-            bezug=_kurz(v.bezug if v.bezug is not None else ctx.bezug, BEZUG_LAENGE),
-            vorgaenger_hash=vorgaenger,
-        )
-        e = e.model_copy(update={"hash": eintrag_hash(e)})
-        vorgaenger = e.hash
-        eintraege.append(e)
-    verbindung.execute(insert(JournalRow), [e.model_dump() for e in eintraege])
-    return eintraege
+        daten = {
+            "nr": nr,
+            "zeitpunkt": zeit,
+            "person": (v.person or person)[:PERSON_LAENGE],
+            "vorgang": v.vorgang,
+            "objekt_typ": v.objekt_typ,
+            "objekt_id": v.objekt_id,
+            "vorher": kanonisch(v.vorher),
+            "nachher": kanonisch(v.nachher),
+            "grund": _kurz(v.grund if v.grund is not None else ctx.grund, GRUND_LAENGE),
+            "bezug": _kurz(v.bezug if v.bezug is not None else ctx.bezug, BEZUG_LAENGE),
+            "vorgaenger_hash": vorgaenger,
+        }
+        vorgaenger = _hash(daten)  # wie eintrag_hash, ohne Modell je Eintrag
+        zeilen.append({**daten, "zeitpunkt": jetzt, "hash": vorgaenger})
+    verbindung.execute(insert(JournalRow), zeilen)
+    return [Journaleintrag.model_construct(**z) for z in zeilen]
 
 
 def schreibe(
@@ -373,23 +400,27 @@ _SPERRVORGAENGE = {
     "periode_geoeffnet": False,
     "jahr_abgeschlossen": True,
     "jahr_geoeffnet": False,
+    "sperre_uebernommen": True,  # vor dem Journal gesperrt (uebernehme_bestand)
 }
+_SPERRTABELLEN = (
+    ("periode", PeriodenabschlussRow.__tablename__, "monat"),
+    ("geschaeftsjahr", AbschlussRow.__tablename__, "jahr"),
+)
 
 
-def _pruefe_sperren(
-    session: Session, eintraege: list[Journaleintrag], p: Journalpruefung
-) -> None:
-    """Monats- und Jahressperre müssen dem letzten Vorgang im Journal entsprechen."""
+def _sperren_laut_journal(
+    eintraege: list[Journaleintrag],
+) -> dict[tuple[str, str], bool]:
     laut_journal: dict[tuple[str, str], bool] = {}
     for e in eintraege:
         if e.vorgang in _SPERRVORGAENGE:
             laut_journal[(e.objekt_typ, e.objekt_id)] = _SPERRVORGAENGE[e.vorgang]
-    verbindung = session.connection()
+    return laut_journal
+
+
+def _sperren_im_bestand(verbindung: Connection) -> dict[tuple[str, str], bool]:
     tatsaechlich: dict[tuple[str, str], bool] = {}
-    for typ, tabelle, spalte in (
-        ("periode", PeriodenabschlussRow.__tablename__, "monat"),
-        ("geschaeftsjahr", AbschlussRow.__tablename__, "jahr"),
-    ):
+    for typ, tabelle, spalte in _SPERRTABELLEN:
         if not verbindung.dialect.has_table(verbindung, tabelle):
             continue
         zeilen = verbindung.execute(
@@ -397,6 +428,15 @@ def _pruefe_sperren(
         )
         for ident, gesperrt in zeilen:
             tatsaechlich[(typ, str(ident))] = bool(gesperrt)
+    return tatsaechlich
+
+
+def _pruefe_sperren(
+    session: Session, eintraege: list[Journaleintrag], p: Journalpruefung
+) -> None:
+    """Monats- und Jahressperre müssen dem letzten Vorgang im Journal entsprechen."""
+    laut_journal = _sperren_laut_journal(eintraege)
+    tatsaechlich = _sperren_im_bestand(session.connection())
     for (typ, ident), gesperrt in sorted(tatsaechlich.items()):
         erwartet = laut_journal.get((typ, ident), False)
         if gesperrt != erwartet:
@@ -431,13 +471,33 @@ def pruefe_journal(session: Session, kopf: str | None = None) -> Journalpruefung
 
 
 def uebernehme_bestand(session: Session, person: str | None = None) -> int:
-    """Buchungen und Belege ohne Journaleintrag einmal als Bestand eintragen."""
+    """Buchungen, Belege und Sperren ohne Journaleintrag einmal als Bestand eintragen.
+
+    Sperren: ein Jahr oder Monat, das vor dem Journal abgeschlossen wurde, steht danach
+    als ``sperre_uebernommen`` im Journal — sonst meldete ``pruefe_journal`` es auf
+    jeder aktualisierten Datenbank als „an accounti vorbei gesperrt“. Ein Objekt, zu
+    dem das Journal schon einen Sperrvorgang kennt, bleibt unberührt: Weicht es ab, ist
+    das ein echter Befund."""
     verbindung = session.connection()
     if not journal_vorhanden(verbindung):
         return 0
     session.flush()
-    bekannt = {(e.objekt_typ, e.objekt_id) for e in lade_journal(session)}
+    eintraege = lade_journal(session)
+    bekannt = {(e.objekt_typ, e.objekt_id) for e in eintraege}
     vorgaenge = []
+    laut_journal = _sperren_laut_journal(eintraege)
+    for (typ, ident), gesperrt in sorted(_sperren_im_bestand(verbindung).items()):
+        if gesperrt and (typ, ident) not in laut_journal:
+            vorgaenge.append(
+                Vorgang(
+                    "sperre_uebernommen",
+                    typ,
+                    ident,
+                    nachher={"gesperrt": True},
+                    grund="Sperre von vor dem Journal übernommen",
+                    person=person,
+                )
+            )
     for typ, tabelle in BESTAND.items():
         for z in verbindung.execute(select(tabelle)).mappings():
             ident = str(z["id"])

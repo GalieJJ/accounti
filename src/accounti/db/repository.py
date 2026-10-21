@@ -986,14 +986,31 @@ def setze_zuordnungen_status(
 
 
 def gebuchte_transaktion_ids(session: Session) -> set[UUID]:
-    """Transaktionen, zu denen schon eine Buchung existiert."""
+    """Transaktionen, zu denen schon eine Buchung existiert.
+
+    Ein Storno-Paar am selben Umsatz (Original und Stornobuchung, Baustein 7) hebt
+    sich auf und zählt nicht: Nach einem reinen Storno ist der Umsatz wieder offen
+    (classify, Periodenabschluss, Abschlussprüfung, Kartenabgleich). Die Neubuchung
+    einer Korrektur zählt; eine Gegenbuchung an einem anderen Umsatz (Kassen-Storno)
+    lässt beide Umsätze gebucht.
+    """
     rows = (
-        session.query(BuchungssatzRow.transaktion_id)
+        session.query(
+            BuchungssatzRow.id,
+            BuchungssatzRow.transaktion_id,
+            BuchungssatzRow.storno_von,
+        )
         .filter(BuchungssatzRow.transaktion_id.is_not(None))
-        .distinct()
         .all()
     )
-    return {UUID(t) for (t,) in rows if t}
+    umsatz = {ident: tx for ident, tx, _ in rows}
+    aufgehoben = {
+        x
+        for ident, tx, storno_von in rows
+        if storno_von is not None and umsatz.get(storno_von) == tx
+        for x in (ident, storno_von)
+    }
+    return {UUID(tx) for ident, tx, _ in rows if tx and ident not in aufgehoben}
 
 
 # --- USt-IdNr.-Protokoll (nur anfügen) ------------------------------------------

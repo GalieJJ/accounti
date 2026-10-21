@@ -10,7 +10,6 @@ from rich.table import Table
 
 # Journal-Ereignisse und Storno-Regel hängen am Import der Tabellen — die CLI lädt
 # jede Befehlsgruppe beim Start, so gelten sie auch in Befehlen ohne init_db.
-import accounti.db.tabellen_pruefung  # noqa: F401
 from accounti.befehle import DB_OPTION, console
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
@@ -141,7 +140,7 @@ def uebernehmen(
     von: str | None = typer.Option(None, help="Wer übernimmt"),
     db: str = DB_OPTION,
 ) -> None:
-    """Buchungen und Belege von vor dem Journal einmal als Bestand eintragen."""
+    """Buchungen, Belege und Sperren von vor dem Journal als Bestand eintragen."""
     from accounti.pruefung.journal import uebernehme_bestand
     from accounti.pruefung.person import aktuelle_person
 

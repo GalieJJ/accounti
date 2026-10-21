@@ -10,7 +10,6 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-import accounti.db.tabellen_pruefung  # noqa: F401 — Journal und Sperren
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 

@@ -11,14 +11,15 @@
   (``PeriodeGesperrtError``, ein ``JahrGesperrtError``); angenommen wird nur der
   Stornovermerk.
 
-Beim Import dieses Moduls werden die Journal-Ereignisse auf der Sitzung eingehängt
-(``accounti.pruefung.ereignisse``) — ``init_db`` und ``registriere_tabellen`` laden
-es, die CLI über ihre Befehlsgruppen.
+Die Journal-Ereignisse auf der Sitzung (``accounti.pruefung.ereignisse``) hängen
+``session_factory`` und ``init_db`` ein (``accounti.db.registriere_ereignisse``) — nicht
+der Import dieses Moduls.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -38,7 +39,13 @@ from sqlalchemy.orm import Mapped, Mapper, mapped_column
 
 from accounti.db import Base
 from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
-from accounti.db.tabellen_abschluss import JahrGesperrtError, nur_stornovermerk
+from accounti.db.tabellen_abschluss import (
+    JahrGesperrtError,
+    jahressperre,
+    nur_stornovermerk,
+    sperrcache,
+    vorab_geprueft,
+)
 
 
 class JournalRow(Base):
@@ -151,7 +158,13 @@ def gesperrte_monate(verbindung: Connection) -> set[str]:
     )
 
 
-def monat_gesperrt(verbindung: Connection, monat: str) -> bool:
+def monat_gesperrt(
+    verbindung: Connection, monat: str, cache: dict[str, Any] | None = None
+) -> bool:
+    if cache is not None:
+        if "monate" not in cache:
+            cache["monate"] = gesperrte_monate(verbindung)
+        return monat in cache["monate"]
     if not verbindung.dialect.has_table(verbindung, PeriodenabschlussRow.__tablename__):
         return False
     gesperrt = verbindung.execute(
@@ -160,16 +173,35 @@ def monat_gesperrt(verbindung: Connection, monat: str) -> bool:
     return bool(gesperrt)
 
 
+def monatssperre(
+    verbindung: Connection, monat: str, cache: dict[str, Any] | None = None
+) -> PeriodeGesperrtError | None:
+    """Der Fehler, wenn der Monat festgeschrieben ist — sonst ``None``."""
+    if not monat_gesperrt(verbindung, monat, cache):
+        return None
+    return PeriodeGesperrtError(
+        f"Monat {monat} ist festgeschrieben — Buchungen sind gesperrt "
+        f"(Änderung nur nach accounti periode oeffnen {monat} --grund …)"
+    )
+
+
+def sperrfehler(
+    verbindung: Connection, tag: date, cache: dict[str, Any] | None = None
+) -> JahrGesperrtError | None:
+    """Jahres- oder Monatssperre am Tag — der Fehler, sonst ``None``."""
+    return jahressperre(verbindung, tag.year, cache) or monatssperre(
+        verbindung, f"{tag:%Y-%m}", cache
+    )
+
+
 def _monatssperre(verbindung: Connection, ziel: BuchungssatzRow) -> None:
+    # das alte Datum steht dank active_history auch nach dem Ablauf in der Historie
     tage = {ziel.datum} if ziel.datum else set()
     tage |= {d for d in inspect(ziel).attrs.datum.history.deleted if d is not None}
+    cache = sperrcache(ziel)
     for monat in sorted({f"{d:%Y-%m}" for d in tage}):
-        if monat_gesperrt(verbindung, monat):
-            msg = (
-                f"Monat {monat} ist festgeschrieben — Buchungen sind gesperrt "
-                f"(Änderung nur nach accounti periode oeffnen {monat} --grund …)"
-            )
-            raise PeriodeGesperrtError(msg)
+        if (fehler := monatssperre(verbindung, monat, cache)) is not None:
+            raise fehler
 
 
 @event.listens_for(BuchungssatzRow, "before_insert")
@@ -184,14 +216,5 @@ def _buchung_im_gesperrten_monat(
 def _aenderung_im_gesperrten_monat(
     _: Mapper[BuchungssatzRow], verbindung: Connection, ziel: BuchungssatzRow
 ) -> None:
-    if not nur_stornovermerk(ziel):
+    if not vorab_geprueft(ziel) and not nur_stornovermerk(ziel):
         _monatssperre(verbindung, ziel)
-
-
-# Journal-Ereignisse auf der Sitzung einhängen (nach den Tabellen, die es braucht)
-import accounti.pruefung.ereignisse as _ereignisse  # noqa: E402
-
-# die Storno-Regel überlässt gesperrte Monate der Monatssperre
-_ereignisse.SPERREN.append(
-    lambda verbindung, tag: monat_gesperrt(verbindung, f"{tag:%Y-%m}")
-)

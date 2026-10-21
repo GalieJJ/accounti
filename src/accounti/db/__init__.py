@@ -2,26 +2,82 @@
 
 Tabellen der Bausteine liegen in Modulen ``accounti.db.tabellen_<bereich>`` und
 werden automatisch registriert — für ``init_db`` wie für Alembic.
+
+``session_factory`` und ``init_db`` hängen außerdem die Journal-Ereignisse und die
+Storno-Regel auf der Sitzung ein (``registriere_ereignisse``, Baustein 7): Wer eine
+Sitzung von hier bekommt, schreibt das Journal und kann freigegebene Buchungen nicht
+ändern — unabhängig davon, welche Module er sonst geladen hat.
 """
 
 from __future__ import annotations
 
 import importlib
 import pkgutil
+from collections.abc import Iterable
+from typing import Any
 
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+
+# Tabellen, die nur einzeln über die Sitzung geändert werden (Journal, Storno-Regel,
+# Sperren); Massenwege des ORM lehnen ``ereignisse`` bzw. ``AccountiSitzung`` ab
+GESCHUETZT = frozenset({"buchungssaetze", "journal", "buchungskorrekturen"})
 
 
 class Base(DeclarativeBase):
     pass
 
 
+def _geschuetzt(mapper: Any) -> str | None:
+    zustand: Any = inspect(mapper, raiseerr=False)
+    tabelle = getattr(getattr(zustand, "mapper", zustand), "local_table", None)
+    name = getattr(tabelle, "name", None)
+    return name if name in GESCHUETZT else None
+
+
+def _massenweg(name: str) -> None:
+    from accounti.db.tabellen import UnveraenderbarError
+
+    raise UnveraenderbarError(
+        f"Massenänderung an {name} ist gesperrt — Buchungen einzeln über die Sitzung "
+        "anlegen und ändern (Journal, Storno-Regel, Sperren)"
+    )
+
+
+class AccountiSitzung(Session):
+    """Sitzung ohne die alten ``bulk_*``-Wege auf geschützten Tabellen.
+
+    Sie liefen an Sitzungs- und Mapper-Ereignissen vorbei (Journal, Monats- und
+    Jahressperre, Storno-Regel)."""
+
+    def bulk_save_objects(self, objects: Iterable[object], *a: Any, **kw: Any) -> None:
+        objekte = list(objects)
+        for obj in objekte:
+            if (name := _geschuetzt(obj)) is not None:
+                _massenweg(name)
+        super().bulk_save_objects(objekte, *a, **kw)
+
+    def bulk_insert_mappings(
+        self, mapper: Any, mappings: Iterable[dict[str, Any]], *a: Any, **kw: Any
+    ) -> None:
+        if (name := _geschuetzt(mapper)) is not None:
+            _massenweg(name)
+        super().bulk_insert_mappings(mapper, mappings, *a, **kw)
+
+    def bulk_update_mappings(
+        self, mapper: Any, mappings: Iterable[dict[str, Any]]
+    ) -> None:
+        if (name := _geschuetzt(mapper)) is not None:
+            _massenweg(name)
+        super().bulk_update_mappings(mapper, mappings)
+
+
 def session_factory(
     url: str = "sqlite:///accounti.db",
 ) -> tuple[Engine, sessionmaker[Session]]:
+    registriere_ereignisse()
     engine = create_engine(url)
-    return engine, sessionmaker(bind=engine)
+    return engine, sessionmaker(bind=engine, class_=AccountiSitzung)
 
 
 def registriere_tabellen(
@@ -35,6 +91,18 @@ def registriere_tabellen(
             importlib.import_module(f"{paket_name}.{info.name}")
 
 
-def init_db(engine: Engine) -> None:
+_EREIGNISSE: list[bool] = []
+
+
+def registriere_ereignisse() -> None:
+    """Tabellen samt ORM-Sperren und die Journal-Ereignisse (Baustein 7) einhängen."""
+    if _EREIGNISSE:
+        return
     registriere_tabellen()
+    importlib.import_module("accounti.pruefung.ereignisse")
+    _EREIGNISSE.append(True)
+
+
+def init_db(engine: Engine) -> None:
+    registriere_ereignisse()
     Base.metadata.create_all(engine)

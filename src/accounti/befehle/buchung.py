@@ -5,7 +5,6 @@ from __future__ import annotations
 import typer
 from rich.markup import escape
 
-import accounti.db.tabellen_pruefung  # noqa: F401 — Journal und Storno-Regel
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
