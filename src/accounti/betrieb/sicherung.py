@@ -204,22 +204,34 @@ def lesetransaktion(verbindung: Connection) -> Iterator[Connection]:
 
 
 @contextmanager
-def lesequelle(db: str) -> Iterator[str]:
+def lesequelle(db: str, ordner: Path) -> Iterator[str]:
     """Woraus gelesen wird: eine SQLite-Datei als Kopie über die Backup-API von
     SQLite (``sqlite3.Connection.backup`` in einem Schritt — ein Stand, die
     Lesesperre hält nur so lange wie das Kopieren der Seiten), alles andere direkt.
-    Die Kopie liegt mit Rechten 0600 im Temporärordner und wird gleich gelöscht."""
+
+    Die Kopie liegt mit Rechten 0600 in ``ordner`` (neben der Sicherung, nicht im
+    Temporärordner — im Container ein tmpfs im Speicher) und wird gleich gelöscht.
+    Eine SQLite-Datei, die es nicht gibt, wird nicht angelegt: Abbruch (Cron aus
+    einem anderen Arbeitsverzeichnis, Tippfehler)."""
     url = make_url(db)
     pfad = url.database or ""
     if (
         url.get_backend_name() != "sqlite"
         or pfad in ("", ":memory:")
         or pfad.startswith("file:")
-        or not Path(pfad).is_file()
     ):
         yield db
         return
-    griff, kopie = tempfile.mkstemp(prefix=".accounti-sicherung-", suffix=".db")
+    if not Path(pfad).is_file():
+        msg = (
+            f"Die Datenbank {Path(pfad).resolve()} gibt es nicht — --db bzw. das "
+            "Arbeitsverzeichnis prüfen (es wurde nichts angelegt)"
+        )
+        raise SicherungError(msg)
+    ordner.mkdir(parents=True, exist_ok=True)
+    griff, kopie = tempfile.mkstemp(
+        prefix=".accounti-sicherung-", suffix=".db", dir=ordner
+    )
     os.close(griff)
     os.chmod(kopie, 0o600)
     try:
@@ -322,7 +334,7 @@ def erstelle(
     if system and archiv is not None:
         raise SicherungError("Die Systemdatenbank wird ohne Belegarchiv gesichert")
     metadaten = _metadaten()
-    with lesequelle(db) as quelle:
+    with lesequelle(db, ziel.parent) as quelle:
         return _erstelle(
             quelle, archiv, ziel, schluessel, gesellschaft, system, metadaten
         )
@@ -358,6 +370,12 @@ def _erstelle(
             lesetransaktion(roh) as verbindung,
         ):
             vorhanden = set(inspect(verbindung).get_table_names())
+            if not vorhanden & set(metadaten.tables):
+                msg = (
+                    "Die Datenbank hat keine Tabellen von accounti — --db prüfen "
+                    "(nichts gesichert)"
+                )
+                raise SicherungError(msg)
             liste: list[tuple[str, Path]] = []
             if archiv is not None:
                 liste = archivdateien(archiv)
@@ -380,7 +398,14 @@ def _erstelle(
                 vorlaeufig, "wb", opener=lambda p, f: os.open(p, f, 0o600)
             ) as datei:
                 _schreibe(
-                    datei, schluessel, verbindung, tabellen, liste, manifest, ergebnis
+                    datei,
+                    schluessel,
+                    verbindung,
+                    tabellen,
+                    liste,
+                    manifest,
+                    ergebnis,
+                    ziel.parent,
                 )
         os.replace(vorlaeufig, ziel)
     except BaseException:
@@ -393,9 +418,11 @@ def _erstelle(
 
 
 def _tabelle_schreiben(
-    tar: tarfile.TarFile, verbindung: Connection, tabelle: Table
+    tar: tarfile.TarFile, verbindung: Connection, tabelle: Table, ordner: Path
 ) -> dict[str, Any]:
-    with tempfile.SpooledTemporaryFile(max_size=16 * 1024 * 1024) as puffer:
+    with tempfile.SpooledTemporaryFile(
+        max_size=16 * 1024 * 1024, dir=str(ordner)
+    ) as puffer:
         pruefsumme = hashlib.sha256()
         anzahl = 0
         for zeile in _zeilen(verbindung, tabelle):
@@ -416,12 +443,14 @@ def _schreibe(
     archiv: list[tuple[str, Path]],
     manifest: dict[str, Any],
     ergebnis: Ergebnis,
+    ordner: Path,
 ) -> None:
-    """Tar-Strom aus Tabellen, Archivdateien und Manifest — verschlüsselt."""
+    """Tar-Strom aus Tabellen, Archivdateien und Manifest — verschlüsselt; große
+    Tabellen werden in ``ordner`` (neben der Sicherung) ausgelagert."""
     schreiber = VerschluesselnderSchreiber(datei, schluessel)
     with tarfile.open(fileobj=schreiber, mode="w|", format=tarfile.PAX_FORMAT) as tar:  # type: ignore[call-overload]
         for tabelle in tabellen:
-            angabe = _tabelle_schreiben(tar, verbindung, tabelle)
+            angabe = _tabelle_schreiben(tar, verbindung, tabelle, ordner)
             manifest["tabellen"][tabelle.name] = angabe
             ergebnis.tabellen[tabelle.name] = angabe["zeilen"]
         for rel, pfad in archiv:

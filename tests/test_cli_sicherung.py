@@ -166,6 +166,9 @@ def test_systemdatenbank_sichern_ohne_gesellschaft(umgebung, monkeypatch):
     # ohne standard bei mehreren Gesellschaften: --system braucht keine Wahl
     (umgebung / "zwei").mkdir()
     u2 = zwei_gesellschaften(umgebung / "zwei")
+    engine, _ = session_factory(u2.system)  # die Systemdatenbank gibt es
+    init_db(engine)
+    engine.dispose()
     monkeypatch.setenv("ACCOUNTI_KONFIG", str(u2.registry))
     r = runner.invoke(
         app, ["sicherung", "erstellen", "--system", "--ziel", f"{umgebung}/t/"]
@@ -261,3 +264,17 @@ def test_aufbewahrung_mit_wirtschaftsjahr_aus_der_konfiguration(umgebung):
     assert zeile.split("│")[-3].strip() == "0"  # bis 31.12.2027 aufzubewahren
     zeile = next(z for z in ohne.output.splitlines() if "Buchungen" in z)
     assert zeile.split("│")[-3].strip() == "1"  # Kalenderjahr 2015 → bis 2026
+
+
+def test_sicherung_aus_dem_falschen_arbeitsverzeichnis(umgebung, monkeypatch):
+    """NEU-M2: ``--db`` relativ (Standard ``sqlite:///accounti.db``) aus einem
+    anderen Ordner — Abbruch, und dort entsteht keine leere Datenbank."""
+    anderswo = umgebung / "anderswo"
+    anderswo.mkdir()
+    monkeypatch.chdir(anderswo)
+    r = runner.invoke(
+        app, ["sicherung", "erstellen", "--ziel", str(umgebung / "s"), "--ohne-archiv"]
+    )
+    assert r.exit_code == 1, r.output
+    assert "gibt es nicht" in r.output
+    assert list(anderswo.iterdir()) == []

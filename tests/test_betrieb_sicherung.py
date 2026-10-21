@@ -591,3 +591,39 @@ def test_sicherung_der_systemdatenbank(tmp_path):
         stelle_wieder_her(
             gesellschaft, url(tmp_path / "z.db"), None, SCHLUESSEL, system=True
         )
+
+
+# ---------------------------------------------------------------------------
+# Nachprüfung Runde 2
+# ---------------------------------------------------------------------------
+
+
+def test_fehlende_oder_fremde_sqlite_datei_wird_nicht_gesichert(tmp_path):
+    """NEU-M2 = R2-N6: Cron aus einem anderen Arbeitsverzeichnis (``--db``
+    relativ) oder ein Tippfehler — kein „Gesichert: 0 Tabellen“, keine neue Datei."""
+    import sqlite3
+
+    fehlt = tmp_path / "tippfehler.db"
+    with pytest.raises(SicherungError, match="gibt es nicht"):
+        erstelle(url(fehlt), None, tmp_path / "s1.sicherung", SCHLUESSEL)
+    assert not fehlt.exists() and not (tmp_path / "s1.sicherung").exists()
+    fremd = tmp_path / "fremd.db"
+    with sqlite3.connect(fremd) as v:
+        v.execute("CREATE TABLE notizen (text TEXT)")
+    with pytest.raises(SicherungError, match="keine Tabellen von accounti"):
+        erstelle(url(fremd), None, tmp_path / "s2.sicherung", SCHLUESSEL)
+    assert not (tmp_path / "s2.sicherung").exists()
+
+
+def test_zwischendateien_liegen_neben_dem_ziel(tmp_path, monkeypatch):
+    """R2-N5: Kopie und Auslagerung nicht im Temporärordner (im Container ein
+    tmpfs im Speicher), sondern neben der Sicherung — und hinterher weg."""
+    db, archiv = befuelle(tmp_path)
+
+    def verboten() -> str:
+        raise AssertionError("Temporärordner benutzt")
+
+    monkeypatch.setattr(tempfile, "gettempdir", verboten)
+    ziel = tmp_path / "sicherungen" / "s.sicherung"
+    erstelle(db, archiv, ziel, SCHLUESSEL)
+    assert [p.name for p in ziel.parent.iterdir()] == ["s.sicherung"]
