@@ -23,6 +23,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from accounti.models import Buchungssatz
 from accounti.steuer.eu_steuersaetze import (
     EU_STEUERSAETZE,
+    SteuersatzInfo,
+    steuersatz_fuer_land,
 )
 
 # ---------------------------------------------------------------------------
@@ -30,6 +32,7 @@ from accounti.steuer.eu_steuersaetze import (
 # ---------------------------------------------------------------------------
 
 OSS_SCHWELLE_EUR = Decimal("10000.00")
+_ANFANG = date.min  # Sortierung: der erste Stand eines Landes hat kein Datum
 
 
 # ---------------------------------------------------------------------------
@@ -219,12 +222,14 @@ class OSSEngine:
         self,
         buchungen: list[Buchungssatz],
         jahr: int,
+        erloes_konten: Mapping[str, str] | None = None,
     ) -> tuple[bool, Decimal]:
         """Prüft ob die €10.000-Schwelle für EU-B2C-Fernverkäufe überschritten ist.
 
         Args:
             buchungen: Alle Buchungen des Jahres
             jahr: Prüfjahr
+            erloes_konten: Land → OSS-Erlöskonto (sonst die SKR03-Vorgabe)
 
         Returns:
             Tuple (schwelle_ueberschritten, summe_eu_b2c)
@@ -234,7 +239,7 @@ class OSSEngine:
         # Für jetzt: Summe aller Buchungen auf OSS-Erlöskonten.
         from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
-        oss_konten = set(OSS_ERLOES_KONTEN_SKR03.values())
+        oss_konten = set((erloes_konten or OSS_ERLOES_KONTEN_SKR03).values())
         summe = Decimal("0.00")
 
         for b in buchungen:
@@ -253,14 +258,17 @@ class OSSEngine:
         jahr: int,
         quartal_nr: int,
         erloes_konten_ermaessigt: Mapping[str, str] | None = None,
+        erloes_konten: Mapping[str, str] | None = None,
     ) -> OSSMeldung:
         """Erstellt eine OSS-Quartalsmeldung aus Buchungssätzen.
 
         Gruppiert die OSS-Buchungen des Quartals nach Bestimmungsland und
         Steuersatz; die Steuer wird je Land und Satz einmal aus der Summe der
-        Bemessungsgrundlagen gerundet. Eine Erlösminderung (OSS-Erlöskonto im Soll),
-        deren Erlös mit derselben Belegnummer in einem früheren Quartal liegt, wird
-        als Korrektur dieses Quartals ausgewiesen.
+        Bemessungsgrundlagen gerundet. Maßgeblich ist der Satz am Tag der Lieferung
+        (Art. 63, 93 MwStSystRL) — ändert ein Land ihn im Quartal, hat es zwei
+        Zeilen. Eine Erlösminderung (OSS-Erlöskonto im Soll), deren Erlös mit
+        derselben Belegnummer in einem früheren Quartal liegt, wird als Korrektur
+        dieses Quartals ausgewiesen, mit dem Satz des ursprünglichen Umsatzes.
 
         Args:
             buchungen: Alle Buchungen bis Quartalsende (frühere für die Zuordnung
@@ -269,6 +277,8 @@ class OSSEngine:
             quartal_nr: Quartalsnummer (1-4)
             erloes_konten_ermaessigt: Land → Erlöskonto für Umsätze zum ermäßigten
                 Satz des Bestimmungslands
+            erloes_konten: Land → OSS-Erlöskonto zum Normalsatz (sonst die
+                SKR03-Vorgabe ``OSS_ERLOES_KONTEN_SKR03``)
 
         Returns:
             Vollständige OSSMeldung
@@ -281,7 +291,8 @@ class OSSEngine:
         from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
         konto_zu_land: dict[str, tuple[str, bool]] = {
-            konto: (land, False) for land, konto in OSS_ERLOES_KONTEN_SKR03.items()
+            konto: (land.upper(), False)
+            for land, konto in (erloes_konten or OSS_ERLOES_KONTEN_SKR03).items()
         }
         for code, konto in (erloes_konten_ermaessigt or {}).items():
             konto_zu_land[konto] = (code.upper(), True)
@@ -294,8 +305,10 @@ class OSSEngine:
                 if schluessel not in ursprung or b.datum < ursprung[schluessel]:
                     ursprung[schluessel] = b.datum
 
-        basen: dict[tuple[str, bool], list[Decimal]] = {}
-        korrekturen: dict[tuple[str, bool, int, int], list[Decimal]] = {}
+        basen: dict[tuple[str, bool, SteuersatzInfo], list[Decimal]] = {}
+        korrekturen: dict[
+            tuple[str, bool, int, int, SteuersatzInfo], list[Decimal]
+        ] = {}
         for b in buchungen:
             if not von <= b.datum <= bis:
                 continue
@@ -317,16 +330,21 @@ class OSSEngine:
             )
             if frueher is not None and frueher < von:
                 j, q = self._quartal_fuer_datum(frueher)
-                summe = korrekturen.setdefault((land_code, ermaessigt, j, q), [])
+                stand = steuersatz_fuer_land(land_code, frueher)
+                summe = korrekturen.setdefault((land_code, ermaessigt, j, q, stand), [])
             else:
-                summe = basen.setdefault((land_code, ermaessigt), [])
+                tag = frueher or b.datum
+                stand = steuersatz_fuer_land(land_code, tag)
+                summe = basen.setdefault((land_code, ermaessigt, stand), [])
             summe.append(betrag)
 
-        laender_daten: dict[str, OSSLand] = {}
-        for (land_code, ermaessigt), betraege in sorted(basen.items()):
-            info = EU_STEUERSAETZE[land_code]
+        laender_daten: dict[tuple[str, date | None], OSSLand] = {}
+        for (land_code, ermaessigt, info), betraege in sorted(
+            basen.items(),
+            key=lambda e: (e[0][0], e[0][1], e[0][2].gueltig_ab or _ANFANG),
+        ):
             land = laender_daten.setdefault(
-                land_code,
+                (land_code, info.gueltig_ab),
                 OSSLand(
                     land_code=land_code,
                     land_name=info.land_name,
@@ -345,8 +363,10 @@ class OSSEngine:
                 land.anzahl_normal = len(betraege)
 
         korrektur_liste = []
-        for (land_code, ermaessigt, j, q), betraege in sorted(korrekturen.items()):
-            info = EU_STEUERSAETZE[land_code]
+        for (land_code, ermaessigt, j, q, info), betraege in sorted(
+            korrekturen.items(),
+            key=lambda e: (e[0][:4], e[0][4].gueltig_ab or _ANFANG),
+        ):
             satz = info.ermaessigt if ermaessigt else info.normal
             basis = sum(betraege, Decimal("0.00"))
             korrektur_liste.append(

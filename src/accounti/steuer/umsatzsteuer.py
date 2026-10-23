@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounti.steuer.eu_steuersaetze import (
-    EU_STEUERSAETZE,
     ist_eu_land,
+    steuersatz_oder_none,
 )
 
 
@@ -202,6 +203,7 @@ class UStBerechner:
         kaeufer_hat_ust_id: bool = False,
         ermaessigt: bool = False,
         ist_sonstige_leistung: bool = False,
+        stichtag: date | None = None,
     ) -> UStPosition:
         """Berechnet Umsatzsteuer für einen Verkauf.
 
@@ -212,6 +214,8 @@ class UStBerechner:
             kaeufer_hat_ust_id: Käufer hat gültige USt-ID?
             ermaessigt: Ermäßigter Steuersatz?
             ist_sonstige_leistung: Dienstleistung statt Lieferung?
+            stichtag: Tag der Leistung — der Steuersatz gilt an diesem Tag
+                (ohne: heute)
 
         Returns:
             Vollständige UStPosition mit allen Buchungsinfos
@@ -228,7 +232,11 @@ class UStBerechner:
         kennziffer: int | None = None
 
         if vorfall == Geschaeftsvorfall.INLAND:
-            info = EU_STEUERSAETZE[self.firmen_land]
+            inland = steuersatz_oder_none(self.firmen_land, stichtag)
+            if inland is None:
+                msg = f"Kein Steuersatz für Land '{self.firmen_land}' hinterlegt"
+                raise ValueError(msg)
+            info = inland
             steuersatz = info.ermaessigt if ermaessigt else info.normal
             schluessel = str(int(steuersatz))
             steuer_konto = UST_KONTEN_SKR03.get(schluessel, "1776")
@@ -236,7 +244,7 @@ class UStBerechner:
             kennziffer = ELSTER_KENNZIFFERN.get(f"umsaetze_{int(steuersatz)}", 81)
 
         elif vorfall == Geschaeftsvorfall.EU_B2C_OSS:
-            info_opt = EU_STEUERSAETZE.get(land)
+            info_opt = steuersatz_oder_none(land, stichtag)
             if info_opt is None:
                 msg = f"Kein Steuersatz für Land '{land}' hinterlegt"
                 raise ValueError(msg)

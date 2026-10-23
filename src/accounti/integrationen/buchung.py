@@ -31,7 +31,7 @@ from accounti.models.integrationen import (
     Postenart,
     Schweregrad,
 )
-from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
+from accounti.steuer.eu_steuersaetze import ist_eu_land, steuersatz_fuer_land
 from accounti.steuer.oss import OSS_SCHWELLE_EUR
 from accounti.steuer.umsatzsteuer import (
     DATEV_BU_SCHLUESSEL,
@@ -289,7 +289,7 @@ def _erloes(
     vorfall = berechner.bestimme_vorfall(land, ist_b2b=b2b, kaeufer_hat_ust_id=b2b)
 
     if vorfall is Geschaeftsvorfall.INLAND:
-        info = EU_STEUERSAETZE[k.firmen_land]
+        info = steuersatz_fuer_land(k.firmen_land, p.datum)
         satz = info.ermaessigt if ermaessigt else info.normal
         netto = berechner.brutto_zu_netto(abs(brutto), satz)
         if land != k.firmen_land and ist_eu_land(land):
@@ -322,11 +322,12 @@ def _erloes(
         return
 
     if vorfall is Geschaeftsvorfall.EU_B2C_OSS:
-        info = EU_STEUERSAETZE[land]
+        # Satz des Bestimmungslands am Tag der Lieferung (Art. 63, 93 MwStSystRL)
+        info = steuersatz_fuer_land(land, p.datum)
         satz = info.ermaessigt if ermaessigt else info.normal
         netto = berechner.brutto_zu_netto(abs(brutto), satz)
         steuer_konto = berechner.berechne_ust(
-            netto, land, ermaessigt=ermaessigt
+            netto, land, ermaessigt=ermaessigt, stichtag=p.datum
         ).steuer_konto
         if ermaessigt:
             # die OSS-Meldung kennt den Satz nur über das Erlöskonto
@@ -404,7 +405,7 @@ def _kosten(
     """
     k = lauf.kontext
     if modus == "vorsteuer":
-        satz = EU_STEUERSAETZE[k.firmen_land].normal
+        satz = steuersatz_fuer_land(k.firmen_land, datum).normal
         netto = UStBerechner(firmen_land=k.firmen_land).brutto_zu_netto(
             abs(betrag), satz
         )

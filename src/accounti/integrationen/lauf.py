@@ -64,7 +64,7 @@ from accounti.models.integrationen import (
     Postenart,
     Schweregrad,
 )
-from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
+from accounti.steuer.eu_steuersaetze import ist_eu_land, steuersatz_fuer_land
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 __all__ = ["IntegrationError", "Importergebnis", "Kontext", "importiere"]
@@ -122,7 +122,6 @@ def eu_fernverkaeufe(
     (``integrationen.eu_fernverkaeufe_sonstige``).
     """
     berechner = UStBerechner(firmen_land=firmen_land)
-    satz = EU_STEUERSAETZE[firmen_land].normal
     summen: dict[int, Decimal] = defaultdict(lambda: NULL)
     for jahr, betrag in (sonstige or {}).items():
         summen[jahr] += betrag
@@ -139,6 +138,7 @@ def eu_fernverkaeufe(
                 betrag = p.betrag
                 if a.waehrung != "EUR" and a.kurs:
                     betrag = betrag / a.kurs
+                satz = steuersatz_fuer_land(firmen_land, p.datum).normal
                 netto = berechner.brutto_zu_netto(abs(betrag), satz)
                 summen[p.datum.year] += netto if betrag > 0 else -netto
     return dict(summen)

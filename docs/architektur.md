@@ -315,7 +315,7 @@ Intern gedacht: kein Portal für externe Nutzer.
 
 Vollständiges Umsatzsteuer-Modul mit vier Komponenten:
 
-- **`eu_steuersaetze.py`** — Datenbank aller 27 EU-Steuersätze + UK. Normal, ermäßigt, super-ermäßigt, Währung, OSS-Fähigkeit. Erweiterbar per YAML-Override.
+- **`eu_steuersaetze.py`** — Datenbank aller 27 EU-Steuersätze + UK mit Verlauf: jeder Stand trägt `gueltig_ab`, `steuersatz_fuer_land(land, stichtag)` nimmt den Satz am Tag der Leistung (Normal, ermäßigt, super-ermäßigt, Parksatz, Währung, OSS-Fähigkeit, Quelle). Keine Konfigurationsdatei — eine Satzänderung ist ein neuer Stand in der Tabelle.
 
 - **`umsatzsteuer.py`** — Kern-Engine für USt/VSt-Berechnung:
   - Geschäftsvorfall-Bestimmung (Inland / EU-OSS / EU-B2B-RC / Drittland)

@@ -307,3 +307,109 @@ class TestOSSEngine:
         assert meldung.quartal == "2026-Q2"
         assert meldung.anzahl_transaktionen == 0
         assert meldung.steuer_gesamt == Decimal("0.00")
+
+
+# ===================================================================
+# Steuersätze mit Gültigkeit (Gesamttest Steuer B8)
+# ===================================================================
+
+
+class TestSteuersaetzeVerlauf:
+    """Die Sätze gelten ab einem Tag; maßgeblich ist der Tag der Leistung."""
+
+    def test_rumaenien_ab_august_2025(self) -> None:
+        from datetime import date
+
+        vorher = steuersatz_fuer_land("RO", date(2025, 7, 31))
+        nachher = steuersatz_fuer_land("RO", date(2025, 8, 1))
+        assert (vorher.normal, vorher.ermaessigt) == (Decimal("19"), Decimal("9"))
+        assert (nachher.normal, nachher.ermaessigt) == (Decimal("21"), Decimal("11"))
+        assert nachher.saetze == {Decimal("21"), Decimal("11")}  # 5 % und 9 % weg
+        assert steuersatz_fuer_land("RO", date(2026, 10, 22)).normal == Decimal("21")
+
+    def test_geaenderte_laender_stand_oktober_2026(self) -> None:
+        from datetime import date
+
+        heute = date(2026, 10, 22)
+
+        def saetze(land: str) -> set[str]:
+            return {
+                f"{s.normalize():f}" for s in steuersatz_fuer_land(land, heute).saetze
+            }
+
+        assert saetze("EE") == {"24", "13", "9"}
+        assert saetze("FI") == {"25.5", "13.5", "10"}
+        assert saetze("SK") == {"23", "19", "5"}
+        assert saetze("LT") == {"21", "12", "5"}
+        assert saetze("MT") == {"18", "12", "7", "5"}
+        assert saetze("LU") == {"17", "14", "8", "3"}
+        assert steuersatz_fuer_land("LU", heute).parksatz == Decimal("14")
+        assert steuersatz_fuer_land("BG", heute).waehrung == "EUR"
+        assert steuersatz_fuer_land("BG", date(2025, 12, 31)).waehrung == "BGN"
+        assert steuersatz_fuer_land("EE", date(2025, 6, 30)).normal == Decimal("22")
+        assert steuersatz_fuer_land("SK", date(2024, 12, 31)).normal == Decimal("20")
+        assert steuersatz_fuer_land("LT", date(2025, 12, 31)).ermaessigt == Decimal("9")
+
+    def test_staende_aufsteigend_und_vollstaendig(self) -> None:
+        from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE_VERLAUF
+
+        for code, staende in EU_STEUERSAETZE_VERLAUF.items():
+            assert staende[0].gueltig_ab is None, code
+            daten = [s.gueltig_ab for s in staende[1:]]
+            assert all(d is not None for d in daten), code
+            assert daten == sorted(daten), code  # type: ignore[type-var]
+            assert all(s.land_code == code for s in staende)
+            assert EU_STEUERSAETZE[code] is staende[-1]
+
+    def test_oss_verkauf_nach_rumaenien_mit_21_prozent(self) -> None:
+        from datetime import date
+
+        b = UStBerechner(oss_registriert=True, oss_schwelle_ueberschritten=True)
+        p = b.berechne_ust(Decimal("100.00"), "RO", stichtag=date(2026, 8, 3))
+        assert (p.steuersatz, p.steuerbetrag) == (Decimal("21"), Decimal("21.00"))
+        alt = b.berechne_ust(Decimal("100.00"), "RO", stichtag=date(2025, 7, 3))
+        assert alt.steuerbetrag == Decimal("19.00")
+
+    def test_oss_meldung_satzwechsel_im_quartal_zwei_zeilen(self) -> None:
+        """RO ändert den Satz am 01.08.2025 — Juli mit 19 %, August mit 21 %."""
+        from datetime import date
+
+        from accounti.models import Buchungssatz
+
+        def erloes(tag: date, netto: str, beleg: str) -> Buchungssatz:
+            return Buchungssatz(
+                datum=tag,
+                soll_konto="1363",
+                haben_konto="8329",
+                betrag_netto=Decimal(netto),
+                buchungstext="Erlös RO",
+                beleg_nummer=beleg,
+            )
+
+        meldung = OSSEngine().erstelle_meldung(
+            [
+                erloes(date(2025, 7, 20), "100.00", "A"),
+                erloes(date(2025, 8, 5), "200.00", "B"),
+            ],
+            2025,
+            3,
+            erloes_konten={"RO": "8329"},
+        )
+        zeilen = sorted(
+            (
+                land.steuersatz_normal,
+                land.bemessungsgrundlage_normal,
+                land.steuer_normal,
+            )
+            for land in meldung.laender
+        )
+        assert zeilen == [
+            (Decimal("19"), Decimal("100.00"), Decimal("19.00")),
+            (Decimal("21"), Decimal("200.00"), Decimal("42.00")),
+        ]
+
+    def test_keine_versprochene_yaml_datei(self) -> None:
+        """Die Doku versprach config/eu_steuersaetze.yaml — die gibt es nicht."""
+        import accounti.steuer.eu_steuersaetze as modul
+
+        assert "hat Vorrang" not in (modul.__doc__ or "")
