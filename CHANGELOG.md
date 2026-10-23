@@ -434,6 +434,18 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Kassen-Storno nach `classify` kehrte nichts um** (Gesamttest Abschluss B5): Ein
+  Kassenvorgang ohne `--konto` wird von `classify` am Umsatz kontiert; das nur anfügbare
+  Kassenbuch kennt diese Buchung nicht. `kasse storno` findet die gültige Buchung jetzt
+  über den Umsatz (nach `korrigiere` die Neubuchung, auch Splitbuchungen) und kehrt sie
+  als Storno mit Verknüpfung um (`storno_von`, Buchungskorrektur). Ein noch nicht
+  freigegebener Vorschlag wird nicht storniert (erst freigeben oder korrigieren); ein
+  noch nicht kontierter Vorgang bleibt ohne Buchung, mit Hinweis, beide Umsätze gleich
+  zu kontieren
+- **Storno vor dem Original** (Gesamttest Abschluss B9): `buchung storniere`,
+  `korrigiere --datum` und `kasse storno --datum` lehnen ein Datum vor der Buchung bzw.
+  dem Kassenvorgang ab (§ 17 Abs. 1 Satz 7 UStG; Kassensturzfähigkeit, § 146 Abs. 1
+  AO). `kasse storno` ohne `--datum` nimmt heute, frühestens den Tag des Originals
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

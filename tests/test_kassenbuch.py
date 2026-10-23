@@ -271,3 +271,219 @@ def test_kassen_storno_ohne_gueltige_buchung_abgelehnt(make_session):
         s.commit()
     with make_session() as s, pytest.raises(KassenbuchError, match="ohne Neubuchung"):
         storniere(s, aus.nr, "falsch erfasst", KASSE)
+
+
+# --- Gesamttest Abschluss B5/B9: Storno nach classify, nie vor dem Original ---------
+
+
+def _classify_bucht(make_session, v, soll, haben, status=BuchungStatus.AUTO_GEBUCHT):
+    """Wie classify: eine Buchung am Umsatz des Kassenvorgangs, ohne dass das (nur
+    anfügbare) Kassenbuch davon erfährt."""
+    from accounti.db.repository import speichere_buchung
+    from accounti.models import Buchungssatz
+
+    b = Buchungssatz(
+        transaktion_id=v.transaktion_id,
+        datum=v.datum,
+        soll_konto=soll,
+        haben_konto=haben,
+        betrag_netto=abs(v.betrag),
+        buchungstext=v.text,
+        status=status,
+    )
+    with make_session() as s:
+        speichere_buchung(s, b)
+        s.commit()
+    return b
+
+
+def test_kassen_storno_nach_classify_kehrt_die_buchung_um(make_session):
+    """Befund B5: ohne --konto kontiert classify den Umsatz; das Storno fand die
+    Buchung nicht (nur ``kassenbuch.buchung_id``) und kehrte nichts um."""
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+    from accounti.abschluss.salden import summen_und_salden
+    from accounti.db.repo_pruefung import korrektur_zu
+    from accounti.db.repository import finde_buchung, gebuchte_transaktion_ids
+    from accounti.pruefung.journal import pruefe_journal
+
+    _start(make_session, "100", date(2026, 1, 1))
+    aus = _buche(make_session, "-50", date(2026, 2, 1), "Bareinzahlung auf Bank")
+    assert aus.buchung_id is None
+    gebucht = _classify_bucht(make_session, aus, "1360", "1000")
+    with make_session() as s:
+        st = storniere(s, aus.nr, "falsch", KASSE, datum=date(2026, 2, 3))
+        s.commit()
+    assert st.buchung_id is not None
+    with make_session() as s:
+        gegen = finde_buchung(s, str(st.buchung_id))
+        original = finde_buchung(s, str(gebucht.id))
+        assert (gegen.soll_konto, gegen.haben_konto, gegen.betrag_netto) == (
+            "1000",
+            "1360",
+            D("50"),
+        )
+        assert gegen.storno_von == original.id
+        assert original.storniert_durch == gegen.id
+        assert korrektur_zu(s, original.id).storno_id == gegen.id
+        # beide Umsätze gebucht, Kassenkonto = Kassenbuch, 1360 ausgeglichen
+        assert {aus.transaktion_id, st.transaktion_id} <= gebuchte_transaktion_ids(s)
+        susa = summen_und_salden(s, 2026, lade_kontenrahmen("SKR03"), "bilanz")
+        assert susa.saldo("1000") == D("0") and susa.saldo("1360") == 0
+        assert pruefe_journal(s).in_ordnung
+
+
+def test_kassen_storno_nach_classify_und_korrektur(make_session):
+    from accounti.db.repository import finde_buchung
+    from accounti.pruefung.storno import korrigiere
+
+    _start(make_session)
+    aus = _buche(make_session, "-30", date(2026, 3, 2), "Porto")
+    gebucht = _classify_bucht(make_session, aus, "4930", "1000")
+    with make_session() as s:
+        k = korrigiere(s, str(gebucht.id), "4910", "1000", von="erika")
+        s.commit()
+    with make_session() as s:
+        st = storniere(s, aus.nr, "doppelt", KASSE, datum=date(2026, 3, 5))
+        s.commit()
+        gegen = finde_buchung(s, str(st.buchung_id))
+    assert (gegen.soll_konto, gegen.haben_konto) == ("1000", "4910")
+    assert gegen.storno_von == k.neu.id
+
+
+def test_kassen_storno_nach_classify_mit_splitbuchung(make_session):
+    _start(make_session)
+    aus = _buche(make_session, "-30", date(2026, 3, 2), "Bürobedarf und Porto")
+    for konto, betrag in (("4930", "20"), ("4910", "10")):
+        _classify_bucht(
+            make_session, aus.model_copy(update={"betrag": D(betrag)}), konto, "1000"
+        )
+    with make_session() as s:
+        st = storniere(s, aus.nr, "falsch", KASSE, datum=date(2026, 3, 4))
+        s.commit()
+        gegen = sorted(
+            (b.soll_konto, b.haben_konto, b.betrag_netto)
+            for b in lade_buchungen(s)
+            if b.transaktion_id == st.transaktion_id
+        )
+    assert gegen == [("1000", "4910", D("10")), ("1000", "4930", D("20"))]
+
+
+def test_kassen_storno_eines_vorschlags_abgelehnt(make_session):
+    _start(make_session)
+    aus = _buche(make_session, "-30", date(2026, 3, 2), "Porto")
+    _classify_bucht(make_session, aus, "4930", "1000", BuchungStatus.ZUR_PRUEFUNG)
+    with make_session() as s, pytest.raises(KassenbuchError, match="Vorschlag"):
+        storniere(s, aus.nr, "falsch", KASSE, datum=date(2026, 3, 4))
+
+
+def test_kassen_storno_ungebucht_bleibt_ohne_buchung(make_session):
+    _start(make_session)
+    aus = _buche(make_session, "-30", date(2026, 3, 2), "Porto")
+    with make_session() as s:
+        st = storniere(s, aus.nr, "falsch", KASSE, datum=date(2026, 3, 4))
+        s.commit()
+    assert st.buchung_id is None and _bestand(make_session) == D("100")
+
+
+def test_kassen_storno_nie_vor_dem_original(make_session):
+    """Befund B9: ein rückdatiertes Storno machte den Bestand zwischen Storno und
+    Original falsch und berichtigte die Umsatzsteuer vor dem Umsatz."""
+    _start(make_session, "300", date(2026, 1, 1))
+    ein = _buche(
+        make_session,
+        "119",
+        date(2026, 3, 15),
+        "Barverkauf",
+        gegenkonto="8400",
+        steuersatz=D("19"),
+    )
+    with make_session() as s, pytest.raises(KassenbuchError, match="vor Nr. 2"):
+        storniere(s, ein.nr, "Irrtum", KASSE, datum=date(2026, 2, 1))
+    with make_session() as s:
+        assert len(lade_kassenbuch(s)) == 2
+        st = storniere(s, ein.nr, "Irrtum", KASSE, datum=date(2026, 3, 15))
+        s.commit()
+    assert st.datum == date(2026, 3, 15)
+
+
+def test_kassen_storno_ohne_datum_fruehestens_am_tag_des_originals(make_session):
+    morgen = date.today().replace(year=date.today().year + 1, month=1, day=2)
+    _start(make_session, "300", date.today())
+    ein = _buche(make_session, "50", morgen, "Vorausgezahlt", gegenkonto="8400")
+    with make_session() as s:
+        st = storniere(s, ein.nr, "Irrtum", KASSE)
+        s.commit()
+    assert st.datum == morgen
+
+
+def test_cli_kassen_storno_nach_classify(tmp_path, monkeypatch):
+    """Befund B5 wie im Gesamttest: kasse buchen ohne --konto, classify, kasse storno
+    — danach meldet abschluss pruefen weder ungebuchte Umsätze noch eine Kasse ≠
+    Kassenbuch."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.db import init_db, session_factory
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: einzahlung, muster: "^Bareinzahlung auf Bank", soll_konto: "1360",'
+        ' haben_konto: "1200", buchungstext: "Bareinzahlung Geldtransit"}\n',
+        encoding="utf-8",
+    )
+    url = f"sqlite:///{(tmp_path / 'k.db').as_posix()}"
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    engine.dispose()
+    konfig = str(tmp_path / "accounti.yaml")
+    runner = CliRunner()
+
+    def run(*args):
+        r = runner.invoke(
+            app, [*args, "--db", url, "--config", konfig], env={"COLUMNS": "250"}
+        )
+        return r, " ".join(r.output.split())
+
+    for konto, saldo in (("1000", "100"), ("0880", "-100")):
+        r, _ = run(
+            "abschluss",
+            "eroeffnung",
+            "--jahr",
+            "2026",
+            "--konto",
+            konto,
+            "--saldo",
+            saldo,
+            "--von",
+            "t",
+        )
+        assert r.exit_code == 0, r.output
+    run("kasse", "anfangsbestand", "--betrag", "100", "--datum", "2026-01-01")
+    r, _ = run(
+        "kasse",
+        "buchen",
+        "--betrag",
+        "-50",
+        "--text",
+        "Bareinzahlung auf Bank",
+        "--datum",
+        "2026-02-01",
+    )
+    assert r.exit_code == 0, r.output
+    r = runner.invoke(app, ["classify", "--no-llm", "--db", url, "--config", konfig])
+    assert r.exit_code == 0, r.output
+    r, text = run("kasse", "storno", "2", "--grund", "falsch", "--datum", "2026-02-01")
+    assert r.exit_code == 0, r.output
+    assert "noch nicht kontiert" not in text
+    r, text = run("kasse", "storno", "1", "--grund", "x")
+    assert r.exit_code == 1 and "kann nicht storniert" in text
+    r, text = run("abschluss", "pruefen", "--jahr", "2026")
+    assert "kasse:" not in text and "ungebucht:" not in text, text
+    with fabrik() as s:
+        paare = sorted(
+            (b.soll_konto, b.haben_konto, b.storno_von is not None)
+            for b in lade_buchungen(s)
+            if not (b.beleg_nummer or "").startswith("EB-")
+        )
+    assert paare == [("1000", "1360", True), ("1360", "1000", False)]
