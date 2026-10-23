@@ -117,6 +117,7 @@ buchhaltung:
   skonto_karenz_tage: 3        # Skonto gilt noch, wenn die Bank bis zu 3 Tage später bucht
   skonto_erhalten: {"19": "3736", "7": "3731", "0": "3730"}   # SKR03
   skonto_gewaehrt: {"19": "8736", "7": "8731", "0": "8730"}
+  gelernte_regeln: automatisch    # automatisch | pruefen (nur vorlegen) | aus — Regeln aus Korrekturen und accounti lerne
 
 # USt-IdNr.-Bestätigung beim BZSt (optional — eigene USt-IdNr. aus mandant.ust_id)
 ustid_pruefung:
@@ -360,6 +361,8 @@ server:
   max_beleg_mb: 20                # je Anfrage an POST /api/v1/belege
   anmeldungen_gleichzeitig: 2     # scrypt: 128 MiB je Passwort-Prüfung, sonst 503
   anmeldung_warten_sekunden: 5
+  sprache: de                     # Oberfläche, wenn weder Benutzer noch Browser eine Sprache nennen (de|en)
+  max_vorschau_megapixel: 40      # TIFF-Belege werden darüber nicht als Bild umgewandelt
 
 # Anmeldung (optional — ohne Abschnitt gelten diese Werte; die Sperrwerte gelten nur im Browser,
 # die CLI nutzt immer 5 / 15 / 100)
@@ -371,7 +374,7 @@ auth:
   sitzung_leerlauf_minuten: 30
   sitzung_hoechstdauer_stunden: 8
   totp_toleranz_schritte: 1
-  einmalcode_bestaetigung: true   # Browser-Freigaben mit Einmalcode (in der CLI immer)
+  einmalcode_bestaetigung: true   # Browser: Zahlungslauf, USt-VA, Storno freigegebener Buchungen mit Einmalcode (CLI: immer)
   aussteller: accounti            # Name in der Authenticator-App
 
 # Mehrere eigene Gesellschaften (optional — ohne Abschnitt gibt es eine: „standard“)

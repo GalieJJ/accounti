@@ -1,0 +1,42 @@
+{% extends "basis.html" %}
+{% import "_makros.html" as m with context %}
+{% block titel %}{{ _("Prüfen") }}{% endblock %}
+{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Prüfen") }}</h1>
+<nav class="reiter" aria-label="{{ _('Ansichten') }}">
+  <a href="/pruefen?ansicht=offen"{% if ansicht == "offen" %} aria-current="page"{% endif %}>{{ _("Offen") }} ({{ liste.offen }})</a>
+  <a href="/pruefen?ansicht=zurueckgestellt"{% if ansicht == "zurueckgestellt" %} aria-current="page"{% endif %}>{{ _("Zurückgestellt") }} ({{ liste.zurueckgestellt }})</a>
+  <a href="/pruefen/regeln">{{ _("Gelernte Regeln") }}</a>
+</nav>
+{% if liste.eintraege %}
+<p class="aktionen-kopf">
+  <a class="knopf" href="/pruefen/{{ liste.eintraege[0].buchung.id }}?ansicht={{ ansicht }}" data-taste="j">{{ _("Durcharbeiten") }} <kbd>j</kbd></a>
+  <span>{{ ngettext("%(num)s Buchung", "%(num)s Buchungen", liste.gesamt) }}</span>
+</p>
+<table class="liste queue">
+  <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Gegenpartei") }}</th><th class="zahl">{{ _("Betrag") }} (EUR)</th><th>{{ _("Vorschlag") }}</th><th class="zahl">{{ _("Confidence") }}</th><th>{{ _("Begründung") }}</th></tr></thead>
+  <tbody>
+  {% for e in liste.eintraege %}
+    <tr>
+      <td><a href="/pruefen/{{ e.buchung.id }}?ansicht={{ ansicht }}">{{ e.buchung.datum | datum }}</a></td>
+      <td>{% if e.umsatz %}{{ e.umsatz.gegenkonto_name or "—" }}<br><span class="klein">{{ e.umsatz.verwendungszweck }}</span>{% else %}{{ e.buchung.buchungstext }}{% endif %}</td>
+      <td class="zahl">{{ (e.umsatz.betrag if e.umsatz else e.buchung.betrag_netto + (e.buchung.steuer_betrag or 0)) | betrag }}</td>
+      <td>{{ e.buchung.soll_konto }} {{ _("an") }} {{ e.buchung.haben_konto }}{% if e.buchung.steuer_schluessel is not none %} · {{ _("Steuerschlüssel") }} {{ e.buchung.steuer_schluessel }}{% endif %}</td>
+      <td class="zahl">{{ (e.buchung.confidence * 100) | int | prozent_ganz }}</td>
+      <td>{% if e.herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ e.herkunft.text | truncate(90) }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% if liste.seiten > 1 %}
+<nav class="seiten" aria-label="{{ _('Seiten') }}">
+  {% for n in range(1, liste.seiten + 1) %}
+  <a href="/pruefen?ansicht={{ ansicht }}&amp;seite={{ n }}"{% if n == liste.seite %} aria-current="page"{% endif %}>{{ n }}</a>
+  {% endfor %}
+</nav>
+{% endif %}
+{% else %}
+<p class="meldung" role="status">{% if ansicht == "offen" %}{{ _("Nichts zu prüfen — alles entschieden.") }}{% else %}{{ _("Nichts zurückgestellt.") }}{% endif %}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,50 @@
+{% set r = ansicht_beleg.rechnung %}
+{% if ansicht_beleg.fehler %}<p class="fehler" role="alert">{{ _(ansicht_beleg.fehler) }}</p>{% endif %}
+{% if r %}
+{% if ansicht_beleg.abweichungen %}
+<div class="hinweis" role="note"><p>{{ _("Belegdaten weichen vom strukturierten Teil ab:") }}</p><ul lang="de">{% for x in ansicht_beleg.abweichungen %}<li>{{ x }}</li>{% endfor %}</ul></div>
+{% endif %}
+<dl class="daten erechnung">
+  <div><dt>{{ _("Syntax / Profil") }}</dt><dd>{{ r.syntax }} · {{ r.profil.value }}</dd></div>
+  <div><dt>{{ _("Rechnungsnummer") }}</dt><dd>{{ r.nummer or "—" }}</dd></div>
+  <div><dt>{{ _("Rechnungsdatum") }}</dt><dd>{{ r.datum | datum }}</dd></div>
+  <div><dt>{{ _("Rechnungsart") }}</dt><dd>{{ r.typ or "—" }}</dd></div>
+  {% if r.leistungsdatum %}<div><dt>{{ _("Leistungsdatum") }}</dt><dd>{{ r.leistungsdatum | datum }}</dd></div>{% endif %}
+  {% if r.leistungszeitraum_von or r.leistungszeitraum_bis %}<div><dt>{{ _("Leistungszeitraum") }}</dt><dd>{{ r.leistungszeitraum_von | datum }} – {{ r.leistungszeitraum_bis | datum }}</dd></div>{% endif %}
+  {% for rolle, p in ((_("Verkäufer"), r.verkaeufer), (_("Käufer"), r.kaeufer)) %}
+  <div><dt>{{ rolle }}</dt><dd>{{ p.name or "—" }}{% if p.anschrift.strasse %}<br>{{ p.anschrift.strasse }}{% endif %}{% if p.anschrift.plz or p.anschrift.ort %}<br>{{ p.anschrift.plz or "" }} {{ p.anschrift.ort or "" }} {{ p.anschrift.land or "" }}{% endif %}{% if p.ust_id %}<br>{{ _("USt-IdNr.") }} {{ p.ust_id }}{% endif %}{% if p.steuernummer %}<br>{{ _("Steuernummer") }} {{ p.steuernummer }}{% endif %}</dd></div>
+  {% endfor %}
+  {% if r.faellig %}<div><dt>{{ _("Fällig") }}</dt><dd>{{ r.faellig | datum }}</dd></div>{% endif %}
+  {% if r.iban %}<div><dt>IBAN</dt><dd class="iban">{{ r.iban | iban }}</dd></div>{% endif %}
+  {% if r.zahlungsbedingungen %}<div><dt>{{ _("Zahlungsbedingungen") }}</dt><dd lang="de">{{ r.zahlungsbedingungen }}{% if r.skonto %} ({{ _("Skonto %(prozent)s %% bei Zahlung in %(tage)s Tagen", prozent=r.skonto[0], tage=r.skonto[1]) }}){% endif %}</dd></div>{% endif %}
+</dl>
+{% if r.zeilen %}
+<table class="liste klein">
+  <caption>{{ _("Positionen") }}</caption>
+  <thead><tr><th>{{ _("Bezeichnung") }}</th><th class="zahl">{{ _("Menge") }}</th><th class="zahl">{{ _("Einzelpreis") }}</th><th class="zahl">{{ _("Netto") }}</th><th>{{ _("Steuer") }}</th></tr></thead>
+  <tbody>
+  {% for z in r.zeilen %}
+    <tr><td>{{ z.bezeichnung or "—" }}</td><td class="zahl">{{ z.menge if z.menge is not none else "—" }} {{ z.einheit or "" }}</td><td class="zahl">{{ z.einzelpreis | betrag }}</td><td class="zahl">{{ z.netto | betrag }}</td><td>{{ z.steuerkategorie or "" }} {% if z.steuersatz is not none %}{{ z.steuersatz | prozent }}{% endif %}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if r.zu_abschlaege %}
+<ul class="klein">{% for za in r.zu_abschlaege %}<li>{{ _("Zuschlag") if za.zuschlag else _("Abschlag") }}: {{ za.betrag | betrag }} {{ za.grund or "" }}</li>{% endfor %}</ul>
+{% endif %}
+{% if r.steuern %}
+<table class="liste klein">
+  <caption>{{ _("Steueraufschlüsselung") }}</caption>
+  <thead><tr><th>{{ _("Kategorie") }}</th><th class="zahl">{{ _("Satz") }}</th><th class="zahl">{{ _("Basis") }}</th><th class="zahl">{{ _("Steuer") }}</th></tr></thead>
+  <tbody>{% for st in r.steuern %}<tr><td>{{ st.kategorie or "—" }}{% if st.befreiungsgrund %} <span lang="de">({{ st.befreiungsgrund }})</span>{% endif %}</td><td class="zahl">{{ st.satz | prozent }}</td><td class="zahl">{{ st.basis | betrag }}</td><td class="zahl">{{ st.betrag | betrag }}</td></tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+<dl class="daten summen">
+  <div><dt>{{ _("Netto") }}</dt><dd>{{ r.summen.netto | betrag }} {{ r.waehrung or "" }}</dd></div>
+  <div><dt>{{ _("Steuer") }}</dt><dd>{{ r.summen.steuer | betrag }} {{ r.waehrung or "" }}</dd></div>
+  <div><dt>{{ _("Brutto") }}</dt><dd>{{ r.summen.brutto | betrag }} {{ r.waehrung or "" }}</dd></div>
+  <div><dt>{{ _("Zahlbetrag") }}</dt><dd>{{ r.summen.zahlbetrag | betrag }} {{ r.waehrung or "" }}</dd></div>
+</dl>
+{% if r.notizen %}<ul class="notizen" lang="de">{% for n in r.notizen %}<li>{{ n }}</li>{% endfor %}</ul>{% endif %}
+<p class="klein">{{ _("Eigene Darstellung des strukturierten Teils, keine KoSIT-Visualisierung und kein Prüfbericht; eingebettete Anlagen werden nicht angezeigt.") }}</p>
+{% endif %}

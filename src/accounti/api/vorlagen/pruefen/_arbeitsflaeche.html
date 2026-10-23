@@ -1,0 +1,18 @@
+{% import "_makros.html" as m with context %}
+<div class="queue-kopf">
+  <a href="/pruefen?ansicht={{ ansicht }}">{{ _("Zur Liste") }}</a>
+  {% if pos.nr %}<span class="position">{{ _("%(nr)s von %(gesamt)s", nr=pos.nr, gesamt=pos.gesamt) }}</span>{% endif %}
+  {% if pos.vorher %}<a href="/pruefen/{{ pos.vorher }}?ansicht={{ ansicht }}" hx-get="/pruefen/{{ pos.vorher }}?ansicht={{ ansicht }}" hx-target="#arbeitsflaeche" hx-push-url="true" rel="prev" data-taste="k">{{ _("Voriger") }} <kbd>k</kbd></a>{% endif %}
+  {% if pos.nachher %}<a href="/pruefen/{{ pos.nachher }}?ansicht={{ ansicht }}" hx-get="/pruefen/{{ pos.nachher }}?ansicht={{ ansicht }}" hx-target="#arbeitsflaeche" hx-push-url="true" rel="next" data-taste="j">{{ _("Nächster") }} <kbd>j</kbd></a>{% endif %}
+  <a href="/buchungen/{{ b.id }}">{{ _("Buchung und Journal") }}</a>
+</div>
+{% for meldung in aktion_meldungen %}<p class="meldung" role="status">{{ m.meldung_text(meldung) }}</p>{% endfor %}
+{{ m.fehlerkasten(aktion_fehler) }}
+<div class="flaeche">
+  <section class="links" aria-label="{{ _('Beleg') }}">{% include "pruefen/_beleg_links.html" %}</section>
+  <section class="rechts" aria-label="{{ _('Vorschlag') }}">
+    {% include "pruefen/_vorschlag.html" %}
+    {% include "pruefen/_aktionen.html" %}
+  </section>
+</div>
+{% include "pruefen/_tastenhilfe.html" %}

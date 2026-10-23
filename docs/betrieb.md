@@ -122,8 +122,9 @@ gesellschaften:
 - CLI: `accounti --gesellschaft tochter opos liste` — die Option setzt `--db`, `--archiv` und
   `--config` **aller** Befehle. Ohne Option gilt `standard`; gibt es keinen und mehrere
   Gesellschaften, bricht ein Datenbefehl ab. `accounti gesellschaft liste|zeigen`.
-  `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
-  Regeldatei der Gesellschaft (ohne Registry wie bisher `config/regeln.yaml`).
+  `classify`, `bank lauf` und `opos verbuchen` nutzen die Regeldatei der Gesellschaft (ohne
+  Registry wie bisher `config/regeln.yaml`) und davor deren gelernte Regeln; `lerne` und
+  `korrigiere --lernen` speichern in die Datenbank der Gesellschaft, nicht in die Datei.
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle
   buchhalter`); der Wechsler oben rechts schaltet alle Seiten um. Wer in einer Gesellschaft
   keine Rolle hat, sieht sie nicht.
@@ -219,10 +220,14 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   `/anmelden`).
 - **Sitzungen:** Cookie `__Host-accounti_sitzung` (Secure, HttpOnly, SameSite=Strict),
   30 Minuten Leerlauf, höchstens 8 Stunden; Abmelden, Passwortwechsel, `benutzer sperren`,
-  Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Jede Freigabe im
-  Browser verlangt zusätzlich einen frischen Einmalcode und gilt nur für den angezeigten
-  Inhalt (Empfänger, IBAN, Betrag, Verwendungszweck; hat sich der Entwurf seitdem
-  geändert, 409).
+  Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Freigaben mit
+  Außenwirkung und endgültige Korrekturen verlangen im Browser zusätzlich einen frischen
+  Einmalcode: Zahlungsläufe und USt-VA (gelten nur für den angezeigten Inhalt — Empfänger,
+  IBAN, Betrag, Verwendungszweck; hat sich der Entwurf seitdem geändert, 409) sowie Storno
+  und Korrektur freigegebener Buchungen (`/buchungen/…`). Vorschläge in der
+  Supervisions-Queue (`/pruefen`) entscheidet die angemeldete Sitzung ohne weiteren Code —
+  sie ist mit Passwort und zweitem Faktor entstanden und läuft nach 30 Minuten Leerlauf ab;
+  in der CLI verlangen dieselben Befehle den Einmalcode, weil sie keine Sitzung hat.
 - **CLI:** Ohne eingerichtete Benutzer prüft accounti nichts. Mit Benutzern verlangen
   `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist --freigeben` (Rolle
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
@@ -541,3 +546,22 @@ eingerichteten Benutzern braucht `journal uebernehmen` die Rolle `verwalter` und
 Einmalcode (z. B. `-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`). Hat ein Befehl
 des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`),
 übernimmt die Migration sie und ergänzt nur, was fehlt.
+
+**Update auf Baustein 10b** (Migrationen `d5a849692843` und `e7153706b43a` auf `ddc9a184ddb4`:
+`kontierungsgruende`, `kontierungsregeln`, `auth_benutzer.sprache`): Alembic migriert die
+Datenbank aus `ACCOUNTI_DB` — bei mehreren Gesellschaften **jede** Datenbank einzeln, die
+Systemdatenbank zuerst (ohne `auth_benutzer.sprache` startet `serve` nicht); die URLs stehen in
+`.env`:
+
+```bash
+docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_SYSTEM_DB" --entrypoint alembic app -c /app/alembic.ini upgrade head
+docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_DB_MUSTER" --entrypoint alembic app -c /app/alembic.ini upgrade head
+docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_DB_TOCHTER" --entrypoint alembic app -c /app/alembic.ini upgrade head
+docker compose run --rm app -g muster regeln uebernehmen --probe   # alte gelernt_*-Regeln ansehen, dann ohne --probe
+```
+
+Früher gelernte Regeln (`gelernt_*` am Ende der Regeldatei) übernimmt `regeln uebernehmen` in die
+Datenbank (mit eingerichteten Benutzern mit dem Recht `regeln_lernen` und Einmalcode, z. B.
+`-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`); danach die genannten Einträge von Hand
+aus der Datei löschen. Hat ein Befehl des neuen Abbilds die neuen Tabellen vor der Migration
+schon angelegt, übernimmt die Migration sie.

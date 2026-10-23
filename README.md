@@ -93,7 +93,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
 | ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen, auch am Bestand vorbei); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; mit Benutzern nur mit Rolle und Einmalcode, im Journal steht der Benutzer; Verfahrensdokumentation aus dem eingerichteten System |
 | ✅ | **Aufgaben & Rückfragen** | Aufgaben mit Bezug auf Buchung, Beleg, Umsatz, Kontakt oder Bankkonto; Prüfläufe (unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe) idempotent und mit Selbstabschluss; Zuständigkeit an Person oder Rolle, sonst gemeinsame Liste; Rückfragen am Beleg; gebündelte Tagesübersicht per E-Mail oder Webhook |
-| 🔲 | **Supervisionsansicht** | Web-UI: Beleg links, Vorschlag rechts, Korrektur in einem Schritt |
+| ✅ | **Supervisionsansicht** | Prüfen im Browser: Beleg links (PDF, Bild, E-Rechnung lesbar), Vorschlag rechts mit Confidence und gespeicherter Herkunft und Begründung; freigeben, korrigieren, zurückstellen per Tastatur; aus einer Korrektur wird auf Wunsch eine Regel mit Vorschau — nur in der Zahlungsrichtung des Umsatzes, abschaltbar —, die beim nächsten Lauf Vorrang hat; freigegebene Buchungen nur per Storno mit Einmalcode |
 
 **Steuer & Abschluss**
 
@@ -118,7 +118,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
 | ✅ | **REST-API** | `/api/v1` mit API-Token und Rechten (`opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`): offene Posten und Buchungen abfragen, Belege einliefern (Pipeline wie der Webhook), `bank lauf` und `aufgaben lauf` anstoßen; Token nur als Hash gespeichert, ohne Recht 403 |
 | ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
-| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI) — auch Buchungsfreigabe, Korrektur, Storno und Festschreibung —, Vier-Augen-Freigabe; DE/EN folgt |
+| ✅ | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft; Zahlungsläufe, Steuermeldungen und Storno freigegebener Buchungen nur mit Rolle und Einmalcode (Browser und CLI), in der CLI auch Buchungsfreigabe, Korrektur und Festschreibung; Vier-Augen-Freigabe |
+| ✅ | **Deutsch/Englisch** | Oberfläche zweisprachig, Sprache je Benutzer oder nach Browser; Fachbegriffe wie „Buchungssatz“ bleiben deutsch |
 | ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
 
 Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
@@ -555,6 +556,27 @@ Mit eingerichteten Benutzern verlangen `zahlung freigeben` und `ustva freigeben`
 `freigeber` und den Einmalcode der handelnden Person, Buchungsfreigabe, Korrektur, Storno und
 Festschreibung die Rollen aus dem Abschnitt oben; ohne Benutzer bleibt alles wie bisher.
 
+### Prüfen im Browser
+
+```bash
+accounti serve                          # dann https://…/pruefen (TLS über den Reverse-Proxy)
+accounti review                         # dieselbe Liste in der Konsole, mit Begründung
+accounti korrigiere 3f2a… --soll 4930 --haben 1200 --steuer 9 --lernen   # Regel in der Datenbank, mit Vorrang
+accounti lerne --name miete --muster 'miete\s+\d{4}' --soll 4210 --haben 1200   # Regex, ebenfalls in der Datenbank
+accounti regeln liste                   # gelernte, eigene und Standardregeln in Reihenfolge
+accounti regeln deaktivieren <ID> --grund "zu breit"
+accounti regeln uebernehmen --probe     # alte gelernt_*-Einträge aus der Regeldatei übernehmen
+```
+
+Gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie entstanden sind.
+Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor, mit `aus` greifen sie
+gar nicht. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel,
+`z` zurückstellen, `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das
+Sachkonto, fragt accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
+angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als
+Storno mit Neubuchung, mit frischem Einmalcode. Jede Aktion steht mit dem angemeldeten Benutzer im
+Journal.
+
 ---
 
 ## Architektur
@@ -824,10 +846,11 @@ kontieren will, braucht nur v0.1.
 
 ### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
 - [x] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
-- [ ] Web-UI: Supervisions-Queue mit Belegansicht, BWA mit Vorjahresvergleich
+- [x] Web-UI: Supervisions-Queue mit Belegansicht, Korrektur → Regel
+- [ ] Web-UI: BWA mit Vorjahresvergleich, Kontenblätter, CSV/PDF
 - [x] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, mehrere Gesellschaften, REST-API
 - [x] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
-- [ ] DE/EN in der Oberfläche
+- [x] DE/EN in der Oberfläche
 
 ### v0.6 — Integrationen *(Baustein 11)*
 - [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal

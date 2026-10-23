@@ -997,7 +997,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   beiden Browsern an? (2) Ein 409-Fragment über `responseHandling` wird eingetauscht, ein 500
   und ein 503 zeigen den Hinweis aus `pruefen.js`. (3) Abgelaufene Sitzung → `HX-Redirect` führt
   zur Anmeldung und danach zurück. Die gewählte PDF-CSP geht in `test_pdf_inline_mit_sicheren_kopfzeilen`.
-- [ ] **Testwelt** (`tests/pruefen_hilfe.py` auf `api_hilfe.webwelt` und `pruefung_hilfe`
+- [x] **Testwelt** (`tests/pruefen_hilfe.py` auf `api_hilfe.webwelt` und `pruefung_hilfe`
   (`umsatz`, `buchung`, `beleg`, `kontakt`, `anlegen`)): unsichere Buchung über den echten
   `kontiere_umsaetze` mit LLM-Attrappe (Confidence 0,62, Begründung), Beleg im Archiv der
   Gesellschaft (PDF aus `tests/pdf_hilfe`, PNG, TIFF ein- und mehrseitig, XRechnung UBL/CII,
@@ -1005,7 +1005,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   Kreditkarten-Sammelbelastung mit Abweichung, offene Nachforderung `beleg_fehlt`, `belegfrei`-Regel,
   abgeschlossenes Vorjahr mit Vorschlag; Gesellschaften a (SKR03) und b (SKR04, `bank_konto`
   1800, eigene `pruefung.kontenrahmen_datei`); Personen mit allen vier Rollen.
-- [ ] **Liste und Arbeitsfläche** (`api/seiten/pruefen.py`, `vorlagen/pruefen/liste.html`,
+- [x] **Liste und Arbeitsfläche** (`api/seiten/pruefen.py`, `vorlagen/pruefen/liste.html`,
   `arbeitsflaeche.html`, `_arbeitsflaeche.html`, `_vorschlag.html`, `_korrektur.html`,
   `_tastenhilfe.html`): *Tests* `tests/test_api_pruefen.py::test_liste_mit_confidence_und_begruendung`,
   `::test_arbeitsflaeche_beleg_links_vorschlag_rechts`, `::test_konto_mit_bezeichnung_und_schluessel_mit_bedeutung`
@@ -1016,7 +1016,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_liste_seitenweise`, `::test_betrachter_sieht_keine_formulare`, `::test_fremde_gesellschaft_404`,
   `::test_nur_volle_uuid` (Präfix → 404), `::test_tastenbelegung_im_markup`,
   `tests/test_api_statisch.py::test_tasten_in_markup_und_skript_gleich`.
-- [ ] **Aktionen** (freigeben, korrigieren, zurückstellen): *Tests*
+- [x] **Aktionen** (freigeben, korrigieren, zurückstellen): *Tests*
   `tests/test_api_pruefen.py::test_freigeben_und_weiter`, `::test_korrigieren_vorschlag_direkt`,
   `::test_korrigieren_braucht_buchen` (freigeber, verwalter → 403),
   `::test_steuerauswahl_aus_steuer_optionen` (Belegbuchung ohne „anderer Schlüssel“, USt 2/3 ohne
@@ -1030,14 +1030,14 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_ohne_htmx_303_auf_den_naechsten`, `::test_entscheidung_schliesst_kontierung_pruefen`,
   `::test_fehler_der_fachlogik_als_409_mit_meldung` (Jahressperre), `::test_skr04_gesellschaft_mit_eigenem_bankkonto`,
   `::test_keine_einmalcode_abfrage_in_der_queue`.
-- [ ] **Regelvorschau und gelernte Regeln** (`vorlagen/pruefen/_regelvorschau.html`,
+- [x] **Regelvorschau und gelernte Regeln** (`vorlagen/pruefen/_regelvorschau.html`,
   `regeln.html`): *Tests* `tests/test_api_regeln.py::test_vorschau_fragment_und_ohne_js`,
   `::test_vorschau_nur_per_post` (GET → 405), `::test_vorschau_ohne_recht_403`,
   `::test_vorschau_zeigt_richtung_und_gegenrichtung`,
   `::test_korrektur_mit_regel_ohne_recht_403_und_nichts_gespeichert` (Recht per `monkeypatch`
   aus `ROLLEN_RECHTE` entfernt: weder Korrektur noch Regel), `::test_regeln_liste_und_deaktivieren`,
   `::test_verwalter_deaktiviert`, `::test_muster_mit_markup_escaped`.
-- [ ] **Belegvorschau** (`api/seiten/belege.py`, `api/belegantwort.py`, `vorlagen/belege/beleg.html`,
+- [x] **Belegvorschau** (`api/seiten/belege.py`, `api/belegantwort.py`, `vorlagen/belege/beleg.html`,
   `_vorschau.html`, `_erechnung.html`): *Tests* `tests/test_api_belege.py::test_pdf_inline_mit_sicheren_kopfzeilen`
   (Typ, `inline` mit festem Namen, `nosniff`, `no-store`, CORP, CSP laut Spike, Bytes = Archiv),
   `::test_range_anfrage`, `::test_png_und_jpeg`, `::test_tiff_als_png_seiten`,
@@ -1048,7 +1048,7 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_dateiname_des_absenders_nie_im_kopf` (`"`, CRLF, Nicht-ASCII), `::test_typ_aus_dem_inhalt`
   (PDF mit Endung `.png`), `::test_beleg_anderer_gesellschaft_404`, `::test_datei_fehlt_404_ohne_pfad`,
   `::test_markup_in_erechnung_und_begruendung_escaped`.
-- [ ] **Buchungsansicht und Storno mit Einmalcode** (`api/seiten/buchungen.py`,
+- [x] **Buchungsansicht und Storno mit Einmalcode** (`api/seiten/buchungen.py`,
   `vorlagen/buchungen/buchung.html`): *Tests* `tests/test_api_buchungen.py::test_storno_kette_korrektur_und_journal_sichtbar`
   (dieselben Daten wie `accounti buchung zeige`), `::test_freigegebene_buchung_korrigieren_ist_storno_und_neubuchung`
   (Original unverändert bis auf `storniert_durch`, `buchungskorrekturen.person` = jan),
@@ -1058,19 +1058,49 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   `::test_warnung_anderer_voranmeldungszeitraum`, `::test_stornieren_verlangt_grund`,
   `::test_veralteter_stand_409_kein_storno`, `::test_reines_storno_hinweis_umsatz_wieder_offen`,
   `::test_storno_eines_stornos_abgelehnt`.
-- [ ] **Person aus der Sitzung** (`tests/test_api_journal_person.py`):
+- [x] **Person aus der Sitzung** (`tests/test_api_journal_person.py`):
   `::test_kein_web_eintrag_ohne_angemeldeten_benutzer` — `ACCOUNTI_BENUTZER=mallory`,
   `getpass.getuser` → „mallory“; jeder POST-Endpunkt der Registry wird mit gültigen Daten
   aufgerufen; kein neuer Journaleintrag, kein `geprueft_von`, keine Korrektur, Regel oder
   Rückfrage trägt „mallory“, alle tragen den angemeldeten Benutzer.
-- [ ] **Rechte-Matrix** (`tests/test_api_rechte_matrix.py`): `EinesVon` ergänzen; alle neuen
+- [x] **Rechte-Matrix** (`tests/test_api_rechte_matrix.py`): `EinesVon` ergänzen; alle neuen
   Endpunkte in `SEITEN` (Pfade mit Konverter); `anfrage()` ersetzt `{buchung_id:uuid}`,
   `{beleg_id:uuid}`, `{regel_id:uuid}`, `{n:int}`, `{bericht}`, `{format}`, liefert `stand` und
   zieht einen Wiederherstellungscode **nur** für `MIT_EINMALCODE`;
   `::test_jede_rolle_gegen_jeden_endpunkt` und `::test_jeder_endpunkt_steht_in_der_matrix` grün;
   neu `tests/test_api_csrf.py::test_jeder_post_ohne_csrf_403_und_nichts_geaendert`.
-- [ ] **Akzeptanz 1 und 2 als Ende-zu-Ende-Tests** (`tests/test_akzeptanz_web.py`, Ablauf in der Tabelle
+- [x] **Akzeptanz 1 und 2 als Ende-zu-Ende-Tests** (`tests/test_akzeptanz_web.py`, Ablauf in der Tabelle
   „Spec und Akzeptanz“ unten).
+
+**Umsetzung Paket 3 (22.10.2026) — Abweichungen vom Plan:**
+
+- `/buchungen/{id}/korrigieren|stornieren`: erst der Prüfstand (409 verbraucht keinen
+  Einmalcode), dann die fachliche Vorabprüfung (422), erst dann `bestaetige_einmalcode`
+  und die Ausführung (`tests/test_api_buchungen.py::test_veralteter_stand_409_kein_storno`).
+- Belegrouten: `/belege/{id}/datei` nur für PDF/PNG/JPEG (sonst 415, kein Download über
+  diese Route), `/belege/{id}/seite/{n}.png` für TIFF-Seiten, `/belege/{id}/download` mit
+  `default-src 'none'; sandbox` und festem Dateinamen aus der Beleg-ID; XML nie inline.
+  `test_api_belege.py` hat 18 Prüfungen (einige Planpunkte zusammengefasst).
+- Leere Queue nach der letzten Entscheidung: der HTMX-Weg antwortet mit `HX-Redirect` auf
+  die Liste statt mit einem Fragment; ohne JS 303.
+- Protokolltest heißt `test_betrieb_protokoll.py::test_queue_belege_ohne_belegtexte_im_protokoll`
+  (ohne Auswertungen und CSV — die kommen mit Paket 4).
+- Prüfschlange auch unter PostgreSQL geprüft (`tests/test_pruefschlange.py::test_stand_und_aktionen_unter_postgresql`,
+  Stand-Prüfung unter der Schreibsperre).
+- Befunde der Browserprobe (Chromium), behoben: (1) `Strg+Enter` löste den **ersten**
+  Absendeknopf des Formulars aus — das war „Vorschau“ (Regelvorschau), nicht „Korrigieren“;
+  jetzt steht „Korrigieren“ als erster Absendeknopf (`.hauptknopf`, auch für Enter ohne
+  Skript) und `pruefen.js` sucht zuerst `button.hauptknopf`
+  (`test_api_pruefen.py::test_korrigieren_ist_der_standardknopf`). (2) Der Vorschau-Knopf
+  erbte `hx-disabled-elt="find button"` des Formulars und fand unter sich nichts
+  (Konsolenfehler) — jetzt `hx-disabled-elt="this"`. (3) CSP-Meldungen „Applying inline
+  style“ kamen von htmx: `attributesToSettle` überträgt standardmäßig `style`, und ein
+  leeres `style=""` (hier von Werkzeugen gesetzt) wird so zum Inline-Stil — `style` aus
+  `attributesToSettle` entfernt (`test_api_statisch.py::test_htmx_konfiguration`).
+  (4) Schmale Ansicht (420 px): Formulare liefen 10 px über — `.aktionen` mit
+  `minmax(0, 1fr)`, Eingaben `min-width: 0`, Abschnitte unter 60rem `overflow-x: auto`.
+- Der Vorschau-Knopf heißt „Regelvorschau“ (eindeutiger als „Vorschau“ neben der
+  Belegvorschau).
 
 ### Paket 4 — Auswertungen (PR 10b-2)
 
@@ -1136,21 +1166,23 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
 
 ### Abschluss (je PR)
 
-- [ ] **Protokoll** (`tests/test_betrieb_protokoll.py` ergänzt):
+- [x] **Protokoll** (`tests/test_betrieb_protokoll.py` ergänzt; für 10b-1 als
+  `::test_queue_belege_ohne_belegtexte_im_protokoll`, Auswertungen und CSV mit 10b-2):
   `::test_queue_belege_auswertungen_ohne_belegtexte_im_protokoll` — Durchlauf mit
   unverwechselbaren Markern in Verwendungszweck, Lieferant, Begründung, Belegdatei, E-Rechnung,
   Regelmuster, Rückfragetext, Einmalcode, CSV; die gesammelte Protokollausgabe enthält keinen davon
   (auch nicht bei 409/404/422/503/500); im Zugriffsprotokoll stehen Routenvorlagen.
-- [ ] **Migration gegen jede Datenbank** (nur PR 10b-1): `alembic upgrade head` als Unterprozess
+- [x] **Migration gegen jede Datenbank** (erledigt 22.10.2026: SQLite und PostgreSQL 16 im Test
+  und von Hand — Rundlauf unten; nur PR 10b-1): `alembic upgrade head` als Unterprozess
   gegen SQLite im Test, gegen PostgreSQL über `tests/pg_hilfe.mit_postgresql`
   (`ACCOUNTI_TEST_PG`) und in der Docker-Probe wie in 10a — für die Systemdatenbank **und** jede
   Gesellschaftsdatenbank; danach `compare_metadata` ohne Abweichung für die neuen Tabellen und die
   Spalte (`tests/test_migration_web.py::test_schema_gleich_metadaten`).
-- [ ] **Sicherung** (`tests/test_betrieb_sicherung.py` ergänzt): Rundlauf mit
+- [x] **Sicherung** (`tests/test_betrieb_sicherung.py` ergänzt, SQLite und PostgreSQL): Rundlauf mit
   `kontierungsgruende` und `kontierungsregeln` (Zeilen gleich, Nur-anfügen-Trigger beim
   Zurückspielen nicht im Weg und danach wirksam, `journal pruefen` danach in Ordnung) — die
   Sicherung selbst ist generisch (kein Code).
-- [ ] **Browserprobe** (vom Umsetzer durchzuführen, Ergebnis im Plan festhalten wie die
+- [x] **Browserprobe** (erledigt 22.10.2026 in Chromium, Ergebnis unten; Firefox offen) (vom Umsetzer durchzuführen, Ergebnis im Plan festhalten wie die
   Docker-Probe in 10a): `accounti serve` mit Testbestand; Chrome und Firefox: PDF im Rahmen
   sichtbar (mit der gewählten Antwort-CSP), TIFF, E-Rechnung, Tasten `j k f e r z b ?`,
   `Strg+Enter`, **`Strg+F` löst nichts aus**, gehaltenes `f` gibt nur einmal frei, Kürzel
@@ -1158,8 +1190,32 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
   (Steuerangabe beim Sachkontowechsel), **abgelaufene Sitzung führt zur Anmeldung** (nicht ins
   Fragment), Storno mit Einmalcode auf `/buchungen/{id}`, 503 während eines laufenden
   `bank lauf`, Zurück-Taste, Sprache wechseln, Druck/Download von CSV und PDF, schmale Ansicht.
-- [ ] **Gegnerische Prüfung** (Befunde und Behebung als „Runde 1“ im Plan), `pytest`, `ruff`
-  (ohne Cache), `mypy` grün; Checkboxen abgehakt; Doku-Bausteine eingearbeitet.
+- [x] **Gegnerische Prüfung** (Runde 1 = Befunde der Browserprobe, siehe „Umsetzung Paket 3“;
+  eine weitere Runde durch eine zweite Person steht aus), `pytest`, `ruff` (ohne Cache), `mypy`
+  grün; Checkboxen abgehakt; Doku-Bausteine für Paket 1–3 eingearbeitet (10b-1).
+
+**Abschluss PR 10b-1 (22.10.2026):**
+
+- Migrationen `d5a849692843_add_kontierung` und `e7153706b43a_add_benutzer_sprache` (auf
+  `ddc9a184ddb4`, ein Head). Rundlauf von Hand gegen SQLite (ini-Kopie, Scratch-Datenbank):
+  `upgrade head`, `accounti check`, Nur-anfügen-Trigger von Hand geprüft, `downgrade -1`,
+  `upgrade head`; gegen PostgreSQL 16 (Container `accounti-test-pg10b`, nur 127.0.0.1, danach
+  entfernt) derselbe Rundlauf plus `tests/test_migration_web.py::test_postgresql_rundlauf`,
+  `test_betrieb_sicherung.py` (Kontierungstabellen), `test_pruefschlange.py` (PG),
+  `test_betrieb_laufsperre.py`, `test_pruefung_nebenlaeufigkeit.py` mit `ACCOUNTI_TEST_PG`.
+- Browserprobe (Chromium 1.59.1 über Playwright, `accounti serve` auf 127.0.0.1:8472 mit
+  Scratch-Bestand aus `examples/`, Benutzer mit TOTP): PDF im Rahmen sichtbar (Antwort-CSP
+  mit `form-action 'none'`), JPEG als Bild, XRechnung als lesbare Ansicht ohne Rahmen; Tasten
+  `j k f e r z b ?` und `Strg+Enter`; `Strg+F` löst nichts aus; gehaltenes `f` gibt genau einmal
+  frei; Kürzel in der Hilfe abschaltbar (localStorage, dann kein POST auf `f`); HTMX-Austausch
+  ohne CSP-Fehler in der Konsole (nach Befund 3); 422 beim Sachkontowechsel im HTMX-Weg mit
+  markiertem Feld, 409 im Test; abgelaufene Sitzung → `HX-Redirect` zur Anmeldung mit `weiter`
+  und zurück zur Arbeitsfläche; Storno mit Einmalcode auf `/buchungen/{id}` (englische
+  Oberfläche); Zurück- und Vorwärts-Taste nach `hx-push-url`; Sprache wechseln (`lang`,
+  Titel „Review · accounti“); schmale Ansicht 420/360 px ohne Seitenscroll. Bildschirmfotos
+  DE/EN liegen beim Umsetzer. **Nicht geprobt:** Firefox (nicht installiert), TIFF im Browser
+  (nur TestClient), 503 während eines laufenden `bank lauf` (nur TestClient mit
+  `OperationalError`), Druck sowie CSV/PDF (Paket 4).
 
 ---
 
@@ -1429,6 +1485,20 @@ Durchlaufs mit Markern in allen Fremddaten.
 ---
 
 ## Doku-Bausteine
+
+**Stand 22.10.2026 (PR 10b-1):** Die Teile zu Paket 1–3 sind eingearbeitet — README (Zeilen
+Supervisionsansicht, Benutzer & Rollen, neue Zeile Deutsch/Englisch, Abschnitt „Prüfen im
+Browser“, Roadmap v0.5), CHANGELOG `[Unreleased]` (Hinzugefügt ohne Auswertungen, Geändert ohne
+BWA, Behoben nur `korrigiere --lernen`/`lerne`), bauplan (Zeile 10 mit `i18n/`, weiter
+„teilweise“, Absatz zu 10b Teil 1 und offenem Teil 2, Satz zur Verzahnung mit 7), architektur
+(`api/`, `i18n/`, `pruefung/`, `klassifikation/` Stufe 3, Datenmodell, Sicherheit ohne CSV,
+Erweiterungspunkte ohne „Auswertung mit Export“, „Neue Kontierungsregel“), betrieb (Sitzungen,
+Mehrere Gesellschaften, „Update auf Baustein 10b“), `config/accounti.example.yaml` (`server.sprache`,
+`server.max_vorschau_megapixel`, `auth.einmalcode_bestaetigung`, `buchhaltung.gelernte_regeln`).
+**Offen für PR 10b-2:** README-Zeile BWA, Auswertungs-Beispiele unter „Erster Import“,
+Kontenrahmen-Absatz und `bwa_zeile`, Abschnitt „BWA“; CHANGELOG-Punkte zu BWA, `bwa_zeile` und
+CSV; bauplan „fertig“; architektur `bwa/`, `auswertung/`, Zeile „Auswertung mit Export“;
+Konfigurationsabschnitt `bwa`.
 
 Fertige Texte zum Einarbeiten beim Zusammenführen (diese Dateien werden in diesem Auftrag nicht
 geändert). Grundlage ist der Stand **nach** dem Merge von 7 (README, CHANGELOG, Bauplan,

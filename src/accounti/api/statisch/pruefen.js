@@ -58,7 +58,9 @@
 
   function hilfe() {
     var box = document.getElementById("tastenhilfe");
-    if (box) {
+    if (box && box.tagName.toLowerCase() === "details") {
+      box.open = !box.open; /* <details>: ohne Skript per Klick bedienbar */
+    } else if (box) {
       box.hidden = !box.hidden;
     }
   }
@@ -92,7 +94,9 @@
       if (e.key === "Enter" && e.ctrlKey && !e.altKey && !e.metaKey) {
         var formular = e.target.form;
         if (formular) {
-          var knopf = formular.querySelector('button[type="submit"]');
+          var knopf =
+            formular.querySelector("button.hauptknopf") ||
+            formular.querySelector('button[type="submit"]');
           if (knopf && !knopf.disabled) {
             e.preventDefault();
             knopf.click();

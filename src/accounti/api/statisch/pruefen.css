@@ -1,0 +1,51 @@
+/* accounti — Prüfseite, Belegvorschau, Buchungsansicht (Baustein 10b). Keine
+   Inline-Stile (CSP style-src 'self'): Breiten und Höhen nur über Klassen. */
+.reiter { display: flex; gap: 1rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
+.reiter a[aria-current="page"] { font-weight: 700; text-decoration: none; }
+.knopf { display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid var(--akzent); text-decoration: none; }
+.aktionen-kopf { display: flex; gap: 1rem; align-items: center; }
+.klein { font-size: 0.85rem; }
+.gedaempft { color: var(--gedaempft); }
+.quelle { font-weight: 600; }
+.queue td { vertical-align: top; }
+.queue-kopf { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-bottom: 0.6rem; }
+.position { font-weight: 600; }
+.arbeitsflaeche-rahmen { width: 100%; }
+.flaeche { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
+.flaeche > section { background: var(--flaeche); border: 1px solid var(--linie); padding: 0.8rem; min-width: 0; }
+iframe.beleg { width: 100%; height: 75vh; border: 1px solid var(--linie); background: #fff; }
+.beleg-bild { display: block; max-width: 100%; height: auto; margin-bottom: 0.6rem; border: 1px solid var(--linie); }
+.daten { display: grid; gap: 0.3rem; margin: 0; }
+.daten div { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 0.5rem; }
+.daten dt { color: var(--gedaempft); }
+.daten dd { margin: 0; overflow-wrap: anywhere; }
+.begruendung { margin: 0.3rem 0 0; white-space: pre-wrap; }
+.konto-name { color: var(--gedaempft); }
+.hinweis { padding: 0.5rem; border-left: 4px solid var(--akzent); background: var(--hintergrund); }
+.sperre { border-left-color: var(--fehler); }
+.aktionen { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.8rem; margin-top: 1rem; }
+.aktionen form, .korrektur fieldset, .zurueckstellen fieldset { display: grid; gap: 0.4rem; min-width: 0; }
+.flaeche input, .flaeche select, .flaeche textarea { min-width: 0; max-width: 100%; box-sizing: border-box; }
+.konten { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 0.4rem; align-items: center; }
+.regel { border: 1px dashed var(--linie); }
+.haken { display: flex; gap: 0.4rem; align-items: center; }
+.markiert { outline: 2px solid var(--fehler); }
+.knopfzeile { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.vorschau { border-top: 1px solid var(--linie); padding-top: 0.4rem; }
+.warnungen { color: var(--fehler); }
+.tastenhilfe { margin-top: 1rem; }
+.tastenhilfe dl { display: grid; gap: 0.2rem; }
+.tastenhilfe dl div { display: grid; grid-template-columns: 10rem 1fr; }
+.inline { display: flex; gap: 0.4rem; align-items: center; }
+.unsichtbar { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+.seiten { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+.kette { padding-left: 1.2rem; }
+@media (max-width: 60rem) {
+  .flaeche { grid-template-columns: 1fr; }
+  .flaeche > section { overflow-x: auto; } /* breite Tabellen scrollen im Abschnitt, nicht die Seite */
+  iframe.beleg { height: 60vh; }
+  .konten { grid-template-columns: auto 1fr; }
+}
+@media print {
+  .kopfleiste, .aktionen, .tastenhilfe, .queue-kopf { display: none; }
+}

@@ -56,6 +56,7 @@ from accounti.pruefung.storno import (
     StornoError,
     lade_korrekturumgebung,
 )
+from tests.pg_hilfe import mit_postgresql
 from tests.pruefung_hilfe import (  # noqa: F401
     anlegen,
     beleg,
@@ -655,3 +656,50 @@ def test_journal_nach_queue_aktionen_in_ordnung(make_session):
 
 def _unbenutzt() -> None:  # pragma: no cover
     uuid4, datetime  # noqa: B018
+
+
+@mit_postgresql
+def test_stand_und_aktionen_unter_postgresql(pg_datenbank):
+    """Schreibsperre (Advisory-Lock) vor dem Vergleich, Freigabe, Korrektur mit Regel
+    und Rückfrage — unter PostgreSQL."""
+    from accounti.db import init_db, session_factory
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    tx = umsatz(name="Bürobedarf Müller GmbH")
+    erste, zweite, dritte = buchung(tx), buchung(), buchung()
+    anlegen(fabrik, tx, erste, zweite, dritte)
+    with fabrik() as s:
+        speichere_kontierungsgrund(s, erste.id, quelle="llm", begruendung="x")
+        gesehen = stand(s, zweite.id)
+        s.commit()
+    with fabrik() as anderer:  # ein anderer Schreiber ändert den Vorschlag (ORM)
+        from accounti.db.repository import aktualisiere_buchung
+
+        aktualisiere_buchung(
+            anderer, str(zweite.id), zweite.model_copy(update={"buchungstext": "neu"})
+        )
+        anderer.commit()
+    with fabrik() as s:
+        with pytest.raises(StandVeraltetError):
+            freigeben(s, zweite.id, "jan", gesehen)
+        s.rollback()
+        freigeben(s, zweite.id, "jan", stand(s, zweite.id))
+        e = korrigieren(
+            s,
+            erste.id,
+            Aenderung("4930", "1200", steuer=9),
+            "jan",
+            stand(s, erste.id),
+            umgebung(),
+            lernen=LernWunsch(muster="Müller"),
+        )
+        zurueckstellen(s, dritte.id, "Wofür?", "jan")
+        s.commit()
+    assert e.regel is not None and e.regel.richtung is not None
+    with fabrik() as s:
+        from accounti.pruefung.journal import pruefe_journal
+
+        assert pruefe_journal(s).in_ordnung
+        assert [x.buchung.id for x in lade_pruefschlange(s).eintraege] == []
+    engine.dispose()

@@ -7,6 +7,31 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Web-Oberfläche: Supervisions-Queue, Korrektur → Regel, Deutsch/Englisch** (Baustein 10b,
+  Teil 1): `/pruefen` zeigt unsichere Buchungen mit dem Beleg links (PDF im Browser, PNG/JPEG,
+  TIFF als Seitenbilder, XRechnung und ZUGFeRD als lesbare Ansicht des strukturierten Teils;
+  ohne Beleg die offene Nachforderung bzw. die `belegfrei`-Regel; bei internen Buchungen wie
+  AfA Herkunft und Rechenweg) und dem Vorschlag rechts (Konten mit Bezeichnung,
+  Steuerschlüssel, Beträge, Confidence, Herkunft und Begründung, Aufgaben). Freigeben,
+  korrigieren und zurückstellen (Rückfrage als Aufgabe) in einem Schritt, per Tastatur
+  (`j k f e r z b ?`, abschaltbar) und mit HTMX ohne Seitenwechsel; ein Prüfstand in jedem
+  Formular verhindert, dass eine veraltete Ansicht storniert, Konflikte und Fachfehler
+  erscheinen als Meldung, ein neues Sachkonto verlangt die ausdrückliche Steuerangabe. Aus der
+  Korrektur eines Kontierungsvorschlags wird auf Wunsch eine Regel — mit Vorschau (Treffer je
+  Richtung, verdrängte Regel, Warnungen), nur mit dem neuen Recht `regeln_lernen` (buchhalter,
+  verwalter), nur in der Zahlungsrichtung des Umsatzes, gespeichert in der Datenbank der
+  Gesellschaft, im Journal (samt Bestandsabgleich in `journal pruefen`) und mit Vorrang vor
+  eigenen und Standardregeln; `/pruefen/regeln` und `accounti regeln
+  liste|deaktivieren|uebernehmen`. `/buchungen/{id}` zeigt Storno-Kette, Korrektur und Journal
+  und korrigiert freigegebene oder exportierte Buchungen als Storno mit Neubuchung — mit
+  frischem Einmalcode. Oberfläche auf Deutsch und Englisch (Sprache je Benutzer, sonst nach
+  Browser; Zahlen und Daten je Sprache; Fachbegriffe wie „Buchungssatz“ bleiben deutsch).
+  Klassifikation, Kreditkarte, Anlagen, Marktplatz und offene Posten speichern jetzt zu jeder
+  Buchung Quelle, Regel und Begründung (`kontierungsgruende`). HTMX 2.0.11 (0BSD) liegt lokal
+  unter `/statisch`. Neue Schlüssel `buchhaltung.gelernte_regeln`, `server.sprache`,
+  `server.max_vorschau_megapixel`. Zwei Migrationen auf `ddc9a184ddb4` (`d5a849692843`,
+  `e7153706b43a`) — `alembic upgrade head` für die Systemdatenbank und jede Gesellschaft.
+  Auswertungen im Browser (BWA, Kontenblätter, CSV/PDF) folgen mit Teil 2.
 - **Belegvollständigkeit & Ordnungsmäßigkeit** (Baustein 7): Prüfregeln als Registry mit
   Schweregrad (`hinweis`, `warnung`, `fehler`) und Schwellen aus dem neuen, optionalen
   Abschnitt `pruefung` — Vollständigkeit (Umsatz ohne Beleg mit Betrag, Datum und
@@ -286,6 +311,26 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- `accounti korrigiere --lernen` **und `accounti lerne`** speichern die Regel in der Datenbank
+  der Gesellschaft (Tabelle `kontierungsregeln`, mit Journal) statt sie an die Regeldatei
+  anzuhängen; accounti schreibt die Regeldatei nicht mehr. Gelernte Regeln haben Vorrang vor der
+  Regeldatei und den Standardregeln und gelten nur in der Zahlungsrichtung ihres Quellumsatzes.
+  `korrigiere --lernen`, `lerne` und `regeln deaktivieren|uebernehmen` verlangen mit
+  eingerichteten Benutzern das Recht `regeln_lernen` (bei `korrigiere --lernen` mit demselben
+  Einmalcode). Früher gelernte `gelernt_*`-Einträge übernimmt `accounti regeln uebernehmen`.
+- Regeln in der Regeldatei dürfen ein optionales Feld `richtung: ausgabe|einnahme` tragen; ohne
+  Angabe gelten sie wie bisher in beide Richtungen.
+- `accounti classify`, `bank lauf` und `opos verbuchen` nehmen zur Regeldatei der Gesellschaft die
+  gelernten Regeln aus der Datenbank hinzu — wie die REST-Läufe; das Regelwerk wird erst nach der
+  Laufsperre geladen.
+- `accounti review` zeigt die Begründung und zurückgestellte Buchungen; `bestaetige` und
+  `korrigiere` schließen eine offene Rückfrage und die Aufgabe `kontierung_pruefen` zur Buchung.
+- `accounti korrigiere` und `buchung storniere` nutzen den Kontenrahmen samt
+  `abschluss.kontenzuordnung` — wie Summen- und Saldenliste und Abschluss.
+- Die Verfahrensdokumentation nennt die Regeldatei der Gesellschaft und die gelernten Regeln; der
+  Aufbewahrungsbericht führt Kontierungsgründe und -regeln.
+- Die Seiten aus Baustein 10a sind übersetzbar; das Layout trägt Sprachauswahl und HTMX; die
+  Einmalcode-Prüfung des Browsers liegt in `api/einmalcode.py`.
 - **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
   `korrigiert`, `exportiert` lehnt die Datenbankschicht jede Änderung außer
   `auto → geprueft`, `→ exportiert` und dem einmaligen Stornovermerk ab, Löschen immer;
@@ -434,6 +479,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- `korrigiere --lernen` und `lerne` hängten die Regel ans Ende der Regeldatei — hatte eine frühere
+  Regel falsch kontiert, griff die gelernte nie; dabei gingen die Kommentare der Datei verloren,
+  und im Container (schreibgeschütztes `config/`) brachen beide ab.
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

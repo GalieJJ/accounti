@@ -89,6 +89,8 @@ def test_htmx_konfiguration(welt):
     assert konfig["allowEval"] is False and konfig["allowScriptTags"] is False
     assert konfig["includeIndicatorStyles"] is False
     assert konfig["historyCacheSize"] == 0 and konfig["selfRequestsOnly"] is True
+    # htmx überträgt beim Einschwingen kein ``style`` (CSP style-src 'self')
+    assert "style" not in konfig["attributesToSettle"]
     regeln = konfig["responseHandling"]
     codes = [r["code"] for r in regeln]
     eingetauscht = regeln[codes.index("409|422")]
@@ -109,9 +111,34 @@ INLINE = [
 ]
 
 
-def test_keine_inline_skripte_stile_oder_ereignisattribute(welt):
+def fachseiten_html(tmp_path) -> list[str]:  # noqa: ANN001
+    """Arbeitsfläche, Buchung und Beleg mit Inhalt (Seiten mit Pfadparametern)."""
+    from tests.pruefen_hilfe import pdf, queuewelt
+
+    (tmp_path / "queue").mkdir(exist_ok=True)
+    qw = queuewelt(tmp_path / "queue")
+    beleg = qw.beleg(pdf())
+    b = qw.unsicher()
+    mit_beleg = qw.buchung(beleg_id=beleg.id)
+    client = qw.web.angemeldet("jan")
+    texte = []
+    for pfad in (
+        f"/pruefen/{b.id}",
+        f"/pruefen/{mit_beleg.id}",
+        f"/buchungen/{b.id}",
+        f"/belege/{beleg.id}",
+        "/pruefen/regeln",
+    ):
+        r = client.get(pfad)
+        assert r.status_code == 200, pfad
+        texte.append(r.text)
+    return texte
+
+
+def test_keine_inline_skripte_stile_oder_ereignisattribute(welt, tmp_path):
     quellen = {str(p): p.read_text(encoding="utf-8") for p in VORLAGEN.rglob("*.html")}
     quellen |= {f"seite {i}": t for i, t in enumerate(seiten_html(welt))}
+    quellen |= {f"fach {i}": t for i, t in enumerate(fachseiten_html(tmp_path))}
     for name, text in quellen.items():
         for muster, art in INLINE:
             assert not muster.search(text), (name, art, muster.search(text))
@@ -142,3 +169,20 @@ def test_eigene_dateien_mit_versionsanhang(welt):
         for verweis in verweise:
             assert verweis.endswith(f"?v={__version__}"), verweis
         assert f"/statisch/accounti.css?v={__version__}" in text
+
+
+def test_tasten_in_markup_und_skript_gleich(tmp_path):
+    """Jede Taste der Prüfseite ist im Skript bekannt — und umgekehrt."""
+    texte = fachseiten_html(tmp_path)
+    im_markup = set(re.findall(r'data-taste="([^"]+)"', "".join(texte)))
+    skript = (STATISCH / "pruefen.js").read_text(encoding="utf-8")
+    liste = re.search(r"var TASTEN = \[([^\]]*)\]", skript)
+    assert liste, "TASTEN fehlt"
+    im_skript = set(re.findall(r'"([^"]+)"', liste.group(1)))
+    assert im_markup | {"?"} == im_skript, (im_markup, im_skript)
+    # Strg+Enter löst den Hauptknopf aus, nicht den ersten Absendeknopf
+    assert 'querySelector("button.hauptknopf")' in skript
+    hilfe = re.search(r'<details id="tastenhilfe".*?</details>', texte[0], re.S)
+    assert hilfe is not None
+    for taste in im_skript:
+        assert f"<kbd>{taste}</kbd>" in hilfe.group(0), taste

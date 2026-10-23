@@ -95,8 +95,12 @@ def test_fachbegriffe_bleiben_deutsch():
 @pytest.mark.parametrize(
     ("deutsch", "englisch"),
     [
+        ("Soll", "Debit"),
+        ("Haben", "Credit"),
+        ("Storno", "Reversal"),
         ("Beleg", "Document"),
         ("Einmalcode", "One-time code"),
+        ("Offene Posten", "Open items"),
     ],
 )
 def test_glossar(deutsch, englisch):

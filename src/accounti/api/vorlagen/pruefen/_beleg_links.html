@@ -1,0 +1,32 @@
+{% if e.beleg %}
+<h2>{{ _("Beleg") }} {{ e.beleg.belegnummer or "" }}</h2>
+<p class="beleg-links">
+  <a href="/belege/{{ e.beleg.id }}" target="_blank" rel="noopener" data-taste="b">{{ _("Beleg in neuem Tab öffnen") }} <kbd>b</kbd></a>
+  · <a href="/belege/{{ e.beleg.id }}/download">{{ _("Herunterladen") }}</a>
+</p>
+{% set bid = e.beleg.id %}{% set ansicht_beleg = beleg %}{% set belegdaten = e.beleg %}
+{% include "belege/_vorschau.html" %}
+{% elif e.umsatz %}
+<h2>{{ _("Umsatz ohne Beleg") }}</h2>
+<dl class="daten">
+  <div><dt>{{ _("Datum") }}</dt><dd>{{ e.umsatz.datum | datum }}</dd></div>
+  <div><dt>{{ _("Betrag") }}</dt><dd>{{ e.umsatz.betrag | euro }}</dd></div>
+  <div><dt>{{ _("Gegenpartei") }}</dt><dd>{{ e.umsatz.gegenkonto_name or "—" }}</dd></div>
+  {% if e.umsatz.gegenkonto_iban %}<div><dt>IBAN</dt><dd class="iban">{{ e.umsatz.gegenkonto_iban | iban }}</dd></div>{% endif %}
+  <div><dt>{{ _("Verwendungszweck") }}</dt><dd>{{ e.umsatz.verwendungszweck }}</dd></div>
+</dl>
+{% if e.belegfrei %}
+<p class="hinweis">{{ _("Belegfrei nach Regel %(name)s:", name=e.belegfrei.name) }} <span lang="de">{{ e.belegfrei.begruendung }}</span></p>
+{% elif e.nachforderung %}
+{% for a in e.nachforderung %}
+<p class="hinweis">{{ _("Beleg nachgefordert (Aufgabe #%(nr)s, %(status)s)", nr=a.nr, status=a.status.value) }}{% if a.zustaendig or a.rolle %} · {{ _("zuständig: %(wer)s", wer=a.zustaendig or a.rolle) }}{% endif %}{% if a.faellig_am %} · {{ _("fällig am %(tag)s", tag=a.faellig_am | datum) }}{% endif %}</p>
+{% endfor %}
+<p class="klein">{{ _("Anfrage an den Lieferanten:") }} <code>accounti nachfordern anfrage {{ e.umsatz.id }}</code></p>
+{% else %}
+<p class="hinweis">{{ _("Kein Beleg zugeordnet.") }}</p>
+{% endif %}
+{% else %}
+<h2>{{ _("Interne Buchung") }}</h2>
+<p class="hinweis">{{ _("Weder Umsatz noch Beleg — belegfrei: interne Buchung.") }}</p>
+{% if e.herkunft.bekannt %}<p lang="de">{{ e.herkunft.text }}</p>{% endif %}
+{% endif %}

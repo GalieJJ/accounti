@@ -1,0 +1,41 @@
+{% extends "basis.html" %}
+{% import "_makros.html" as m with context %}
+{% block titel %}{{ _("Gelernte Regeln") }}{% endblock %}
+{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Gelernte Regeln") }}</h1>
+<p><a href="/pruefen">{{ _("Zurück zur Prüfung") }}</a></p>
+{{ m.fehlerkasten(aktion_fehler | default(none)) }}
+<p class="klein">{{ _("Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Zahlungsrichtung ihres Quellumsatzes. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.") }}</p>
+{% if regeln %}
+<table class="liste">
+  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Muster") }}</th><th>{{ _("Richtung") }}</th><th>{{ _("Soll") }}</th><th>{{ _("Haben") }}</th><th>{{ _("Steuerschlüssel") }}</th><th class="zahl">{{ _("Treffer") }}</th><th>{{ _("Angelegt") }}</th><th>{{ _("Stand") }}</th><th></th></tr></thead>
+  <tbody>
+  {% for g in regeln %}{% set r = g.regel %}
+    <tr>
+      <td>{{ r.name }}</td>
+      <td>{% if r.ist_text %}{{ r.muster }}{% else %}<code>/{{ r.muster }}/</code>{% endif %}</td>
+      <td>{% if r.richtung %}{{ _("Ausgabe") if r.richtung.value == "ausgabe" else _("Einnahme") }}{% else %}{{ _("beide") }}{% endif %}</td>
+      <td>{{ r.soll_konto }}</td><td>{{ r.haben_konto }}</td>
+      <td>{{ r.steuer_schluessel if r.steuer_schluessel is not none else "—" }}</td>
+      <td class="zahl">{{ g.treffer }}</td>
+      <td>{{ r.angelegt_am.date() | datum }} · {{ r.angelegt_von }}{% if r.quelle_buchung_id %} · <a href="/buchungen/{{ r.quelle_buchung_id }}">{{ _("Quelle") }}</a>{% endif %}</td>
+      <td>{% if r.aktiv %}{{ _("aktiv") }}{% else %}{{ _("deaktiviert") }} ({{ r.deaktiviert_von }}: <span lang="de">{{ r.deaktiviert_grund or "—" }}</span>){% endif %}</td>
+      <td>
+        {% if darf_lernen and r.aktiv %}
+        <form method="post" action="/pruefen/regeln/{{ r.id }}/deaktivieren" class="inline">
+          <input type="hidden" name="csrf" value="{{ csrf }}">
+          <label for="grund-{{ r.id }}" class="unsichtbar">{{ _("Grund") }}</label>
+          <input id="grund-{{ r.id }}" name="grund" placeholder="{{ _('Grund') }}" required maxlength="500">
+          <button type="submit">{{ _("Deaktivieren") }}</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>{{ _("Noch keine gelernten Regeln.") }}</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,22 @@
+{# Vorschau eines Belegs — erwartet bid (Beleg-ID), ansicht_beleg (Belegansicht),
+   belegdaten (Beleg). Typ aus dem Inhalt; XML, SVG, HTML, Text nie inline. #}
+{% if ansicht_beleg.fehler and not ansicht_beleg.art %}
+<p class="fehler" role="alert">{{ _(ansicht_beleg.fehler) }}</p>
+{% elif ansicht_beleg.art and ansicht_beleg.art.value in ("pdf", "zugferd") %}
+<iframe class="beleg" src="/belege/{{ bid }}/datei" title="{{ _('Beleg als PDF') }}"></iframe>
+{% if ansicht_beleg.art.value == "zugferd" %}
+<h3>{{ _("E-Rechnung (maßgeblich)") }}</h3>
+{% include "belege/_erechnung.html" %}
+{% endif %}
+{% elif ansicht_beleg.art and ansicht_beleg.art.value in ("png", "jpeg") %}
+<img class="beleg-bild" src="/belege/{{ bid }}/datei" alt="{{ _('Beleg als Bild') }}">
+{% elif ansicht_beleg.art and ansicht_beleg.art.value == "tiff" %}
+{% for n in range(1, ansicht_beleg.seiten + 1) %}
+<img class="beleg-bild" src="/belege/{{ bid }}/seite/{{ n }}.png" alt="{{ _('Beleg, Seite %(nr)s', nr=n) }}">
+{% endfor %}
+{% elif ansicht_beleg.art and ansicht_beleg.art.value == "erechnung" %}
+<h3>{{ _("E-Rechnung") }}</h3>
+{% include "belege/_erechnung.html" %}
+{% else %}
+<p class="hinweis">{{ _("Keine Vorschau für diesen Dateityp — bitte herunterladen.") }}</p>
+{% endif %}

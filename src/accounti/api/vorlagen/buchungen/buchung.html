@@ -1,0 +1,90 @@
+{% extends "basis.html" %}
+{% import "_makros.html" as m with context %}
+{% block titel %}{{ _("Buchung") }} {{ b.id | string | truncate(8, True, "") }}{% endblock %}
+{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Buchung") }} <code>{{ b.id | string | truncate(8, True, "") }}</code></h1>
+{% for meldung in aktion_meldungen %}<p class="meldung" role="status">{{ m.meldung_text(meldung) }}</p>{% endfor %}
+{{ m.fehlerkasten(aktion_fehler) }}
+<div class="flaeche">
+  <section class="links">
+    <dl class="daten">
+      <div><dt>{{ _("Datum") }}</dt><dd>{{ b.datum | datum }}</dd></div>
+      <div><dt>{{ _("Soll") }}</dt><dd>{{ m.konto(b.soll_konto, kontonamen) }}</dd></div>
+      <div><dt>{{ _("Haben") }}</dt><dd>{{ m.konto(b.haben_konto, kontonamen) }}</dd></div>
+      <div><dt>{{ _("Steuerschlüssel") }}</dt><dd>{{ m.schluessel(b.steuer_schluessel, steuernamen) }}</dd></div>
+      <div><dt>{{ _("Netto") }}</dt><dd>{{ b.betrag_netto | euro }}</dd></div>
+      <div><dt>{{ _("Steuer") }}</dt><dd>{{ b.steuer_betrag | euro }}</dd></div>
+      <div><dt>{{ _("Brutto") }}</dt><dd>{{ brutto | euro }}</dd></div>
+      <div><dt>{{ _("Buchungstext") }}</dt><dd>{{ b.buchungstext }}</dd></div>
+      <div><dt>{{ _("Status") }}</dt><dd>{{ b.status.value }}{% if b.geprueft_von %} · {{ b.geprueft_von }}{% endif %}</dd></div>
+      {% if umsatz %}<div><dt>{{ _("Umsatz") }}</dt><dd>{{ umsatz.datum | datum }} · {{ umsatz.betrag | euro }} · {{ umsatz.gegenkonto_name or "—" }} · {{ umsatz.verwendungszweck }}</dd></div>{% endif %}
+      {% if beleg %}<div><dt>{{ _("Beleg") }}</dt><dd><a href="/belege/{{ beleg.id }}">{{ beleg.belegnummer or beleg.id }}</a></dd></div>{% endif %}
+      <div><dt>{{ _("Herkunft") }}</dt><dd>{% if herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ herkunft.text }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</dd></div>
+    </dl>
+    {% if b.storniert_durch %}<p class="hinweis">{{ _("Storniert durch") }} <a href="/buchungen/{{ b.storniert_durch }}">{{ b.storniert_durch | string | truncate(8, True, "") }}</a></p>{% endif %}
+    {% if b.storno_von %}<p class="hinweis">{{ _("Storno von") }} <a href="/buchungen/{{ b.storno_von }}">{{ b.storno_von | string | truncate(8, True, "") }}</a></p>{% endif %}
+    {% if korrektur %}
+    <h2>{{ _("Korrektur") }}</h2>
+    <ul class="kette">
+      {% for rolle, ident in ((_("Original"), korrektur.original_id), (_("Storno"), korrektur.storno_id), (_("Neubuchung"), korrektur.neubuchung_id)) %}
+      {% if ident %}{% set x = beteiligte.get(ident | string) %}<li>{{ rolle }}: <a href="/buchungen/{{ ident }}">{{ ident | string | truncate(8, True, "") }}</a>{% if x %} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ x.status.value }}{% endif %}</li>{% endif %}
+      {% endfor %}
+    </ul>
+    <p>{{ korrektur.person }}: <span lang="de">{{ korrektur.grund }}</span></p>
+    {% endif %}
+    <h2>{{ _("Journal") }}</h2>
+    {% if journal %}
+    <table class="liste klein">
+      <thead><tr><th>{{ _("Nr.") }}</th><th>{{ _("Zeitpunkt") }}</th><th>{{ _("Vorgang") }}</th><th>{{ _("Person") }}</th><th>{{ _("Grund") }}</th></tr></thead>
+      <tbody>{% for j in journal %}<tr><td>{{ j.nr }}</td><td>{{ j.zeitpunkt.date() | datum }} {{ j.zeitpunkt.strftime("%H:%M") }}</td><td><code>{{ j.vorgang }}</code></td><td>{{ j.person }}</td><td lang="de">{{ j.grund or "" }}</td></tr>{% endfor %}</tbody>
+    </table>
+    {% else %}<p>{{ _("Keine Journaleinträge.") }}</p>{% endif %}
+  </section>
+  <section class="rechts">
+    {% if vorschlag %}
+    <p class="hinweis">{{ _("Diese Buchung ist ein Vorschlag — entscheiden in der Prüfung.") }} <a href="/pruefen/{{ b.id }}">{{ _("Zur Prüfung") }}</a></p>
+    {% elif korrigierbar %}
+    {% set datum_pflicht = sperre is not none %}
+    <form method="post" action="/buchungen/{{ b.id }}/korrigieren" class="korrektur">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="stand" value="{{ stand }}">
+      <fieldset>
+        <legend>{{ _("Korrigieren (Storno und Neubuchung)") }}</legend>
+        <label for="soll">{{ _("Soll") }}</label>
+        <input id="soll" name="soll" value="{{ eingaben.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(aktion_fehler, "soll") }}>
+        <label for="haben">{{ _("Haben") }}</label>
+        <input id="haben" name="haben" value="{{ eingaben.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(aktion_fehler, "haben") }}>
+        <label for="steuer">{{ _("Steuerschlüssel") }}</label>
+        <select id="steuer" name="steuer"{{ m.feldfehler(aktion_fehler, "steuer") }}>
+          <option value="">{{ _("unverändert") }}</option>
+          {% for nr in steuer.schluessel %}<option value="{{ nr }}"{% if eingaben.get('steuer') == nr | string %} selected{% endif %}>{{ nr }}: {{ steuernamen.get(nr, "") }}</option>{% endfor %}
+          {% if steuer.ohne_steuer %}<option value="ohne"{% if eingaben.get('steuer') == "ohne" %} selected{% endif %}>{{ _("ohne Steuer") }}</option>{% endif %}
+        </select>
+        <label for="grund-k">{{ _("Grund (steht im Journal)") }}</label>
+        <input id="grund-k" name="grund" value="{{ eingaben.get('grund', '') }}" maxlength="500"{{ m.feldfehler(aktion_fehler, "grund") }}>
+        <label for="datum-k">{{ _("Datum für Storno und Neubuchung") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
+        <input id="datum-k" name="datum" type="date" value="{{ eingaben.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(aktion_fehler, "datum") }}>
+        {% if mit_einmalcode %}<label for="code-k">{{ _("Einmalcode") }}</label>
+        <input id="code-k" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
+        <button type="submit">{{ _("Korrigieren") }}</button>
+      </fieldset>
+    </form>
+    <form method="post" action="/buchungen/{{ b.id }}/stornieren" class="storno">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <input type="hidden" name="stand" value="{{ stand }}">
+      <fieldset>
+        <legend>{{ _("Stornieren") }}</legend>
+        <label for="grund-s">{{ _("Grund (Pflicht, steht im Journal)") }}</label>
+        <input id="grund-s" name="grund" required maxlength="500" value="">
+        <label for="datum-s">{{ _("Datum des Stornos") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
+        <input id="datum-s" name="datum" type="date" value=""{% if datum_pflicht %} required{% endif %}>
+        {% if mit_einmalcode %}<label for="code-s">{{ _("Einmalcode") }}</label>
+        <input id="code-s" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
+        <button type="submit">{{ _("Stornieren") }}</button>
+      </fieldset>
+    </form>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

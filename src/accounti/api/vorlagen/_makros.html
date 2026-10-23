@@ -1,0 +1,6 @@
+{# Gemeinsame Bausteine der Fachseiten — importieren mit „with context“ (Übersetzung). #}
+{% macro konto(nr, namen) %}<span class="konto"><span class="konto-nr">{{ nr }}</span>{% if namen.get(nr) %} <span class="konto-name" lang="de">{{ namen[nr] }}</span>{% endif %}</span>{% endmacro %}
+{% macro schluessel(nr, namen) %}{% if nr is none %}{{ _("ohne Steuer") }}{% else %}{{ nr }}{% if namen.get(nr) %} <span lang="de">({{ namen[nr] }})</span>{% endif %}{% endif %}{% endmacro %}
+{% macro meldung_text(text) %}{% if text is text %}{{ text | uebersetzt }}{% else %}<span class="fachmeldung" lang="de">{{ text }}</span>{% endif %}{% endmacro %}
+{% macro fehlerkasten(fehler) %}{% if fehler %}<div class="fehler" role="alert"><p>{{ _("Die Aktion wurde nicht ausgeführt:") }}</p>{{ meldung_text(fehler.meldung) }}</div>{% endif %}{% endmacro %}
+{% macro feldfehler(fehler, name) %}{% if fehler and fehler.feld == name %} aria-invalid="true" class="markiert"{% endif %}{% endmacro %}

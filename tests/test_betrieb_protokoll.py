@@ -196,3 +196,111 @@ def test_datenbankfehler_ohne_werte_im_protokoll(tmp_path, ausgabe):
     assert "IntegrityError" in text
     for geheim in ("Mustermann", "Zahnarzt", "Musterfrau", "INSERT INTO"):
         assert geheim not in text, geheim
+
+
+def test_queue_belege_ohne_belegtexte_im_protokoll(tmp_path, ausgabe, monkeypatch):
+    """Baustein 10b (PR 10b-1: Queue und Belege; die Auswertungen folgen mit 10b-2):
+    Durchlauf mit unverwechselbaren Markern in Verwendungszweck, Lieferant,
+    Begründung, Belegdatei, E-Rechnung, Regelmuster, Rückfrage und Einmalcode — die
+    Protokollausgabe enthält keinen davon, auch nicht bei 409/404/422/503/500; im
+    Zugriffsprotokoll stehen Routenvorlagen."""
+    from pathlib import Path
+
+    from sqlalchemy.exc import OperationalError
+
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+    from accounti.models import BuchungStatus
+    from tests.api_hilfe import csrf, formularwert
+    from tests.pruefen_hilfe import pdf, queuewelt, stand_aus
+
+    qw = queuewelt(tmp_path)
+    marker = "QXZ"
+    b = qw.unsicher(name=f"{marker}lieferant GmbH", zweck=f"{marker}zweck 4711")
+    with qw.fabrik()() as s:
+        speichere_kontierungsgrund(
+            s, b.id, quelle="llm", begruendung=f"{marker}begruendung"
+        )
+        s.commit()
+    beleg = qw.beleg(pdf(f"{marker}inhalt"), dateiname=f"{marker}datei.pdf")
+    xml = (
+        Path(__file__).resolve().parents[1]
+        / "examples"
+        / "erechnung"
+        / "xrechnung_ubl.xml"
+    ).read_text(encoding="utf-8")
+    erechnung = qw.beleg(
+        xml.replace("Lieferant", f"{marker}erechnung").encode(), ".xml"
+    )
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=qw_tag())
+    jan = qw.web.angemeldet("jan")
+    seite = jan.get(f"/pruefen/{b.id}").text
+    for pfad in (
+        f"/belege/{beleg.id}",
+        f"/belege/{beleg.id}/datei",
+        f"/belege/{erechnung.id}",
+    ):
+        jan.get(pfad)
+    jan.post(
+        f"/pruefen/{b.id}/regelvorschau",
+        data={"csrf": csrf(jan), "muster": f"{marker}muster", "soll": "4930"},
+    )
+    jan.post(  # 422: Sachkontowechsel ohne Steuerangabe
+        f"/pruefen/{b.id}/korrigieren",
+        data={
+            "csrf": csrf(jan),
+            "stand": stand_aus(seite),
+            "soll": "4360",
+            "haben": "1200",
+        },
+    )
+    jan.post(  # 409: veralteter Stand
+        f"/pruefen/{b.id}/freigeben", data={"csrf": csrf(jan), "stand": "veraltet"}
+    )
+    jan.post(
+        f"/pruefen/{b.id}/zurueckstellen",
+        data={
+            "csrf": csrf(jan),
+            "stand": stand_aus(seite),
+            "text": f"{marker}rueckfrage",
+        },
+    )
+    seite = jan.get(f"/buchungen/{frei.id}").text
+    jan.post(  # 403: falscher Einmalcode
+        f"/buchungen/{frei.id}/stornieren",
+        data={
+            "csrf": csrf(jan),
+            "stand": formularwert(seite, "stand"),
+            "grund": f"{marker}grund",
+            "einmalcode": f"{marker}123",
+        },
+    )
+    from uuid import uuid4
+
+    assert jan.get(f"/belege/{uuid4()}").status_code == 404
+    from accounti.api.seiten import pruefen as seite_pruefen
+
+    def beschaeftigt(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise OperationalError(
+            f"UPDATE {marker}sql", {}, Exception("database is locked")
+        )
+
+    monkeypatch.setattr(seite_pruefen, "lade_pruefschlange", beschaeftigt)
+    assert jan.get("/pruefen").status_code == 503
+    monkeypatch.setattr(
+        seite_pruefen,
+        "lade_pruefschlange",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError(f"{marker}fehler")),
+    )
+    assert jan.get("/pruefen").status_code == 500
+    text = ausgabe.getvalue()
+    assert "POST /pruefen/{buchung_id:uuid}/korrigieren 422" in text
+    assert "POST /pruefen/{buchung_id:uuid}/freigeben 409" in text
+    assert "GET /pruefen 503" in text and "GET /pruefen 500" in text
+    assert marker not in text and marker.lower() not in text, text
+    assert str(b.id) not in text and str(beleg.id) not in text
+
+
+def qw_tag():  # noqa: ANN201
+    from datetime import date
+
+    return date(2026, 10, 2)

@@ -70,6 +70,10 @@ UMGEBUNG.filters["datum"] = _filter(i18n.datum)
 UMGEBUNG.filters["prozent"] = _filter(i18n.prozent)
 UMGEBUNG.filters["monat"] = _filter(i18n.monat)
 UMGEBUNG.filters["uebersetzt"] = _filter(i18n.uebersetze)
+UMGEBUNG.filters["prozent_ganz"] = _filter(
+    lambda wert, sprache: i18n.prozent(wert, sprache, 0)
+)
+UMGEBUNG.tests["text"] = lambda wert: isinstance(wert, i18n.Text)
 UMGEBUNG.filters["iban"] = lambda wert: " ".join(
     str(wert)[i : i + 4] for i in range(0, len(str(wert)), 4)
 )
@@ -86,6 +90,9 @@ HTMX_KONFIG = json.dumps(
         "historyCacheSize": 0,
         "refreshOnHistoryMiss": True,
         "selfRequestsOnly": True,
+        # kein ``style`` übertragen: die Seiten haben keine Inline-Stile (CSP), ein
+        # leeres ``style=""`` (etwa von Werkzeugen) erzeugte sonst CSP-Meldungen
+        "attributesToSettle": ["class", "width", "height"],
         "responseHandling": [
             {"code": "204", "swap": False},
             {"code": "[23]..", "swap": True},
