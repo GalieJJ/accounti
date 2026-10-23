@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from rich.console import Console
 
+from accounti.betrieb.cli import Wurzelgruppe
+
 if TYPE_CHECKING:
     from datetime import date
     from types import ModuleType
@@ -34,6 +36,7 @@ app = typer.Typer(
     name="accounti",
     help="KI-gestützte Buchhaltungsautomatisierung für deutsche Unternehmen.",
     no_args_is_help=True,
+    cls=Wurzelgruppe,  # merkt sich die Argumente (Hilfe ohne -g, Befund Betrieb B11)
 )
 console = Console()
 

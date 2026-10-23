@@ -64,19 +64,40 @@ def test_jeder_befehl_bekommt_datenbank_archiv_und_konfiguration(umgebung):
     karte = standardwerte_fuer(get_command(app), werte)
     gefunden = 0
 
-    def pruefe(befehl, unter, pfad):
+    def pruefe(befehl, karte_hier, pfad):
+        """Eigene Parameter (auch einer Gruppe mit Callback, Befund Betrieb B1) und
+        rekursiv die Unterbefehle."""
         nonlocal gefunden
-        for name, kind in befehl.commands.items():
-            if getattr(kind, "commands", None):
-                pruefe(kind, (unter or {}).get(name), [*pfad, name])
-                continue
-            for p in kind.params:
-                if p.name in werte:
-                    gefunden += 1
-                    assert unter[name][p.name] == werte[p.name], [*pfad, name]
+        for p in befehl.params:
+            if p.name in werte:
+                gefunden += 1
+                assert karte_hier[p.name] == werte[p.name], pfad
+        for name, kind in getattr(befehl, "commands", {}).items():
+            pruefe(kind, (karte_hier or {}).get(name), [*pfad, name])
 
     pruefe(get_command(app), karte, [])
     assert gefunden > 150  # 127 Befehle mit --db, dazu --archiv und --config
+
+
+GRUPPEN_MIT_CALLBACK = (["ustva"], ["pruefen"], ["journal"], ["nachfordern"])
+
+
+def test_gruppen_mit_callback_nutzen_die_gesellschaft(umgebung, monkeypatch):
+    """Befund Betrieb B1: ``ustva``, ``pruefen``, ``journal`` (Liste) und
+    ``nachfordern`` liefen still gegen ``accounti.db`` im Arbeitsverzeichnis."""
+    leer = umgebung.wurzel / "arbeit"
+    leer.mkdir()
+    monkeypatch.chdir(leer)
+    for befehl in GRUPPEN_MIT_CALLBACK:
+        r = run("-g", "a", *befehl, env={"COLUMNS": "300"})
+        assert "Mehrere Gesellschaften" not in r.output, (befehl, r.output)
+        assert not (leer / "accounti.db").exists(), befehl
+    # ohne Registry, nur ACCOUNTI_DB (Docker-Abbild)
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(leer / "fehlt.yaml"))
+    monkeypatch.setenv("ACCOUNTI_DB", umgebung.db["a"])
+    for befehl in GRUPPEN_MIT_CALLBACK:
+        run(*befehl)
+        assert not (leer / "accounti.db").exists(), befehl
 
 
 def test_hilfe_zeigt_die_datenbank_der_gesellschaft(umgebung):
@@ -85,11 +106,41 @@ def test_hilfe_zeigt_die_datenbank_der_gesellschaft(umgebung):
         ["zahlung", "freigeben"],
         ["kanaele", "webhook", "starten"],
         ["classify"],
+        *GRUPPEN_MIT_CALLBACK,
     ):
         r = run("-g", "b", *befehl, "--help", env={"COLUMNS": "300"})
         assert r.exit_code == 0, r.output
         text = re.sub(r"\s+", "", r.output)
         assert re.sub(r"\s+", "", umgebung.db["b"]) in text, befehl
+
+
+@pytest.mark.parametrize(
+    "befehl",
+    [
+        ["abschluss", "--help"],
+        ["kasse", "buchen", "--help"],
+        ["ustva", "--help"],
+        ["ustva", "pruefen", "--help"],
+        ["kontakte", "liste", "--help"],
+    ],
+)
+def test_hilfe_ohne_gesellschaft(umgebung, befehl):
+    """Befund Betrieb B11: Die Hilfe braucht keine Gesellschaft."""
+    r = run(*befehl, env={"COLUMNS": "300"})
+    assert r.exit_code == 0, r.output
+    assert "Usage" in r.output and "--gesellschaft angeben" not in r.output
+
+
+def test_hilfe_als_wert_ist_keine_hilfe(umgebung, monkeypatch):
+    """``--help`` als Wert einer Option ist keine Hilfe — der Befehl liefe sonst ohne
+    Gesellschaft gegen die Standarddatenbank."""
+    leer = umgebung.wurzel / "arbeit"
+    leer.mkdir()
+    monkeypatch.chdir(leer)
+    r = run("kasse", "buchen", "--text", "--help", "--betrag", "1")
+    assert r.exit_code == 2, r.output
+    assert "--gesellschaft angeben" in r.output
+    assert not (leer / "accounti.db").exists()
 
 
 def test_ohne_registry_und_umgebung_wie_bisher(tmp_path, monkeypatch):
