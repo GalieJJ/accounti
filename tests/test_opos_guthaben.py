@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DatabaseError
 
+from accounti.db import init_db, session_factory
 from accounti.db.repository import (
     lade_buchungen,
     lade_einen_posten,
@@ -41,6 +42,7 @@ from accounti.opos.zahlungslauf import (
 )
 from accounti.opos.zuordnung import Anteil, Stufe, ordne_zu
 from accounti.pruefung.journal import pruefe_journal
+from tests.pg_hilfe import mit_postgresql
 from tests.pruefung_hilfe import make_session_fixture  # noqa: F401 - Fixture
 from tests.zahlung_hilfe import beleg_zu, debitor, kreditor, neue_db, speichere
 
@@ -499,6 +501,24 @@ def test_journal_pruefen_gleicht_verrechnungen_mit_dem_bestand_ab(fabrik, sql, a
     with fabrik() as s:
         p = pruefe_journal(s)
     assert [(b.art, b.text.split()[0]) for b in p.befunde] == [(art, "verrechnung")]
+
+
+@mit_postgresql
+def test_journal_pruefen_findet_geaenderte_verrechnung_auf_postgresql(pg_datenbank):
+    # PostgreSQL hat keinen Trigger — dort trägt der Bestandsabgleich (N6)
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    _verrechnet(fabrik)
+    with fabrik() as s:
+        assert pruefe_journal(s).in_ordnung
+        s.execute(text("UPDATE verrechnungen SET betrag = 1"))
+        s.commit()
+    with fabrik() as s:
+        p = pruefe_journal(s)
+    engine.dispose()
+    assert [(b.art, b.text.split()[0]) for b in p.befunde] == [
+        ("abweichung", "verrechnung")
+    ]
 
 
 def test_verrechnen_verlangt_gegenlaeufige_posten_desselben_kontakts(fabrik):
