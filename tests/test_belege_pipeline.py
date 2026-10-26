@@ -35,7 +35,8 @@ def test_neuer_beleg_wird_archiviert_und_gespeichert(umgebung):
     assert beleg.status is BelegStatus.EINGEGANGEN
     assert beleg.kanal == "upload"
     assert beleg.dateiname == "rechnung.pdf"
-    assert beleg.aufbewahren_bis == date(beleg.eingegangen_am.year + 10, 12, 31)
+    # ohne Belegdatum ab Eingang; Buchungsbelege 8 Jahre (§ 147 Abs. 3 AO, BEG IV)
+    assert beleg.aufbewahren_bis == date(beleg.eingegangen_am.year + 8, 12, 31)
     # Akzeptanz 6: Original unverändert im Archiv
     assert archiv.lese(beleg.datei_hash) == b"%PDF Rechnung"
 
@@ -118,3 +119,47 @@ def test_fehler_im_erkenner_bricht_nicht_ab(umgebung):
     assert eingang.ergebnis is Eingangsergebnis.NEU
     assert beleg.status is BelegStatus.ZUR_PRUEFUNG
     assert "Scan unlesbar" in (beleg.pruef_grund or "")
+
+
+def test_aufbewahrung_ab_belegdatum(umgebung):
+    """Gesamttest Abschluss B10: Beginn mit dem Schluss des Jahres, in dem der Beleg
+    entstanden ist (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG) — nicht des
+    Eingangsjahres; 8 statt 10 Jahre."""
+    from datetime import datetime
+
+    make_session, archiv = umgebung
+    roh = RohBeleg(
+        dateiname="dez.pdf",
+        inhalt=b"Dezember",
+        kanal="upload",
+        herkunft="/dez.pdf",
+        eingegangen_am=datetime(2027, 1, 4, 9, 0),
+    )
+    erkenner = _erkenner("Müller GmbH", "RE-12", "119.00", date(2026, 12, 28))
+    with make_session() as s:
+        nimm_auf(s, archiv, roh, erkenner=erkenner)
+        s.commit()
+        (beleg,) = lade_belege(s)
+    assert beleg.aufbewahren_bis == date(2034, 12, 31)
+
+
+def test_aufbewahrung_unplausibles_belegdatum_ab_eingang(umgebung):
+    """Nachprüfung F, N10: ein falsch gelesenes altes Belegdatum (2016 statt 2026)
+    verkürzte die Frist — vor dem Vorjahr des Eingangs zählt vorsichtig der Eingang."""
+    from datetime import datetime
+
+    make_session, archiv = umgebung
+    roh = RohBeleg(
+        dateiname="alt.pdf",
+        inhalt=b"Lesefehler",
+        kanal="upload",
+        herkunft="/alt.pdf",
+        eingegangen_am=datetime(2026, 3, 10, 9, 0),
+    )
+    erkenner = _erkenner("Müller GmbH", "RE-13", "119.00", date(2016, 3, 1))
+    with make_session() as s:
+        nimm_auf(s, archiv, roh, erkenner=erkenner)
+        s.commit()
+        (beleg,) = lade_belege(s)
+    assert beleg.belegdatum == date(2016, 3, 1)
+    assert beleg.aufbewahren_bis == date(2034, 12, 31)  # nicht 2024

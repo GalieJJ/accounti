@@ -246,6 +246,28 @@ def test_euer_offene_personenkonten_und_zuordnung(make_session, config, tmp_path
     assert befunde(make_session, bilanz, "euer_personenkonten") == []
 
 
+def test_euer_zuordnung_mit_hinweis_je_konto(make_session, config):
+    """Konten mit hinterlegtem Hinweis: ohne Zeile eine Warnung mit dem Grund, mit
+    Zeile oder außerhalb der EÜR ein Hinweis; die übrigen bleiben allgemein."""
+    buche(make_session, date(J, 3, 1), "4870", "0525", "200")  # Teilwert: ohne Zeile
+    buche(make_session, date(J, 3, 1), "5900", "1200", "10")  # ohne Zeile, ohne Hinweis
+    buche(make_session, date(J, 3, 1), "2504", "1200", "5")  # Umwandlung: „-“
+    funde = befunde(make_session, config, "euer_zuordnung")
+    texte = {b.text: b.schwere for b in funde}
+    assert len(funde) == 3
+    [teilwert] = [t for t in texte if "4870" in t]
+    assert texte[teilwert] is Schwere.WARNUNG
+    assert "Teilwertabschreibung in der EÜR nicht zulässig – Buchung stornieren" in (
+        teilwert
+    )
+    assert "5900" not in teilwert
+    [allgemein] = [t for t in texte if "5900" in t]
+    assert texte[allgemein] is Schwere.WARNUNG and "kontenzuordnung" in allgemein
+    [umwandlung] = [t for t in texte if "2504" in t]
+    assert texte[umwandlung] is Schwere.HINWEIS
+    assert umwandlung.startswith("Konto 2504: Umwandlungsergebnis")
+
+
 def test_alle_pruefungen_und_unbekannte(make_session, config):
     with make_session() as s:
         alle = pruefe_abschluss(kontext(s, J, config))

@@ -22,6 +22,7 @@ NS = {
         "ReusableAggregateBusinessInformationEntity:100"
     ),
     "udt": "urn:un:unece:uncefact:data:standard:UnqualifiedDataType:100",
+    "qdt": "urn:un:unece:uncefact:data:standard:QualifiedDataType:100",
 }
 _DATUM = "udt:DateTimeString"
 
@@ -96,6 +97,7 @@ def lies_cii(wurzel: ET.Element) -> Rechnung:
     bedingungen = abrechnung.knoten("ram:SpecifiedTradePaymentTerms")
     summe = abrechnung.knoten("ram:SpecifiedTradeSettlementHeaderMonetarySummation")
     zeitraum = abrechnung.knoten("ram:BillingSpecifiedPeriod")
+    bezug = abrechnung.knoten("ram:InvoiceReferencedDocument")
 
     return Rechnung(
         syntax="CII",
@@ -111,6 +113,8 @@ def lies_cii(wurzel: ET.Element) -> Rechnung:
         bestellnummer=vereinbarung.text(
             "ram:BuyerOrderReferencedDocument/ram:IssuerAssignedID"
         ),
+        vorgaenger_nummer=bezug.text("ram:IssuerAssignedID"),
+        vorgaenger_datum=bezug.datum("ram:FormattedIssueDateTime/qdt:DateTimeString"),
         notizen=[
             t for n in kopf.alle("ram:IncludedNote") if (t := n.text("ram:Content"))
         ],

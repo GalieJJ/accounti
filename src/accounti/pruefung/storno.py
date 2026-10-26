@@ -24,7 +24,11 @@ from uuid import uuid4
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from accounti.abschluss.kontenrahmen import Kontenrahmen, lade_kontenrahmen
+from accounti.abschluss.kontenrahmen import (
+    Kontenrahmen,
+    lade_kontenrahmen,
+    mit_eingerichteten_konten,
+)
 from accounti.anzeige import datum_de
 from accounti.db.repo_pruefung import setze_storniert_durch, speichere_korrektur
 from accounti.db.repository import (
@@ -321,7 +325,20 @@ def _pruefe_umkehrbar(b: Buchungssatz, kr: Kontenrahmen) -> None:
 
 
 def _stornodatum(session: Session, b: Buchungssatz, datum: date | None) -> date:
+    """Datum von Storno und Neubuchung: ohne ``datum`` das des Originals, sonst
+    ``datum`` — nie davor. Eine Änderung der Bemessungsgrundlage wird im Zeitraum
+    berichtigt, in dem sie eintritt (§ 17 Abs. 1 Satz 7 UStG), ein Buchungsirrtum im
+    Zeitraum des Originals (berichtigte Voranmeldung) — beides nie vor dem Umsatz."""
     tag = datum or b.datum
+    if tag < b.datum:
+        regel = "ein Storno gilt frühestens ab dem Tag des Originals"
+        raise StornoError(
+            f"Storno am {datum_de(tag)} läge vor der Buchung vom "
+            f"{datum_de(b.datum)} — {regel}",
+            feld="datum",
+            cli=f"Storno am {datum_de(tag)} läge vor der Buchung {_kurz(b)} vom "
+            f"{datum_de(b.datum)} — {regel}",
+        )
     if gesperrt(session.connection(), tag):
         if datum is None:
             raise StornoError(
@@ -443,7 +460,7 @@ def storniere(
         person,
         grund.strip(),
         datum,
-        kontenrahmen or lade_kontenrahmen(),
+        mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session),
         None,
     )
 
@@ -475,7 +492,7 @@ def korrigiere(
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
     person = aktuelle_person(von)
-    kr = kontenrahmen or lade_kontenrahmen()
+    kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
     schluessel, netto, steuerbetrag = _steuer(b, steuer, ohne_steuer, grund)
     aenderung = {

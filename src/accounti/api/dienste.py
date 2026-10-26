@@ -93,10 +93,10 @@ class Dienste:
                         str(
                             Text(
                                 "Die Systemdatenbank ist nicht auf dem Stand dieser "
-                                "Version (Spalte %(spalte)s fehlt) — vorher alembic "
-                                "upgrade head für die Systemdatenbank und jede "
+                                "Version (Spalte %(spalte)s fehlt) — vorher accounti "
+                                "db upgrade für die Systemdatenbank und jede "
                                 "Gesellschaftsdatenbank ausführen (siehe "
-                                "docs/betrieb.md)",
+                                "docs/betrieb.md, Upgrades)",
                                 spalte=f"{tabelle}.{fehlt[0]}",
                             )
                         )

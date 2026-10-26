@@ -42,7 +42,7 @@ Ihre Rolle in %(gesellschaft)s erlaubt das nicht: Your role in %(gesellschaft)s 
 Kein Zugriff auf diese Gesellschaft: No access to this company
 Benutzer unbekannt: Unknown user
 Einmalcode falsch oder schon benutzt: One-time code wrong or already used
-Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher alembic upgrade head für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md): The system database is not up to date for this version (column %(spalte)s is missing) — first run alembic upgrade head for the system database and every company database (see docs/betrieb.md)
+Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md, Upgrades): The system database is not up to date for this version (column %(spalte)s is missing) — first run accounti db upgrade for the system database and every company database (see docs/betrieb.md, Upgrades)
 
 # --- Übersicht -------------------------------------------------------------------------
 Offene Posten: Open items
@@ -198,7 +198,7 @@ Dezember: December
   other: "Matches %(num)s payments in in the last 24 months"
 "greift für diesen Umsatz": "applies to this transaction"
 "greift für diesen Umsatz nicht": "does not apply to this transaction"
-"Muster „%(muster)s“, Gegenrichtung (nicht betroffen): %(anzahl)s, davon heute anders gebucht: %(anders)s": "Pattern “%(muster)s”, opposite direction (not affected): %(anzahl)s, of the matches currently booked differently: %(anders)s"
+"Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s": "Pattern “%(muster)s”, opposite direction (at most as a counter-entry for review): %(anzahl)s, of the matches currently booked differently: %(anders)s"
 "Verdrängt Regel %(name)s für diesen Umsatz.": "Takes precedence over rule %(name)s for this transaction."
 "Bisher": "Current booking"
 "Auch andere Gegenparteien:": "Also other counterparties:"

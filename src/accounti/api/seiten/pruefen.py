@@ -695,7 +695,7 @@ async def regelvorschau(
             lade_regelwerk,
             pruefe_entwurf,
         )
-        from accounti.konfiguration import lade_buchhaltung
+        from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
         e = lade_eintrag(s, str(buchung_id))
         if e.umsatz is None:
@@ -728,11 +728,17 @@ async def regelvorschau(
             kr = lade_abschluss(g.konfiguration).lade_kontenrahmen()
         except Exception:  # noqa: BLE001 — nur für den Hinweis „Konto unbekannt“
             kr = None
+        try:
+            # dasselbe Regelwerk wie classify: gelernt → Regeldatei → Standardregeln
+            # im Kontenrahmen der Gesellschaft
+            werk = lade_regelwerk(s, g.regeln, bh.gelernte_regeln, buchhaltung=bh)
+        except KonfigurationError:
+            werk = None  # Regeldatei fehlerhaft: „verdrängt Regel …“ bleibt offen
         v = pruefe_entwurf(
             s,
             entwurf,
             e.umsatz,
-            lade_regelwerk(s, g.regeln, bh.gelernte_regeln),
+            werk,
             einstellung=bh.gelernte_regeln,
             kontenrahmen=kr,
             heute=date.today(),

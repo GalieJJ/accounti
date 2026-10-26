@@ -113,7 +113,10 @@ def uebernehmen(
     gelernte Regeln standen am Dateiende und griffen nach falsch treffenden eigenen
     Regeln. Die Datei bleibt unverändert; die Einträge danach von Hand löschen."""
     from accounti.abschluss.konfiguration import lade_abschluss
-    from accounti.abschluss.kontenrahmen import KontenrahmenError
+    from accounti.abschluss.kontenrahmen import (
+        KontenrahmenError,
+        mit_eingerichteten_konten,
+    )
     from accounti.betrieb.kontext import regeln_datei
     from accounti.klassifikation.lernen import RegelError, uebernehme_aus_datei
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
@@ -128,9 +131,10 @@ def uebernehmen(
         ende(str(fehler))
     if probe:
         with sitzung(db)() as s:
+            # eingerichtete Bank- und Kartenkonten zählen als Geldkonten
             ergebnis = uebernehme_aus_datei(
                 s, datei, "probe", bank_konto=bank_konto,
-                kontenrahmen=kontenrahmen, probe=True,
+                kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s), probe=True,
             )  # fmt: skip
             s.rollback()
     else:
@@ -145,7 +149,7 @@ def uebernehmen(
             try:
                 ergebnis = uebernehme_aus_datei(
                     s, datei, aktuelle_person(person), bank_konto=bank_konto,
-                    kontenrahmen=kontenrahmen,
+                    kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
                 )  # fmt: skip
                 s.commit()
             except RegelError as fehler:

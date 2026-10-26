@@ -14,6 +14,7 @@ from accounti.cli import app
 from accounti.db import init_db, session_factory
 from accounti.db.repo_kontierung import lade_kontierungsregeln
 from accounti.db.repository import lade_buchungen
+from accounti.models import BuchungStatus
 from tests.pruefung_hilfe import anlegen, db_url, umsatz
 
 runner = CliRunner()
@@ -150,7 +151,10 @@ def test_gelernte_regel_greift_beim_naechsten_classify(url, tmp_path):
     engine.dispose()
     assert neu[zweiter.id].soll_konto == "4930" and neu[zweiter.id].confidence == 1.0
     # die Erstattung trifft die (Ausgabe-)Regel nicht, nur die falsche eigene Regel
-    assert neu[erstattung.id].soll_konto == "4980"
+    # ohne Richtung — und die Schranke des Mappers dreht sie zur Gegenbuchung
+    e = neu[erstattung.id]
+    assert (e.soll_konto, e.haben_konto) == ("1200", "4980")
+    assert e.status is BuchungStatus.ZUR_PRUEFUNG
 
 
 def test_korrigiere_lernen_nicht_aus_kreditkarte(url):

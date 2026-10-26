@@ -75,7 +75,7 @@ def test_vorschau_zeigt_richtung_und_gegenrichtung(qw):
     qw.umsatz("-20.00", date(2026, 9, 6), "Nachkauf", "Bürobedarf Müller GmbH")
     r = vorschau(qw.web.angemeldet("jan"), b, HX)
     assert "Trifft 2 Ausgaben in den letzten 24 Monaten" in r.text
-    assert "Gegenrichtung (nicht betroffen): 1" in r.text
+    assert "Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): 1" in r.text
 
 
 def test_korrektur_mit_regel_ohne_recht_403_und_nichts_gespeichert(qw, monkeypatch):

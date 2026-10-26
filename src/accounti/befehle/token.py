@@ -1,8 +1,9 @@
 """``accounti token`` — API-Token für Fremdsysteme (Integrationen, Akzeptanz 7).
 
 Ein Token gehört zu genau einer Gesellschaft (``accounti -g K token anlegen …``) und
-trägt ausdrücklich genannte Rechte. Freigeben kann kein Token. ``liste`` und
-``widerrufen`` wirken nur in der gewählten Gesellschaft.
+trägt ausdrücklich genannte Rechte. Freigeben kann kein Token. Der Name ist unter den
+aktiven Token einer Gesellschaft eindeutig; ``liste`` und ``widerrufen`` wirken nur in
+der gewählten Gesellschaft.
 """
 
 from __future__ import annotations
@@ -135,24 +136,15 @@ def widerrufen(
     """Token der gewählten Gesellschaft sofort sperren."""
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.auth.dienst import ereignis
-    from accounti.db.repo_auth import lade_api_tokens, widerrufe_api_token
+    from accounti.db.repo_auth import widerrufe_api_token
 
     gesellschaft = _gesellschaft()
     durch = verwaltung_oder_ende(db, config)
     jetzt = datetime.now()
     with systemsitzung(db) as s:
-        fremd = {
-            t.gesellschaft
-            for t in lade_api_tokens(s)
-            if t.name == name and t.widerrufen_am is None
-        } - {gesellschaft}
-        if fremd:
-            raise _ende(
-                f"Das Token {name} gehört zur Gesellschaft {', '.join(sorted(fremd))} "
-                f"— dort widerrufen (accounti -g {sorted(fremd)[0]} token widerrufen)"
-            )
         try:
-            widerrufe_api_token(s, name, jetzt)
+            # nur das Token dieser Gesellschaft — Namen sind je Gesellschaft eindeutig
+            widerrufe_api_token(s, name, jetzt, gesellschaft)
         except ValueError as fehler:
             raise _ende(str(fehler)) from fehler
         ereignis(

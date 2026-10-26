@@ -25,7 +25,9 @@ def storniere(
         "eingerichteten Benutzern: Rolle und Einmalcode)",
     ),
     tag: str | None = typer.Option(
-        None, "--datum", help="Storno-Datum, wenn der Zeitraum abgeschlossen ist"
+        None,
+        "--datum",
+        help="Storno-Datum, wenn der Zeitraum abgeschlossen ist (nie vor dem Original)",
     ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,

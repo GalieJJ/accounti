@@ -1,7 +1,7 @@
 """add kontierung (Baustein 10b: Herkunft je Buchung, gelernte Kontierungsregeln)
 
 Revision ID: d5a849692843
-Revises: ddc9a184ddb4
+Revises: a14acef69fae
 Create Date: 2026-10-21 22:55:11.190053
 
 ``kontierungsgruende`` ist nur anfügbar (unter SQLite zusätzlich per Trigger, wie
@@ -10,6 +10,10 @@ als ``gelernt_*`` in der Regeldatei — ``accounti regeln uebernehmen`` holt sie
 
 Hat ein Befehl des neuen Codes die Tabellen schon angelegt (``init_db`` vor der
 Migration), übernimmt die Migration sie und legt nur an, was fehlt.
+
+Hängt seit dem Zusammenführen mit main hinter ``a14acef69fae`` (Verrechnungen,
+Gesamttest Debitoren) — vorher hinter ``ddc9a184ddb4``; die Reihenfolge der beiden
+Migrationen von Baustein 10b bleibt.
 """
 from typing import Sequence, Union
 
@@ -19,7 +23,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'd5a849692843'
-down_revision: Union[str, Sequence[str], None] = 'ddc9a184ddb4'
+down_revision: Union[str, Sequence[str], None] = 'a14acef69fae'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

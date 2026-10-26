@@ -1,10 +1,12 @@
 """Migrationen von Baustein 10b — Alembic als eigener Prozess wie im Container.
 
 ``d5a849692843`` (Kontierung: ``kontierungsgruende``, ``kontierungsregeln``) hängt an
-``ddc9a184ddb4`` (Baustein 7), ``SPRACHE`` (``auth_benutzer.sprache``) daran. Beide
-übernehmen, was ``init_db`` schon anlegte, und laufen gegen jede Datenbank (System-
-und Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der gemeinsamen Metadaten
-in jeder).
+``a14acef69fae`` (Verrechnungen, Gesamttest Debitoren — beim Zusammenführen mit main
+dahinter gehängt, vorher an ``ddc9a184ddb4``), ``SPRACHE`` (``auth_benutzer.sprache``)
+daran. Beide übernehmen, was ``init_db`` schon anlegte, und laufen gegen jede
+Datenbank (System- und Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der
+gemeinsamen Metadaten in jeder). Zurück geht es immer auf feste Revisionen, nie
+„-1“ — sonst hinge der Test daran, welche Migration gerade der Kopf ist.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from tests.pg_hilfe import pg_datenbank as pg_datenbank  # noqa: F401 (Fixture)
 
 WURZEL = Path(__file__).resolve().parents[1]
 SIEBEN = "ddc9a184ddb4"  # Baustein 7
+VOR_10B = "a14acef69fae"  # Verrechnungen (main) — der Stand vor Baustein 10b
 KONTIERUNG = "d5a849692843"
 SPRACHE = "e7153706b43a"
 BUCHUNG = "00000000-0000-0000-0000-000000000001"
@@ -83,13 +86,14 @@ NEU = {"kontierungsgruende", "kontierungsregeln"}
 TRIGGER = {"kontierungsgruende_kein_update", "kontierungsgruende_kein_delete"}
 
 
-def test_ein_kopf_nach_ddc9a184ddb4(tmp_path):
+def test_ein_kopf_nach_den_verrechnungen(tmp_path):
     db = tmp_path / "x.db"
     kopf = ok(alembic(db, "heads"))
     assert kopf.count("(head)") == 1 and SPRACHE in kopf
     verlauf = ok(alembic(db, "history", "-r", "a684d10751de:head"))
-    assert f"{SIEBEN} -> {KONTIERUNG}" in verlauf
+    assert f"{VOR_10B} -> {KONTIERUNG}" in verlauf
     assert f"{KONTIERUNG} -> {SPRACHE} (head)" in verlauf
+    assert f"{SIEBEN} -> {KONTIERUNG}" not in verlauf
     assert f"a684d10751de -> {SIEBEN}" in verlauf
 
 
@@ -131,10 +135,10 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     db = tmp_path / "alt.db"
     bestand(db)
     ok(alembic(db, "upgrade", "head"))
-    ok(alembic(db, "downgrade", "-1"))
+    ok(alembic(db, "downgrade", KONTIERUNG))
     tabellen, trigger, spalten = schema(db)
     assert tabellen >= NEU and "sprache" not in spalten
-    ok(alembic(db, "downgrade", "-1"))
+    ok(alembic(db, "downgrade", VOR_10B))
     tabellen, trigger, spalten = schema(db)
     assert not tabellen & NEU and not trigger & TRIGGER
     with sqlite3.connect(db) as v:  # der Bestand bleibt
@@ -170,12 +174,12 @@ def test_upgrade_ergaenzt_sprache_in_bestehender_tabelle(tmp_path):
 @mit_postgresql
 def test_postgresql_rundlauf(pg_datenbank):  # noqa: F811
     """Gegen frische PostgreSQL-Datenbanken (System und Gesellschaft): hinauf, check,
-    zurück auf Baustein 7, wieder hinauf."""
+    zurück auf den Stand vor Baustein 10b, wieder hinauf."""
     for _ in ("system", "gesellschaft"):
         url = pg_datenbank()
-        ok(alembic(url, "upgrade", SIEBEN))
+        ok(alembic(url, "upgrade", VOR_10B))
         ok(alembic(url, "upgrade", "head"))
         assert "No new upgrade operations detected" in ok(alembic(url, "check"))
-        ok(alembic(url, "downgrade", SIEBEN))
+        ok(alembic(url, "downgrade", VOR_10B))
         ok(alembic(url, "upgrade", "head"))
         assert "No new upgrade operations detected" in ok(alembic(url, "check"))

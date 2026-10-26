@@ -6,6 +6,7 @@ Ohne Abschnitt gelten die Konten des Kontenrahmens aus ``buchhaltung.kontenrahme
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -91,11 +92,28 @@ class AnlagenEinstellungen(BaseModel):
     immaterielle_konten: list[tuple[str, str]] = Field(default_factory=list)
     anlagekonten: list[tuple[str, str]] = Field(default_factory=list)
     rechtsstand_datei: str | None = Field(default=None, alias="rechtsstand")
+    wirtschaftsjahr_beginn: date | None = Field(
+        default=None, description="aus datev.wirtschaftsjahr_beginn (Tag und Monat)"
+    )
 
     model_config = {"populate_by_name": True}
 
     def rechtsstand(self) -> Rechtsstand:
         return lade_rechtsstand(self.rechtsstand_datei)
+
+    def afa_abschnitt(self, bis_monat: int) -> tuple[int, int]:
+        """(erster, letzter Monat) des Teils eines Kalenderjahres, in dem ``bis_monat``
+        liegt — bei abweichendem Wirtschaftsjahr gehört ein Kalenderjahr zu zwei
+        Wirtschaftsjahren (Januar bis WJ-Ende, danach bis Dezember), sonst (1, 12).
+
+        Die AfA steht je Wirtschaftsjahr zu (§ 7 Abs. 1 Satz 1 und 4 EStG); der
+        AfA-Lauf rechnet je Abschnitt, damit das erste Wirtschaftsjahr in accounti nicht
+        die AfA des Vor-WJ mitbucht. Beginnt das Wirtschaftsjahr nicht am Monatsersten,
+        zählt der Monat seines Endes zum endenden Wirtschaftsjahr."""
+        from accounti.abschluss.konfiguration import wirtschaftsjahr
+
+        ende = wirtschaftsjahr(2001, self.wirtschaftsjahr_beginn).bis.month
+        return (1, ende) if bis_monat <= ende else (ende + 1, 12)
 
     def ist_anlagekonto(self, konto: str) -> bool:
         return _in(konto, self.anlagekonten)
@@ -119,6 +137,8 @@ class AnlagenEinstellungen(BaseModel):
 
 
 def lade_anlagen(pfad: str | Path = STANDARD_PFAD) -> AnlagenEinstellungen:
+    from accounti.abschluss.konfiguration import lade_wirtschaftsjahr_beginn
+
     pfad = Path(pfad)
     kontenrahmen = lade_buchhaltung(pfad).kontenrahmen.upper()
     standard = STANDARDS.get(kontenrahmen, STANDARDS["SKR03"])
@@ -136,6 +156,7 @@ def lade_anlagen(pfad: str | Path = STANDARD_PFAD) -> AnlagenEinstellungen:
             **eigene,
             "konten": {**standard["konten"], **konten},
             "kontenrahmen": kontenrahmen,
+            "wirtschaftsjahr_beginn": lade_wirtschaftsjahr_beginn(pfad),
         }
         return AnlagenEinstellungen.model_validate(werte)
     except (ValidationError, TypeError) as fehler:

@@ -5,7 +5,7 @@
 <div class="vorschau" role="status">
   <p class="treffer">{% if richtung == "einnahme" %}{{ ngettext("Trifft %(num)s Einnahme in den letzten 24 Monaten", "Trifft %(num)s Einnahmen in den letzten 24 Monaten", vorschau.treffer) }}{% else %}{{ ngettext("Trifft %(num)s Ausgabe in den letzten 24 Monaten", "Trifft %(num)s Ausgaben in den letzten 24 Monaten", vorschau.treffer) }}{% endif %}
   · {% if vorschau.greift_fuer_umsatz %}{{ _("greift für diesen Umsatz") }}{% else %}{{ _("greift für diesen Umsatz nicht") }}{% endif %}</p>
-  <p class="klein">{{ _("Muster „%(muster)s“, Gegenrichtung (nicht betroffen): %(anzahl)s, davon heute anders gebucht: %(anders)s", muster=vorschau.entwurf.muster, anzahl=vorschau.gegenrichtung, anders=vorschau.anders_kontiert) }}</p>
+  <p class="klein">{{ _("Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s", muster=vorschau.entwurf.muster, anzahl=vorschau.gegenrichtung, anders=vorschau.anders_kontiert) }}</p>
   {% if vorschau.verdraengt %}<p class="hinweis">{{ _("Verdrängt Regel %(name)s für diesen Umsatz.", name=vorschau.verdraengt) }}</p>{% endif %}
   {% if vorschau.beispiele %}
   <table class="liste klein">

@@ -230,6 +230,7 @@ def schreibe_cii(r: Rechnung) -> bytes:
 
     s = r.summen
     summe = _el(abrechnung, "ram:SpecifiedTradeSettlementHeaderMonetarySummation")
+    # BT-25/26 folgen im Schema auf die Summen (InvoiceReferencedDocument)
     for feld, wert in (
         ("ram:LineTotalAmount", s.positionen_netto),
         ("ram:ChargeTotalAmount", s.zuschlaege),
@@ -253,6 +254,16 @@ def schreibe_cii(r: Rechnung) -> bytes:
     ):
         if wert is not None:
             _el(summe, feld, _betrag(wert))
+    if r.vorgaenger_nummer:
+        bezug = _el(abrechnung, "ram:InvoiceReferencedDocument")
+        _el(bezug, "ram:IssuerAssignedID", r.vorgaenger_nummer)
+        if r.vorgaenger_datum:
+            _el(
+                _el(bezug, "ram:FormattedIssueDateTime"),
+                "qdt:DateTimeString",
+                f"{r.vorgaenger_datum:%Y%m%d}",
+                format="102",
+            )
 
     ET.indent(wurzel, space="  ")
     return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(

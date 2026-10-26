@@ -38,7 +38,7 @@ from typing import Any
 from sqlalchemy import Column, Connection, Float, Numeric, Table, insert, select, text
 from sqlalchemy.orm import Session
 
-from accounti.db.tabellen import BelegRow, BuchungssatzRow
+from accounti.db.tabellen import BelegRow, BuchungssatzRow, VerrechnungRow
 from accounti.db.tabellen_abschluss import AbschlussRow
 from accounti.db.tabellen_kontierung import KontierungsregelRow
 from accounti.db.tabellen_pruefung import JournalRow, PeriodenabschlussRow
@@ -345,6 +345,7 @@ BESTAND: dict[str, Table] = {
     # gelernte Regeln buchen künftig automatisch — eine an accounti vorbei geänderte
     # Regel soll auffallen (Baustein 10b)
     "kontierungsregel": KontierungsregelRow.__table__,  # type: ignore[dict-item]
+    "verrechnung": VerrechnungRow.__table__,  # type: ignore[dict-item]
 }
 
 

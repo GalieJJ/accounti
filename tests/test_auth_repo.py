@@ -250,7 +250,7 @@ def test_api_token(sitzung):
         speichere_api_token(
             sitzung, t.model_copy(update={"id": uuid4(), "token_hash": "d" * 64})
         )
-    widerrufe_api_token(sitzung, "erp", JETZT)
+    widerrufe_api_token(sitzung, "erp", JETZT, "standard")
     widerrufen = lade_api_token_nach_hash(sitzung, "c" * 64)
     assert widerrufen.widerrufen_am == JETZT
     assert not widerrufen.gilt(JETZT)
@@ -260,7 +260,14 @@ def test_api_token(sitzung):
     )
     assert len(lade_api_tokens(sitzung)) == 2
     with pytest.raises(ValueError, match="kein aktives Token"):
-        widerrufe_api_token(sitzung, "gibtsnicht", JETZT)
+        widerrufe_api_token(sitzung, "gibtsnicht", JETZT, "standard")
+    # gleicher Name in einer anderen Gesellschaft: erlaubt (Befund Betrieb B9)
+    speichere_api_token(
+        sitzung,
+        t.model_copy(
+            update={"id": uuid4(), "token_hash": "f" * 64, "gesellschaft": "zweite"}
+        ),
+    )
 
 
 def test_ereignisse_nur_anfuegen(sitzung):

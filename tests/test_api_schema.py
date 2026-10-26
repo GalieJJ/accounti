@@ -36,9 +36,15 @@ def test_start_ohne_migration_bricht_mit_hinweis_ab(tmp_path, gestartet):
     ok(alembic(datei, "upgrade", KONTIERUNG))  # Stand vor der Sprachspalte
     r = _serve(tmp_path, f"sqlite:///{datei}")
     assert r.exit_code == 2, r.output
-    assert "auth_benutzer.sprache" in r.output and "alembic upgrade head" in r.output
+    assert "auth_benutzer.sprache" in r.output and "accounti db upgrade" in r.output
     assert "geheim-pfad" not in r.output and "sqlite" not in r.output
     assert gestartet == []
+    # der Hinweis führt zum Ziel: nach accounti db upgrade startet serve
+    r = runner.invoke(app, ["db", "upgrade", "--db", f"sqlite:///{datei}"])
+    assert r.exit_code == 0, r.output
+    r = _serve(tmp_path, f"sqlite:///{datei}")
+    assert r.exit_code == 0, r.output
+    assert len(gestartet) == 1
 
 
 def test_frische_datenbank_startet(tmp_path, gestartet):

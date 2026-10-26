@@ -15,8 +15,10 @@ Für CLI (``accounti korrigiere --lernen``, ``lerne``, ``regeln …``) und Brows
   ``lerne_sachkonto`` (Belegbuchung → Sachkonto am Kontakt), ``deaktiviere``,
   ``uebernehme_aus_datei`` (alte ``gelernt_*``-Einträge der Regeldatei).
 * ``lade_regelwerk`` — gelernte Regeln (neueste zuerst) → Regeldatei der Gesellschaft
-  → Standardregeln. Die gelernte Regel greift also auch dann, wenn eine eigene Regel
-  vorher falsch getroffen hat (Akzeptanz 2).
+  → Standardregeln des Kontenrahmens. Die gelernte Regel greift also auch dann, wenn
+  eine eigene Regel vorher falsch getroffen hat (Akzeptanz 2). Alle drei Quellen
+  teilen ein Regelmodell (``engine.Regel``: Richtung ``ausgabe``/``einnahme``,
+  Gegenbuchung zur Prüfung, Schranke des Mappers).
 
 Alle Funktionen arbeiten in der Sitzung des Aufrufers und committen nicht. Anlage und
 Deaktivierung stehen im Journal (``pruefung.ereignisse``).
@@ -52,9 +54,9 @@ from accounti.db.repo_kontierung import (
     zaehle_regeltreffer,
 )
 from accounti.klassifikation.engine import (
-    STANDARD_REGELN,
     Regel,
     RegelwerkEngine,
+    standard_regeln,
     text_muster,
 )
 from accounti.konfiguration import Buchhaltung
@@ -385,6 +387,9 @@ def regel_aus_entwurf(e: RegelEntwurf, name: str = "neu") -> Regel:
 def regel_aus_db(
     r: Kontierungsregel, einstellung: Einstellung = "automatisch"
 ) -> Regel:
+    """Gelernte Regel als ``Regel`` des Regelwerks — dieselben Richtungswerte
+    (``Richtung.value``) wie Regeldatei und Standardregeln; die Schranke des Mappers
+    (Bankseite gegen Vorzeichen) gilt für sie wie für jede andere Quelle."""
     muster = text_muster(r.muster) if r.ist_text else r.muster
     pruefen = einstellung == "pruefen"
     return Regel(
@@ -396,6 +401,7 @@ def regel_aus_db(
         buchungstext=r.buchungstext,
         feld=r.feld,
         richtung=r.richtung.value if r.richtung else None,
+        pruefen=pruefen,
         confidence=PRUEFEN_CONFIDENCE if pruefen else 1.0,
         hinweis="Einstellung: prüfen" if pruefen else None,
     )
@@ -417,17 +423,25 @@ def lade_regelwerk(
     session: Session,
     regeldatei: str | Path | None,
     einstellung: Einstellung = "automatisch",
+    *,
+    buchhaltung: Buchhaltung | None = None,
 ) -> RegelwerkEngine:
-    """Gelernt (neueste zuerst) → Regeldatei der Gesellschaft → Standard.
+    """Gelernt (neueste zuerst) → Regeldatei der Gesellschaft → Standardregeln des
+    Kontenrahmens (``engine.standard_regeln`` mit Kontenrahmen und Bankkonto der
+    ``buchhaltung``; ohne: SKR03, Bank 1200).
 
     ``regeldatei``: in der CLI ``betrieb.kontext.regeln_datei()``, in Web und REST
-    ``gesellschaft.regeln`` — kein eigener Ausweichpfad."""
+    ``gesellschaft.regeln`` — kein eigener Ausweichpfad. Eine ungültige Regeldatei
+    meldet ``KonfigurationError``."""
     from accounti.klassifikation.regeln_loader import lade_regeln
 
     eigene = lade_regeln(regeldatei) if regeldatei else []
-    return RegelwerkEngine(
-        gelernte_regeln(session, einstellung) + eigene + list(STANDARD_REGELN)
+    standard = (
+        standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
+        if buchhaltung is not None
+        else standard_regeln()
     )
+    return RegelwerkEngine(gelernte_regeln(session, einstellung) + eigene + standard)
 
 
 # --- Vorschau -------------------------------------------------------------------------
@@ -447,7 +461,9 @@ class Vorschau:
     entwurf: RegelEntwurf
     gesamt: int = 0  # Umsätze im Zeitraum
     treffer: int = 0  # in der Richtung der Regel
-    gegenrichtung: int = 0  # Muster passt, Richtung nicht: nicht betroffen
+    # Muster passt, Richtung nicht: höchstens Gegenbuchung zur Prüfung (wenn sonst keine
+    # Regel und kein LLM-Vorschlag greift — RegelwerkEngine.gegenrichtung)
+    gegenrichtung: int = 0
     anders_kontiert: int = 0  # Treffer, die heute anders gebucht sind
     beispiele: list[Beispiel] = field(default_factory=list)
     greift_fuer_umsatz: bool = False
@@ -859,11 +875,13 @@ def uebernehme_aus_datei(
             muster = str(eintrag["muster"])
             re.compile(muster)
             soll, haben = str(eintrag["soll_konto"]), str(eintrag["haben_konto"])
-            richtung = (
-                Richtung(eintrag["richtung"])
-                if eintrag.get("richtung")
-                else richtung_der_bankseite(soll, haben, bank_konto, kontenrahmen)
-            )
+            angabe = eintrag.get("richtung")
+            if angabe == "beide":  # ausdrücklich ohne Richtung (wie die Regeldatei)
+                richtung = None
+            elif angabe:
+                richtung = Richtung(angabe)
+            else:
+                richtung = richtung_der_bankseite(soll, haben, bank_konto, kontenrahmen)
             regel = Kontierungsregel(
                 name=name[:100],
                 muster=muster,

@@ -480,14 +480,20 @@ def test_akzeptanz_2_vor_falsch_treffender_eigener_regel(qw):
     assert grund.regel is not None and grund.regel.startswith("gelernt_")
 
 
-def test_akzeptanz_2_erstattung_derselben_gegenpartei_unberuehrt(qw):
+def test_akzeptanz_2_erstattung_derselben_gegenpartei_nur_als_gegenbuchung(qw):
+    """Die Erstattung derselben Gegenpartei ist kein Geldabgang auf 4930: Die gelernte
+    Ausgaberegel greift für sie nur als Gegenbuchung zur Prüfung — wie jede Regel mit
+    Richtung (Paket B, § 17 Abs. 1 Satz 2 UStG), und erst, wenn sonst keine Regel und
+    kein LLM-Vorschlag passt."""
     b = qw.unsicher()
     assert lerne_aus_korrektur(qw, qw.web.angemeldet("jan"), b).status_code == 303
     erstattung = qw.umsatz(betrag="12.00", tag=date(2026, 10, 9), zweck="Gutschrift")
     assert rest_lauf(qw).status_code == 200
-    with qw.fabrik()() as s:
-        gebucht = [x for x in lade_buchungen(s) if x.transaktion_id == erstattung.id]
-    assert gebucht == []  # kein Geldabgang auf 4930 — offen für Mensch oder LLM
+    neu, grund = neue_buchung(qw, erstattung)
+    assert (neu.soll_konto, neu.haben_konto) == ("1200", "4930")
+    assert neu.status is BuchungStatus.ZUR_PRUEFUNG and neu.confidence <= 0.5
+    assert grund is not None and grund.regel is not None
+    assert grund.regel.startswith("gelernt_") and "Gegenbuchung" in grund.begruendung
 
 
 def test_akzeptanz_2_schalter_pruefen(qw):

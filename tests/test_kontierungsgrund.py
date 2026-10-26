@@ -116,9 +116,16 @@ def test_belegbuchung_sachkonto_quelle(make_session):
 
 
 def test_abweichung_vom_beleg_im_grund(make_session):
-    (b,), gruende = _mit_beleg(make_session, "-121.50")
-    assert "weicht um 2,50 € vom Beleg ab" in gruende[b.id].begruendung
-    assert b.status is BuchungStatus.ZUR_PRUEFUNG
+    """Die Differenz ist eine eigene Zeile ohne Steuer (Gesamttest Eingang B10) —
+    beide Buchungen nennen die Abweichung in ihrem Grund."""
+    buchungen, gruende = _mit_beleg(make_session, "-121.50")
+    assert len(buchungen) == 2
+    (differenz,) = [b for b in buchungen if b.buchungstext.startswith("Trinkgeld")]
+    assert differenz.steuer_schluessel is None
+    assert differenz.betrag_netto == Decimal("2.50")
+    for b in buchungen:
+        assert "weicht um 2,50 € vom Beleg ab" in gruende[b.id].begruendung
+        assert b.status is BuchungStatus.ZUR_PRUEFUNG
 
 
 def test_opos_verbuchung_speichert_grund_und_hinweise(make_session):

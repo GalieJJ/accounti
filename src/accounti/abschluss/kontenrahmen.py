@@ -9,19 +9,23 @@ engste passende Spanne gewinnt. Personenkonten sind fünfstellig; längere Sachk
 from __future__ import annotations
 
 import enum
+from collections.abc import Iterable
 from decimal import Decimal
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from accounti.steuer.umsatzsteuer import (
     DATEV_BU_SCHLUESSEL,
     UST_KONTEN_SKR03,
     VST_KONTEN_SKR03,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 Gewinnermittlung = Literal["euer", "bilanz"]
 
@@ -43,6 +47,9 @@ class Kontenart(str, enum.Enum):
 
 
 class _Spanne(BaseModel):
+    # unbekannte Schlüssel (Tippfehler) lehnt der Lader ab, statt sie still zu verwerfen
+    model_config = ConfigDict(extra="forbid")
+
     von: str
     bis: str
 
@@ -61,9 +68,12 @@ class _Art(_Spanne):
 class _EuerRegel(_Spanne):
     kz: str | None
     kz_haben: str | None = None
+    hinweis: str | None = None  # warum ohne Zeile bzw. was beim Ausfüllen zu tun ist
 
 
 class Vortragskonten(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     sachkonten: str = "9000"
     debitoren: str = "9008"
     kreditoren: str = "9009"
@@ -83,6 +93,8 @@ STEUERSCHLUESSEL = _vorsteuer_schluessel()
 
 
 class Kontenrahmen(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     quelle: str = ""
     arten: list[_Art] = Field(default_factory=list)
@@ -125,6 +137,18 @@ class Kontenrahmen(BaseModel):
             return True
         return self._engste(self.geldkonten, konto) is not None
 
+    def mit_geldkonten(self, konten: Iterable[str]) -> Kontenrahmen:
+        """Kopie, in der auch diese Konten Geldkonten sind (eingerichtete Bank- und
+        Kartenkonten mit eigenem Sachkonto)."""
+        neu = [
+            _Spanne(von=k, bis=k)
+            for k in sorted(set(konten))
+            if k.isdigit() and not self.ist_geldkonto(k)
+        ]
+        if not neu:
+            return self
+        return self.model_copy(update={"geldkonten": [*self.geldkonten, *neu]})
+
     def ist_bankkonto(self, konto: str) -> bool:
         """Bankkonto laut Kontenrahmen — wird mit dem Kontoauszug abgestimmt."""
         if self.ist_personenkonto(konto):
@@ -153,6 +177,12 @@ class Kontenrahmen(BaseModel):
             return regel.kz_haben  # type: ignore[no-any-return]
         return regel.kz  # type: ignore[no-any-return]
 
+    def euer_hinweis(self, konto: str) -> str | None:
+        """Hinweis der engsten EÜR-Regel, z. B. warum ein Konto keine Zeile hat."""
+        regel = self._engste(self.euer, konto)
+        hinweis: str | None = regel.hinweis if regel is not None else None
+        return hinweis
+
     def vortragskonto(
         self,
         konto: str,
@@ -173,6 +203,15 @@ class Kontenrahmen(BaseModel):
 
     def bezeichnung(self, konto: str) -> str:
         return self.namen.get(konto, "")
+
+
+def mit_eingerichteten_konten(kr: Kontenrahmen, session: Session) -> Kontenrahmen:
+    """Der Kontenrahmen mit den Sachkonten der eingerichteten Bank- und Kartenkonten
+    als Geldkonten (``bank verbinde``, ``kreditkarte einrichten``) — sie tragen bei
+    Buchungen mit Steuer den Bruttobetrag wie die Bank (Gesamttest Eingang B08)."""
+    from accounti.db.repository import lade_bankkonten
+
+    return kr.mit_geldkonten(k.sachkonto for k in lade_bankkonten(session))
 
 
 def _pruefe(text: str, name: str) -> Kontenrahmen:

@@ -52,6 +52,9 @@ class Anlagegut(BaseModel):
     )
     immateriell: bool = False
     beleg_id: UUID | None = None
+    buchung_id: UUID | None = Field(
+        default=None, description="Zugangsbuchung (anlegen --buchung)"
+    )
     typ: str | None = Field(default=None, description="Schlüssel der AfA-Tabelle")
     abgang_datum: date | None = None
     abgang_art: AbgangArt | None = None

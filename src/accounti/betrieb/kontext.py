@@ -159,23 +159,26 @@ def bestimme_kontext(gesellschaft: str | None) -> Kontext:
 
 
 def standardwerte_fuer(befehl: Any, werte: Mapping[str, str]) -> dict[str, Any]:
-    """``default_map`` für eine Befehlsgruppe: an jedem Befehl, der einen der
-    Parameter hat, dessen Wert — über alle Ebenen der Gruppen."""
-    karte: dict[str, Any] = {}
+    """``default_map`` für einen Befehl: an jedem Befehl, der einen der Parameter
+    hat, dessen Wert — über alle Ebenen der Gruppen.
+
+    Click liest für einen Befehl ``default_map[parameter]`` und reicht seinen
+    Unterbefehlen ``default_map[name]`` weiter — beides aus demselben Dict. Auch eine
+    Gruppe mit eigenem Callback (``ustva``, ``pruefen``, ``journal``, ``nachfordern``)
+    bekommt so ihre eigenen ``--db``/``--config`` (Befund Betrieb B1)."""
+    karte: dict[str, Any] = {
+        p.name: werte[p.name]
+        for p in getattr(befehl, "params", []) or []
+        if p.name in werte
+    }
     unter: Mapping[str, Any] = getattr(befehl, "commands", {}) or {}
     for name, kind in unter.items():
-        if getattr(kind, "commands", None):
-            tiefer = standardwerte_fuer(kind, werte)
-            if tiefer:
-                karte[name] = tiefer
-            continue
-        eigene = {
-            p.name: werte[p.name]
-            for p in getattr(kind, "params", [])
-            if p.name in werte
-        }
-        if eigene:
-            karte[name] = eigene
+        if name in karte:  # Parametername = Befehlsname: nicht eindeutig
+            msg = f"Befehl {name!r} heißt wie ein Parameter seiner Gruppe"
+            raise ValueError(msg)
+        tiefer = standardwerte_fuer(kind, werte)
+        if tiefer:
+            karte[name] = tiefer
     return karte
 
 
