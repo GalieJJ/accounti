@@ -139,13 +139,18 @@ def _gesperrt(
     lauf: Callable[[Zugang, Session], dict[str, Any]],
     s: Session,
 ) -> dict[str, Any]:
+    """Unter der Laufsperre; ein Lauf, der schon läuft, oder eine fehlerhafte
+    Konfiguration der Gesellschaft (z. B. Regeldatei) ergibt 409 mit Meldung."""
+    from accounti.konfiguration import KonfigurationError
+
     try:
         with (
             laufsperre(zugang.gesellschaft.datenbank, art),
             zugang.journal(),
         ):
             return lauf(zugang, s)
-    except LaufLaeuftError as fehler:
+    except (LaufLaeuftError, KonfigurationError) as fehler:
+        s.rollback()
         raise HTTPException(409, str(fehler)) from fehler
 
 

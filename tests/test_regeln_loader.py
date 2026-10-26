@@ -88,3 +88,25 @@ def test_classify_mit_kaputtem_muster_meldung_statt_traceback(tmp_path, monkeypa
     r = CliRunner().invoke(app, ["classify", "--no-llm", "--db", url])
     assert r.exit_code == 1 and "Regel telekom" in r.output
     assert r.exception is None or isinstance(r.exception, SystemExit)
+
+
+def test_rest_lauf_mit_kaputter_regeldatei_409_statt_500(tmp_path, monkeypatch):
+    """Der REST-Lauf lädt die Regeldatei der Gesellschaft — fehlerhaft: 409 mit
+    Meldung (wie die Oberfläche), nicht 500 „Interner Fehler“."""
+    from accounti.models.auth import TokenRecht
+    from tests.api_hilfe import webwelt
+    from tests.auth_hilfe import billige_hashes
+
+    billige_hashes(monkeypatch)
+    welt = webwelt(tmp_path)
+    welt.umgebung.wurzel.joinpath("a-regeln.yaml").write_text(
+        "- name: kaputt\n  muster: müller\n  feld: betrag\n  soll_konto: '4920'\n"
+        "  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
+    r = welt.client().post(
+        "/api/v1/laeufe/bank", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 409, r.text
+    assert "Regel kaputt" in r.text

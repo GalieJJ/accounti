@@ -542,7 +542,7 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   „nicht zugeordnet“) — jetzt 4400/4300/4200, steuerfrei 4125/4120/4100/4336 (besteht auf
   main). Die Regelvorschau zählt „davon heute anders gebucht“ der Gegenrichtung in deren
   Richtung; eine Regeldatei mit ungültigem Muster, falschem `feld` oder kaputtem YAML ergibt
-  eine Meldung mit Regelname statt Traceback bzw. 500. `db upgrade` prüft nach der Migration
+  eine Meldung mit Regelname statt Traceback bzw. 500 (REST-Lauf: 409). `db upgrade` prüft nach der Migration
   das Schema: Eine Datenbank vom Vorabstand von 10b-1 (Vermerk `e7153706b43a`, Migrationen von
   main fehlen) meldet es mit dem verlustfreien Weg statt „0 Migration(en)“; `db upgrade
   --aus-schema` holt die Migrationen nach. CLI-Befehle auf einer nicht migrierten Datenbank
