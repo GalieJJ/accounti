@@ -342,3 +342,27 @@ def test_cli_betrachter_darf_nicht_aendern_und_zuruecknehmen(tmp_path, monkeypat
         )
         assert r.exit_code == 1, (befehl, r.output)
         assert "jan darf" in r.output, (befehl, r.output)
+
+
+def test_hinweise_bei_kontowechsel_und_frueherem_datum(make_session, einst, config):
+    """Nachprüfung F, N7: ``--konto`` nach gebuchter AfA ließ Zugang und AfA auf dem
+    alten Konto (``pruefen``: zwei Fehler) und ``--datum`` ins Vorjahr die AfA des
+    Vorjahres fehlen — beides ohne Hinweis."""
+    _monitor(make_session, kosten="600")
+    _afa(make_session, einst)  # 600/13 × 10/12 = 38,46
+    with make_session() as s:
+        e = aendere_anlage(s, "1", einst, konto="0410", grund="falsches Konto")
+        s.commit()
+    (hinweis,) = e.neuberechnung.hinweise
+    assert "0420 → 0410" in hinweis and "561,54" in hinweis
+    assert "korrigiere" in hinweis
+    with make_session() as s:
+        aendere_anlage(s, "1", einst, konto="0420", grund="zurück")
+        e = aendere_anlage(
+            s, "1", einst, datum=date(J - 1, 11, 1), grund="Datum falsch"
+        )
+        s.commit()
+    assert any(
+        f"AfA {J - 1} fehlt" in h and f"anlagen afa --jahr {J - 1}" in h
+        for h in e.neuberechnung.hinweise
+    )

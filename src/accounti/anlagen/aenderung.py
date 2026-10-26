@@ -26,11 +26,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.anlagen.abgang import AbgangError
-from accounti.anlagen.afa import pruefe_anlage
+from accounti.anlagen.afa import plane, pruefe_anlage
 from accounti.anlagen.dienst import AnlageError, finde_zugangsbuchung
 from accounti.anlagen.konfiguration import AnlagenEinstellungen
 from accounti.anlagen.lauf import AfaLaufErgebnis, afa_lauf
 from accounti.anlagen.rechtsstand import Rechtsstand
+from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import (
     aktualisiere_anlage,
@@ -165,6 +166,42 @@ def _pruefe_jahre_offen(session: Session, jahre: set[int]) -> None:
         pruefe_jahr_offen(session, jahr)
 
 
+def _hinweise(
+    alt: Anlagegut,
+    neu: Anlagegut,
+    gebucht: Decimal,
+    bis: dict[tuple[int, int], int],
+    einstellungen: AnlagenEinstellungen,
+    rs: Rechtsstand,
+) -> list[str]:
+    """Was die Neuberechnung nicht selbst bucht (Nachprüfung F, N7): Ein neues
+    Anlagekonto lässt Zugang und gebuchte AfA auf dem alten, ein früheres
+    Anschaffungsdatum braucht die AfA der Jahre davor."""
+    hinweise = []
+    if alt.konto != neu.konto:
+        hinweise.append(
+            f"Anlagekonto {alt.konto} → {neu.konto}: Zugang bzw. Eröffnungssaldo und "
+            f"gebuchte AfA stehen weiter auf {alt.konto} — den Buchwert "
+            f"{betrag_de(alt.anschaffungskosten - gebucht)} € umbuchen (Zugangs- "
+            f"und AfA-Buchungen mit accounti korrigiere <ID> --soll … --haben … auf "
+            f"{neu.konto}), sonst meldet abschluss pruefen Saldo ≠ Restbuchwert"
+        )
+    if bis and neu.anschaffungsdatum.year < alt.anschaffungsdatum.year:
+        plan = plane(neu, rs)
+        ab = einstellungen.afa_abschnitt(12)[0]  # abweichendes WJ: zwei Abschnitte
+        gebuchte_jahre = {j for j, _ in bis}
+        for jahr in range(neu.anschaffungsdatum.year, alt.anschaffungsdatum.year):
+            if jahr in gebuchte_jahre or not plan.afa_im_jahr(jahr):
+                continue
+            zusatz = f" sowie --jahr {jahr} --bis-monat {ab - 1}" if ab > 1 else ""
+            hinweise.append(
+                f"AfA {jahr} fehlt (Anschaffung jetzt "
+                f"{neu.anschaffungsdatum:%d.%m.%Y}): accounti anlagen afa --jahr "
+                f"{jahr}{zusatz}"
+            )
+    return hinweise
+
+
 def _journal(
     session: Session,
     vorgang: str,
@@ -254,6 +291,11 @@ def aendere_anlage(
             )
             nb = ergebnis.neuberechnung
             nb.verworfen = _verwirf_eigene_vorschlaege(session, objekte)
+            # was nach dem Verwerfen noch gebucht ist, steht auf dem alten Konto
+            gebucht = sum(
+                (v.betrag for v in lade_afa_vorgaenge(session) if v.objekt in objekte),
+                Decimal(0),
+            )
             aktualisiere_anlage(session, neu)
             nb.afa = _neu_rechnen(session, objekte, bis, einstellungen, rs)
             if not bis:
@@ -261,6 +303,7 @@ def aendere_anlage(
                     "Noch keine AfA gebucht — accounti anlagen afa --jahr … rechnet "
                     "mit den neuen Werten"
                 )
+            nb.hinweise += _hinweise(alt, neu, gebucht, bis, einstellungen, rs)
         else:
             aktualisiere_anlage(session, neu)
         _journal(
