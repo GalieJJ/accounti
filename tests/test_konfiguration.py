@@ -115,3 +115,73 @@ def test_ustid_pruefung_ungueltig(tmp_path):
     konfig.write_text("ustid_pruefung:\n  max_alter_tage: -1\n", encoding="utf-8")
     with pytest.raises(KonfigurationError, match="ustid_pruefung"):
         lade_ustid_pruefung(konfig)
+
+
+# --- Kontenrahmen aus einer Quelle (Gesamttest Betrieb B4 = Steuer B3 = Abschluss B6)
+
+
+@pytest.mark.parametrize(
+    ("text", "erwartet"),
+    [
+        ("mandant:\n  kontenrahmen: SKR04\n", "SKR04"),  # so stand es in der Vorlage
+        ("buchhaltung:\n  kontenrahmen: skr04\n", "SKR04"),
+        (
+            "mandant:\n  kontenrahmen: SKR04\nbuchhaltung:\n  kontenrahmen: SKR04\n",
+            "SKR04",
+        ),
+        ("buchhaltung:\n  bank_konto: '1200'\n", "SKR03"),
+    ],
+)
+def test_kontenrahmen_aus_buchhaltung_oder_mandant(tmp_path, text, erwartet):
+    from datetime import date
+
+    from accounti.export.datev_stammdaten import lade_datev_mandant
+    from accounti.konfiguration import lade_buchhaltung
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(text, encoding="utf-8")
+    assert lade_buchhaltung(pfad).kontenrahmen == erwartet
+    # DATEV-Stammdaten aus derselben Quelle
+    mandant = lade_datev_mandant(pfad, date(2026, 1, 1), "1", "2")
+    assert mandant.skr == erwartet[-2:]
+
+
+def test_widerspruechlicher_kontenrahmen_ist_ein_fehler(tmp_path):
+    from datetime import date
+
+    from accounti.export.datev_stammdaten import lade_datev_mandant
+    from accounti.konfiguration import lade_buchhaltung
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        "mandant:\n  kontenrahmen: SKR04\nbuchhaltung:\n  kontenrahmen: SKR03\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(KonfigurationError, match="widersprechen"):
+        lade_buchhaltung(pfad)
+    with pytest.raises(KonfigurationError, match="widersprechen"):
+        lade_datev_mandant(pfad, date(2026, 1, 1), "1", "2")
+
+
+def test_unbekannter_kontenrahmen_ist_ein_fehler(tmp_path):
+    """Bisher fiel ein Tippfehler (SKR4) still auf SKR03 zurück."""
+    from accounti.konfiguration import lade_buchhaltung
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text("buchhaltung:\n  kontenrahmen: SKR4\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError, match="SKR03 oder SKR04"):
+        lade_buchhaltung(pfad)
+
+
+def test_vorlage_fuehrt_den_kontenrahmen_unter_buchhaltung():
+    from pathlib import Path
+
+    import yaml
+
+    from accounti.konfiguration import lade_buchhaltung
+
+    vorlage = Path(__file__).resolve().parents[1] / "config" / "accounti.example.yaml"
+    daten = yaml.safe_load(vorlage.read_text(encoding="utf-8"))
+    assert daten["buchhaltung"]["kontenrahmen"] == "SKR03"
+    assert "kontenrahmen" not in daten["mandant"]
+    assert lade_buchhaltung(vorlage).kontenrahmen == "SKR03"

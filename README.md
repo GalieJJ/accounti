@@ -152,7 +152,8 @@ pip install -e ".[dev]"
 
 # Konfiguration
 cp config/accounti.example.yaml config/accounti.yaml
-# → API-Keys und Datenbankverbindung eintragen
+# → API-Keys und Datenbankverbindung eintragen; Kontenrahmen: buchhaltung.kontenrahmen
+#   (SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen, Prüfregeln und DATEV)
 
 # Datenbank initialisieren (nach einem Update: accounti db upgrade)
 accounti db init

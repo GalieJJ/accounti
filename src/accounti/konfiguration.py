@@ -134,8 +134,15 @@ def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
         raise KonfigurationError(msg) from fehler
 
 
+KONTENRAHMEN = ("SKR03", "SKR04")
+
+
 class Buchhaltung(BaseModel):
-    """Abschnitt ``buchhaltung`` — optional, ohne ihn gelten die Standards."""
+    """Abschnitt ``buchhaltung`` — optional, ohne ihn gelten die Standards.
+
+    ``kontenrahmen`` ist die eine Quelle für USt, Abschluss, Anlagen, Prüfregeln und
+    DATEV (``lade_buchhaltung`` übernimmt ``mandant.kontenrahmen`` älterer
+    Konfigurationen)."""
 
     kontenrahmen: str = "SKR03"
     debitoren_von: int = 10000
@@ -159,15 +166,42 @@ class Buchhaltung(BaseModel):
         default_factory=lambda: {"19": "8736", "7": "8731", "0": "8730"}
     )
 
+    @field_validator("kontenrahmen", mode="before")
+    @classmethod
+    def _kontenrahmen(cls, wert: object) -> str:
+        text = str(wert).strip().upper()
+        if text not in KONTENRAHMEN:
+            # bisher fiel ein Tippfehler still auf SKR03 zurück
+            msg = f"kontenrahmen {wert!r}: SKR03 oder SKR04"
+            raise ValueError(msg)
+        return text
+
 
 def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
+    """Abschnitt ``buchhaltung``. Fehlt dort ``kontenrahmen``, gilt
+    ``mandant.kontenrahmen`` (so stand es früher in der Vorlage); widersprechen sich
+    beide, ist das ein Fehler — sonst rechneten USt und Abschluss mit dem einen, der
+    DATEV-Kopf mit dem anderen Kontenrahmen (Gesamttest Betrieb B4)."""
     pfad = Path(pfad)
     if not pfad.is_file():
         return Buchhaltung()
     daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
     abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
+    mandant = daten.get("mandant") if isinstance(daten, dict) else None
+    werte: Any = abschnitt or {}
+    alt = mandant.get("kontenrahmen") if isinstance(mandant, dict) else None
+    if alt is not None and isinstance(werte, dict):
+        eigen = werte.get("kontenrahmen")
+        if eigen is None:
+            werte = {**werte, "kontenrahmen": alt}
+        elif str(eigen).strip().upper() != str(alt).strip().upper():
+            msg = (
+                f"{pfad}: buchhaltung.kontenrahmen ({eigen}) und mandant.kontenrahmen "
+                f"({alt}) widersprechen sich — nur buchhaltung.kontenrahmen angeben"
+            )
+            raise KonfigurationError(msg)
     try:
-        return Buchhaltung.model_validate(abschnitt or {})
+        return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
         msg = f"{pfad}: Abschnitt 'buchhaltung': {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

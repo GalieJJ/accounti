@@ -8,8 +8,7 @@ database:
 # Mandant
 mandant:
   name: "Meine Firma GmbH"
-  kontenrahmen: SKR03          # SKR03 oder SKR04
-  sachkonten_laenge: 4         # 4 oder 6
+  sachkonten_laenge: 4         # 4 oder 6 (Kontenrahmen: buchhaltung.kontenrahmen)
 
   # Für Ausgangsrechnungen (XRechnung verlangt Anschrift, Kontakt, E-Mail und Bank)
   kuerzel: "MF"                # Schlüssel des Nummernkreises (je Gesellschaft)
@@ -107,6 +106,9 @@ bank:
 
 # Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
 buchhaltung:
+  kontenrahmen: SKR03          # SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen,
+                               # Prüfregeln und DATEV. Bei SKR04 auch die Konten unten
+                               # anpassen (z. B. bank_konto "1800", Skontokonten)
   debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)
   debitoren_bis: 69999
   kreditoren_von: 70000

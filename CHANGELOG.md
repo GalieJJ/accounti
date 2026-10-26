@@ -434,6 +434,14 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **`mandant.kontenrahmen` aus der Vorlage wurde ignoriert** (Betrieb B4 = Steuer B3 =
+  Abschluss B6): Die Vorlage führte den Kontenrahmen unter `mandant`, gelesen wurde für USt,
+  Abschluss, Anlagen und Prüfregeln nur `buchhaltung.kontenrahmen` — eine SKR04-Gesellschaft
+  rechnete mit SKR03, nur der DATEV-Kopf sagte „04“. Eine Quelle: `lade_buchhaltung`
+  übernimmt `mandant.kontenrahmen`, wenn `buchhaltung.kontenrahmen` fehlt; widersprechen
+  sich beide, bricht accounti mit einer Meldung ab; ein unbekannter Wert (`SKR4`) ist ein
+  Fehler statt still SKR03. Die DATEV-Stammdaten lesen über denselben Lader; die Vorlage
+  führt den Schlüssel unter `buchhaltung`
 - **Upgrade-Weg für Datenbanken aus `db init`** (Betrieb B2): `init_db` legte nur Tabellen
   an, ohne Versionsvermerk — der dokumentierte `alembic upgrade head` begann bei der ersten
   Migration und brach an „table … already exists“ ab, der neue Code ohne Migration an
