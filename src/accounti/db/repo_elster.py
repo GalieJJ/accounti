@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from accounti.db.tabellen import BelegRow
+from accounti.db.tabellen import AusgangsrechnungRow, BelegRow
 from accounti.db.tabellen_elster import (
     SteuermeldungFreigabeRow,
     SteuermeldungProtokollRow,
 )
 from accounti.models.elster import Freigabe, Meldeart, Modus, Uebermittlung
+from accounti.steuer.kennziffern import Belegpartner
 
 
 def speichere_freigabe(session: Session, f: Freigabe) -> None:
@@ -80,6 +82,34 @@ def letzte_uebermittlung(session: Session) -> Uebermittlung | None:
         .first()
     )
     return _row_zu_uebermittlung(r) if r is not None else None
+
+
+def lade_beleg_partner(session: Session) -> dict[UUID, Belegpartner]:
+    """Beleg → Abnehmer laut eigener Ausgangsrechnung (Name, USt-IdNr., Land)."""
+    rows = (
+        session.query(
+            AusgangsrechnungRow.beleg_id,
+            AusgangsrechnungRow.kunde_name,
+            AusgangsrechnungRow.kunde_ust_id,
+            AusgangsrechnungRow.kunde_land,
+        )
+        .filter(AusgangsrechnungRow.beleg_id.is_not(None))
+        .all()
+    )
+    return {
+        UUID(beleg): Belegpartner(name, ust_id, land)
+        for beleg, name, ust_id, land in rows
+    }
+
+
+def lade_belegeingang(session: Session) -> dict[UUID, date]:
+    """Beleg → Tag der Erfassung, für Eingangsrechnungen (§ 15 Abs. 1 Nr. 1 UStG)."""
+    rows = (
+        session.query(BelegRow.id, BelegRow.eingegangen_am)
+        .filter(BelegRow.belegart == "eingangsrechnung")
+        .all()
+    )
+    return {UUID(beleg): eingegangen.date() for beleg, eingegangen in rows}
 
 
 def lade_beleg_kontakte(session: Session) -> dict[UUID, UUID]:

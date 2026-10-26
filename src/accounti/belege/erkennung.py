@@ -11,13 +11,20 @@ import io
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from accounti.belege.extraktion import Extrakt, extrahiere
+from accounti.belege.extraktion import (
+    GEKUERZT,
+    TOLERANZ,
+    Extrakt,
+    begrenze_text,
+    extrahiere,
+)
 from accounti.belege.kanaele import RohBeleg
 from accounti.belege.llm import LLMBelegEngine
 from accounti.belege.ocr import OCREngine
@@ -205,7 +212,9 @@ _REGELN: list[tuple[re.Pattern[str], Belegart, float, str]] = [
         "Rechnungsmerkmal im Text",
     ),
     (
-        re.compile(r"\w*vertrag\b|vertragslaufzeit|vertragsbeginn", _I),
+        # „Mietvertrag“ ohne ``\w*`` davor: das setzte an jedem Zeichen eines langen
+        # Wortes neu an (quadratisch, Nachprüfung C, Runde 4, Mittel 2)
+        re.compile(r"vertrag\b|vertragslaufzeit|vertragsbeginn", _I),
         Belegart.VERTRAG,
         0.8,
         "Vertragsmerkmal im Text",
@@ -268,13 +277,25 @@ _PFLICHTFELDER: dict[Belegart, tuple[str, ...]] = {
 }
 
 
+def _ohne_steuer_in_der_summe(werte: dict[str, Any]) -> bool:
+    netto, brutto = werte["netto"], werte["brutto"]
+    return netto is None or brutto is None or abs(netto - brutto) <= TOLERANZ
+
+
 def _fehlende_felder(art: Belegart, werte: dict[str, Any]) -> list[str]:
+    """Pflichtfelder ohne Wert. Als Steuerangabe zählt auch ein Hinweis statt des
+    Steuerausweises (§ 13b, ig. Lieferung, § 19, § 4 UStG — ``steuerkennzeichen``) —
+    aber nur, wenn Netto und Brutto gleich sind: sonst weist die Rechnung Steuer aus,
+    deren Zeile nicht gelesen wurde (Nachprüfung C, N1)."""
+    kennzeichen = werte.get("steuerkennzeichen")
     vorhanden = {
         "Lieferant": werte["lieferant_name"],
         "Belegnummer": werte["belegnummer"],
         "Belegdatum": werte["belegdatum"],
         "Bruttobetrag": werte["brutto"],
-        "Steuerausweis": werte["steuer"],
+        "Steuerausweis": werte["steuer"]
+        if werte["steuer"] is not None
+        else (kennzeichen if _ohne_steuer_in_der_summe(werte) else None),
     }
     return [f for f in _PFLICHTFELDER.get(art, ()) if vorhanden[f] is None]
 
@@ -308,7 +329,12 @@ class BelegErkenner:
             except ERechnungError as fehler:
                 unlesbar = f"E-Rechnung ({befund.syntax}) nicht lesbar: {fehler}"
             else:
-                return zu_beleg(rechnung, pruefe(rechnung), beleg, self.eigene_ust_ids)
+                erkannt = zu_beleg(
+                    rechnung, pruefe(rechnung), beleg, self.eigene_ust_ids
+                )
+                if rechnung.profil.reduziert and befund.format is Format.ZUGFERD_PDF:
+                    erkannt = self._mit_pdf_steuerzeilen(roh, befund, erkannt)
+                return erkannt
             if befund.format is Format.ERECHNUNG_XML:
                 return beleg.model_copy(
                     update={
@@ -334,7 +360,36 @@ class BelegErkenner:
             )
         return erkannt
 
+    def _mit_pdf_steuerzeilen(
+        self, roh: RohBeleg, befund: FormatBefund, beleg: Beleg
+    ) -> Beleg:
+        """MINIMUM/BASIC WL: Steuersätze aus der PDF-Ansicht, wenn deren Steuerzeilen
+        zu den Summen des XML passen — der Beleg bleibt zur Prüfung."""
+        try:
+            text, _ = hole_text(roh, befund, None)  # ohne OCR: nur die Textebene
+        except ErkennungError:
+            return beleg
+        extrakt = extrahiere(text)
+        if not extrakt.steuerzeilen or beleg.netto is None or beleg.steuer is None:
+            return beleg
+        netto = sum((s.netto for s in extrakt.steuerzeilen), Decimal("0"))
+        steuer = sum((s.steuer for s in extrakt.steuerzeilen), Decimal("0"))
+        if abs(netto - beleg.netto) > TOLERANZ or abs(steuer - beleg.steuer) > TOLERANZ:
+            return beleg
+        return beleg.model_copy(
+            update={
+                "positionen": positionen_aus_steuerzeilen(
+                    beleg.id, extrakt.steuerzeilen, extrakt.steuerkennzeichen
+                ),
+                "steuerkennzeichen": beleg.steuerkennzeichen
+                or extrakt.steuerkennzeichen,
+            }
+        )
+
     def _lies(self, text: str, beleg: Beleg) -> Beleg:
+        # Fremddaten: Leerraum und Länge begrenzt, bevor ein Muster den Text sieht
+        # (Nachprüfung C, H/M-1 und Runde 4, Mittel 2) — auch für LLM und Zerlegung
+        text, gekuerzt = begrenze_text(text)
         extrakt = extrahiere(text)
         art = erkenne_belegart(text, extrakt, self.eigene_ust_ids, self.eigene_firma)
         belegart = art.belegart
@@ -345,7 +400,9 @@ class BelegErkenner:
                 beleg.id, zerlege_kreditkartenabrechnung(text, stichtag)
             )
         elif extrakt.steuerzeilen:
-            positionen = positionen_aus_steuerzeilen(beleg.id, extrakt.steuerzeilen)
+            positionen = positionen_aus_steuerzeilen(
+                beleg.id, extrakt.steuerzeilen, extrakt.steuerkennzeichen
+            )
         else:
             positionen = []
 
@@ -362,6 +419,7 @@ class BelegErkenner:
             "zahlungsziel": extrakt.zahlungsziel,
             "skonto_prozent": extrakt.skonto_prozent,
             "skonto_tage": extrakt.skonto_tage,
+            "steuerkennzeichen": extrakt.steuerkennzeichen,
         }
         fehlend = _fehlende_felder(belegart, werte)
 
@@ -397,7 +455,9 @@ class BelegErkenner:
                     vom_llm.append("Positionen")
                 fehlend = _fehlende_felder(belegart, werte)
 
-        betrag = werte["netto"] or werte["brutto"]
+        # ohne Steuerzeile brutto: eine Position ohne Satz bucht brutto (zur Prüfung),
+        # der offene Posten steht brutto — netto stünde dagegen (Nachprüfung C, N1)
+        betrag = werte["brutto"] or werte["netto"]
         if not positionen and belegart in _PFLICHTFELDER and betrag:
             positionen = [
                 Belegposition(
@@ -406,12 +466,42 @@ class BelegErkenner:
             ]
 
         gruende = []
+        if gekuerzt:
+            gruende.append(f"{GEKUERZT}, Angaben am Original prüfen")
         if belegart is Belegart.SONSTIGES:
             gruende.append("Belegart nicht erkannt")
         if fehlend:
             gruende.append("fehlt: " + ", ".join(fehlend))
         if extrakt.rechenprobe is False:
-            gruende.append("Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto)")
+            gruende.append(
+                "Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto oder Vorzeichen "
+                "uneinheitlich)"
+            )
+        if extrakt.vorzeichen_gedreht:
+            # Das Minus ist eine Deutung des Titels, nicht gedruckt: der Mensch
+            # bestätigt es (Nachprüfung C, M1). § 14 Abs. 2 S. 2 UStG: „Gutschrift“
+            # heißt auch die Abrechnung durch den Leistungsempfänger — ein Erlös
+            gruende.append(
+                "Vorzeichen gedreht: Korrekturbeleg mit positiven Beträgen als "
+                "Minderung übernommen"
+                + (
+                    " — ist es eine Abrechnung des Leistungsempfängers (§ 14 Abs. 2 "
+                    "S. 2 UStG), ist sie kein Aufwand"
+                    if extrakt.korrektur == "gutschrift"
+                    else ""
+                )
+                + "; ist es keine Korrektur: belege freigeben … --vorzeichen umkehren"
+            )
+        if extrakt.titel_mehrdeutig:
+            # Rechnungstitel vor dem Korrekturtitel: Titel und Zwischenüberschrift —
+            # oder Bezugszeile und Titel einer Gutschrift (§ 17 Abs. 1 UStG: dann
+            # mindert sie die Vorsteuer). Ein Minus wäre geraten (Runde 4, Mittel 1).
+            gruende.append(
+                "Titel mehrdeutig: vor dem Titel „Gutschrift“ bzw. "
+                "„Rechnungskorrektur“ steht eine Zeile wie ein Rechnungstitel (Titel "
+                "oder Bezug?) — Beträge wie gedruckt übernommen; ist es eine "
+                "Gutschrift oder Korrektur: belege freigeben … --vorzeichen umkehren"
+            )
         if vom_llm:
             gruende.append("vom LLM ergänzt, bitte prüfen: " + ", ".join(vom_llm))
 

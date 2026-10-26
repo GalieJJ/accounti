@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from accounti.buchung.steuergruppe import SCHLUESSEL_FUER_STEUERFALL, Gruppe
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.erkennung import finde_kontakt
@@ -90,16 +91,6 @@ def sachkonto_fuer_beleg(
     return Sachkonto(einstellungen.standard_aufwand, True, "Standard")
 
 
-@dataclass
-class _Gruppe:
-    konto: str
-    schluessel: int | None
-    pruefen: bool
-    netto: Decimal = NULL
-    steuer: Decimal = NULL
-    differenz: bool = False  # nur die Differenz gezahlt ≠ Beleg (eigene Zeile)
-
-
 def _saetze(beleg: Beleg) -> list[tuple[Decimal | None, Decimal, Decimal]]:
     """(Steuersatz, Netto, Steuer) je Position — ohne Positionen aus den Summen."""
     if beleg.positionen:
@@ -140,11 +131,17 @@ def kontiere_mit_beleg(
         )
         sachkonto = sachkonto_fuer_beleg(beleg, kontakt, einstellungen, regelwerk, tx)
 
-    gruppen: dict[tuple[str, int | None], _Gruppe] = {}
+    gruppen: dict[tuple[str, int | None], Gruppe] = {}
+    schluessel: int | None
     for satz, netto, steuer in _saetze(beleg):
         if sachkonto is not None:
             konto, pruefen = sachkonto.konto, sachkonto.pruefen
-            schluessel = _VST.get(satz) if satz is not None else None
+            fall = beleg.steuerkennzeichen if not satz else None
+            if fall in SCHLUESSEL_FUER_STEUERFALL:
+                # § 13b bzw. ig. Erwerb: wie bei der Rechnung auf das Personenkonto
+                schluessel, pruefen = SCHLUESSEL_FUER_STEUERFALL[fall], True
+            else:
+                schluessel = _VST.get(satz) if satz is not None else None
         else:
             konto = _ERLOES.get(satz, _ERLOES_UNBEKANNT) if satz else _ERLOES_UNBEKANNT
             schluessel, pruefen = (
@@ -153,13 +150,9 @@ def kontiere_mit_beleg(
             )
         if schluessel is None and satz != 0:
             pruefen = True  # Steuersatz unbekannt: brutto buchen, Mensch entscheidet
-        g = gruppen.setdefault((konto, schluessel), _Gruppe(konto, schluessel, pruefen))
+        g = gruppen.setdefault((konto, schluessel), Gruppe(konto, schluessel, pruefen))
         g.pruefen = g.pruefen or pruefen
-        if schluessel is None:
-            g.netto += netto + steuer
-        else:
-            g.netto += netto
-            g.steuer += steuer
+        g.addiere(netto, steuer)  # ohne Schlüssel: brutto (buchung/steuergruppe.py)
 
     # Gezahlt ≠ Beleg (Trinkgeld, Rundung): ohne Steuer, zur Prüfung — nie in eine
     # Zeile mit Steuerschlüssel (Gesamttest Eingang B10)
@@ -171,12 +164,14 @@ def kontiere_mit_beleg(
         # in die Gruppe (Konto, ohne Schlüssel) — gibt es sie nicht, eine eigene Zeile
         ohne = gruppen.get((groesste.konto, None))
         if ohne is None:
-            ohne = _Gruppe(groesste.konto, None, True, differenz=True)
+            ohne = Gruppe(groesste.konto, None, True, differenz=True)
             gruppen[(groesste.konto, None)] = ohne
         # Vorzeichen wie die Belegpositionen: + mehr gezahlt, − weniger
         ohne.netto += -differenz if gutschrift else differenz
         ohne.pruefen = True
 
+    for g in gruppen.values():
+        g.berechne_selbst()  # § 13b/ig. Erwerb: nicht im Zahlbetrag
     text = f"{beleg.lieferant_name or ''} {beleg.belegnummer or ''}".strip()
     buchungen = []
     for g in gruppen.values():

@@ -34,6 +34,7 @@ from accounti.models import (
     BuchungStatus,
     OffenerPosten,
     PostenRichtung,
+    PostenStatus,
     Zahlungszuordnung,
     ZuordnungStatus,
 )
@@ -424,6 +425,31 @@ def test_rechnung_mit_steuernummer_ist_vollstaendig(make_session, tmp_path):
         positionen=[("Papier", "500.00", "19", "95.00")],
     )
     assert pruefe(make_session, "pflichtangaben", archiv=archiv) == []
+
+
+def test_belegangaben_begrenzen_leerraum_und_laenge(make_session, tmp_path):
+    """Mittel 2 (Nachprüfung C, Runde 4): Der Prüflauf liest das Original aus dem
+    Archiv — dort war weder der Leerraum begrenzt (20 000 Leerzeichen nach
+    „Steuer-Nr.“: 7,5 s, quadratisch) noch die Länge. Anfang und Ende bleiben, der
+    Hinweis sagt, dass gekürzt wurde."""
+    from accounti.pruefung.belegangaben import lies_angaben
+    from tests.test_belege_extraktion import _zeitschranke
+
+    zusatz = (
+        "Steuer-Nr."
+        + " " * 20_000
+        + "x\n"
+        + "a" * 300_000
+        + "\nSteuernummer: 12/345/67890"
+    )
+    archiv, b = _archiviert(
+        make_session, tmp_path, RECHNUNGSTEXT.format(zusatz=zusatz).encode()
+    )
+    with _zeitschranke(5):
+        a = lies_angaben(b, archiv)
+    assert a.steuernummer == "12/345/67890"
+    assert a.hinweis is not None and "gekürzt" in a.hinweis
+    assert a.text is not None and len(a.text) <= 100_000
 
 
 def test_kleinbetragsrechnung_braucht_keine_steuernummer(make_session, tmp_path):
@@ -1336,3 +1362,78 @@ def test_datev_export_warnt_bei_steuer_ohne_schluessel_auf_automatikkonto(tmp_pa
     )
     (warnung,) = exporter.warnungen
     assert "3400" in warnung and "ohne Schlüssel" in warnung and "--steuer 9" in warnung
+
+
+def test_personenkonto_op(make_session):
+    """B05 (Gesamttest): Rechnung netto auf den Kreditor gebucht, Posten brutto —
+    Hauptbuch und Offene-Posten-Liste weichen ab. Stimmige Konten und ein Guthaben aus
+    einer Überzahlung sind kein Befund."""
+    falsch = kontakt(name="Druckerei Beispiel GmbH", kreditor_konto="70002")
+    richtig = kontakt(kreditor_konto="70001")
+    guthaben = kontakt(name="Überzahlt GmbH", kreditor_konto="70003")
+    tag = date(2026, 3, 10)
+    belege = {k.kreditor_konto: uuid4() for k in (falsch, richtig, guthaben)}
+
+    def rechnung(konto, netto, steuer):
+        return buchung(
+            haben=konto,
+            netto=netto,
+            steuer=steuer,
+            schluessel=9 if steuer else None,
+            beleg_id=belege[konto],
+            tag=tag,
+        )
+
+    zahlung = umsatz("-130.00", tag=date(2026, 3, 20), zweck="RE-3")
+    anlegen(
+        make_session,
+        falsch,
+        richtig,
+        guthaben,
+        zahlung,
+        rechnung("70002", "1000.00", None),
+        rechnung("70001", "100.00", "19.00"),
+        rechnung("70003", "100.00", "19.00"),
+        buchung(
+            zahlung,
+            soll="70003",
+            haben="1200",
+            netto="130.00",
+            steuer=None,
+            schluessel=None,
+            beleg_id=belege["70003"],
+        ),
+    )
+    posten = [
+        _posten(falsch, beleg_id=belege["70002"], betrag=Decimal("1190.00")),
+        _posten(richtig, beleg_id=belege["70001"], belegnummer="RE-2"),
+        _posten(
+            guthaben,
+            beleg_id=belege["70003"],
+            belegnummer="RE-3",
+            restbetrag=Decimal("0"),
+            status=PostenStatus.AUSGEGLICHEN,
+        ),
+    ]
+    with make_session() as s:
+        for p in posten:
+            speichere_posten(s, p)
+        speichere_zuordnung(
+            s,
+            Zahlungszuordnung(
+                transaktion_id=zahlung.id,
+                posten_id=posten[2].id,
+                betrag=Decimal("130.00"),
+                stufe="referenz",
+                status=ZuordnungStatus.GEBUCHT,
+                confidence=1.0,
+                begruendung="RE-3",
+            ),
+        )
+        s.commit()
+    (b,) = pruefe(make_session, "personenkonto_op")
+    assert b.objekt_id == str(falsch.id)
+    assert b.betrag == Decimal("-190.00")
+    assert "70002" in b.text and "1.000,00" in b.text and "1.190,00" in b.text
+    # vor der Rechnung (Stichtag) gibt es nichts abzustimmen
+    assert pruefe(make_session, "personenkonto_op", period="2026-02") == []

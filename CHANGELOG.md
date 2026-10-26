@@ -720,6 +720,206 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen
   zur Prüfung; Marktplatz- und Zahlungsdienst-Auszahlungen als „Bank an Verrechnungskonto
   bzw. Geldtransit“ ohne Umsatzsteuer zur Prüfung statt Erlös 8400 mit Schlüssel 3
+- **Rechnungen ohne Steuerausweis hingen in der Prüfung, § 13b ohne Anmeldung**
+  (Gesamttest Eingang B06, Steuer B4): Die Belegerkennung verwarf jede 0-%-Steuerzeile —
+  jede Rechnung ohne Umsatzsteuer (§ 13b, § 19, § 4 UStG) ging mit „fehlt:
+  Steuerausweis“ zur Prüfung, und es gab keinen Weg zurück. Jetzt zählen eine 0-%-Zeile
+  und der Hinweistext („Steuerschuldnerschaft des Leistungsempfängers“, Reverse Charge,
+  ig. Lieferung, § 19, steuerfrei nach § 4) als Steuerangabe (§ 14a Abs. 5 UStG verbietet
+  bei § 13b den Ausweis) und werden als Steuerkennzeichen am Beleg gespeichert (AE, K, E
+  nach UNTDID 5305; bei E-Rechnungen aus den Kategorien). `opos verbuchen` schlägt bei
+  einer Eingangsrechnung mit § 13b Schlüssel 94 vor, bei einer ig. Lieferung an uns
+  Schlüssel 19 (ig. Erwerb) — jeweils zur Prüfung, bei 7 % `korrigiere … --steuer
+  91`/`18`; die Steuer berechnet accounti aus dem Netto. Den Hinweis „USt-IdNr. nicht
+  bestätigt“ (er nannte unsere eigene Nummer) gibt es nur noch bei Ausgangsrechnungen.
+  Das Land eines Kreditors aus einem PDF kommt aus dem Präfix der USt-IdNr. bzw. der IBAN
+  statt immer „DE“ — sonst landete § 13b nie in Kz 46/47 —, ein nur vorgegebenes „DE“
+  wird ergänzt; `kontakte bearbeiten --strasse --plz --ort --land` pflegt die Anschrift.
+  Neu: **`belege freigeben <ID> [--belegart …] [--steuer 13b|ig-erwerb|steuerfrei|ohne]
+  [--belegnummer …] [--vorzeichen umkehren] [--grund …]`** — der Beleg wird nach Prüfung
+  des Originals „erfasst“ (Rechnungen nur mit Lieferant und Betrag, verbuchte nie; Recht
+  „buchen“, Journal `beleg_freigegeben` mit Person und Grund — nur aus diesem Befehl, ein
+  Neulesen durch `belege erkennen` steht als `beleg_geaendert`). Die Ausgabe nennt den
+  bisherigen Prüfgrund; `--grund` ist Pflicht bei Dublettenverdacht, Rechenprobe,
+  gedrehtem Vorzeichen, `--vorzeichen` und beim Ersetzen einer gelesenen Belegnummer.
+  `--steuer` ohne Steuerausweis wird bei Netto ≠ Brutto abgelehnt. `korrigiere --steuer 94/91/19/18` geht auch bei Belegbuchungen
+  (die Steuer steht nie auf dem Beleg), jeweils mit `--grund`. Die UStVA warnt bei Aufwand
+  ohne Schlüssel gegen einen EU-Kreditor mit USt-IdNr. („§ 13b prüfen“). Saldenliste:
+  § 13b und ig. Erwerb mit Steuerpaar (SKR03 1577/1787, 1578/1785, 1574/1774, 1572/1772;
+  SKR04 1407/3837, 1408/3835, 1404/3804, 1402/3802), ergebnisneutral; im DATEV-Export ist
+  der Umsatz bei BU 94/91/19/18 das Netto (DATEV rechnet die Steuer selbst), nicht Netto
+  plus Steuer. Alembic-Migration `46371a6681c2` nach `a14acef69fae`
+  (`belege.steuerkennzeichen`; schon per `init_db` angelegt, übernimmt sie die Spalte;
+  ohne Versionsvermerk erkennt `db upgrade` den Stand davor an der fehlenden Spalte) —
+  **nach dem Update die Datenbank migrieren** (`accounti db upgrade`, siehe
+  [Upgrades](docs/betrieb.md#upgrades))
+- **Lieferanten-Gutschriften erhöhten Aufwand und Vorsteuer** (Eingang B12): Steuerzeilen
+  verloren ihr Vorzeichen (−200/−38 wurde +200/+38, eine Gutschrift über 238 € buchte
+  76 € Vorsteuer falsch). Beträge behalten jetzt ihr Vorzeichen, „Gutschriftbetrag“ und
+  „Erstattungsbetrag“ gelten als Bruttobetrag, uneinheitliche Vorzeichen bestehen die
+  Rechenprobe nicht; ein Korrekturbeleg (Rechnungskorrektur, Stornorechnung, Credit Note,
+  Gutschrift) mit positiven Beträgen wird als Minderung übernommen und geht immer zur
+  Prüfung (bei „Gutschrift“ mit dem Hinweis auf die Abrechnung des Leistungsempfängers,
+  § 14 Abs. 2 S. 2 UStG); als Titel zählt nur eine Zeile aus dem Schlüsselwort mit
+  höchstens Nummer, Datum oder Bezug und kein vorheriger Titel „Rechnung“ — ein Satz wie
+  „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ macht aus einer Rechnung
+  keine Minderung. Ist es doch eine Rechnung: `belege freigeben … --vorzeichen umkehren`.
+  „Gutschrift-Nr.“, „Gutschriftsnummer“ und „Credit note no.“ sind Belegnummern. Die
+  Verbuchung mindert Aufwand und Vorsteuer (§ 17 Abs. 1 UStG) im Zeitraum des
+  Belegdatums der Gutschrift (§ 17 Abs. 1 S. 8 UStG) — auch wenn sie erst später oder im
+  Folgejahr eingeht (kein 1548-Weg, kein § 15-Hinweis, kein Befund
+  `beleg_nach_zeitraum`); in einem späteren Zeitraum gebucht (festgeschriebener Monat,
+  `--buchungsdatum`), geht sie zur Prüfung
+- **Belegeingang hing an einer Titelzeile im Spaltenlayout (ReDoS)** (Nachprüfung C,
+  H/M-1): Das Muster der Titelerkennung brauchte exponentiell lange, wenn eine Zeile mit
+  „Rechnung“/„Gutschrift“ begann und am Ende nicht passte (Spaltenlayout mit 12
+  Leerzeichen: 15 s; mit 25 hing `belege import`) — jedes PDF an Postfach oder Webhook
+  konnte den Eingang lahmlegen. Die Titelmuster sind jetzt linear (atomare Gruppen,
+  possessive Wiederholung, einfache Leerzeichen), eine Titelzeile hat höchstens 120
+  Zeichen, und die Belegerkennung kürzt Leerraum vor allen Mustern auf höchstens 20
+  Leerzeichen am Stück und eine Leerzeile (an langen Leerraum-Folgen wurden auch
+  Belegnummer, Belegdatum, USt-IdNr., Skonto und die Kreditkartenzerlegung
+  quadratisch). Als Titel gelten auch „Gutschrift GS-2026-12“, „Credit Note CN-77“,
+  „Rechnungskorrektur zu RE-5“ (Nummer ohne „Nr.“, kein Betrag) und eine Seitenzahl in
+  der Titelzeile (Nachprüfung C, N-1)
+- **Gutschrift mit Rechnungsbezug im Infoblock als Rechnung gebucht** (Nachprüfung C,
+  Runde 4, Mittel 1): Seit eine bloße Nummer im Titel zählte, galt die Bezugszeile
+  „Rechnung: RE-2026-5“ (ebenso „Rechnung RE-2026-5“, „Rechnung Seite 1“, „Invoice:
+  INV-77“) vor dem Titel „Gutschrift“ als Rechnungstitel — die Gutschrift wurde als
+  Rechnung mit Vorsteuer erfasst, ohne Prüfung. Steht vor einem Korrekturtitel eine
+  Zeile wie ein Rechnungstitel, bleiben die Beträge jetzt wie gedruckt, und der Beleg
+  geht mit „Titel mehrdeutig“ zur Prüfung (`belege freigeben` nur mit `--grund`; ist es
+  eine Gutschrift: `--vorzeichen umkehren`); die Gutschrift-Nr. geht als Belegnummer vor.
+  Das gilt auch für „Rechnung Nr. RE-5“ und „Rechnung vom …“ im Infoblock (vorher schon
+  als Rechnung erfasst) und für eine Rechnung mit der Zwischenüberschrift „Gutschrift“
+  (vorher erfasst, jetzt zur Prüfung)
+- **Belegeingang hing an langen Folgen ohne Leerzeichen** (Nachprüfung C, Runde 4,
+  Mittel 2): Die Leerraumgrenze half nicht gegen lange Wörter oder Ziffernfolgen —
+  `\w*vertrag`, Beträge, die Belegnummer, `steuerfrei…`, die E-Mail-Maskierung der
+  LLM-Stufe und die Suche hinter jedem Summen-Label einer Zeile wurden quadratisch; ein
+  komprimiertes PDF von 1,1 KB mit 300 KB Text hielt `belege import` rund 12 min auf,
+  der Prüflauf las das Original sogar ohne Leerraumgrenze. Die Muster sind jetzt linear,
+  und der Belegtext ist auf 100.000 Zeichen begrenzt: Von einem längeren bleiben Anfang
+  und Ende, der Beleg geht mit „Belegtext gekürzt“ zur Prüfung (im Prüflauf als Hinweis)
+- **Gutschrift „zur Rechnung Nr. RE-5“ als Dublette verworfen** (Nachprüfung C, M-2):
+  Die erste Nummer im Text war die Belegnummer — die Gutschrift trug die Nummer der
+  Rechnung, wurde als deren Dublette nicht gespeichert, und die Minderung der Vorsteuer
+  fehlte ohne Meldung. Eine Nummer nach „zur/zu/für die/der/zu unserer … Rechnung“ oder
+  „Bezug:“ ist ein Bezug, nicht die eigene Nummer; bei einem Korrekturbeleg geht die
+  Gutschrift-/Korrekturnummer vor (neu: „Korrektur-Nr.“, „Storno-Nr.“), bei einer
+  Rechnung die Rechnungsnummer; ohne eigene Nummer bleibt das Feld leer (zur Prüfung).
+  Gleiche Belegnummer desselben Lieferanten mit anderem Bruttobetrag ist nur noch
+  Dublettenverdacht (gespeichert, zur Prüfung) statt Dublette
+- **Meldungen zu Gutschriften über den Jahreswechsel** (Nachprüfung C, N-2, N-4): Bei
+  Bilanzierung nennt die Meldung für eine Gutschrift aus dem Vorjahr nicht mehr den
+  1548-Weg der Rechnung, sondern die Minderung im Zeitraum der Änderung (§ 17 Abs. 1
+  S. 8 UStG); die Sperrmeldung bietet `--buchungsdatum` nur an, wo es zulässig ist, und
+  nur die Werte, die gehen (Runde 4: bei Eingang im Folgejahr nicht mehr „eingang“ und
+  „offen“, die beide über den Jahreswechsel geführt hätten). Der
+  Hinweis bei einer später gebuchten Gutschrift sagt, dass diese Buchung zu stornieren
+  und zum Belegdatum neu zu buchen ist — sonst zählt die Minderung nach der Berichtigung
+  der Voranmeldung doppelt
+- **Abstimmung Personenkonto ↔ offene Posten nach einer Verrechnung** (Nachprüfung
+  Merge, M-1): `pruefen --regel personenkonto_op` und die Abschlussprüfung
+  `personenkonten` zählten nur Zahlungen, nicht die Verrechnungen — nach jeder
+  Gutschrift mit Bezug (BT-25) und nach `opos verrechnen` stand ein falscher Befund
+  „Hauptbuch und Offene-Posten-Liste weichen ab“ mit dem Rat, eine richtige Buchung zu
+  korrigieren. Die Abstimmung rechnet jetzt mit der Stichtagsliste (`opos liste
+  --stichtag`) selbst; dort zählt ein Posten ab seiner ersten Buchung — eine
+  Eingangsrechnung aus einem festgeschriebenen Monat, mit `--buchungsdatum` später
+  gebucht, stand vorher zum Monatsende in der Liste, aber nicht auf dem Kreditor
+- **Skonto auf § 13b- und Erwerbsrechnungen ohne Steuerkorrektur** (Nachprüfung Merge,
+  M-2): Das Skonto einer Rechnung mit Schlüssel 94/91 bzw. 19/18 ging ohne Schlüssel auf
+  das Skontokonto — Bemessungsgrundlage, Steuer und Vorsteuer blieben auf dem vollen
+  Betrag (600 € mit 2 % Skonto: Kz 84/85/67 = 600/114/114 statt 588/111,72/111,72), still.
+  Jetzt mit demselben Schlüssel, die Steuer aus dem Netto (§ 17 Abs. 1 S. 1, 2 UStG), auf
+  dem Skontokonto ohne Satz (`skonto_erhalten["0"]`, SKR03 3730). Bei einer gemischten
+  Rechnung verteilt sich das Skonto nach dem Zahlbetrag (vorher zählte die selbst
+  berechnete Steuer mit, Kz 66 war um Cent zu hoch)
+- **Gutschrift mit Bezug an eine neue Anschrift** (Nachprüfung Merge, N-1): Ein
+  umgezogener Privatkunde ohne E-Mail bekam für die Gutschrift einen zweiten Debitor, die
+  Verrechnung mit der Rechnung fiel still aus (die Rechnung blieb voll offen). Eine
+  Gutschrift/Korrektur mit Bezug (BT-25) nimmt jetzt den Debitor der Rechnung, wenn der
+  Käufer dort derselbe ist (Name, keine andere USt-IdNr., kein anderes Land), und meldet
+  die abweichende Anschrift; nennt sie einen anderen Kunden, sagt der Hinweis, warum
+  nicht verrechnet wurde
+- **§ 13b-Gutschrift des Lieferanten im festgeschriebenen Monat** (Nachprüfung Merge,
+  N-3): Eine Gutschrift ohne Steuerausweis (§ 13b, ig. Erwerb) galt nicht als Minderung —
+  die Sperrmeldung bot die Wege einer Rechnung an, `--buchungsdatum offen` begründete die
+  Buchung mit § 15. Jetzt wie jede Lieferanten-Gutschrift: Steuer und Vorsteuer mindern
+  sich im Zeitraum der Änderung (§ 17 Abs. 1 S. 5, 8 UStG), später gebucht zur Prüfung
+- **§ 13b und ig. Erwerb im Eingang zum Zeitpunkt der Steuerentstehung** (Nachprüfung
+  Merge, N-4): `opos verbuchen` buchte sie immer zum Rechnungsdatum. Jetzt bucht der
+  § 13b-/Erwerbsteil einer Eingangsrechnung bei einer sonstigen Leistung eines
+  EU-Unternehmers zum Leistungsdatum, wenn es in einem früheren Monat liegt (§ 13b Abs. 1
+  UStG: Ablauf des Voranmeldungszeitraums der Leistung), sonst zum Rechnungsdatum,
+  spätestens zum Ende des Folgemonats der Leistung (§ 13b Abs. 2, § 13 Abs. 1 Nr. 6 UStG);
+  die Vorsteuer im selben Zeitraum (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG). Ohne Leistungsdatum
+  (bei § 13b Abs. 1), mit Leistung nach dem Rechnungsdatum oder im festgeschriebenen
+  Monat bleibt es beim Buchungstag, mit Hinweis
+- **`db upgrade` meldete Erfolg, obwohl Spalten fehlten** (Nachprüfung Merge, N-2): Eine
+  auf dem Zweig von Paket C mit `alembic upgrade head` migrierte Datenbank (Vermerk
+  `46371a6681c2`, ohne `6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`) galt als
+  aktuell. Jetzt prüft `db upgrade` nach dem Lauf, ob vorhandenen Tabellen Spalten des
+  Codes fehlen, und nennt den verlustfreien Weg (`alembic stamp --purge ddc9a184ddb4`,
+  dann noch einmal `accounti db upgrade`; [Upgrades](docs/betrieb.md#upgrades))
+- **ZUGFeRD MINIMUM: Steuer verloren, Personenkonto ≠ offener Posten** (Eingang B05): Eine
+  Belegposition ohne Steuersatz buchte netto an den Kreditor, der offene Posten stand
+  brutto. Ohne Schlüssel wird die Steuer jetzt in den Betrag gebucht (brutto, zur
+  Prüfung) — in `opos verbuchen` wie in `classify` mit Beleg, ein gemeinsamer Helfer.
+  Ohne Steuerzeile steht die Position „Gesamtbetrag“ brutto, und ein Hinweistext ersetzt
+  den Steuerausweis nur bei Netto = Brutto (sonst „fehlt: Steuerausweis“).
+  ZUGFeRD MINIMUM und BASIC WL sind keine Rechnung nach § 14 Abs. 4 UStG (BMF 15.10.2024):
+  der Beleg geht zur Prüfung (PROFIL), die Steuersätze kommen aus der PDF-Ansicht, wenn
+  deren Steuerzeilen zu den Summen des XML passen. `korrigiere --steuer` nimmt einen
+  Schlüssel an, wenn der Beleg keinen Satz liefert. Neue Prüfregel `personenkonto_op`
+  (Ordnung, Warnung) und Abschlussprüfung `personenkonten`: Saldo jedes Personenkontos
+  zum Stichtag gegen die Summe seiner offenen Posten (GoBD Rz. 58 ff., § 239 Abs. 2 HGB)
+- **Vorsteuer aus Rechnungen, die erst im Folgejahr eingehen** (Eingang B16): bei
+  Bilanzierung (auch ohne Angabe der Gewinnermittlung) bucht `opos verbuchen` Aufwand und
+  Verbindlichkeit zum Belegdatum, die Vorsteuer auf „Vorsteuer im Folgejahr abziehbar“
+  (SKR03 1548, SKR04 1434) und zum ersten offenen Tag des Eingangsmonats auf das
+  Vorsteuerkonto um; die UStVA zählt die Umbuchung als Kz 66 (§ 15 Abs. 1 S. 1 Nr. 1
+  UStG, Abschn. 15.2 Abs. 2 S. 7 UStAE) — vorher stand sie ohne Warnung in der alten
+  Voranmeldung. Den § 15-Hinweis gibt es auch beim Buchen zum Belegdatum, wenn der Beleg
+  erst in einem späteren Monat erfasst wurde (nicht bei § 13b und ig. Erwerb: dort hängt
+  der Abzug nicht an der Rechnung; bei Gutschriften der Hinweis auf § 17 Abs. 1 S. 8
+  UStG); neuer UStVA-Befund `beleg_nach_zeitraum` (Warnung, nur für den Abzug). „Eingang“
+  ist die Erfassung in accounti, nicht der tatsächliche Zugang — Hinweise und Befund sagen
+  das; bei offenem Monat verschiebt accounti die Vorsteuer nicht selbst
+- **Kontakterkennung: Treffer, die dem Beleg widersprechen** (Eingang B14, Ausgang B1):
+  Eine andere USt-IdNr. ist ein anderes Unternehmen — auch bei gleicher IBAN (Factoring,
+  Zahlungsdienst) oder gleichem normalisiertem Namen („Atelier Nord SARL“/„SRL“); ein
+  anderes Land schließt einen Namenstreffer aus. Gleiche IBAN, anderer Name ohne passende
+  USt-IdNr.: Buchung zur Prüfung, aus dem Beleg wird nichts ergänzt. Kunden aus eigenen
+  Rechnungen werden mit einem gleichnamigen Debitor nur bei gleicher PLZ oder E-Mail
+  zusammengeführt (zwei Privatkunden „Max Müller“ sind zwei Debitoren — Mahnung an die
+  richtige Anschrift); wurde ein Kandidat verworfen, geht der neue Kontakt mit Grund zur
+  Prüfung. ZM und USt-IdNr.-Prüfung der UStVA nehmen die USt-IdNr. der Rechnung (§ 18a
+  Abs. 7 Nr. 1 UStG), die OSS-Kontierung das Land der Rechnung (Lieferanschrift, sonst
+  Käufer) und bucht die ausländische Steuer auf das OSS-Steuerkonto, statt sie zu
+  verwerfen
+- **„Zahlbar ohne Abzug“ nahm das Skonto des Kontakts** (Eingang B09): „ohne Abzug“, „rein
+  netto“, „netto Kasse“, „kein Skonto“ heißen jetzt Skonto 0 % am Beleg, und 0 % schlägt
+  das Kontakt-Skonto (vorher galt es als „unbekannt“). Zahlungsbedingungen in einer Zeile
+  werden je Teilsatz gelesen: „30 Tage ohne Abzug oder 10 Tage mit 2 % Skonto“ ergab
+  Skontofrist 30 Tage und kein Zahlungsziel, jetzt 10 Tage und Ziel nach 30
+- **Ordner und Handimport kannten die eigene Firma nicht** (Eingang B04): `belege import`
+  (neu `--config`) und `belege abholen --kanal ordner` nehmen die eigene Firma aus
+  `mandant` wie E-Mail, Webhook und Connector — eine eigene Rechnung wird
+  Ausgangsrechnung; `belege erkennen --id <ID>` liest auch einen erfassten, noch nicht
+  verbuchten Beleg neu
+- **Dateiprüfung im Ordner, Verfahrensdokumentation** (Eingang B03): Der Ordner-Kanal
+  prüft Typ (am Inhalt) und Größe aus `belegkanaele` wie E-Mail und Webhook; abgelehnte
+  Dateien wandern nach `abgelehnt/` und werden gemeldet. Der Handimport `belege import`
+  bleibt ungeprüft (die Datei wählt der Anwender) — die Verfahrensdokumentation sagt das
+  jetzt, statt eine Prüfung je Kanal zu behaupten, und ordnet die Befehle richtig zu
+  (Ordner `belege abholen --kanal ordner`, Upload `belege import`; vorher vertauscht)
+- **Sammelzahlung mit Skonto nur auf einem Teil der Posten** (Eingang B02): wurde nie
+  erkannt (Meldung „Beträge gehen nicht auf“, Skonto und Steuerkorrektur fehlten); jetzt
+  prüft die Zuordnung jede Teilmenge der skontofähigen Posten (§ 17 Abs. 1 UStG).
+  `opos bestaetigen <ID> --skonto BELEGNR=BETRAG` erkennt Skonto von Hand an (gebucht mit
+  anteiliger Steuerkorrektur; Zahlung plus Skonto höchstens der Rest des Postens)
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

@@ -7,6 +7,10 @@ Gegenseite brutto. Haben beide Seiten dieselbe Natur, entscheidet der Schlüssel
 Vorsteuer → Soll ist netto, Umsatzsteuer → Haben ist netto. So buchen Kontierung,
 Belegbuchung, offene Posten und Skonto in accounti.
 
+§ 13b und ig. Erwerb (94/91, 19/18): Die Steuer steckt nicht im Zahlbetrag. Beide
+Seiten tragen das Netto, die Steuer steht als Vorsteuer und als Umsatzsteuer auf dem
+Steuerpaar des Kontenrahmens (z. B. SKR03 1577/1787) — ergebnisneutral.
+
 Gezählt werden nur freigegebene Buchungen — wie im DATEV-Export.
 """
 
@@ -61,6 +65,23 @@ def bewegungen(b: Buchungssatz, kr: Kontenrahmen) -> list[Bewegung]:
 
     netto = b.betrag_netto
     steuer = b.steuer_betrag or NULL
+    paar = kr.steuerpaar(b.steuer_schluessel)
+    if paar is not None and steuer:
+        vorsteuer, umsatzsteuer = paar
+        soll_geld = kr.ist_geldkonto(b.soll_konto)
+        haben_geld = kr.ist_geldkonto(b.haben_konto)
+        # Bezug: Sachkonto im Soll; Minderung (Sachkonto im Haben): Paar gedreht
+        bezug = haben_geld if soll_geld != haben_geld else True
+        steuerseiten = (
+            [bw(vorsteuer, soll=steuer), bw(umsatzsteuer, haben=steuer)]
+            if bezug
+            else [bw(vorsteuer, haben=steuer), bw(umsatzsteuer, soll=steuer)]
+        )
+        return [
+            bw(b.soll_konto, soll=netto),
+            bw(b.haben_konto, haben=netto),
+            *steuerseiten,
+        ]
     steuerkonto = kr.steuerkonto(b.steuer_schluessel)
     if steuerkonto is None or steuer == 0:
         return [bw(b.soll_konto, soll=netto), bw(b.haben_konto, haben=netto)]

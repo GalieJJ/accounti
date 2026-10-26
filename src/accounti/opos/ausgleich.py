@@ -6,6 +6,13 @@ Aufwandsminderungskonto **und** die anteilige Korrektur der Vorsteuer bzw.
 Umsatzsteuer. Das Skonto verteilt sich nach den Bruttoanteilen der Rechnung auf ihre
 Steuersätze; Netto und Steuer je Anteil rechnet `steuer/umsatzsteuer.py`.
 
+Bei § 13b UStG und beim ig. Erwerb (Schlüssel 94/91, 19/18) steckt die Steuer nicht im
+Zahlbetrag: Ihr Anteil am Skonto richtet sich nach dem Netto, und das Skonto mindert mit
+demselben Schlüssel Bemessungsgrundlage, Steuer und Vorsteuer (§ 17 Abs. 1 Satz 1, 2
+UStG; Steuer aus dem Netto, ``buchung/steuergruppe.py``) — auf dem Skontokonto ohne
+Steuersatz (``skonto_erhalten["0"]``), denn die Konten je Satz sind
+Vorsteuer-Automatikkonten.
+
 Ein Anteil mindert den Rest des Postens um seinen Betrag (Vorzeichen des Postens). Ist
 er negativ — die Erstattung einer Gutschrift oder eines Guthabens, oder die Gutschrift
 in einer Saldozahlung —, fließt das Geld in die Gegenrichtung und die Buchung dreht
@@ -23,6 +30,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy.orm import Session
 
+from accounti.buchung.steuergruppe import SELBST_BERECHNET, selbst_berechnete_steuer
 from accounti.db.repository import (
     aktualisiere_posten,
     lade_belegbuchungen,
@@ -40,6 +48,7 @@ from accounti.models import (
     Transaktion,
 )
 from accounti.opos.zuordnung import Anteil
+from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 NULL = Decimal("0")
@@ -57,15 +66,25 @@ _UST_SCHLUESSEL = {Decimal("19"): 3, Decimal("7"): 2}
 
 def _bruttoanteile(
     session: Session, posten: OffenerPosten
-) -> list[tuple[Decimal, Decimal]]:
-    """(Steuersatz, Brutto) der Rechnung hinter dem Posten, aus ihren Buchungen."""
-    anteile: dict[Decimal, Decimal] = defaultdict(lambda: NULL)
+) -> list[tuple[Decimal, int | None, Decimal]]:
+    """(Steuersatz, Schlüssel bei § 13b/ig. Erwerb, Anteil am Zahlbetrag) der Rechnung
+    hinter dem Posten, aus ihren Buchungen — brutto, bei § 13b und ig. Erwerb nur das
+    Netto (die Steuer schuldet der Empfänger selbst, sie steckt nicht im Posten)."""
+    anteile: dict[tuple[Decimal, int | None], Decimal] = defaultdict(lambda: NULL)
     for b in lade_belegbuchungen(session, posten.beleg_id):
-        satz = _SATZ_AUS_SCHLUESSEL.get(b.steuer_schluessel or 0, NULL)
-        anteile[satz] += b.betrag_netto + (b.steuer_betrag or NULL)
+        schluessel = b.steuer_schluessel or 0
+        if schluessel in SELBST_BERECHNET:
+            satz = STEUERSCHLUESSEL[schluessel].satz
+            anteile[(satz, schluessel)] += b.betrag_netto
+            continue
+        satz = _SATZ_AUS_SCHLUESSEL.get(schluessel, NULL)
+        anteile[(satz, None)] += b.betrag_netto + (b.steuer_betrag or NULL)
     if not anteile:
-        return [(NULL, abs(posten.betrag))]
-    return sorted(anteile.items(), key=lambda a: -a[0])
+        return [(NULL, None, abs(posten.betrag))]
+    return sorted(
+        ((satz, s, brutto) for (satz, s), brutto in anteile.items()),
+        key=lambda a: (-a[0], a[1] or 0),
+    )
 
 
 def _skonto_buchungen(
@@ -82,12 +101,12 @@ def _skonto_buchungen(
     eingang = posten.richtung is PostenRichtung.VERBINDLICHKEIT
     konten = einstellungen.skonto_erhalten if eingang else einstellungen.skonto_gewaehrt
     anteile = _bruttoanteile(session, posten)
-    gesamt = sum((brutto for _, brutto in anteile), NULL)
+    gesamt = sum((brutto for _, _, brutto in anteile), NULL)
     berechner = UStBerechner()
 
     buchungen = []
     verteilt = NULL
-    for i, (satz, brutto) in enumerate(anteile):
+    for i, (satz, selbst, brutto) in enumerate(anteile):
         if i == len(anteile) - 1:
             teil = skonto - verteilt  # Rundungsrest auf den letzten Satz
         else:
@@ -95,14 +114,21 @@ def _skonto_buchungen(
         verteilt += teil
         if teil == 0:
             continue
-        schluessel = (_VST_SCHLUESSEL if eingang else _UST_SCHLUESSEL).get(satz)
-        if schluessel is not None:
+        konto = konten.get(str(satz.normalize()), konten["0"])
+        schluessel: int | None
+        if selbst is not None:
+            # § 13b / ig. Erwerb: das Skonto ist Netto, Steuer und Vorsteuer mindern
+            # sich mit demselben Schlüssel
+            schluessel, konto = selbst, konten["0"]
+            netto, steuer = teil, selbst_berechnete_steuer(selbst, teil)
+        elif (
+            schluessel := (_VST_SCHLUESSEL if eingang else _UST_SCHLUESSEL).get(satz)
+        ) is not None:
             # Vorsteuer- bzw. Umsatzsteuerkorrektur aus steuer/
             korrektur = berechner.berechne_vst(teil, satz)
             netto, steuer = korrektur.netto, korrektur.steuerbetrag
         else:
             netto, steuer = teil, None
-        konto = konten.get(str(satz.normalize()), konten["0"])
         soll, haben = (personenkonto, konto) if eingang else (konto, personenkonto)
         buchung = Buchungssatz(
             transaktion_id=tx.id,

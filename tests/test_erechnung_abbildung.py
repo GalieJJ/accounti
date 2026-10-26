@@ -102,10 +102,12 @@ def test_fehler_gehen_zur_pruefung_mit_lesbarem_befund():
     assert "Steuerbetrag" in b.pruef_grund
 
 
-def test_warnungen_werden_vermerkt_status_bleibt_erfasst():
+def test_reduziertes_profil_geht_zur_pruefung():
+    """B05 (Gesamttest): MINIMUM ist keine Rechnung nach § 14 Abs. 4 UStG — der
+    Mensch prüft die PDF-Ansicht, bevor gebucht wird (früher: „erfasst“)."""
     _, b = _beleg("minimum_cii.xml")
-    assert b.status is BelegStatus.ERFASST
-    assert "PROFIL" in b.pruef_grund
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "PROFIL" in b.pruef_grund and "belege freigeben" in b.pruef_grund
     # ohne Positionen: eine Sammelposition über die Nettosumme
     (p,) = b.positionen
     assert (p.netto, p.steuer_betrag) == (Decimal("1000.00"), Decimal("190.00"))
@@ -114,6 +116,7 @@ def test_warnungen_werden_vermerkt_status_bleibt_erfasst():
 def test_reverse_charge_position_mit_satz_null():
     _, b = _beleg("reverse_charge_ohne_ust_id_ubl.xml")
     assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert b.steuerkennzeichen == "AE"
     assert b.leistungsdatum == date(2026, 3, 10)
     (p,) = b.positionen
     assert (p.steuersatz, p.steuer_betrag) == (Decimal("0"), Decimal("0.00"))

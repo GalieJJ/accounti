@@ -238,3 +238,73 @@ def test_zeitraum_filter(make_session):
     with make_session() as s:
         assert zuordne_zahlungen(s, EINSTELLUNGEN, zeitraum="2026-03").gebucht == []
         assert len(zuordne_zahlungen(s, EINSTELLUNGEN, zeitraum="2026-04").gebucht) == 1
+
+
+# --- Gesamttest Paket C, Eingang B02 ----------------------------------------------
+
+
+def test_sammelzahlung_mit_skonto_nur_auf_einem_posten_mit_vorsteuerkorrektur(
+    make_session,
+):
+    """B02: Rest einer Teilzahlung (ohne Skonto) plus neue Rechnung abzüglich Skonto —
+    vorher „Beträge gehen nicht auf“, Skonto blieb offen, keine VSt-Korrektur."""
+    _rechnungen(
+        make_session,
+        _rechnung("RE-1001", "100.00", "1"),
+        eingangsrechnung(datei_hash="5" * 64),  # RE-2026-0042, 3,45 € Skonto
+    )
+    _zahlung(make_session, "-40.00", "RE-1001 Teilzahlung", datum=date(2026, 3, 6))
+    _lauf(make_session)
+    # 60,00 Rest RE-1001 + 172,50 − 3,45 Skonto RE-2026-0042 = 229,05
+    t = _zahlung(make_session, "-229.05", "RE-1001 Rest, RE-2026-0042 abzgl. Skonto")
+    lauf = _lauf(make_session)
+    ((_, vorschlag),) = lauf.vorgeschlagen
+    assert sorted(
+        (a.posten.belegnummer, a.betrag, a.skonto) for a in vorschlag.anteile
+    ) == [
+        ("RE-1001", Decimal("60.00"), Decimal("0")),
+        ("RE-2026-0042", Decimal("169.05"), Decimal("3.45")),
+    ]
+    with make_session() as s:
+        bestaetige(s, str(t.id)[:8], EINSTELLUNGEN)
+        s.commit()
+        assert {p.status for p in lade_posten(s)} == {PostenStatus.AUSGEGLICHEN}
+        skonto = sorted(
+            (b.haben_konto, b.betrag_netto, b.steuer_betrag)
+            for b in lade_buchungen(s)
+            if b.transaktion_id == t.id and b.buchungstext.startswith("Skonto")
+        )
+    assert skonto == [
+        ("3731", Decimal("1.00"), Decimal("0.07")),
+        ("3736", Decimal("2.00"), Decimal("0.38")),
+    ]
+
+
+def test_bestaetigen_mit_anerkanntem_skonto(make_session):
+    """B02: `opos bestaetigen --skonto RE=BETRAG` — der Mensch erkennt den Rest eines
+    Postens als Skonto an (mit Steuerkorrektur), wenn die Beträge nicht aufgehen."""
+    erste = _rechnung("RE-1001", "100.00", "1").model_copy(
+        update={"belegdatum": date(2026, 3, 1)}
+    )
+    _rechnungen(make_session, erste, _rechnung("RE-1002", "200.00", "2"))
+    t = _zahlung(make_session, "-294.00", "RE-1001 RE-1002")
+    lauf = _lauf(make_session)
+    ((_, vorschlag),) = lauf.vorgeschlagen
+    assert "gehen nicht auf" in vorschlag.begruendung
+    with make_session() as s:
+        with pytest.raises(ZahlungslaufError, match="gehört nicht"):
+            bestaetige(s, str(t.id)[:8], EINSTELLUNGEN, skonto={"RE-9": Decimal(1)})
+        s.rollback()
+        with pytest.raises(ZahlungslaufError, match="übersteigt"):
+            bestaetige(
+                s, str(t.id)[:8], EINSTELLUNGEN, skonto={"RE-1002": Decimal("7")}
+            )
+        s.rollback()
+        bestaetige(s, str(t.id)[:8], EINSTELLUNGEN, skonto={"RE-1002": Decimal("6")})
+        s.commit()
+        posten = {p.belegnummer: p for p in lade_posten(s)}
+        zuordnung = {
+            z.posten_id: z for z in lade_zuordnungen(s) if z.transaktion_id == t.id
+        }
+    assert {p.status for p in posten.values()} == {PostenStatus.AUSGEGLICHEN}
+    assert zuordnung[posten["RE-1002"].id].skonto == Decimal("6.00")

@@ -190,6 +190,10 @@ accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 # Belege aus dem Watch-Ordner holen und lesen (PDF, Scan, XRechnung, ZUGFeRD)
 accounti belege abholen --kanal ordner --ordner ./eingang/belege
 accounti belege liste --status pruefung
+# Original geprüft: freigeben (Rechnung ohne Steuerausweis mit ihrem Steuerfall)
+accounti belege freigeben 3fa2c1 --steuer 13b --grund "Hinweis § 13b UStG auf Seite 2"
+accounti belege freigeben 7c41d0 --vorzeichen umkehren --grund "Rechnung, keine Korrektur"
+accounti belege erkennen --id 3fa2c1           # erfasst, aber falsch gelesen: neu lesen
 
 # Belege aus dem Postfach holen (Abschnitt belegkanaele.email; Passwort per ${VAR} oder Tresor)
 accounti kanaele zugang email rechnungen         # Passwort verschlüsselt ablegen (ACCOUNTI_SCHLUESSEL)
@@ -227,7 +231,8 @@ accounti rechnung position <ID> --text "Minderung wegen Mangel" --preis 100
 Ausgangsrechnungen bucht `opos verbuchen` im Monat der Leistung (§ 13 Abs. 1 Nr. 1
 Buchst. a UStG): Lag das Leistungsdatum in einem früheren Monat als die Rechnung, gilt das
 Leistungsdatum — eine ig. Lieferung gehört in den Rechnungsmonat, spätestens den Monat nach
-der Lieferung, eine Gutschrift in ihren eigenen Monat; ist die Voranmeldung dieses
+der Lieferung, eine Gutschrift in ihren eigenen Monat (auf den Debitor der Rechnung, auf
+die sie sich bezieht, und mit ihr verrechnet); ist die Voranmeldung dieses
 Zeitraums schon übermittelt, weist `opos verbuchen` auf die Berichtigung hin (bei einer
 Gutschrift als Möglichkeit, nicht als Pflicht). Über 250 € braucht jede Rechnung Straße
 oder Postfach, PLZ und Ort des Empfängers (§ 14 Abs. 4 Satz 1 Nr. 1 UStG) — `rechnung
@@ -244,6 +249,7 @@ accounti opos verbuchen
 accounti kontakte liste --status pruefung     # automatisch angelegte Lieferanten prüfen
 accounti kontakte bestaetigen 70000
 accounti kontakte bearbeiten 70000 --sachkonto 4930 --zahlungsziel 30
+accounti kontakte bearbeiten 70001 --land AT --plz 5020 --ort Salzburg
 accounti opos liste --richtung eingang --faellig
 accounti opos staffel
 
@@ -252,6 +258,7 @@ accounti import bank ./umsaetze.csv
 accounti opos zuordnen                         # Eindeutiges wird sofort ausgeglichen
 accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen ohne Referenz
 accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
+accounti opos bestaetigen <ID> --skonto RW-8890=53,55   # Skonto auf diesen Posten anerkennen
 accounti opos zuordnen --transaktion <ID> --posten 2026-0001   # von Hand (IDs: bank offen)
 accounti opos verrechnen 2026-0002 2026-0001   # Gutschrift/Guthaben gegen Rechnung, ohne Buchung
 accounti opos liste --stichtag 2026-12-31      # Stand zum Stichtag, passend zur Saldenliste
@@ -261,6 +268,29 @@ accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <I
 accounti classify                              # kontiert aus dem Beleg, sonst Regelwerk/LLM
 accounti bank offen                            # Umsätze ohne Beleg, Belege ohne Umsatz
 ```
+
+Eine Rechnung ohne Umsatzsteuer erkennt accounti am Hinweistext statt am Steuerausweis
+(§ 13b „Steuerschuldnerschaft des Leistungsempfängers“, ig. Lieferung, § 19, § 4 UStG).
+`opos verbuchen` schlägt bei § 13b Schlüssel 94 und bei einer ig. Lieferung an uns
+Schlüssel 19 vor — immer zur Prüfung; die Steuer berechnet accounti aus dem Netto, Kz 46/47
+gilt für Kreditoren aus dem übrigen EU-Gebiet (Land aus USt-IdNr. oder IBAN, sonst
+`kontakte bearbeiten --land`). Gebucht wird dieser Teil, wenn die Steuer entsteht: bei einer
+sonstigen Leistung eines EU-Unternehmers im Monat der Leistung (§ 13b Abs. 1 UStG), sonst
+mit der Rechnung, spätestens am Ende des Folgemonats der Leistung (§ 13b Abs. 2, § 13
+Abs. 1 Nr. 6 UStG). Ein Skonto darauf mindert mit demselben Schlüssel Bemessungsgrundlage,
+Steuer und Vorsteuer. Gutschriften des Lieferanten mindern Aufwand und Vorsteuer (bei
+§ 13b und ig. Erwerb Steuer und Vorsteuer) im Zeitraum ihres Belegdatums (§ 17 Abs. 1
+S. 8 UStG); einen Korrekturbeleg mit positiven
+Beträgen (Titel „Rechnungskorrektur“, „Gutschrift“, „Stornorechnung“, „Credit Note“)
+negiert accounti und legt ihn zur Prüfung — ist es doch eine Rechnung: `belege freigeben
+… --vorzeichen umkehren`. Steht vor dem Titel eine Zeile wie ein Rechnungstitel (etwa
+„Rechnung: RE-5“ im Infoblock), bleiben die Beträge wie gedruckt, und der Beleg geht mit
+„Titel mehrdeutig“ zur Prüfung. Eine Gutschrift „zur Rechnung Nr. RE-5“ trägt ihre eigene
+Nummer; dieselbe Nummer mit anderem Betrag ist Dublettenverdacht, keine Dublette. Ein
+Belegtext über 100.000 Zeichen wird nur am Anfang und Ende gelesen (zur Prüfung). Kommt
+eine Rechnung bei Bilanzierung erst im Folgejahr an, steht die Vorsteuer zunächst auf
+„Vorsteuer im Folgejahr abziehbar“ (SKR03 1548, SKR04 1434) und wird im Eingangsmonat
+umgebucht (§ 15 Abs. 1 Nr. 1 UStG). Als Eingang gilt die Erfassung in accounti.
 
 ### Zahlungsverkehr
 
@@ -557,7 +587,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|aendern\|afa\|abgang` (auch `abgang --zuruecknehmen`), `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|aendern\|afa\|abgang` (auch `abgang --zuruecknehmen`), `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen`, `belege freigeben` … |
 | Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen\|verrechnen`, `opos zuordnen --transaktion`, `abschluss bestaetigen\|ablehnen`, `anlagen freigeben`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege\|kontoauszuege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |

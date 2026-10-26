@@ -32,7 +32,8 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from collections.abc import Callable, Iterator
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -149,11 +150,28 @@ def _buchung(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
     return vorgaenge or [Eintrag("buchung_geaendert")]
 
 
+_BELEGFREIGABE: ContextVar[bool] = ContextVar("accounti_belegfreigabe", default=False)
+
+
+@contextmanager
+def belegfreigabe() -> Iterator[None]:
+    """Block, in dem ein Mensch Belege freigibt (``accounti belege freigeben``): nur
+    dort steht ``beleg_freigegeben`` im Journal — nicht, wenn ``belege erkennen`` einen
+    Beleg aus der Prüfung neu liest und er jetzt vollständig ist."""
+    token = _BELEGFREIGABE.set(True)
+    try:
+        yield
+    finally:
+        _BELEGFREIGABE.reset(token)
+
+
 def _beleg(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
     if v is None:
         return [Eintrag("beleg_importiert")]
     if n is None:
         return [Eintrag("beleg_geloescht")]
+    if _BELEGFREIGABE.get():
+        return [Eintrag("beleg_freigegeben")]  # accounti belege freigeben
     return [Eintrag("beleg_geaendert")]
 
 

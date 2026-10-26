@@ -80,6 +80,21 @@ def paare(buchung):
         ),
         # unbekannter Schlüssel: kein Steuersplit
         (b("3425", "70001", "100", 10, None), [("3425", 100, 0), ("70001", 0, 100)]),
+        # § 13b (Gesamttest): Steuer auf 1577/1787, Kreditor netto
+        (
+            b("4900", "70002", "800", 94, "152"),
+            [("1577", 152, 0), ("1787", 0, 152), ("4900", 800, 0), ("70002", 0, 800)],
+        ),
+        # § 13b-Gutschrift: das Paar gedreht
+        (
+            b("70002", "4900", "100", 94, "19"),
+            [("1577", 0, 19), ("1787", 19, 0), ("4900", 0, 100), ("70002", 100, 0)],
+        ),
+        # ig. Erwerb 19 %
+        (
+            b("3425", "70001", "500", 19, "95"),
+            [("1574", 95, 0), ("1774", 0, 95), ("3425", 500, 0), ("70001", 0, 500)],
+        ),
     ],
 )
 def test_bewegungen(buchung, erwartet):
@@ -151,6 +166,20 @@ def test_summen_und_saldenliste(make_session):
     with make_session() as s:
         bilanz = summen_und_salden(s, 2026, SKR03, "bilanz")
     assert bilanz.ergebnis == D("900")
+
+
+def test_13b_im_skr04_auf_1407_und_3837():
+    skr04 = lade_kontenrahmen("SKR04")
+    paare_skr04 = sorted(
+        (x.konto, x.soll, x.haben)
+        for x in bewegungen(b("6300", "70002", "800", 94, "152"), skr04)
+    )
+    assert paare_skr04 == [
+        ("1407", D(152), D(0)),
+        ("3837", D(0), D(152)),
+        ("6300", D(800), D(0)),
+        ("70002", D(0), D(800)),
+    ]
 
 
 def test_erstattung_auf_der_kreditkarte_brutto_auf_dem_kartenkonto():

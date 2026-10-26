@@ -23,7 +23,15 @@ from accounti.db.repository import (
     lade_transaktionen,
     lade_zuordnungen,
 )
-from accounti.models import OffenerPosten, PostenRichtung, PostenStatus, ZuordnungStatus
+from accounti.models import (
+    Buchungssatz,
+    OffenerPosten,
+    PostenRichtung,
+    PostenStatus,
+    Verrechnung,
+    Zahlungszuordnung,
+    ZuordnungStatus,
+)
 
 NULL = Decimal("0.00")
 STAFFELN = ("nicht fällig", "1–30 Tage", "31–60 Tage", "61–90 Tage", "über 90 Tage")
@@ -62,6 +70,36 @@ def offene_posten(
     ]
 
 
+def postenbewegungen(
+    zuordnungen: Iterable[Zahlungszuordnung],
+    tage: Mapping[UUID, date],
+    verrechnungen: Iterable[Verrechnung],
+) -> dict[UUID, list[tuple[date, Decimal]]]:
+    """Je Posten (Tag, Minderung des Rests): gebuchte Zahlungen samt Skonto am Tag des
+    Umsatzes (``tage``: Umsatz → Datum) und Verrechnungen — beim Gegenposten
+    (Gutschrift, Guthaben) mit umgekehrtem Vorzeichen. Eine Quelle für die
+    Stichtagsliste und die Abstimmung mit dem Personenkonto (``opos/abstimmung.py``)."""
+    bewegungen: dict[UUID, list[tuple[date, Decimal]]] = defaultdict(list)
+    for z in zuordnungen:
+        if z.status is ZuordnungStatus.GEBUCHT and z.transaktion_id in tage:
+            bewegungen[z.posten_id].append(
+                (tage[z.transaktion_id], z.betrag + z.skonto)
+            )
+    for v in verrechnungen:
+        bewegungen[v.posten_id].append((v.datum, v.betrag))
+        bewegungen[v.gegen_posten_id].append((v.datum, -v.betrag))
+    return dict(bewegungen)
+
+
+def gebucht_ab(buchungen: Iterable[Buchungssatz]) -> dict[UUID, date]:
+    """Je Beleg der Tag seiner frühesten Belegbuchung (ohne Zahlungen)."""
+    tage: dict[UUID, date] = {}
+    for b in buchungen:
+        if b.beleg_id is not None and b.transaktion_id is None:
+            tage[b.beleg_id] = min(b.datum, tage.get(b.beleg_id, b.datum))
+    return tage
+
+
 def stand_zum(
     posten: Iterable[OffenerPosten],
     stichtag: date,
@@ -71,14 +109,15 @@ def stand_zum(
     """Posten mit ihrem Rest zum Ende des Stichtags (ohne die ausgeglichenen).
 
     ``bewegungen``: je Posten (Tag, Minderung des Rests) — Zahlungen samt Skonto,
-    Verrechnungen. Was nach dem Stichtag geschah, kommt zum heutigen Rest wieder
-    dazu. Ein Posten zählt ab seiner frühesten Buchung (``gebucht_ab``, z.B. eine
-    Ausgangsrechnung zum Leistungsdatum), sonst ab dem Belegdatum.
+    Verrechnungen (``postenbewegungen``). Was nach dem Stichtag geschah, kommt zum
+    heutigen Rest wieder dazu. Ein Posten zählt ab seiner frühesten Buchung
+    (``gebucht_ab``: eine Ausgangsrechnung zum Leistungsdatum, eine Eingangsrechnung
+    aus einem festgeschriebenen Monat zum späteren Buchungstag), ohne Buchung ab dem
+    Belegdatum — so wie das Personenkonto in der Saldenliste.
     """
     ergebnis = []
     for p in posten:
-        ab = min(p.belegdatum, (gebucht_ab or {}).get(p.beleg_id, p.belegdatum))
-        if ab > stichtag:
+        if (gebucht_ab or {}).get(p.beleg_id, p.belegdatum) > stichtag:
             continue
         spaeter = sum(
             (b for tag, b in bewegungen.get(p.id, []) if tag > stichtag), NULL
@@ -95,20 +134,14 @@ def lade_stand_zum(session: Session, stichtag: date) -> list[OffenerPosten]:
     """``stand_zum`` aus der Datenbank: Zahlungen (gebuchte Zuordnungen),
     Verrechnungen und die Belegbuchungen der Posten."""
     tage = {t.id: t.datum for t in lade_transaktionen(session)}
-    bewegungen: dict[UUID, list[tuple[date, Decimal]]] = defaultdict(list)
-    for z in lade_zuordnungen(session, status={ZuordnungStatus.GEBUCHT}):
-        if z.transaktion_id in tage:
-            bewegungen[z.posten_id].append(
-                (tage[z.transaktion_id], z.betrag + z.skonto)
-            )
-    for v in lade_verrechnungen(session):
-        bewegungen[v.posten_id].append((v.datum, v.betrag))
-        bewegungen[v.gegen_posten_id].append((v.datum, -v.betrag))
-    gebucht_ab: dict[UUID, date] = {}
-    for b in lade_buchungen(session):
-        if b.beleg_id is not None and b.transaktion_id is None:
-            gebucht_ab[b.beleg_id] = min(b.datum, gebucht_ab.get(b.beleg_id, b.datum))
-    return stand_zum(lade_posten(session), stichtag, bewegungen, gebucht_ab)
+    bewegungen = postenbewegungen(
+        lade_zuordnungen(session, status={ZuordnungStatus.GEBUCHT}),
+        tage,
+        lade_verrechnungen(session),
+    )
+    return stand_zum(
+        lade_posten(session), stichtag, bewegungen, gebucht_ab(lade_buchungen(session))
+    )
 
 
 def faelligkeitsstaffel(

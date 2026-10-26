@@ -20,12 +20,14 @@ Die Regeln ändern nie Daten.
                            Steuerbetrag (hinweis)
 - ``periode``              Periodenabschluss/Prüfbefunde (Baustein 7) ungeprüft
                            (hinweis)
+- ``beleg_nach_zeitraum``  Vorsteuer aus einer Rechnung, die erst nach Ende des
+                           Zeitraums einging (warnung, § 15 Abs. 1 Nr. 1 UStG)
 """
 
 from __future__ import annotations
 
 import enum
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -94,17 +96,18 @@ def ustid_befunde(e: Ermittlung, bestaetigung: Bestaetigung) -> list[Befund]:
             continue  # Minderungen brauchen keine neue Bestätigung
         art = {"L": "ig. Lieferung", "D": "Dreiecksgeschäft", "S": "EU-Leistung"}[u.art]
         k = u.kontakt
-        if k is None:
+        name = u.name or (k.name if k else None)
+        if k is None and name is None:
             text = f"{_kurz(u.buchung)}: {art}, Abnehmer unbekannt — kein Personenkonto"
-        elif not k.ust_id:
-            text = f"{_kurz(u.buchung)}: {art} an {k.name} ohne USt-IdNr."
+        elif not u.ust_id:
+            text = f"{_kurz(u.buchung)}: {art} an {name} ohne USt-IdNr."
         else:
-            lage = bestaetigung(k.ust_id, u.buchung.datum)
+            lage = bestaetigung(u.ust_id, u.buchung.datum)
             if lage.bestaetigt:
                 continue
-            konto = k.debitor_konto or str(k.id)[:8]
+            konto = (k.debitor_konto or str(k.id)[:8]) if k else u.ust_id
             text = (
-                f"{_kurz(u.buchung)}: {art} an {k.name}, USt-IdNr. {k.ust_id} nicht "
+                f"{_kurz(u.buchung)}: {art} an {name}, USt-IdNr. {u.ust_id} nicht "
                 f"bestätigt: {lage.grund} — accounti kontakte pruefe-ustid {konto}"
             )
         befunde.append(Befund("ustid", Schweregrad.FEHLER, text, u.buchung.id))
@@ -190,6 +193,38 @@ def _oss(e: Ermittlung, plan: Kontenplan, kontakte: Sequence[Kontakt]) -> list[B
     return befunde
 
 
+def _beleg_nach_zeitraum(
+    e: Ermittlung, belegeingang: Mapping[UUID, date]
+) -> list[Befund]:
+    """Vorsteuer (Kz 66) aus einer Belegbuchung, deren Rechnung erst nach Ende des
+    Zeitraums erfasst wurde: abziehbar ist sie erst, wenn die Rechnung vorliegt.
+
+    Nur der Abzug: Eine Gutschrift (Kz 66 negativ) mindert die Vorsteuer im Zeitraum
+    der Änderung, gleich wann sie eingeht (§ 17 Abs. 1 S. 8 UStG)."""
+    befunde = []
+    for z in e.zugeordnet:
+        b = z.buchung
+        eingang = belegeingang.get(b.beleg_id) if b.beleg_id else None
+        kz66 = sum((x.betrag for x in z.beitraege if x.kz == 66), Decimal("0"))
+        if (
+            eingang is None
+            or b.transaktion_id is not None
+            or b.steuer_schluessel not in (8, 9)
+            or eingang <= e.zeitraum.bis
+            or kz66 <= 0
+        ):
+            continue
+        text = (
+            f"{_kurz(b)}: Vorsteuer aus einer Rechnung, die erst am "
+            f"{eingang:%d.%m.%Y} — nach Ende des Zeitraums — erfasst wurde; abziehbar "
+            "ist sie erst im Zeitraum, in dem die Rechnung vorliegt (§ 15 Abs. 1 Nr. 1 "
+            "UStG). Lag sie vorher vor (Eingang = Erfassung in accounti), ist nichts "
+            "zu tun"
+        )
+        befunde.append(Befund("beleg_nach_zeitraum", Schweregrad.WARNUNG, text, b.id))
+    return befunde
+
+
 def _vergleich(
     va: UStVoranmeldung,
     vergleiche: Sequence[tuple[str, UStVoranmeldung | None]],
@@ -224,6 +259,7 @@ def plausibilisiere(
     oss_aktiv: bool = False,
     schwellen: Schwellen | None = None,
     weitere: Iterable[Befund] | None = None,
+    belegeingang: Mapping[UUID, date] | None = None,
 ) -> list[Befund]:
     """Alle Befunde, Fehler zuerst.
 
@@ -253,6 +289,7 @@ def plausibilisiere(
         schwellen,
     )
     befunde += [Befund("ermittlung", Schweregrad.WARNUNG, w) for w in e.warnungen]
+    befunde += _beleg_nach_zeitraum(e, belegeingang or {})
     befunde += [Befund("ermittlung", Schweregrad.HINWEIS, h) for h in e.hinweise]
     if weitere is None:
         befunde.append(

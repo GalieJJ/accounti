@@ -180,3 +180,43 @@ def test_warnungen_der_ermittlung_sind_warnungen():
     assert regeln(befunde, Schweregrad.WARNUNG) == ["ermittlung"]
     assert "Leistender unbekannt" in befunde[0].text
     assert not freigabe_gesperrt(befunde)
+
+
+def test_vorsteuer_aus_beleg_nach_zeitraumende():
+    """B16 (Gesamttest): Vorsteuer aus einer Rechnung, die erst nach Ende des
+    Zeitraums erfasst wurde — Warnung (§ 15 Abs. 1 Nr. 1 UStG)."""
+    from uuid import uuid4
+
+    spaet, puenktlich = uuid4(), uuid4()
+    buchungen = [
+        b("4900", "70001", "100.00", 9, "19.00", beleg_id=spaet),
+        b("4900", "70001", "50.00", 9, "9.50", beleg_id=puenktlich),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    befunde = plausibilisiere(
+        e,
+        bestaetigung=bestaetigt,
+        belegeingang={spaet: date(2026, 9, 2), puenktlich: date(2026, 8, 20)},
+    )
+    (befund,) = [x for x in befunde if x.regel == "beleg_nach_zeitraum"]
+    assert befund.schweregrad is Schweregrad.WARNUNG
+    assert "02.09.2026" in befund.text
+
+
+def test_gutschrift_nach_zeitraumende_ist_kein_befund():
+    """M2 (Nachprüfung C): Eine Lieferantengutschrift mindert die Vorsteuer im
+    Zeitraum der Änderung (§ 17 Abs. 1 S. 8 UStG) — ihr später Eingang verschiebt
+    nichts, der Befund „abziehbar erst später“ wäre irreführend."""
+    from uuid import uuid4
+
+    gutschrift = uuid4()
+    buchungen = [
+        b("4900", "70001", "500.00", 9, "95.00"),
+        b("70001", "4900", "100.00", 9, "19.00", beleg_id=gutschrift),
+    ]
+    e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
+    assert e.voranmeldung.werte[66] == Decimal("76.00")
+    befunde = plausibilisiere(
+        e, bestaetigung=bestaetigt, belegeingang={gutschrift: date(2026, 9, 2)}
+    )
+    assert [x for x in befunde if x.regel == "beleg_nach_zeitraum"] == []

@@ -266,3 +266,232 @@ def test_erkenne_erneut_findet_dublette_im_bestand(tmp_path):
         neu = erkenne_erneut(s, archiv, offen[0], BelegErkenner())
     assert neu.status is BelegStatus.ZUR_PRUEFUNG
     assert "Dublette" in neu.pruef_grund
+
+
+# --- Gesamttest Paket C -----------------------------------------------------------
+
+
+def test_reverse_charge_pdf_wird_erfasst():
+    """B06: 0 % mit Hinweis „Steuerschuldnerschaft des Leistungsempfängers“ ist kein
+    fehlender Steuerausweis — der Beleg bleibt nicht in der Prüfung hängen."""
+    from tests.test_belege_extraktion import REVERSE_CHARGE
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(REVERSE_CHARGE))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert b.steuerkennzeichen == "AE"
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz, p.steuer_betrag) == (
+        Decimal("600.00"),
+        Decimal("0"),
+        Decimal("0.00"),
+    )
+    assert "§ 13b" in p.bezeichnung
+
+
+def test_lieferantengutschrift_mit_negativen_betraegen():
+    """B12: Netto, Steuer, Brutto und Position negativ — die Verbuchung dreht."""
+    from tests.test_belege_extraktion import GUTSCHRIFT
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(GUTSCHRIFT))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert (b.netto, b.steuer, b.brutto) == (
+        Decimal("-200.00"),
+        Decimal("-38.00"),
+        Decimal("-238.00"),
+    )
+    (p,) = b.positionen
+    assert (p.netto, p.steuer_betrag) == (Decimal("-200.00"), Decimal("-38.00"))
+
+
+def test_gutschrift_mit_positiven_betraegen_zur_pruefung():
+    text = (
+        "Rahmenwerk Nord GmbH\nGutschrift\nGutschrift Nr. G-17\n"
+        "Datum: 20.10.2026\nSumme netto 200,00\nzzgl. 19 % USt 38,00\n"
+        "Gesamtbetrag 238,00\n"
+    )
+    b = _erkenne(BelegErkenner(), text.encode(), "g.txt")
+    assert b.brutto == Decimal("-238.00")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "§ 14 Abs. 2 S. 2" in b.pruef_grund
+
+
+def test_rechnung_mit_korrekturwort_in_der_fusszeile_bleibt_positiv():
+    """M1 (Nachprüfung C): vorher −357 und „erfasst“ — bei geprüftem Kreditor
+    automatisch als Minderung gebucht (Vorsteuer um 114 € falsch)."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    text = RECHNUNG_MIT_FUSSZEILE.format(
+        titel="Rechnung",
+        fusszeile="Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen",
+    )
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert (b.netto, b.steuer, b.brutto) == (
+        Decimal("300.00"),
+        Decimal("57.00"),
+        Decimal("357.00"),
+    )
+
+
+def test_jeder_negierte_beleg_geht_zur_pruefung():
+    """M1: Auch eine eindeutige Rechnungskorrektur mit positiven Beträgen wird nur
+    vorgeschlagen negiert — das Vorzeichen bestätigt der Mensch (belege freigeben,
+    sonst --vorzeichen umkehren)."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    text = RECHNUNG_MIT_FUSSZEILE.format(titel="Rechnungskorrektur", fusszeile="")
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.brutto == Decimal("-357.00")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Vorzeichen" in b.pruef_grund and "--vorzeichen umkehren" in b.pruef_grund
+
+
+def test_hinweistext_ersetzt_den_steuerausweis_nur_ohne_steuer_in_der_summe():
+    """N1 (Nachprüfung C): Netto 200, Gesamt 238, Steuerzeile ohne Satz und ein
+    Hinweis auf § 19 — vorher „erfasst“ und netto gegen einen Brutto-Posten gebucht.
+    Jetzt fehlt der Steuerausweis, und die Position steht brutto."""
+    text = (
+        "Rahmenwerk Nord GmbH\nRechnung\nRechnungsnummer: RW-9\n"
+        "Rechnungsdatum: 20.10.2026\nSumme netto 200,00 €\nMwSt 38,00 €\n"
+        "Gesamtbetrag 238,00 €\nkein Kleinunternehmer im Sinne des § 19 UStG\n"
+    )
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Steuerausweis" in b.pruef_grund
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz) == (Decimal("238.00"), None)
+
+
+def test_zugferd_minimum_nimmt_steuersatz_aus_der_pdf_ansicht():
+    """B05: MINIMUM liefert keinen Satz; die PDF-Ansicht schon — zur Prüfung bleibt
+    der Beleg trotzdem (Buchungshilfe, keine E-Rechnung)."""
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    ansicht = pdf_mit_text(
+        "Druckerei Beispiel GmbH\nRechnung MIN-2026-9\nNettobetrag 1.000,00\n"
+        "zzgl. 19 % USt 190,00\nGesamtbetrag 1.190,00\n"
+    )
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(ansicht)))
+    writer.add_attachment("factur-x.xml", (ERECHNUNG / "minimum_cii.xml").read_bytes())
+    puffer = io.BytesIO()
+    writer.write(puffer)
+    b = _erkenne(BelegErkenner(), puffer.getvalue())
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "PROFIL" in b.pruef_grund
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz, p.steuer_betrag) == (
+        Decimal("1000.00"),
+        Decimal("19"),
+        Decimal("190.00"),
+    )
+    nur_xml = _erkenne(
+        BelegErkenner(),
+        pdf_mit_anhang("factur-x.xml", (ERECHNUNG / "minimum_cii.xml").read_bytes()),
+    )
+    (p,) = nur_xml.positionen
+    assert p.steuersatz is None and nur_xml.status is BelegStatus.ZUR_PRUEFUNG
+
+
+def test_kreditkartenabrechnung_mit_langem_leerraum_haengt_nicht():
+    """H/M-1, gleiche Ursache: Die Zerlegung einer Kreditkartenabrechnung wurde an
+    langen Leerraum-Folgen quadratisch — der Erkenner nimmt begrenzten Leerraum."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    text = "Kreditkartenabrechnung\n01.10." + " " * 50_000 + "x\n" + "\n" * 50_000
+    with _zeitschranke(3):
+        b = _erkenne(BelegErkenner(), text.encode(), "k.txt")
+    assert b.belegart is Belegart.KONTOAUSZUG and b.positionen == []
+
+
+def test_gutschrift_zur_rechnung_wird_nicht_als_dublette_verworfen(tmp_path):
+    """M-2 (Nachprüfung C, Runde 3): Rechnung RE-5, dann „Gutschrift zur Rechnung
+    Nr. RE-5“ mit „Gutschrift-Nr.: GS-5“ — vorher „Dublette — Lieferant und
+    Belegnummer RE-5 bekannt“, die Gutschrift wurde nicht gespeichert."""
+    from accounti.models import Eingangsergebnis
+    from tests.test_belege_extraktion import GUTSCHRIFT_ZUR_RECHNUNG
+
+    rechnung = (
+        "Rahmenwerk Nord GmbH\nUSt-IdNr.: DE811907980\n\nRechnung\n"
+        "Rechnungsnummer: RE-5\nRechnungsdatum: 01.10.2026\n\n"
+        "Netto 500,00 €\nUSt 19 % 95,00 €\nGesamtbetrag 595,00 €\n"
+    )
+    gutschrift = GUTSCHRIFT_ZUR_RECHNUNG.format(
+        titel="Gutschrift zur Rechnung Nr. RE-5", nummer="Gutschrift-Nr.: GS-5"
+    )
+    engine, make_session = session_factory("sqlite:///:memory:")
+    init_db(engine)
+    archiv = BelegArchiv(tmp_path)
+    with make_session() as s:
+        nimm_auf(s, archiv, _roh(pdf_mit_text(rechnung), "r.pdf"), BelegErkenner())
+        eingang = nimm_auf(
+            s, archiv, _roh(pdf_mit_text(gutschrift), "g.pdf"), BelegErkenner()
+        )
+        s.commit()
+        belege = {b.belegnummer: b for b in lade_belege(s)}
+    assert eingang.ergebnis is Eingangsergebnis.NEU, eingang.hinweis
+    assert set(belege) == {"RE-5", "GS-5"}
+    assert belege["GS-5"].brutto == Decimal("-119.00")
+
+
+def test_gutschrift_mit_rechnungsbezug_im_infoblock_geht_zur_pruefung():
+    """Mittel 1 (Nachprüfung C, Runde 4): „Rechnung: RE-2026-5“ im Infoblock vor dem
+    Titel „Gutschrift“ — vorher „eingangsrechnung · 238.00 EUR · erfasst“, die
+    Vorsteuer stieg, statt sich zu mindern (§ 17 Abs. 1 UStG). Jetzt zur Prüfung, mit
+    dem Weg zum Umkehren."""
+    from tests.test_belege_extraktion import _infoblock
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(_infoblock("Rechnung: RE-2026-5")))
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Titel mehrdeutig" in b.pruef_grund
+    assert "--vorzeichen umkehren" in b.pruef_grund
+    assert (b.brutto, b.belegnummer) == (Decimal("238.00"), "GS-5")
+
+
+_300_KB = 300_000
+LANGE_FOLGEN = {
+    "Wort": "a" * _300_KB,
+    "Ziffern": "Summe " + "1" * _300_KB,
+    "Tausendergruppen": "Summe " + "111." * (_300_KB // 4),
+    "renr": "renr" * (_300_KB // 4),
+    "Vertrag": "Mietvertrag" * (_300_KB // 11),
+    "steuerfrei": "steuerfrei" * (_300_KB // 10),
+}
+
+
+@pytest.mark.parametrize("folge", LANGE_FOLGEN.values(), ids=LANGE_FOLGEN.keys())
+def test_lange_folgen_ohne_leerzeichen_bremsen_den_import_nicht(folge):
+    """Mittel 2 (Nachprüfung C, Runde 4): Die Leerraumgrenze half nicht gegen lange
+    Folgen ohne Leerzeichen — ``\\w*vertrag``, ``BETRAG`` und die Belegnummer waren
+    darauf quadratisch; ein komprimiertes PDF von 1,1 KB mit 300 KB Text hielt
+    ``belege import`` rund 12 min auf. Der Text ist jetzt begrenzt (Anfang und Ende
+    bleiben), der Beleg geht zur Prüfung."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    text = (
+        "Rahmenwerk Nord GmbH\nRechnung Nr. RE-7\nDatum: 01.10.2026\n"
+        f"{folge}\nNetto 200,00 €\nUSt 19 % 38,00 €\nGesamtbetrag 238,00 €\n"
+    )
+    with _zeitschranke(5):
+        b = _erkenne(BelegErkenner(), text.encode(), "r.txt")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "gekürzt" in b.pruef_grund
+    assert (b.belegnummer, b.brutto, b.steuer) == (
+        "RE-7",
+        Decimal("238.00"),
+        Decimal("38.00"),
+    )
+
+
+def test_langer_text_geht_auch_an_das_llm_nur_begrenzt():
+    """Die LLM-Stufe bekommt denselben begrenzten Text (Maskierung linear)."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    llm = MagicMock()
+    llm.lies.return_value = None
+    text = "Firma\n" + "a" * _300_KB + "\nGesamtbetrag 119,00 €\n"
+    with _zeitschranke(5):
+        b = _erkenne(BelegErkenner(llm=llm), text.encode(), "r.txt")
+    (gelesen, _), _ = llm.lies.call_args
+    assert len(gelesen) <= 100_000 and b.status is BelegStatus.ZUR_PRUEFUNG

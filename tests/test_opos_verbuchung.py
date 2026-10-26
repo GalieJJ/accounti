@@ -471,3 +471,801 @@ def test_eigene_kennungen_aus_der_konfiguration(tmp_path):
     )
     eigene = lade_eigene_firma(pfad)
     assert (eigene.name, eigene.ust_id) == ("Galerie Muster GmbH", "DE999999999")
+
+
+# --- Gesamttest Paket C: Steuerfall, Vorzeichen, kein Schlüssel, Land, Skonto -----
+
+
+def _aus_pdf(text, **kw):
+    """Beleg, wie ihn die Erkennung aus einem PDF mit diesem Text macht."""
+    from accounti.belege.erkennung import BelegErkenner
+    from accounti.belege.kanaele import RohBeleg
+    from tests.pdf_hilfe import pdf_mit_text
+
+    roh = RohBeleg(
+        dateiname="r.pdf", inhalt=pdf_mit_text(text), kanal="upload", herkunft="r.pdf"
+    )
+    leer = Beleg(
+        datei_hash=kw.pop("datei_hash", "d" * 64),
+        dateiname="r.pdf",
+        kanal="upload",
+        herkunft="r.pdf",
+        aufbewahren_bis=date(2036, 12, 31),
+        eingegangen_am=kw.pop("eingegangen_am", datetime(2026, 4, 3, 9, 0)),
+    )
+    return BelegErkenner()(roh, leer).model_copy(update=kw)
+
+
+def _zeilen(buchungen):
+    return sorted(
+        (
+            b.soll_konto,
+            b.haben_konto,
+            b.betrag_netto,
+            b.steuer_schluessel,
+            b.steuer_betrag,
+            b.status,
+        )
+        for b in buchungen
+    )
+
+
+def test_reverse_charge_rechnung_bucht_13b_und_meldet_kz_46_47(umgebung):
+    """B06/Steuer B4: 0 % mit § 13b-Hinweis → Schlüssel 94 zur Prüfung, Kreditor-Land
+    aus der USt-IdNr. (AT) → Kz 46/47/67 statt nichts."""
+    from accounti.db.repository import setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+    from tests.test_belege_extraktion import REVERSE_CHARGE
+
+    make_session, _ = umgebung
+    beleg = _aus_pdf(REVERSE_CHARGE)
+    assert beleg.status is BelegStatus.ERFASST, beleg.pruef_grund
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert v.treffer.kontakt.land == "AT"
+    assert any("§ 13b" in h and "46/47" in h for h in v.hinweise)
+    assert not any("nicht bestätigt" in h for h in v.hinweise)
+    with make_session() as s:
+        (b,) = lade_buchungen(s)
+        (posten,) = lade_posten(s)
+        assert _zeilen([b]) == [
+            (
+                "4900",
+                "70000",
+                Decimal("600.00"),
+                94,
+                Decimal("114.00"),
+                BuchungStatus.ZUR_PRUEFUNG,
+            )
+        ]
+        assert posten.betrag == Decimal("600.00")  # die Steuer zahlt man ans FA
+        setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies("2026-04"),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+        )
+    assert e.voranmeldung.werte == {
+        46: Decimal("600.00"),
+        47: Decimal("114.00"),
+        67: Decimal("114.00"),
+    }
+
+
+def test_e_rechnung_ae_im_eingang_bekommt_94_ohne_ustid_hinweis(umgebung):
+    """Steuer B4: Kategorie AE im Eingang → Schlüssel 94 zur Prüfung; der Hinweis auf
+    eine unbestätigte USt-IdNr. gilt nur eigenen Rechnungen (er nannte unsere)."""
+    from accounti.db.repository import aktualisiere_beleg, lade_belege
+
+    make_session, archiv = umgebung
+    k = kunde(land="AT", ust_id="ATU12345678")
+    with make_session() as s:
+        bestaetige(s, k.ust_id, jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(
+        make_session,
+        archiv,
+        entwurf(k, pos("Hängung", "90", "8", sonstige_leistung=True)),
+    )
+    with make_session() as s:  # dieselbe Datei als empfangene Rechnung
+        (b,) = lade_belege(s)
+        aktualisiere_beleg(
+            s,
+            b.model_copy(
+                update={
+                    "belegart": Belegart.EINGANGSRECHNUNG,
+                    "richtung": Belegrichtung.EINGANG,
+                }
+            ),
+        )
+        s.commit()
+    (v,) = _verbuche(make_session, archiv=archiv)
+    (b,) = v.buchungen
+    assert (b.steuer_schluessel, b.betrag_netto, b.steuer_betrag, b.status) == (
+        94,
+        Decimal("720.00"),
+        Decimal("136.80"),
+        BuchungStatus.ZUR_PRUEFUNG,
+    )
+    assert not any("USt-IdNr." in h for h in v.hinweise)
+
+
+def test_steuer_ohne_satz_wird_brutto_gebucht_und_ist_korrigierbar(umgebung):
+    """B05: ZUGFeRD MINIMUM — Sammelposition mit Steuer, aber ohne Satz. Nie netto
+    gegen einen Brutto-Posten; `korrigiere --steuer 9` ist dann erlaubt."""
+    from accounti.pruefung.storno import StornoError, korrigiere
+
+    make_session, _ = umgebung
+    beleg = eingangsrechnung(
+        netto=Decimal("1000.00"), steuer=Decimal("190.00"), brutto=Decimal("1190.00")
+    )
+    beleg.positionen = [
+        Belegposition(
+            beleg_id=beleg.id,
+            bezeichnung="Gesamtbetrag",
+            netto=Decimal("1000.00"),
+            steuer_betrag=Decimal("190.00"),
+        )
+    ]
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        (b,) = lade_buchungen(s)
+        (posten,) = lade_posten(s)
+        assert _zeilen([b]) == [
+            (
+                "4900",
+                "70000",
+                Decimal("1190.00"),
+                None,
+                None,
+                BuchungStatus.ZUR_PRUEFUNG,
+            )
+        ]
+        assert posten.betrag == Decimal("1190.00")
+        with pytest.raises(StornoError, match="Grund"):
+            korrigiere(s, str(b.id), "4900", "70000", steuer=9)
+        k = korrigiere(
+            s, str(b.id), "4900", "70000", steuer=9, grund="PDF-Ansicht: 19 % USt"
+        )
+        s.commit()
+    assert (k.neu.betrag_netto, k.neu.steuer_betrag) == (
+        Decimal("1000.00"),
+        Decimal("190.00"),
+    )
+
+
+def test_lieferantengutschrift_mindert_aufwand_und_vorsteuer(umgebung):
+    """B12: Gutschrift −200/−38 → Kreditor an Aufwand mit VSt 38 (Minderung), Posten
+    −238 — nicht Aufwand mit +38 Vorsteuer und Posten −162."""
+    from tests.test_belege_extraktion import GUTSCHRIFT
+
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, _aus_pdf(GUTSCHRIFT))
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        (b,) = lade_buchungen(s)
+        (posten,) = lade_posten(s)
+    assert (b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_betrag) == (
+        "70000",
+        "4900",
+        Decimal("200.00"),
+        Decimal("38.00"),
+    )
+    assert posten.betrag == Decimal("-238.00")
+
+
+def test_ohne_abzug_schlaegt_das_skonto_des_kontakts(umgebung):
+    """B09: Die Rechnung sagt „ohne Abzug“ (0 %) — der Posten bekommt kein Skonto."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Bürobedarf Müller GmbH",
+                kreditor_konto="70000",
+                iban="DE89370400440532013000",
+                skonto_prozent=Decimal("2"),
+                skonto_tage=10,
+            ),
+        )
+        speichere_beleg(s, eingangsrechnung(skonto_prozent=Decimal("0"), skonto_tage=0))
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                datei_hash="b" * 64,
+                belegnummer="RE-2026-0043",
+                skonto_prozent=None,
+                skonto_tage=None,
+            ),
+        )
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        posten = {p.belegnummer: p for p in lade_posten(s)}
+    assert posten["RE-2026-0042"].skonto_betrag is None
+    assert posten["RE-2026-0043"].skonto_prozent == Decimal("2")  # Kontakt-Skonto
+
+
+def test_land_des_kreditors_aus_der_ust_idnr(umgebung):
+    """B06/Beobachtung: kein „DE“ mehr für jeden Kreditor aus einem PDF; ein Kontakt,
+    dessen „DE“ nur die Vorgabe war, bekommt das Land aus dem Beleg."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(s, Kontakt(name="Galerie Athen", kreditor_konto="70005"))
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                lieferant_name="Rahmen Wien GmbH",
+                lieferant_ust_id="ATU12345678",
+                iban="AT611904300234573201",
+            ),
+        )
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                datei_hash="b" * 64,
+                belegnummer="GA-1",
+                lieferant_name="Galerie Athen",
+                lieferant_ust_id="EL123456789",
+                iban=None,
+            ),
+        )
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        laender = {k.name: k.land for k in lade_kontakte(s)}
+    assert laender == {"Rahmen Wien GmbH": "AT", "Galerie Athen": "GR"}
+
+
+def test_13b_nachtraeglich_auf_belegbuchung_setzen(umgebung):
+    """Steuer B4: Eine Belegbuchung ohne Schlüssel (0 %, Steuerfall unklar) nimmt
+    `--steuer 94` an — die Steuer steht nie auf dem Beleg (§ 14a Abs. 5 UStG)."""
+    from accounti.pruefung.storno import StornoError, korrigiere
+
+    make_session, _ = umgebung
+    beleg = eingangsrechnung(
+        netto=Decimal("500.00"), steuer=Decimal("0.00"), brutto=Decimal("500.00")
+    )
+    beleg.positionen = [
+        Belegposition(
+            beleg_id=beleg.id,
+            bezeichnung="Netto 0 %",
+            netto=Decimal("500.00"),
+            steuersatz=Decimal("0"),
+            steuer_betrag=Decimal("0.00"),
+        )
+    ]
+    mit_satz = eingangsrechnung(datei_hash="b" * 64, belegnummer="RE-2026-0043")
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        speichere_beleg(s, mit_satz)
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        ohne = next(b for b in lade_buchungen(s) if b.beleg_id == beleg.id)
+        assert ohne.steuer_schluessel is None
+        k = korrigiere(
+            s, str(ohne.id), "4900", "70000", steuer=94, grund="Reverse Charge"
+        )
+        assert (k.neu.betrag_netto, k.neu.steuer_betrag) == (
+            Decimal("500.00"),
+            Decimal("95.00"),
+        )
+        sieben = next(
+            b
+            for b in lade_buchungen(s)
+            if b.beleg_id == mit_satz.id and b.steuer_schluessel == 9
+        )
+        with pytest.raises(StornoError, match="hat einen Beleg"):
+            korrigiere(s, str(sieben.id), "4900", "70000", steuer=8, grund="x")
+
+
+def test_fremdrechnung_ueber_gleiche_iban_wird_neuer_kreditor(umgebung):
+    """B14: gleiche (Factoring-)IBAN, andere USt-IdNr. → nicht Müller, neuer
+    Kreditor zur Prüfung, Buchung zur Prüfung, Hinweis auf die IBAN."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Bürobedarf Müller GmbH",
+                kreditor_konto="70000",
+                iban="DE89370400440532013000",
+                ust_id="DE123456789",
+                sachkonto="4930",
+            ),
+        )
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                belegnummer="PK-777",
+                lieferant_name="Papierhaus Kiel GmbH",
+                lieferant_ust_id="DE222222222",
+            ),
+        )
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert v.kontakt_neu and v.treffer.kontakt.kreditor_konto == "70001"
+    assert v.treffer.kontakt.status is KontaktStatus.ZUR_PRUEFUNG
+    assert "Factoring" in v.treffer.kontakt.pruef_grund
+    assert all(b.status is BuchungStatus.ZUR_PRUEFUNG for b in v.buchungen)
+    assert {b.haben_konto for b in v.buchungen} == {"70001"}
+    assert any("IBAN" in h for h in v.hinweise)
+
+
+def test_gleiche_iban_anderer_name_bucht_zur_pruefung(umgebung):
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Bürobedarf Müller GmbH",
+                kreditor_konto="70000",
+                iban="DE89370400440532013000",
+                sachkonto="4930",
+            ),
+        )
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                lieferant_name="Papierhaus Kiel GmbH", lieferant_ust_id=None
+            ),
+        )
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert not v.kontakt_neu and v.treffer.kontakt.kreditor_konto == "70000"
+    assert all(b.status is BuchungStatus.ZUR_PRUEFUNG for b in v.buchungen)
+    with make_session() as s:  # nichts aus dem fremden Beleg übernommen
+        (k,) = lade_kontakte(s)
+    assert k.ust_id is None
+
+
+def test_namensgleiche_eu_kunden_bleiben_zwei_debitoren_zm_je_ustid(umgebung):
+    """Ausgang B1: Atelier Nord SARL (FR) und SRL (IT) — zwei Debitoren, die ZM
+    meldet beide USt-IdNr. getrennt."""
+    from accounti.db.repo_elster import lade_beleg_partner
+    from accounti.db.repository import setze_status
+    from accounti.models import Rechnungsempfaenger
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+    from accounti.steuer.zusammenfassende_meldung import erstelle_zm
+
+    make_session, archiv = umgebung
+    fr = Rechnungsempfaenger(
+        name="Atelier Nord SARL",
+        strasse="1 Rue A",
+        plz="75001",
+        ort="Paris",
+        land="FR",
+        ust_id="FR40303265045",
+        email="a@nord-fr.example",
+    )
+    it = Rechnungsempfaenger(
+        name="Atelier Nord SRL",
+        strasse="Via B 2",
+        plz="00100",
+        ort="Roma",
+        land="IT",
+        ust_id="IT00743110157",
+        email="b@nord-it.example",
+    )
+    with make_session() as s:
+        bestaetige(s, fr.ust_id, jetzt=VORTAG)
+        bestaetige(s, it.ust_id, jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(make_session, archiv, entwurf(fr, pos("Bild A", "1000")))
+    _ausgangsrechnung(make_session, archiv, entwurf(it, pos("Bild B", "2000")))
+    verbucht = _verbuche(make_session, archiv=archiv)
+    assert [v.treffer.kontakt.debitor_konto for v in verbucht] == ["10000", "10001"]
+    with make_session() as s:
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies("2026-Q1"),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+            lade_beleg_partner(s),
+        )
+    zm = erstelle_zm(e)
+    assert [(z.ust_id, z.art, z.betrag) for z in zm.zeilen] == [
+        ("FR40303265045", "L", Decimal("1000")),
+        ("IT00743110157", "L", Decimal("2000")),
+    ]
+
+
+def test_zm_nimmt_die_ustid_der_rechnung_nicht_die_des_kontakts(umgebung):
+    """Ausgang B1: auch wenn der Kontakt (schon vermischt) eine andere USt-IdNr.
+    trägt, meldet die ZM die der Rechnung."""
+    from accounti.db.repo_elster import lade_beleg_partner
+    from accounti.db.repository import aktualisiere_kontakt, setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+    from accounti.steuer.zusammenfassende_meldung import erstelle_zm
+
+    make_session, archiv = umgebung
+    k = kunde(land="FR", ust_id="FR12345678901")
+    with make_session() as s:
+        bestaetige(s, k.ust_id, jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(make_session, archiv, entwurf(k, pos("Rahmen", "100")))
+    _verbuche(make_session, archiv=archiv)
+    with make_session() as s:
+        (kontakt,) = lade_kontakte(s)
+        aktualisiere_kontakt(s, kontakt.model_copy(update={"ust_id": "IT00743110157"}))
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies("2026-03"),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+            lade_beleg_partner(s),
+        )
+    (zeile,) = erstelle_zm(e).zeilen
+    assert zeile.ust_id == "FR12345678901"
+
+
+def test_oss_land_aus_der_rechnung_und_steuer_auf_dem_oss_konto(umgebung):
+    """Ausgang B1 (OSS): zwei Privatkundinnen „Anna Rossi“ (AT, IT) — zwei Debitoren,
+    Erlöskonto nach dem Land der Rechnung, die ausländische Steuer nicht verworfen."""
+    from accounti.konfiguration import Firma
+    from accounti.models import Rechnungsempfaenger
+
+    make_session, archiv = umgebung
+    firma = Firma.model_validate({**FIRMA.model_dump(), "oss": True})
+    wien = Rechnungsempfaenger(
+        name="Anna Rossi",
+        strasse="Gasse 1",
+        plz="1010",
+        ort="Wien",
+        land="AT",
+        email="a@at.example",
+        privat=True,
+    )
+    rom = Rechnungsempfaenger(
+        name="Anna Rossi",
+        strasse="Via 2",
+        plz="00100",
+        ort="Roma",
+        land="IT",
+        email="b@it.example",
+        privat=True,
+    )
+    for e in (entwurf(wien, pos("Druck", "100")), entwurf(rom, pos("Druck", "1000"))):
+        with make_session() as s:
+            speichere_ausgangsrechnung(s, e)
+            stelle_aus(s, archiv, str(e.id)[:8], firma, date(2026, 3, 10))
+            s.commit()
+    verbucht = _verbuche(make_session, archiv=archiv)
+    assert len({v.treffer.kontakt.id for v in verbucht}) == 2
+    rom_buchungen = verbucht[1].buchungen
+    konten = sorted((b.haben_konto, b.betrag_netto) for b in rom_buchungen)
+    assert konten == [("177722", Decimal("220.00")), ("8321", Decimal("1000.00"))]
+    assert verbucht[1].posten.betrag == Decimal("1220.00")
+
+
+def test_gleichnamige_privatkunden_werden_zwei_debitoren(umgebung):
+    """Ausgang B1: „Max Müller“ in München und Berlin — zwei Debitoren (Mahnung an die
+    richtige Anschrift); der zweite zur Prüfung mit Hinweis auf den gleichnamigen."""
+    from accounti.models import Rechnungsempfaenger
+
+    make_session, archiv = umgebung
+
+    def mueller(strasse, plz, ort, email):
+        return Rechnungsempfaenger(
+            name="Max Müller",
+            strasse=strasse,
+            plz=plz,
+            ort=ort,
+            email=email,
+            privat=True,
+        )
+
+    muenchen = mueller("Bergweg 4", "81541", "München", "max.muenchen@example.org")
+    berlin = mueller("Unter den Linden 1", "10117", "Berlin", "mb@example.net")
+    nochmal = mueller("Bergweg 4", "81541", "München", "max.muenchen@example.org")
+    for k, preis in ((muenchen, "100"), (berlin, "500"), (nochmal, "50")):
+        _ausgangsrechnung(make_session, archiv, entwurf(k, pos("Radierung", preis)))
+    verbucht = _verbuche(make_session, archiv=archiv)
+    konten = [v.treffer.kontakt.debitor_konto for v in verbucht]
+    assert konten == ["10000", "10001", "10000"]
+    zweiter = verbucht[1].treffer.kontakt
+    assert zweiter.ort == "Berlin" and zweiter.status is KontaktStatus.ZUR_PRUEFUNG
+    assert "gleichnamiger Kontakt 10000" in zweiter.pruef_grund
+
+
+def _ausstellen_am(make_session, archiv, e, tag):
+    with make_session() as s:
+        speichere_ausgangsrechnung(s, e)
+        stelle_aus(s, archiv, str(e.id)[:8], FIRMA, tag)
+        s.commit()
+
+
+def _privat(strasse, plz, ort, name="Max Muster"):
+    from accounti.models import Rechnungsempfaenger
+
+    return Rechnungsempfaenger(
+        name=name, strasse=strasse, plz=plz, ort=ort, privat=True
+    )
+
+
+def test_gutschrift_mit_bezug_bleibt_beim_debitor_der_rechnung(umgebung):
+    """Nachprüfung Merge N-1: Ein Privatkunde ohne E-Mail ist umgezogen, die Gutschrift
+    mit Bezug (BT-25) geht an die neue Anschrift. Sie gehört zum Debitor der Rechnung
+    und wird mit ihr verrechnet — vorher entstand ein zweiter Debitor, die Rechnung
+    blieb mit 238 € voll offen (eine Mahnung ginge über den ganzen Betrag)."""
+    make_session, archiv = umgebung
+    berlin = _privat("Weg 1", "10115", "Berlin")
+    _ausstellen_am(
+        make_session, archiv, entwurf(berlin, pos("Druck", "200")), date(2026, 3, 2)
+    )
+    _verbuche(make_session, archiv=archiv)
+    hamburg = _privat("Allee 9", "20095", "Hamburg")
+    gutschrift = entwurf(
+        hamburg, pos("Minderung", "50"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _ausstellen_am(make_session, archiv, gutschrift, date(2026, 3, 9))
+    (v,) = _verbuche(make_session, archiv=archiv)
+    assert (v.kontakt_neu, v.treffer.kontakt.debitor_konto) == (False, "10000")
+    assert any("mit Rechnung 2026-0001 verrechnet" in h for h in v.hinweise)
+    (anschrift,) = [h for h in v.hinweise if "Anschrift" in h]
+    assert "20095" in anschrift and "10115" in anschrift, anschrift
+    with make_session() as s:
+        assert len(lade_kontakte(s)) == 1
+        reste = {p.belegnummer: p.restbetrag for p in lade_posten(s)}
+    assert reste == {"2026-0001": Decimal("178.50"), "2026-0002": Decimal("0.00")}
+
+
+def test_gutschrift_mit_bezug_auf_die_rechnung_eines_anderen_kunden(umgebung):
+    """Gegenprobe zu N-1: Nennt die Gutschrift einen anderen Kunden als die Rechnung,
+    bleibt sie bei ihrem eigenen Debitor — der Hinweis sagt, warum nicht verrechnet
+    wurde."""
+    make_session, archiv = umgebung
+    _ausstellen_am(
+        make_session,
+        archiv,
+        entwurf(_privat("Weg 1", "10115", "Berlin"), pos("Druck", "200")),
+        date(2026, 3, 2),
+    )
+    _verbuche(make_session, archiv=archiv)
+    andere = _privat("Allee 9", "20095", "Hamburg", name="Erika Beispiel")
+    gutschrift = entwurf(
+        andere, pos("Minderung", "50"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _ausstellen_am(make_session, archiv, gutschrift, date(2026, 3, 9))
+    (v,) = _verbuche(make_session, archiv=archiv)
+    assert v.treffer.kontakt.debitor_konto == "10001"
+    (nicht,) = [h for h in v.hinweise if "nicht mit Rechnung 2026-0001" in h]
+    assert "10000" in nicht and "10001" in nicht, nicht
+
+
+# --- Gesamttest Paket C, Eingang B16: Rechnung erst im Folgejahr --------------------
+
+
+def _vorjahresrechnung():
+    return eingangsrechnung(
+        belegnummer="RW-8921",
+        belegdatum=date(2025, 12, 29),
+        zahlungsziel=None,
+        skonto_prozent=None,
+        skonto_tage=None,
+        eingegangen_am=datetime(2026, 1, 5, 9, 0),
+    )
+
+
+def test_vorsteuer_erst_im_folgejahr_auf_1548_und_umbuchung(umgebung):
+    """B16: Bilanz, Rechnung vom 29.12.2025, eingegangen 2026 — Aufwand und
+    Verbindlichkeit 2025, Vorsteuer auf 1548 und zum 01.01.2026 auf 1576/1571
+    umgebucht: Kz 66 im Januar, nicht im Dezember (§ 15 Abs. 1 Nr. 1 UStG)."""
+    from accounti.db.repository import setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, _vorjahresrechnung())
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung="bilanz")
+        s.commit()
+        (v,) = lauf.verbucht
+        assert any("1548" in h and "01/2026" in h for h in v.hinweise)
+        # Beträge im Hinweis deutsch geschrieben (wie überall in der Ausgabe)
+        assert any("Vorsteuer 19,00 €" in h for h in v.hinweise), v.hinweise
+        zeilen = sorted(
+            (b.datum, b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+            for b in lade_buchungen(s)
+        )
+        assert zeilen == [
+            (date(2025, 12, 29), "1548", "70000", Decimal("3.50"), None),
+            (date(2025, 12, 29), "1548", "70000", Decimal("19.00"), None),
+            (date(2025, 12, 29), "4900", "70000", Decimal("50.00"), None),
+            (date(2025, 12, 29), "4900", "70000", Decimal("100.00"), None),
+            (date(2026, 1, 1), "1571", "1548", Decimal("3.50"), None),
+            (date(2026, 1, 1), "1576", "1548", Decimal("19.00"), None),
+        ]
+        (posten,) = lade_posten(s)
+        assert posten.betrag == Decimal("172.50")
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        buchungen = lade_buchungen(s)
+    dezember = ermittle(buchungen, Zeitraum.lies("2025-12"), Kontenplan())
+    januar = ermittle(buchungen, Zeitraum.lies("2026-01"), Kontenplan())
+    assert dezember.voranmeldung.werte == {} and dezember.warnungen == []
+    assert januar.voranmeldung.werte == {66: Decimal("22.50")}
+    assert januar.warnungen == []
+
+
+def test_vorsteuer_folgejahr_nicht_bei_euer(umgebung):
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, _vorjahresrechnung())
+        s.commit()
+    with make_session() as s:
+        verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung="euer")
+        s.commit()
+        assert {b.steuer_schluessel for b in lade_buchungen(s)} == {8, 9}
+
+
+def test_paragraf_15_hinweis_auch_beim_belegdatum(umgebung):
+    """B16: zum Belegdatum gebucht, aber erst im Folgemonat erfasst → Hinweis."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, eingangsrechnung(eingegangen_am=datetime(2026, 4, 2, 9, 0)))
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert any("zählt in 03/2026" in h and "04/2026" in h for h in v.hinweise)
+
+
+def test_kein_paragraf_15_hinweis_bei_13b(umgebung):
+    """§ 13b: Steuer und Vorsteuer entstehen mit der Leistung — der Abzug hängt nicht
+    an der Rechnung (§ 13b Abs. 2, § 15 Abs. 1 S. 1 Nr. 4 UStG). Der Hinweis „gehört
+    in den Eingangsmonat“ wäre dort falsch."""
+    from tests.test_belege_extraktion import REVERSE_CHARGE
+
+    make_session, _ = umgebung
+    beleg = _aus_pdf(REVERSE_CHARGE, eingegangen_am=datetime(2026, 6, 10, 9, 0))
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert any("§ 13b" in h for h in v.hinweise)
+    assert not any("§ 15 Abs. 1 Nr. 1" in h for h in v.hinweise), v.hinweise
+
+
+# --- Nachprüfung Paket C: M1 (Vorzeichen) und M2 (Gutschrift und § 17) ------------
+
+
+def test_rechnung_mit_korrekturwort_in_der_fusszeile_bucht_positiv(umgebung):
+    """M1: Bei geprüftem Kreditor wurde die Rechnung (300 + 57) als Minderung
+    automatisch gebucht — Kreditor an Aufwand, Posten −357."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    make_session, _ = umgebung
+    text = RECHNUNG_MIT_FUSSZEILE.format(
+        titel="Rechnung",
+        fusszeile="Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen",
+    )
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Rahmenwerk Nord GmbH",
+                ust_id="DE811907980",
+                kreditor_konto="70000",
+                status=KontaktStatus.GEPRUEFT,
+            ),
+        )
+        speichere_beleg(s, _aus_pdf(text))
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        (b,) = lade_buchungen(s)
+        (posten,) = lade_posten(s)
+    assert (b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_betrag) == (
+        "4900",
+        "70000",
+        Decimal("300.00"),
+        Decimal("57.00"),
+    )
+    assert posten.betrag == Decimal("357.00")
+
+
+def _gutschrift(**kw):
+    b = eingangsrechnung(
+        belegnummer="RW-G-0013",
+        netto=Decimal("-200.00"),
+        steuer=Decimal("-38.00"),
+        brutto=Decimal("-238.00"),
+        zahlungsziel=None,
+        skonto_prozent=None,
+        skonto_tage=None,
+        **kw,
+    )
+    b.positionen = [
+        Belegposition(
+            beleg_id=b.id,
+            bezeichnung="Rücknahme",
+            netto=Decimal("-200.00"),
+            steuersatz=Decimal("19"),
+            steuer_betrag=Decimal("-38.00"),
+        )
+    ]
+    return b
+
+
+@pytest.mark.parametrize("gewinnermittlung", ["bilanz", None])
+def test_gutschrift_aus_dem_vorjahr_mindert_die_vorsteuer_im_zeitraum_der_aenderung(
+    umgebung, gewinnermittlung
+):
+    """M2: Gutschrift vom 30.12.2025, erfasst 01.10.2026. Vorher: 1548-Weg, Kz 66
+    = −38 erst in 10/2026, Hinweis „abziehbar in 10/2026“. Die Minderung gehört in den
+    Zeitraum, in dem sich die Bemessungsgrundlage geändert hat (§ 17 Abs. 1 S. 8 UStG,
+    Abschn. 17.1 UStAE) — unabhängig vom Zugang des Belegs."""
+    from accounti.db.repository import setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+
+    make_session, _ = umgebung
+    gutschrift = _gutschrift(
+        belegdatum=date(2025, 12, 30), eingegangen_am=datetime(2026, 10, 1, 9, 0)
+    )
+    with make_session() as s:
+        speichere_beleg(s, gutschrift)
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung=gewinnermittlung)
+        s.commit()
+        assert lauf.fehler == []
+        (v,) = lauf.verbucht
+        zeilen = [
+            (b.datum, b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+            for b in lade_buchungen(s)
+        ]
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        buchungen = lade_buchungen(s)
+    assert zeilen == [(date(2025, 12, 30), "70000", "4900", Decimal("200.00"), 9)]
+    assert not any("1548" in h or "§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    assert any("§ 17 Abs. 1 S. 8" in h and "12/2025" in h for h in v.hinweise)
+    dezember = ermittle(buchungen, Zeitraum.lies("2025-12"), Kontenplan())
+    oktober = ermittle(buchungen, Zeitraum.lies("2026-10"), Kontenplan())
+    assert dezember.voranmeldung.werte.get(66) == Decimal("-38.00")
+    assert oktober.voranmeldung.werte == {}
+
+
+@pytest.mark.parametrize("gewinnermittlung", ["euer", "bilanz"])
+def test_gutschrift_spaet_erfasst_ohne_paragraf_15_hinweis(umgebung, gewinnermittlung):
+    """M2: Der § 15-Hinweis („gehört in den Eingangsmonat“) gilt nur für den Abzug —
+    bei einer Minderung der Hinweis auf § 17 Abs. 1 S. 8 UStG."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(
+            s, _gutschrift(eingegangen_am=datetime(2026, 4, 20, 9, 0))
+        )  # Belegdatum 05.03.2026
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung=gewinnermittlung)
+        s.commit()
+    (v,) = lauf.verbucht
+    assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    assert any("§ 17 Abs. 1 S. 8" in h and "03/2026" in h for h in v.hinweise)
+    assert {b.datum for b in v.buchungen} == {date(2026, 3, 5)}

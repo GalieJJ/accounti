@@ -515,3 +515,23 @@ def test_storno_paar_bestimmt_die_kennziffer_der_rechnung_nicht():
     e = ermittle(buchungen, AUGUST, Kontenplan(), KONTAKTE)
     assert e.ohne_kennziffer == []
     assert e.voranmeldung.werte == {41: D("5850.00"), 81: D("0.00")}  # Paar hebt sich
+
+
+def test_aufwand_ohne_schluessel_gegen_eu_kreditor_warnt_13b():
+    """Steuer B4: Bezug von einem EU-Unternehmer ohne Schlüssel 94 — Warnung."""
+    agentur = Kontakt(
+        name="Agentur Wien", land="AT", ust_id="ATU87654321", kreditor_konto="70003"
+    )
+    e = ermittle(
+        [
+            b("4900", "70003", "500.00"),  # warnt
+            b("70003", "1200", "500.00"),  # Zahlung: nicht
+            b("9009", "70003", "200.00"),  # Saldovortrag: nicht
+            b("4900", "70001", "100.00"),  # deutscher Kreditor: nicht
+        ],
+        AUGUST,
+        Kontenplan(),
+        [*KONTAKTE, agentur],
+    )
+    (warnung,) = e.warnungen
+    assert "§ 13b prüfen" in warnung and "Agentur Wien" in warnung
