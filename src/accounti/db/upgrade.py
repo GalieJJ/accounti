@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Connection, create_engine, inspect
+from sqlalchemy import Connection, Engine, create_engine, inspect, make_url
+from sqlalchemy.exc import SQLAlchemyError
 
 if TYPE_CHECKING:
     from alembic.config import Config
@@ -161,30 +162,71 @@ def leite_stand_ab(verbindung: Connection, ini: Path) -> str | None:
     return stand
 
 
+def _pruefe_datei(db: str) -> None:
+    """Eine SQLite-Datei, die es nicht gibt, ist meist ein Tippfehler in ``--db`` —
+    ``upgrade head`` legte sonst eine neue Datenbank an, die echte bliebe alt
+    (Nachprüfung N4). Neu anlegen ist ``db init``."""
+    url = make_url(db)
+    name = url.database
+    if not url.drivername.startswith("sqlite") or not name or name == ":memory:":
+        return
+    if name.startswith("file:") or Path(name).exists():
+        return
+    msg = (
+        f"{name} gibt es nicht — --db prüfen; eine neue Datenbank legt "
+        "'accounti db init' an (nichts geändert)"
+    )
+    raise UpgradeError(msg)
+
+
+def _stand(engine: Engine) -> str | None:
+    from alembic.runtime.migration import MigrationContext
+
+    try:
+        with engine.connect() as v:
+            return MigrationContext.configure(v).get_current_revision()
+    except SQLAlchemyError:
+        return None
+
+
 def aktualisiere(db: str, ini: Path) -> Ergebnis:
     """Stand ermitteln (ohne Vermerk: aus dem Schema, dann gestempelt) und
-    ``upgrade head``."""
+    ``upgrade head``. Fehler der Datenbank werden zum ``UpgradeError`` mit dem
+    erreichten Stand (Nachprüfung N4: sonst ein Traceback)."""
+    _pruefe_datei(db)
+    engine = create_engine(db)
+    try:
+        return _aktualisiere(engine, ini)
+    except SQLAlchemyError as fehler:
+        ursache = getattr(fehler, "orig", None) or fehler
+        grund = (str(ursache).strip().splitlines() or [type(ursache).__name__])[0]
+        stand = _stand(engine) or "ohne Versionsvermerk"
+        msg = (
+            f"Migration abgebrochen: {grund} — Stand jetzt: {stand}. Unter SQLite kann "
+            "ein Schritt halb ausgeführt sein: die Sicherung von vor dem Update "
+            "zurückspielen (docs/betrieb.md, Upgrades)"
+        )
+        raise UpgradeError(msg) from fehler
+    finally:
+        engine.dispose()
+
+
+def _aktualisiere(engine: Engine, ini: Path) -> Ergebnis:
     from alembic import command
     from alembic.runtime.migration import MigrationContext
 
-    engine = create_engine(db)
-    try:
-        with engine.connect() as v:
-            vorher = MigrationContext.configure(v).get_current_revision()
-            abgeleitet = vorher is None and bool(_struktur(_merkmale(v)))
-            if abgeleitet:
-                vorher = leite_stand_ab(v, ini)
-        alle = _revisionen(ini)
-        offen = alle[alle.index(vorher) + 1 :] if vorher in alle else alle
-        if vorher is not None and vorher not in alle:
-            msg = f"Unbekannter Stand {vorher} — passt die alembic.ini zum Code?"
-            raise UpgradeError(msg)
-        with engine.begin() as v:
-            if abgeleitet and vorher is not None:
-                command.stamp(_konfig(ini, v), vorher)
-            command.upgrade(_konfig(ini, v), "head")
-        with engine.connect() as v:
-            nachher = MigrationContext.configure(v).get_current_revision()
-    finally:
-        engine.dispose()
-    return Ergebnis(vorher, abgeleitet, nachher, offen)
+    with engine.connect() as v:
+        vorher = MigrationContext.configure(v).get_current_revision()
+        abgeleitet = vorher is None and bool(_struktur(_merkmale(v)))
+        if abgeleitet:
+            vorher = leite_stand_ab(v, ini)
+    alle = _revisionen(ini)
+    offen = alle[alle.index(vorher) + 1 :] if vorher in alle else alle
+    if vorher is not None and vorher not in alle:
+        msg = f"Unbekannter Stand {vorher} — passt die alembic.ini zum Code?"
+        raise UpgradeError(msg)
+    with engine.begin() as v:
+        if abgeleitet and vorher is not None:
+            command.stamp(_konfig(ini, v), vorher)
+        command.upgrade(_konfig(ini, v), "head")
+    return Ergebnis(vorher, abgeleitet, _stand(engine), offen)

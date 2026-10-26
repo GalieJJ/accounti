@@ -31,7 +31,7 @@ def _umgebung(tmp_path, monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-def _alembic(db: Path, *args: str) -> str:
+def _alembic(db: Path, *args: str, ok: bool = True) -> str:
     umgebung = {
         **os.environ,
         "ACCOUNTI_DB": f"sqlite:///{db}",
@@ -45,7 +45,7 @@ def _alembic(db: Path, *args: str) -> str:
         text=True,
         check=False,
     )
-    assert e.returncode == 0, e.stdout + e.stderr
+    assert (e.returncode == 0) is ok, e.stdout + e.stderr
     return e.stdout + e.stderr
 
 
@@ -130,6 +130,7 @@ def test_db_upgrade_mit_vermerk_und_leer(tmp_path):
     assert "abgeleitet" not in r.output
     assert _version(mit) == [SCHEMA_STAND]
     leer = tmp_path / "leer.db"
+    leer.touch()  # vorhanden, aber leer (eine fehlende Datei lehnt db upgrade ab)
     r = runner.invoke(app, ["db", "upgrade", "--db", f"sqlite:///{leer}"])
     assert r.exit_code == 0, r.output
     assert _version(leer) == [SCHEMA_STAND]
@@ -143,6 +144,37 @@ def test_db_upgrade_erkennt_fremde_datenbank(tmp_path):
     r = runner.invoke(app, ["db", "upgrade", "--db", f"sqlite:///{db}"])
     assert r.exit_code == 1
     assert "Keine Tabellen von accounti" in r.output
+
+
+def test_db_upgrade_scheitert_mit_meldung_statt_traceback(tmp_path):
+    """Nachprüfung N4: Verträgt eine Migration eine schon vorhandene Tabelle nicht
+    (hier: ``api_tokens`` vor a684d10751de), endete ``db upgrade`` mit einem
+    Traceback. Jetzt Meldung mit dem erreichten Stand und Exit 1."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    db = tmp_path / "alt.db"
+    _alembic(db, "upgrade", "33d478b807fc")
+    with sqlite3.connect(db) as v:
+        v.execute("CREATE TABLE api_tokens (id VARCHAR(36) PRIMARY KEY)")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 1, r.output
+    assert not isinstance(r.exception, SQLAlchemyError), r.exception
+    assert "Migration abgebrochen" in r.output and "33d478b807fc" in r.output
+    assert "api_tokens" in r.output
+
+
+def test_db_upgrade_legt_keine_neue_sqlite_datei_an(tmp_path):
+    """Nachprüfung N4: Ein Tippfehler in ``--db`` legte eine neue Datenbank an und
+    migrierte sie — die echte blieb alt. Neu anlegen ist ``db init``."""
+    db = tmp_path / "tippfehler.db"
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 1, r.output
+    assert "gibt es nicht" in r.output and "db init" in r.output
+    assert not db.exists()
 
 
 def test_migration_token_je_gesellschaft(tmp_path):
@@ -167,6 +199,33 @@ def test_migration_token_je_gesellschaft(tmp_path):
     _alembic(db, "downgrade", "-1")
     _alembic(db, "upgrade", "head")
     assert _alembic(db, "heads").count("(head)") == 1
+
+
+def _token_index(db: Path) -> list[str]:
+    with sqlite3.connect(db) as v:
+        return [
+            z[2]
+            for z in v.execute("PRAGMA index_info('uq_api_token_aktiv')").fetchall()
+        ]
+
+
+def test_downgrade_token_index_bricht_vor_dem_loeschen_ab(tmp_path):
+    """Nachprüfung N3: Mit zwei aktiven „erp“ (a und b) scheiterte das Downgrade erst
+    beim Anlegen des alten Index — unter SQLite war der neue da schon gelöscht."""
+    db = tmp_path / "t.db"
+    _alembic(db, "upgrade", "head")
+    zeile = (
+        "INSERT INTO api_tokens (id, name, token_hash, gesellschaft, rechte, "
+        "angelegt_von, angelegt_am) VALUES (?, 'erp', ?, ?, '[]', 'x', "
+        "'2026-10-01 00:00:00')"
+    )
+    with sqlite3.connect(db) as v:
+        v.execute(zeile, ("1", "h1", "a"))
+        v.execute(zeile, ("2", "h2", "b"))
+    ausgabe = _alembic(db, "downgrade", "-1", ok=False)
+    assert "Downgrade abgebrochen" in ausgabe and "erp" in ausgabe, ausgabe
+    assert _token_index(db) == ["gesellschaft", "name"]
+    assert _version(db) == [SCHEMA_STAND]
 
 
 def _alembic_url(url: str, cwd: Path, *args: str) -> str:

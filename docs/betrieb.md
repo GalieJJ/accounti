@@ -150,6 +150,15 @@ gesellschaften:
 - Grenze: Die Abschnitte `bank` (FinTS-Produkt-ID, Kreditkarten-Muster) gelten für die
   Installation; `import banken` liest `config/banken.yaml` relativ zum
   Arbeitsverzeichnis.
+- Grenze — Kontenrahmen: `buchhaltung.kontenrahmen` gilt je Gesellschaft für USt,
+  Abschluss, Anlagen, Prüfregeln und DATEV; die Standardkonten daneben (`bank_konto`
+  1200, `standard_aufwand` 4900, Skonto 3736/3731/3730 und 8736/8731/8730) sind aber
+  SKR03 und wechseln nicht mit. Bei SKR04 in der Konfiguration setzen: 1800, 6300,
+  5736/5731/5730 und 4736/4731/4730 (Vorlage `config/accounti.example.yaml`). Bewusst kein
+  automatischer Wechsel: Eine SKR04-Gesellschaft, die bisher mit den Standards buchte, hat
+  ihre Bankbuchungen auf 1200 — ein stiller Wechsel auf 1800 teilte Bestand und
+  Bank-Abstimmung mitten im Jahr. Die Verfahrensdokumentation zeigt die verwendeten
+  Konten.
 
 ## Benutzer, Rollen, Anmeldung
 
@@ -582,6 +591,21 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
   `a684d10751de`.
 - Tabellen, für die es noch keine Migration gibt, legt accounti beim ersten Befehl selbst
   an (`init_db`); spätere Migrationen übernehmen sie.
+- `db upgrade` legt keine SQLite-Datei neu an (ein Tippfehler in `--db` ergäbe sonst eine
+  frisch migrierte leere Datenbank, die echte bliebe alt) — neu anlegen ist `db init`.
+  Scheitert eine Migration, nennt es Grund und erreichten Stand (Exit 1). Unter SQLite
+  laufen manche Schritte ohne Transaktion: dann die Sicherung von vor dem Update
+  zurückspielen und `db upgrade` erneut, **bevor** ein anderer Befehl läuft.
+- **Grenze — sehr alte Datenbanken:** Hat nach dem Update schon ein Befehl des neuen Codes
+  eine Datenbank ohne Versionsvermerk angefasst (`init_db` legt fehlende Tabellen an), und
+  stammt sie aus der Zeit vor den Bankkonten (Migration `6a51b56d7c30`) bzw. vor den
+  Benutzern (`a684d10751de`), scheitert `db upgrade` an „table … already exists“: Nur die
+  Migrationen ab Baustein 7 vertragen schon vorhandene Tabellen, die älteren nicht.
+  Abhilfe: die Sicherung von vor dem Update zurückspielen und `db upgrade` als ersten
+  Befehl ausführen. Bewusst nicht nachgerüstet — dafür müsste jede ältere Migration
+  vorhandene Tabellen erkennen und nur Fehlendes ergänzen.
+- Das Downgrade von `6d38d11fc348` bricht ab, solange zwei Gesellschaften aktive Token
+  gleichen Namens haben (erst eines widerrufen); es prüft das vor dem Löschen des Index.
 - Eine Sicherung bringt ihren Versionsvermerk nicht mit, wenn das Ziel schon einen hat:
   `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
   dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.

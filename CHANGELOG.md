@@ -456,7 +456,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a
   eines hatte, und die Meldung riet zu einem Widerruf, der in b nicht ging. Eindeutig ist
   der Name jetzt unter den aktiven Token einer Gesellschaft (Index, Prüfung, Widerruf;
-  Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index).
+  Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index;
+  ihr Downgrade bricht bei gleichen aktiven Namen in mehreren Gesellschaften ab, bevor es
+  den Index löscht).
   `benutzer protokoll` zeigt mit mehreren Gesellschaften nur die Ereignisse der
   Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft — diese
   nur über Benutzer mit einer Rolle dort oder ohne Rolle (der Verwalter von b sah sonst
@@ -492,7 +494,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   bei Datenbanken ohne Vermerk den Stand aus dem Schema ab, stempelt ihn und migriert
   (`--alembic-ini`, sonst die des Quellbaums bzw. `/app/alembic.ini`). `alembic/env.py`
   nimmt dafür eine übergebene Verbindung. `sicherung wiederherstellen` behält den Vermerk
-  des Ziels statt einer älteren Revision aus der Sicherung
+  des Ziels statt einer älteren Revision aus der Sicherung. Scheitert eine Migration,
+  meldet `db upgrade` den Grund und den erreichten Stand (Exit 1) statt eines Tracebacks;
+  eine SQLite-Datei, die es nicht gibt (Tippfehler in `--db`), legt es nicht neu an —
+  das ist `db init`
 - **`-g`/`ACCOUNTI_DB` wirkten nicht bei `ustva`, `pruefen`, `journal` und `nachfordern`**
   (Gesamttest Betrieb B1): Befehlsgruppen mit eigenem Callback bekamen `--db` und
   `--config` der Gesellschaft nicht — `accounti -g sued ustva` zeigte die Kennziffern einer

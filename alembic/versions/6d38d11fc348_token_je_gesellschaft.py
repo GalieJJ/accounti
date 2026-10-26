@@ -10,7 +10,9 @@ Der Index ``uq_api_token_aktiv`` (nur aktive Token) lag auf ``name`` allein — 
 Hat ``init_db`` des neuen Codes ``api_tokens`` schon angelegt (Datenbank ohne
 Benutzertabellen vor der Migration), steht der neue Index bereits — dann nichts tun.
 Das Downgrade scheitert, wenn zwei Gesellschaften aktive Token gleichen Namens haben:
-erst eines widerrufen.
+erst eines widerrufen. Es prüft das vor dem Löschen des Index — SQLite führt DDL hier
+ohne Transaktion aus, ein Abbruch danach ließe die Tabelle ohne Index zurück
+(Nachprüfung N3).
 """
 from typing import Sequence, Union
 
@@ -53,4 +55,19 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Downgrade schema."""
+    doppelt = [
+        str(name)
+        for (name,) in op.get_bind().execute(
+            sa.text(
+                'SELECT name FROM api_tokens WHERE widerrufen_am IS NULL '
+                'GROUP BY name HAVING COUNT(*) > 1 ORDER BY name'
+            )
+        )
+    ]
+    if doppelt:
+        raise RuntimeError(
+            'Downgrade abgebrochen: aktive Token gleichen Namens in mehreren '
+            f'Gesellschaften ({", ".join(doppelt)}) — erst widerrufen, bis jeder '
+            'Name nur einmal aktiv ist; nichts geändert'
+        )
     _neu_anlegen(['name'])
