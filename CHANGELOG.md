@@ -434,6 +434,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Wiederherstellungstest passte nicht zu mehreren Gesellschaften** (Betrieb B10):
+  `docs/betrieb.md` zeigt den Test jetzt mit `-g K` und als Stichprobe nur lesende Befehle
+  (`abschluss susa`, `journal`) statt `export datev` (das eine abweichende `--db`
+  ablehnt und sonst in die Probe schriebe); Dateinamensbeispiel mit Sekunden. Der Hinweis
+  nach `sicherung erstellen` nennt `-g K` bzw. `--system`
 - **`opos verbuchen` endete mit Exit 0, auch wenn Rechnungen nicht verbucht wurden**
   (Gesamttest Eingang): Die übrigen Rechnungen werden weiter verbucht, am Ende steht „N
   Rechnung(en) nicht verbucht“ und Exit 1 — Skripte und Cron sehen den Fehler

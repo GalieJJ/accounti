@@ -388,7 +388,7 @@ Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in d
 accounti sicherung schluessel                                 # einmal: Schlüssel erzeugen
 accounti sicherung erstellen --ziel /sicherungen/             # Datenbank + Belegarchiv
 accounti sicherung erstellen --system --ziel /sicherungen/    # Systemdatenbank (mehrere Gesellschaften)
-accounti sicherung pruefen /sicherungen/accounti-standard-20261020-0300.sicherung
+accounti sicherung pruefen /sicherungen/accounti-standard-20261020-030000.sicherung
 accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --archiv /leer/belege
 ```
 
@@ -454,13 +454,22 @@ Eine Sicherung zählt erst, wenn sie sich zurückspielen lässt:
 
 ```bash
 mkdir -p /tmp/probe
+P=sqlite:////tmp/probe/x.db
 accounti sicherung pruefen DATEI
-accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
-accounti opos liste --db sqlite:////tmp/probe/x.db         # mit dem Original vergleichen
-accounti journal pruefen --db sqlite:////tmp/probe/x.db --kopf NR:HASH   # Kopf vom Original
-accounti export datev --db sqlite:////tmp/probe/x.db …     # Stichprobe Buchungen
+accounti -g K sicherung wiederherstellen DATEI --db $P --archiv /tmp/probe/belege
+accounti -g K opos liste --db $P                       # mit dem Original vergleichen
+accounti -g K journal pruefen --db $P --kopf NR:HASH   # Kopf vom Original
+accounti -g K abschluss susa --jahr 2026 --db $P       # Stichprobe Buchungen (Salden)
+accounti -g K journal --db $P --von 2026-10-01         # Stichprobe Journal
 rm -rf /tmp/probe
 ```
+
+`-g K` ist die Gesellschaft der Sicherung (Dateiname `accounti-K-<Datum>-<Uhrzeit>.sicherung`;
+ohne Registry entfällt `-g`). Als Stichprobe nur Befehle, die lesen: `export datev` lehnt
+mit eingerichteten Benutzern eine abweichende `--db` ab (Bindung an die Gesellschaft) und
+schriebe sonst den Vermerk „exportiert“ und einen Journaleintrag in die Probe. Die
+Systemdatenbank übt man mit `accounti sicherung wiederherstellen DATEI --system --db
+sqlite:////tmp/probe/system.db`.
 
 Ergebnis (Datum, Datei, Zahlen aus `pruefen`) im Betriebsprotokoll festhalten. Der Test
 `tests/test_betrieb_sicherung.py::test_akzeptanz_7_wiederherstellung_in_leere_umgebung`
