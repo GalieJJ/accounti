@@ -130,6 +130,25 @@ def test_gutschrift_korrigiert_die_vorsteuer():
     assert _zeilen([x]) == [("1200", "4530", Decimal("16.80"), 9, Decimal("3.19"))]
 
 
+def test_gutschrift_findet_das_konto_ueber_eine_ausgaberegel():
+    """Ausgaberegeln mit Richtung (Gesamttest B07) liefern das Aufwandskonto auch
+    für die Gutschrift, die denselben Aufwand mindert."""
+    tanken = Regel(
+        name="tanken",
+        muster=r"shell|aral",
+        feld="gegenkonto_name",
+        soll_konto="4530",
+        haben_konto="1200",
+        steuer_schluessel=9,
+        richtung="ausgabe",
+    )
+    b = mit_positionen(("Erstattung", "-16.80", "19", "-3.19"), brutto="-19.99")
+    (x,) = kontiere_mit_beleg(
+        umsatz(betrag="19.99"), b, EINSTELLUNGEN, RegelwerkEngine([tanken])
+    )
+    assert _zeilen([x]) == [("1200", "4530", Decimal("16.80"), 9, Decimal("3.19"))]
+
+
 def test_ohne_positionen_aus_den_belegsummen():
     b = quittung(netto=Decimal("50.00"), steuer=Decimal("9.50"))
     (x,) = kontiere_mit_beleg(umsatz(), b, EINSTELLUNGEN, REGELN)

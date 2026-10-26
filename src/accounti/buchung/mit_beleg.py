@@ -59,15 +59,23 @@ def sachkonto_fuer_beleg(
                 None, [beleg.belegnummer, *(p.bezeichnung for p in beleg.positionen)]
             )
         )
+        # gesucht ist ein Aufwandskonto: als Ausgabe fragen, auch bei einer
+        # Gutschrift (sie mindert denselben Aufwand) — Ausgaberegeln mit richtung
+        # greifen sonst nicht
         pseudo = Transaktion(
             datum=beleg.belegdatum or beleg.eingegangen_am.date(),
-            betrag=-(beleg.brutto or NULL),
+            betrag=-abs(beleg.brutto or NULL),
             verwendungszweck=text or name or "",
             gegenkonto_name=name,
             quelle=TransaktionQuelle.MANUELL,
             rohtext=f"Beleg {beleg.id}",
         )
-        for quelle, tx in (("Belegdaten", pseudo), ("Umsatz", umsatz)):
+        als_ausgabe = (
+            umsatz.model_copy(update={"betrag": -abs(umsatz.betrag)})
+            if umsatz is not None
+            else None
+        )
+        for quelle, tx in (("Belegdaten", pseudo), ("Umsatz", als_ausgabe)):
             if tx is None:
                 continue
             ergebnis = regelwerk.klassifiziere(tx)

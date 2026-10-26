@@ -1427,7 +1427,7 @@ def opos_verbuchen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import STANDARD_REGELN, RegelwerkEngine
+    from accounti.klassifikation.engine import RegelwerkEngine, standard_regeln
     from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import (
         KonfigurationError,
@@ -1459,7 +1459,10 @@ def opos_verbuchen(
     from accounti.befehle import laufsperre_oder_ende
     from accounti.betrieb.kontext import regeln_datei
 
-    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
+    regelwerk = RegelwerkEngine(
+        lade_regeln(regeln_datei())
+        + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine, make_session = session_factory(db)
     init_db(engine)
     # bucht dieselben Belege, die classify und der Belegabgleich lesen — wie die
@@ -2223,9 +2226,9 @@ def bank_lauf_befehl(
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.db import init_db, session_factory
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2240,7 +2243,10 @@ def bank_lauf_befehl(
 
     # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
+        regelwerk=RegelwerkEngine(
+            lade_regeln(regeln_datei())
+            + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+        ),
         llm=LLMEngine() if llm else None,
     )
     from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
@@ -2281,9 +2287,9 @@ def classify(
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2297,12 +2303,11 @@ def classify(
     from accounti.betrieb.kontext import regeln_datei
 
     # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
-    # das Standard-Regelwerk.
-    regeln = lade_regeln(regeln_datei())
-    if regeln:
-        regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
-    else:
-        regelwerk = RegelwerkEngine()
+    # das Standard-Regelwerk im Kontenrahmen der Buchhaltung.
+    regelwerk = RegelwerkEngine(
+        lade_regeln(regeln_datei())
+        + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine = KlassifikationsEngine(
         regelwerk=regelwerk,
         llm=LLMEngine() if llm else None,

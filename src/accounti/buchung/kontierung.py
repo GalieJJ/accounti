@@ -57,7 +57,7 @@ def kontiere_umsaetze(
         if ergebnis is None:
             lauf.offen += 1
             continue
-        buchung = zu_buchungssatz(tx, ergebnis)
+        buchung = zu_buchungssatz(tx, ergebnis, bank_konto=einstellungen.bank_konto)
         if tx.sachkonto and tx.sachkonto != einstellungen.bank_konto:
             # Regeln buchen gegen das Standard-Bankkonto; dieser Umsatz gehört
             # zu einem anderen Finanzkonto (zweites Giro, Kreditkarte, …)
