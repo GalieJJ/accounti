@@ -433,3 +433,17 @@ def test_gutschrift_zur_rechnung_wird_nicht_als_dublette_verworfen(tmp_path):
     assert eingang.ergebnis is Eingangsergebnis.NEU, eingang.hinweis
     assert set(belege) == {"RE-5", "GS-5"}
     assert belege["GS-5"].brutto == Decimal("-119.00")
+
+
+def test_gutschrift_mit_rechnungsbezug_im_infoblock_geht_zur_pruefung():
+    """Mittel 1 (Nachprüfung C, Runde 4): „Rechnung: RE-2026-5“ im Infoblock vor dem
+    Titel „Gutschrift“ — vorher „eingangsrechnung · 238.00 EUR · erfasst“, die
+    Vorsteuer stieg, statt sich zu mindern (§ 17 Abs. 1 UStG). Jetzt zur Prüfung, mit
+    dem Weg zum Umkehren."""
+    from tests.test_belege_extraktion import _infoblock
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(_infoblock("Rechnung: RE-2026-5")))
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Titel mehrdeutig" in b.pruef_grund
+    assert "--vorzeichen umkehren" in b.pruef_grund
+    assert (b.brutto, b.belegnummer) == (Decimal("238.00"), "GS-5")

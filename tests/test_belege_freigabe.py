@@ -72,11 +72,14 @@ def test_vorzeichen_nur_mit_grund_und_bekanntem_wert(make_session):
         "Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto oder Vorzeichen "
         "uneinheitlich)",
         GEDREHT,
+        "Titel mehrdeutig: vor dem Titel „Gutschrift“ steht eine Zeile wie ein "
+        "Rechnungstitel",
     ],
 )
 def test_freigabe_bei_ernstem_pruefgrund_nur_mit_grund(make_session, pruef_grund):
     """N2: Dublettenverdacht, Rechenprobe und gedrehtes Vorzeichen gab die Freigabe
-    ohne Begründung frei (GoBD Rz. 58: Änderungen nachvollziehbar)."""
+    ohne Begründung frei (GoBD Rz. 58: Änderungen nachvollziehbar). Ein mehrdeutiger
+    Titel (Runde 4, Mittel 1) ist dieselbe Entscheidung über das Vorzeichen."""
     kurz, _ = _zur_pruefung(make_session, pruef_grund)
     with make_session() as s:
         with pytest.raises(FreigabeError, match="--grund"):

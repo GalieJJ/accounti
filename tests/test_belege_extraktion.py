@@ -302,11 +302,14 @@ def test_korrekturtitel_mit_nummer_oder_datum(titel, art):
 
 def test_titel_rechnung_vor_dem_korrekturwort_bleibt_rechnung():
     """Steht vorher der Titel „Rechnung“, ist eine spätere Zeile „Gutschrift“ eine
-    Zwischenüberschrift (z. B. verrechnete Gutschrift), kein Belegtitel."""
+    Zwischenüberschrift (z. B. verrechnete Gutschrift) — oder „Rechnung“ war die
+    Bezugszeile einer Gutschrift (Runde 4, Mittel 1): nicht negiert, aber mehrdeutig
+    (zur Prüfung)."""
     e = extrahiere(
         RECHNUNG_MIT_FUSSZEILE.format(titel="Rechnung", fusszeile="Gutschrift")
     )
     assert e.korrektur is None and e.brutto == Decimal("357.00")
+    assert e.titel_mehrdeutig
 
 
 @pytest.mark.parametrize(
@@ -564,3 +567,90 @@ def test_lange_leerraeume_bremsen_die_erkennung_nicht(zeile):
 def test_begrenzter_leerraum_behaelt_zeilen_und_spalten():
     text = "a" + " " * 30 + "b\r\nc\x0cd\n\n\n\n" + " " * 40 + "\ne  f\n"
     assert extraktion.begrenze_leerraum(text) == "a" + " " * 20 + "b\nc\nd\n\ne  f\n"
+
+
+# --- Nachprüfung C, Runde 4 ---------------------------------------------------------
+
+INFOBLOCK_GUTSCHRIFT = """Rahmenwerk Nord GmbH
+Industriestraße 7 · 24537 Neumünster
+USt-IdNr.: DE811907980
+Kundennummer: 4711
+{bezug}
+Datum: 10.10.2026
+
+Gutschrift
+Gutschrift-Nr.: GS-5
+Rücksendung von 2 Rahmen
+
+Netto {netto} €
+USt 19 % {steuer} €
+Gutschriftbetrag {brutto} €
+"""
+
+
+def _infoblock(bezug, netto="200,00", steuer="38,00", brutto="238,00"):
+    return INFOBLOCK_GUTSCHRIFT.format(
+        bezug=bezug, netto=netto, steuer=steuer, brutto=brutto
+    )
+
+
+@pytest.mark.parametrize(
+    "bezug",
+    [
+        "Rechnung: RE-2026-5",
+        "Rechnung RE-2026-5",
+        "Rechnung 2026-0815",
+        "Rechnung Seite 1",
+        "Invoice: INV-77",
+        "Rechnung - RE-5",
+        "Rechnung Nr. RE-5",
+        "Rechnung vom 01.10.2026",
+        "Rechnung: 4711 vom 01.10.2026",
+    ],
+)
+def test_rechnungszeile_vor_dem_korrekturtitel_ist_mehrdeutig(bezug):
+    """Mittel 1 (Nachprüfung C, Runde 4): Seit der bloßen Nummer im Titel galt die
+    Bezugszeile „Rechnung: RE-2026-5“ im Infoblock vor dem Titel „Gutschrift“ als
+    Rechnungstitel — die Gutschrift wurde als Rechnung mit Vorsteuer gebucht, ohne
+    Prüfung. Ob die Zeile Titel oder Bezug ist, lässt sich nicht lesen: Die Beträge
+    bleiben wie gedruckt, der Beleg geht zur Prüfung; die Gutschrift-Nr. ist die
+    eigene Nummer."""
+    e = extrahiere(_infoblock(bezug))
+    assert e.titel_mehrdeutig
+    assert e.korrektur is None and not e.vorzeichen_gedreht
+    assert (e.netto, e.steuer, e.brutto) == (
+        Decimal("200.00"),
+        Decimal("38.00"),
+        Decimal("238.00"),
+    )
+    assert e.belegnummer == "GS-5"
+
+
+def test_mehrdeutiger_titel_mit_gedrucktem_minus_bleibt_beim_minus():
+    """Das gedruckte Vorzeichen entscheidet: Eine Minderung mit Minusbeträgen ist
+    nicht mehrdeutig."""
+    e = extrahiere(_infoblock("Rechnung: RE-2026-5", "-200,00", "-38,00", "-238,00"))
+    assert not e.titel_mehrdeutig and e.brutto == Decimal("-238.00")
+
+
+def test_rechnung_mit_gutschriftzeile_wird_nicht_negiert():
+    """Die Gegenrichtung: Rechnung „Rechnung 2026-1234“ mit der Zeile „Gutschrift zur
+    Rechnung Nr. RE-4“ unter den Positionen — positiv wie gedruckt, zur Prüfung."""
+    e = extrahiere(
+        "Firma GmbH\nRechnung 2026-1234\nRechnungsnummer: 2026-1234\n"
+        "Datum: 02.10.2026\nWare 250,00\nGutschrift zur Rechnung Nr. RE-4\n-50,00\n"
+        "Netto 200,00 €\nUSt 19 % 38,00 €\nGesamtbetrag 238,00 €\n"
+    )
+    assert e.titel_mehrdeutig and e.korrektur is None
+    assert e.brutto == Decimal("238.00") and e.belegnummer == "2026-1234"
+
+
+def test_rechnungsbezug_nach_dem_korrekturtitel_ist_eindeutig():
+    """Steht der Titel „Gutschrift“ zuerst, ist „Rechnung Nr. RE-5“ danach der
+    Bezug — wie bisher negiert, nicht mehrdeutig."""
+    e = extrahiere(
+        "Rahmenwerk Nord GmbH\nGutschrift\nGutschrift-Nr.: GS-5\nRechnung Nr. RE-5\n"
+        "Netto 200,00 €\nUSt 19 % 38,00 €\nGutschriftbetrag 238,00 €\n"
+    )
+    assert e.korrektur == "gutschrift" and e.vorzeichen_gedreht
+    assert not e.titel_mehrdeutig and e.belegnummer == "GS-5"

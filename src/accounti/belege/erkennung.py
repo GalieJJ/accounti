@@ -485,6 +485,16 @@ class BelegErkenner:
                 )
                 + "; ist es keine Korrektur: belege freigeben … --vorzeichen umkehren"
             )
+        if extrakt.titel_mehrdeutig:
+            # Rechnungstitel vor dem Korrekturtitel: Titel und Zwischenüberschrift —
+            # oder Bezugszeile und Titel einer Gutschrift (§ 17 Abs. 1 UStG: dann
+            # mindert sie die Vorsteuer). Ein Minus wäre geraten (Runde 4, Mittel 1).
+            gruende.append(
+                "Titel mehrdeutig: vor dem Titel „Gutschrift“ bzw. "
+                "„Rechnungskorrektur“ steht eine Zeile wie ein Rechnungstitel (Titel "
+                "oder Bezug?) — Beträge wie gedruckt übernommen; ist es eine "
+                "Gutschrift oder Korrektur: belege freigeben … --vorzeichen umkehren"
+            )
         if vom_llm:
             gruende.append("vom LLM ergänzt, bitte prüfen: " + ", ".join(vom_llm))
 

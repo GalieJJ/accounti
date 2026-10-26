@@ -432,7 +432,7 @@ def belege_freigeben(
     grund: str | None = typer.Option(
         None,
         help="Begründung (steht im Journal) — Pflicht bei Dublettenverdacht, "
-        "Rechenprobe, gedrehtem Vorzeichen und --vorzeichen",
+        "Rechenprobe, gedrehtem Vorzeichen, mehrdeutigem Titel und --vorzeichen",
     ),
     von: str | None = typer.Option(
         None,

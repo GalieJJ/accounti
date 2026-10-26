@@ -7,9 +7,9 @@ Kleinunternehmer), der fehlenden Belegnummer oder umgekehrtem Vorzeichen (eine
 Rechnung, die die Erkennung als Korrekturbeleg negiert hat, oder umgekehrt). Danach
 verbucht ``accounti opos verbuchen`` ihn wie jeden erfassten Beleg. Die Änderung steht
 mit Person, Grund und Vorher/Nachher im Journal (``beleg_freigegeben``). Lag der Beleg
-wegen Dublettenverdacht, Rechenprobe oder gedrehtem Vorzeichen in der Prüfung, oder
-ändert die Freigabe Vorzeichen bzw. eine gelesene Belegnummer, braucht sie einen Grund
-(GoBD Rz. 58: Änderungen nachvollziehbar).
+wegen Dublettenverdacht, Rechenprobe, gedrehtem Vorzeichen oder mehrdeutigem Titel in
+der Prüfung, oder ändert die Freigabe Vorzeichen bzw. eine gelesene Belegnummer,
+braucht sie einen Grund (GoBD Rz. 58: Änderungen nachvollziehbar).
 
 Verbuchte Belege ändert die Freigabe nicht mehr — dort gilt Storno statt Änderung.
 Andere Beträge als das Vorzeichen berichtigt sie nicht (Grenze, siehe Plan).
@@ -42,7 +42,7 @@ STEUERFAELLE: dict[str, str | None] = {
 _RECHNUNGEN = frozenset({Belegart.EINGANGSRECHNUNG, Belegart.AUSGANGSRECHNUNG})
 VORZEICHEN = ("umkehren",)
 # Prüfgründe, die eine Entscheidung verlangen — nicht nur ein fehlendes Feld
-_ERNSTE_GRUENDE = ("Dublette", "Rechenprobe", "Vorzeichen gedreht")
+_ERNSTE_GRUENDE = ("Dublette", "Rechenprobe", "Vorzeichen gedreht", "Titel mehrdeutig")
 
 
 class FreigabeError(ValueError):

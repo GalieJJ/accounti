@@ -67,6 +67,8 @@ class Extrakt:
     steuerkennzeichen: str | None = None  # AE, K, E — Hinweis statt Steuerausweis
     korrektur: str | None = None  # "gutschrift" oder "korrektur" (Titel des Belegs)
     vorzeichen_gedreht: bool = False  # positiver Korrekturbeleg → Beträge negiert
+    # Rechnungstitel vor einem Korrekturtitel, Beträge positiv: Titel oder Bezugszeile?
+    titel_mehrdeutig: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -345,20 +347,29 @@ def _steuerkennzeichen(text: str) -> str | None:
     return None
 
 
-def _korrektur(zeilen: list[str]) -> str | None:
-    """„korrektur“ (Rechnungskorrektur, Storno, Credit Note), „gutschrift“ oder None.
+def _korrektur(zeilen: list[str]) -> tuple[str | None, bool]:
+    """(Art, mehrdeutig): „korrektur“ (Rechnungskorrektur, Storno, Credit Note),
+    „gutschrift“ oder None — als Belegtitel unter den ersten 40 Zeilen.
 
-    Zählt nur als Belegtitel unter den ersten 40 Zeilen — und nicht, wenn vorher der
-    Titel „Rechnung“ steht (dann ist es eine Zwischenüberschrift)."""
+    Steht vorher eine Zeile wie der Titel „Rechnung“, ist der Korrekturtitel keiner
+    (Art None): Es kann eine Zwischenüberschrift sein (verrechnete Gutschrift) — oder
+    die Zeile war die Bezugszeile einer Gutschrift im Infoblock („Rechnung: RE-5“,
+    „Rechnung Nr. RE-5“, „Rechnung Seite 1“). Das lässt sich nicht lesen: mehrdeutig
+    (Nachprüfung C, Runde 4, Mittel 1 — vorher als Rechnung gebucht, ohne Prüfung).
+    Steht der Korrekturtitel zuerst, ist eine Rechnungszeile danach der Bezug."""
+    rechnungstitel = False
     for zeile in zeilen[:40]:
         titel = _titelzeile(zeile)
         if titel is None:
             continue
         if _RECHNUNG_TITEL.match(titel):
-            return None
-        if _KORREKTUR_TITEL.match(titel):
-            return "korrektur" if _KORREKTUR_EINDEUTIG.search(titel) else "gutschrift"
-    return None
+            rechnungstitel = True
+        elif _KORREKTUR_TITEL.match(titel):
+            if rechnungstitel:
+                return None, True
+            art = "korrektur" if _KORREKTUR_EINDEUTIG.search(titel) else "gutschrift"
+            return art, False
+    return None, False
 
 
 def _titelzeile(zeile: str) -> str | None:
@@ -434,8 +445,12 @@ def extrahiere(text: str) -> Extrakt:
     zeilen = _zeilen(text)
     e = Extrakt()
 
-    e.korrektur = _korrektur(zeilen)
-    e.belegnummer = _finde_belegnummer(text, korrekturbeleg=e.korrektur is not None)
+    e.korrektur, mehrdeutig = _korrektur(zeilen)
+    # mehrdeutig: eine Gutschrift-Nr. ist eher die eigene als die Rechnungsnummer
+    # (sonst Dublette der Rechnung, Nachprüfung C, M-2)
+    e.belegnummer = _finde_belegnummer(
+        text, korrekturbeleg=e.korrektur is not None or mehrdeutig
+    )
     if m := _LEISTUNGSDATUM.search(text):
         e.leistungsdatum = parse_datum(m.group(1))
     if m := _BELEGDATUM.search(text):
@@ -501,6 +516,9 @@ def extrahiere(text: str) -> Extrakt:
 
     if e.korrektur and _alle_positiv(e):
         _negiere(e)
+    elif mehrdeutig and _alle_positiv(e):
+        # Beträge wie gedruckt; ein Minus wäre eine Deutung — der Mensch entscheidet
+        e.titel_mehrdeutig = True
     return e
 
 
