@@ -6,13 +6,15 @@ als 409, Doppelklick auf Stornieren ohne verbrauchten Code."""
 from __future__ import annotations
 
 import re
+import threading
+from contextlib import contextmanager
 from datetime import date
 from uuid import UUID
 
 import pytest
 
 from accounti.models import BuchungStatus
-from tests.api_hilfe import csrf, formularwert
+from tests.api_hilfe import csrf, formularwert, zaehle
 from tests.auth_hilfe import billige_hashes
 from tests.pruefen_hilfe import pdf, queuewelt, stand_aus
 
@@ -473,3 +475,157 @@ def test_formular_und_csrf_fehler_in_der_sprache_des_benutzers(qw):
     assert r.status_code == 405 and "(method not allowed)" in r.text
     # ohne Sitzung: Accept-Language
     assert "Seite nicht gefunden" in qw.web.client().get("/x", headers=DE).text
+
+
+# --- gw-storno N1: Fehler im Kontenrahmen der Gesellschaft --------------------------
+
+
+def test_fehlerhafte_kontenzuordnung_409_statt_500(qw, tmp_path):
+    (b,) = vorschlaege(qw, 1)
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 5))
+    cfg = qw.web.umgebung.config["a"]
+    cfg.write_text(
+        cfg.read_text(encoding="utf-8")
+        + f"abschluss:\n  kontenzuordnung: '{tmp_path / 'fehlt.yaml'}'\n",
+        encoding="utf-8",
+    )
+    client = qw.web.angemeldet("jan")
+    code = qw.web.personen["jan"].codes[-1]
+    for kopf in ({}, HX):
+        r = senden(client, f"/pruefen/{b.id}/freigeben", kopf)
+        assert r.status_code == 409, (kopf, r.status_code)
+        assert 'role="alert"' in r.text and "fehlt.yaml" in r.text
+    r = senden(client, f"/pruefen/{b.id}/korrigieren", soll="4930", haben="1200")
+    assert r.status_code == 409
+    r = senden(client, f"/buchungen/{frei.id}/stornieren", einmalcode=code, grund="x")
+    assert r.status_code == 409 and "fehlt.yaml" in r.text
+    assert len(qw.sql("SELECT id FROM buchungssaetze")) == 2
+    assert zaehle(
+        qw.web.umgebung.system,
+        "SELECT count(*) FROM auth_wiederherstellungscodes "
+        "WHERE verbraucht_am IS NOT NULL",
+    ) == 0  # fmt: skip
+
+
+# --- gw-storno N2: Doppelklick auf Stornieren/Korrigieren ---------------------------
+
+
+@contextmanager
+def nach_der_probe_beide(monkeypatch):  # noqa: ANN001, ANN201
+    """Beide Anfragen erst weiter, wenn beide ihre Probe hinter sich haben (der erste
+    ``im_namen``-Block jeder Anfrage ist die Probe, danach ist zurückgerollt)."""
+    from accounti.api.seiten import buchungen
+
+    echt = buchungen.im_namen
+    schranke = threading.Barrier(2, timeout=20)
+    zaehler = iter(range(1_000))
+    sperre = threading.Lock()
+
+    @contextmanager
+    def im_namen(a):  # noqa: ANN001, ANN202
+        with sperre:
+            nr = next(zaehler)
+        with echt(a) as person:
+            yield person
+        if nr < 2:
+            schranke.wait()
+
+    monkeypatch.setattr(buchungen, "im_namen", im_namen)
+    yield
+
+
+def zwei_gleichzeitig(client, pfad, daten_a, daten_b):  # noqa: ANN001, ANN201
+    ergebnis: dict[str, object] = {}
+
+    def los(name, daten):  # noqa: ANN001, ANN202
+        ergebnis[name] = client.post(pfad, data=daten, follow_redirects=False)
+
+    faeden = [
+        threading.Thread(target=los, args=("a", daten_a)),
+        threading.Thread(target=los, args=("b", daten_b)),
+    ]
+    for f in faeden:
+        f.start()
+    for f in faeden:
+        f.join(60)
+    return ergebnis["a"], ergebnis["b"]
+
+
+def _einmalcode_ereignisse(qw, art):  # noqa: ANN001, ANN201
+    return zaehle(
+        qw.web.umgebung.system,
+        f"SELECT count(*) FROM auth_ereignisse WHERE art = '{art}'",
+    )
+
+
+@pytest.mark.parametrize("was", ["stornieren", "korrigieren"])
+def test_doppelklick_mit_demselben_code_409_ohne_fehlversuch(qw, monkeypatch, was):
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT)
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/buchungen/{b.id}").text
+    daten = {
+        "csrf": csrf(client),
+        "stand": formularwert(seite, "stand"),
+        "einmalcode": qw.web.code("jan"),
+        "grund": "doppelt",
+        "soll": "4930",
+        "haben": "1200",
+        "steuer": "9",
+    }
+    with nach_der_probe_beide(monkeypatch):
+        a, b2 = zwei_gleichzeitig(client, f"/buchungen/{b.id}/{was}", daten, daten)
+    assert sorted((a.status_code, b2.status_code)) == [200, 409]
+    zweite = a if a.status_code == 409 else b2
+    assert "inzwischen geändert" in zweite.text
+    assert _einmalcode_ereignisse(qw, "einmalcode_falsch") == 0
+    assert zaehle(
+        qw.web.umgebung.system,
+        "SELECT fehlversuche FROM auth_benutzer WHERE name = 'jan'",
+    ) == 0  # fmt: skip
+    stornos = qw.sql("SELECT id FROM buchungssaetze WHERE storno_von IS NOT NULL")
+    assert len(stornos) == 1
+
+
+def test_doppelklick_verbraucht_keinen_zweiten_code(qw, monkeypatch):
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT)
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/buchungen/{b.id}").text
+    daten = {"csrf": csrf(client), "stand": formularwert(seite, "stand"), "grund": "x"}
+    totp = qw.web.code("jan")
+    wiederherstellung = qw.web.personen["jan"].codes[-1]
+    with nach_der_probe_beide(monkeypatch):
+        a, b2 = zwei_gleichzeitig(
+            client,
+            f"/buchungen/{b.id}/stornieren",
+            {**daten, "einmalcode": totp},
+            {**daten, "einmalcode": wiederherstellung},
+        )
+    assert sorted((a.status_code, b2.status_code)) == [200, 409]
+    ungenutzt = wiederherstellung if a.status_code == 200 else totp
+    assert _einmalcode_ereignisse(qw, "einmalcode_falsch") == 0
+    # der Code der abgewiesenen Anfrage gilt noch
+    weitere = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 2))
+    r = senden(
+        client, f"/buchungen/{weitere.id}/stornieren", einmalcode=ungenutzt, grund="y"
+    )
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("was", ["freigeben", "korrigieren"])
+def test_doppelklick_in_der_queue_409(qw, was):
+    """Die Queue fragt keinen Einmalcode ab; ihre Fachfunktionen vergleichen den Stand
+    unter der Schreibsperre — der zweite gleichzeitige POST bekommt 409."""
+    (b,) = vorschlaege(qw, 1)
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/pruefen/{b.id}").text
+    daten = {
+        "csrf": csrf(client),
+        "stand": stand_aus(seite),
+        "soll": "4930",
+        "haben": "1200",
+        "steuer": "9",
+    }
+    a, b2 = zwei_gleichzeitig(client, f"/pruefen/{b.id}/{was}", daten, daten)
+    assert sorted((a.status_code, b2.status_code)) == [303, 409]
+    assert len(qw.sql("SELECT id FROM buchungssaetze")) == 1
+    assert qw.sql("SELECT count(*) FROM buchungskorrekturen")[0][0] == 0

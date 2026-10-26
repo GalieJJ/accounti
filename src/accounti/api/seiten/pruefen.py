@@ -446,10 +446,12 @@ async def arbeitsflaeche(
 
 
 def _fehlerbild(fehler: Exception) -> Fehlerbild:
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
     from accounti.aufgaben import AufgabenError
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.klassifikation.lernen import RegelError
+    from accounti.konfiguration import KonfigurationError
     from accounti.pruefung.storno import StornoError
 
     if isinstance(fehler, RegelBestaetigenError):
@@ -465,6 +467,10 @@ def _fehlerbild(fehler: Exception) -> Fehlerbild:
     if isinstance(fehler, AufgabenError):
         return Fehlerbild(422, str(fehler), "an")
     if isinstance(fehler, (JahrGesperrtError, UnveraenderbarError)):
+        return Fehlerbild(409, str(fehler))
+    if isinstance(fehler, (KonfigurationError, KontenrahmenError)):
+        # Konfiguration bzw. Kontenzuordnung der Gesellschaft fehlerhaft: 409 mit
+        # Meldung (die CLI endet mit Exit 1), nicht „Interner Fehler“
         return Fehlerbild(409, str(fehler))
     raise fehler
 
@@ -512,10 +518,6 @@ async def _aktion(
                 return ergebnis, None
             except _fachfehler() as fehler:
                 s.rollback()
-                from accounti.konfiguration import KonfigurationError
-
-                if isinstance(fehler, KonfigurationError):
-                    return None, Fehlerbild(409, str(fehler))
                 return None, _fehlerbild(fehler)
 
     ergebnis, fehler = await run_in_threadpool(lauf)
