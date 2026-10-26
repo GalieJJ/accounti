@@ -288,6 +288,7 @@ def test_korrekturwort_im_satz_ist_kein_belegtitel(titel, fusszeile):
         ("Rechnungskorrektur zur Rechnung Nr. RE-2026-0042", "korrektur"),
         ("Rechnungskorrektur", "korrektur"),
         ("Stornorechnung", "korrektur"),
+        ("Storno - Rechnung", "korrektur"),
         ("Credit Note No. CN-5", "korrektur"),
         ("GUTSCHRIFT / CREDIT NOTE", "korrektur"),
         ("Gutschrift Nr. G-17 zur Rechnung RE-5 vom 20.10.2026", "gutschrift"),

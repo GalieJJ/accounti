@@ -188,7 +188,7 @@ _KENNZEICHEN: list[tuple[str, re.Pattern[str]]] = [
 # Spaltenlayout, ``belege import`` hing). Python ≥ 3.11 (``(?>…)``, ``*+``).
 _TITEL_MAX = 120  # Zeichen; ein Belegtitel ist kurz, längere Zeilen sind Text
 _KORREKTUR_WORT = (
-    r"(?:rechnungskorrektur|korrekturrechnung|storno[ -]?rechnung|rechnungsstorno|"
+    r"(?:rechnungskorrektur|korrekturrechnung|storno[ -]{0,3}rechnung|rechnungsstorno|"
     r"gutschrift|credit note)"
 )
 _NUMMER = r"[A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*"  # wie bei der Belegnummer
