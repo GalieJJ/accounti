@@ -222,6 +222,11 @@ def test_beleg_zur_pruefung_freigeben_mit_steuerfall(tmp_path):
     assert [e.grund for e in freigabe] == ["Hinweis auf Seite 2"]
     nochmal = runner.invoke(app, ["belege", "freigeben", kurz, "--db", _url(tmp_path)])
     assert nochmal.exit_code == 1 and "schon verbucht" in nochmal.output
+    # mit Benutzerverwaltung: Recht „buchen“ — steht in der Liste der Freigabewege
+    # (Verfahrensdokumentation, docs/betrieb.md)
+    from accounti.models.auth import FREIGABEWEGE, Recht
+
+    assert "belege freigeben" in FREIGABEWEGE[Recht.BUCHEN]
 
 
 def test_import_erkennt_eigene_rechnung_aus_der_konfiguration(tmp_path):

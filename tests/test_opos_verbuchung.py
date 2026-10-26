@@ -1021,6 +1021,8 @@ def test_vorsteuer_erst_im_folgejahr_auf_1548_und_umbuchung(umgebung):
         s.commit()
         (v,) = lauf.verbucht
         assert any("1548" in h and "01/2026" in h for h in v.hinweise)
+        # Beträge im Hinweis deutsch geschrieben (wie überall in der Ausgabe)
+        assert any("Vorsteuer 19,00 €" in h for h in v.hinweise), v.hinweise
         zeilen = sorted(
             (b.datum, b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
             for b in lade_buchungen(s)

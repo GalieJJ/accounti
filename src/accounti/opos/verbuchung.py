@@ -33,6 +33,7 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from accounti.abschluss.kontenrahmen import Kontenrahmen, lade_kontenrahmen
+from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
@@ -483,7 +484,8 @@ def verbuche_beleg(
                 buche(vorsteuer, konto_folgejahr, steuer, datum=umbuchung_am)
             hinweise.append(
                 f"{anlass}: Rechnung vom {belegdatum:%d.%m.%Y} erst am "
-                f"{beleg.eingegangen_am:%d.%m.%Y} erfasst — Vorsteuer {steuer} € auf "
+                f"{beleg.eingegangen_am:%d.%m.%Y} erfasst — Vorsteuer "
+                f"{betrag_de(steuer)} € auf "
                 f"{konto_folgejahr} „Vorsteuer im Folgejahr abziehbar“ und zum "
                 f"{umbuchung_am:%d.%m.%Y} auf {vorsteuer} umgebucht: abziehbar in "
                 f"{umbuchung_am:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG); lag die Rechnung "
