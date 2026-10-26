@@ -577,9 +577,10 @@ accounti die Regel nur nach Bestätigung (Haken in der Regelvorschau, in der CLI
 `--trotz-warnung`). Regeln anlegen verlangt die Rechte buchen und Regeln lernen; deaktivieren darf
 auch der verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor
 (auch Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
-Umsatzes, und Freigeben prüft die Prüfregel `steuerschluessel_konto` wie eine Korrektur. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel,
-`z` zurückstellen, `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das
-Sachkonto, fragt accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
+Umsatzes, und Freigeben prüft die Prüfregel `steuerschluessel_konto` wie eine Korrektur. Tasten in
+der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
+`b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
+accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als
 Storno mit Neubuchung, mit frischem Einmalcode. Jede Aktion steht mit dem angemeldeten Benutzer im
 Journal.

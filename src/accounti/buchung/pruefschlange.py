@@ -532,7 +532,8 @@ def freigeben(
     Automatikkonto ohne Schlüssel …), wird nicht freigegeben (``PruefregelError``)
     — eine Korrektur mit denselben Werten lehnt ``korrigiere`` ebenso ab."""
     b = _sperren_und_pruefen(session, str(buchung_id), stand, nur_vorschlaege)
-    if umgebung is not None and b.status is not BuchungStatus.GEPRUEFT:
+    aendert = b.status in VORSCHLAG or b.status is BuchungStatus.AUTO_GEBUCHT
+    if umgebung is not None and aendert:  # schon geprüft/korrigiert/exportiert: nichts
         fehler = [
             text
             for schwere, text in steuer_befunde(

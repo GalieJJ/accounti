@@ -785,6 +785,21 @@ def test_freigeben_prueft_die_pruefregel_steuerschluessel(make_session):
     assert geaendert and neu.status is BuchungStatus.GEPRUEFT
 
 
+def test_schon_freigegebene_buchung_bleibt_ohne_pruefregel_fehler(make_session):
+    """Eine korrigierte oder exportierte Buchung ändert ``bestaetige`` nicht — die
+    Prüfregel sperrt dort nichts („schon freigegeben“), anders als bei ``auto``."""
+    fertig = buchung(soll="1800", haben="1200", status=BuchungStatus.KORRIGIERT)
+    auto = buchung(soll="1800", haben="1200", status=BuchungStatus.AUTO_GEBUCHT)
+    anlegen(make_session, fertig, auto)
+    with make_session() as s:
+        b, geaendert = freigeben(
+            s, fertig.id, "jan", nur_vorschlaege=False, umgebung=umgebung()
+        )
+        assert not geaendert and b.status is BuchungStatus.KORRIGIERT
+        with pytest.raises(PruefregelError):
+            freigeben(s, auto.id, "jan", nur_vorschlaege=False, umgebung=umgebung())
+
+
 def test_freitexte_mit_laengengrenze(make_session):
     """Nachbesserung Technik N3: Grund (≤ 500, Spalte buchungskorrekturen.grund) und
     „an“ (≤ 100, aufgaben.zustaendig) werden auf dem Server geprüft — sonst gäbe
