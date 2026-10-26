@@ -463,3 +463,36 @@ def test_paypal_konto_selbst_wird_kontiert(marktplatz):
     assert lauf.marktplatz == 0
     (b,) = lade_buchungen(s)
     assert (b.soll_konto, b.haben_konto, b.status) == ("1210", "4930", PRUEFUNG)
+
+
+def test_erstattung_auf_der_kreditkarte_ist_keine_auszahlung(marktplatz):
+    """Marktplatz-Auszahlungen gehen aufs Bankkonto, nie auf eine Karte: die
+    Amazon-Gutschrift auf der Kreditkarte (Repro b08) wird kontiert."""
+    from accounti.db.repo_bank import speichere_kreditkarte
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+    from accounti.models.bank import Kreditkarte
+
+    s, _archiv, kontext = marktplatz
+    giro = Bankkonto(iban="DE89370400440532013000", bezeichnung="Giro")
+    karte = Bankkonto(iban="VISA1234", bezeichnung="Visa", sachkonto="1730")
+    for konto in (giro, karte):
+        speichere_bankkonto(s, konto)
+    speichere_kreditkarte(s, Kreditkarte(bankkonto_id=karte.id, girokonto_id=giro.id))
+    gut = tx(
+        "23.99",
+        "AMAZON MKTPLACE LUXEMBOURG GUTSCHRIFT",
+        bankkonto_id=karte.id,
+        sachkonto="1730",
+    )
+    kasse = tx("12.00", "AMAZON ERSTATTUNG BAR", quelle=TransaktionQuelle.MANUELL)
+    for t in (gut, kasse):
+        speichere_transaktion(s, t)
+    s.flush()
+    gelernt = RegelwerkEngine([Regel("amazon", "AMAZON", "4930", "1200", 9)])
+    lauf = kontiere_umsaetze(
+        s, KlassifikationsEngine(gelernt), Buchhaltung(), kontext.einstellungen
+    )
+    assert lauf.marktplatz == 0 and lauf.kontiert == 2
+    karte_b = next(b for b in lade_buchungen(s) if b.transaktion_id == gut.id)
+    assert (karte_b.soll_konto, karte_b.haben_konto) == ("1730", "4930")

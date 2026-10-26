@@ -14,8 +14,10 @@ Nettobetrag nach Gebühren, kein Entgelt (§ 10 Abs. 1 UStG). Offen bleibt desha
   Einzahlung, auch mit Abgleichsbefund): im Zeitfenster des Abgleichs, mit gleichem
   Vorzeichen und mit Stichwort, Abrechnungsnummer oder genau dem erwarteten Betrag.
 
-Umsätze des PayPal-Kontos selbst und der Verrechnungskonten kontiert ``classify`` wie
-bisher (wie ``gleiche_auszahlungen_ab`` sie auch nicht als Bankumsatz nimmt).
+Nur Bankumsätze kommen in Frage: Umsätze des PayPal-Kontos selbst und der
+Verrechnungskonten (wie ``gleiche_auszahlungen_ab``), Kartenumsätze (eine Auszahlung
+geht nie auf eine Kreditkarte, eine Amazon-Gutschrift dort ist eine Erstattung) und
+die Kasse kontiert ``classify`` wie bisher.
 """
 
 from __future__ import annotations
@@ -26,7 +28,9 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
+from accounti.db.repo_bank import lade_kreditkarten
 from accounti.db.repo_integrationen import lade_abrechnungen
+from accounti.db.repository import lade_bankkonten
 from accounti.integrationen.einstellungen import Integrationen
 from accounti.models import Transaktion, TransaktionQuelle
 from accounti.models.integrationen import Postenart
@@ -54,6 +58,10 @@ class Marktplatzauszahlungen:
         self.bank_konto = bank_konto
         self.verrechnungskonten = {
             k.verrechnungskonto for k in integrationen.marktplaetze.values()
+        }
+        self.karten = {k.bankkonto_id for k in lade_kreditkarten(session)}
+        self.kartenkonten = {
+            k.sachkonto for k in lade_bankkonten(session) if k.id in self.karten
         }
         toleranz = timedelta(days=integrationen.auszahlung_toleranz_tage)
         self.erwartet: list[_Erwartet] = []
@@ -85,9 +93,12 @@ class Marktplatzauszahlungen:
 
     def marktplatz(self, tx: Transaktion) -> str | None:
         """Der Marktplatz, auf dessen Abrechnung der Umsatz wartet — sonst None."""
-        if tx.quelle is TransaktionQuelle.PAYPAL or not tx.betrag:
+        if tx.quelle is not TransaktionQuelle.BANK or not tx.betrag:
             return None
-        if (tx.sachkonto or self.bank_konto) in self.verrechnungskonten:
+        konto = tx.sachkonto or self.bank_konto
+        if konto in self.verrechnungskonten or konto in self.kartenkonten:
+            return None
+        if tx.bankkonto_id is not None and tx.bankkonto_id in self.karten:
             return None
         text = f"{tx.verwendungszweck} {tx.gegenkonto_name or ''}".upper()
         for x in self.erwartet:
