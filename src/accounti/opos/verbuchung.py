@@ -8,7 +8,11 @@ nicht nennen darf: die Steuer bei § 13b UStG und beim ig. Erwerb (Steuerfall AE
 Schlüssel 94 bzw. 19 zur Prüfung, ``buchung/steuergruppe.py``). Eine Steuer ohne Satz
 geht brutto und zur Prüfung auf das Konto, nie netto gegen einen Brutto-Posten.
 
-Eingangsrechnungen werden auf das Belegdatum gebucht. Eine Eingangsrechnung, die erst
+Eingangsrechnungen werden auf das Belegdatum gebucht — der Teil nach § 13b UStG bzw. ein
+ig. Erwerb zu dem Tag, an dem die Steuer des Empfängers entsteht: bei einer sonstigen
+Leistung eines EU-Unternehmers im Leistungsmonat (§ 13b Abs. 1), sonst mit der Rechnung,
+spätestens am Ende des Folgemonats der Leistung (§ 13b Abs. 2, § 13 Abs. 1 Nr. 6 UStG;
+``steuer/leistungszeitpunkt.py``). Eine Eingangsrechnung, die erst
 nach der Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das
 Eingangsdatum (``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und
 Eingangsdatum (``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt
@@ -31,7 +35,7 @@ Ausgangsrechnungen werden zum umsatzsteuerlichen Zeitpunkt gebucht
 (``steuer/leistungszeitpunkt.py``): zum Leistungsdatum, wenn die Leistung in einem
 früheren Monat lag (§ 13 Abs. 1 Nr. 1 Buchst. a UStG), eine innergemeinschaftliche
 Lieferung im Rechnungsmonat, spätestens am Ende des Folgemonats (§ 13 Abs. 1 Nr. 6
-UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Ist dieser
+UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 8 UStG). Ist dieser
 Monat festgeschrieben, wird nicht still später gebucht: Der Monat ist zu öffnen und die
 Voranmeldung zu berichtigen. Ist die Voranmeldung des Zeitraums schon übermittelt, der
 Monat aber offen, weist die Verbuchung auf die Berichtigung hin (§ 153 Abs. 1 AO) — bei
@@ -98,7 +102,7 @@ from accounti.models.elster import Meldeart
 from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.eu_steuersaetze import ist_eu_land
 from accounti.steuer.kennziffern import VORSTEUER_FOLGEJAHR
-from accounti.steuer.leistungszeitpunkt import steuertag
+from accounti.steuer.leistungszeitpunkt import steuertag, steuertag_empfaenger
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, OSS_UST_KONTEN_SKR03
 from accounti.steuer.zeitraum import Zeitraum
 
@@ -212,7 +216,7 @@ def _gruppen(
     ustid_bestaetigt: bool = True,
 ) -> list[_Gruppe]:
     """Buchungen je Konto, Steuerschlüssel und Buchungstag (``tag_fuer`` je
-    Steuerkategorie)."""
+    Steuerkategorie, im Eingang je Steuerfall AE/K)."""
     gruppen: dict[tuple[str, int | None, date], _Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
@@ -240,14 +244,17 @@ def _gruppen(
     for p, kategorie in zip(positionen, kategorien, strict=True):
         satz = _satz(p.steuersatz)
         steuer = p.steuer_betrag or NULL
+        tag_nach = kategorie  # Buchungstag nach Steuerkategorie bzw. Steuerfall
         if eingang:
             # Steuerfall ohne Steuerausweis: Kategorie der E-Rechnung bzw. Hinweis
             fall = kategorie or (beleg.steuerkennzeichen if not satz else None)
             konto = sachkonto
+            tag_nach = None
             if fall in SCHLUESSEL_FUER_STEUERFALL and not satz:
                 # § 13b bzw. ig. Erwerb: die Steuer schuldet der Empfänger — 19 %
                 # vorgeschlagen, der Mensch prüft (7 %: 91 bzw. 18)
                 schluessel, pruefen = SCHLUESSEL_FUER_STEUERFALL[fall], True
+                tag_nach = fall
             else:
                 schluessel = _VST_SCHLUESSEL.get(satz) if satz is not None else None
                 # 0 % oder unbekannter Satz: steuerfrei, § 19 oder unklar → Mensch
@@ -269,7 +276,7 @@ def _gruppen(
             continue
         else:
             konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
-        gruppe(konto, schluessel, pruefen, kategorie).addiere(p.netto, steuer)
+        gruppe(konto, schluessel, pruefen, tag_nach).addiere(p.netto, steuer)
     for g in gruppen.values():
         g.berechne_selbst()
     return list(gruppen.values())
@@ -334,6 +341,7 @@ def verbuche_beleg(
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
     hinweise: list[str] = []
+    gutschrift = None
     if eingang:
         gutschrift = _gutschrift_eingang(beleg, rechnung)
         gebucht_am, hinweis_datum = _buchungstag(
@@ -491,6 +499,13 @@ def verbuche_beleg(
             or rechnung.kaeufer.anschrift.land
             or land
         )
+    empfaenger: dict[str, tuple[date, str | None]] = {}
+    if eingang:
+        # § 13b / ig. Erwerb: zum Tag, an dem die Steuer entsteht
+        empfaenger = _steuertage_empfaenger(
+            session, beleg, belegdatum, gebucht_am, land, gutschrift is not None, anlass
+        )
+        tag_fuer = _tag_je_steuerfall(empfaenger, gebucht_am)
     gruppen = _gruppen(
         beleg,
         eingang,
@@ -501,17 +516,28 @@ def verbuche_beleg(
         tag_fuer,
         ustid_bestaetigt,
     )
+    for fall, (_, hinweis) in empfaenger.items():
+        if hinweis and any(
+            _STEUERFALL_DES_SCHLUESSELS.get(g.schluessel or 0) == fall for g in gruppen
+        ):
+            hinweise.append(hinweis)
     vorsteuer = [g.steuer for g in gruppen if g.schluessel in (8, 9) and g.steuer]
     abzug = any(s > 0 for s in vorsteuer)
+    selbst_berechnet = any(g.schluessel in SELBST_BERECHNET for g in gruppen)
     # Gutschrift: negative Vorsteuer — oder bei § 13b/ig. Erwerb ein negatives Netto
     # (keine ausgewiesene Steuer, § 17 Abs. 1 S. 5 UStG)
     minderung = any(s < 0 for s in vorsteuer) or any(
         _mindert_selbst_berechnet(g) for g in gruppen
     )
-    if hinweis_datum and not abzug and (gebucht_am == belegdatum or minderung):
+    if (
+        hinweis_datum
+        and not abzug
+        and (gebucht_am == belegdatum or minderung or selbst_berechnet)
+    ):
         # der § 15-Hinweis gilt nur für den Abzug von Vorsteuer aus der Rechnung —
-        # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG), eine
-        # Gutschrift mindert im Zeitraum der Änderung (§ 17 Abs. 1 S. 8 UStG)
+        # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG; ihren
+        # Zeitraum nennt _steuertage_empfaenger), eine Gutschrift mindert im
+        # Zeitraum der Änderung (§ 17 Abs. 1 S. 8 UStG)
         hinweise.remove(hinweis_datum)
     minderung_spaet = minderung and (gebucht_am.year, gebucht_am.month) != (
         belegdatum.year,
@@ -884,6 +910,59 @@ def _mit_rechnung_verrechnen(
 
 def _fester_tag(tag: date) -> Callable[[str | None], date]:
     return lambda _: tag
+
+
+# § 13b- und Erwerbsschlüssel → Steuerfall der Eingangsrechnung (UNTDID 5305)
+_STEUERFALL_DES_SCHLUESSELS = {94: "AE", 91: "AE", 19: "K", 18: "K"}
+_REGEL_EMPFAENGER = {
+    ("AE", True): "§ 13b Abs. 1 UStG",
+    ("AE", False): "§ 13b Abs. 2 UStG",
+    ("K", True): "§ 13 Abs. 1 Nr. 6 UStG",
+    ("K", False): "§ 13 Abs. 1 Nr. 6 UStG",
+}
+
+
+def _steuertage_empfaenger(
+    session: Session,
+    beleg: Beleg,
+    belegdatum: date,
+    gebucht_am: date,
+    land: str,
+    gutschrift: bool,
+    anlass: str,
+) -> dict[str, tuple[date, str | None]]:
+    """Steuerfall AE/K → (Buchungstag, Hinweis): der Tag, an dem die Steuer entsteht,
+    die der Empfänger schuldet (``steuer/leistungszeitpunkt.py``, Nachprüfung Merge
+    N-4) — eine Gutschrift bleibt beim Buchungstag (§ 17 Abs. 1 S. 8 UStG). Liegt der
+    Tag in einem festgeschriebenen Monat oder abgeschlossenen Jahr, bleibt es beim
+    Buchungstag des Belegs, mit Hinweis auf die zu berichtigende Voranmeldung."""
+    if gutschrift:
+        return {}
+    eu = land.upper() != "DE" and ist_eu_land(land)
+    tage: dict[str, tuple[date, str | None]] = {}
+    for fall in SCHLUESSEL_FUER_STEUERFALL:
+        tag, hinweis = steuertag_empfaenger(belegdatum, beleg.leistungsdatum, fall, eu)
+        gesperrt = ist_gesperrt(session, tag.year) or (
+            sperrfehler(session.connection(), tag) is not None
+        )
+        if tag != gebucht_am and gesperrt:
+            hinweis = (
+                f"die Steuer nach {_REGEL_EMPFAENGER[(fall, eu)]} gehört in den "
+                f"Voranmeldungszeitraum {tag:%m/%Y}, der ist festgeschrieben — gebucht "
+                f"am {gebucht_am:%d.%m.%Y}, zählt sie in {gebucht_am:%m/%Y}; Buchung "
+                f"zur Prüfung: den Monat mit Grund öffnen (accounti periode oeffnen "
+                f"{tag:%Y-%m} --grund …) und umbuchen, die Voranmeldung {tag:%m/%Y} "
+                "berichtigen (Steuer und Vorsteuer, § 15 Abs. 1 S. 1 Nr. 3, 4 UStG)"
+            )
+            tag = gebucht_am
+        tage[fall] = (tag, f"{anlass}: {hinweis}" if hinweis else None)
+    return tage
+
+
+def _tag_je_steuerfall(
+    tage: dict[str, tuple[date, str | None]], sonst: date
+) -> Callable[[str | None], date]:
+    return lambda fall: tage[fall][0] if fall in tage else sonst
 
 
 def _steuertag_fuer(

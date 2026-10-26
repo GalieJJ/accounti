@@ -1000,7 +1000,9 @@ def _ausstellen_am(make_session, archiv, e, tag):
 def _privat(strasse, plz, ort, name="Max Muster"):
     from accounti.models import Rechnungsempfaenger
 
-    return Rechnungsempfaenger(name=name, strasse=strasse, plz=plz, ort=ort, privat=True)
+    return Rechnungsempfaenger(
+        name=name, strasse=strasse, plz=plz, ort=ort, privat=True
+    )
 
 
 def test_gutschrift_mit_bezug_bleibt_beim_debitor_der_rechnung(umgebung):
