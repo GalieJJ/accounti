@@ -276,6 +276,40 @@ def test_gutschrift_aus_festgeschriebenem_vorjahresmonat_bei_bilanz(make_session
     assert "1548" not in meldung and "Folgejahr" not in meldung, meldung
 
 
+def test_sperrmeldung_der_gutschrift_nennt_nur_gangbare_wege(make_session):
+    """Rest von N-2 (Nachprüfung C, Runde 4, Niedrig): Bilanz, 11/2025
+    festgeschrieben, 12/2025 offen, Eingang 10/2026. Die Sperrmeldung bot
+    „--buchungsdatum eingang, offen“ an — beide liegen im Folgejahr und endeten mit
+    VerbuchungError; nur ein Tag im Dezember 2025 geht."""
+    from datetime import datetime
+
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    gutschrift = beleg(
+        tag=date(2025, 11, 15), netto="-100.00", steuer="-19.00", brutto="-119.00"
+    ).model_copy(update={"eingegangen_am": datetime(2026, 10, 20, 9, 0)})
+    anlegen(make_session, gutschrift)
+    _geschlossen(make_session, "2025-11")
+    bilanz = {"gewinnermittlung": "bilanz"}
+    with make_session() as s:
+        with pytest.raises(PeriodeGesperrtError) as gesperrt, s.begin_nested():
+            verbuche_beleg(s, gutschrift, Buchhaltung(), **bilanz)
+        meldung = str(gesperrt.value)
+        assert "--buchungsdatum JJJJ-MM-TT" in meldung, meldung
+        assert "eingang" not in meldung and "offen," not in meldung, meldung
+        for weg in ("eingang", "offen"):
+            with pytest.raises(VerbuchungError), s.begin_nested():
+                verbuche_beleg(
+                    s, gutschrift, Buchhaltung(), buchungsdatum=weg, **bilanz
+                )
+        v = verbuche_beleg(
+            s, gutschrift, Buchhaltung(), buchungsdatum=date(2025, 12, 1), **bilanz
+        )
+    assert {b.datum for b in v.buchungen} == {date(2025, 12, 1)}
+
+
 def test_buchungsdatum_eingang_und_fester_tag(make_session):
     from accounti.konfiguration import Buchhaltung
     from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg

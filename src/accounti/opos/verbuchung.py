@@ -315,22 +315,15 @@ def verbuche_beleg(
         raise JahrGesperrtError(msg)
     if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
         if eingang and beleg.steuer is not None and beleg.steuer < 0:
-            # später buchen nur, wo _buchungstag es zulässt: bei Bilanzierung nicht
-            # über den Jahreswechsel (Nachprüfung C, N-2)
-            spaeter = (
-                gewinnermittlung == "euer"
-                or erster_offener_tag(session.connection(), belegdatum).year
-                == belegdatum.year
-            )
+            wege = _spaetere_wege(session, beleg, belegdatum, gewinnermittlung)
             ausweg = (
                 " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
                 f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
                 f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
                 "zum Belegdatum buchen"
                 + (
-                    "; mit --buchungsdatum eingang, offen oder JJJJ-MM-TT später "
-                    "gebucht, geht sie zur Prüfung"
-                    if spaeter
+                    f"; mit --buchungsdatum {wege} später gebucht, geht sie zur Prüfung"
+                    if wege
                     else ""
                 )
             )
@@ -640,6 +633,37 @@ def _hinweis_eingang_spaeter(
         "--buchungsdatum gilt nur für festgeschriebene Monate); die Voranmeldung "
         f"{belegdatum:%m/%Y} meldet sie als Befund beleg_nach_zeitraum"
     )
+
+
+def _spaetere_wege(
+    session: Session,
+    beleg: Beleg,
+    belegdatum: date,
+    gewinnermittlung: str | None,
+) -> str:
+    """Die Werte für ``--buchungsdatum``, mit denen ``_buchungstag`` einen gesperrten
+    Beleg später bucht — bei Bilanzierung nur im Geschäftsjahr des Belegs (Nachprüfung
+    C, N-2; Runde 4: „eingang“ und „offen“ gehen vom Eingang aus und lagen im
+    Folgejahr, die Meldung bot sie trotzdem an). Leer, wenn keiner geht."""
+    verbindung = session.connection()
+    eingegangen = beleg.eingegangen_am.date()
+
+    def geht(tag: date) -> bool:
+        im_jahr = gewinnermittlung == "euer" or tag.year == belegdatum.year
+        return tag >= belegdatum and im_jahr and sperrfehler(verbindung, tag) is None
+
+    wege = [
+        weg
+        for weg, tag in (
+            ("eingang", eingegangen),
+            ("offen", erster_offener_tag(verbindung, max(belegdatum, eingegangen))),
+            ("JJJJ-MM-TT", erster_offener_tag(verbindung, belegdatum)),
+        )
+        if geht(tag)
+    ]
+    if len(wege) < 2:
+        return "".join(wege)
+    return ", ".join(wege[:-1]) + " oder " + wege[-1]
 
 
 def _buchungstag(
