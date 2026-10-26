@@ -466,6 +466,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   weder dessen Bankkonto noch ein eingerichtetes Bank-/Kartenkonto trägt (SKR03-Regel mit
   1200 in SKR04, wo die Bereichsprüfung nichts sieht), und `buchhaltung.bank_konto`, das im
   Kontenrahmen kein Bankkonto ist (SKR04 ohne Angabe: Standard 1200)
+- **Trinkgeld in der Zeile mit Vorsteuer** (Gesamttest Eingang B10): Zahlte der Umsatz mehr
+  oder weniger als der Beleg (Quittung 59,50 €, Karte 65,00 €), schlug `classify` die
+  Differenz der größten Zeile zu — mit Schlüssel 9; der DATEV-Export trug dann 65,00 € mit
+  BU 9 (DATEV rechnet 10,38 € Vorsteuer statt 9,50 €), `pruefen` meldete die eigene
+  Rechenprobe. Die Differenz kommt jetzt in die Zeile ohne Schlüssel des Kontos (sonst eine
+  eigene Zeile „Trinkgeld/Differenz …“), zur Prüfung; die Belegzeilen bleiben, wie der Beleg
+  sie ausweist. Trinkgeld ist kein Entgelt des Wirts (Abschn. 10.1 Abs. 5 UStAE)
 - **`config/regeln.yaml`** (Gesamttest Eingang B15): Reisekosten auf 4670 (Reisekosten
   Unternehmer, EÜR Kz 221) statt 4600 Werbekosten; Miete ohne Steuerschlüssel und zur
   Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen

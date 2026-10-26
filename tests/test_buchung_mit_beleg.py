@@ -117,11 +117,58 @@ def test_ohne_regel_standardaufwand_zur_pruefung():
     assert (x.soll_konto, x.status) == ("4900", BuchungStatus.ZUR_PRUEFUNG)
 
 
-def test_trinkgeld_ohne_vorsteuer_zur_pruefung():
+def test_trinkgeld_eigene_zeile_ohne_vorsteuer_zur_pruefung():
+    """Gesamttest Eingang B10: Trinkgeld ist kein Entgelt des Wirts (Abschn. 10.1
+    Abs. 5 UStAE) — eigene Zeile ohne Schlüssel. Bisher lag die Differenz in der
+    Zeile mit Schlüssel 9; DATEV rechnete dann Vorsteuer aus dem ganzen Brutto."""
     b = mit_positionen(("Essen", "41.85", "19", "7.95"), brutto="49.80")
-    (x,) = kontiere_mit_beleg(umsatz(betrag="-55.00"), b, EINSTELLUNGEN, REGELN)
-    assert _zeilen([x]) == [("4530", "1200", Decimal("47.05"), 9, Decimal("7.95"))]
-    assert x.status is BuchungStatus.ZUR_PRUEFUNG
+    beleg_zeile, differenz = kontiere_mit_beleg(
+        umsatz(betrag="-55.00"), b, EINSTELLUNGEN, REGELN
+    )
+    assert _zeilen([beleg_zeile, differenz]) == [
+        ("4530", "1200", Decimal("41.85"), 9, Decimal("7.95")),
+        ("4530", "1200", Decimal("5.20"), None, None),
+    ]
+    assert beleg_zeile.status is BuchungStatus.AUTO_GEBUCHT
+    assert differenz.status is BuchungStatus.ZUR_PRUEFUNG
+    assert differenz.buchungstext.startswith("Trinkgeld/Differenz")
+    assert differenz.beleg_id == b.id
+
+
+def test_minderzahlung_zum_beleg_dreht_die_differenz():
+    b = mit_positionen(("Essen", "41.85", "19", "7.95"), brutto="49.80")
+    _, differenz = kontiere_mit_beleg(umsatz(betrag="-49.79"), b, EINSTELLUNGEN, REGELN)
+    assert _zeilen([differenz]) == [("1200", "4530", Decimal("0.01"), None, None)]
+
+
+def test_gutschrift_mit_differenz():
+    b = mit_positionen(("Erstattung", "-16.80", "19", "-3.19"), brutto="-19.99")
+    gut, differenz = kontiere_mit_beleg(
+        umsatz(betrag="20.00"), b, EINSTELLUNGEN, REGELN
+    )
+    assert _zeilen([gut, differenz]) == [
+        ("1200", "4530", Decimal("16.80"), 9, Decimal("3.19")),
+        ("1200", "4530", Decimal("0.01"), None, None),
+    ]
+
+
+def test_differenz_zur_zeile_ohne_schluessel():
+    """Gibt es schon eine Zeile ohne Schlüssel auf dem Konto, kommt die Differenz
+    dorthin — steuerlich gleich, nur zur Prüfung."""
+    b = mit_positionen(
+        ("Briefmarken", "8.50", "0", "0"),
+        ("Umschläge", "10.00", "19", "1.90"),
+        brutto="20.40",
+    )
+    ohne, mit_steuer = kontiere_mit_beleg(
+        umsatz(betrag="-21.00"), b, EINSTELLUNGEN, REGELN
+    )
+    assert _zeilen([ohne, mit_steuer]) == [
+        ("4530", "1200", Decimal("9.10"), None, None),
+        ("4530", "1200", Decimal("10.00"), 9, Decimal("1.90")),
+    ]
+    assert mit_steuer.status is BuchungStatus.AUTO_GEBUCHT
+    assert ohne.status is BuchungStatus.ZUR_PRUEFUNG
 
 
 def test_gutschrift_korrigiert_die_vorsteuer():
