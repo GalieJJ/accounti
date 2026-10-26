@@ -181,3 +181,48 @@ def test_import_meldet_widerspruechliche_auszahlungszeile(tmp_path):
     text = _text(r)
     assert "widerspricht" in text and "nichts nachgetragen" in text
     assert "auszahlung_doppelt" in text
+
+
+# --- Gesamttest Steuer B9: Import in einen festgeschriebenen Monat -------------------
+
+
+def test_import_in_festgeschriebenen_monat_klar_abgelehnt(tmp_path):
+    """Vorher: Traceback (PeriodeGesperrtError beim Flush) und eine verwaiste Datei
+    im Archiv. Jetzt: Prüfung vor dem Ablegen, klare Meldung, nichts abgelegt."""
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path)
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    text = _text(r)
+    assert "2026-08" in text and "festgeschrieben" in text and "--buchungsdatum" in text
+    archiv = tmp_path / "archiv"
+    assert not archiv.exists() or not [p for p in archiv.rglob("*") if p.is_file()]
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        assert lade_belege(s) == [] and lade_buchungen(s) == []
+
+
+def test_import_mit_buchungsdatum_in_den_ersten_offenen_tag(tmp_path):
+    from accounti.db.repo_integrationen import lade_abrechnungen
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 0, r.output
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        buchungen = lade_buchungen(s)
+        (beleg,) = lade_belege(s)
+        (abrechnung,) = lade_abrechnungen(s)
+    assert buchungen and {b.datum for b in buchungen} == {date(2026, 9, 1)}
+    assert beleg.belegdatum is not None and beleg.belegdatum.month == 8  # bleibt
+    (befund,) = [b for b in abrechnung.befunde if b.code == "buchungsdatum"]
+    assert "01.09.2026" in befund.text and "§ 18" in befund.text

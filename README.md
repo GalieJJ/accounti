@@ -412,7 +412,11 @@ Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nicht
 Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
 Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
 er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
-FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`.
+FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`;
+die Bank darf bis `auszahlung_toleranz_prozent` abweichen (Differenz auf die Kursdifferenzkonten).
+Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
+bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum (mit Hinweis, die
+Voranmeldung des Monats zu berichtigen). `bank lauf` gleicht Auszahlungen vor dem Kontieren ab.
 `datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel
 mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen festgeschrieben.
 

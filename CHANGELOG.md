@@ -487,6 +487,12 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Fremdwährung praktisch nie zustande, und die Regel buchte die Auszahlung als Erlös 19 %).
   Offene Fehler-Befunde einer Abrechnung stehen als Warnung in der Voranmeldung ihres
   Zeitraums; der Jahresabschluss prüft die Verrechnungskonten der Marktplätze (1361–1363)
+- **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines
+  Tracebacks beim Schreiben (und einer verwaisten Datei im Archiv) prüft der Import die Sperre
+  vor dem Ablegen und meldet klar, was zu tun ist; `--buchungsdatum offen|JJJJ-MM-TT` bucht die
+  Posten wie bei `opos verbuchen` in einen offenen Zeitraum (Belegdatum bleibt, Befund
+  „Voranmeldung des Monats berichtigen“). Scheitert ein Import nach dem Ablegen, wird die eben
+  abgelegte Datei wieder entfernt
 - **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
   8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (S/AM, gewährte Skonti), 3731/3736 (S/AV,
   erhaltene Skonti) und 3730/8730 (ohne Satz) — beide DATEV-Exporte lassen dort das BU-Feld

@@ -90,19 +90,40 @@ def marktplatz_import(
     auszahlung: str | None = typer.Option(
         None, help="Auszahlungsbetrag laut Marktplatz, wenn er nicht in der Datei steht"
     ),
+    buchungsdatum: str | None = typer.Option(
+        None,
+        help="Posten in abgeschlossenen Zeiträumen buchen am: offen (erster offener "
+        "Tag) oder JJJJ-MM-TT — das Belegdatum bleibt",
+    ),
     db: str = DB_OPTION,
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     config: str = KONFIG_OPTION,
 ) -> None:
     """Abrechnung einlesen, archivieren, buchen und die Auszahlung abgleichen."""
+    from datetime import date
+
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.importers.marktplatz import MarktplatzFormatError, lies_laenderdatei
     from accounti.integrationen.buchung import ANZEIGE
     from accounti.integrationen.einstellungen import lade_kontext
-    from accounti.integrationen.lauf import IntegrationError, importiere
+    from accounti.integrationen.lauf import (
+        Buchungsdatum,
+        IntegrationError,
+        importiere,
+    )
     from accounti.konfiguration import KonfigurationError
 
+    tag: Buchungsdatum | None = None
+    if buchungsdatum == "offen":
+        tag = "offen"
+    elif buchungsdatum is not None:
+        try:
+            tag = date.fromisoformat(buchungsdatum)
+        except ValueError as fehler:
+            console.print("[red]--buchungsdatum: offen oder JJJJ-MM-TT[/red]")
+            raise typer.Exit(1) from fehler
     try:
         kontext = lade_kontext(config)
         angaben = lies_laenderdatei(Path(laender).read_bytes()) if laender else None
@@ -119,12 +140,14 @@ def marktplatz_import(
                 laender=angaben,
                 kurs=_zahl(kurs, "Kurs"),
                 auszahlung=_zahl(auszahlung, "Auszahlung"),
+                buchungsdatum=tag,
             )
             s.commit()
     except (
         IntegrationError,
         MarktplatzFormatError,
         KonfigurationError,
+        JahrGesperrtError,  # auch die Monatssperre (PeriodeGesperrtError)
         OSError,
     ) as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")

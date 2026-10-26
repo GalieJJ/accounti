@@ -4,6 +4,12 @@ Ein Lauf ist idempotent: Derselbe Bericht wird am Datei-Hash und an der
 Abrechnungsnummer erkannt und nicht zweimal gebucht; PayPal-Zeilen eines überlappenden
 Exports erkennt der Transaktionscode. Buchung und Abgleich passieren im selben Lauf,
 damit ``classify`` die Auszahlung nicht vorher per Regel als Erlös bucht.
+
+Liegen zu buchende Posten in einem abgeschlossenen Zeitraum (Jahr oder
+festgeschriebener Monat), wird vor dem Ablegen abgebrochen — oder mit
+``buchungsdatum`` (``offen`` oder ein Tag) in einen offenen Zeitraum gebucht, das
+Belegdatum bleibt. Scheitert der Lauf nach dem Ablegen, wird die eben abgelegte Datei
+wieder entfernt (die Datenbank rollt zurück, kein Beleg verweist auf sie).
 """
 
 from __future__ import annotations
@@ -11,7 +17,9 @@ from __future__ import annotations
 import hashlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -30,6 +38,7 @@ from accounti.db.repo_integrationen import (
     vorhandene_referenzen,
 )
 from accounti.db.repository import speichere_buchung, speichere_transaktion
+from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.importers.marktplatz import MARKTPLATZ_IMPORTER
 from accounti.importers.paypal import FruehereUmsaetze, PaypalImporter
 from accounti.integrationen.auszahlung import (
@@ -52,6 +61,7 @@ from accounti.models import (
     Beleg,
     Belegart,
     BelegStatus,
+    Buchungssatz,
     Eingangsergebnis,
     Transaktion,
     TransaktionQuelle,
@@ -70,6 +80,8 @@ from accounti.steuer.umsatzsteuer import UStBerechner
 __all__ = ["IntegrationError", "Importergebnis", "Kontext", "importiere"]
 
 NULL = Decimal("0")
+# Buchungsdatum für Posten in abgeschlossenen Zeiträumen: erster offener Tag oder fest
+Buchungsdatum = Literal["offen"] | date
 
 
 class IntegrationError(RuntimeError):
@@ -252,6 +264,7 @@ def _nachtrag(
     bericht: Abrechnung,
     beleg_id: UUID | None,
     auszahlung: Decimal | None,
+    buchungsdatum: Buchungsdatum | None = None,
 ) -> Importergebnis:
     """Ergänzt eine bekannte Abrechnung um die Posten, die sie noch nicht hat.
 
@@ -327,6 +340,7 @@ def _nachtrag(
     )
     gebucht = buche_abrechnung(teil, _buchungskontext(session, kontext))
     a.befunde.extend(gebucht.befunde)
+    a.befunde.extend(_verschiebe(session, gebucht.buchungen, buchungsdatum))
     setze_auszahlung_eur(a)
     a.status = status_von(a)
     aktualisiere_abrechnung(session, a)
@@ -383,9 +397,11 @@ def importiere(
     laender: dict[str, Laenderangabe] | None = None,
     kurs: Decimal | None = None,
     auszahlung: Decimal | None = None,
+    buchungsdatum: Buchungsdatum | None = None,
 ) -> list[Importergebnis]:
     """Liest einen Marktplatzbericht, bucht neue Abrechnungen und Nachträge zu
-    bekannten, und gleicht ab."""
+    bekannten, und gleicht ab. ``buchungsdatum``: Posten in abgeschlossenen
+    Zeiträumen dorthin buchen (sonst Abbruch vor dem Ablegen)."""
     importer = MARKTPLATZ_IMPORTER.get(markt)
     if importer is None:
         bekannt = ", ".join(sorted(MARKTPLATZ_IMPORTER))
@@ -409,7 +425,43 @@ def importiere(
             if alt is not None:
                 vorhandene[a.nummer] = alt
     _pruefe_kurs(abrechnungen, vorhandene, kurs)
+    _pruefe_sperre(session, markt, abrechnungen, vorhandene, buchungsdatum)
 
+    datei_hash = hashlib.sha256(inhalt).hexdigest()
+    schon_im_archiv = archiv.enthaelt(datei_hash)
+    try:
+        return _importiere(
+            session,
+            archiv,
+            kontext,
+            markt,
+            inhalt,
+            dateiname,
+            abrechnungen,
+            vorhandene,
+            kurs,
+            auszahlung,
+            buchungsdatum,
+        )
+    except BaseException:
+        if not schon_im_archiv:
+            _verwirf_abgelegte(archiv, datei_hash)
+        raise
+
+
+def _importiere(
+    session: Session,
+    archiv: BelegArchiv,
+    kontext: Kontext,
+    markt: str,
+    inhalt: bytes,
+    dateiname: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+    kurs: Decimal | None,
+    auszahlung: Decimal | None,
+    buchungsdatum: Buchungsdatum | None,
+) -> list[Importergebnis]:
     eingang = nimm_auf(
         session,
         archiv,
@@ -431,7 +483,13 @@ def importiere(
         if a.nummer in vorhandene:
             ergebnisse.append(
                 _nachtrag(
-                    session, kontext, vorhandene[a.nummer], a, beleg_id, auszahlung
+                    session,
+                    kontext,
+                    vorhandene[a.nummer],
+                    a,
+                    beleg_id,
+                    auszahlung,
+                    buchungsdatum,
                 )
             )
             continue
@@ -454,6 +512,7 @@ def importiere(
         ergaenze_auszahlung(a)
         gebucht = buche_abrechnung(a, _buchungskontext(session, kontext), umsaetze)
         a.befunde.extend(gebucht.befunde)
+        a.befunde.extend(_verschiebe(session, gebucht.buchungen, buchungsdatum))
         a.status = status_von(a)
         speichere_abrechnung(session, a)
         for b in gebucht.buchungen:
@@ -470,6 +529,118 @@ def importiere(
             )
         )
     return ergebnisse
+
+
+def _zu_buchende_tage(
+    session: Session,
+    markt: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+) -> set[date]:
+    """Tage, an denen der Import buchen wird: die neuen Posten (Nachtrag: nur die
+    fehlenden, PayPal: nur unbekannte Transaktionscodes; die Auszahlung bucht erst der
+    Bankabgleich) und das Ende des Zeitraums (Sammelgebühren)."""
+    paypal = markt == "paypal"
+    schon_da = vorhandene_referenzen(session, "paypal") if paypal else set()
+    tage: set[date] = set()
+    for a in abrechnungen:
+        alt = vorhandene.get(a.nummer)
+        posten = neue_posten(alt.posten, a.posten) if alt is not None else a.posten
+        posten = [
+            p
+            for p in posten
+            if (paypal or p.art is not Postenart.AUSZAHLUNG)
+            and not (paypal and p.referenz in schon_da)
+        ]
+        if posten:
+            tage |= {p.datum for p in posten} | {a.bis}
+    return tage
+
+
+def _pruefe_sperre(
+    session: Session,
+    markt: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+    buchungsdatum: Buchungsdatum | None,
+) -> None:
+    """Vor dem Ablegen: Posten in einem abgeschlossenen Zeitraum brechen ab — mit
+    klarer Meldung statt eines Fehlers beim Schreiben (und einer verwaisten Datei)."""
+    verbindung = session.connection()
+    if isinstance(buchungsdatum, date):
+        fehler = sperrfehler(verbindung, buchungsdatum)
+        if fehler is not None:
+            msg = f"--buchungsdatum {buchungsdatum:%d.%m.%Y}: {fehler}"
+            raise IntegrationError(msg)
+        return
+    if buchungsdatum is not None:
+        return
+    gesperrt: dict[str, str] = {}
+    for tag in sorted(_zu_buchende_tage(session, markt, abrechnungen, vorhandene)):
+        fehler = sperrfehler(verbindung, tag)
+        if fehler is not None:
+            gesperrt.setdefault(f"{tag:%Y-%m}", str(fehler))
+    if not gesperrt:
+        return
+    monate = ", ".join(gesperrt)
+    msg = (
+        f"Der Bericht hat Posten in einem abgeschlossenen Zeitraum ({monate}: "
+        f"{next(iter(gesperrt.values()))}) — nichts importiert. Entweder den "
+        "Zeitraum öffnen (accounti periode oeffnen JJJJ-MM --grund …) oder mit "
+        "--buchungsdatum offen (bzw. JJJJ-MM-TT) in einen offenen Zeitraum buchen; "
+        "umsatzsteuerlich gehören die Umsätze trotzdem in ihren Monat (berichtigte "
+        "Voranmeldung, § 18 Abs. 1 UStG)"
+    )
+    raise IntegrationError(msg)
+
+
+def _verschiebe(
+    session: Session,
+    buchungen: list[Buchungssatz],
+    buchungsdatum: Buchungsdatum | None,
+) -> list[Befund]:
+    """Buchungen in abgeschlossenen Zeiträumen auf das Buchungsdatum legen (wie
+    ``opos verbuchen --buchungsdatum``); das Belegdatum bleibt am Beleg. Ein Befund
+    sagt, für welche Monate die Voranmeldung zu berichtigen ist."""
+    if buchungsdatum is None:
+        return []
+    verbindung = session.connection()
+    monate: set[str] = set()
+    tage: set[date] = set()
+    for i, b in enumerate(buchungen):
+        if sperrfehler(verbindung, b.datum) is None:
+            continue
+        tag = (
+            erster_offener_tag(verbindung, b.datum)
+            if buchungsdatum == "offen"
+            else buchungsdatum
+        )
+        if not isinstance(tag, date) or tag < b.datum:
+            msg = (
+                f"--buchungsdatum {buchungsdatum} liegt vor dem Posten vom "
+                f"{b.datum:%d.%m.%Y}"
+            )
+            raise IntegrationError(msg)
+        monate.add(f"{b.datum:%Y-%m}")
+        tage.add(tag)
+        buchungen[i] = b.model_copy(update={"datum": tag})
+    if not monate:
+        return []
+    text = (
+        f"Posten aus abgeschlossenem Zeitraum ({', '.join(sorted(monate))}) am "
+        f"{', '.join(f'{t:%d.%m.%Y}' for t in sorted(tage))} gebucht (Belegdatum "
+        "unverändert) — umsatzsteuerlich gehören die Umsätze in den Monat der "
+        "Leistung: Voranmeldung (und OSS-Meldung) dieses Zeitraums berichtigen "
+        "(§ 18 Abs. 1 UStG, § 153 Abs. 1 AO)"
+    )
+    return [Befund(code="buchungsdatum", schweregrad=Schweregrad.WARNUNG, text=text)]
+
+
+def _verwirf_abgelegte(archiv: BelegArchiv, datei_hash: str) -> None:
+    """Die eben in diesem Lauf abgelegte Datei wieder entfernen — die Datenbank rollt
+    zurück, kein Beleg verweist auf sie. Archivierte Belege löscht accounti nie."""
+    if archiv.enthaelt(datei_hash):
+        archiv.pfad(datei_hash).unlink(missing_ok=True)
 
 
 def _pruefe_kurs(

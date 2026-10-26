@@ -532,3 +532,26 @@ def test_offener_marktplatzbefund_ist_ustva_warnung(umgebung):
         einstellungen=ElsterEinstellungen(),
     )
     assert not [b for b in juli.befunde if b.regel == "marktplatz"]
+
+
+def test_abbruch_nach_dem_ablegen_laesst_keine_datei_zurueck(umgebung, monkeypatch):
+    """Gesamttest Steuer B9: scheitert der Lauf nach dem Ablegen, rollt die
+    Datenbank zurück — die eben abgelegte Datei verschwindet mit."""
+    import accounti.integrationen.lauf as lauf
+
+    s, archiv, kontext = umgebung
+
+    def kaputt(*args, **kwargs):
+        raise RuntimeError("Schreibfehler")
+
+    monkeypatch.setattr(lauf, "buche_abrechnung", kaputt)
+    with pytest.raises(RuntimeError):
+        amazon(s, archiv, kontext)
+    s.rollback()
+    roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
+    assert not archiv.enthaelt(hashlib.sha256(roh).hexdigest())
+    # eine schon vorher archivierte Datei bleibt, auch wenn der Lauf scheitert
+    archiv.ablegen(roh, ".txt")
+    with pytest.raises(RuntimeError):
+        amazon(s, archiv, kontext)
+    assert archiv.enthaelt(hashlib.sha256(roh).hexdigest())
