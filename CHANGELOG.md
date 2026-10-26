@@ -451,9 +451,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   die den Status nicht mehr wechseln, und ungeprüfte, die mit `--alle` im Stapel waren (sie
   stehen als `ungeprueft` im Journal) — kommen nur mit `--erneut` noch einmal; `korrigiere`
   warnt, wenn ein solcher Vorschlag danach noch geändert wird (in DATEV steht das alte Konto),
-  nennt den Stapel und den Ersatz mit `--erneut --alle` (ohne `--alle` fehlten dem neuen
-  Stapel die übrigen ungeprüften Vorschläge, wer ihn in DATEV ersetzte, verlöre sie) und sagt,
-  wenn der alte Stapel nicht genau den Monat umfasste.
+  nennt jeden Stapel, der laut Journal Buchungen des Monats übergab, und den Ersatz mit
+  `--erneut --alle` (ohne `--alle` fehlten dem neuen Stapel die übrigen ungeprüften Vorschläge,
+  wer ihn in DATEV ersetzte, verlöre sie; nannte sie nur den letzten Stapel der Buchung, stand
+  nach dessen Ersatz der Rest des Monats in DATEV doppelt) und sagt, wenn ein alter Stapel
+  nicht genau den Monat umfasste.
   Ein weiterer Export desselben Zeitraums schreibt eine eigene Datei (`…_2.csv`, `…_3.csv`) und
   überschreibt nie einen früheren Stapel (vorher war der erste weg, der SHA-256 im Journal
   verwies ins Leere); die Nummer zählt auch die Stapel, die laut Journal schon übergeben und

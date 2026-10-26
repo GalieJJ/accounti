@@ -250,16 +250,33 @@ def exportierte_dateien(session: Session) -> set[str]:
     return {str(d["datei"]) for d in _exporte(session) if d.get("datei")}
 
 
-def stapel_der_buchung(session: Session, buchung_id: UUID) -> str | None:
-    """Dateiname des letzten Stapels, der die Buchung laut Journal übergab."""
-    gesucht = str(buchung_id)
-    datei = None
-    for nachher in _exporte(session):
+def stapel_des_monats(session: Session, von: date, bis: date) -> list[str]:
+    """Dateinamen der Stapel, die laut Journal Buchungen mit Datum von ``von`` bis
+    ``bis`` übergaben, in der Reihenfolge der Exporte — die ``export datev --period
+    … --erneut --alle`` zusammen ersetzt: sein Stapel enthält alle Buchungen des
+    Zeitraums (Nachprüfung 4 E, L-d)."""
+    from accounti.db.tabellen import BuchungssatzRow
+
+    exporte = _exporte(session)
+    if not exporte:
+        return []
+    im_zeitraum = {
+        zeile_id
+        for (zeile_id,) in session.query(BuchungssatzRow.id).filter(
+            BuchungssatzRow.datum >= von, BuchungssatzRow.datum <= bis
+        )
+    }
+    dateien: list[str] = []
+    for nachher in exporte:
+        datei = nachher.get("datei")
+        if not datei or str(datei) in dateien:
+            continue
         for schluessel in ("markiert", "gesperrt", "ungeprueft"):
             werte = nachher.get(schluessel)
-            if isinstance(werte, list) and gesucht in werte and nachher.get("datei"):
-                datei = str(nachher["datei"])
-    return datei
+            if isinstance(werte, list) and im_zeitraum.intersection(map(str, werte)):
+                dateien.append(str(datei))
+                break
+    return dateien
 
 
 def schon_exportiert(session: Session) -> set[UUID]:

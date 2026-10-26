@@ -325,8 +325,10 @@ DATEV-Übergabe:
   `ungeprueft`): wird eine vor der Freigabe noch geändert (`korrigiere` ändert Vorschläge ohne
   Storno), kommt sie nur mit `--erneut` noch einmal — der Export warnt, `korrigiere` auch
   (Nachprüfung 2 E, L3) und nennt den Stapel aus dem Journal und `--erneut --alle`
-  (Nachprüfung 3 E, L-c). `--period` kennt nur Monate: war der alte Stapel ohne `--period`
-  exportiert, sagt die Warnung, dass in DATEV nur die Buchungen des Monats zu ersetzen sind. Die laufende Nummer eines Stapels zählt die Namen im Journal und im
+  (Nachprüfung 3 E, L-c) — jeden Stapel, der laut Journal Buchungen des Monats übergab, denn
+  der Ersatzstapel enthält alle (4 E, L-d). `--period` kennt nur Monate: war ein alter Stapel
+  ohne `--period` exportiert, sagt die Warnung, dass in DATEV nur die Buchungen des Monats zu
+  ersetzen sind. Die laufende Nummer eines Stapels zählt die Namen im Journal und im
   Ordner (L2).
 
 **Kontoauszüge**

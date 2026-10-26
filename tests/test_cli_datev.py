@@ -702,7 +702,10 @@ def test_korrigiere_warnt_wenn_der_vorschlag_schon_bei_datev_ist(umgebung):
         k = korrigiere(s, str(neu.id), "4940", "70001", steuer=9, von="Erika")
         assert not [w for w in k.warnungen if "DATEV" in w]
         s.commit()
-    # ein Monatsstapel (--period) ist durch den neuen ganz ersetzbar: kein Zusatz
+    # Nachprüfung 4 E, L-d: der Monatsstapel (--period) allein ist nicht alles — auch
+    # der erste Stapel (ganzes Wirtschaftsjahr) übergab Buchungen von 2026-08 (R-1),
+    # die der neue Monatsstapel wieder enthält: beide nennen, im ersten nur den Monat
+    # ersetzen (zwei reine Monatsstapel: test_korrigiere_nennt_alle_stapel_des_monats)
     with make() as s:
         monat = _buchung(s, "R-10", tag=10, status=BuchungStatus.ZUR_PRUEFUNG)
         s.commit()
@@ -712,4 +715,41 @@ def test_korrigiere_warnt_wenn_der_vorschlag_schon_bei_datev_ist(umgebung):
         k = korrigiere(s, str(monat.id), "4940", "70002", steuer=9, von="Erika")
         (warnung,) = [w for w in k.warnungen if "DATEV" in w]
         assert "EXTF_Buchungsstapel_20260801_20260831" in warnung, warnung
-        assert "--erneut --alle" in warnung and "nur die Buchungen" not in warnung
+        assert stapel.name in warnung, warnung
+        assert "--erneut --alle" in warnung, warnung
+        assert "nur die Buchungen von 2026-08 ersetzen" in warnung, warnung
+
+
+def test_korrigiere_nennt_alle_stapel_des_monats(umgebung):
+    """Nachprüfung 4 E, L-d (Fall lc): ``export datev --period 2026-08`` übergab die
+    freigegebene Buchung R-1, ``--alle`` danach den Vorschlag R-7 in einem zweiten
+    Stapel (…_2.csv). Die Warnung von ``korrigiere`` nannte nur den zweiten —
+    ``--erneut --alle`` exportiert aber alle Buchungen des Monats, wer nur …_2
+    ersetzt, hat R-1 in DATEV doppelt. Jetzt nennt sie jeden Stapel des Monats aus
+    dem Journal; zwei Monatsstapel sind ganz ersetzbar, ohne Zusatz."""
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.storno import korrigiere
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    assert _export(basis, tmp_path / "ex", "--period", "2026-08").exit_code == 0
+    with make() as s:
+        vorschlag = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "ex", "--period", "2026-08", "--alle")
+    assert r.exit_code == 0, r.output
+    erster, zweiter = sorted(p.name for p in (tmp_path / "ex").glob("EXTF_*.csv"))
+    assert zweiter.endswith("_2.csv"), (erster, zweiter)
+    with make() as s:
+        k = korrigiere(s, str(vorschlag.id), "4940", "70001", steuer=9, von="Erika")
+        (warnung,) = [w for w in k.warnungen if "DATEV" in w]
+        s.commit()
+    assert erster in warnung and zweiter in warnung, warnung
+    assert "export datev --period 2026-08 --erneut --alle" in warnung, warnung
+    assert "nur die Buchungen" not in warnung, warnung
+    # der Ersatzstapel bringt beide — R-1 und die Korrektur von R-7
+    r = _export(basis, tmp_path / "neu", "--period", "2026-08", "--erneut", "--alle")
+    assert r.exit_code == 0, r.output
+    (ersatz,) = (tmp_path / "neu").glob("EXTF_*.csv")
+    inhalt = ersatz.read_bytes().decode("cp1252")
+    assert "R-1" in inhalt and "R-7" in inhalt

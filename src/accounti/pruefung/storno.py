@@ -467,32 +467,44 @@ def _warnung_uebergeben(session: Session, b: Buchungssatz) -> list[str]:
     nächsten Export nicht nach DATEV, dort steht weiter das alte Konto.
 
     Der Ersatzstapel braucht ``--alle`` wie der alte, sonst fehlen ihm dessen übrige
-    ungeprüfte Vorschläge (wer ihn in DATEV ersetzt, verlöre sie); reichte der alte
-    Stapel (ohne ``--period``) über den Monat hinaus oder deckte ihn nicht ganz, sagt
-    die Warnung, dass nur die Buchungen des Monats zu ersetzen sind."""
-    from accounti.export.datev import schon_exportiert, stapel_der_buchung
+    ungeprüfte Vorschläge (wer ihn in DATEV ersetzt, verlöre sie). Er enthält alle
+    Buchungen des Monats — die Warnung nennt deshalb jeden Stapel, der laut Journal
+    Buchungen des Monats übergab (wer nur einen ersetzt, hat die übrigen doppelt);
+    reichte einer davon (ohne ``--period``) über den Monat hinaus oder deckte ihn
+    nicht ganz, sagt sie, dass dort nur die Buchungen des Monats zu ersetzen sind."""
+    from accounti.export.datev import schon_exportiert, stapel_des_monats
 
     if b.id not in schon_exportiert(session):
         return []
     monat = f"{b.datum:%Y-%m}"
-    datei = stapel_der_buchung(session, b.id)
-    stapel = f"den Stapel {datei}" if datei else "den Stapel"
+    erster = b.datum.replace(day=1)
+    letzter = (erster + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    dateien = stapel_des_monats(session, erster, letzter)
+    if len(dateien) > 1:
+        stapel = f"die Stapel {', '.join(dateien[:-1])} und {dateien[-1]}"
+    else:
+        stapel = f"den Stapel {dateien[0]}" if dateien else "den Stapel"
     text = (
         f"Buchung {_kurz(b)} ging schon an DATEV (export datev --alle) — dort steht "
         f"weiter {b.soll_konto} an {b.haben_konto}, der nächste Export bringt die "
         f"Korrektur nicht. In DATEV von Hand korrigieren oder {stapel} dort ersetzen: "
         f"accounti export datev --period {monat} --erneut --alle"
     )
-    zeitraum = _STAPEL_ZEITRAUM.search(datei or "")
-    erster = b.datum.replace(day=1)
-    letzter = (erster + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-    if zeitraum is None or zeitraum.groups() != (
-        f"{erster:%Y%m%d}",
-        f"{letzter:%Y%m%d}",
-    ):
+    if len(dateien) > 1:
         text += (
-            f" — der neue Stapel umfasst den ganzen Monat {monat}, der alte nicht: in "
-            f"DATEV nur die Buchungen von {monat} ersetzen"
+            f" — der neue Stapel enthält alle Buchungen von {monat}: jeden der "
+            "genannten ersetzen, sonst stehen sie in DATEV doppelt"
+        )
+    monatsstapel = (f"{erster:%Y%m%d}", f"{letzter:%Y%m%d}")
+    if not dateien or any(
+        (zeitraum := _STAPEL_ZEITRAUM.search(d)) is None
+        or zeitraum.groups() != monatsstapel
+        for d in dateien
+    ):
+        alte = "der alte nicht" if len(dateien) < 2 else "nicht jeder alte"
+        text += (
+            f" — der neue Stapel umfasst den ganzen Monat {monat}, {alte}: in DATEV "
+            f"nur die Buchungen von {monat} ersetzen"
         )
     return [text]
 
