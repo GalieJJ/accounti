@@ -172,13 +172,13 @@ accounti serve
 # Banktransaktionen importieren
 accounti import bank ./meine-umsaetze.csv --format sparkasse
 
-# KI-Kontierung starten
-accounti classify --period 2026-04
+# KI-Kontierung starten (alle noch nicht gebuchten Umsätze)
+accounti classify
 
 # BWA generieren
 accounti bwa --period 2026-04
 
-# DATEV-Export
+# DATEV-Export (ein Monat; Berater/Mandant sonst aus datev.berater_nummer/mandanten_nummer)
 accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 ```
 
@@ -753,9 +753,16 @@ accounti berechnet alle ELSTER-Kennziffern:
 
 accounti erzeugt DATEV-konforme ASCII-Dateien nach dem Format "Buchungsstapel" (Header-Version 700+):
 
-- **EXTF Buchungsstapel**: Alle Buchungssätze eines Zeitraums
+- **EXTF Buchungsstapel** (`accounti export datev --period JJJJ-MM`): die freigegebenen,
+  noch nicht exportierten Buchungssätze eines Monats; ohne `--period` alle noch nicht
+  exportierten, solange sie in einem Wirtschaftsjahr liegen (sonst Abbruch — ein Stapel
+  gehört zu genau einem Wirtschaftsjahr, das Belegdatum steht nur als TTMM). Schon
+  exportierte Buchungen kommen nur mit `--erneut` noch einmal; ungeprüfte nur mit `--alle`.
+  Kopf und Datensätze wie `datev belege` (31 Kopffelder, Herkunft „RE“, Textfelder maskiert,
+  Kostenstelle in KOST1); Konten, die nicht zur Sachkontenlänge passen, meldet der Export.
 - **EXTF Debitoren/Kreditoren**: Stammdaten
-- Berater-Nr., Mandanten-Nr., Wirtschaftsjahr, Sachkonten-Länge — alles konfigurierbar
+- Berater-Nr., Mandanten-Nr., Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`),
+  Sachkonten-Länge (`mandant.sachkonten_laenge`) — alles konfigurierbar
 
 ---
 

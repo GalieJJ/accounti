@@ -417,7 +417,9 @@ Ergänzungen in `steuer/`:
 ### `export/`
 
 **DATEV-Export** (Priorität), Format EXTF Version 700, Windows-1252:
-- `datev.py` — Buchungsstapel (`accounti export datev`).
+- `datev.py` — Buchungsstapel (`accounti export datev --period`), aus denselben Bausteinen wie
+  `datev belege` (ohne Beleglink); ein Stapel je Wirtschaftsjahr, schon exportierte Buchungen
+  (Status oder Journalvermerk) nur mit `--erneut`.
 - `datev_format.py`, `datev_felder.py` — Kopfzeile, Feldtypen und Feldlisten wörtlich aus DATEVs
   Musterdateien und Formatbeschreibung; was nicht passt, ist ein `DatevFormatError`.
 - `datev_stammdaten.py` — Debitoren/Kreditoren (Kategorie 16, Version 5) aus `kontakte/`.

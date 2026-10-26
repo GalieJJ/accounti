@@ -95,7 +95,7 @@ def test_akzeptanz_6_freigegeben_nur_per_storno_beide_sichtbar(tmp_path):
         "--db",
         url,
         "--berater",
-        "1",
+        "1001",
         "--mandant",
         "2",
         "--output",

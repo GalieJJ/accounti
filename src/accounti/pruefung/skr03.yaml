@@ -22,6 +22,10 @@
 #       vorsteuer: false, wenn das Konto laut DATEV keine Vorsteuerfunktion hat
 #                  (außerhalb der V-Bereiche, z.B. Löhne, Versicherungen, AfA)
 #
+# Zeilenangaben „Z. …“ beziehen sich auf den Text des DATEV-Kontenrahmens 2026 (PDF,
+# Art.-Nr. 11174); bitte mit dem Steuerberater gegenprüfen, wenn dessen Kontenplan
+# abweicht.
+#
 # Die Prüfregel steuerschluessel_konto meldet einen Fehler nur bei Automatikkonten
 # (automatik: true) mit anderem Schlüssel; vorsteuer: false ergibt einen Hinweis.
 # Der DATEV-Export lässt auf Automatikkonten den passenden Schlüssel weg und setzt
@@ -127,6 +131,26 @@ konten:
 
   "3400":  # AV 3400-3409
     name: "Wareneingang 19 % Vorsteuer"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: 9, automatik: true }
+
+  # Erhaltene Skonti: S/AV — Sammelkonto mit Vorsteuerautomatik (Quelle Z. 5308–5317);
+  # DATEV rechnet die Vorsteuerkorrektur selbst, das BU-Feld bleibt leer
+  "3730":  # S/AV, ohne Steuersatz (accounti: Skonto zu 0 %)
+    name: "Erhaltene Skonti"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: null, automatik: true }
+
+  "3731":  # S/AV
+    name: "Erhaltene Skonti 7 % Vorsteuer"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: 8, automatik: true }
+
+  "3736":  # S/AV
+    name: "Erhaltene Skonti 19 % Vorsteuer"
     typ: aufwand
     bwa_zeile: 4
     steuer: { schluessel: 9, automatik: true }
@@ -298,6 +322,38 @@ konten:
     name: "Erlösschmälerungen 19 % USt"
     typ: erloes
     bwa_zeile: 1
+    steuer: { schluessel: 3, automatik: true }
+
+  # Gewährte Skonti: S/AM — Sammelkonto mit Umsatzsteuerautomatik (Z. 7328–7334)
+  "8730":  # S/AM, ohne Steuersatz (accounti: Skonto zu 0 %)
+    name: "Gewährte Skonti"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: null, automatik: true }
+
+  "8731":  # S/AM
+    name: "Gewährte Skonti 7 % USt"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: 2, automatik: true }
+
+  "8736":  # S/AM
+    name: "Gewährte Skonti 19 % USt"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: 3, automatik: true }
+
+  # Anlagenverkäufe (accounti: anlagen.konten.erloes_buchverlust/-gewinn)
+  "8801":  # AM 8801-8806 (Z. 7447)
+    name: "Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchverlust)"
+    typ: erloes
+    bwa_zeile: 3
+    steuer: { schluessel: 3, automatik: true }
+
+  "8820":  # AM 8820-8825 (Z. 7492)
+    name: "Erlöse aus Verkäufen Sachanlagevermögen 19 % USt (bei Buchgewinn)"
+    typ: erloes
+    bwa_zeile: 3
     steuer: { schluessel: 3, automatik: true }
 
 # ============================================================

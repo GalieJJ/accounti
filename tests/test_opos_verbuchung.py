@@ -413,7 +413,7 @@ def test_belegbuchung_im_datev_export(umgebung, tmp_path):
     with make_session() as s:
         buchungen = lade_buchungen(s)
     datei = DATEVExporter(
-        DATEVConfig(berater_nummer="1", mandanten_nummer="2")
+        DATEVConfig(berater_nummer="1001", mandanten_nummer="2")
     ).exportiere(buchungen, tmp_path)
     zeilen = list(
         csv.reader(datei.read_text(encoding="cp1252").splitlines()[1:], delimiter=";")

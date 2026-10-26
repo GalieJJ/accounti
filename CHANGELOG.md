@@ -434,6 +434,30 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **EU-Steuersätze veraltet** (Gesamttest Steuer B8): Die Tabelle führt je Land Stände mit
+  `gueltig_ab`; maßgeblich ist der Satz am Tag der Leistung (Art. 63, 93 MwStSystRL).
+  Berichtigt: Rumänien 21/11 % ab 01.08.2025 (vorher 19 % — OSS-Buchung und -Meldung nach
+  RO waren falsch), Estland 24/13/9 %, Finnland 25,5/13,5/10 % ab 01.01.2026, Slowakei
+  23/19/5 % ab 01.01.2025, Litauen 21/12/5 % ab 01.01.2026, Malta mit 12 %, Luxemburg mit
+  Parksatz 14 %, Bulgarien in Euro ab 01.01.2026. Ändert ein Land den Satz im Quartal, hat
+  die OSS-Meldung zwei Zeilen; Korrekturen früherer Quartale rechnen mit dem Satz des
+  Ursprungsumsatzes. Die Doku versprach eine Überschreibung per `config/eu_steuersaetze.yaml`,
+  die es nie gab — die Aussage ist entfernt
+- **`export datev` ohne Zeitraum und mit festem Kopf 2026** (Gesamttest Abschluss B1/B2,
+  Betrieb B6, Eingang B11): `--period JJJJ-MM` (wie im README und bei `datev belege`), Kopf
+  mit Wirtschaftsjahr aus `datev.wirtschaftsjahr_beginn` und dem Zeitraum der Buchungen; ein
+  Stapel über die Grenze des Wirtschaftsjahrs wird abgelehnt (DATEV läse das Belegdatum TTMM
+  im falschen Jahr). Schon exportierte Buchungen — auch solche in festgeschriebenen Monaten,
+  die den Status nicht mehr wechseln — kommen nur mit `--erneut` noch einmal.
+  `--berater`/`--mandant` fallen auf `datev.berater_nummer`/`mandanten_nummer` zurück. Der
+  Stapel entsteht aus denselben Bausteinen wie `datev belege`: 31 Kopffelder, Herkunft „RE“,
+  Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),
+  Belegfeld 1 im DATEV-Zeichenvorrat, Kostenstelle in KOST1 (Feld 37 statt Beleginfo);
+  Konten, die nicht zur Sachkontenlänge passen (z. B. 177721 bei Länge 4), meldet er
+- **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
+  8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (S/AM, gewährte Skonti), 3731/3736 (S/AV,
+  erhaltene Skonti) und 3730/8730 (ohne Satz) — beide DATEV-Exporte lassen dort das BU-Feld
+  leer, statt einen Steuerschlüssel zu setzen, den DATEV auf Automatikkonten nicht annimmt
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

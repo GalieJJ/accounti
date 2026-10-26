@@ -2349,72 +2349,40 @@ app.add_typer(export_app, name="export")
 @export_app.command("datev")
 def export_datev(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
-    berater: str = typer.Option(..., help="DATEV Beraternummer"),
-    mandant: str = typer.Option(..., help="DATEV Mandantennummer"),
+    period: str | None = typer.Option(
+        None,
+        "--period",
+        help="Monat JJJJ-MM; ohne: alle noch nicht exportierten Buchungen eines "
+        "Wirtschaftsjahrs",
+    ),
+    berater: str | None = typer.Option(
+        None, help="DATEV-Beraternummer (sonst datev.berater_nummer)"
+    ),
+    mandant: str | None = typer.Option(
+        None, help="DATEV-Mandantennummer (sonst datev.mandanten_nummer)"
+    ),
     output: str = typer.Option("./export", help="Ausgabeverzeichnis"),
     alle: bool = typer.Option(
         False, "--alle", help="Auch ungeprüfte Buchungen exportieren"
     ),
+    erneut: bool = typer.Option(
+        False, "--erneut", help="Auch schon exportierte Buchungen noch einmal"
+    ),
     config: str = KONFIG_OPTION,
 ) -> None:
     """DATEV-konformen Buchungsstapel exportieren (nur freigegebene Buchungen)."""
-    from rich.markup import escape
+    from accounti.befehle.export import buchungsstapel
 
-    from accounti.befehle.export import automatikkonten_aus
-    from accounti.db import session_factory
-    from accounti.db.repository import lade_buchungen
-    from accounti.export.datev import DATEVConfig, DATEVExporter
-    from accounti.konfiguration import KonfigurationError
-    from accounti.models import BuchungStatus
-
-    freigegeben = (
-        None
-        if alle
-        else {
-            BuchungStatus.AUTO_GEBUCHT,
-            BuchungStatus.GEPRUEFT,
-            BuchungStatus.KORRIGIERT,
-            BuchungStatus.EXPORTIERT,
-        }
+    buchungsstapel(
+        period=period,
+        berater=berater,
+        mandant=mandant,
+        output=output,
+        alle=alle,
+        erneut=erneut,
+        db=db,
+        config=config,
     )
-    from accounti.befehle import handelnde_person
-    from accounti.models.auth import Recht
-    from accounti.pruefung.storno import markiere_exportiert
-
-    try:
-        automatik = automatikkonten_aus(config)
-    except KonfigurationError as fehler:
-        console.print(f"[red]{escape(str(fehler))}[/red]")
-        raise typer.Exit(1) from fehler
-    _, make_session = session_factory(db)
-    # Übergabe an den Steuerberater, vermerkt die Buchungen als exportiert: Buchungen
-    # freigeben (buchhalter, freigeber) und Einmalcode
-    with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
-        make_session() as s,
-    ):
-        buchungen = lade_buchungen(s, status=freigegeben)
-        cfg = DATEVConfig(
-            berater_nummer=berater, mandanten_nummer=mandant, automatikkonten=automatik
-        )
-        exporter = DATEVExporter(cfg)
-        datei = exporter.exportiere(buchungen, output)
-        # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
-        markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
-        s.commit()
-    console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
-    for warnung in exporter.warnungen:
-        console.print(f"[yellow]{escape(warnung)}[/yellow]")
-    if markiert or gesperrt:
-        console.print(
-            f"[dim]{markiert} als exportiert vermerkt"
-            + (
-                f", {gesperrt} in abgeschlossenen Zeiträumen unverändert"
-                if gesperrt
-                else ""
-            )
-            + "[/dim]"
-        )
 
 
 def _regel_speichern(
