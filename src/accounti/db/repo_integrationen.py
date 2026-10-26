@@ -349,6 +349,17 @@ def setze_bank_transaktion(
     session.flush()
 
 
+def zugeordnete_bank_transaktionen(session: Session) -> set[UUID]:
+    """Bankumsätze, die schon einem Marktplatzposten (Auszahlung, Einzahlung)
+    zugeordnet sind."""
+    rows = (
+        session.query(MarktplatzPostenRow.bank_transaktion_id)
+        .filter(MarktplatzPostenRow.bank_transaktion_id.is_not(None))
+        .all()
+    )
+    return {UUID(ident) for (ident,) in rows if ident}
+
+
 def setze_abrechnungsstatus(
     session: Session, abrechnung_id: UUID, status: AbrechnungStatus
 ) -> None:

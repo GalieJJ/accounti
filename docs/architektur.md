@@ -155,7 +155,9 @@ eigenes Konto mit Guthaben).
 - `auszahlung.py` — Auszahlung ↔ Bankumsatz exakt (erst alle eindeutigen Treffer, dann
   Befunde), in Fremdwährung mit Stichwort innerhalb `auszahlung_toleranz_prozent`, sonst
   Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`, eine Kursdifferenz auf
-  `kursdifferenz_aufwand`/`_ertrag`.
+  `kursdifferenz_aufwand`/`_ertrag`. „Schon gebucht“ ist nur ein Umsatz, der keinem Posten
+  zugeordnet und nicht bloß Geldbewegung ist; steht er schon auf dem Verrechnungskonto (nach
+  der vorgeschlagenen Korrektur), wird er zugeordnet und nur die Kursdifferenz umgebucht.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
 - `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je

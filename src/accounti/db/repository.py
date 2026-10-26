@@ -1013,6 +1013,27 @@ def gebuchte_transaktion_ids(session: Session) -> set[UUID]:
     return {UUID(tx) for ident, tx, _ in rows if tx and ident not in aufgehoben}
 
 
+def buchungen_zur_transaktion(
+    session: Session, transaktion_id: UUID
+) -> list[Buchungssatz]:
+    """Was am Umsatz gilt: seine Buchungen ohne Storno-Paare am selben Umsatz
+    (dieselbe Regel wie ``gebuchte_transaktion_ids``) — nach einer Korrektur also
+    nur die Neubuchung."""
+    rows = (
+        session.query(BuchungssatzRow)
+        .filter(BuchungssatzRow.transaktion_id == str(transaktion_id))
+        .all()
+    )
+    ids = {r.id for r in rows}
+    aufgehoben = {
+        x
+        for r in rows
+        if r.storno_von is not None and r.storno_von in ids
+        for x in (r.id, r.storno_von)
+    }
+    return [_row_zu_buchung(r) for r in rows if r.id not in aufgehoben]
+
+
 # --- USt-IdNr.-Protokoll (nur anfügen) ------------------------------------------
 
 

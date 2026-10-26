@@ -414,6 +414,8 @@ Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
 er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
 FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`;
 die Bank darf bis `auszahlung_toleranz_prozent` abweichen (Differenz auf die Kursdifferenzkonten).
+Hat eine Regel die Auszahlung schon als Erlös gebucht, nennt der Befund den Befehl zur
+Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab.
 Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
 bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
 Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne

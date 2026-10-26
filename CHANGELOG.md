@@ -495,7 +495,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Zeitraums — eine schon als Erlös gebuchte Auszahlung in der Voranmeldung des Monats der
   Bankbuchung, wo der Erlös doppelt steht (Abrechnung 16.–31.08., Auszahlung 03.09.: UStVA 09);
   in Fremdwährung erkennt der Abgleich sie innerhalb derselben Toleranz wie einen Treffer
-  (vorher nur bei exakt gleichem Betrag, Kz 81 blieb still doppelt). `marktplatz import` und
+  (vorher nur bei exakt gleichem Betrag, Kz 81 blieb still doppelt) — nicht aber den Umsatz,
+  den accounti schon einer anderen Auszahlung zugeordnet hat, und keine Geldbewegung (nur Bank,
+  Verrechnungs-, Geldtransit- und Kursdifferenzkonten): sonst traf die Toleranz den Umsatz der
+  vorigen Auszahlung (eBay 30.09. statt 02.10.), der Befund nannte die richtige Buchung, warnte
+  in der UStVA 09 statt 10, und solange der eigene Umsatz fehlte, stand ein falscher Fehler.
+  Nach der vorgeschlagenen Korrektur (`korrigiere … --soll 1200 --haben 1361 --ohne-steuer`)
+  ordnet der nächste Abgleich den Umsatz zu und erledigt den Befund, statt einen zweiten
+  anzulegen; in Fremdwährung bucht er die Kursdifferenz vom Verrechnungskonto um (vorher blieb
+  die Abrechnung „abweichung“ und die Voranmeldung warnte dauerhaft). `marktplatz import` und
   `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
   Auszahlung buchen); der Jahresabschluss prüft die Verrechnungskonten der Marktplätze
   (1361–1363)
