@@ -160,8 +160,10 @@ def restbuchwerte(
             continue
         wert = plan.restbuchwert(stichtag.year, stichtag.month)
         rbw[a.konto] = rbw.get(a.konto, NULL) + wert
+    # nur Güter bis zum Stichtag — beim abweichenden WJ liegt er mitten im Jahrgang
+    bis_stichtag = [a for a in alle if a.anschaffungsdatum <= stichtag]
     for konto, jahr in sorted(sammelposten):
-        plan = plane_sammelposten(konto, jahr, alle, rechtsstand)
+        plan = plane_sammelposten(konto, jahr, bis_stichtag, rechtsstand)
         wert = plan.restbuchwert(stichtag.year, stichtag.month)
         rbw[konto] = rbw.get(konto, NULL) + wert
     return rbw
