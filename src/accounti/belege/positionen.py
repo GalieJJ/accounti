@@ -12,7 +12,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from accounti.belege.extraktion import Steuerzeile
+from accounti.belege.extraktion import STEUERKENNZEICHEN, Steuerzeile
 from accounti.belege.zahlen import BETRAG, parse_betrag
 from accounti.models import Belegposition
 
@@ -35,12 +35,20 @@ class KartenUmsatz:
 
 
 def positionen_aus_steuerzeilen(
-    beleg_id: UUID, steuerzeilen: list[Steuerzeile]
+    beleg_id: UUID, steuerzeilen: list[Steuerzeile], kennzeichen: str | None = None
 ) -> list[Belegposition]:
+    """Eine Position je Steuersatz; eine 0-%-Position nennt den Steuerfall."""
+
+    def bezeichnung(s: Steuerzeile) -> str:
+        text = f"Netto {s.satz.normalize()} %"
+        if s.satz == 0 and kennzeichen in STEUERKENNZEICHEN:
+            text += f" — {STEUERKENNZEICHEN[kennzeichen]}"
+        return text
+
     return [
         Belegposition(
             beleg_id=beleg_id,
-            bezeichnung=f"Netto {s.satz.normalize()} %",
+            bezeichnung=bezeichnung(s),
             netto=s.netto,
             steuersatz=s.satz,
             steuer_betrag=s.steuer,

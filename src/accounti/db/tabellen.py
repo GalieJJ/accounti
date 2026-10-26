@@ -95,6 +95,7 @@ class BelegRow(Base):
     zahlungsziel: Mapped[date | None] = mapped_column(Date, nullable=True)
     skonto_prozent: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
     skonto_tage: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    steuerkennzeichen: Mapped[str | None] = mapped_column(String(10), nullable=True)
     datei_hash: Mapped[str] = mapped_column(String(64), index=True)
     dateiname: Mapped[str] = mapped_column(String(255))
     kanal: Mapped[str] = mapped_column(String(20))

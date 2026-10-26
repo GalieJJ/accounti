@@ -11,13 +11,14 @@ import io
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import PurePath
 from typing import Any
 
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from accounti.belege.extraktion import Extrakt, extrahiere
+from accounti.belege.extraktion import TOLERANZ, Extrakt, extrahiere
 from accounti.belege.kanaele import RohBeleg
 from accounti.belege.llm import LLMBelegEngine
 from accounti.belege.ocr import OCREngine
@@ -269,12 +270,16 @@ _PFLICHTFELDER: dict[Belegart, tuple[str, ...]] = {
 
 
 def _fehlende_felder(art: Belegart, werte: dict[str, Any]) -> list[str]:
+    """Pflichtfelder ohne Wert. Als Steuerangabe zählt auch ein Hinweis statt des
+    Steuerausweises (§ 13b, ig. Lieferung, § 19, § 4 UStG — ``steuerkennzeichen``)."""
     vorhanden = {
         "Lieferant": werte["lieferant_name"],
         "Belegnummer": werte["belegnummer"],
         "Belegdatum": werte["belegdatum"],
         "Bruttobetrag": werte["brutto"],
-        "Steuerausweis": werte["steuer"],
+        "Steuerausweis": werte["steuer"]
+        if werte["steuer"] is not None
+        else werte.get("steuerkennzeichen"),
     }
     return [f for f in _PFLICHTFELDER.get(art, ()) if vorhanden[f] is None]
 
@@ -308,7 +313,12 @@ class BelegErkenner:
             except ERechnungError as fehler:
                 unlesbar = f"E-Rechnung ({befund.syntax}) nicht lesbar: {fehler}"
             else:
-                return zu_beleg(rechnung, pruefe(rechnung), beleg, self.eigene_ust_ids)
+                erkannt = zu_beleg(
+                    rechnung, pruefe(rechnung), beleg, self.eigene_ust_ids
+                )
+                if rechnung.profil.reduziert and befund.format is Format.ZUGFERD_PDF:
+                    erkannt = self._mit_pdf_steuerzeilen(roh, befund, erkannt)
+                return erkannt
             if befund.format is Format.ERECHNUNG_XML:
                 return beleg.model_copy(
                     update={
@@ -334,6 +344,32 @@ class BelegErkenner:
             )
         return erkannt
 
+    def _mit_pdf_steuerzeilen(
+        self, roh: RohBeleg, befund: FormatBefund, beleg: Beleg
+    ) -> Beleg:
+        """MINIMUM/BASIC WL: Steuersätze aus der PDF-Ansicht, wenn deren Steuerzeilen
+        zu den Summen des XML passen — der Beleg bleibt zur Prüfung."""
+        try:
+            text, _ = hole_text(roh, befund, None)  # ohne OCR: nur die Textebene
+        except ErkennungError:
+            return beleg
+        extrakt = extrahiere(text)
+        if not extrakt.steuerzeilen or beleg.netto is None or beleg.steuer is None:
+            return beleg
+        netto = sum((s.netto for s in extrakt.steuerzeilen), Decimal("0"))
+        steuer = sum((s.steuer for s in extrakt.steuerzeilen), Decimal("0"))
+        if abs(netto - beleg.netto) > TOLERANZ or abs(steuer - beleg.steuer) > TOLERANZ:
+            return beleg
+        return beleg.model_copy(
+            update={
+                "positionen": positionen_aus_steuerzeilen(
+                    beleg.id, extrakt.steuerzeilen, extrakt.steuerkennzeichen
+                ),
+                "steuerkennzeichen": beleg.steuerkennzeichen
+                or extrakt.steuerkennzeichen,
+            }
+        )
+
     def _lies(self, text: str, beleg: Beleg) -> Beleg:
         extrakt = extrahiere(text)
         art = erkenne_belegart(text, extrakt, self.eigene_ust_ids, self.eigene_firma)
@@ -345,7 +381,9 @@ class BelegErkenner:
                 beleg.id, zerlege_kreditkartenabrechnung(text, stichtag)
             )
         elif extrakt.steuerzeilen:
-            positionen = positionen_aus_steuerzeilen(beleg.id, extrakt.steuerzeilen)
+            positionen = positionen_aus_steuerzeilen(
+                beleg.id, extrakt.steuerzeilen, extrakt.steuerkennzeichen
+            )
         else:
             positionen = []
 
@@ -362,6 +400,7 @@ class BelegErkenner:
             "zahlungsziel": extrakt.zahlungsziel,
             "skonto_prozent": extrakt.skonto_prozent,
             "skonto_tage": extrakt.skonto_tage,
+            "steuerkennzeichen": extrakt.steuerkennzeichen,
         }
         fehlend = _fehlende_felder(belegart, werte)
 
@@ -411,7 +450,18 @@ class BelegErkenner:
         if fehlend:
             gruende.append("fehlt: " + ", ".join(fehlend))
         if extrakt.rechenprobe is False:
-            gruende.append("Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto)")
+            gruende.append(
+                "Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto oder Vorzeichen "
+                "uneinheitlich)"
+            )
+        if extrakt.korrektur == "gutschrift" and extrakt.vorzeichen_gedreht:
+            # § 14 Abs. 2 S. 2 UStG: „Gutschrift“ heißt auch die Abrechnung durch den
+            # Leistungsempfänger — die wäre keine Minderung, sondern ein Erlös
+            gruende.append(
+                "Gutschrift mit positiven Beträgen als Minderung (Rechnungskorrektur) "
+                "übernommen — ist es eine Abrechnung des Leistungsempfängers (§ 14 "
+                "Abs. 2 S. 2 UStG), ist sie kein Aufwand: prüfen"
+            )
         if vom_llm:
             gruende.append("vom LLM ergänzt, bitte prüfen: " + ", ".join(vom_llm))
 

@@ -266,3 +266,82 @@ def test_erkenne_erneut_findet_dublette_im_bestand(tmp_path):
         neu = erkenne_erneut(s, archiv, offen[0], BelegErkenner())
     assert neu.status is BelegStatus.ZUR_PRUEFUNG
     assert "Dublette" in neu.pruef_grund
+
+
+# --- Gesamttest Paket C -----------------------------------------------------------
+
+
+def test_reverse_charge_pdf_wird_erfasst():
+    """B06: 0 % mit Hinweis „Steuerschuldnerschaft des Leistungsempfängers“ ist kein
+    fehlender Steuerausweis — der Beleg bleibt nicht in der Prüfung hängen."""
+    from tests.test_belege_extraktion import REVERSE_CHARGE
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(REVERSE_CHARGE))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert b.steuerkennzeichen == "AE"
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz, p.steuer_betrag) == (
+        Decimal("600.00"),
+        Decimal("0"),
+        Decimal("0.00"),
+    )
+    assert "§ 13b" in p.bezeichnung
+
+
+def test_lieferantengutschrift_mit_negativen_betraegen():
+    """B12: Netto, Steuer, Brutto und Position negativ — die Verbuchung dreht."""
+    from tests.test_belege_extraktion import GUTSCHRIFT
+
+    b = _erkenne(BelegErkenner(), pdf_mit_text(GUTSCHRIFT))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert (b.netto, b.steuer, b.brutto) == (
+        Decimal("-200.00"),
+        Decimal("-38.00"),
+        Decimal("-238.00"),
+    )
+    (p,) = b.positionen
+    assert (p.netto, p.steuer_betrag) == (Decimal("-200.00"), Decimal("-38.00"))
+
+
+def test_gutschrift_mit_positiven_betraegen_zur_pruefung():
+    text = (
+        "Rahmenwerk Nord GmbH\nGutschrift\nGutschrift Nr. G-17\n"
+        "Datum: 20.10.2026\nSumme netto 200,00\nzzgl. 19 % USt 38,00\n"
+        "Gesamtbetrag 238,00\n"
+    )
+    b = _erkenne(BelegErkenner(), text.encode(), "g.txt")
+    assert b.brutto == Decimal("-238.00")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "§ 14 Abs. 2 S. 2" in b.pruef_grund
+
+
+def test_zugferd_minimum_nimmt_steuersatz_aus_der_pdf_ansicht():
+    """B05: MINIMUM liefert keinen Satz; die PDF-Ansicht schon — zur Prüfung bleibt
+    der Beleg trotzdem (Buchungshilfe, keine E-Rechnung)."""
+    import io
+
+    from pypdf import PdfReader, PdfWriter
+
+    ansicht = pdf_mit_text(
+        "Druckerei Beispiel GmbH\nRechnung MIN-2026-9\nNettobetrag 1.000,00\n"
+        "zzgl. 19 % USt 190,00\nGesamtbetrag 1.190,00\n"
+    )
+    writer = PdfWriter(clone_from=PdfReader(io.BytesIO(ansicht)))
+    writer.add_attachment("factur-x.xml", (ERECHNUNG / "minimum_cii.xml").read_bytes())
+    puffer = io.BytesIO()
+    writer.write(puffer)
+    b = _erkenne(BelegErkenner(), puffer.getvalue())
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "PROFIL" in b.pruef_grund
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz, p.steuer_betrag) == (
+        Decimal("1000.00"),
+        Decimal("19"),
+        Decimal("190.00"),
+    )
+    nur_xml = _erkenne(
+        BelegErkenner(),
+        pdf_mit_anhang("factur-x.xml", (ERECHNUNG / "minimum_cii.xml").read_bytes()),
+    )
+    (p,) = nur_xml.positionen
+    assert p.steuersatz is None and nur_xml.status is BelegStatus.ZUR_PRUEFUNG

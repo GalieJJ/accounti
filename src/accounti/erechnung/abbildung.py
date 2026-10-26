@@ -150,6 +150,15 @@ def zu_beleg(
     hinweise = [f"Fehler {b}" for b in fehler] + [
         f"Hinweis {b}" for b in befunde if b.schwere is Schwere.WARNUNG
     ]
+    # MINIMUM/BASIC WL sind keine Rechnung nach § 14 Abs. 4 UStG (kein Steuersatz,
+    # keine Leistung) und seit 2025 keine E-Rechnung (BMF 15.10.2024): die Rechnung
+    # ist die PDF-Ansicht — ein Mensch prüft sie, bevor gebucht wird
+    reduziert = r.profil.reduziert
+    if reduziert:
+        hinweise.append(
+            f"Profil {r.profil.value.upper()}: nur Buchungshilfe — Pflichtangaben und "
+            "Steuersatz in der PDF-Ansicht prüfen, dann accounti belege freigeben"
+        )
     skonto = r.skonto
 
     return beleg.model_copy(
@@ -172,8 +181,22 @@ def zu_beleg(
             "skonto_prozent": skonto[0] if skonto else None,
             "skonto_tage": skonto[1] if skonto else None,
             "positionen": positionen,
-            "status": BelegStatus.ZUR_PRUEFUNG if fehler else BelegStatus.ERFASST,
-            "pruef_grund": "; ".join(hinweise) or None,
-            "confidence": 0.5 if fehler else 1.0,
+            "steuerkennzeichen": steuerkennzeichen(r),
+            "status": BelegStatus.ZUR_PRUEFUNG
+            if fehler or reduziert
+            else BelegStatus.ERFASST,
+            "pruef_grund": "; ".join(hinweise)[:500] or None,
+            "confidence": 0.5 if fehler or reduziert else 1.0,
         }
     )
+
+
+def steuerkennzeichen(r: Rechnung) -> str | None:
+    """Steuerfall ohne Steuerausweis aus den Kategorien (UNTDID 5305): AE § 13b,
+    K ig. Lieferung, E steuerfrei — wie der Hinweistext einer PDF-Rechnung."""
+    kategorien = (
+        {z.steuerkategorie for z in r.zeilen}
+        | {za.steuerkategorie for za in r.zu_abschlaege}
+        | {st.kategorie for st in r.steuern}
+    )
+    return next((k for k in ("AE", "K", "E") if k in kategorien), None)

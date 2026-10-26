@@ -2,6 +2,17 @@
 
 Die Regeln sind bewusst vorsichtig — ein leeres Feld ist besser als ein falsches.
 Was hier offen bleibt, darf die LLM-Stufe ergänzen oder der Mensch nachtragen.
+
+Eine Rechnung ohne Umsatzsteuer weist keine Steuer aus, sie trägt einen Hinweis: bei
+§ 13b UStG „Steuerschuldnerschaft des Leistungsempfängers“ (§ 14a Abs. 5 UStG — ein
+Steuerausweis ist dort sogar verboten), bei der ig. Lieferung den Hinweis auf die
+Steuerfreiheit (§ 14a Abs. 3 UStG), beim Kleinunternehmer § 19 UStG, bei steuerfreien
+Leistungen § 4 UStG (§ 14 Abs. 4 Nr. 8 UStG). Eine 0-%-Zeile und dieser Hinweis gelten
+deshalb als Steuerangabe (``steuerkennzeichen``, UNTDID 5305: AE, K, E).
+
+Beträge behalten ihr Vorzeichen: Eine Gutschrift bzw. Rechnungskorrektur des
+Lieferanten mindert Aufwand und Vorsteuer (§ 17 Abs. 1 UStG) — gedruckte Minusbeträge
+werden übernommen, ein Korrekturbeleg mit positiven Beträgen wird negiert.
 """
 
 from __future__ import annotations
@@ -17,11 +28,23 @@ CENT = Decimal("0.01")
 TOLERANZ = Decimal("0.02")  # Rundungsdifferenzen je Steuerzeile
 
 
+NULL = Decimal("0.00")
+
+# Steuerfall ohne Steuerausweis (UNTDID 5305) → Text für Hinweise und Positionen
+STEUERKENNZEICHEN = {
+    "AE": "Steuerschuldnerschaft des Leistungsempfängers (§ 13b UStG)",
+    "K": "steuerfreie innergemeinschaftliche Lieferung (§ 4 Nr. 1 Buchst. b UStG)",
+    "E": "steuerfrei bzw. Kleinunternehmer (§ 4, § 19 UStG)",
+}
+
+
 @dataclass(frozen=True)
 class Steuerzeile:
     satz: Decimal
     netto: Decimal
     steuer: Decimal
+    # 0 %: die Zeile nennt nur „0,00“ — die Bemessungsgrundlage kommt aus den Summen
+    basis_offen: bool = field(default=False, compare=False)
 
 
 @dataclass
@@ -41,6 +64,9 @@ class Extrakt:
     steuer: Decimal | None = None
     brutto: Decimal | None = None
     rechenprobe: bool | None = None
+    steuerkennzeichen: str | None = None  # AE, K, E — Hinweis statt Steuerausweis
+    korrektur: str | None = None  # "gutschrift" oder "korrektur" (Titel des Belegs)
+    vorzeichen_gedreht: bool = False  # positiver Korrekturbeleg → Beträge negiert
 
 
 # ---------------------------------------------------------------------------
@@ -87,7 +113,9 @@ _NETTO = re.compile(
 _BRUTTO = [
     re.compile(p, _I)
     for p in (
-        r"rechnungsbetrag|gesamtbetrag|endbetrag|zahlbetrag|zu\s+zahlen",
+        r"rechnungsbetrag|gesamtbetrag|endbetrag|zahlbetrag|zu\s+zahlen|"
+        r"gutschrifts?betrag|erstattungsbetrag|korrekturbetrag|zu\s+erstatten|"
+        r"gutschrift\s+gesamt",
         r"bruttobetrag|gesamt\s*brutto|summe\s+brutto|\bbrutto\b",
         r"gesamtsumme|\bsumme\b|\btotal\b|\bgesamt\b",
     )
@@ -96,6 +124,55 @@ _ZAHLBAR_BIS = re.compile(
     rf"(?:zahlbar\s+bis\s*(?:zum\s*)?|fällig\s*(?:am|bis)?\s*:?\s*)({DATUM})", _I
 )
 _ZAHLBAR_TAGE = re.compile(r"innerhalb\s+(?:von\s+)?(\d{1,3})\s+tag", _I)
+# Ausdrücklich ohne Skonto — schlägt ein Skonto aus den Stammdaten (0 % ≠ unbekannt)
+_OHNE_ABZUG = re.compile(
+    r"ohne\s+(?:jeden\s+)?(?:skonto|abzug)|rein\s+netto|netto\s+kasse|"
+    r"kein(?:en)?\s+skonto|skonto\s+(?:wird\s+)?nicht\s+gew[äa]hrt",
+    _I,
+)
+# Hinweistexte statt Steuerausweis — die erste passende Art gewinnt
+_KENNZEICHEN: list[tuple[str, re.Pattern[str]]] = [
+    (
+        "AE",
+        re.compile(
+            r"steuerschuldnerschaft\s+des\s+leistungsempf|reverse[\s-]*charge|"
+            r"§\s*13\s*b\b|\b13b\s+ustg|steuerschuld\s+(?:geht\s+)?(?:auf\s+den|"
+            r"beim)\s+leistungsempf|übergang\s+der\s+steuerschuld|autoliquidation|"
+            r"inversione\s+contabile|btw\s+verlegd|omvänd\s+skattskyldighet|"
+            r"odwrotne\s+obciążenie",
+            _I,
+        ),
+    ),
+    (
+        "K",
+        re.compile(
+            r"innergemeinschaftliche\s+lieferung|"
+            r"§\s*4\s*nr\.?\s*1\s*(?:buchst\.?\s*)?b\b|§\s*6\s*a\s+ustg|"
+            r"intra[\s-]community\s+(?:supply|delivery)|"
+            r"livraison\s+intracommunautaire|cessione\s+intracomunitaria",
+            _I,
+        ),
+    ),
+    (
+        "E",
+        re.compile(
+            r"§\s*19\s*(?:abs\.?\s*1\s*)?ustg|kleinunternehmer|"
+            r"(?:umsatz)?steuerfrei\w*\s+(?:nach|gem(?:\.|äß))\s*§\s*4\b|"
+            r"§\s*4\s*nr\.?\s*\d+\s*(?:buchst\.?\s*[a-z]\s*)?ustg|"
+            r"(?:umsatz)?steuerbefreit",
+            _I,
+        ),
+    ),
+]
+# Titel eines Korrekturbelegs (am Zeilenanfang, ohne Betrag in der Zeile)
+_KORREKTUR_TITEL = re.compile(
+    r"^\s*(?:rechnungskorrektur|korrekturrechnung|storno[\s-]*rechnung|"
+    r"rechnungsstorno|gutschrift|credit\s+note)\b",
+    _I,
+)
+_KORREKTUR_EINDEUTIG = re.compile(
+    r"korrektur|storno|credit\s+note", _I
+)  # „Gutschrift“ allein kann auch § 14 Abs. 2 S. 2 UStG sein
 
 
 # ---------------------------------------------------------------------------
@@ -147,28 +224,49 @@ def _betraege(zeile: str) -> list[Decimal]:
 
 
 def _steuerzeile(zeile: str) -> Steuerzeile | None:
+    """Satz, Netto und Steuer einer Steuerzeile — mit dem Vorzeichen des Belegs."""
     prozent = _PROZENT.search(zeile)
     if not (_STEUERWORT.search(zeile) and prozent):
         return None
     satz = Decimal(prozent.group(1).replace(",", "."))
-    if satz <= 0:
-        return None
     rest = zeile[: prozent.start()] + " " + zeile[prozent.end() :]
-    werte = [abs(w) for w in _betraege(rest)]
+    werte = _betraege(rest)
+    if satz == 0:
+        # 0 %: keine Steuer; ein Betrag ungleich 0 ist die Bemessungsgrundlage
+        basis = [w for w in werte if w != 0]
+        if basis:
+            return Steuerzeile(satz, max(basis, key=abs), NULL)
+        return Steuerzeile(satz, NULL, NULL, basis_offen=True)
 
     def passt(netto: Decimal, steuer: Decimal) -> bool:
-        return abs((netto * satz / 100).quantize(CENT) - steuer) <= TOLERANZ
+        return abs((abs(netto) * satz / 100).quantize(CENT) - abs(steuer)) <= TOLERANZ
 
     # Netto, Steuer, Brutto in einer Zeile (Kassenbon)
     if len(werte) >= 3 and werte[0] + werte[1] == werte[2]:
         return Steuerzeile(satz, werte[0], werte[1])
     if len(werte) >= 2:
-        groesser, kleiner = max(werte[-2:]), min(werte[-2:])
+        a, b = werte[-2], werte[-1]
+        groesser, kleiner = (a, b) if abs(a) >= abs(b) else (b, a)
         if passt(groesser, kleiner):
             return Steuerzeile(satz, groesser, kleiner)
     if werte:
         steuer = werte[-1]
         return Steuerzeile(satz, (steuer * 100 / satz).quantize(CENT), steuer)
+    return None
+
+
+def _steuerkennzeichen(text: str) -> str | None:
+    for kennzeichen, muster in _KENNZEICHEN:
+        if muster.search(text):
+            return kennzeichen
+    return None
+
+
+def _korrektur(zeilen: list[str]) -> str | None:
+    """„korrektur“ (Rechnungskorrektur, Storno, Credit Note), „gutschrift“ oder None."""
+    for zeile in zeilen[:40]:
+        if _KORREKTUR_TITEL.match(zeile) and not _BETRAG.search(zeile):
+            return "korrektur" if _KORREKTUR_EINDEUTIG.search(zeile) else "gutschrift"
     return None
 
 
@@ -237,7 +335,9 @@ def extrahiere(text: str) -> Extrakt:
     e.lieferant_ust_id = e.ust_ids[0] if e.ust_ids else None
     e.iban = _finde_iban(text)
 
+    ohne_abzug = False
     for zeile in zeilen:
+        ohne_abzug = ohne_abzug or bool(_OHNE_ABZUG.search(zeile))
         if "skonto" in zeile.lower():
             if (p := _PROZENT.search(zeile)) and e.skonto_prozent is None:
                 e.skonto_prozent = Decimal(p.group(1).replace(",", "."))
@@ -247,6 +347,9 @@ def extrahiere(text: str) -> Extrakt:
             e.zahlungsziel = e.zahlungsziel or parse_datum(m.group(1))
         elif (t := _ZAHLBAR_TAGE.search(zeile)) and e.belegdatum:
             e.zahlungsziel = e.zahlungsziel or e.belegdatum + timedelta(int(t.group(1)))
+    if ohne_abzug and e.skonto_prozent is None:
+        # „ohne Abzug“: ausdrücklich kein Skonto — nicht das des Kontakts nehmen
+        e.skonto_prozent, e.skonto_tage = Decimal("0"), 0
 
     gesehen: set[Decimal] = set()
     for zeile in zeilen:
@@ -255,12 +358,14 @@ def extrahiere(text: str) -> Extrakt:
             gesehen.add(sz.satz)
             e.steuerzeilen.append(sz)
 
+    e.steuerkennzeichen = _steuerkennzeichen(text)
     netto_gefunden = _betrag_nach_label(
         [z for z in zeilen if not _PROZENT.search(z)], _NETTO
     )
     brutto_gefunden = _brutto(zeilen)
-    steuer_summe = sum((s.steuer for s in e.steuerzeilen), Decimal("0.00"))
-    netto_summe = sum((s.netto for s in e.steuerzeilen), Decimal("0.00"))
+    _ergaenze_nullsatz(e, netto_gefunden, brutto_gefunden)
+    steuer_summe = sum((s.steuer for s in e.steuerzeilen), NULL)
+    netto_summe = sum((s.netto for s in e.steuerzeilen), NULL)
 
     e.brutto = brutto_gefunden
     e.steuer = steuer_summe if e.steuerzeilen else None
@@ -275,4 +380,60 @@ def extrahiere(text: str) -> Extrakt:
         e.rechenprobe = abs(e.netto + steuer_summe - brutto_gefunden) <= TOLERANZ and (
             netto_gefunden is None or abs(netto_gefunden - netto_summe) <= TOLERANZ
         )
+    # Netto, Steuer und Brutto tragen dasselbe Vorzeichen — sonst stimmt etwas nicht
+    if not _vorzeichen_einig(e):
+        e.rechenprobe = False
+
+    e.korrektur = _korrektur(zeilen)
+    if e.korrektur and _alle_positiv(e):
+        _negiere(e)
     return e
+
+
+def _ergaenze_nullsatz(
+    e: Extrakt, netto: Decimal | None, brutto: Decimal | None
+) -> None:
+    """0-%-Zeile ohne Bemessungsgrundlage aus den Summen ergänzen; ein Hinweistext
+    ohne 0-%-Zeile wird eine — aber nur, wenn Netto und Brutto nicht widersprechen
+    (sonst ist es eine besteuerte Rechnung, deren Steuerzeile nicht gelesen wurde)."""
+    basis = netto if netto is not None else brutto
+    andere = sum((s.netto for s in e.steuerzeilen if not s.basis_offen), NULL)
+    for i, s in enumerate(e.steuerzeilen):
+        if s.basis_offen and basis is not None:
+            e.steuerzeilen[i] = Steuerzeile(s.satz, basis - andere, NULL)
+    e.steuerzeilen = [s for s in e.steuerzeilen if not s.basis_offen]
+    if (
+        e.steuerkennzeichen is not None
+        and not e.steuerzeilen
+        and basis is not None
+        and (netto is None or brutto is None or abs(netto - brutto) <= TOLERANZ)
+    ):
+        e.steuerzeilen.append(Steuerzeile(Decimal("0"), basis, NULL))
+
+
+def _vorzeichen_einig(e: Extrakt) -> bool:
+    werte = [e.netto, e.steuer, e.brutto] + [
+        w for s in e.steuerzeilen for w in (s.netto, s.steuer)
+    ]
+    gesetzt = [w for w in werte if w]
+    return not (any(w > 0 for w in gesetzt) and any(w < 0 for w in gesetzt))
+
+
+def _alle_positiv(e: Extrakt) -> bool:
+    werte = [w for w in (e.netto, e.steuer, e.brutto) if w]
+    return bool(werte) and all(w > 0 for w in werte)
+
+
+def _negiere(e: Extrakt) -> None:
+    """Korrekturbeleg mit positiven Beträgen: als Minderung übernehmen."""
+    e.steuerzeilen = [
+        Steuerzeile(s.satz, _minus(s.netto), _minus(s.steuer)) for s in e.steuerzeilen
+    ]
+    e.netto = _minus(e.netto) if e.netto is not None else None
+    e.steuer = _minus(e.steuer) if e.steuer is not None else None
+    e.brutto = _minus(e.brutto) if e.brutto is not None else None
+    e.vorzeichen_gedreht = True
+
+
+def _minus(wert: Decimal) -> Decimal:
+    return -wert if wert else wert  # keine „-0.00“

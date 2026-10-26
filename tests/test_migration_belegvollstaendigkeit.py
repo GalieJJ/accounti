@@ -142,7 +142,9 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     db = tmp_path / "alt.db"
     _alter_stand(db)
     _ok(_alembic(db, "upgrade", "head"))
-    _ok(_alembic(db, "downgrade", "-1"))
+    # zurück auf den Stand vor Baustein 7 — nicht „-1“: spätere Revisionen liegen
+    # darüber (z. B. 46371a6681c2, Steuerkennzeichen am Beleg)
+    _ok(_alembic(db, "downgrade", VOR))
     tabellen, trigger, indizes, spalten = _schema(db)
     assert not tabellen & NEU and not trigger & TRIGGER
     assert not {"storniert_durch", "storno_von"} & spalten
