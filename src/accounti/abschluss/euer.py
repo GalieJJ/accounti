@@ -14,7 +14,9 @@ Die Zeilen ab „Ermittlung des Gewinns“ (Hinzurechnungen, Kürzungen, § 7g, 
 berechnet accounti nicht.
 
 Abweichendes Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``): Die EÜR umfasst das
-Wirtschaftsjahr, Vordruck des Kalenderjahres seines Endes. Land- und Forstwirte — auch
+Wirtschaftsjahr, Vordruck des Kalenderjahres seines **Beginns** — die Anlage EÜR 2025
+gilt für das Kalenderjahr 2025 bzw. das Wirtschaftsjahr 2025/2026 (Kz 131
+„abweichender Beginn TTMM 2025“, BMF 29.08.2025). Land- und Forstwirte — auch
 mit EÜR (§ 4a Abs. 1 Satz 2 Nr. 1 EStG) — verteilen den Gewinn zeitanteilig auf die
 beiden Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG, ohne Veräußerungsgewinne); accounti
 rechnet die Verteilung nach Monaten als Hinweis aus, trägt sie aber in keinen Vordruck
@@ -143,7 +145,9 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
     if susa.gewinnermittlung != "euer":
         msg = f"Gewinnermittlung ist {susa.gewinnermittlung} — keine EÜR"
         raise EuerError(msg)
-    vordruck_jahr, v = _vordruck(susa.jahr)
+    # das Jahr des WJ-Beginns bestimmt den Vordruck (beim Kalenderjahr dasselbe)
+    gesucht = susa.wirtschaftsjahr.von.year
+    vordruck_jahr, v = _vordruck(gesucht)
     euer = Euer(
         susa.jahr,
         vordruck_jahr,
@@ -154,9 +158,9 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
         entnahmen_zeile=v["entnahmen"][0],
         einlagen_zeile=v["einlagen"][0],
     )
-    if vordruck_jahr != susa.jahr:
+    if vordruck_jahr != gesucht:
         euer.hinweise.append(
-            f"Für {susa.jahr} ist kein Vordruck hinterlegt — Zeilen nach dem "
+            f"Für {gesucht} ist kein Vordruck hinterlegt — Zeilen nach dem "
             f"Vordruck {vordruck_jahr}"
         )
     zeilen: dict[tuple[str, str], EuerZeile] = {}

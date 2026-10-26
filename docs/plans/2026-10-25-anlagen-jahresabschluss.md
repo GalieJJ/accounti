@@ -197,8 +197,11 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   `--jahr` ist das **Kalenderjahr des WJ-Endes** (2026 = 01.07.2025–30.06.2026; so gilt der
   Gewinn bei Gewerbetreibenden als bezogen, § 4a Abs. 2 Nr. 2 EStG). Summen- und Saldenliste,
   Abschlussprüfungen (Stichtag WJ-Ende), Abgrenzungen (Abgrenzung zum WJ-Ende, Auflösung zum
-  WJ-Beginn), Eröffnungssalden (am WJ-Beginn), EÜR und `abschluss buchen` (AfA-Lauf in beiden
-  berührten Kalenderjahren) rechnen das Wirtschaftsjahr. Grenzen: **Saldovortrag und
+  WJ-Beginn), Eröffnungssalden (am WJ-Beginn), EÜR (Vordruck des Jahres des **WJ-Beginns**:
+  Anlage EÜR 2025 für 2025/2026, Kz 131 „abweichender Beginn TTMM 2025“, BMF 29.08.2025) und
+  `abschluss buchen` (AfA-Lauf in beiden berührten Kalenderjahren, je Abschnitt: im
+  Kalenderjahr des Beginns ab dem WJ-Beginn, sonst bis zum WJ-Ende) rechnen das
+  Wirtschaftsjahr. Grenzen: **Saldovortrag und
   Jahressperre** gelten je Kalenderjahr (das Sperrjahr steckt im Buchungsdatum, auch für
   Kasse, Anlagen, Perioden und Verbuchung) — bei abweichendem WJ lehnt `abschluss vortrag`
   ab, statt das falsche Halbjahr zu sperren; den Abschluss macht der Steuerberater. Der

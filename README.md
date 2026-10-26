@@ -457,7 +457,9 @@ accounti abschluss oeffnen --jahr 2026 --grund "Nachbuchung Beleg 4711" --von "E
 Wirtschaftsjahr über das **Kalenderjahr seines Endes**: `abschluss susa --jahr 2026` ist bei Beginn
 1. Juli der Zeitraum 01.07.2025–30.06.2026 (ebenso `pruefen`, `buchen`, `abgrenzungen`, `euer`,
 `eroeffnung`). Saldovortrag und Jahressperre gibt es dort noch nicht (`vortrag` lehnt ab); die EÜR
-nennt die zeitanteilige Verteilung nach § 4a Abs. 2 Nr. 1 EStG nur als Hinweis.
+folgt dem Vordruck des Jahres, in dem das Wirtschaftsjahr **beginnt** (Anlage EÜR 2025 für
+2025/2026, also für `--jahr 2026`), und nennt die zeitanteilige Verteilung nach § 4a Abs. 2 Nr. 1
+EStG nur als Hinweis.
 
 Grenzbeträge (GWG, Sammelposten, degressive Fenster) gelten **ab dem Anschaffungstag** — ein Zugang
 aus 2015 rechnet mit 410 €, einer aus 2026 mit 800 €. Abschlussbuchungen sind immer Vorschläge zur

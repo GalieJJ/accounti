@@ -142,7 +142,7 @@ def test_euer_mit_verteilung_nach_paragraf_4a(make_session, tmp_path):
     with make_session() as s:
         susa = summen_und_salden(s, 2026, kr, "euer", wj=einst.wirtschaftsjahr(2026))
     e = erstelle_euer(susa, kr)
-    assert e.gewinn == D("800") and e.vordruck_jahr <= 2026
+    assert e.gewinn == D("800")
     (hinweis,) = [h for h in e.hinweise if "§ 4a" in h]
     assert "2025/2026 (01.07.2025–30.06.2026)" in hinweis
     assert "2025: 400,00 € (6 Monate), 2026: 400,00 € (6 Monate)" in hinweis
@@ -384,3 +384,22 @@ def test_aenderung_rechnet_jeden_abschnitt_neu(make_session, tmp_path):
         (2026, 7, 12, D("60")),
         (2027, 1, 6, D("60")),
     ]
+
+
+def test_euer_vordruck_des_jahres_des_wirtschaftsjahresbeginns(make_session, tmp_path):
+    """Nachprüfung F, N2: Die Anlage EÜR 2025 gilt für das Kalenderjahr 2025 bzw. das
+    Wirtschaftsjahr 2025/2026 (Kz 131 „abweichender Beginn TTMM 2025“, BMF
+    29.08.2025) — maßgeblich ist das Jahr des WJ-Beginns, nicht des Endes."""
+    einst = lade_abschluss(_config(tmp_path))
+    kr = einst.lade_kontenrahmen()
+    _drei_buchungen(make_session)
+    with make_session() as s:
+        wj26 = summen_und_salden(s, 2026, kr, "euer", wj=einst.wirtschaftsjahr(2026))
+        wj27 = summen_und_salden(s, 2027, kr, "euer", wj=einst.wirtschaftsjahr(2027))
+        kj26 = summen_und_salden(s, 2026, kr, "euer")
+    e = erstelle_euer(wj26, kr)
+    assert (e.jahr, e.vordruck_jahr, e.gewinn_zeilen) == (2026, 2025, (76, 77))
+    assert not [h for h in e.hinweise if "kein Vordruck" in h]
+    assert erstelle_euer(wj27, kr).vordruck_jahr == 2026
+    # Kalenderjahr unverändert
+    assert erstelle_euer(kj26, kr).vordruck_jahr == 2026
