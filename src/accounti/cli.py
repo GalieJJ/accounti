@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from accounti.bank.lauf import KontoAbruf
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
+    from accounti.buchung.kontierung import Kontierungslauf
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
@@ -2225,6 +2226,7 @@ def bank_lauf_befehl(
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
         KlassifikationsEngine,
         RegelwerkEngine,
@@ -2236,6 +2238,7 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2256,7 +2259,9 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
-            ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
+            ergebnis = bank_lauf(
+                s, engine, einstellungen, sichern=s.commit, integrationen=integrationen
+            )
             s.commit()
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2270,6 +2275,7 @@ def bank_lauf_befehl(
         f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
+    _marktplatz_hinweis(k)
 
 
 # ---------------------------------------------------------------------------
@@ -2286,6 +2292,7 @@ def classify(
 
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
         KlassifikationsEngine,
         RegelwerkEngine,
@@ -2297,6 +2304,7 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2321,12 +2329,24 @@ def classify(
     with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        lauf = kontiere_umsaetze(s, engine, einstellungen)
+        lauf = kontiere_umsaetze(s, engine, einstellungen, integrationen)
         s.commit()
     console.print(
         f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "
         f"[yellow]{lauf.offen}[/yellow] offen."
     )
+    _marktplatz_hinweis(lauf)
+
+
+def _marktplatz_hinweis(lauf: "Kontierungslauf") -> None:
+    """Offen gelassene Marktplatz-Auszahlungen: was zu tun ist (Steuer B2)."""
+    from rich.markup import escape
+
+    from accounti.buchung.marktplatz import hinweis
+
+    if lauf.marktplatz:
+        text = hinweis(lauf.marktplaetze, lauf.marktplatz)
+        console.print(f"[yellow]{escape(text)}[/yellow]")
 
 
 # ---------------------------------------------------------------------------

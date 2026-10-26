@@ -256,7 +256,12 @@ def test_laeufe_anstossen(welt):
     r = client.post("/api/v1/laeufe/bank", headers=bearer(token))
     assert r.status_code == 200, r.text
     assert r.json()["lauf"] == "bank"
-    assert set(r.json()["kontierung"]) == {"kontiert", "mit_beleg", "offen"}
+    assert set(r.json()["kontierung"]) == {
+        "kontiert",
+        "mit_beleg",
+        "offen",
+        "marktplatz",
+    }
     r = client.post("/api/v1/laeufe/aufgaben", headers=bearer(token))
     assert r.status_code == 200, r.text
     assert r.json()["lauf"] == "aufgaben"

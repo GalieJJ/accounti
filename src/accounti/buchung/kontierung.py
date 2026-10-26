@@ -2,16 +2,18 @@
 
 Ein Umsatz mit bestätigtem Beleg wird aus dem Beleg gebucht; alle anderen gehen wie
 bisher durch Regelwerk und LLM. Schon gebuchte und offenen Posten zugeordnete Umsätze
-bleiben unangetastet, ebenso solche mit offenem Beleg-Vorschlag.
+bleiben unangetastet, ebenso solche mit offenem Beleg-Vorschlag und solche, die der
+Marktplatz-Abgleich erwartet (``buchung.marktplatz``).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
 from accounti.buchung.mapper import zu_buchungssatz
+from accounti.buchung.marktplatz import Marktplatzauszahlungen
 from accounti.buchung.mit_beleg import kontiere_mit_beleg
 from accounti.db.repository import (
     lade_abgleiche,
@@ -19,6 +21,7 @@ from accounti.db.repository import (
     lade_kontakte,
     speichere_buchung,
 )
+from accounti.integrationen.einstellungen import Integrationen
 from accounti.klassifikation.engine import KlassifikationsEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.models import AbgleichStatus
@@ -30,12 +33,22 @@ class Kontierungslauf:
     kontiert: int = 0
     mit_beleg: int = 0
     offen: int = 0
+    marktplatz: int = 0  # davon offen, weil der Marktplatz-Abgleich sie erwartet
+    marktplaetze: set[str] = field(default_factory=set)
 
 
 def kontiere_umsaetze(
-    session: Session, engine: KlassifikationsEngine, einstellungen: Buchhaltung
+    session: Session,
+    engine: KlassifikationsEngine,
+    einstellungen: Buchhaltung,
+    integrationen: Integrationen | None = None,
 ) -> Kontierungslauf:
+    """``integrationen``: Stichworte und Konten der Marktplätze (Standard ohne
+    Konfiguration) — Auszahlungen bleiben offen, bis die Abrechnung sie abgleicht."""
     lauf = Kontierungslauf()
+    markt = Marktplatzauszahlungen(
+        session, integrationen or Integrationen(), einstellungen.bank_konto
+    )
     abgleiche = {
         a.transaktion_id: a
         for a in lade_abgleiche(session, status={AbgleichStatus.BESTAETIGT})
@@ -52,6 +65,13 @@ def kontiere_umsaetze(
                 speichere_buchung(session, buchung)
             lauf.kontiert += 1
             lauf.mit_beleg += 1
+            continue
+        marktplatz = markt.marktplatz(tx)
+        if marktplatz is not None:
+            # Geldbewegung, deren Erlöse die Abrechnung bucht (Steuer B2)
+            lauf.offen += 1
+            lauf.marktplatz += 1
+            lauf.marktplaetze.add(marktplatz)
             continue
         ergebnis = engine.klassifiziere(tx)
         if ergebnis is None:

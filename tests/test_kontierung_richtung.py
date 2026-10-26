@@ -11,8 +11,20 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from typer.testing import CliRunner
 
+from accounti.belege.archiv import BelegArchiv
+from accounti.buchung.kontierung import kontiere_umsaetze
 from accounti.buchung.mapper import zu_buchungssatz
+from accounti.db import init_db, session_factory
+from accounti.db.repository import lade_buchungen, speichere_transaktion
+from accounti.importers.marktplatz import lies_laenderdatei
+from accounti.integrationen.einstellungen import (
+    Integrationen,
+    Kontext,
+    lade_integrationen,
+)
+from accounti.integrationen.lauf import importiere
 from accounti.klassifikation.engine import (
     STANDARD_REGELN,
     KlassifikationsEngine,
@@ -21,7 +33,7 @@ from accounti.klassifikation.engine import (
     standard_regeln,
 )
 from accounti.klassifikation.regeln_loader import lade_regeln
-from accounti.konfiguration import KonfigurationError
+from accounti.konfiguration import Buchhaltung, KonfigurationError
 from accounti.models import (
     BuchungStatus,
     Klassifikationsergebnis,
@@ -300,3 +312,154 @@ def test_standardregeln_skr03_ohne_vorsteuer_auf_miete_und_aws():
 def test_standardregeln_unbekannter_kontenrahmen_keine():
     assert standard_regeln("SKR99") == []
     assert [r.soll_konto for r in standard_regeln("skr04")][0] == "1800"
+
+
+def test_classify_skr04_bucht_keine_skr03_konten(tmp_path, monkeypatch):
+    """Repro betrieb/07: SKR04-Gesellschaft ohne eigene Regeln."""
+    monkeypatch.chdir(tmp_path)  # keine config/regeln.yaml: nur Standardregeln
+    konfig = tmp_path / "skr04.yaml"
+    konfig.write_text(
+        "buchhaltung:\n  kontenrahmen: SKR04\n  bank_konto: '1800'\n", encoding="utf-8"
+    )
+    csv = tmp_path / "b.csv"
+    csv.write_text(
+        "Auftragskonto;Buchungstag;Valutadatum;Buchungstext;Verwendungszweck;"
+        "Begünstigter/Zahlungspflichtiger;Kontonummer;BLZ;Betrag;Währung;Info\n"
+        "DE89370400440532013000;10.08.25;10.08.25;LASTSCHRIFT;AWS EMEA HOSTING 08/25;"
+        "Amazon Web Services EMEA SARL;LU98765432;BARCLUXX;-89,50;EUR;x\n"
+        "DE89370400440532013000;12.08.25;12.08.25;GUTSCHRIFT;AUSZAHLUNG;"
+        "Amazon Payments Europe S.C.A.;LU12345678;BARCLUXX;1.250,00;EUR;x\n"
+        "DE89370400440532013000;14.08.25;14.08.25;DAUERAUFTRAG;MIETE BUERO 08/25;"
+        "Vermieter GmbH;DE55500105175438614569;INGDDEFFXXX;-1.200,00;EUR;x\n",
+        encoding="utf-8",
+    )
+    url = f"sqlite:///{(tmp_path / 'sued.db').as_posix()}"
+    runner = CliRunner()
+    from accounti.cli import app
+
+    assert runner.invoke(app, ["import", "bank", str(csv), "--db", url]).exit_code == 0
+    r = runner.invoke(
+        app, ["classify", "--no-llm", "--db", url, "--config", str(konfig)]
+    )
+    assert r.exit_code == 0, r.output
+    assert "Marktplatz" in r.output  # die Amazon-Auszahlung bleibt offen
+    engine, make = session_factory(url)
+    with make() as s:
+        gebucht = sorted(
+            (b.soll_konto, b.haben_konto, b.steuer_schluessel, b.status)
+            for b in lade_buchungen(s)
+        )
+    engine.dispose()
+    assert gebucht == [
+        ("6300", "1800", None, PRUEFUNG),
+        ("6310", "1800", None, PRUEFUNG),
+    ]
+
+
+# --- Steuer B2: Marktplatz-Auszahlungen bleiben für den Abgleich offen -------------
+
+
+@pytest.fixture
+def marktplatz(tmp_path):
+    engine, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    init_db(engine)
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
+        buchhaltung=Buchhaltung(),
+        oss_registriert=True,
+    )
+    with make() as s:
+        yield s, BelegArchiv(tmp_path / "archiv"), kontext
+    engine.dispose()
+
+
+def _engine() -> KlassifikationsEngine:
+    return KlassifikationsEngine(
+        RegelwerkEngine(lade_regeln(REGELN) + standard_regeln())
+    )
+
+
+def test_classify_vor_dem_marktplatzimport_bucht_keine_auszahlung(marktplatz):
+    """Repro steuer/f_classify_vor_markt: erst classify, dann der Import."""
+    s, archiv, kontext = marktplatz
+    amazon = tx(
+        "209.85",
+        "AMAZON PAYMENTS EUROPE 11223344556",
+        "Amazon Payments Europe S.C.A.",
+        datum=date(2026, 8, 17),
+    )
+    shopify = tx(
+        "125.39",
+        "SHOPIFY PAYMENTS 87654321098",
+        "Shopify International Ltd.",
+        datum=date(2026, 8, 21),
+    )
+    aws = tx("-89.50", "AMAZON WEB SERVICES", "AWS EMEA SARL", datum=date(2026, 8, 3))
+    for t in (amazon, shopify, aws):
+        speichere_transaktion(s, t)
+    s.flush()
+    lauf = kontiere_umsaetze(s, _engine(), Buchhaltung(), kontext.einstellungen)
+    assert (lauf.kontiert, lauf.offen, lauf.marktplatz) == (1, 2, 2)
+    assert {b.transaktion_id for b in lade_buchungen(s)} == {aws.id}
+    laender = lies_laenderdatei((FIXTURES / "amazon_bestellungen.txt").read_bytes())
+    roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
+    importiere(s, archiv, kontext, "amazon", roh, "a.txt", laender=laender)
+    (auszahlung,) = [b for b in lade_buchungen(s) if b.transaktion_id == amazon.id]
+    assert (auszahlung.soll_konto, auszahlung.haben_konto) == ("1200", "1361")
+    assert auszahlung.steuer_schluessel is None
+
+
+def test_offener_abgleich_haelt_auch_eine_einzahlung_zurueck(marktplatz):
+    """Ein Umsatz, den der Marktplatz-Abgleich erwartet (offener Posten der
+    Abrechnung, auch mit Befund), wird nicht nach Regeln gebucht."""
+    s, archiv, kontext = marktplatz
+    roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
+    importiere(s, archiv, kontext, "amazon", roh, "a.txt")  # Bank fehlt noch
+    abweichend = tx(  # anderer Betrag, aber Abrechnungsnummer: Befund, nicht Erlös
+        "209.80", "GUTSCHRIFT 11223344556", "Bank", datum=date(2026, 8, 18)
+    )
+    fremd = tx("209.85", "MIETE UNTERVERMIETUNG", "Meier", datum=date(2026, 8, 18))
+    for t in (abweichend, fremd):
+        speichere_transaktion(s, t)
+    s.flush()
+    lauf = kontiere_umsaetze(s, _engine(), Buchhaltung(), kontext.einstellungen)
+    gebucht = {b.transaktion_id for b in lade_buchungen(s)}
+    assert abweichend.id not in gebucht and fremd.id not in gebucht
+    assert lauf.marktplatz == 2
+
+
+def test_ohne_stichwort_wird_wieder_kontiert(marktplatz):
+    s, _archiv, _kontext = marktplatz
+    eingang = tx("450.00", "PAYPAL EUROPE GUTSCHRIFT 12345ABC", "PayPal Europe")
+    speichere_transaktion(s, eingang)
+    s.flush()
+    integrationen = Integrationen()
+    integrationen.marktplaetze["paypal"].bank_stichworte = []
+    lauf = kontiere_umsaetze(s, _engine(), Buchhaltung(), integrationen)
+    assert lauf.marktplatz == 0 and lauf.kontiert == 1
+    (b,) = lade_buchungen(s)
+    # mitgelieferte Regel: Geldtransit ohne Umsatzsteuer, zur Prüfung
+    assert (b.soll_konto, b.haben_konto, b.steuer_schluessel, b.status) == (
+        "1200",
+        "1360",
+        None,
+        PRUEFUNG,
+    )
+
+
+def test_paypal_konto_selbst_wird_kontiert(marktplatz):
+    """Umsätze des PayPal-Kontos (Import der Aktivitäten) sind keine Auszahlung."""
+    s, _archiv, _kontext = marktplatz
+    rueck = tx(
+        "45.00",
+        "Rückzahlung Druckerpapier Bürobedarf",
+        "Papier GmbH",
+        quelle=TransaktionQuelle.PAYPAL,
+        sachkonto="1210",
+    )
+    speichere_transaktion(s, rueck)
+    s.flush()
+    lauf = kontiere_umsaetze(s, _engine(), Buchhaltung())
+    assert lauf.marktplatz == 0
+    (b,) = lade_buchungen(s)
+    assert (b.soll_konto, b.haben_konto, b.status) == ("1210", "4930", PRUEFUNG)

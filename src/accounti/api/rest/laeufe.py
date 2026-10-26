@@ -29,6 +29,7 @@ LaufRecht = Annotated[Zugang, Depends(erfordert_recht(TokenRecht.LAEUFE_STARTEN)
 def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
         KlassifikationsEngine,
         RegelwerkEngine,
@@ -49,6 +50,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
         buchhaltung,
         bank_einstellungen=lade_bank_einstellungen(g.konfiguration),
         sichern=s.commit,
+        integrationen=lade_integrationen(g.konfiguration),
     )
     s.commit()
     z, a, k = ergebnis.zuordnung, ergebnis.abgleich, ergebnis.kontierung
@@ -76,6 +78,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
             "kontiert": k.kontiert,
             "mit_beleg": k.mit_beleg,
             "offen": k.offen,
+            "marktplatz": k.marktplatz,  # davon offen bis zum Marktplatz-Abgleich
         },
     }
 

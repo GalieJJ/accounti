@@ -445,6 +445,17 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   falschen Seite → tauschen und zur Prüfung; keine Seite das Bankkonto → zur Prüfung. Neue
   Regelfelder `pruefen` (Treffer immer zur Prüfung) und `confidence`; ein falscher Wert in der
   Regeldatei ist ein Konfigurationsfehler mit Regelname
+- **`classify` buchte Marktplatz-Auszahlungen vor dem Abgleich** (Gesamttest Steuer B2,
+  Teil Kontierung): Eine Amazon-Auszahlung wurde nach Regel Erlös 8400 mit Umsatzsteuer
+  (Erlös doppelt in Kz 81), eine Shopify-Auszahlung Aufwand mit Vorsteuer. `classify`,
+  `bank lauf` und `POST /laeufe/bank` lassen jetzt offen, was der Marktplatz-Abgleich
+  erwartet — Zahlungseingänge mit einem Stichwort aus
+  `integrationen.marktplaetze.<name>.bank_stichworte` und Umsätze zu einer offenen Aus- oder
+  Einzahlung einer importierten Abrechnung (auch mit Abgleichsbefund: Zeitfenster,
+  Vorzeichen, Stichwort, Abrechnungsnummer oder genauer Betrag) — und sagen, was zu tun ist
+  (`marktplatz import`; ohne Marktplatz-Import `bank_stichworte: []`). Umsätze des
+  PayPal-Kontos selbst kontiert `classify` weiter. Neu: `kontierung.marktplatz` in der
+  Antwort von `POST /laeufe/bank`
 - **Standardregeln im SKR03 auch für SKR04-Gesellschaften** (Gesamttest Betrieb B3): Die
   eingebauten Regeln kommen aus `standard_regeln(kontenrahmen, bank_konto)` — SKR04-Fassung
   (Bank 1800, Miete 6310, Versicherung 6400, Sonstiges 6300, Geldtransit 1460), für andere
