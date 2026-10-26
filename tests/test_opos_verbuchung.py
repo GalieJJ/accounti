@@ -769,3 +769,222 @@ def test_13b_nachtraeglich_auf_belegbuchung_setzen(umgebung):
         )
         with pytest.raises(StornoError, match="hat einen Beleg"):
             korrigiere(s, str(sieben.id), "4900", "70000", steuer=8, grund="x")
+
+
+def test_fremdrechnung_ueber_gleiche_iban_wird_neuer_kreditor(umgebung):
+    """B14: gleiche (Factoring-)IBAN, andere USt-IdNr. → nicht Müller, neuer
+    Kreditor zur Prüfung, Buchung zur Prüfung, Hinweis auf die IBAN."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Bürobedarf Müller GmbH",
+                kreditor_konto="70000",
+                iban="DE89370400440532013000",
+                ust_id="DE123456789",
+                sachkonto="4930",
+            ),
+        )
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                belegnummer="PK-777",
+                lieferant_name="Papierhaus Kiel GmbH",
+                lieferant_ust_id="DE222222222",
+            ),
+        )
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert v.kontakt_neu and v.treffer.kontakt.kreditor_konto == "70001"
+    assert v.treffer.kontakt.status is KontaktStatus.ZUR_PRUEFUNG
+    assert "Factoring" in v.treffer.kontakt.pruef_grund
+    assert all(b.status is BuchungStatus.ZUR_PRUEFUNG for b in v.buchungen)
+    assert {b.haben_konto for b in v.buchungen} == {"70001"}
+    assert any("IBAN" in h for h in v.hinweise)
+
+
+def test_gleiche_iban_anderer_name_bucht_zur_pruefung(umgebung):
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Bürobedarf Müller GmbH",
+                kreditor_konto="70000",
+                iban="DE89370400440532013000",
+                sachkonto="4930",
+            ),
+        )
+        speichere_beleg(
+            s,
+            eingangsrechnung(
+                lieferant_name="Papierhaus Kiel GmbH", lieferant_ust_id=None
+            ),
+        )
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert not v.kontakt_neu and v.treffer.kontakt.kreditor_konto == "70000"
+    assert all(b.status is BuchungStatus.ZUR_PRUEFUNG for b in v.buchungen)
+    with make_session() as s:  # nichts aus dem fremden Beleg übernommen
+        (k,) = lade_kontakte(s)
+    assert k.ust_id is None
+
+
+def test_namensgleiche_eu_kunden_bleiben_zwei_debitoren_zm_je_ustid(umgebung):
+    """Ausgang B1: Atelier Nord SARL (FR) und SRL (IT) — zwei Debitoren, die ZM
+    meldet beide USt-IdNr. getrennt."""
+    from accounti.db.repo_elster import lade_beleg_partner
+    from accounti.db.repository import setze_status
+    from accounti.models import Rechnungsempfaenger
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+    from accounti.steuer.zusammenfassende_meldung import erstelle_zm
+
+    make_session, archiv = umgebung
+    fr = Rechnungsempfaenger(
+        name="Atelier Nord SARL",
+        strasse="1 Rue A",
+        plz="75001",
+        ort="Paris",
+        land="FR",
+        ust_id="FR40303265045",
+        email="a@nord-fr.example",
+    )
+    it = Rechnungsempfaenger(
+        name="Atelier Nord SRL",
+        strasse="Via B 2",
+        plz="00100",
+        ort="Roma",
+        land="IT",
+        ust_id="IT00743110157",
+        email="b@nord-it.example",
+    )
+    with make_session() as s:
+        bestaetige(s, fr.ust_id, jetzt=VORTAG)
+        bestaetige(s, it.ust_id, jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(make_session, archiv, entwurf(fr, pos("Bild A", "1000")))
+    _ausgangsrechnung(make_session, archiv, entwurf(it, pos("Bild B", "2000")))
+    verbucht = _verbuche(make_session, archiv=archiv)
+    assert [v.treffer.kontakt.debitor_konto for v in verbucht] == ["10000", "10001"]
+    with make_session() as s:
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies("2026-Q1"),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+            lade_beleg_partner(s),
+        )
+    zm = erstelle_zm(e)
+    assert [(z.ust_id, z.art, z.betrag) for z in zm.zeilen] == [
+        ("FR40303265045", "L", Decimal("1000")),
+        ("IT00743110157", "L", Decimal("2000")),
+    ]
+
+
+def test_zm_nimmt_die_ustid_der_rechnung_nicht_die_des_kontakts(umgebung):
+    """Ausgang B1: auch wenn der Kontakt (schon vermischt) eine andere USt-IdNr.
+    trägt, meldet die ZM die der Rechnung."""
+    from accounti.db.repo_elster import lade_beleg_partner
+    from accounti.db.repository import aktualisiere_kontakt, setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+    from accounti.steuer.zusammenfassende_meldung import erstelle_zm
+
+    make_session, archiv = umgebung
+    k = kunde(land="FR", ust_id="FR12345678901")
+    with make_session() as s:
+        bestaetige(s, k.ust_id, jetzt=VORTAG)
+        s.commit()
+    _ausgangsrechnung(make_session, archiv, entwurf(k, pos("Rahmen", "100")))
+    _verbuche(make_session, archiv=archiv)
+    with make_session() as s:
+        (kontakt,) = lade_kontakte(s)
+        aktualisiere_kontakt(s, kontakt.model_copy(update={"ust_id": "IT00743110157"}))
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies("2026-03"),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+            lade_beleg_partner(s),
+        )
+    (zeile,) = erstelle_zm(e).zeilen
+    assert zeile.ust_id == "FR12345678901"
+
+
+def test_oss_land_aus_der_rechnung_und_steuer_auf_dem_oss_konto(umgebung):
+    """Ausgang B1 (OSS): zwei Privatkundinnen „Anna Rossi“ (AT, IT) — zwei Debitoren,
+    Erlöskonto nach dem Land der Rechnung, die ausländische Steuer nicht verworfen."""
+    from accounti.konfiguration import Firma
+    from accounti.models import Rechnungsempfaenger
+
+    make_session, archiv = umgebung
+    firma = Firma.model_validate({**FIRMA.model_dump(), "oss": True})
+    wien = Rechnungsempfaenger(
+        name="Anna Rossi",
+        strasse="Gasse 1",
+        plz="1010",
+        ort="Wien",
+        land="AT",
+        email="a@at.example",
+        privat=True,
+    )
+    rom = Rechnungsempfaenger(
+        name="Anna Rossi",
+        strasse="Via 2",
+        plz="00100",
+        ort="Roma",
+        land="IT",
+        email="b@it.example",
+        privat=True,
+    )
+    for e in (entwurf(wien, pos("Druck", "100")), entwurf(rom, pos("Druck", "1000"))):
+        with make_session() as s:
+            speichere_ausgangsrechnung(s, e)
+            stelle_aus(s, archiv, str(e.id)[:8], firma, date(2026, 3, 10))
+            s.commit()
+    verbucht = _verbuche(make_session, archiv=archiv)
+    assert len({v.treffer.kontakt.id for v in verbucht}) == 2
+    rom_buchungen = verbucht[1].buchungen
+    konten = sorted((b.haben_konto, b.betrag_netto) for b in rom_buchungen)
+    assert konten == [("177722", Decimal("220.00")), ("8321", Decimal("1000.00"))]
+    assert verbucht[1].posten.betrag == Decimal("1220.00")
+
+
+def test_gleichnamige_privatkunden_werden_zwei_debitoren(umgebung):
+    """Ausgang B1: „Max Müller“ in München und Berlin — zwei Debitoren (Mahnung an die
+    richtige Anschrift); der zweite zur Prüfung mit Hinweis auf den gleichnamigen."""
+    from accounti.models import Rechnungsempfaenger
+
+    make_session, archiv = umgebung
+
+    def mueller(strasse, plz, ort, email):
+        return Rechnungsempfaenger(
+            name="Max Müller",
+            strasse=strasse,
+            plz=plz,
+            ort=ort,
+            email=email,
+            privat=True,
+        )
+
+    muenchen = mueller("Bergweg 4", "81541", "München", "max.muenchen@example.org")
+    berlin = mueller("Unter den Linden 1", "10117", "Berlin", "mb@example.net")
+    nochmal = mueller("Bergweg 4", "81541", "München", "max.muenchen@example.org")
+    for k, preis in ((muenchen, "100"), (berlin, "500"), (nochmal, "50")):
+        _ausgangsrechnung(make_session, archiv, entwurf(k, pos("Radierung", preis)))
+    verbucht = _verbuche(make_session, archiv=archiv)
+    konten = [v.treffer.kontakt.debitor_konto for v in verbucht]
+    assert konten == ["10000", "10001", "10000"]
+    zweiter = verbucht[1].treffer.kontakt
+    assert zweiter.ort == "Berlin" and zweiter.status is KontaktStatus.ZUR_PRUEFUNG
+    assert "gleichnamiger Kontakt 10000" in zweiter.pruef_grund

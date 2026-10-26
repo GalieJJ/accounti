@@ -20,7 +20,11 @@ from sqlalchemy.orm import Session
 from accounti import __version__
 from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
-from accounti.db.repo_elster import lade_beleg_kontakte, lade_uebermittlungen
+from accounti.db.repo_elster import (
+    lade_beleg_kontakte,
+    lade_beleg_partner,
+    lade_uebermittlungen,
+)
 from accounti.db.repository import (
     lade_bankkonten,
     lade_buchungen,
@@ -129,12 +133,19 @@ class _Daten:
         self.beleg_kontakte.update(
             {p.beleg_id: p.kontakt_id for p in lade_posten(session)}
         )
+        # Abnehmer laut Rechnung: ZM und USt-IdNr.-Prüfung je Rechnung, nicht je Kontakt
+        self.beleg_partner = lade_beleg_partner(session)
         bank = {k.sachkonto for k in lade_bankkonten(session)}
         self.plan = kontenplan(buchhaltung, einstellungen, bank)
 
     def ermittle(self, zeitraum: Zeitraum) -> Ermittlung:
         return ermittle(
-            self.buchungen, zeitraum, self.plan, self.kontakte, self.beleg_kontakte
+            self.buchungen,
+            zeitraum,
+            self.plan,
+            self.kontakte,
+            self.beleg_kontakte,
+            self.beleg_partner,
         )
 
     def vergleich(self, zeitraum: Zeitraum) -> UStVoranmeldung | None:

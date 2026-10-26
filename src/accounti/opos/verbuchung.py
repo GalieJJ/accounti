@@ -353,9 +353,16 @@ def verbuche_beleg(
             land=k.anschrift.land,
             email=k.email,
         )
-        # Kunden einer eigenen Ausgangsrechnung sind bekannt — keine Prüfung nötig.
+        # Kunden einer eigenen Ausgangsrechnung sind bekannt — keine Prüfung nötig;
+        # ein gleichnamiger Kunde ist derselbe nur bei gleicher PLZ oder E-Mail
         treffer = kontakt_fuer(
-            session, einstellungen, "debitor", partner, neu_pruefen=False, anlass=anlass
+            session,
+            einstellungen,
+            "debitor",
+            partner,
+            neu_pruefen=False,
+            anlass=anlass,
+            mit_anschrift=True,
         )
         personenkonto = treffer.kontakt.debitor_konto
     if personenkonto is None:  # pragma: no cover — kontakt_fuer vergibt immer eins
@@ -369,6 +376,11 @@ def verbuche_beleg(
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
     hinweise = [hinweis_datum] if hinweis_datum else []
+    # Kontakt widerspricht dem Beleg (z. B. gleiche IBAN, anderer Name): zur Prüfung
+    widerspruch = treffer.widerspruch is not None and not treffer.neu
+    if treffer.widerspruch is not None:
+        folge = "neuer Kontakt zur Prüfung" if treffer.neu else "Buchung zur Prüfung"
+        hinweise.append(f"{anlass}: {treffer.widerspruch} — {folge}")
     ustid_bestaetigt = True
     # nur bei eigenen Rechnungen: K/AE im Eingang hängen an der USt-IdNr. des
     # Lieferanten, nicht an unserer (die Bestätigung braucht der Lieferant)
@@ -426,9 +438,9 @@ def verbuche_beleg(
             buchungstext=text,
             beleg_nummer=(beleg.belegnummer or "")[:36] or None,
             status=BuchungStatus.ZUR_PRUEFUNG
-            if g.pruefen
+            if g.pruefen or widerspruch
             else BuchungStatus.AUTO_GEBUCHT,
-            confidence=0.5 if g.pruefen else 1.0,
+            confidence=0.5 if g.pruefen or widerspruch else 1.0,
         )
         speichere_buchung(session, buchung)
         buchungen.append(buchung)

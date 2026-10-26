@@ -70,11 +70,12 @@ def erstelle_zm(e: Ermittlung) -> ZusammenfassendeMeldung:
     namen: dict[str, str] = {}
     meldung = ZusammenfassendeMeldung(e.zeitraum)
     for u in e.eu:
-        if u.kontakt is None or not u.kontakt.ust_id:
+        # die USt-IdNr. der Rechnung (Belegpartner), sonst die des Kontakts
+        if not u.ust_id:
             meldung.ohne_ustid.append(u)
             continue
-        ust_id = normalisiere(u.kontakt.ust_id)
-        namen.setdefault(ust_id, u.kontakt.name)
+        ust_id = normalisiere(u.ust_id)
+        namen.setdefault(ust_id, u.name or (u.kontakt.name if u.kontakt else ust_id))
         schluessel = (ust_id, u.art)
         summen[schluessel] = summen.get(schluessel, Decimal("0")) + u.betrag
     for (ust_id, art), betrag in sorted(summen.items()):

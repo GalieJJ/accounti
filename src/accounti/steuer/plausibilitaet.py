@@ -94,17 +94,18 @@ def ustid_befunde(e: Ermittlung, bestaetigung: Bestaetigung) -> list[Befund]:
             continue  # Minderungen brauchen keine neue Bestätigung
         art = {"L": "ig. Lieferung", "D": "Dreiecksgeschäft", "S": "EU-Leistung"}[u.art]
         k = u.kontakt
-        if k is None:
+        name = u.name or (k.name if k else None)
+        if k is None and name is None:
             text = f"{_kurz(u.buchung)}: {art}, Abnehmer unbekannt — kein Personenkonto"
-        elif not k.ust_id:
-            text = f"{_kurz(u.buchung)}: {art} an {k.name} ohne USt-IdNr."
+        elif not u.ust_id:
+            text = f"{_kurz(u.buchung)}: {art} an {name} ohne USt-IdNr."
         else:
-            lage = bestaetigung(k.ust_id, u.buchung.datum)
+            lage = bestaetigung(u.ust_id, u.buchung.datum)
             if lage.bestaetigt:
                 continue
-            konto = k.debitor_konto or str(k.id)[:8]
+            konto = (k.debitor_konto or str(k.id)[:8]) if k else u.ust_id
             text = (
-                f"{_kurz(u.buchung)}: {art} an {k.name}, USt-IdNr. {k.ust_id} nicht "
+                f"{_kurz(u.buchung)}: {art} an {name}, USt-IdNr. {u.ust_id} nicht "
                 f"bestätigt: {lage.grund} — accounti kontakte pruefe-ustid {konto}"
             )
         befunde.append(Befund("ustid", Schweregrad.FEHLER, text, u.buchung.id))

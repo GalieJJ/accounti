@@ -293,6 +293,15 @@ class Zuordnung:
 
 
 @dataclass(frozen=True)
+class Belegpartner:
+    """Abnehmer laut Rechnung (USt-IdNr., Land) — geht dem Kontakt vor."""
+
+    name: str
+    ust_id: str | None
+    land: str | None
+
+
+@dataclass(frozen=True)
 class EuUmsatz:
     """Steuerfreier Umsatz an einen EU-Unternehmer — für ZM und USt-IdNr.-Prüfung."""
 
@@ -301,6 +310,10 @@ class EuUmsatz:
     art: str  # L, D, S
     betrag: Decimal  # vorzeichenrichtig
     kontakt: Kontakt | None
+    # aus der Rechnung, sonst aus dem Kontakt: § 18a Abs. 7 Nr. 1 UStG meldet je
+    # USt-IdNr., unter der geliefert wurde
+    ust_id: str | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -352,8 +365,10 @@ class _Ermittler:
         plan: Kontenplan,
         kontakte: Sequence[Kontakt],
         beleg_kontakte: Mapping[UUID, UUID],
+        beleg_partner: Mapping[UUID, Belegpartner] | None = None,
     ) -> None:
         self.alle = alle
+        self.beleg_partner = beleg_partner or {}
         self.plan = plan
         self.funktion = plan.funktionskonten
         self.debitoren = {k.debitor_konto: k for k in kontakte if k.debitor_konto}
@@ -594,7 +609,16 @@ class _Ermittler:
             kontakt = self._kontakt(_gegenkonto(b, seite), b.beleg_id)
             if beitrag.kz in EU_ARTEN:
                 art = EU_ARTEN[beitrag.kz]
-                self.e.eu.append(EuUmsatz(b, beitrag.kz, art, beitrag.betrag, kontakt))
+                partner = self.beleg_partner.get(b.beleg_id) if b.beleg_id else None
+                ust_id = (
+                    partner.ust_id
+                    if partner is not None
+                    else (kontakt.ust_id if kontakt else None)
+                )
+                name = partner.name if partner else (kontakt.name if kontakt else None)
+                self.e.eu.append(
+                    EuUmsatz(b, beitrag.kz, art, beitrag.betrag, kontakt, ust_id, name)
+                )
             elif beitrag.betrag > 0:
                 self._eu_pruefen(b, konto, kontakt)
 
@@ -616,16 +640,20 @@ def ermittle(
     plan: Kontenplan,
     kontakte: Sequence[Kontakt] = (),
     beleg_kontakte: Mapping[UUID, UUID] | None = None,
+    beleg_partner: Mapping[UUID, Belegpartner] | None = None,
 ) -> Ermittlung:
     """Voranmeldung eines Zeitraums aus den endgültigen Buchungen.
 
     ``buchungen`` dürfen alle Buchungen sein; gezählt wird nur der Zeitraum. Ältere
     Buchungen dienen dazu, Minderungen einer Rechnung (Skonto) zuzuordnen.
     ``beleg_kontakte``: Beleg → Kontakt aus den offenen Posten, für Erlöse ohne
-    Personenkonto.
+    Personenkonto. ``beleg_partner``: Beleg → Abnehmer laut Rechnung (USt-IdNr. für
+    die ZM, auch wenn der Kontakt eine andere trägt).
     """
     alle = list(buchungen)
-    ermittler = _Ermittler(alle, zeitraum, plan, kontakte, beleg_kontakte or {})
+    ermittler = _Ermittler(
+        alle, zeitraum, plan, kontakte, beleg_kontakte or {}, beleg_partner
+    )
     for b in sorted(alle, key=lambda x: (x.datum, x.soll_konto, x.haben_konto)):
         if not zeitraum.enthaelt(b.datum):
             continue
