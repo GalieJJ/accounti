@@ -315,12 +315,24 @@ def verbuche_beleg(
         raise JahrGesperrtError(msg)
     if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
         if eingang and beleg.steuer is not None and beleg.steuer < 0:
+            # später buchen nur, wo _buchungstag es zulässt: bei Bilanzierung nicht
+            # über den Jahreswechsel (Nachprüfung C, N-2)
+            spaeter = (
+                gewinnermittlung == "euer"
+                or erster_offener_tag(session.connection(), belegdatum).year
+                == belegdatum.year
+            )
             ausweg = (
                 " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
                 f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
                 f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
-                "zum Belegdatum buchen; mit --buchungsdatum eingang, offen oder "
-                "JJJJ-MM-TT später gebucht, geht sie zur Prüfung"
+                "zum Belegdatum buchen"
+                + (
+                    "; mit --buchungsdatum eingang, offen oder JJJJ-MM-TT später "
+                    "gebucht, geht sie zur Prüfung"
+                    if spaeter
+                    else ""
+                )
             )
         elif eingang:
             ausweg = (
@@ -593,7 +605,10 @@ def _hinweis_minderung(
             f"{anlass}: Gutschrift vom {belegdatum:%d.%m.%Y} am {gebucht_am:%d.%m.%Y} "
             f"gebucht — die Minderung der Vorsteuer gehört in den Zeitraum der "
             f"Änderung ({zeitraum}), nicht in einen späteren (§ 17 Abs. 1 S. 8 UStG): "
-            f"die Voranmeldung {zeitraum} ist zu berichtigen; Buchung zur Prüfung"
+            f"die Voranmeldung {zeitraum} ist zu berichtigen und diese Buchung zu "
+            f"stornieren und zum Belegdatum neu zu buchen — bleibt sie stehen, zählt "
+            f"die Minderung doppelt ({zeitraum} und {gebucht_am:%m/%Y}); Buchung zur "
+            "Prüfung"
         ]
     if (eingegangen.year, eingegangen.month) > (belegdatum.year, belegdatum.month):
         return [
@@ -685,15 +700,28 @@ def _buchungstag(
             if gewinnermittlung is None
             else ""
         )
+        if beleg.steuer is not None and beleg.steuer < 0:
+            # Gutschrift: kein 1548-Weg, die Minderung gehört in den Zeitraum der
+            # Änderung (§ 17 Abs. 1 S. 8 UStG; Nachprüfung C, N-2)
+            art = "die Gutschrift"
+            vorsteuer = (
+                "die Vorsteuer mindert sich im Zeitraum der Änderung "
+                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG)"
+            )
+        else:
+            art = "die Rechnung"
+            vorsteuer = (
+                "die Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 "
+                "UStG): accounti bucht sie dann auf 1548 „Vorsteuer im Folgejahr "
+                "abziehbar“ (SKR04 1434) und zum ersten offenen Tag des Eingangsmonats "
+                "auf das Vorsteuerkonto um"
+            )
         raise VerbuchungError(
             f"{anlass}: Buchungsdatum {tag:%d.%m.%Y} liegt im Geschäftsjahr "
-            f"{tag.year}, die Rechnung vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
+            f"{tag.year}, {art} vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
             f"und Verbindlichkeit ins Geschäftsjahr {belegdatum.year} (§ 252 Abs. 1 "
-            f"Nr. 5 HGB, GoBD Rz. 51) — {oeffnen} und zum Belegdatum buchen; die "
-            "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG): "
-            "accounti bucht sie dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ "
-            "(SKR04 1434) und zum ersten offenen Tag des Eingangsmonats auf das "
-            f"Vorsteuerkonto um{ohne_angabe}"
+            f"Nr. 5 HGB, GoBD Rz. 51) — {oeffnen} und zum Belegdatum buchen; "
+            f"{vorsteuer}{ohne_angabe}"
         )
     # Vorsteuer: im Zeitraum, in dem Leistung und Rechnung vorliegen — ohne Wahlrecht
     # (§ 15 Abs. 1 Nr. 1 UStG); maßgeblich ist hier das spätere von Beleg und Eingang

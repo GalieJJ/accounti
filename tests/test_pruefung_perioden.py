@@ -229,6 +229,51 @@ def test_spaete_gutschrift_fuer_festgeschriebenen_monat(make_session):
     assert {b.status for b in v.buchungen} == {BuchungStatus.ZUR_PRUEFUNG}
     assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
     assert any("§ 17 Abs. 1 S. 8" in h and "08/2026" in h for h in v.hinweise)
+    # N-4 (Runde 3): Berichtigt man 08/2026 und lässt die Buchung stehen, zählt die
+    # Minderung doppelt — der Hinweis sagt, dass diese Buchung storniert werden muss
+    (spaet,) = [h for h in v.hinweise if "§ 17 Abs. 1 S. 8" in h]
+    assert "stornieren" in spaet and "doppelt" in spaet, spaet
+
+
+def test_gutschrift_aus_festgeschriebenem_vorjahresmonat_bei_bilanz(make_session):
+    """N-2 (Nachprüfung C, Runde 3): Bilanz, 12/2025 festgeschrieben, Gutschrift vom
+    30.12.2025. Die Sperrmeldung versprach „mit --buchungsdatum … zur Prüfung“, obwohl
+    der Weg über den Jahreswechsel gesperrt ist, und mit --buchungsdatum offen nannte
+    die Meldung den 1548-Weg der Rechnung („Vorsteuer erst im Folgejahr abziehbar“)."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    gutschrift = beleg(
+        tag=date(2025, 12, 30), netto="-100.00", steuer="-19.00", brutto="-119.00"
+    )
+    anlegen(make_session, gutschrift)
+    _geschlossen(make_session, "2025-12")
+    with make_session() as s:
+        with (
+            pytest.raises(PeriodeGesperrtError) as gesperrt,
+            s.begin_nested(),
+        ):
+            verbuche_beleg(s, gutschrift, Buchhaltung(), gewinnermittlung="bilanz")
+        with pytest.raises(VerbuchungError) as jahr, s.begin_nested():
+            verbuche_beleg(
+                s,
+                gutschrift,
+                Buchhaltung(),
+                buchungsdatum="offen",
+                gewinnermittlung="bilanz",
+            )
+        with (
+            pytest.raises(PeriodeGesperrtError, match="--buchungsdatum") as euer,
+            s.begin_nested(),
+        ):
+            verbuche_beleg(s, gutschrift, Buchhaltung(), gewinnermittlung="euer")
+    assert "periode oeffnen 2025-12" in str(gesperrt.value)
+    assert "--buchungsdatum" not in str(gesperrt.value), gesperrt.value
+    assert "§ 17 Abs. 1 S. 8" in str(euer.value)
+    meldung = str(jahr.value)
+    assert "§ 17 Abs. 1 S. 8" in meldung and "Gutschrift" in meldung, meldung
+    assert "1548" not in meldung and "Folgejahr" not in meldung, meldung
 
 
 def test_buchungsdatum_eingang_und_fester_tag(make_session):
