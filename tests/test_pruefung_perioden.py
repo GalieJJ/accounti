@@ -261,6 +261,81 @@ def test_spaete_gutschrift_fuer_festgeschriebenen_monat(make_session):
     assert "stornieren" in spaet and "doppelt" in spaet, spaet
 
 
+def _gutschrift_13b(**kw):
+    from tests.pruefung_hilfe import beleg
+
+    return beleg(
+        tag=date(2026, 8, 10),
+        netto="-600.00",
+        steuer="0.00",
+        brutto="-600.00",
+        lieferant="Montage Wien GmbH",
+        ust_id="ATU12345678",
+        positionen=[("Gutschrift Montage", "-600.00", "0", "0.00")],
+        steuerkennzeichen="AE",
+        **kw,
+    )
+
+
+def test_13b_gutschrift_fuer_festgeschriebenen_monat(make_session):
+    """Nachprüfung Merge N-3: Eine § 13b-Gutschrift (0 %, Schlüssel 94) mindert Steuer
+    und Vorsteuer im Zeitraum der Änderung (§ 17 Abs. 1 S. 5, 8 UStG) — wie eine
+    Gutschrift mit ausgewiesener Steuer. Erkannt wurde die Gutschrift nur an negativer
+    Steuer: Die Sperrmeldung bot die Wege einer Eingangsrechnung an, und mit
+    --buchungsdatum offen begründete der Hinweis die Buchung mit § 15 („Vorsteuer zählt
+    in diesem Zeitraum“)."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+
+    gutschrift = _gutschrift_13b()
+    anlegen(make_session, gutschrift)
+    _geschlossen(make_session)  # 2026-08
+    with make_session() as s:
+        with pytest.raises(PeriodeGesperrtError) as gesperrt, s.begin_nested():
+            verbuche_beleg(s, gutschrift, Buchhaltung(), gewinnermittlung="bilanz")
+        v = verbuche_beleg(
+            s,
+            gutschrift,
+            Buchhaltung(),
+            buchungsdatum="offen",
+            gewinnermittlung="bilanz",
+        )
+        s.commit()
+    meldung = " ".join(str(gesperrt.value).split())
+    assert "§ 17 Abs. 1 S. 8" in meldung and "periode oeffnen 2026-08" in meldung
+    assert "Steuer und Vorsteuer" in meldung, meldung
+    assert "eine Eingangsrechnung mit --buchungsdatum" not in meldung, meldung
+    assert {(b.datum, b.steuer_schluessel) for b in v.buchungen} == {
+        (date(2026, 9, 1), 94)
+    }
+    assert {b.status for b in v.buchungen} == {BuchungStatus.ZUR_PRUEFUNG}
+    assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    (spaet,) = [h for h in v.hinweise if "§ 17 Abs. 1 S. 8" in h]
+    assert "08/2026" in spaet and "Steuer und Vorsteuer" in spaet, spaet
+
+
+def test_13b_gutschrift_aus_dem_vorjahr_bei_bilanz(make_session):
+    """N-3: Auch über den Jahreswechsel nennt die Meldung § 17, nicht den 1548-Weg
+    einer Rechnung."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg
+
+    gutschrift = _gutschrift_13b().model_copy(update={"belegdatum": date(2025, 12, 30)})
+    anlegen(make_session, gutschrift)
+    _geschlossen(make_session, "2025-12")
+    with make_session() as s, pytest.raises(VerbuchungError) as jahr:
+        verbuche_beleg(
+            s,
+            gutschrift,
+            Buchhaltung(),
+            buchungsdatum="offen",
+            gewinnermittlung="bilanz",
+        )
+    meldung = str(jahr.value)
+    assert "§ 17 Abs. 1 S. 8" in meldung and "Gutschrift" in meldung, meldung
+    assert "1548" not in meldung, meldung
+
+
 def test_gutschrift_aus_festgeschriebenem_vorjahresmonat_bei_bilanz(make_session):
     """N-2 (Nachprüfung C, Runde 3): Bilanz, 12/2025 festgeschrieben, Gutschrift vom
     30.12.2025. Die Sperrmeldung versprach „mit --buchungsdatum … zur Prüfung“, obwohl

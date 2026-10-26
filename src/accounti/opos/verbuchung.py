@@ -60,6 +60,7 @@ from accounti.belege.kanaele import RohBeleg
 from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
 from accounti.buchung.steuergruppe import (
     SCHLUESSEL_FUER_STEUERFALL,
+    SELBST_BERECHNET,
     Gruppe,
 )
 from accounti.db.repo_abschluss import ist_gesperrt
@@ -334,8 +335,15 @@ def verbuche_beleg(
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
     hinweise: list[str] = []
     if eingang:
+        gutschrift = _gutschrift_eingang(beleg, rechnung)
         gebucht_am, hinweis_datum = _buchungstag(
-            session, beleg, belegdatum, buchungsdatum, anlass, gewinnermittlung
+            session,
+            beleg,
+            belegdatum,
+            buchungsdatum,
+            anlass,
+            gewinnermittlung,
+            gutschrift=gutschrift,
         )
         hinweise += [hinweis_datum] if hinweis_datum else []
         _pruefe_sperre(
@@ -346,6 +354,7 @@ def verbuche_beleg(
             belegdatum,
             gewinnermittlung,
             eingang=True,
+            gutschrift=gutschrift,
         )
         tag_fuer = _fester_tag(gebucht_am)
     else:
@@ -494,7 +503,11 @@ def verbuche_beleg(
     )
     vorsteuer = [g.steuer for g in gruppen if g.schluessel in (8, 9) and g.steuer]
     abzug = any(s > 0 for s in vorsteuer)
-    minderung = any(s < 0 for s in vorsteuer)
+    # Gutschrift: negative Vorsteuer — oder bei § 13b/ig. Erwerb ein negatives Netto
+    # (keine ausgewiesene Steuer, § 17 Abs. 1 S. 5 UStG)
+    minderung = any(s < 0 for s in vorsteuer) or any(
+        _mindert_selbst_berechnet(g) for g in gruppen
+    )
     if hinweis_datum and not abzug and (gebucht_am == belegdatum or minderung):
         # der § 15-Hinweis gilt nur für den Abzug von Vorsteuer aus der Rechnung —
         # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG), eine
@@ -506,7 +519,11 @@ def verbuche_beleg(
     )
     if minderung:
         hinweise += _hinweis_minderung(
-            belegdatum, beleg.eingegangen_am.date(), gebucht_am, anlass
+            belegdatum,
+            beleg.eingegangen_am.date(),
+            gebucht_am,
+            anlass,
+            gutschrift or "vorsteuer",
         )
     if eingang:
         hinweise += _steuerhinweise(gruppen, anlass, land)
@@ -519,7 +536,9 @@ def verbuche_beleg(
         if gedreht:
             soll, haben = haben, soll
         # Minderung außerhalb ihres Zeitraums gebucht: die Voranmeldung stimmt so nicht
-        spaet = minderung_spaet and g.schluessel in (8, 9) and g.steuer < 0
+        spaet = minderung_spaet and (
+            (g.schluessel in (8, 9) and g.steuer < 0) or _mindert_selbst_berechnet(g)
+        )
         pruefen = g.pruefen or widerspruch or spaet
         status = BuchungStatus.ZUR_PRUEFUNG if pruefen else BuchungStatus.AUTO_GEBUCHT
 
@@ -610,6 +629,46 @@ def verbuche_beleg(
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
+# Was eine Lieferanten-Gutschrift mindert — ausgewiesene Vorsteuer oder bei § 13b und
+# ig. Erwerb Steuer und Vorsteuer, die der Empfänger selbst berechnet: (Akkusativ,
+# Genitiv, Verb) für die Meldungen
+_SELBST = "(§ 13b bzw. ig. Erwerb, § 17 Abs. 1 S. 5 UStG)"
+_MINDERT = {
+    "vorsteuer": ("die Vorsteuer", "der Vorsteuer", "mindert"),
+    "selbst": (
+        f"Steuer und Vorsteuer {_SELBST}",
+        f"von Steuer und Vorsteuer {_SELBST}",
+        "mindern",
+    ),
+}
+
+
+def _gutschrift_eingang(
+    beleg: Beleg, rechnung: Rechnung | None
+) -> Literal["vorsteuer", "selbst"] | None:
+    """Mindert die Eingangsrechnung Steuer, ist sie eine Gutschrift des Lieferanten:
+    negative Vorsteuer (``vorsteuer``) oder eine negative Position ohne Steuerausweis
+    mit Steuerfall § 13b bzw. ig. Erwerb (``selbst`` — dort steht keine Steuer im
+    Beleg, Nachprüfung Merge N-3)."""
+    if beleg.steuer is not None and beleg.steuer < 0:
+        return "vorsteuer"
+    for p, kategorie in zip(
+        beleg.positionen, _kategorien(beleg, rechnung), strict=True
+    ):
+        fall = kategorie or beleg.steuerkennzeichen
+        if (
+            p.netto < 0
+            and not _satz(p.steuersatz)
+            and fall in SCHLUESSEL_FUER_STEUERFALL
+        ):
+            return "selbst"
+    return None
+
+
+def _mindert_selbst_berechnet(g: Gruppe) -> bool:
+    return g.schluessel in SELBST_BERECHNET and g.netto < 0
+
+
 def _vorsteuer_folgejahr(
     session: Session,
     einstellungen: Buchhaltung,
@@ -632,17 +691,22 @@ def _vorsteuer_folgejahr(
 
 
 def _hinweis_minderung(
-    belegdatum: date, eingegangen: date, gebucht_am: date, anlass: str
+    belegdatum: date,
+    eingegangen: date,
+    gebucht_am: date,
+    anlass: str,
+    gutschrift: Literal["vorsteuer", "selbst"] = "vorsteuer",
 ) -> list[str]:
     """Gutschrift: Die Vorsteuer mindert sich im Zeitraum der Änderung der
     Bemessungsgrundlage (§ 17 Abs. 1 S. 8 UStG) — hier das Belegdatum —, nicht im
     Zeitraum des Eingangs (Abschn. 17.1 UStAE; § 15 Abs. 1 Nr. 1 gilt nur für den
     Abzug)."""
     zeitraum = f"{belegdatum:%m/%Y}"
+    was, wessen, mindert = _MINDERT[gutschrift]
     if (gebucht_am.year, gebucht_am.month) != (belegdatum.year, belegdatum.month):
         return [
             f"{anlass}: Gutschrift vom {belegdatum:%d.%m.%Y} am {gebucht_am:%d.%m.%Y} "
-            f"gebucht — die Minderung der Vorsteuer gehört in den Zeitraum der "
+            f"gebucht — die Minderung {wessen} gehört in den Zeitraum der "
             f"Änderung ({zeitraum}), nicht in einen späteren (§ 17 Abs. 1 S. 8 UStG): "
             f"die Voranmeldung {zeitraum} ist zu berichtigen und diese Buchung zu "
             f"stornieren und zum Belegdatum neu zu buchen — bleibt sie stehen, zählt "
@@ -652,7 +716,7 @@ def _hinweis_minderung(
     if (eingegangen.year, eingegangen.month) > (belegdatum.year, belegdatum.month):
         return [
             f"{anlass}: Gutschrift vom {belegdatum:%d.%m.%Y}, erfasst am "
-            f"{eingegangen:%d.%m.%Y} — die Vorsteuer mindert sich im Zeitraum der "
+            f"{eingegangen:%d.%m.%Y} — {was} {mindert} sich im Zeitraum der "
             f"Änderung ({zeitraum}), nicht im Eingangszeitraum (§ 17 Abs. 1 S. 8 UStG, "
             f"Abschn. 17.1 UStAE); ist die Voranmeldung {zeitraum} schon abgegeben, "
             "ist sie zu berichtigen"
@@ -840,8 +904,11 @@ def _pruefe_sperre(
     gewinnermittlung: str | None,
     *,
     eingang: bool,
+    gutschrift: Literal["vorsteuer", "selbst"] | None = None,
 ) -> None:
-    """Abgeschlossenes Jahr oder festgeschriebener Monat am Buchungstag → Fehler."""
+    """Abgeschlossenes Jahr oder festgeschriebener Monat am Buchungstag → Fehler
+    (``gutschrift``: was eine Lieferanten-Gutschrift mindert, siehe
+    ``_gutschrift_eingang``)."""
     if ist_gesperrt(session, tag.year) and (tag == belegdatum or not eingang):
         art = "Belegdatum" if tag == belegdatum else "Leistungsdatum"
         msg = (
@@ -857,13 +924,13 @@ def _pruefe_sperre(
         )
         raise JahrGesperrtError(msg)
     if (fehler := sperrfehler(session.connection(), tag)) is not None:
-        if eingang and beleg.steuer is not None and beleg.steuer < 0:
+        if eingang and gutschrift is not None:
             wege = _spaetere_wege(session, beleg, belegdatum, gewinnermittlung)
             ausweg = (
-                " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
-                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
-                f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
-                "zum Belegdatum buchen"
+                f" — eine Gutschrift mindert {_MINDERT[gutschrift][0]} im Zeitraum "
+                f"der Änderung ({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat "
+                f"mit Grund öffnen (accounti periode oeffnen {belegdatum:%Y-%m} "
+                "--grund …) und zum Belegdatum buchen"
                 + (
                     f"; mit --buchungsdatum {wege} später gebucht, geht sie zur Prüfung"
                     if wege
@@ -925,6 +992,8 @@ def _buchungstag(
     buchungsdatum: Buchungsdatum,
     anlass: str,
     gewinnermittlung: str | None = None,
+    *,
+    gutschrift: Literal["vorsteuer", "selbst"] | None = None,
 ) -> tuple[date, str | None]:
     """(Buchungsdatum, Hinweis) — Belegdatum, Eingang, erster offener Tag oder fest.
 
@@ -976,13 +1045,13 @@ def _buchungstag(
             if gewinnermittlung is None
             else ""
         )
-        if beleg.steuer is not None and beleg.steuer < 0:
+        if gutschrift is not None:
             # Gutschrift: kein 1548-Weg, die Minderung gehört in den Zeitraum der
             # Änderung (§ 17 Abs. 1 S. 8 UStG; Nachprüfung C, N-2)
             art = "die Gutschrift"
             vorsteuer = (
-                "die Vorsteuer mindert sich im Zeitraum der Änderung "
-                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG)"
+                f"{_MINDERT[gutschrift][0]} {_MINDERT[gutschrift][2]} sich im Zeitraum "
+                f"der Änderung ({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG)"
             )
         else:
             art = "die Rechnung"
