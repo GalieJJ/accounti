@@ -282,6 +282,32 @@ def test_gutschrift_wird_verrechnet_und_die_saldozahlung_gleicht_alles_aus(tmp_p
     ]
 
 
+def test_verrechnete_gutschrift_ist_kein_befund_der_abstimmung(tmp_path):
+    """Nachprüfung Merge M-1: Nach der BT-25-Verrechnung stimmen Personenkonto (476 €)
+    und offene Posten überein — Prüfregel und Abschlussprüfung melden nichts, auch
+    nicht zu einem Stichtag zwischen Rechnung und Gutschrift."""
+    from accounti.abschluss.pruefungen import kontext, pruefe_abschluss
+
+    url, gid = _rechnung_und_gutschrift(tmp_path)
+    _ausstellen_cli(tmp_path, gid, "2026-03-05")
+    assert "verrechnet" in _verbuchen(tmp_path, url)
+    for stichtag in ("2026-03-04", "2026-03-31"):
+        r = _cli(
+            "pruefen", "--db", url, "--config", str(tmp_path / "accounti.yaml"),
+            "--regel", "personenkonto_op", "--stichtag", stichtag,
+        )  # fmt: skip
+        ausgabe = " ".join(r.output.split())
+        assert r.exit_code == 0, ausgabe
+        assert "weichen um" not in ausgabe, ausgabe
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        befunde = pruefe_abschluss(
+            kontext(s, 2026, tmp_path / "accounti.yaml"), nur=["personenkonten"]
+        )
+    engine.dispose()
+    assert befunde == []
+
+
 def test_erstattung_der_gutschrift_nach_bezahlter_rechnung(tmp_path):
     url, gid = _rechnung_und_gutschrift(tmp_path)
     _verbuchen(tmp_path, url)

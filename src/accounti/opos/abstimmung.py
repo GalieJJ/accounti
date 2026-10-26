@@ -10,9 +10,11 @@ Rz. 58 ff., Richtigkeit; § 239 Abs. 2 HGB). Gerechnet wird zum Stichtag:
   in der Saldenliste), Vorschläge eingeschlossen — der Posten entsteht beim Verbuchen,
   nicht erst bei der Freigabe; ohne Eröffnungsbuchungen (der Saldovortrag wiederholt
   nur, was die Bewegungen der Vorjahre schon enthalten).
-* Posten: Rest jedes Postens, dessen Rechnung bis zum Stichtag gebucht ist, zuzüglich
-  der gebuchten Zuordnungen (Zahlung und Skonto) mit Umsatz nach dem Stichtag; ein
-  Guthaben aus einer Überzahlung (Rest 0, gezahlt mehr als der Betrag) zählt mit.
+* Posten: die Stichtagsliste (``opos/auswertung.py``, ``stand_zum``) — Rest jedes
+  Postens, dessen Rechnung bis zum Stichtag gebucht ist, zuzüglich der gebuchten
+  Zuordnungen (Zahlung und Skonto) und der Verrechnungen (Gutschrift mit Bezug,
+  ``opos verrechnen``) nach dem Stichtag. Ein Guthaben aus einer Überzahlung, das ältere
+  Stände als Rest 0 führen (gezahlt mehr als der Betrag), zählt mit.
 """
 
 from __future__ import annotations
@@ -32,9 +34,10 @@ from accounti.models import (
     OffenerPosten,
     PostenRichtung,
     Transaktion,
+    Verrechnung,
     Zahlungszuordnung,
-    ZuordnungStatus,
 )
+from accounti.opos.auswertung import gebucht_ab, postenbewegungen, stand_zum
 
 NULL = Decimal("0")
 
@@ -66,6 +69,7 @@ def abweichungen(
     kontakte: Mapping[UUID, Kontakt],
     zuordnungen: Iterable[Zahlungszuordnung],
     transaktionen: Mapping[UUID, Transaktion],
+    verrechnungen: Iterable[Verrechnung],
 ) -> list[Abweichung]:
     """Personenkonten, deren Saldo nicht der Summe ihrer offenen Posten entspricht."""
     buchungen = list(buchungen)
@@ -77,41 +81,35 @@ def abweichungen(
     kreditoren = {k.kreditor_konto for k in kontakte.values() if k.kreditor_konto}
 
     saldo: dict[str, Decimal] = defaultdict(lambda: NULL)
-    gebucht_am: dict[UUID, date] = {}  # Beleg → erste Rechnungsbuchung
     for b in buchungen:
-        if b.beleg_id is not None and b.transaktion_id is None:
-            frueher = gebucht_am.get(b.beleg_id)
-            gebucht_am[b.beleg_id] = min(b.datum, frueher) if frueher else b.datum
         if b.datum > stichtag:
             continue
         for bw in bewegungen(b, kr):
             if bw.konto in personenkonten and not bw.eroeffnung:
                 saldo[bw.konto] += bw.soll - bw.haben
 
-    gezahlt: dict[UUID, Decimal] = defaultdict(lambda: NULL)  # bis heute
-    spaeter: dict[UUID, Decimal] = defaultdict(lambda: NULL)  # nach dem Stichtag
-    for z in zuordnungen:
-        tx = transaktionen.get(z.transaktion_id)
-        if z.status is not ZuordnungStatus.GEBUCHT or tx is None:
-            continue
-        gezahlt[z.posten_id] += z.betrag + z.skonto
-        if tx.datum > stichtag:
-            spaeter[z.posten_id] += z.betrag + z.skonto
+    minderungen = postenbewegungen(
+        zuordnungen, {i: t.datum for i, t in transaktionen.items()}, verrechnungen
+    )
+    heute = []
+    for p in posten:
+        # heute offen: der Rest — ältere Stände führen ein Guthaben aus einer
+        # Überzahlung als Rest 0 (gezahlt mehr als der Betrag)
+        gemindert = sum((b for _, b in minderungen.get(p.id, [])), NULL)
+        rest = min(p.restbetrag, p.betrag - gemindert)
+        heute.append(p.model_copy(update={"restbetrag": rest}))
 
     stand: dict[str, Decimal] = defaultdict(lambda: NULL)
-    for p in posten:
+    for p in stand_zum(heute, stichtag, minderungen, gebucht_ab(buchungen)):
         kontakt = kontakte.get(p.kontakt_id)
         konto = _personenkonto(kontakt, p.richtung) if kontakt is not None else None
-        if konto is None or gebucht_am.get(p.beleg_id, p.belegdatum) > stichtag:
+        if konto is None:
             continue
         # eine Forderung auf einem Kreditorenkonto (Erstattung) mindert die
         # Verbindlichkeit — und umgekehrt
         verbindlichkeit = p.richtung is PostenRichtung.VERBINDLICHKEIT
         vz = 1 if verbindlichkeit == (konto in kreditoren) else -1
-        # heute offen: der Rest — bei einer Überzahlung (Rest 0) das Guthaben;
-        # zum Stichtag kommen die späteren Zahlungen wieder hinzu
-        heute = min(p.restbetrag, p.betrag - gezahlt[p.id])
-        stand[konto] += vz * (heute + spaeter[p.id])
+        stand[konto] += vz * p.restbetrag
 
     ergebnis = []
     for konto in sorted(set(saldo) | set(stand)):

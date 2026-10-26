@@ -730,3 +730,56 @@ def test_guthaben_aus_ueberzahlung_ist_kein_fehler_der_postenliste(make_session)
     assert befunde[str(kaputt.id)].schwere is Schwere.FEHLER
     assert befunde[str(guthaben.id)].schwere is Schwere.HINWEIS
     assert "Guthaben" in befunde[str(guthaben.id)].text
+
+
+def test_verrechnetes_guthaben_ist_kein_befund_der_abstimmung(make_session, tmp_path):
+    """Nachprüfung Merge M-1: Ein Guthaben aus einer Überzahlung, per ``opos
+    verrechnen`` gegen eine neue Rechnung verrechnet — Personenkonto und offene Posten
+    stimmen überein (28,50 €), zu jedem Stichtag."""
+    from accounti.abschluss.pruefungen import kontext, pruefe_abschluss
+    from accounti.db.repository import speichere_posten
+    from accounti.models import BuchungStatus
+    from tests.pruefung_hilfe import anlegen, buchung
+    from tests.test_pruefung_regeln import pruefe
+
+    k = debitor(name="Kunde AG", konto="10000")
+    r1, r2 = (
+        op("2026-0001", "119.00", kontakt=k),
+        op("2026-0002", "59.50", kontakt=k).model_copy(
+            update={"belegdatum": date(2026, 3, 20)}
+        ),
+    )
+
+    def rechnung(p, netto, steuer):
+        return buchung(
+            soll="10000", haben="8400", netto=netto, steuer=steuer, schluessel=3,
+            beleg_id=p.beleg_id, tag=p.belegdatum, status=BuchungStatus.AUTO_GEBUCHT,
+        )  # fmt: skip
+
+    anlegen(make_session, k, rechnung(r1, "100.00", "19.00"))
+    with make_session() as s:
+        speichere_posten(s, r1)
+        s.commit()
+    t = tx("150.00", "Zahlung", "Kunde AG", datum=date(2026, 3, 10))
+    with make_session() as s:
+        speichere_transaktion(s, t)
+        ordne_von_hand(s, str(t.id)[:8], ["2026-0001"], EINSTELLUNGEN, "Prüferin")
+        s.commit()
+    anlegen(make_session, rechnung(r2, "50.00", "9.50"))
+    with make_session() as s:
+        speichere_posten(s, r2)
+        verrechne(s, ["2026-0001", "2026-0002"], date(2026, 3, 20), grund="Test")
+        s.commit()
+        assert [lade_einen_posten(s, p.id).restbetrag for p in (r1, r2)] == [
+            D("0.00"),
+            D("28.50"),
+        ]
+    for stichtag in (date(2026, 3, 15), date(2026, 3, 31)):
+        assert pruefe(make_session, "personenkonto_op", stichtag=stichtag) == []
+    with make_session() as s:
+        assert (
+            pruefe_abschluss(
+                kontext(s, 2026, tmp_path / "accounti.yaml"), nur=["personenkonten"]
+            )
+            == []
+        )

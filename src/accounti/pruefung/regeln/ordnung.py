@@ -192,6 +192,7 @@ class PersonenkontoOffenePosten:
 
     def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
         from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+        from accounti.db.repo_opos import lade_verrechnungen
         from accounti.db.repository import lade_zuordnungen
         from accounti.opos.abstimmung import abweichungen, befundtext
 
@@ -216,6 +217,7 @@ class PersonenkontoOffenePosten:
                 k.kontakte,
                 lade_zuordnungen(k.session),
                 k.transaktionen,
+                lade_verrechnungen(k.session),
             )
         ]
 

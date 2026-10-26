@@ -203,6 +203,32 @@ def test_spaete_eingangsrechnung_mit_buchungsdatum(make_session):
     assert any("§ 15 Abs. 1 Nr. 1 UStG" in h for h in v.hinweise)
 
 
+def test_spaet_gebuchte_rechnung_zaehlt_zum_stichtag_ab_ihrer_buchung(make_session):
+    """Nachprüfung Merge M-1: Stichtagsliste (``opos liste --stichtag``) und Abstimmung
+    Personenkonto ↔ Posten rechnen mit derselben Regel — eine Rechnung vom 10.08., wegen
+    der Festschreibung am 01.09. gebucht, steht zum 31.08. weder auf dem Kreditor noch
+    in der Liste."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.auswertung import lade_stand_zum
+    from accounti.opos.verbuchung import verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+    from tests.test_pruefung_regeln import pruefe
+
+    rechnung = beleg(tag=date(2026, 8, 10))
+    anlegen(make_session, rechnung)
+    _geschlossen(make_session)  # 2026-08
+    with make_session() as s:
+        verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum="offen")
+        s.commit()
+    with make_session() as s:
+        assert lade_stand_zum(s, date(2026, 8, 31)) == []
+        assert [p.restbetrag for p in lade_stand_zum(s, date(2026, 9, 1))] == [
+            Decimal("119.00")
+        ]
+    for stichtag in (date(2026, 8, 31), date(2026, 9, 30)):
+        assert pruefe(make_session, "personenkonto_op", stichtag=stichtag) == []
+
+
 def test_spaete_gutschrift_fuer_festgeschriebenen_monat(make_session):
     """M2 (Nachprüfung C): Die Minderung gehört in den Zeitraum der Änderung (§ 17
     Abs. 1 S. 8 UStG), nicht in den Eingangszeitraum — mit --buchungsdatum später

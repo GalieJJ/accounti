@@ -398,6 +398,7 @@ def _personenkonten(k: Abschlusskontext) -> list[Befund]:
     """Saldo jedes Personenkontos = Summe seiner offenen Posten zum Stichtag
     (``opos/abstimmung.py``) — eine Warnung: der Abschluss bleibt möglich, die
     Bilanz zeigt aber nur das Hauptbuch."""
+    from accounti.db.repo_opos import lade_verrechnungen
     from accounti.db.repository import lade_kontakte, lade_posten, lade_zuordnungen
     from accounti.opos.abstimmung import abweichungen, befundtext
 
@@ -411,6 +412,7 @@ def _personenkonten(k: Abschlusskontext) -> list[Befund]:
             {kontakt.id: kontakt for kontakt in lade_kontakte(k.session)},
             lade_zuordnungen(k.session),
             {t.id: t for t in lade_transaktionen(k.session)},
+            lade_verrechnungen(k.session),
         )
     ]
 
