@@ -450,9 +450,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   statt immer „DE“ — sonst landete § 13b nie in Kz 46/47 —, ein nur vorgegebenes „DE“
   wird ergänzt; `kontakte bearbeiten --strasse --plz --ort --land` pflegt die Anschrift.
   Neu: **`belege freigeben <ID> [--belegart …] [--steuer 13b|ig-erwerb|steuerfrei|ohne]
-  [--grund …]`** — der Beleg wird nach Prüfung des Originals „erfasst“ (Rechnungen nur
-  mit Lieferant und Betrag, verbuchte nie; Recht „buchen“, Journal `beleg_freigegeben`
-  mit Person und Grund). `korrigiere --steuer 94/91/19/18` geht auch bei Belegbuchungen
+  [--belegnummer …] [--vorzeichen umkehren] [--grund …]`** — der Beleg wird nach Prüfung
+  des Originals „erfasst“ (Rechnungen nur mit Lieferant und Betrag, verbuchte nie; Recht
+  „buchen“, Journal `beleg_freigegeben` mit Person und Grund — nur aus diesem Befehl, ein
+  Neulesen durch `belege erkennen` steht als `beleg_geaendert`). Die Ausgabe nennt den
+  bisherigen Prüfgrund; `--grund` ist Pflicht bei Dublettenverdacht, Rechenprobe,
+  gedrehtem Vorzeichen, `--vorzeichen` und beim Ersetzen einer gelesenen Belegnummer.
+  `--steuer` ohne Steuerausweis wird bei Netto ≠ Brutto abgelehnt. `korrigiere --steuer 94/91/19/18` geht auch bei Belegbuchungen
   (die Steuer steht nie auf dem Beleg), jeweils mit `--grund`. Die UStVA warnt bei Aufwand
   ohne Schlüssel gegen einen EU-Kreditor mit USt-IdNr. („§ 13b prüfen“). Saldenliste:
   § 13b und ig. Erwerb mit Steuerpaar (SKR03 1577/1787, 1578/1785, 1574/1774, 1572/1772;
@@ -464,14 +468,25 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   verloren ihr Vorzeichen (−200/−38 wurde +200/+38, eine Gutschrift über 238 € buchte
   76 € Vorsteuer falsch). Beträge behalten jetzt ihr Vorzeichen, „Gutschriftbetrag“ und
   „Erstattungsbetrag“ gelten als Bruttobetrag, uneinheitliche Vorzeichen bestehen die
-  Rechenprobe nicht; ein Korrekturbeleg (Rechnungskorrektur, Stornorechnung, Credit Note)
-  mit positiven Beträgen wird als Minderung übernommen, eine bloße „Gutschrift“ dabei zur
-  Prüfung (sie kann auch die Abrechnung des Leistungsempfängers sein, § 14 Abs. 2 S. 2
-  UStG). Die Verbuchung mindert Aufwand und Vorsteuer (§ 17 Abs. 1 UStG)
+  Rechenprobe nicht; ein Korrekturbeleg (Rechnungskorrektur, Stornorechnung, Credit Note,
+  Gutschrift) mit positiven Beträgen wird als Minderung übernommen und geht immer zur
+  Prüfung (bei „Gutschrift“ mit dem Hinweis auf die Abrechnung des Leistungsempfängers,
+  § 14 Abs. 2 S. 2 UStG); als Titel zählt nur eine Zeile aus dem Schlüsselwort mit
+  höchstens Nummer, Datum oder Bezug und kein vorheriger Titel „Rechnung“ — ein Satz wie
+  „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ macht aus einer Rechnung
+  keine Minderung. Ist es doch eine Rechnung: `belege freigeben … --vorzeichen umkehren`.
+  „Gutschrift-Nr.“, „Gutschriftsnummer“ und „Credit note no.“ sind Belegnummern. Die
+  Verbuchung mindert Aufwand und Vorsteuer (§ 17 Abs. 1 UStG) im Zeitraum des
+  Belegdatums der Gutschrift (§ 17 Abs. 1 S. 8 UStG) — auch wenn sie erst später oder im
+  Folgejahr eingeht (kein 1548-Weg, kein § 15-Hinweis, kein Befund
+  `beleg_nach_zeitraum`); in einem späteren Zeitraum gebucht (festgeschriebener Monat,
+  `--buchungsdatum`), geht sie zur Prüfung
 - **ZUGFeRD MINIMUM: Steuer verloren, Personenkonto ≠ offener Posten** (Eingang B05): Eine
   Belegposition ohne Steuersatz buchte netto an den Kreditor, der offene Posten stand
   brutto. Ohne Schlüssel wird die Steuer jetzt in den Betrag gebucht (brutto, zur
   Prüfung) — in `opos verbuchen` wie in `classify` mit Beleg, ein gemeinsamer Helfer.
+  Ohne Steuerzeile steht die Position „Gesamtbetrag“ brutto, und ein Hinweistext ersetzt
+  den Steuerausweis nur bei Netto = Brutto (sonst „fehlt: Steuerausweis“).
   ZUGFeRD MINIMUM und BASIC WL sind keine Rechnung nach § 14 Abs. 4 UStG (BMF 15.10.2024):
   der Beleg geht zur Prüfung (PROFIL), die Steuersätze kommen aus der PDF-Ansicht, wenn
   deren Steuerzeilen zu den Summen des XML passen. `korrigiere --steuer` nimmt einen
@@ -486,9 +501,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   UStG, Abschn. 15.2 Abs. 2 S. 7 UStAE) — vorher stand sie ohne Warnung in der alten
   Voranmeldung. Den § 15-Hinweis gibt es auch beim Buchen zum Belegdatum, wenn der Beleg
   erst in einem späteren Monat erfasst wurde (nicht bei § 13b und ig. Erwerb: dort hängt
-  der Abzug nicht an der Rechnung); neuer UStVA-Befund `beleg_nach_zeitraum`
-  (Warnung). „Eingang“ ist die Erfassung in accounti, nicht der tatsächliche Zugang —
-  Hinweise und Befund sagen das
+  der Abzug nicht an der Rechnung; bei Gutschriften der Hinweis auf § 17 Abs. 1 S. 8
+  UStG); neuer UStVA-Befund `beleg_nach_zeitraum` (Warnung, nur für den Abzug). „Eingang“
+  ist die Erfassung in accounti, nicht der tatsächliche Zugang — Hinweise und Befund sagen
+  das; bei offenem Monat verschiebt accounti die Vorsteuer nicht selbst
 - **Kontakterkennung: Treffer, die dem Beleg widersprechen** (Eingang B14, Ausgang B1):
   Eine andere USt-IdNr. ist ein anderes Unternehmen — auch bei gleicher IBAN (Factoring,
   Zahlungsdienst) oder gleichem normalisiertem Namen („Atelier Nord SARL“/„SRL“); ein
@@ -503,7 +519,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   verwerfen
 - **„Zahlbar ohne Abzug“ nahm das Skonto des Kontakts** (Eingang B09): „ohne Abzug“, „rein
   netto“, „netto Kasse“, „kein Skonto“ heißen jetzt Skonto 0 % am Beleg, und 0 % schlägt
-  das Kontakt-Skonto (vorher galt es als „unbekannt“)
+  das Kontakt-Skonto (vorher galt es als „unbekannt“). Zahlungsbedingungen in einer Zeile
+  werden je Teilsatz gelesen: „30 Tage ohne Abzug oder 10 Tage mit 2 % Skonto“ ergab
+  Skontofrist 30 Tage und kein Zahlungsziel, jetzt 10 Tage und Ziel nach 30
 - **Ordner und Handimport kannten die eigene Firma nicht** (Eingang B04): `belege import`
   (neu `--config`) und `belege abholen --kanal ordner` nehmen die eigene Firma aus
   `mandant` wie E-Mail, Webhook und Connector — eine eigene Rechnung wird

@@ -190,6 +190,7 @@ accounti belege abholen --kanal ordner --ordner ./eingang/belege
 accounti belege liste --status pruefung
 # Original geprüft: freigeben (Rechnung ohne Steuerausweis mit ihrem Steuerfall)
 accounti belege freigeben 3fa2c1 --steuer 13b --grund "Hinweis § 13b UStG auf Seite 2"
+accounti belege freigeben 7c41d0 --vorzeichen umkehren --grund "Rechnung, keine Korrektur"
 accounti belege erkennen --id 3fa2c1           # erfasst, aber falsch gelesen: neu lesen
 
 # Belege aus dem Postfach holen (Abschnitt belegkanaele.email; Passwort per ${VAR} oder Tresor)
@@ -251,10 +252,14 @@ Eine Rechnung ohne Umsatzsteuer erkennt accounti am Hinweistext statt am Steuera
 `opos verbuchen` schlägt bei § 13b Schlüssel 94 und bei einer ig. Lieferung an uns
 Schlüssel 19 vor — immer zur Prüfung; die Steuer berechnet accounti aus dem Netto, Kz 46/47
 gilt für Kreditoren aus dem übrigen EU-Gebiet (Land aus USt-IdNr. oder IBAN, sonst
-`kontakte bearbeiten --land`). Gutschriften des Lieferanten mindern Aufwand und Vorsteuer.
-Kommt eine Rechnung bei Bilanzierung erst im Folgejahr an, steht die Vorsteuer zunächst auf
-„Vorsteuer im Folgejahr abziehbar“ (SKR03 1548, SKR04 1434) und wird im Eingangsmonat
-umgebucht (§ 15 Abs. 1 Nr. 1 UStG). Als Eingang gilt die Erfassung in accounti.
+`kontakte bearbeiten --land`). Gutschriften des Lieferanten mindern Aufwand und Vorsteuer
+im Zeitraum ihres Belegdatums (§ 17 Abs. 1 S. 8 UStG); einen Korrekturbeleg mit positiven
+Beträgen (Titel „Rechnungskorrektur“, „Gutschrift“, „Stornorechnung“, „Credit Note“)
+negiert accounti und legt ihn zur Prüfung — ist es doch eine Rechnung: `belege freigeben
+… --vorzeichen umkehren`. Kommt eine Rechnung bei Bilanzierung erst im Folgejahr an,
+steht die Vorsteuer zunächst auf „Vorsteuer im Folgejahr abziehbar“ (SKR03 1548, SKR04
+1434) und wird im Eingangsmonat umgebucht (§ 15 Abs. 1 Nr. 1 UStG). Als Eingang gilt die
+Erfassung in accounti.
 
 ### Zahlungsverkehr
 
