@@ -135,7 +135,10 @@ class DATEVExporter:
             if warnung is not None:
                 self.warnungen.append(warnung)
         if angepasst:
-            beispiele = ", ".join(angepasst[:3]) + (" …" if len(angepasst) > 3 else "")
+            verschieden = list(dict.fromkeys(angepasst))
+            beispiele = ", ".join(verschieden[:3]) + (
+                " …" if len(verschieden) > 3 else ""
+            )
             self.warnungen.append(
                 f"Belegfeld 1: {len(angepasst)} Belegnummer(n) auf DATEVs "
                 f"Zeichenvorrat gekürzt ({beispiele}) — OPOS-Ausgleich in DATEV prüfen"
