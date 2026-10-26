@@ -187,6 +187,13 @@ STEUERKONTEN: dict[str, Bereiche] = {
     "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
     "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
 }
+# Vorsteuer im Folgejahr abziehbar (Bilanz) und die Vorsteuerkonten, auf die sie im
+# Zeitraum des Rechnungseingangs umgebucht wird — diese Umbuchung ist die Vorsteuer
+# (Kz 66), § 15 Abs. 1 S. 1 Nr. 1 UStG
+VORSTEUER_FOLGEJAHR: dict[str, tuple[str, frozenset[str]]] = {
+    "SKR03": ("1548", frozenset({"1576", "1571"})),
+    "SKR04": ("1434", frozenset({"1406", "1401"})),
+}
 # Saldenvortrags- und statistische Konten (SKR03/SKR04 9000–9999)
 _VORTRAG: Bereiche = ((9000, 9999),)
 # Nicht steuerbare Umsätze, die bei einem EU-Unternehmer meist eine EU-Leistung sind
@@ -548,8 +555,10 @@ class _Ermittler:
         Abs. 1 Nr. 2 UStG) — ohne Schlüssel fehlt sie in der Anmeldung."""
         soll, haben = b.soll_konto, b.haben_konto
         plan = self.plan
+        folgejahr = VORSTEUER_FOLGEJAHR.get(plan.kontenrahmen, ("", frozenset()))[0]
         if (
-            plan.ist_gegenkonto(soll)
+            soll == folgejahr
+            or plan.ist_gegenkonto(soll)
             or plan.ist_steuerkonto(soll)
             or plan.ist_erloeskonto(soll)
             or _im_bereich(soll, _VORTRAG)
@@ -573,8 +582,30 @@ class _Ermittler:
             "Erwerb, Schlüssel 19/18 (Kz 89, 61): accounti korrigiere … --steuer 94"
         )
 
+    def _vorsteuer_umbuchung(self, b: Buchungssatz) -> bool:
+        """Vorsteuerkonto an „Vorsteuer im Folgejahr“: Abzug im Eingangszeitraum."""
+        folgejahr, vorsteuer = VORSTEUER_FOLGEJAHR.get(
+            self.plan.kontenrahmen, ("", frozenset())
+        )
+        seiten = {b.soll_konto, b.haben_konto}
+        if (
+            folgejahr not in seiten
+            or len(seiten) != 2
+            or not seiten - {folgejahr} <= vorsteuer
+        ):
+            return False
+        vz = 1 if b.soll_konto in vorsteuer else -1
+        self._buche(
+            b,
+            f"Vorsteuer aus {folgejahr} umgebucht",
+            [Beitrag(66, vz * b.betrag_netto)],
+        )
+        return True
+
     def konto(self, b: Buchungssatz) -> None:
         """Buchung ohne Steuerschlüssel: jede Seite für sich."""
+        if self._vorsteuer_umbuchung(b):
+            return
         beitraege: list[tuple[Beitrag, Seite]] = []
         regeln: list[str] = []
         gruende: list[str] = []

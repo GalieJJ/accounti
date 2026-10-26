@@ -23,6 +23,7 @@ from accounti.belege.archiv import BelegArchiv
 from accounti.db.repo_elster import (
     lade_beleg_kontakte,
     lade_beleg_partner,
+    lade_belegeingang,
     lade_uebermittlungen,
 )
 from accounti.db.repository import (
@@ -135,6 +136,7 @@ class _Daten:
         )
         # Abnehmer laut Rechnung: ZM und USt-IdNr.-Prüfung je Rechnung, nicht je Kontakt
         self.beleg_partner = lade_beleg_partner(session)
+        self.belegeingang = lade_belegeingang(session)
         bank = {k.sachkonto for k in lade_bankkonten(session)}
         self.plan = kontenplan(buchhaltung, einstellungen, bank)
 
@@ -184,6 +186,7 @@ def bereite_vor(
         vorperiode=daten.vergleich(zeitraum.vorperiode()),
         vorjahr=daten.vergleich(zeitraum.vorjahr()),
         oss_aktiv=oss_aktiv,
+        belegeingang=daten.belegeingang,
         schwellen=Schwellen(
             abweichung_prozent=einstellungen.abweichung_prozent,
             abweichung_mindestens=einstellungen.abweichung_mindestens,

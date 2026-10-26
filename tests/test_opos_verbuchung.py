@@ -988,3 +988,80 @@ def test_gleichnamige_privatkunden_werden_zwei_debitoren(umgebung):
     zweiter = verbucht[1].treffer.kontakt
     assert zweiter.ort == "Berlin" and zweiter.status is KontaktStatus.ZUR_PRUEFUNG
     assert "gleichnamiger Kontakt 10000" in zweiter.pruef_grund
+
+
+# --- Gesamttest Paket C, Eingang B16: Rechnung erst im Folgejahr --------------------
+
+
+def _vorjahresrechnung():
+    return eingangsrechnung(
+        belegnummer="RW-8921",
+        belegdatum=date(2025, 12, 29),
+        zahlungsziel=None,
+        skonto_prozent=None,
+        skonto_tage=None,
+        eingegangen_am=datetime(2026, 1, 5, 9, 0),
+    )
+
+
+def test_vorsteuer_erst_im_folgejahr_auf_1548_und_umbuchung(umgebung):
+    """B16: Bilanz, Rechnung vom 29.12.2025, eingegangen 2026 — Aufwand und
+    Verbindlichkeit 2025, Vorsteuer auf 1548 und zum 01.01.2026 auf 1576/1571
+    umgebucht: Kz 66 im Januar, nicht im Dezember (§ 15 Abs. 1 Nr. 1 UStG)."""
+    from accounti.db.repository import setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, _vorjahresrechnung())
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung="bilanz")
+        s.commit()
+        (v,) = lauf.verbucht
+        assert any("1548" in h and "01/2026" in h for h in v.hinweise)
+        zeilen = sorted(
+            (b.datum, b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+            for b in lade_buchungen(s)
+        )
+        assert zeilen == [
+            (date(2025, 12, 29), "1548", "70000", Decimal("3.50"), None),
+            (date(2025, 12, 29), "1548", "70000", Decimal("19.00"), None),
+            (date(2025, 12, 29), "4900", "70000", Decimal("50.00"), None),
+            (date(2025, 12, 29), "4900", "70000", Decimal("100.00"), None),
+            (date(2026, 1, 1), "1571", "1548", Decimal("3.50"), None),
+            (date(2026, 1, 1), "1576", "1548", Decimal("19.00"), None),
+        ]
+        (posten,) = lade_posten(s)
+        assert posten.betrag == Decimal("172.50")
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        buchungen = lade_buchungen(s)
+    dezember = ermittle(buchungen, Zeitraum.lies("2025-12"), Kontenplan())
+    januar = ermittle(buchungen, Zeitraum.lies("2026-01"), Kontenplan())
+    assert dezember.voranmeldung.werte == {} and dezember.warnungen == []
+    assert januar.voranmeldung.werte == {66: Decimal("22.50")}
+    assert januar.warnungen == []
+
+
+def test_vorsteuer_folgejahr_nicht_bei_euer(umgebung):
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, _vorjahresrechnung())
+        s.commit()
+    with make_session() as s:
+        verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung="euer")
+        s.commit()
+        assert {b.steuer_schluessel for b in lade_buchungen(s)} == {8, 9}
+
+
+def test_paragraf_15_hinweis_auch_beim_belegdatum(umgebung):
+    """B16: zum Belegdatum gebucht, aber erst im Folgemonat erfasst → Hinweis."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(s, eingangsrechnung(eingegangen_am=datetime(2026, 4, 2, 9, 0)))
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert any("zählt in 03/2026" in h and "04/2026" in h for h in v.hinweise)

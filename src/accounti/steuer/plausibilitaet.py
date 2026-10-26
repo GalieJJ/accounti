@@ -20,12 +20,14 @@ Die Regeln ändern nie Daten.
                            Steuerbetrag (hinweis)
 - ``periode``              Periodenabschluss/Prüfbefunde (Baustein 7) ungeprüft
                            (hinweis)
+- ``beleg_nach_zeitraum``  Vorsteuer aus einer Rechnung, die erst nach Ende des
+                           Zeitraums einging (warnung, § 15 Abs. 1 Nr. 1 UStG)
 """
 
 from __future__ import annotations
 
 import enum
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -191,6 +193,33 @@ def _oss(e: Ermittlung, plan: Kontenplan, kontakte: Sequence[Kontakt]) -> list[B
     return befunde
 
 
+def _beleg_nach_zeitraum(
+    e: Ermittlung, belegeingang: Mapping[UUID, date]
+) -> list[Befund]:
+    """Vorsteuer (Kz 66) aus einer Belegbuchung, deren Rechnung erst nach Ende des
+    Zeitraums erfasst wurde: abziehbar ist sie erst, wenn die Rechnung vorliegt."""
+    befunde = []
+    for z in e.zugeordnet:
+        b = z.buchung
+        eingang = belegeingang.get(b.beleg_id) if b.beleg_id else None
+        if (
+            eingang is None
+            or b.transaktion_id is not None
+            or b.steuer_schluessel not in (8, 9)
+            or eingang <= e.zeitraum.bis
+        ):
+            continue
+        text = (
+            f"{_kurz(b)}: Vorsteuer aus einer Rechnung, die erst am "
+            f"{eingang:%d.%m.%Y} — nach Ende des Zeitraums — erfasst wurde; abziehbar "
+            "ist sie erst im Zeitraum, in dem die Rechnung vorliegt (§ 15 Abs. 1 Nr. 1 "
+            "UStG). Lag sie vorher vor (Eingang = Erfassung in accounti), ist nichts "
+            "zu tun"
+        )
+        befunde.append(Befund("beleg_nach_zeitraum", Schweregrad.WARNUNG, text, b.id))
+    return befunde
+
+
 def _vergleich(
     va: UStVoranmeldung,
     vergleiche: Sequence[tuple[str, UStVoranmeldung | None]],
@@ -225,6 +254,7 @@ def plausibilisiere(
     oss_aktiv: bool = False,
     schwellen: Schwellen | None = None,
     weitere: Iterable[Befund] | None = None,
+    belegeingang: Mapping[UUID, date] | None = None,
 ) -> list[Befund]:
     """Alle Befunde, Fehler zuerst.
 
@@ -254,6 +284,7 @@ def plausibilisiere(
         schwellen,
     )
     befunde += [Befund("ermittlung", Schweregrad.WARNUNG, w) for w in e.warnungen]
+    befunde += _beleg_nach_zeitraum(e, belegeingang or {})
     befunde += [Befund("ermittlung", Schweregrad.HINWEIS, h) for h in e.hinweise]
     if weitere is None:
         befunde.append(

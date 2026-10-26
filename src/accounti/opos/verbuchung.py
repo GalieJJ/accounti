@@ -15,6 +15,12 @@ Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsd
 Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
 Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel. Offener
 Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
+
+Geht die Rechnung erst im Folgejahr ein (Bilanz: Aufwand und Verbindlichkeit bleiben im
+alten Jahr), bucht accounti die Vorsteuer auf „Vorsteuer im Folgejahr abziehbar“
+(SKR03 1548, SKR04 1434) und zum ersten offenen Tag des Eingangsmonats auf das
+Vorsteuerkonto um — erst dort zählt sie in der Voranmeldung (§ 15 Abs. 1 S. 1 Nr. 1
+UStG, Abschn. 15.2 Abs. 2 S. 7 UStAE: Leistung und Rechnung müssen vorliegen).
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from typing import Literal
 
 from sqlalchemy.orm import Session
 
+from accounti.abschluss.kontenrahmen import Kontenrahmen, lade_kontenrahmen
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
@@ -61,6 +68,7 @@ from accounti.models import (
     PostenRichtung,
 )
 from accounti.steuer.eu_steuersaetze import ist_eu_land
+from accounti.steuer.kennziffern import VORSTEUER_FOLGEJAHR
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, OSS_UST_KONTEN_SKR03
 
 NULL = Decimal("0")
@@ -423,27 +431,73 @@ def verbuche_beleg(
     )
     if eingang:
         hinweise += _steuerhinweise(gruppen, anlass, land)
+    folgejahr = _vorsteuer_folgejahr(
+        session, einstellungen, beleg, gebucht_am, eingang, gewinnermittlung
+    )
     for g in gruppen:
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
-        if g.netto < 0:  # Gutschrift: Seiten tauschen, Beträge positiv
+        gedreht = g.netto < 0  # Gutschrift: Seiten tauschen, Beträge positiv
+        if gedreht:
             soll, haben = haben, soll
-        buchung = Buchungssatz(
-            beleg_id=beleg.id,
-            datum=gebucht_am,
-            soll_konto=soll,
-            haben_konto=haben,
-            betrag_netto=abs(g.netto),
-            steuer_schluessel=g.schluessel,
-            steuer_betrag=abs(g.steuer) if g.schluessel is not None else None,
-            buchungstext=text,
-            beleg_nummer=(beleg.belegnummer or "")[:36] or None,
-            status=BuchungStatus.ZUR_PRUEFUNG
-            if g.pruefen or widerspruch
-            else BuchungStatus.AUTO_GEBUCHT,
-            confidence=0.5 if g.pruefen or widerspruch else 1.0,
+        pruefen = g.pruefen or widerspruch
+        status = BuchungStatus.ZUR_PRUEFUNG if pruefen else BuchungStatus.AUTO_GEBUCHT
+
+        def buche(
+            soll: str,
+            haben: str,
+            betrag: Decimal,
+            schluessel: int | None = None,
+            steuer: Decimal | None = None,
+            datum: date = gebucht_am,
+            status: BuchungStatus = status,
+            pruefen: bool = pruefen,
+        ) -> None:
+            buchung = Buchungssatz(
+                beleg_id=beleg.id,
+                datum=datum,
+                soll_konto=soll,
+                haben_konto=haben,
+                betrag_netto=betrag,
+                steuer_schluessel=schluessel,
+                steuer_betrag=steuer,
+                buchungstext=text,
+                beleg_nummer=(beleg.belegnummer or "")[:36] or None,
+                status=status,
+                confidence=0.5 if pruefen else 1.0,
+            )
+            speichere_buchung(session, buchung)
+            buchungen.append(buchung)
+
+        if folgejahr is not None and g.schluessel in (8, 9) and g.steuer:
+            konto_folgejahr, umbuchung_am, kr = folgejahr
+            vorsteuer = kr.steuerkonto(g.schluessel) or konto_folgejahr
+            steuer = abs(g.steuer)
+            buche(soll, haben, abs(g.netto))
+            # Vorsteuer: im alten Jahr nur als „im Folgejahr abziehbar“ …
+            if gedreht:
+                buche(personenkonto, konto_folgejahr, steuer)
+                buche(konto_folgejahr, vorsteuer, steuer, datum=umbuchung_am)
+            else:
+                buche(konto_folgejahr, personenkonto, steuer)
+                # … und abziehbar im Zeitraum, in dem die Rechnung vorliegt
+                buche(vorsteuer, konto_folgejahr, steuer, datum=umbuchung_am)
+            hinweise.append(
+                f"{anlass}: Rechnung vom {belegdatum:%d.%m.%Y} erst am "
+                f"{beleg.eingegangen_am:%d.%m.%Y} erfasst — Vorsteuer {steuer} € auf "
+                f"{konto_folgejahr} „Vorsteuer im Folgejahr abziehbar“ und zum "
+                f"{umbuchung_am:%d.%m.%Y} auf {vorsteuer} umgebucht: abziehbar in "
+                f"{umbuchung_am:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG); lag die Rechnung "
+                "schon im alten Jahr vor (Eingang = Erfassung in accounti), die "
+                "Buchungen korrigieren"
+            )
+            continue
+        buche(
+            soll,
+            haben,
+            abs(g.netto),
+            g.schluessel,
+            abs(g.steuer) if g.schluessel is not None else None,
         )
-        speichere_buchung(session, buchung)
-        buchungen.append(buchung)
 
     faellig, skonto_bis, skonto_prozent, skonto_betrag = _faelligkeit(
         beleg, treffer, einstellungen, belegdatum
@@ -472,6 +526,45 @@ def verbuche_beleg(
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
+def _vorsteuer_folgejahr(
+    session: Session,
+    einstellungen: Buchhaltung,
+    beleg: Beleg,
+    gebucht_am: date,
+    eingang: bool,
+    gewinnermittlung: str | None,
+) -> tuple[str, date, Kontenrahmen] | None:
+    """(Konto „Vorsteuer im Folgejahr“, Tag der Umbuchung, Kontenrahmen), wenn eine
+    Eingangsrechnung bei Bilanzierung erst im Folgejahr eingegangen ist — sonst None.
+
+    Ohne Angabe der Gewinnermittlung gilt wie beim Buchungstag die Bilanzierung."""
+    eingegangen = beleg.eingegangen_am.date()
+    if not eingang or gewinnermittlung == "euer" or eingegangen.year <= gebucht_am.year:
+        return None
+    kr = lade_kontenrahmen(einstellungen.kontenrahmen)
+    konto, _ = VORSTEUER_FOLGEJAHR.get(kr.name, VORSTEUER_FOLGEJAHR["SKR03"])
+    tag = erster_offener_tag(session.connection(), eingegangen.replace(day=1))
+    return konto, tag, kr
+
+
+def _hinweis_eingang_spaeter(
+    belegdatum: date, eingegangen: date, anlass: str, gewinnermittlung: str | None
+) -> str | None:
+    """Zum Belegdatum gebucht, aber in einem späteren Monat erfasst: Die Vorsteuer
+    zählt im Monat des Belegdatums — abziehbar ist sie erst, wenn die Rechnung
+    vorliegt (§ 15 Abs. 1 Nr. 1 UStG). Folgejahr bei Bilanz: 1548, eigener Hinweis."""
+    if (eingegangen.year, eingegangen.month) <= (belegdatum.year, belegdatum.month):
+        return None
+    if eingegangen.year > belegdatum.year and gewinnermittlung != "euer":
+        return None
+    return (
+        f"{anlass}: zum Belegdatum {belegdatum:%d.%m.%Y} gebucht, erfasst am "
+        f"{eingegangen:%d.%m.%Y} — die Vorsteuer zählt in {belegdatum:%m/%Y}; lag "
+        f"die Rechnung erst nach Ende dieses Zeitraums vor, gehört sie in "
+        f"{eingegangen:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG, kein Wahlrecht)"
+    )
+
+
 def _buchungstag(
     session: Session,
     beleg: Beleg,
@@ -493,7 +586,11 @@ def _buchungstag(
         buchungsdatum == "beleg"
         or sperrfehler(session.connection(), belegdatum) is None
     ):
-        return belegdatum, None
+        if beleg.belegart is not Belegart.EINGANGSRECHNUNG:
+            return belegdatum, None
+        return belegdatum, _hinweis_eingang_spaeter(
+            belegdatum, eingegangen, anlass, gewinnermittlung
+        )
     if buchungsdatum == "eingang":
         tag = eingegangen
     elif buchungsdatum == "offen":
@@ -531,9 +628,10 @@ def _buchungstag(
             f"{tag.year}, die Rechnung vom {belegdatum:%d.%m.%Y} gehört mit Aufwand "
             f"und Verbindlichkeit ins Geschäftsjahr {belegdatum.year} (§ 252 Abs. 1 "
             f"Nr. 5 HGB, GoBD Rz. 51) — {oeffnen} und zum Belegdatum buchen; die "
-            "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG) und "
-            "gehört dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ (SKR03) — das "
-            f"bucht accounti nicht selbst{ohne_angabe}"
+            "Vorsteuer ist erst im Folgejahr abziehbar (§ 15 Abs. 1 Nr. 1 UStG): "
+            "accounti bucht sie dann auf 1548 „Vorsteuer im Folgejahr abziehbar“ "
+            "(SKR04 1434) und zum ersten offenen Tag des Eingangsmonats auf das "
+            f"Vorsteuerkonto um{ohne_angabe}"
         )
     # Vorsteuer: im Zeitraum, in dem Leistung und Rechnung vorliegen — ohne Wahlrecht
     # (§ 15 Abs. 1 Nr. 1 UStG); maßgeblich ist hier das spätere von Beleg und Eingang

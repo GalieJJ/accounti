@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -99,6 +100,16 @@ def lade_beleg_partner(session: Session) -> dict[UUID, Belegpartner]:
         UUID(beleg): Belegpartner(name, ust_id, land)
         for beleg, name, ust_id, land in rows
     }
+
+
+def lade_belegeingang(session: Session) -> dict[UUID, date]:
+    """Beleg → Tag der Erfassung, für Eingangsrechnungen (§ 15 Abs. 1 Nr. 1 UStG)."""
+    rows = (
+        session.query(BelegRow.id, BelegRow.eingegangen_am)
+        .filter(BelegRow.belegart == "eingangsrechnung")
+        .all()
+    )
+    return {UUID(beleg): eingegangen.date() for beleg, eingegangen in rows}
 
 
 def lade_beleg_kontakte(session: Session) -> dict[UUID, UUID]:
