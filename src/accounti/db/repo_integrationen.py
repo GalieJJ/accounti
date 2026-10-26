@@ -340,12 +340,13 @@ def erledige_befunde(session: Session, befund_ids: list[UUID]) -> None:
 
 
 def setze_bank_transaktion(
-    session: Session, posten_id: UUID, transaktion_id: UUID
+    session: Session, posten_id: UUID, transaktion_id: UUID | None
 ) -> None:
+    """Bankumsatz eines Aus- oder Einzahlungspostens (``None``: Zuordnung gelöst)."""
     row = session.get(MarktplatzPostenRow, str(posten_id))
     if row is None:
         raise ValueError(f"Posten {posten_id} nicht gefunden")
-    row.bank_transaktion_id = str(transaktion_id)
+    row.bank_transaktion_id = str(transaktion_id) if transaktion_id else None
     session.flush()
 
 

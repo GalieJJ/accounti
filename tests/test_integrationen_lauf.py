@@ -532,14 +532,26 @@ def test_fremdwaehrung_schon_per_regel_gebucht_ist_befund(umgebung):
     assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABWEICHUNG
 
 
-def test_schon_gebucht_in_euro_nur_mit_exaktem_betrag(umgebung):
+@pytest.mark.parametrize("mit_nummer", [False, True], ids=["ohne_nummer", "nummer"])
+def test_schon_gebucht_in_euro_nur_mit_exaktem_betrag(umgebung, mit_nummer):
     """Gegenprobe zu N2 (a): in Euro ist ein Bankumsatz mit 1 Cent Abweichung keine
-    gebuchte Auszahlung — die Toleranz gilt nur, wo der Kurs der Bank abweicht."""
+    gebuchte Auszahlung — die Toleranz gilt nur, wo der Kurs der Bank abweicht.
+    Nennt er aber die eigene Nummer, ist er es doch, nur in anderer Höhe: dann ist
+    der Erlös doppelt, ein Fehler-Befund mit beiden Beträgen (Nachprüfung 5 E, N2 —
+    vorher schrieb dieser Test das Schweigen fest)."""
     s, archiv, kontext = umgebung
-    tx = bank(s, date(2026, 8, 18), "209.86", "AMAZON PAYMENTS EUROPE 11223344556")
+    nummer = " 11223344556" if mit_nummer else ""
+    tx = bank(s, date(2026, 8, 18), "209.86", f"AMAZON PAYMENTS EUROPE{nummer}")
     _als_erloes_gebucht(s, tx, "176.35", "33.51")
     (ergebnis,) = amazon(s, archiv, kontext)
-    assert not [a.befund for a in ergebnis.abgleich if a.befund]
+    befunde = [a.befund for a in ergebnis.abgleich if a.befund]
+    if not mit_nummer:
+        assert not befunde
+        return
+    (befund,) = befunde
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert "209,86" in befund.text and "209,85" in befund.text
+    assert _ustva_warnungen(s, "2026-08")
 
 
 def _amazon_ende_august(inhalt: bytes) -> bytes:
@@ -891,8 +903,10 @@ def test_ueberholter_befund_erledigt_sich_beim_naechsten_abgleich(umgebung):
     _per_regel(s, _UMSATZ_B)
     vorher = _anderweitig(_ebay_import(s, archiv, kontext))
     assert "02.10.2026" in vorher.text  # Grenze: die fremde Nummer kennt noch keiner
+    # der Import von 6009990002 gleicht alle ab: der überholte Befund erledigt sich
+    # schon dabei (vorher erst beim nächsten Abgleich, bis dahin zwei Warnungen)
     _anderweitig(_ebay_import(s, archiv, kontext, zweite=True))
-    assert len(_ustva_warnungen(s, "2026-10")) == 2
+    assert len(_ustva_warnungen(s, "2026-10")) == 1
     gleiche_auszahlungen_ab(s, kontext)
     eins, _ = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
     assert not [x for x in eins.offene_befunde if x.code.startswith("auszahlung")]
@@ -1164,22 +1178,23 @@ def test_umsatz_mit_anderer_nummer_ist_kein_treffer(umgebung):
 
 
 def test_referenz_derselben_form_bleibt_korrigierbar(umgebung):
-    """Regel 4, Gegenprobe: ist die andere Zahl nur eine Referenz der Bank (zehn
-    Ziffern wie eine eBay-Nummer), darf der Weg zur Zuordnung nicht verbaut sein —
-    der Befund „schon gebucht“ sagt, dass der Umsatz wohl zu einer anderen
-    Abrechnung gehört; bucht der Mensch ihn trotzdem aufs Verrechnungskonto, gilt
-    das."""
+    """Regel 4, Gegenprobe: ist die andere Zahl nur eine Referenz der Bank, die wie
+    eine eBay-Nummer aussieht (zehn Ziffern, derselbe Anfang — eine mit anderem
+    Anfang zählt seit Nachprüfung 5 E gar nicht als Nummer), darf der Weg zur
+    Zuordnung nicht verbaut sein — der Befund „schon gebucht“ sagt, dass der Umsatz
+    wohl zu einer anderen Abrechnung gehört; bucht der Mensch ihn trotzdem aufs
+    Verrechnungskonto, gilt das."""
     s, archiv, kontext = umgebung
     tx = bank(
         s,
         date(2026, 9, 30),
         "59.75",
-        "EBAY MANAGED PAYMENTS EREF 4711000815",
+        "EBAY MANAGED PAYMENTS EREF 6009990077",
         "eBay S.a.r.l.",
     )
     _als_erloes_gebucht(s, tx, "50.21", "9.54")
     befund = _anderweitig(_ebay_import(s, archiv, kontext))
-    assert "4711000815" in befund.text and "noch nicht importierten" in befund.text
+    assert "6009990077" in befund.text and "noch nicht importierten" in befund.text
     _korrigiere_wie_vorgeschlagen(s, befund)
     (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
     assert abgleich.transaktion is not None and abgleich.transaktion.id == tx.id
@@ -1213,7 +1228,12 @@ def test_spaeter_umsatz_mit_eigener_nummer_als_erloes_ist_befund(umgebung):
     assert wieder == [zweifel.text]
     assert len(_ustva_warnungen(s, "2026-09")) == 1
     _korrigiere_wie_vorgeschlagen(s, zweifel)
-    assert [x for x in gleiche_auszahlungen_ab(s, kontext) if x.befund] == []
+    # nach der Korrektur kein doppelter Erlös mehr — die Zuordnung zu B bleibt aber
+    # zweifelhaft: eine Warnung nennt den Befehl, der sie löst (Nachprüfung 5 E, N1;
+    # vorher blieb 6009990002 ohne Befund für immer offen)
+    (warnung,) = [x.befund for x in gleiche_auszahlungen_ab(s, kontext) if x.befund]
+    assert warnung.code == "auszahlung_zweifel", warnung.text
+    assert "accounti marktplatz zuordnen 6009990001 " in warnung.text
     assert not _ustva_warnungen(s, "2026-09")
 
 
@@ -1283,3 +1303,20 @@ def test_abbruch_nach_dem_ablegen_laesst_keine_datei_zurueck(umgebung, monkeypat
     with pytest.raises(RuntimeError):
         amazon(s, archiv, kontext)
     assert archiv.enthaelt(hashlib.sha256(roh).hexdigest())
+
+
+def test_schon_gebucht_mit_exaktem_betrag_auch_ohne_stichwort(umgebung):
+    """Simulation Nachprüfung 5 E: ohne ``bank_stichworte`` bucht die Kontierung
+    einen Eingang ohne Nummer vor dem Import per Regel als Erlös. Der Abgleich nimmt
+    einen offenen mit exakt dem Betrag auch ohne Stichwort als Treffer (Regel 5),
+    „schon gebucht“ verlangte aber ein Stichwort — die Voranmeldung schwieg bei
+    doppeltem Erlös. Jetzt gilt der exakte Betrag auch dort."""
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext, "amazon")
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    roh = _amazon_ende_august((FIXTURES / "amazon_abrechnung_v2.txt").read_bytes())
+    (ergebnis,) = amazon(s, archiv, kontext, roh)
+    befund = _anderweitig(ergebnis)
+    assert "03.09.2026" in befund.text
+    assert _ustva_warnungen(s, "2026-09")

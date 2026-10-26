@@ -2604,10 +2604,15 @@ def bank_lauf_befehl(
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
     abgeglichen = [m for m in ergebnis.marktplatz if m.transaktion is not None]
+    offen = [
+        m
+        for m in ergebnis.marktplatz
+        if m.transaktion is None and m.posten.bank_transaktion_id is None
+    ]
     if ergebnis.marktplatz:
         console.print(
             f"Marktplatz: {len(abgeglichen)} Auszahlungen abgeglichen, "
-            f"{len(ergebnis.marktplatz) - len(abgeglichen)} offen"
+            f"{len(offen)} offen"
         )
     for m in ergebnis.marktplatz:
         if m.befund is not None:

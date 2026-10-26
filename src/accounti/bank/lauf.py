@@ -223,7 +223,18 @@ def bank_lauf(
         from accounti.integrationen.auszahlung import gleiche_auszahlungen_ab
 
         lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
+    # ein Umsatz, über den der Abgleich eben einen Befund hat (andere Nummer,
+    # mehrdeutig, Abweichung), ist eine Auszahlung — nie zugleich kontieren, auch
+    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a)
+    befund_umsaetze = {
+        t.id: m.abrechnung.marktplatz
+        for m in lauf.marktplatz
+        if m.befund is not None
+        for t in m.umsaetze
+    }
     lauf.zuordnung = zuordne_zahlungen(session, einstellungen)
     lauf.abgleich = gleiche_belege_ab(session)
-    lauf.kontierung = kontiere_umsaetze(session, engine, einstellungen, integrationen)
+    lauf.kontierung = kontiere_umsaetze(
+        session, engine, einstellungen, integrationen, auslassen=befund_umsaetze
+    )
     return lauf
