@@ -18,7 +18,12 @@ from typing import Any
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
-from accounti.belege.extraktion import TOLERANZ, Extrakt, extrahiere
+from accounti.belege.extraktion import (
+    TOLERANZ,
+    Extrakt,
+    begrenze_leerraum,
+    extrahiere,
+)
 from accounti.belege.kanaele import RohBeleg
 from accounti.belege.llm import LLMBelegEngine
 from accounti.belege.ocr import OCREngine
@@ -379,6 +384,7 @@ class BelegErkenner:
         )
 
     def _lies(self, text: str, beleg: Beleg) -> Beleg:
+        text = begrenze_leerraum(text)  # Fremddaten: alle Muster linear (H/M-1)
         extrakt = extrahiere(text)
         art = erkenne_belegart(text, extrakt, self.eigene_ust_ids, self.eigene_firma)
         belegart = art.belegart

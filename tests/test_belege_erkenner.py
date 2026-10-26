@@ -392,3 +392,14 @@ def test_zugferd_minimum_nimmt_steuersatz_aus_der_pdf_ansicht():
     )
     (p,) = nur_xml.positionen
     assert p.steuersatz is None and nur_xml.status is BelegStatus.ZUR_PRUEFUNG
+
+
+def test_kreditkartenabrechnung_mit_langem_leerraum_haengt_nicht():
+    """H/M-1, gleiche Ursache: Die Zerlegung einer Kreditkartenabrechnung wurde an
+    langen Leerraum-Folgen quadratisch — der Erkenner nimmt begrenzten Leerraum."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    text = "Kreditkartenabrechnung\n01.10." + " " * 50_000 + "x\n" + "\n" * 50_000
+    with _zeitschranke(3):
+        b = _erkenne(BelegErkenner(), text.encode(), "k.txt")
+    assert b.belegart is Belegart.KONTOAUSZUG and b.positionen == []

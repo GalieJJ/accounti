@@ -1,9 +1,13 @@
+import signal
+import time
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
+from accounti.belege import extraktion
 from accounti.belege.extraktion import Steuerzeile, extrahiere
 
 FIXTURES = Path(__file__).resolve().parents[1] / "examples" / "belege"
@@ -354,3 +358,148 @@ def test_skonto_ohne_frist_im_teilsatz_nimmt_die_frist_der_zeile():
     )
     assert (e.skonto_prozent, e.skonto_tage) == (Decimal("2"), 10)
     assert e.zahlungsziel is None
+
+
+# --- Nachprüfung C, Runde 3 ---------------------------------------------------------
+
+
+@contextmanager
+def _zeitschranke(sekunden):
+    """Bricht nach ``sekunden`` hart ab (SIGALRM unterbricht auch einen laufenden
+    Regex) — eine exponentielle Laufzeit soll den Testlauf nicht aufhalten."""
+    beginn = time.perf_counter()
+    if not hasattr(signal, "setitimer"):  # pragma: no cover - nur Windows
+        yield
+        assert time.perf_counter() - beginn < sekunden
+        return
+
+    def abbruch(*_):
+        raise TimeoutError(f"länger als {sekunden} s")
+
+    alt = signal.signal(signal.SIGALRM, abbruch)
+    signal.setitimer(signal.ITIMER_REAL, sekunden)
+    try:
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, alt)
+
+
+def _spalten(woerter, abstand):
+    return (" " * abstand).join(woerter)
+
+
+SPALTEN_GUTSCHRIFT = [
+    "GUTSCHRIFT",
+    "Nr. GS-12",
+    "vom 01.10.2026",
+    "zur Rechnung Nr. RE-5",
+    "vom 15.09.2026",
+]
+PATHOLOGISCHE_ZEILEN = {  # Zeile, erkannter Titel
+    "zur Rechnung ×12": ("Rechnungskorrektur" + " zur Rechnung" * 12 + " x", None),
+    "vom ×22": ("Gutschrift" + " vom 01.01.2026" * 22 + " x", None),
+    "Spalten 12": (_spalten([*SPALTEN_GUTSCHRIFT, "Seite 1"], 12), "gutschrift"),
+    "Spalten 25": (_spalten([*SPALTEN_GUTSCHRIFT, "Seite 1"], 25), "gutschrift"),
+    "Spalten 25, Kunde": (_spalten([*SPALTEN_GUTSCHRIFT, "Kunden-Nr. 4711"], 25), None),
+    "Rechnung Spalten 10": (
+        _spalten(
+            ["RECHNUNG", "Nr. 4711", "vom 01.10.2026", "zur Rechnung Nr. RE-5"]
+            + ["Datum 15.09.2026", "Kunde 1"],
+            10,
+        ),
+        None,
+    ),
+    "lang": ("Gutschrift" + " zur Rechnung Nr. RE-5 vom 01.01.2026" * 300, None),
+}
+
+
+@pytest.mark.parametrize(
+    ("zeile", "titel"), PATHOLOGISCHE_ZEILEN.values(), ids=PATHOLOGISCHE_ZEILEN.keys()
+)
+def test_titelerkennung_haengt_nicht(zeile, titel):
+    """H/M-1 (Nachprüfung C, Runde 3): Zwischen den Wiederholungen der Titelangaben
+    standen mehrdeutige ``\\s*`` — scheiterte der Treffer am Zeilenende, probierte das
+    Muster jede Aufteilung der Leerzeichen durch (Spaltenlayout mit 12 Leerzeichen:
+    15 s, mit 25: `belege import` hing). Jeder, der ein PDF an Postfach oder Webhook
+    schickt, konnte so den Eingang lahmlegen. Eine Zeile über 120 Zeichen ist kein
+    Titel („lang“)."""
+    with _zeitschranke(2):
+        e = extrahiere(f"Rahmenwerk Nord GmbH\n{zeile}\nSumme netto 100,00 €\n")
+    assert e.korrektur == titel
+
+
+@pytest.mark.parametrize("muster", ["_KORREKTUR_TITEL", "_RECHNUNG_TITEL"])
+@pytest.mark.parametrize(
+    "wiederholung", [" zur Rechnung", " vom 01.01.2026", " Nr. 12"]
+)
+def test_titelmuster_linear_auch_ohne_laengengrenze(muster, wiederholung):
+    """Die Längengrenze für Titelzeilen ist nur die zweite Sicherung — das Muster
+    selbst darf auch auf einer langen Zeile nicht zurückverfolgen."""
+    wort = "Rechnung" if muster == "_RECHNUNG_TITEL" else "Gutschrift"
+    zeile = wort + wiederholung * 2000 + " x"
+    with _zeitschranke(2):
+        assert getattr(extraktion, muster).match(zeile) is None
+        assert getattr(extraktion, muster).match(wort + wiederholung * 2000)
+
+
+def test_titel_im_spaltenlayout_wird_erkannt():
+    """Mehrere Leerzeichen zwischen den Angaben (Spaltenlayout aus pypdf) zählen wie
+    eines; die Seitenzahl gehört im Spaltenlayout oft in die Titelzeile."""
+    titel = _spalten([*SPALTEN_GUTSCHRIFT, "Seite 1/2"], 25)
+    with _zeitschranke(2):
+        e = extrahiere(RECHNUNG_MIT_FUSSZEILE.format(titel=titel, fusszeile=""))
+    assert e.korrektur == "gutschrift" and e.brutto == Decimal("-357.00")
+
+
+@pytest.mark.parametrize(
+    ("titel", "art"),
+    [
+        ("Gutschrift GS-2026-12", "gutschrift"),
+        ("Credit Note CN-77", "korrektur"),
+        ("Rechnungskorrektur zu RE-2026-5", "korrektur"),
+        ("Gutschrift 4711", "gutschrift"),
+    ],
+)
+def test_korrekturtitel_mit_blosser_nummer(titel, art):
+    """N-1 (Nachprüfung C, Runde 3): Der Plan sagt „höchstens mit Nummer“, der Code
+    verlangte „Nr.“, „No.“ oder „#“ davor — „Gutschrift GS-2026-12“ blieb positiv und
+    wurde wie eine Rechnung gebucht."""
+    e = extrahiere(RECHNUNG_MIT_FUSSZEILE.format(titel=titel, fusszeile=""))
+    assert e.korrektur == art
+    assert e.vorzeichen_gedreht and e.brutto == Decimal("-357.00")
+
+
+@pytest.mark.parametrize(
+    "zeile", ["Gutschrift 50,00", "Gutschrift zu 50,00 €", "Gutschrift 2 Stück"]
+)
+def test_betrag_nach_dem_korrekturwort_ist_keine_nummer(zeile):
+    e = extrahiere(RECHNUNG_MIT_FUSSZEILE.format(titel="", fusszeile=zeile))
+    assert e.korrektur is None and e.brutto == Decimal("357.00")
+
+
+_LANG = 50_000
+LANGER_LEERRAUM = {
+    "Nr. und Leerzeichen": "Rechnungsnr." + " " * _LANG + "x",
+    "Datum und Leerzeichen": "Rechnungsdatum" + " " * _LANG + "x",
+    "Datum und Leerzeilen": "Rechnungsdatum" + "\n" * _LANG + "x",
+    "Datum und Seitenvorschub": "Rechnungsdatum" + "\x0c" * _LANG + "x",
+    "USt-IdNr.": "USt-IdNr." + " " * _LANG + "DE" + " " * _LANG + "x",
+    "Skonto": "Skonto 2 % innerhalb" + " " * _LANG + "x",
+}
+
+
+@pytest.mark.parametrize("zeile", LANGER_LEERRAUM.values(), ids=LANGER_LEERRAUM.keys())
+def test_lange_leerraeume_bremsen_die_erkennung_nicht(zeile):
+    """H/M-1, gleiche Ursache in anderen Mustern: benachbarte ``\\s*`` wurden an einer
+    langen Folge von Leerzeichen oder Leerzeilen quadratisch (20 000 Zeichen: 4 s bis
+    über 10 s, 50 000 ein Vielfaches). Fremddaten kommen mit begrenztem Leerraum in die
+    Muster."""
+    with _zeitschranke(2):
+        e = extrahiere(f"Rahmenwerk Nord GmbH\n{zeile}\nSumme netto 100,00 €\n")
+    assert e.netto == Decimal("100.00")
+
+
+def test_begrenzter_leerraum_behaelt_zeilen_und_spalten():
+    text = "a" + " " * 30 + "b\r\nc\x0cd\n\n\n\n" + " " * 40 + "\ne  f\n"
+    assert extraktion.begrenze_leerraum(text) == "a" + " " * 20 + "b\nc\nd\n\ne  f\n"

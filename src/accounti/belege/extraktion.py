@@ -167,30 +167,42 @@ _KENNZEICHEN: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
 ]
-# Titel eines Belegs: die ganze Zeile ist das Wort, höchstens mit Nummer, Datum oder
-# Bezug („Rechnungskorrektur zur Rechnung Nr. RE-5“) — nie ein Satz wie
-# „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ (Nachprüfung C, M1)
+# Titel eines Belegs: die ganze Zeile ist das Wort, höchstens mit Nummer, Datum, Bezug
+# („Rechnungskorrektur zur Rechnung Nr. RE-5“) oder Seitenzahl — nie ein Satz wie
+# „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ (Nachprüfung C, M1).
+# Die Muster laufen auf Fremddaten (Postfach, Webhook) und müssen linear bleiben
+# (Nachprüfung C, H/M-1): Die Zeile kommt mit einfachen Leerzeichen (``_titelzeile``),
+# jede Angabe ist eine atomare Gruppe und die Wiederholung possessiv — einmal gelesen,
+# wird nichts neu aufgeteilt (vorher exponentiell: 15 s für eine Zeile im
+# Spaltenlayout, ``belege import`` hing). Python ≥ 3.11 (``(?>…)``, ``*+``).
+_TITEL_MAX = 120  # Zeichen; ein Belegtitel ist kurz, längere Zeilen sind Text
 _KORREKTUR_WORT = (
-    r"(?:rechnungskorrektur|korrekturrechnung|storno[\s-]*rechnung|rechnungsstorno|"
-    r"gutschrift|credit\s+note)"
+    r"(?:rechnungskorrektur|korrekturrechnung|storno[ -]?rechnung|rechnungsstorno|"
+    r"gutschrift|credit note)"
 )
 _NUMMER = r"[A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*"  # wie bei der Belegnummer
+# eine Nummer ohne „Nr.“ davor — aber kein Betrag („Gutschrift 50,00“)
+_BLOSSE_NUMMER = rf"(?>{_NUMMER})(?!,\d)"
 _TITELZUSATZ = (
-    r"(?:\s*[-:,]?\s*(?:"
-    rf"(?:nr|nummer|no|number)\b\.?\s*[:#]?\s*{_NUMMER}|#\s*{_NUMMER}"
-    r"|(?:zur|zu|für\s+die)\s+rechnung"
-    rf"(?:\s*(?:nr|nummer)\b\.?)?\s*[:#]?\s*(?:{_NUMMER})?"
-    rf"|(?:vom|datum\s*:?)\s*(?:{DATUM})"
-    r"))*\s*[.:]?\s*$"
+    r"(?> ?[-:,]? ?(?:"
+    rf"(?:nr|nummer|no|number)\b\.? ?[:#]? ?(?>{_NUMMER})"
+    rf"|# ?(?>{_NUMMER})"
+    r"|(?:zur|zu|für die) rechnung(?: ?(?:nr|nummer)\b\.?)?"
+    rf"(?: ?[:#]? ?(?>{_NUMMER}))?"
+    rf"|(?:zur|zu) {_BLOSSE_NUMMER}"
+    rf"|(?:vom|datum ?:?) ?(?>{DATUM})"
+    r"|(?:seite|blatt|page) ?\d{1,3}(?: ?(?:/|von|of) ?\d{1,3})?"
+    rf"|{_BLOSSE_NUMMER}"
+    r"))*+ ?[.:]? ?$"
 )
 # „Gutschrift (Rechnungskorrektur)“, „Gutschrift / Credit Note“
 _KORREKTUR_TITEL = re.compile(
-    rf"^\s*{_KORREKTUR_WORT}"
-    rf"(?:\s*(?:\(\s*{_KORREKTUR_WORT}\s*\)|[/–-]\s*{_KORREKTUR_WORT}))?"
+    rf"{_KORREKTUR_WORT}"
+    rf"(?> ?(?:\( ?{_KORREKTUR_WORT} ?\)|[/–-] ?{_KORREKTUR_WORT}))?+"
     rf"{_TITELZUSATZ}",
     _I,
 )
-_RECHNUNG_TITEL = re.compile(rf"^\s*(?:rechnung|invoice|faktura){_TITELZUSATZ}", _I)
+_RECHNUNG_TITEL = re.compile(rf"(?:rechnung|invoice|faktura){_TITELZUSATZ}", _I)
 _KORREKTUR_EINDEUTIG = re.compile(
     r"korrektur|storno|credit\s+note", _I
 )  # „Gutschrift“ allein kann auch § 14 Abs. 2 S. 2 UStG sein
@@ -199,6 +211,26 @@ _KORREKTUR_EINDEUTIG = re.compile(
 # ---------------------------------------------------------------------------
 # Einzelfelder
 # ---------------------------------------------------------------------------
+
+
+# Fremddaten (Postfach, Webhook): Leerraum begrenzen, bevor ein Muster ihn sieht
+# (Nachprüfung C, H/M-1). Viele Muster haben benachbarte ``\s*``; an einer Folge von
+# 20 000 Leerzeichen oder Leerzeilen wurden sie quadratisch (Sekunden bis Minuten). Bis
+# 20 Leerzeichen bleiben Spalten erkennbar, Leerzeilen höchstens eine; Zeilenumbrüche
+# aller Art (``\r\n``, Seitenvorschub) werden ``\n``.
+_LEERRAUM_MAX = 20
+_LEERRAUM_FOLGE = re.compile(rf"[^\S\n]{{{_LEERRAUM_MAX + 1},}}")
+
+
+def begrenze_leerraum(text: str) -> str:
+    """Text mit höchstens 20 Leerzeichen am Stück und höchstens einer Leerzeile."""
+    zeilen: list[str] = []
+    for zeile in text.splitlines():
+        zeile = _LEERRAUM_FOLGE.sub(" " * _LEERRAUM_MAX, zeile)
+        if not zeile.strip() and zeilen and not zeilen[-1].strip():
+            continue
+        zeilen.append(zeile if zeile.strip() else "")
+    return "\n".join(zeilen) + "\n" if zeilen else ""
 
 
 def _zeilen(text: str) -> list[str]:
@@ -289,11 +321,21 @@ def _korrektur(zeilen: list[str]) -> str | None:
     Zählt nur als Belegtitel unter den ersten 40 Zeilen — und nicht, wenn vorher der
     Titel „Rechnung“ steht (dann ist es eine Zwischenüberschrift)."""
     for zeile in zeilen[:40]:
-        if _RECHNUNG_TITEL.match(zeile):
+        titel = _titelzeile(zeile)
+        if titel is None:
+            continue
+        if _RECHNUNG_TITEL.match(titel):
             return None
-        if _KORREKTUR_TITEL.match(zeile):
-            return "korrektur" if _KORREKTUR_EINDEUTIG.search(zeile) else "gutschrift"
+        if _KORREKTUR_TITEL.match(titel):
+            return "korrektur" if _KORREKTUR_EINDEUTIG.search(titel) else "gutschrift"
     return None
+
+
+def _titelzeile(zeile: str) -> str | None:
+    """Die Zeile mit einfachen Leerzeichen — oder None, wenn sie für einen Titel zu
+    lang ist (zweite Sicherung gegen teure Muster auf Fremddaten)."""
+    titel = " ".join(zeile.split())
+    return titel if len(titel) <= _TITEL_MAX else None
 
 
 def _zahlungsteile(zeile: str) -> list[tuple[str, bool]]:
@@ -358,6 +400,7 @@ def _brutto(zeilen: list[str]) -> Decimal | None:
 
 def extrahiere(text: str) -> Extrakt:
     """Liest alle Felder, die das Regelwerk sicher erkennt."""
+    text = begrenze_leerraum(text)
     zeilen = _zeilen(text)
     e = Extrakt()
 
