@@ -43,6 +43,7 @@ from accounti.db.repository import (
     speichere_transaktion,
     vorhandene_dublettenschluessel,
 )
+from accounti.integrationen.einstellungen import Integrationen
 from accounti.klassifikation.engine import KlassifikationsEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.models import Bankkonto, KontoZustand, Transaktion
@@ -192,6 +193,7 @@ def bank_lauf(
     schluessel: str | None = None,
     bank_einstellungen: BankEinstellungen | None = None,
     sichern: Callable[[], None] | None = None,
+    integrationen: Integrationen | None = None,
 ) -> Banklauf:
     """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
     abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
@@ -206,5 +208,5 @@ def bank_lauf(
         ),
         zuordnung=zuordne_zahlungen(session, einstellungen),
         abgleich=gleiche_belege_ab(session),
-        kontierung=kontiere_umsaetze(session, engine, einstellungen),
+        kontierung=kontiere_umsaetze(session, engine, einstellungen, integrationen),
     )

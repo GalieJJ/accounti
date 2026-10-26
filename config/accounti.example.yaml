@@ -58,7 +58,8 @@ integrationen:
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
     amazon:
       verrechnungskonto: "1361"
-      bank_stichworte: ["AMAZON"]
+      bank_stichworte: ["AMAZON"] # Bankeingänge damit lässt classify bis zum Abgleich offen;
+                                # ohne Marktplatz-Import: bank_stichworte: [] (je Marktplatz)
       ust_gebuehren: vorsteuer  # vorsteuer | 13b (mit bu_gebuehren) | ohne — Amazon seit 08/2024 mit deutscher USt
       ust_werbung: null         # Werbung getrennt einstellen (nicht eingestellt → zur Prüfung)
       lager_nur_inland: false   # true: FBA nur aus deutschen Lagern (kein Pan-EU/CEE)

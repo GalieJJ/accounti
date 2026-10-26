@@ -434,6 +434,62 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Gutschriften wie Ausgaben kontiert** (Gesamttest Eingang B07, Abschluss B4, Steuer B1):
+  `classify` buchte eine Erstattung (+119 € Telekom) auf eine Ausgaberegel als zweite Ausgabe
+  mit zusätzlicher Vorsteuer (Kz 66 doppelt statt null) und eine „Untermiete“ als Mietaufwand.
+  Regeln haben jetzt eine `richtung` (`ausgabe`, `einnahme`, `beide`; mitgelieferte und
+  eingebaute Regeln getaggt) und gelten nur für Umsätze dieser Richtung; passt sonst keine Regel
+  und kein LLM-Vorschlag, schlägt accounti die Regel als Gegenbuchung vor — Soll/Haben
+  getauscht, immer zur Prüfung (Minderung von Aufwand und Vorsteuer, § 17 Abs. 1 Satz 2 UStG).
+  Schranke im Mapper für jede Quelle (gelernte Regeln ohne Richtung, LLM): Bankkonto auf der
+  falschen Seite → tauschen und zur Prüfung; keine Seite das Bankkonto → zur Prüfung. Neue
+  Regelfelder `pruefen` (Treffer immer zur Prüfung) und `confidence`; ein falscher Wert in der
+  Regeldatei ist ein Konfigurationsfehler mit Regelname (`classify`, `bank lauf`,
+  `opos verbuchen`: Meldung und Exit 1 statt Traceback). Die Verfahrensdokumentation
+  (Abschnitt 2.3) nennt Richtung und Prüfkennzeichen der eigenen Regeln (Muster lesbar statt
+  `re.compile(…)`), die Standardregeln im Kontenrahmen der Buchhaltung und was unabhängig von
+  der Confidence zur Prüfung geht bzw. als Marktplatz-Auszahlung offen bleibt; eine
+  fehlerhafte Regeldatei steht dort als Hinweis, statt die Erzeugung abzubrechen
+- **`classify` buchte Marktplatz-Auszahlungen vor dem Abgleich** (Gesamttest Steuer B2,
+  Teil Kontierung): Eine Amazon-Auszahlung wurde nach Regel Erlös 8400 mit Umsatzsteuer
+  (Erlös doppelt in Kz 81), eine Shopify-Auszahlung Aufwand mit Vorsteuer. `classify`,
+  `bank lauf` und `POST /laeufe/bank` lassen jetzt offen, was der Marktplatz-Abgleich
+  erwartet — Zahlungseingänge mit einem Stichwort aus
+  `integrationen.marktplaetze.<name>.bank_stichworte` und Umsätze zu einer offenen Aus- oder
+  Einzahlung einer importierten Abrechnung (auch mit Abgleichsbefund: Zeitfenster,
+  Vorzeichen, Stichwort, Abrechnungsnummer oder genauer Betrag) — und sagen, was zu tun ist
+  (`marktplatz import`; ohne Marktplatz-Import `bank_stichworte: []`). Umsätze des
+  PayPal-Kontos selbst kontiert `classify` weiter. Neu: `kontierung.marktplatz` in der
+  Antwort von `POST /laeufe/bank`
+- **Standardregeln im SKR03 auch für SKR04-Gesellschaften** (Gesamttest Betrieb B3): Die
+  eingebauten Regeln kommen aus `standard_regeln(kontenrahmen, bank_konto)` — SKR04-Fassung
+  (Bank 1800, Miete 6310, Versicherung 6400, Sonstiges 6300, Geldtransit 1460), für andere
+  Kontenrahmen keine. Miete ohne Vorsteuer und zur Prüfung (§ 4 Nr. 12, § 9 UStG), AWS ohne
+  Schlüssel auf sonstige Aufwendungen statt Nebenkosten des Geldverkehrs und zur Prüfung
+  (§ 13b UStG), Amazon/PayPal-Auszahlung als Geldtransit statt Erlös 8400 mit Umsatzsteuer.
+  Neue Prüfregel `bankumsatz_ohne_bankkonto` (Fehler): Buchung zu einem Bankumsatz, die
+  weder dessen Bankkonto noch ein eingerichtetes Bank-/Kartenkonto trägt (SKR03-Regel mit
+  1200 in SKR04, wo die Bereichsprüfung nichts sieht), und `buchhaltung.bank_konto`, das im
+  Kontenrahmen kein Bankkonto ist (SKR04 ohne Angabe: Standard 1200)
+- **Trinkgeld in der Zeile mit Vorsteuer** (Gesamttest Eingang B10): Zahlte der Umsatz mehr
+  oder weniger als der Beleg (Quittung 59,50 €, Karte 65,00 €), schlug `classify` die
+  Differenz der größten Zeile zu — mit Schlüssel 9; der DATEV-Export trug dann 65,00 € mit
+  BU 9 (DATEV rechnet 10,38 € Vorsteuer statt 9,50 €), `pruefen` meldete die eigene
+  Rechenprobe. Die Differenz kommt jetzt in die Zeile ohne Schlüssel des Kontos (sonst eine
+  eigene Zeile „Trinkgeld/Differenz …“), zur Prüfung; die Belegzeilen bleiben, wie der Beleg
+  sie ausweist. Trinkgeld ist kein Entgelt des Wirts (Abschn. 10.1 Abs. 5 UStAE)
+- **Kreditkartenumsätze auf 1730 nicht korrigierbar** (Gesamttest Eingang B08): Mit dem
+  Kartenkonto aus dem README (SKR03 1730, SKR04 3610 „Kreditkartenabrechnung“) lehnten
+  `korrigiere` und `buchung storniere` jeden Kartenumsatz mit Vorsteuer ab („beide Seiten
+  haben dieselbe Natur“), und eine Erstattung auf der Karte stand in der Saldenliste netto
+  auf 1730. 1730 bzw. 3610 sind jetzt Geldkonten (1731–1739 bleiben Sachkonten:
+  Agenturwaren, Kautionen, Steuerverbindlichkeiten), und Salden, Storno und Korrektur
+  zählen die Sachkonten aller eingerichteten Bank- und Kartenkonten als Geldkonten
+- **`config/regeln.yaml`** (Gesamttest Eingang B15): Reisekosten auf 4670 (Reisekosten
+  Unternehmer, EÜR Kz 221) statt 4600 Werbekosten; Miete ohne Steuerschlüssel und zur
+  Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen
+  zur Prüfung; Marktplatz- und Zahlungsdienst-Auszahlungen als „Bank an Verrechnungskonto
+  bzw. Geldtransit“ ohne Umsatzsteuer zur Prüfung statt Erlös 8400 mit Schlüssel 3
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer
