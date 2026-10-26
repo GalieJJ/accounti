@@ -382,7 +382,7 @@ class UstIdPruefungRow(Base):
 @event.listens_for(VerrechnungRow, "before_update")
 @event.listens_for(VerrechnungRow, "before_delete")
 def _verrechnung_nur_anfuegen(*_: object) -> None:
-    msg = "Verrechnungen sind unveränderbar — eine Gegenverrechnung neu anlegen"
+    msg = "Verrechnungen sind unveränderbar — nur anfügen"
     raise UnveraenderbarError(msg)
 
 

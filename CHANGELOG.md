@@ -458,7 +458,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **Zahlungszuordnung: Belegnummer nur an Wortgrenzen, fremder Zahler nur als Vorschlag**
   (B5): „2026-0315“ trifft nicht mehr das Datum in „EREF+20260315…“ als Teil einer
   längeren Zahl oder IBAN; nennt der Zweck nur Posten eines anderen Kontakts als des
-  erkannten Zahlers, hat der Zahler Vorrang und gebucht wird nichts automatisch
+  erkannten Zahlers, hat der Zahler Vorrang und gebucht wird nichts automatisch; ist der
+  Zahler unbekannt und steht die Nummer nur als Datum im Zweck („EREF+20260315-0042“
+  für 2026-0315), bleibt es ein Vorschlag
 - **Nummernformat ohne `{jahr}`** (B7): zählt über den Jahreswechsel weiter (statt am
   1. Januar mit `IntegrityError` stehen zu bleiben), beginnt hinter dem höchsten bisherigen
   Stand und überspringt schon vergebene Nummern; das Format wird beim Laden geprüft

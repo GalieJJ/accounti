@@ -24,6 +24,16 @@ Rechtlich: Minderung (§ 441 BGB) kürzt die Forderung, Guthaben aus Überzahlun
 aufgerechnet (§§ 387, 389 BGB). Eine Gutschrift mit Bezug (BT-25) wird beim Verbuchen mit
 der noch offenen Rechnung verrechnet.
 
+**Referenz an Wortgrenzen (B5).** Abweichend vom Vorschlag (Regex auf dem ganz
+normalisierten Zweck) muss die Belegnummer aus ganzen Wortfolgen (Ziffern- bzw.
+Buchstabenfolgen) bestehen — sonst gingen Treffer wie „Rechnung2026-0315“ oder
+„RE2026-0042“ verloren. Das Datum in „EREF+20260315-0042“ bleibt so aber ein Treffer
+für 2026-0315. Deshalb: Nennt der Zweck nur Posten eines anderen Kontakts als des
+erkannten Zahlers, hat der Zahler Vorrang (höchstens 0,7 bzw. 0,6, nie automatisch);
+ist der Zahler unbekannt und steht eine Nummer mit Trennzeichen nur als
+zusammenhängende Ziffernfolge im Zweck, die ein Datum JJJJMMTT ist, bleibt es ein
+Vorschlag (der eindeutige Betrag geht dann der Referenz vor).
+
 **Gutschrift 381 / Rechnungskorrektur 384 mit BT-25/26 (B3).** Bezug auf die
 ursprüngliche Rechnung für die Berichtigung beim Kunden (§ 17 Abs. 1 Satz 2 UStG) und zur
 Abgrenzung von der umsatzsteuerlichen Gutschrift (Abschn. 14.3 Abs. 1 UStAE) — die
@@ -68,6 +78,9 @@ KoSIT-Prüftool hat nur XRechnung-Szenarien — die EN-16931-Rechnung prüft Mus
   ausgestellte Rechnung (für BT-26 und den Kunden).
 - **Verrechnung über zwei Personenkonten** (Forderung gegen Verbindlichkeit desselben
   Kontakts) bucht accounti nicht.
+- **Verrechnung zurücknehmen:** Eine Verrechnung ist unveränderbar (nur anfügen) und
+  lässt sich nicht aufheben — wie ein Zahlungsausgleich, dessen Storno den Posten
+  ebenfalls nicht wieder öffnet; vor `opos verrechnen` die Nummern prüfen.
 - **Stichtagsliste:** rekonstruiert den Rest aus gebuchten Zuordnungen und Verrechnungen;
   die Verrechnung der Zahllast mit Erstattungen (`elster/zahllast.py`) ist undatiert und
   gilt als vor jedem Stichtag geschehen.

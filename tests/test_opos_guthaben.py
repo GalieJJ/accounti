@@ -196,6 +196,28 @@ def test_fremde_referenz_ohne_eigenen_posten_bleibt_ein_schwacher_vorschlag():
     assert "Kunde Y" in v.begruendung or "anderen" in v.begruendung
 
 
+def test_datum_im_zweck_ist_ohne_erkannten_zahler_keine_sichere_referenz():
+    # Probe des Testers ohne erkannten Zahler: „20260315“ ist hier ein Datum (EREF),
+    # die Rechnung 2026-0315 von Kunde Y wird nur vorgeschlagen, nicht gebucht
+    x = op("2026-0001", "476.00", kontakt=X)
+    y = op("2026-0315", "1190.00", kontakt=Y)
+    for zweck in ("EREF+20260315-0042 IHRE LIEFERUNG", "SVWZ+ LIEFERUNG 20260315"):
+        v = ordne_zu(tx("476.00", zweck, "Unbekannt"), [x, y], KONTAKTE)
+        assert v is not None and not v.automatisch, zweck
+        assert v.confidence <= 0.6 and "Datum" in v.begruendung, zweck
+    # mit Trennzeichen oder Buchstaben davor bleibt es eine Referenz wie bisher
+    for zweck in ("RE 2026-0315", "RE2026-0315", "2026/0315"):
+        v = ordne_zu(tx("400.00", zweck, "Unbekannt"), [x, y], KONTAKTE)
+        assert (v.stufe, v.automatisch) == (Stufe.TEIL, True), zweck
+    # keine Datumsform (Monat 13) oder Format ohne Trennzeichen: Referenz wie bisher
+    z = op("2026-1315", "1190.00", kontakt=Y)
+    v = ordne_zu(tx("400.00", "EREF+20261315", "Unbekannt"), [z], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+    ohne = op("20260315", "1190.00", kontakt=Y)
+    v = ordne_zu(tx("400.00", "RE 20260315", "Unbekannt"), [ohne], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+
+
 def test_referenz_ohne_erkannten_zahler_bleibt_automatisch():
     y = op("2026-0315", "1190.00", kontakt=Y)
     v = ordne_zu(tx("400.00", "RE 2026-0315", "Unbekannt"), [y], KONTAKTE)

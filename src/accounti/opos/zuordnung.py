@@ -10,7 +10,8 @@ C  Unscharf   Skontobetrag ohne Referenz, Summe mehrerer Posten, Teilbetrag,
 Automatisch gebucht wird nur, was eindeutig ist: Stufe A mit genau einem Posten
 (voll, Skonto in der Frist, Teilzahlung) und Stufe B. Alles andere legt accounti
 dem Menschen vor — auch jeder Treffer, bei dem der erkannte Zahler nicht der Kontakt
-des Postens ist.
+des Postens ist, und bei unbekanntem Zahler eine Belegnummer, die nur als Datum im
+Zweck steht („2026-0315“ in „EREF+20260315-0042“).
 
 Gutschriften und Guthaben: Ein Posten mit negativem Rest (Gutschrift,
 Rechnungskorrektur, Überzahlung) wird durch eine Zahlung in Gegenrichtung getilgt
@@ -26,7 +27,7 @@ from __future__ import annotations
 import enum
 import re
 from dataclasses import dataclass, replace
-from datetime import timedelta
+from datetime import date, timedelta
 from decimal import Decimal
 from itertools import combinations
 from uuid import UUID
@@ -103,18 +104,48 @@ def nennt(zweck: list[str], nummer: str | None) -> bool:
     die Nummer muss aber an Wortgrenzen beginnen und enden: „2026-0315“ steckt nicht
     in „120260315“, „2026-03150“ oder einer IBAN.
     """
+    return bool(_treffer(zweck, nummer))
+
+
+def _treffer(zweck: list[str], nummer: str | None) -> list[list[str]]:
+    """Die Wortfolgen des Zwecks, die zusammen genau die Belegnummer ergeben."""
     ziel = _alnum(nummer)
     if len(ziel) < MIN_REFERENZ:
-        return False
+        return []
+    treffer = []
     for i in range(len(zweck)):
-        teil = ""
+        folge: list[str] = []
         for wort in zweck[i:]:
-            teil += wort
-            if len(teil) >= len(ziel):
+            folge.append(wort)
+            if len("".join(folge)) >= len(ziel):
                 break
-        if teil == ziel:
-            return True
-    return False
+        if "".join(folge) == ziel:
+            treffer.append(folge)
+    return treffer
+
+
+def _ist_datum(wort: str) -> bool:
+    """JJJJMMTT — so stehen Daten in Ende-zu-Ende-Referenzen (EREF+20260315…)."""
+    if len(wort) != 8 or not wort.isdigit():
+        return False
+    try:
+        date(int(wort[:4]), int(wort[4:6]), int(wort[6:]))
+    except ValueError:
+        return False
+    return True
+
+
+def nur_als_datum(zweck: list[str], nummer: str | None) -> bool:
+    """Steht eine Belegnummer mit Trennzeichen („2026-0315“) nur als zusammenhängende
+    Ziffernfolge im Zweck, die ein Datum ist („EREF+20260315-0042“)? Beim Format
+    ``{jahr}-{nummer:04d}`` sehen die Nummern 0101 bis 1231 wie Tage aus — dann ist
+    die Referenz mehrdeutig."""
+    treffer = _treffer(zweck, nummer)
+    return (
+        len(woerter(nummer)) > 1
+        and bool(treffer)
+        and all(len(t) == 1 and _ist_datum(t[0]) for t in treffer)
+    )
 
 
 def _skonto_moeglich(p: OffenerPosten, tx: Transaktion, karenz: int) -> bool:
@@ -450,6 +481,12 @@ def _ordne(
     # Stufe A: Referenz — Belegnummer an Wortgrenzen im Verwendungszweck
     zweck = woerter(tx.verwendungszweck)
     referenziert = [p for p in kandidaten if nennt(zweck, p.belegnummer)]
+    if (
+        kontakt is None
+        and referenziert
+        and all(nur_als_datum(zweck, p.belegnummer) for p in referenziert)
+    ):
+        return _datum_statt_referenz(tx, betrag, kandidaten, referenziert, karenz)
     fremd: list[OffenerPosten] = []
     if kontakt is not None and referenziert:
         eigene = [p for p in referenziert if p.kontakt_id == kontakt.id]
@@ -482,7 +519,13 @@ def _ordne(
             FREMDER_ZAHLER,
         )
 
-    # Stufe C ohne Kontakt: nur ein eindeutiger Betrag
+    return _ohne_kontakt(betrag, kandidaten)
+
+
+def _ohne_kontakt(
+    betrag: Decimal, kandidaten: list[OffenerPosten]
+) -> Zuordnungsvorschlag | None:
+    """Stufe C ohne Kontakt: nur ein eindeutiger Betrag."""
     gleich = [p for p in kandidaten if p.restbetrag == betrag]
     if len(gleich) == 1:
         return Zuordnungsvorschlag(
@@ -493,6 +536,25 @@ def _ordne(
             f"Kontakt unbekannt, aber genau ein offener Posten über {betrag}",
         )
     return None
+
+
+def _datum_statt_referenz(
+    tx: Transaktion,
+    betrag: Decimal,
+    kandidaten: list[OffenerPosten],
+    referenziert: list[OffenerPosten],
+    karenz: int,
+) -> Zuordnungsvorschlag:
+    """Die Belegnummer steht nur als Datum im Zweck, der Zahler ist unbekannt:
+    höchstens ein Vorschlag — der eindeutige Betrag geht der Referenz vor."""
+    zusatz = (
+        f" — {_nummern(referenziert)} steht nur als Datum im Verwendungszweck "
+        "(JJJJMMTT), keine sichere Referenz"
+    )
+    v = _ohne_kontakt(betrag, kandidaten) or _referenz(
+        tx, referenziert, [], [], betrag, karenz, None
+    )
+    return _nur_vorschlag(v, zusatz, FREMDER_ZAHLER)
 
 
 def faktor(p: OffenerPosten, zahlung: Decimal) -> int:
