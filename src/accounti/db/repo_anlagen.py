@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from accounti.db.tabellen import BuchungssatzRow
 from accounti.db.tabellen_anlagen import AfaVorgangRow, AnlagegutRow
 from accounti.models.anlagen import AbgangArt, AfaArt, AfaVorgang, Anlagegut
 
@@ -41,6 +42,7 @@ def _row_zu_anlage(r: AnlagegutRow) -> Anlagegut:
             "nr": r.nr,
             "afa_art": AfaArt(r.afa_art),
             "beleg_id": UUID(r.beleg_id) if r.beleg_id else None,
+            "buchung_id": UUID(r.buchung_id) if r.buchung_id else None,
             "abgang_art": AbgangArt(r.abgang_art) if r.abgang_art else None,
         }
     )
@@ -51,6 +53,7 @@ def _werte(a: Anlagegut) -> dict[str, object]:
         **{feld: getattr(a, feld) for feld in _FELDER},
         "afa_art": a.afa_art.value,
         "beleg_id": str(a.beleg_id) if a.beleg_id else None,
+        "buchung_id": str(a.buchung_id) if a.buchung_id else None,
         "abgang_art": a.abgang_art.value if a.abgang_art else None,
     }
 
@@ -133,3 +136,25 @@ def lade_afa_vorgaenge(
         )
         for r in query.order_by(AfaVorgangRow.erstellt_am).all()
     ]
+
+
+def loesche_afa_vorgaenge(session: Session, ids: set[UUID]) -> None:
+    """AfA-Vorgänge eines verworfenen AfA-Vorschlags entfernen (``anlagen aendern``,
+    ``abgang --zuruecknehmen``) — sonst zählten sie als „schon gebucht“."""
+    for ident in sorted(str(i) for i in ids):
+        zeile = session.get(AfaVorgangRow, ident)
+        if zeile is not None:
+            session.delete(zeile)
+    session.flush()
+
+
+def verwirf_vorschlag(session: Session, buchung_id: UUID) -> None:
+    """Einen noch nicht freigegebenen Vorschlag (AfA, Abgang) verwerfen.
+
+    Über die Sitzung, nicht als Massen-``DELETE``: Jahres- und Monatssperre und die
+    Unveränderbarkeit freigegebener Buchungen greifen, das Journal vermerkt
+    ``buchung_verworfen`` (Baustein 7)."""
+    zeile = session.get(BuchungssatzRow, str(buchung_id))
+    if zeile is not None:
+        session.delete(zeile)
+    session.flush()

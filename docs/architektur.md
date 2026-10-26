@@ -394,6 +394,13 @@ Ergänzungen in `steuer/`:
   AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“. *(vorhanden)*
 - `abgang.py` — AfA bis Abgangsmonat, Restbuchwert auf 2310/2315, Erlös auf 8801/8820 mit USt aus
   `steuer/`. `spiegel.py` — Anlagenspiegel aus dem Plan. *(vorhanden)*
+- `dienst.py` — Anlegen aus Eingaben, AfA-Tabelle, Beleg oder Zugangsbuchung
+  (`anlagegueter.buchung_id`, Migration `2f7c7043043e`); `vorschlaege` nennt Zugänge auf
+  Anlagekonten ohne verknüpftes Gut, ein Gut mit gleichem Konto, Datum und Kosten nur als
+  „vermutlich erfasst“. `aenderung.py` — Stammdaten ändern und Abgang zurücknehmen: mit Grund
+  und Journaleintrag (`objekt_typ` `anlage`); eigene AfA-Vorschläge werden verworfen und neu
+  gerechnet, freigegebene AfA bekommt eine AfA-Korrektur (Vorschlag); gebuchte AfA in einem
+  abgeschlossenen Jahr sperrt die Änderung. *(vorhanden)*
 
 `abschluss/` arbeitet auf freigegebenen Buchungen.
 

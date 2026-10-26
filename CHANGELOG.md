@@ -434,6 +434,23 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Anlagegut und Abgang ließen sich nicht korrigieren** (Gesamttest Abschluss B7): Ein
+  Tippfehler bei den Anschaffungskosten oder ein falsches Abgangsdatum sperrte den
+  Jahresabschluss dauerhaft. Neu `accounti anlagen aendern <Nr>` (Bezeichnung, Datum,
+  Kosten, Nutzungsdauer, Art, Konten; AfA-relevante Änderungen nur mit `--grund`): eigene
+  AfA-Vorschläge werden verworfen und neu gerechnet, freigegebene AfA bleibt stehen und
+  bekommt eine AfA-Korrektur als Vorschlag; gebuchte AfA in einem abgeschlossenen Jahr
+  sperrt die Änderung. `accounti anlagen abgang <Nr> --zuruecknehmen --grund …` nimmt einen
+  Abgang zurück, solange Restbuchwert- und Erlösbuchung Vorschläge sind (freigegebene erst
+  stornieren). Beides steht im Journal (`objekt_typ` `anlage`, vorher/nachher, Grund);
+  `abgang` braucht `--datum` nur noch ohne `--zuruecknehmen`
+- **`anlagen vorschlaege` nannte angelegte Güter weiter** (Gesamttest Abschluss B11): Ein
+  Bankumsatz direkt auf das Anlagekonto hat keinen Beleg, der Abgleich lief nur über den
+  Beleg. Neu `anlagen anlegen --buchung <ID>` (übernimmt fehlende Angaben, Hinweis bei
+  abweichenden Kosten oder Konto) und `anlagen aendern <Nr> --buchung <ID>`; verknüpfte
+  Zugänge sind kein Vorschlag mehr, ein Gut mit gleichem Konto, Datum und Kosten erscheint
+  als „vermutlich erfasst“. Alembic-Migration `2f7c7043043e` (Spalte
+  `anlagegueter.buchung_id`; schon per `init_db` angelegt, übernimmt sie sie)
 - **Kassen-Storno nach `classify` kehrte nichts um** (Gesamttest Abschluss B5): Ein
   Kassenvorgang ohne `--konto` wird von `classify` am Umsatz kontiert; das nur anfügbare
   Kassenbuch kennt diese Buchung nicht. `kasse storno` findet die gültige Buchung jetzt

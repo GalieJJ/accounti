@@ -428,6 +428,10 @@ accounti anlagen plan 1                        # AfA-Plan bis zum Ende
 accounti anlagen afa --jahr 2026 --bis-monat 9 # monatlich oder am Jahresende — idempotent
 accounti anlagen freigeben --jahr 2026         # AfA-Vorschläge freigeben
 accounti anlagen abgang 1 --datum 2026-11-30 --erloes 500 --gegenkonto 1200
+accounti anlagen abgang 1 --zuruecknehmen --grund "Datum vertippt"   # solange Vorschläge
+accounti anlagen aendern 1 --kosten 600 --grund "Tippfehler"   # AfA-Korrektur als Vorschlag
+accounti anlagen anlegen --buchung 3f2a9c1e --typ notebook   # Bankzugang ohne Beleg verknüpfen
+accounti anlagen vorschlaege --jahr 2026       # Zugänge auf Anlagekonten ohne Anlagegut
 accounti anlagen spiegel --jahr 2026 --csv anlagenspiegel.csv
 
 # Kassenbuch — ein Eintrag, der den Bestand negativ machen würde, wird abgelehnt

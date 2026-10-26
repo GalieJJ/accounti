@@ -10,7 +10,7 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 
@@ -61,6 +61,11 @@ def anlegen(
     konto: str | None = typer.Option(None, help="Anlagekonto, z.B. 0420"),
     afa_konto: str | None = typer.Option(None, help="abweichendes AfA-Konto"),
     beleg: str | None = typer.Option(None, help="Belegnummer oder Beleg-ID"),
+    buchung: str | None = typer.Option(
+        None,
+        help="Zugangsbuchung (Anfang der ID), z.B. ein Bankumsatz ohne Beleg — "
+        "liefert fehlende Angaben, anlagen vorschlaege nennt sie dann nicht mehr",
+    ),
     umbuchen: bool = typer.Option(
         False,
         "--umbuchen",
@@ -101,6 +106,7 @@ def anlegen(
                 immateriell=immateriell,
                 wechsel_linear=not kein_wechsel,
                 afa_konto=afa_konto,
+                buchung=buchung,
             )
         except (AnlageError, AfaRegelError, JahrGesperrtError) as fehler:
             ende(str(fehler))
@@ -113,6 +119,101 @@ def anlegen(
         + (f", {a.nutzungsdauer} Jahre" if a.nutzungsdauer else "")
     )
     for hinweis in e.hinweise:
+        console.print(f"[dim]{escape(hinweis)}[/dim]")
+
+
+@befehl.command("aendern")
+def aendern(
+    nr: str = typer.Argument(help="Inventarnummer"),
+    grund: str | None = typer.Option(
+        None, help="Begründung (Pflicht, sobald sich der AfA-Plan ändert; Journal)"
+    ),
+    bezeichnung: str | None = typer.Option(None),
+    datum_text: str | None = typer.Option(None, "--datum", help="Anschaffungsdatum"),
+    kosten: str | None = typer.Option(None, help="Anschaffungskosten netto"),
+    nutzungsdauer: int | None = typer.Option(None, help="Jahre"),
+    art: str | None = typer.Option(
+        None, help="linear, degressiv, gwg, sammelposten, digital, e_fahrzeug, keine"
+    ),
+    konto: str | None = typer.Option(None, help="Anlagekonto"),
+    afa_konto: str | None = typer.Option(None, help="abweichendes AfA-Konto"),
+    buchung: str | None = typer.Option(
+        None, help="Zugangsbuchung verknüpfen (Anfang der ID)"
+    ),
+    von: str | None = typer.Option(
+        None,
+        help="Wer ändert (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Anlagegut ändern — gebuchte AfA wird per Korrektur (Vorschlag) neu gerechnet."""
+    from accounti.anlagen.abgang import AbgangError
+    from accounti.anlagen.aenderung import aendere_anlage
+    from accounti.anlagen.afa import AfaRegelError
+    from accounti.anlagen.dienst import AnlageError
+    from accounti.anzeige import betrag_de
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.models.anlagen import AfaArt
+    from accounti.models.auth import Recht
+
+    einst = _einstellungen(config)
+    try:
+        afa_art = AfaArt(art) if art else None
+    except ValueError:
+        ende(f"Unbekannte AfA-Art '{art}'")
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — die Änderung erzeugt
+    # AfA-Vorschläge und steht mit der Person im Journal
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von),
+        sitzung(db)() as s,
+    ):
+        try:
+            e = aendere_anlage(
+                s,
+                nr,
+                einst,
+                grund=grund,
+                bezeichnung=bezeichnung,
+                datum=datum(datum_text, "--datum") if datum_text else None,
+                kosten=betrag(kosten, "--kosten") if kosten else None,
+                nutzungsdauer=nutzungsdauer,
+                art=afa_art,
+                konto=konto,
+                afa_konto=afa_konto,
+                buchung=buchung,
+            )
+        except (
+            AnlageError,
+            AbgangError,
+            AfaRegelError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+            ValueError,
+        ) as fehler:
+            ende(str(fehler))
+        s.commit()
+    console.print(f"[green]Anlagegut Nr. {e.anlage.nr} geändert[/green]")
+    for feld, (alt, neu) in e.geaendert.items():
+        console.print(f"  {feld}: {escape(str(alt))} → {escape(str(neu))}")
+    _neuberechnung_zeigen(e.neuberechnung, betrag_de)
+
+
+def _neuberechnung_zeigen(nb, betrag_de) -> None:  # type: ignore[no-untyped-def]
+    for b in nb.verworfen:
+        console.print(
+            f"[dim]verworfen: {str(b.id)[:8]} {b.soll_konto} an {b.haben_konto} "
+            f"{betrag_de(b.betrag_netto)} — {escape(b.buchungstext)}[/dim]"
+        )
+    for b in nb.buchungen:
+        console.print(
+            f"[yellow]{str(b.id)[:8]}[/yellow] {b.datum:%d.%m.%Y} {b.soll_konto} an "
+            f"{b.haben_konto} {betrag_de(b.betrag_netto)} — {escape(b.buchungstext)}"
+        )
+    for jahr in sorted({lauf.jahr for lauf in nb.afa}):
+        console.print(f"freigeben: accounti anlagen freigeben --jahr {jahr}")
+    for hinweis in nb.hinweise:
         console.print(f"[dim]{escape(hinweis)}[/dim]")
 
 
@@ -273,11 +374,23 @@ def freigeben_befehl(
 @befehl.command("abgang")
 def abgang(
     nr: str = typer.Argument(help="Inventarnummer"),
-    datum_text: str = typer.Option(..., "--datum", help="Abgangsdatum"),
+    datum_text: str | None = typer.Option(None, "--datum", help="Abgangsdatum"),
     art: str = typer.Option("verkauf", help="verkauf, entnahme, verschrottung"),
     erloes: str | None = typer.Option(None, help="Erlös netto"),
     gegenkonto: str | None = typer.Option(None, help="z.B. 1200 oder Debitor"),
     ohne_ust: bool = typer.Option(False, "--ohne-ust", help="Erlös ohne USt"),
+    zuruecknehmen: bool = typer.Option(
+        False,
+        "--zuruecknehmen",
+        help="Abgang zurücknehmen, solange seine Buchungen Vorschläge sind (mit "
+        "--grund)",
+    ),
+    grund: str | None = typer.Option(None, help="Grund der Rücknahme (Journal)"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer handelt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -287,6 +400,11 @@ def abgang(
     from accounti.anzeige import betrag_de
     from accounti.models.anlagen import AbgangArt
 
+    if zuruecknehmen:
+        _abgang_zuruecknehmen(nr, grund, von, db, config)
+        return
+    if datum_text is None:
+        ende("--datum fehlt (Abgangsdatum)")
     try:
         abgang_art = AbgangArt(art)
     except ValueError:
@@ -314,6 +432,40 @@ def abgang(
         )
     for hinweis in e.hinweise:
         console.print(escape(hinweis))
+
+
+def _abgang_zuruecknehmen(
+    nr: str, grund: str | None, von: str | None, db: str, config: str
+) -> None:
+    from accounti.anlagen.abgang import AbgangError
+    from accounti.anlagen.aenderung import nimm_abgang_zurueck
+    from accounti.anlagen.afa import AfaRegelError
+    from accounti.anzeige import betrag_de
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.models.auth import Recht
+
+    einst = _einstellungen(config)
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — verwirft Vorschläge
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von),
+        sitzung(db)() as s,
+    ):
+        try:
+            r = nimm_abgang_zurueck(s, nr, einst, grund or "")
+        except (
+            AbgangError,
+            AfaRegelError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+            ValueError,
+        ) as fehler:
+            ende(str(fehler))
+        s.commit()
+    console.print(
+        f"[green]Abgang von Anlagegut Nr. {r.anlage.nr} zurückgenommen[/green] "
+        f"(war {r.vorher.abgang_datum:%d.%m.%Y})"
+    )
+    _neuberechnung_zeigen(r.neuberechnung, betrag_de)
 
 
 @befehl.command("spiegel")
@@ -363,18 +515,30 @@ def vorschlaege_befehl(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Buchungen auf Anlagekonten, zu denen es noch kein Anlagegut gibt."""
-    from accounti.anlagen.dienst import vorschlaege
+    from accounti.anlagen.dienst import vermutlich_erfasst, vorschlaege
     from accounti.anzeige import betrag_de
 
     einst = _einstellungen(config)
     with sitzung(db)() as s:
         treffer = vorschlaege(s, einst, jahr)
+        vermutlich = vermutlich_erfasst(s, einst, jahr)
+    for b, a in vermutlich:
+        console.print(
+            f"[dim]{b.datum:%d.%m.%Y} {b.soll_konto} {betrag_de(b.betrag_netto)} "
+            f"{escape(b.buchungstext)} — vermutlich erfasst als Nr. {a.nr} "
+            f"{escape(a.bezeichnung)} (verknüpfen: accounti anlagen aendern {a.nr} "
+            f"--buchung {str(b.id)[:8]})[/dim]"
+        )
     if not treffer:
         console.print(f"[green]Keine Zugänge ohne Anlagegut ({jahr}).[/green]")
         return
     for b in treffer:
         console.print(
             f"{b.datum:%d.%m.%Y} {b.soll_konto} {betrag_de(b.betrag_netto)} "
-            f"{escape(b.buchungstext)} [dim](Beleg {b.beleg_nummer or '—'})[/dim]"
+            f"{escape(b.buchungstext)} [dim](Beleg {b.beleg_nummer or '—'}, "
+            f"Buchung {str(b.id)[:8]})[/dim]"
         )
-    console.print("[dim]Anlegen: accounti anlagen anlegen --beleg … --typ …[/dim]")
+    console.print(
+        "[dim]Anlegen: accounti anlagen anlegen --beleg … bzw. --buchung … "
+        "--typ …[/dim]"
+    )
