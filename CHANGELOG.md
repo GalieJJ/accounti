@@ -461,7 +461,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (Bank 1800, Miete 6310, Versicherung 6400, Sonstiges 6300, Geldtransit 1460), für andere
   Kontenrahmen keine. Miete ohne Vorsteuer und zur Prüfung (§ 4 Nr. 12, § 9 UStG), AWS ohne
   Schlüssel auf sonstige Aufwendungen statt Nebenkosten des Geldverkehrs und zur Prüfung
-  (§ 13b UStG), Amazon/PayPal-Auszahlung als Geldtransit statt Erlös 8400 mit Umsatzsteuer
+  (§ 13b UStG), Amazon/PayPal-Auszahlung als Geldtransit statt Erlös 8400 mit Umsatzsteuer.
+  Neue Prüfregel `bankumsatz_ohne_bankkonto` (Fehler): Buchung zu einem Bankumsatz, die
+  weder dessen Bankkonto noch ein eingerichtetes Bank-/Kartenkonto trägt (SKR03-Regel mit
+  1200 in SKR04, wo die Bereichsprüfung nichts sieht), und `buchhaltung.bank_konto`, das im
+  Kontenrahmen kein Bankkonto ist (SKR04 ohne Angabe: Standard 1200)
 - **`config/regeln.yaml`** (Gesamttest Eingang B15): Reisekosten auf 4670 (Reisekosten
   Unternehmer, EÜR Kz 221) statt 4600 Werbekosten; Miete ohne Steuerschlüssel und zur
   Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen

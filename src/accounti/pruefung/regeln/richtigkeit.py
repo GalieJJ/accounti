@@ -1189,6 +1189,108 @@ class Dublette:
         return self._belege(k, p) + self._buchungen(k)
 
 
+# --- Bankumsatz ohne Bankkonto ------------------------------------------------------
+
+
+class BankumsatzOhneBankkonto:
+    """Eine Buchung zu einem Bankumsatz trägt dessen Bankkonto auf einer Seite.
+
+    Fehlt es, stammt die Kontierung aus einem anderen Kontenrahmen (Regel mit SKR03-Bank
+    1200 in einer SKR04-Gesellschaft, wo 1200 eine Forderung ist) oder ist schlicht
+    falsch — die Kontenbereiche sehen das nicht, die Bankabstimmung erst im
+    Abschluss (Gesamttest Betrieb B3). Mehrere Buchungen eines Umsatzes (Zahlung mit
+    Skonto) genügen, wenn eine davon das Bankkonto trägt. Dazu muss
+    ``buchhaltung.bank_konto`` im Kontenrahmen ein Bankkonto sein (SKR04 ohne Angabe:
+    Standard 1200 = Forderung)."""
+
+    name = "bankumsatz_ohne_bankkonto"
+    kategorie = Kategorie.RICHTIGKEIT
+    schwere = Schwere.FEHLER
+    beschreibung = "Buchung zu einem Bankumsatz ohne dessen Bankkonto auf einer Seite"
+
+    class Parameter(BaseModel):
+        pass
+
+    def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
+        bank = k.buchhaltung.bank_konto
+        eingerichtet = {konto.sachkonto for konto in lade_bankkonten(k.session)}
+        je_umsatz: dict[Any, list[Buchungssatz]] = defaultdict(list)
+        for x in k.buchungen:
+            if x.transaktion_id is None or x.storno_von or x.storniert_durch:
+                continue
+            je_umsatz[x.transaktion_id].append(x)
+        befunde: list[Befund] = []
+        standardbank = False
+        for ident, buchungen in je_umsatz.items():
+            t = k.transaktionen.get(ident)
+            if t is None or not k.im_zeitraum(buchungen[0].datum):
+                continue
+            standardbank = standardbank or t.sachkonto is None
+            konten = {t.sachkonto or bank} | eingerichtet
+            if any(
+                x.soll_konto in konten or x.haben_konto in konten for x in buchungen
+            ):
+                continue
+            x = buchungen[0]
+            sollkonto = t.sachkonto or bank
+            weitere = sorted(eingerichtet - {sollkonto})
+            erwartet = sollkonto + (
+                f", eingerichtet: {', '.join(weitere)}" if weitere else ""
+            )
+            befunde.append(
+                befund(
+                    self,
+                    "buchung",
+                    x.id,
+                    f"Umsatz vom {datum_de(t.datum)} über {betrag_de(t.betrag)} € "
+                    f"({t.gegenkonto_name or t.verwendungszweck[:40]}): Buchung "
+                    f"{str(x.id)[:8]} {x.soll_konto} an {x.haben_konto} trägt kein "
+                    f"Bankkonto ({erwartet}) — Kontierungsregel aus einem anderen "
+                    f"Kontenrahmen als {k.buchhaltung.kontenrahmen}?",
+                    datum=x.datum,
+                    betrag=t.betrag,
+                    gegenpartei=t.gegenkonto_name,
+                    abhilfe=(
+                        f"accounti korrigiere {str(x.id)[:8]} --soll … --haben … "
+                        f"(eine Seite {sollkonto}); die Regel in der Regeldatei an den "
+                        f"Kontenrahmen {k.buchhaltung.kontenrahmen} anpassen"
+                    ),
+                )
+            )
+        if standardbank and bank not in eingerichtet:
+            befunde.extend(self._bankkonto(k, bank))
+        return befunde
+
+    def _bankkonto(self, k: Kontext, bank: str) -> list[Befund]:
+        from accounti.abschluss.kontenrahmen import (
+            KontenrahmenError,
+            lade_kontenrahmen,
+        )
+
+        try:
+            kr = lade_kontenrahmen(k.buchhaltung.kontenrahmen)
+        except KontenrahmenError:
+            return []
+        if kr.ist_bankkonto(bank):
+            return []
+        bereiche = ", ".join(f"{s.von}–{s.bis}" for s in kr.bankkonten)
+        return [
+            befund(
+                self,
+                "konto",
+                bank,
+                f"buchhaltung.bank_konto {bank} ist im Kontenrahmen "
+                f"{k.buchhaltung.kontenrahmen} kein Bankkonto (Bankkonten "
+                f"{bereiche}) — Bankumsätze ohne eingerichtetes Konto werden darauf "
+                "gebucht",
+                abhilfe=(
+                    "buchhaltung.bank_konto in der Konfiguration setzen (SKR04: 1800) "
+                    "oder das Konto einrichten (accounti bank verbinde … --sachkonto)"
+                ),
+            )
+        ]
+
+
 for _regel in (
     Pflichtangaben(),
     Rechenprobe(),
@@ -1197,5 +1299,6 @@ for _regel in (
     Adressat(),
     IgErwerbUstid(),
     Dublette(),
+    BankumsatzOhneBankkonto(),
 ):
     registriere_pruefregel(_regel)
