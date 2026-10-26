@@ -1,5 +1,8 @@
 """Abschlussprüfungen — benannte Prüfungen, die Befunde liefern und nie Daten ändern.
 
+Geprüft wird das Wirtschaftsjahr ``jahr`` (Kalenderjahr seines Endes, siehe
+``konfiguration.wirtschaftsjahr``) zum Stichtag seines Endes.
+
 Ein Befund der Schwere „Fehler“ blockiert den Abschluss (Saldovortrag). Baustein 7
 (Prüfmechanik, Perioden) gibt es noch nicht; die Befunde hier sind bewusst schlicht.
 """
@@ -21,6 +24,7 @@ from accounti.abschluss.kassenbuch import bestand
 from accounti.abschluss.konfiguration import (
     AbschlussEinstellungen,
     KassenEinstellungen,
+    Wirtschaftsjahr,
     lade_abschluss,
     lade_kasse,
 )
@@ -29,7 +33,7 @@ from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.salden import VORSCHLAG, Susa, summen_und_salden
 from accounti.anlagen.konfiguration import AnlagenEinstellungen, lade_anlagen
 from accounti.anlagen.lauf import afa_positionen
-from accounti.anlagen.spiegel import anlagenspiegel
+from accounti.anlagen.spiegel import restbuchwerte
 from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import (
     kontoauszugssaldo,
@@ -47,6 +51,7 @@ from accounti.db.repository import (
     lade_transaktionen,
 )
 from accounti.models.abschluss import AbgrenzungStatus, Kontoauszugssaldo
+from accounti.models.anlagen import AfaArt
 
 NULL = Decimal("0")
 
@@ -72,9 +77,14 @@ class Abschlusskontext:
     kasse: KassenEinstellungen
     anlagen: AnlagenEinstellungen
 
+    @cached_property
+    def wirtschaftsjahr(self) -> Wirtschaftsjahr:
+        """Das Wirtschaftsjahr ``jahr`` (Kalenderjahr seines Endes)."""
+        return self.einstellungen.wirtschaftsjahr(self.jahr)
+
     @property
     def stichtag(self) -> date:
-        return date(self.jahr, 12, 31)
+        return self.wirtschaftsjahr.bis
 
     @cached_property
     def kontenrahmen(self) -> Kontenrahmen:
@@ -87,6 +97,7 @@ class Abschlusskontext:
             self.jahr,
             self.kontenrahmen,
             self.einstellungen.gewinnermittlung,
+            wj=self.wirtschaftsjahr,
         )
 
     @property
@@ -132,12 +143,13 @@ def _unfreigegeben(k: Abschlusskontext) -> list[Befund]:
     offen = [
         b
         for b in lade_buchungen(k.session, status=set(VORSCHLAG))
-        if b.datum.year == k.jahr
+        if k.wirtschaftsjahr.enthaelt(b.datum)
     ]
     if not offen:
         return []
     text = (
-        f"{len(offen)} Buchung{'en' if len(offen) > 1 else ''} im Jahr {k.jahr} "
+        f"{len(offen)} Buchung{'en' if len(offen) > 1 else ''} im Jahr "
+        f"{k.wirtschaftsjahr.bezeichnung} "
         "nicht freigegeben — sie zählen nicht (accounti review, accounti bestaetige)"
     )
     return [Befund("unfreigegeben", Schwere.FEHLER, text)]
@@ -147,11 +159,12 @@ def _ungebucht(k: Abschlusskontext) -> list[Befund]:
     gebucht = gebuchte_transaktion_ids(k.session)
     ungebucht = [t for t in lade_transaktionen(k.session) if t.id not in gebucht]
     befunde: list[Befund] = []
-    offen = [t for t in ungebucht if t.datum.year == k.jahr]
+    offen = [t for t in ungebucht if k.wirtschaftsjahr.enthaelt(t.datum)]
     if offen:
         summe = sum((t.betrag for t in offen), NULL)
         text = (
-            f"{len(offen)} Umsätze im Jahr {k.jahr} ohne Buchung (Summe "
+            f"{len(offen)} Umsätze im Jahr {k.wirtschaftsjahr.bezeichnung} ohne "
+            f"Buchung (Summe "
             f"{_euro(summe)}) — accounti opos zuordnen, bank abgleich, classify"
         )
         befunde.append(Befund("ungebucht", Schwere.FEHLER, text))
@@ -230,19 +243,52 @@ def _kasse(k: Abschlusskontext) -> list[Befund]:
 
 
 def _anlagen(k: Abschlusskontext) -> list[Befund]:
+    """AfA bis zum Stichtag gebucht, Anlagekonten = Restbuchwerte zum Stichtag.
+
+    Der AfA-Lauf rechnet im Kalenderjahr, monatsgenau; ein abweichendes
+    Wirtschaftsjahr berührt zwei Kalenderjahre (``--jahr`` je Kalenderjahr,
+    ``--bis-monat`` im zweiten). Für lineare AfA und GWG ist das dasselbe; degressive
+    AfA, Sammelposten (§ 6 Abs. 2a EStG: je Wirtschaftsjahr ein Fünftel) und die
+    E-Fahrzeug-Staffel gelten je Wirtschaftsjahr — dort eine Warnung."""
     befunde: list[Befund] = []
     rs = k.anlagen.rechtsstand()
-    for p in afa_positionen(k.session, k.jahr, k.anlagen, 12, rs):
-        if p.differenz:
-            text = (
-                f"AfA {k.jahr} nicht vollständig gebucht: {p.bezeichnung} — Soll "
-                f"{_euro(p.soll)}, gebucht {_euro(p.gebucht)} "
-                f"(accounti anlagen afa --jahr {k.jahr})"
-            )
-            befunde.append(Befund("anlagen", Schwere.FEHLER, text))
+    for jahr, monat in k.wirtschaftsjahr.kalenderjahre:
+        bis = "" if monat == 12 else f" --bis-monat {monat}"
+        for p in afa_positionen(k.session, jahr, k.anlagen, monat, rs):
+            if p.differenz:
+                text = (
+                    f"AfA {jahr} nicht vollständig gebucht: {p.bezeichnung} — Soll "
+                    f"{_euro(p.soll)}, gebucht {_euro(p.gebucht)} "
+                    f"(accounti anlagen afa --jahr {jahr}{bis})"
+                )
+                befunde.append(Befund("anlagen", Schwere.FEHLER, text))
+    anlagen = lade_anlagegueter(k.session)
     rbw: dict[str, Decimal] = defaultdict(lambda: NULL)
-    for z in anlagenspiegel(lade_anlagegueter(k.session), k.jahr, rs).gruppen:
-        rbw[z.gruppe.split("/")[0]] += z.rbw_ende
+    rbw.update(restbuchwerte(anlagen, k.stichtag, rs))
+    if k.wirtschaftsjahr.abweichend:
+        je_wj = sorted(
+            {
+                str(a.nr)
+                for a in anlagen
+                if a.afa_art
+                in (AfaArt.DEGRESSIV, AfaArt.SAMMELPOSTEN, AfaArt.E_FAHRZEUG)
+                and a.anschaffungsdatum <= k.stichtag
+                and (a.abgang_datum is None or a.abgang_datum >= k.wirtschaftsjahr.von)
+            },
+            key=int,
+        )
+        if je_wj:
+            befunde.append(
+                Befund(
+                    "anlagen",
+                    Schwere.WARNUNG,
+                    f"Abweichendes Wirtschaftsjahr {k.wirtschaftsjahr.bezeichnung}: "
+                    "accounti rechnet die AfA im Kalenderjahr — degressive AfA, "
+                    "Sammelposten und E-Fahrzeug-Staffel gelten je Wirtschaftsjahr "
+                    "(§ 7 Abs. 2, 2a, § 6 Abs. 2a EStG); Anlagegut Nr. "
+                    f"{_liste(je_wj)} mit dem Steuerberater abstimmen",
+                )
+            )
     konten = set(rbw) | {
         z.konto for z in k.susa.zeilen if k.anlagen.ist_anlagekonto(z.konto)
     }
@@ -264,8 +310,8 @@ def _abgrenzungen(k: Abschlusskontext) -> list[Befund]:
     nummern = _liste([str(a.nr) for a in offen])
     text = (
         f"{len(offen)} Abgrenzungsvorschl{'äge' if len(offen) > 1 else 'ag'} "
-        f"{k.jahr} nicht entschieden (Nr. {nummern}) — accounti abschluss "
-        "bestaetigen … oder ablehnen …"
+        f"{k.wirtschaftsjahr.bezeichnung} nicht entschieden (Nr. {nummern}) — "
+        "accounti abschluss bestaetigen … oder ablehnen …"
     )
     return [Befund("abgrenzungen", Schwere.FEHLER, text)]
 
@@ -291,7 +337,8 @@ def _vortragskonten(k: Abschlusskontext) -> list[Befund]:
     if summe == 0:
         return []
     text = (
-        f"Eröffnungsbilanz {k.jahr} nicht ausgeglichen: die Saldenvortragskonten "
+        f"Eröffnungsbilanz {k.wirtschaftsjahr.bezeichnung} nicht ausgeglichen: die "
+        "Saldenvortragskonten "
         f"ergeben {_euro(summe)} (accounti abschluss eroeffnung …)"
     )
     return [Befund("vortragskonten", Schwere.FEHLER, text)]

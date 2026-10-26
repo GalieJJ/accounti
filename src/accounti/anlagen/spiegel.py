@@ -139,6 +139,34 @@ def anlagenspiegel(
     return Anlagenspiegel(jahr, reihe, einzeln, summe)
 
 
+def restbuchwerte(
+    anlagen: Iterable[Anlagegut], stichtag: date, rechtsstand: Rechtsstand
+) -> dict[str, Decimal]:
+    """Restbuchwert je Anlagekonto zum Stichtag (Ende seines Monats) — für die
+    Abstimmung mit dem Saldo des Anlagekontos, auch zum Ende eines abweichenden
+    Wirtschaftsjahres. Ein Sammelposten zählt als Ganzes (ein Abgang mindert ihn
+    nicht), ein abgegangenes Gut nicht mehr."""
+    alle = list(anlagen)
+    rbw: dict[str, Decimal] = {}
+    sammelposten: set[tuple[str, int]] = set()
+    for a in alle:
+        if a.anschaffungsdatum > stichtag:
+            continue
+        plan = plane(a, rechtsstand)
+        if a.afa_art is AfaArt.SAMMELPOSTEN and plan.jahre:
+            sammelposten.add((a.konto, a.anschaffungsdatum.year))
+            continue
+        if a.abgang_datum is not None and a.abgang_datum <= stichtag:
+            continue
+        wert = plan.restbuchwert(stichtag.year, stichtag.month)
+        rbw[a.konto] = rbw.get(a.konto, NULL) + wert
+    for konto, jahr in sorted(sammelposten):
+        plan = plane_sammelposten(konto, jahr, alle, rechtsstand)
+        wert = plan.restbuchwert(stichtag.year, stichtag.month)
+        rbw[konto] = rbw.get(konto, NULL) + wert
+    return rbw
+
+
 SPALTEN = (
     "AK 01.01.",
     "Zugang",

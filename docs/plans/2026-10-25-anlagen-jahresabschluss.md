@@ -188,10 +188,27 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   Gebäude-AfA wird von Hand gebucht; Grund und Boden lässt sich als Art `keine` führen.
 - **Degressive AfA vor 2020** (z. B. 2009/2010) und Sonderabschreibungen (§ 7g, § 7b), Gebäude-AfA
   nach festen Prozentsätzen (§ 7 Abs. 4/5), Teilwertabschreibungen, außerplanmäßige AfA,
-  Investitionsabzugsbetrag, nachträgliche AK, Einlagen zum Teilwert und Rumpfwirtschaftsjahre /
-  abweichende Wirtschaftsjahre (alles rechnet im Kalenderjahr) sind nicht umgesetzt; ältere
-  Fenster lassen sich über `anlagen.rechtsstand` nachtragen. Die Verzeichnisgrenze vor 2008 ist
-  nicht hinterlegt.
+  Investitionsabzugsbetrag, nachträgliche AK, Einlagen zum Teilwert und Rumpfwirtschaftsjahre
+  (§ 8b Satz 2 EStDV) sind nicht umgesetzt; ältere Fenster lassen sich über
+  `anlagen.rechtsstand` nachtragen. Die Verzeichnisgrenze vor 2008 ist nicht hinterlegt.
+- **Abweichendes Wirtschaftsjahr** (`datev.wirtschaftsjahr_beginn`, § 4a Abs. 1 Satz 2 EStG:
+  Land- und Forstwirte auch mit EÜR, im Handelsregister eingetragene Gewerbetreibende; zwölf
+  Monate, § 8b EStDV). Ein Helfer `abschluss/konfiguration.wirtschaftsjahr(jahr, beginn)`;
+  `--jahr` ist das **Kalenderjahr des WJ-Endes** (2026 = 01.07.2025–30.06.2026; so gilt der
+  Gewinn bei Gewerbetreibenden als bezogen, § 4a Abs. 2 Nr. 2 EStG). Summen- und Saldenliste,
+  Abschlussprüfungen (Stichtag WJ-Ende), Abgrenzungen (Abgrenzung zum WJ-Ende, Auflösung zum
+  WJ-Beginn), Eröffnungssalden (am WJ-Beginn), EÜR und `abschluss buchen` (AfA-Lauf in beiden
+  berührten Kalenderjahren) rechnen das Wirtschaftsjahr. Grenzen: **Saldovortrag und
+  Jahressperre** gelten je Kalenderjahr (das Sperrjahr steckt im Buchungsdatum, auch für
+  Kasse, Anlagen, Perioden und Verbuchung) — bei abweichendem WJ lehnt `abschluss vortrag`
+  ab, statt das falsche Halbjahr zu sperren; den Abschluss macht der Steuerberater. Der
+  **AfA-Plan** rechnet im Kalenderjahr monatsgenau: für lineare AfA und GWG dasselbe,
+  degressive AfA, Sammelposten (je WJ ein Fünftel, § 6 Abs. 2a) und E-Fahrzeug-Staffel gelten
+  je Wirtschaftsjahr — `abschluss pruefen` warnt. **EÜR der Land- und Forstwirte:** den
+  Gewinn zeitanteilig auf zwei Kalenderjahre zu verteilen (§ 4a Abs. 2 Nr. 1 EStG, ohne
+  Veräußerungsgewinne), rechnet accounti nach Monaten als Hinweis aus, trägt ihn aber in
+  keinen Vordruck ein (Anlage L/ESt). `anlagen afa`/`spiegel` und `kasse liste` bleiben im
+  Kalenderjahr (mit Hinweis).
 - **Entnahme** eines Anlageguts wird wie ein Verkauf gerechnet; die umsatzsteuerliche
   Bemessungsgrundlage (§ 10 Abs. 4 UStG) prüft accounti nicht.
 - **GWG und Sammelposten** bleiben mit RBW 0 im Anlagenspiegel (kein fiktiver Abgang). Ob ein

@@ -20,6 +20,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from accounti.abschluss.konfiguration import Wirtschaftsjahr, wirtschaftsjahr
 from accounti.abschluss.kontenrahmen import Gewinnermittlung, Kontenart, Kontenrahmen
 from accounti.db.repository import lade_buchungen
 from accounti.models import Buchungssatz, BuchungStatus
@@ -112,6 +113,12 @@ class Susa:
     bis: date
     gewinnermittlung: Gewinnermittlung
     zeilen: list[SusaZeile] = field(default_factory=list)
+    von: date | None = None  # Beginn des Wirtschaftsjahres (None: 01.01.)
+
+    @property
+    def wirtschaftsjahr(self) -> Wirtschaftsjahr:
+        von = self.von or date(self.jahr, 1, 1)
+        return wirtschaftsjahr(self.jahr, von)
 
     def zeile(self, konto: str) -> SusaZeile | None:
         return next((z for z in self.zeilen if z.konto == konto), None)
@@ -140,18 +147,24 @@ def summen_und_salden(
     kr: Kontenrahmen,
     gewinnermittlung: Gewinnermittlung,
     bis: date | None = None,
+    wj: Wirtschaftsjahr | None = None,
 ) -> Susa:
-    """Summen- und Saldenliste des Geschäftsjahres (Kalenderjahr) bis zum Stichtag."""
-    stichtag = bis or date(jahr, 12, 31)
+    """Summen- und Saldenliste des Wirtschaftsjahres ``jahr`` bis zum Stichtag.
+
+    ``wj`` aus ``AbschlussEinstellungen.wirtschaftsjahr`` — ohne: Kalenderjahr. Die
+    EB-Werte sind die Buchungen gegen Saldenvortragskonten im Wirtschaftsjahr (am
+    Wirtschaftsjahresbeginn)."""
+    wj = wj or wirtschaftsjahr(jahr)
+    stichtag = bis or wj.bis
     werte: dict[str, list[Decimal]] = defaultdict(lambda: [NULL, NULL, NULL])
-    for bw in lade_bewegungen(session, kr, date(jahr, 1, 1), stichtag):
+    for bw in lade_bewegungen(session, kr, wj.von, stichtag):
         w = werte[bw.konto]
         if bw.eroeffnung:
             w[0] += bw.soll - bw.haben
         else:
             w[1] += bw.soll
             w[2] += bw.haben
-    susa = Susa(jahr, stichtag, gewinnermittlung)
+    susa = Susa(jahr, stichtag, gewinnermittlung, von=wj.von)
     for konto in sorted(werte, key=lambda k: (len(k), k)):
         eb, soll, haben = werte[konto]
         susa.zeilen.append(

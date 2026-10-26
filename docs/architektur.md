@@ -402,7 +402,10 @@ Ergänzungen in `steuer/`:
   gerechnet, freigegebene AfA bekommt eine AfA-Korrektur (Vorschlag); gebuchte AfA in einem
   abgeschlossenen Jahr sperrt die Änderung. *(vorhanden)*
 
-`abschluss/` arbeitet auf freigegebenen Buchungen.
+`abschluss/` arbeitet auf freigegebenen Buchungen, je Wirtschaftsjahr
+(`konfiguration.wirtschaftsjahr(jahr, beginn)` aus `datev.wirtschaftsjahr_beginn`; `jahr` = Kalenderjahr
+des WJ-Endes). Saldovortrag und Jahressperre gelten je Kalenderjahr und lehnen ein abweichendes
+Wirtschaftsjahr ab.
 
 - `kontenrahmen.py` + `kontenrahmen_skr03.yaml`/`…_skr04.yaml` — Kontoarten, Geld- und
   Steuerkonten, EÜR-Kennzahl je Kontenbereich. *(vorhanden)*

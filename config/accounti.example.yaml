@@ -37,7 +37,9 @@ mandant:
 datev:
   berater_nummer: "12345"
   mandanten_nummer: "00001"
-  wirtschaftsjahr_beginn: "2026-01-01"
+  wirtschaftsjahr_beginn: "2026-01-01"   # nur Tag und Monat zählen; abweichendes WJ (§ 4a
+                                         # EStG) z.B. "2025-07-01": abschluss --jahr 2026
+                                         # = 01.07.2025–30.06.2026 (Jahr des WJ-Endes)
 
 # Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03)
 integrationen:

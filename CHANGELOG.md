@@ -434,6 +434,20 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Jahresabschluss ignorierte das abweichende Wirtschaftsjahr** (Gesamttest Betrieb B5):
+  `abschluss susa|pruefen|buchen|abgrenzungen|abgrenzen|bestaetigen|euer|eroeffnung`
+  rechnen jetzt mit `datev.wirtschaftsjahr_beginn` der Gesellschaft (ein Helfer
+  `abschluss/konfiguration.wirtschaftsjahr`). **`--jahr` ist das Kalenderjahr des
+  Wirtschaftsjahresendes** (2026 = 01.07.2025–30.06.2026, § 4a Abs. 2 Nr. 2 EStG):
+  Saldenliste und Prüfungen über das Wirtschaftsjahr zum Stichtag seines Endes,
+  Abgrenzung zum WJ-Ende mit Auflösung zum WJ-Beginn, Eröffnungssalden am WJ-Beginn,
+  `abschluss buchen` lässt den AfA-Lauf in beiden berührten Kalenderjahren laufen. Die EÜR
+  nennt bei abweichendem Wirtschaftsjahr die zeitanteilige Verteilung des Gewinns auf zwei
+  Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG, Land- und Forstwirte) als Hinweis. Grenzen:
+  `abschluss vortrag` lehnt ein abweichendes Wirtschaftsjahr ab (die Jahressperre gilt je
+  Kalenderjahr und sperrte das falsche Halbjahr), `abschluss pruefen` warnt bei degressiver
+  AfA, Sammelposten und E-Fahrzeug-Staffel (je Wirtschaftsjahr, der Plan rechnet im
+  Kalenderjahr); `anlagen afa`/`spiegel` weisen darauf hin
 - **Verfahrensdokumentation und Aufbewahrungsfrist** (Gesamttest Abschluss B10): Die
   Tabelle der Kontierungsregeln zeigte das Muster als `re.compile(…)` und nicht das Feld;
   jetzt Muster und Feld. Die Aufbewahrung der Belege kommt aus einer Quelle

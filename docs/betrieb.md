@@ -92,8 +92,11 @@ wählt (`-g`), eine Rechteprüfung braucht (Freigaben, `benutzer …`, `token �
 ## Mehrere Gesellschaften
 
 Jede eigene Gesellschaft hat eine eigene Datenbank, ein eigenes Belegarchiv und eine eigene
-Konfiguration (Kontenrahmen, Wirtschaftsjahr, Firmendaten, Bankkonten, Nummernkreise). Die
-Registry steht in der globalen Konfiguration:
+Konfiguration (Kontenrahmen, Wirtschaftsjahr, Firmendaten, Bankkonten, Nummernkreise). Das
+Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`, nur Tag und Monat) gilt für den
+Jahresabschluss: `abschluss … --jahr` ist das Kalenderjahr des WJ-Endes (2026 = 01.07.2025–
+30.06.2026); `abschluss vortrag` lehnt ein abweichendes Wirtschaftsjahr noch ab (die
+Jahressperre gilt je Kalenderjahr). Die Registry steht in der globalen Konfiguration:
 
 ```yaml
 gesellschaften:

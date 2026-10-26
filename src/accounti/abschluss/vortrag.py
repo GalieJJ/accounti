@@ -10,6 +10,13 @@ Ein Fehler-Befund der Abschlussprüfung verhindert den Vortrag. Danach ist das J
 gesperrt (``JahrGesperrtError`` bei jeder Buchung); geöffnet wird es nur mit Grund,
 und jede Aktion steht im Abschlussprotokoll (``protokoll.py``: nur anfügen,
 Hash-Kette).
+
+Abweichendes Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``): Eröffnungssalden
+stehen am Wirtschaftsjahresbeginn. Saldovortrag und Jahressperre lehnt accounti dort ab
+— die Sperre gilt je Kalenderjahr (im Buchungsdatum, auch für Kasse, Anlagen, Perioden
+und Verbuchung), sie sperrte das falsche Halbjahr. Den Abschluss eines abweichenden
+Wirtschaftsjahres macht bis dahin der Steuerberater; Susa, Prüfungen, Abgrenzungen und
+EÜR rechnen das Wirtschaftsjahr schon richtig.
 """
 
 from __future__ import annotations
@@ -20,7 +27,7 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from accounti.abschluss.konfiguration import AbschlussEinstellungen
+from accounti.abschluss.konfiguration import AbschlussEinstellungen, Wirtschaftsjahr
 from accounti.abschluss.kontenrahmen import Kontenart, Kontenrahmen
 from accounti.abschluss.protokoll import hash_von, protokolliere
 from accounti.abschluss.pruefungen import (
@@ -70,10 +77,10 @@ class Vortrag:
 
 
 def eroeffnungssalden(
-    session: Session, jahr: int, kr: Kontenrahmen
+    session: Session, jahr: int, kr: Kontenrahmen, wj: Wirtschaftsjahr | None = None
 ) -> dict[str, Decimal]:
     """EB-Werte des Jahres je Konto (ohne die Saldenvortragskonten selbst)."""
-    susa = summen_und_salden(session, jahr, kr, "bilanz")
+    susa = summen_und_salden(session, jahr, kr, "bilanz", wj=wj)
     return {
         z.konto: z.eb
         for z in susa.zeilen
@@ -84,8 +91,11 @@ def eroeffnungssalden(
 def schlusssalden(
     session: Session, jahr: int, einst: AbschlussEinstellungen, kr: Kontenrahmen
 ) -> dict[str, Decimal]:
-    """Bestandskonten zum 31.12. nach Abschluss der Erfolgs- und Privatkonten."""
-    susa = summen_und_salden(session, jahr, kr, einst.gewinnermittlung)
+    """Bestandskonten zum Ende des Wirtschaftsjahres nach Abschluss der Erfolgs- und
+    Privatkonten."""
+    susa = summen_und_salden(
+        session, jahr, kr, einst.gewinnermittlung, wj=einst.wirtschaftsjahr(jahr)
+    )
     salden: dict[str, Decimal] = {}
     kapital = NULL
     for z in susa.zeilen:
@@ -134,11 +144,13 @@ def erfasse_eroeffnung(
     von: str,
     einst: AbschlussEinstellungen,
 ) -> Buchungssatz | None:
-    """Eröffnungssaldo eines Bestandskontos im ersten Jahr (Soll positiv).
+    """Eröffnungssaldo eines Bestandskontos im ersten Jahr (Soll positiv), gebucht
+    am Beginn des Wirtschaftsjahres ``jahr``.
 
     Setzt den EB-Wert: Ein zweiter Aufruf bucht nur den Unterschied.
     """
-    pruefe_jahr_offen(session, jahr)
+    wj = einst.wirtschaftsjahr(jahr)
+    pruefe_jahr_offen(session, wj.von.year)
     if lade_jahresabschluss(session, jahr - 1) is not None:
         msg = f"Die EB-Werte {jahr} kommen aus dem Saldovortrag {jahr - 1}"
         raise AbschlussError(msg)
@@ -146,12 +158,10 @@ def erfasse_eroeffnung(
     art = kr.art(konto, einst.gewinnermittlung)
     if kr.ist_saldenvortrag(konto) or art in (Kontenart.ERFOLG, Kontenart.VORTRAG):
         raise AbschlussError(f"Konto {konto} ist kein Bestandskonto")
-    differenz = saldo - eroeffnungssalden(session, jahr, kr).get(konto, NULL)
+    differenz = saldo - eroeffnungssalden(session, jahr, kr, wj).get(konto, NULL)
     if differenz == 0:
         return None
-    b = _eb_buchung(
-        konto, differenz, date(jahr, 1, 1), einst, kr, "Eröffnungssaldo", von
-    )
+    b = _eb_buchung(konto, differenz, wj.von, einst, kr, "Eröffnungssaldo", von)
     # auch in einen festgeschriebenen Januar (Baustein 7)
     with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
         eb.add(str(b.id))
@@ -167,6 +177,14 @@ def erfasse_eroeffnung(
 def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     """Prüfen, EB-Buchungen ins Folgejahr, Jahr sperren, protokollieren."""
     jahr, einst, kr = k.jahr, k.einstellungen, k.kontenrahmen
+    if k.wirtschaftsjahr.abweichend:
+        raise AbschlussError(
+            f"Abweichendes Wirtschaftsjahr {k.wirtschaftsjahr.bezeichnung} "
+            f"({k.wirtschaftsjahr.zeitraum}): Saldovortrag und Jahressperre rechnet "
+            "accounti noch im Kalenderjahr und sperrte das falsche Halbjahr — "
+            "nicht unterstützt. Prüfen, Saldenliste, Abgrenzungen und EÜR rechnen "
+            "das Wirtschaftsjahr; den Abschluss bitte mit dem Steuerberater"
+        )
     if ist_gesperrt(session, jahr):
         raise AbschlussError(f"Geschäftsjahr {jahr} ist schon abgeschlossen")
     if ist_gesperrt(session, jahr + 1):
@@ -175,7 +193,8 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     if blockiert(befunde):
         raise AbschlussGesperrtError(befunde)
     ziel = schlusssalden(session, jahr, einst, kr)
-    vorhanden = eroeffnungssalden(session, jahr + 1, kr)
+    folgejahr = einst.wirtschaftsjahr(jahr + 1)
+    vorhanden = eroeffnungssalden(session, jahr + 1, kr, folgejahr)
     ergebnis = k.susa.ergebnis
     vortrag = Vortrag(jahr, ziel, ergebnis, befunde=befunde)
     # EB-Buchungen am 01.01. auch in einen schon festgeschriebenen Januar (Baustein 7)
@@ -187,7 +206,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
             b = _eb_buchung(
                 konto,
                 differenz,
-                date(jahr + 1, 1, 1),
+                folgejahr.von,
                 einst,
                 kr,
                 f"Saldovortrag {jahr}",
