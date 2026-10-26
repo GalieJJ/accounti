@@ -958,12 +958,15 @@ def _befund(
     # Regel 4: passt nur ein Umsatz mit einer anderen Nummer, wird er nicht
     # zugeordnet — er bliebe sonst der falschen Abrechnung, und ihre eigene fände
     # später ihren Umsatz nicht mehr (Nachprüfung 4 E, M3)
+    # — jeder, der ohne die andere Nummer Treffer wäre: mit exakt dem Betrag auch
+    # ohne Stichwort (Regel 5), sonst bliebe er still offen
     andere = [
         t
-        for t in umsaetze
+        for t in alle
         if t.id in lauf.offen_ids
         and _andere_nummern(a, t)
         and _passt(lauf, a, t, erwartet)
+        and (_erkennbar(lauf, a, t) or t.betrag == erwartet)
     ]
     if andere:
         return Abgleich(a, p, befund=_andere_nummer(a, p, andere), umsaetze=andere)

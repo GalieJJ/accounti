@@ -534,3 +534,17 @@ def test_import_ohne_bank_stichworte_warnt(umgebung):
     assert "integrationen.marktplaetze.ebay.bank_stichworte" in warnung.text
     mit = _ebay_import(s, archiv, kontext, zweite=True)
     assert not [b for b in mit.abrechnung.befunde if b.code == "bank_stichworte_leer"]
+
+
+def test_zurueckgehaltener_umsatz_warnt_auch_ohne_stichwort(umgebung):
+    """Simulation: ohne ``bank_stichworte`` hält Regel 4 einen Umsatz mit exakt dem
+    Betrag zurück (Referenz mit dem Anfang der Nummern), die Warnung verlangte aber
+    ein Stichwort — die Auszahlung blieb still offen. Die Warnung gilt für jeden
+    Umsatz, der ohne die andere Nummer Treffer wäre."""
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext, "amazon")
+    _amazon_september(s, archiv, kontext)
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE EREF 11223399999")
+    (m,) = gleiche_auszahlungen_ab(s, kontext)
+    assert m.befund is not None and m.befund.code == "auszahlung_andere_nummer"
+    assert str(tx.id)[:8] in m.befund.text
