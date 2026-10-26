@@ -225,6 +225,11 @@ EIGENE_UST_ID_OPTION = typer.Option(
 )
 EIGENE_FIRMA_OPTION = typer.Option(None, help="Eigener Firmenname")
 OCR_SPRACHE_OPTION = typer.Option("deu", help="Tesseract-Sprache(n), z.B. deu+eng")
+BELEG_IDS_OPTION = typer.Option(
+    [],
+    "--id",
+    help="Nur diese Belege (Anfang der ID) — auch erfasste, solange nicht verbucht",
+)
 
 
 @belege_app.command("kanaele")
@@ -240,6 +245,9 @@ def belege_kanaele() -> None:
 @belege_app.command("import")
 def belege_import(
     dateien: Annotated[list[str], typer.Argument(help="Belegdatei(en)")],
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration (mandant: eigene Firma)"
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     erkennen: bool = ERKENNEN_OPTION,
@@ -248,11 +256,16 @@ def belege_import(
     eigene_firma: str | None = EIGENE_FIRMA_OPTION,
     ocr_sprache: str = OCR_SPRACHE_OPTION,
 ) -> None:
-    """Einzelne Belege importieren."""
+    """Einzelne Belege importieren (Handimport: ohne Dateiprüfung, auch Text)."""
     from pathlib import Path
 
+    from accounti.befehle.kanaele import eigene_firma_vorgabe
     from accounti.belege.kanaele.upload import UploadKanal
 
+    # wie bei E-Mail/Webhook/Connector: eine eigene Rechnung wird Ausgangsrechnung
+    eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
+        config, eigene_ust_id, eigene_firma
+    )
     fehlend = [d for d in dateien if not Path(d).is_file()]
     if fehlend:
         console.print(f"[red]Datei nicht gefunden: {', '.join(fehlend)}[/red]")
@@ -286,14 +299,15 @@ def belege_abholen(
     """Einen Kanal einmal leeren."""
     from pathlib import Path
 
+    from accounti.befehle.kanaele import eigene_firma_vorgabe
     from accounti.belege.kanaele.ordner import OrdnerKanal
 
+    eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
+        config, eigene_ust_id, eigene_firma
+    )
     if kanal != OrdnerKanal.name:
-        from accounti.befehle.kanaele import eigene_firma_vorgabe, hole_ab
+        from accounti.befehle.kanaele import hole_ab
 
-        eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
-            config, eigene_ust_id, eigene_firma
-        )
         erkenner = (
             _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
             if erkennen
@@ -310,16 +324,33 @@ def belege_abholen(
     if not Path(ordner).is_dir():
         console.print(f"[red]Ordner nicht gefunden: {ordner}[/red]")
         raise typer.Exit(1)
+    from rich.markup import escape
+
+    from accounti.belege.kanaele.einstellungen import lade_belegkanaele
+    from accounti.konfiguration import KonfigurationError
+
+    try:  # Dateiprüfung wie bei E-Mail und Webhook (belegkanaele)
+        pruefung = lade_belegkanaele(config).pruefung()
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     erkenner = (
         _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
         if erkennen
         else None
     )
-    _belege_aufnehmen(OrdnerKanal(ordner), db, archiv, erkenner)
+    ordnerkanal = OrdnerKanal(ordner, pruefung)
+    _belege_aufnehmen(ordnerkanal, db, archiv, erkenner)
+    for hinweis in ordnerkanal.hinweise:
+        console.print(f"  [yellow]Abgelehnt:[/yellow] {escape(hinweis)}")
 
 
 @belege_app.command("erkennen")
 def belege_erkennen(
+    ids: list[str] = BELEG_IDS_OPTION,
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration (mandant: eigene Firma)"
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     llm: bool = LLM_OPTION,
@@ -327,22 +358,45 @@ def belege_erkennen(
     eigene_firma: str | None = EIGENE_FIRMA_OPTION,
     ocr_sprache: str = OCR_SPRACHE_OPTION,
 ) -> None:
-    """Ungelesene und zur Prüfung liegende Belege erneut aus dem Archiv lesen."""
+    """Ungelesene und zur Prüfung liegende Belege erneut aus dem Archiv lesen —
+    mit ``--id`` auch einen erfassten, noch nicht verbuchten (z. B. eigene Rechnung,
+    die als Eingangsrechnung erkannt wurde)."""
+    from rich.markup import escape
+
+    from accounti.befehle.kanaele import eigene_firma_vorgabe
     from accounti.belege.archiv import BelegArchiv
+    from accounti.belege.freigabe import FreigabeError, finde_beleg
     from accounti.belege.pipeline import erkenne_erneut
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import lade_belege
+    from accounti.db.repository import lade_belege, verbuchte_beleg_ids
     from accounti.models import BelegStatus
 
+    eigene_ust_id, eigene_firma = eigene_firma_vorgabe(
+        config, eigene_ust_id, eigene_firma
+    )
     erkenner = _beleg_erkenner(llm, eigene_ust_id, eigene_firma, ocr_sprache)
     engine, make_session = session_factory(db)
     init_db(engine)
     belegarchiv = BelegArchiv(archiv)
     erfasst = 0
     with make_session() as s:
-        offen = lade_belege(
-            s, status={BelegStatus.EINGEGANGEN, BelegStatus.ZUR_PRUEFUNG}
-        )
+        if ids:
+            try:
+                offen = [finde_beleg(s, i) for i in ids]
+            except FreigabeError as fehler:
+                console.print(f"[red]{escape(str(fehler))}[/red]")
+                raise typer.Exit(1) from fehler
+            verbucht = [b for b in offen if b.id in verbuchte_beleg_ids(s)]
+            if verbucht:
+                console.print(
+                    f"[red]Schon verbucht: {', '.join(str(b.id)[:8] for b in verbucht)}"
+                    " — Buchungen korrigieren oder stornieren[/red]"
+                )
+                raise typer.Exit(1)
+        else:
+            offen = lade_belege(
+                s, status={BelegStatus.EINGEGANGEN, BelegStatus.ZUR_PRUEFUNG}
+            )
         for alt in offen:
             neu = erkenne_erneut(s, belegarchiv, alt, erkenner)
             s.commit()
@@ -352,6 +406,69 @@ def belege_erkennen(
         f"{len(offen)} Belege gelesen, [green]{erfasst} erfasst[/green], "
         f"[yellow]{len(offen) - erfasst} zur Prüfung[/yellow]."
     )
+
+
+@belege_app.command("freigeben")
+def belege_freigeben(
+    beleg_id: str = typer.Argument(help="Anfang der Beleg-ID (accounti belege liste)"),
+    belegart: str | None = typer.Option(
+        None,
+        help="Belegart berichtigen: eingangsrechnung, ausgangsrechnung, quittung, "
+        "kontoauszug, vertrag, sonstiges",
+    ),
+    steuer: str | None = typer.Option(
+        None,
+        help="Steuerfall einer Rechnung ohne Steuerausweis: 13b (Steuerschuldnerschaft "
+        "des Leistungsempfängers), ig-erwerb, steuerfrei (§ 4, § 19 UStG) oder ohne",
+    ),
+    grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer prüft (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
+        "Benutzern: Rolle und Einmalcode)",
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = typer.Option(
+        "config/accounti.yaml", "--config", help="Konfiguration"
+    ),
+) -> None:
+    """Beleg nach Prüfung des Originals freigeben (→ erfasst) — danach verbucht
+    'accounti opos verbuchen' ihn."""
+    from rich.markup import escape
+
+    from accounti.befehle import handelnde_person
+    from accounti.belege.freigabe import FreigabeError, gib_frei
+    from accounti.db import init_db, session_factory
+    from accounti.models import Belegart
+    from accounti.models.auth import Recht
+    from accounti.pruefung.person import journal_kontext
+
+    try:
+        art = Belegart(belegart) if belegart else None
+    except ValueError as fehler:
+        erlaubt = ", ".join(a.value for a in Belegart if a is not Belegart.UNBEKANNT)
+        console.print(f"[red]--belegart {belegart}: erlaubt sind {erlaubt}[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von),
+        make_session() as s,
+    ):
+        try:
+            with journal_kontext(grund=grund):
+                b = gib_frei(s, beleg_id, belegart=art, steuer=steuer)
+            s.commit()
+        except FreigabeError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+    console.print(
+        f"[green]Freigegeben:[/green] {str(b.id)[:8]} {escape(b.dateiname)} — "
+        f"{_beleg_zeile(b)}"
+        + (f" · Steuerfall {b.steuerkennzeichen}" if b.steuerkennzeichen else "")
+    )
+    if b.belegart.value in ("eingangsrechnung", "ausgangsrechnung"):
+        console.print("[dim]Nächster Schritt: accounti opos verbuchen[/dim]")
 
 
 @belege_app.command("liste")
@@ -1178,6 +1295,12 @@ def kontakte_bearbeiten(
     steuernummer: str | None = typer.Option(None),
     iban: str | None = typer.Option(None),
     email: str | None = typer.Option(None),
+    strasse: str | None = typer.Option(None),
+    plz: str | None = typer.Option(None),
+    ort: str | None = typer.Option(None),
+    land: str | None = typer.Option(
+        None, help="Ländercode (ISO 3166, z. B. AT) — bestimmt u. a. Kz 46/47 bei § 13b"
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
 ) -> None:
     """Stammdaten eines Kontakts ändern."""
@@ -1197,9 +1320,17 @@ def kontakte_bearbeiten(
             ("steuernummer", steuernummer),
             ("iban", iban.replace(" ", "").upper() if iban else None),
             ("email", email),
+            ("strasse", strasse),
+            ("plz", plz),
+            ("ort", ort),
         )
         if wert is not None
     }
+    if land is not None:
+        if not (len(land.strip()) == 2 and land.strip().isalpha()):
+            console.print("[red]--land: zweistelliger Ländercode, z. B. DE, AT[/red]")
+            raise typer.Exit(1)
+        aenderungen["land"] = land.strip().upper()
     if skonto_prozent is not None:
         aenderungen["skonto_prozent"] = Decimal(str(skonto_prozent))
     if not aenderungen:
@@ -1751,6 +1882,14 @@ def opos_vorschlaege(
         )
 
 
+SKONTO_OPTION = typer.Option(
+    [],
+    "--skonto",
+    help="Skonto je Posten anerkennen: BELEGNR=BETRAG (z. B. RW-8890=53,55) — "
+    "gebucht mit Steuerkorrektur; wiederholbar",
+)
+
+
 @opos_app.command("bestaetigen")
 def opos_bestaetigen(
     transaktion: str = typer.Argument(help="ID des Vorschlags (Anfang genügt)"),
@@ -1760,18 +1899,31 @@ def opos_bestaetigen(
         help="Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
         "eingerichteten Benutzern: Rolle und Einmalcode)",
     ),
+    skonto: list[str] = SKONTO_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
     """Zuordnungsvorschlag buchen."""
     from rich.markup import escape
 
     from accounti.befehle import handelnde_person
+    from accounti.belege.zahlen import parse_betrag
     from accounti.db import init_db, session_factory
     from accounti.konfiguration import lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.opos.zahlungslauf import ZahlungslaufError, bestaetige
     from accounti.pruefung.person import aktuelle_person
 
+    abzuege: dict[str, Decimal] = {}
+    for angabe in skonto:
+        nummer, _, betrag = angabe.rpartition("=")
+        wert = parse_betrag(betrag.strip()) if nummer.strip() else None
+        if wert is None:
+            console.print(
+                f"[red]--skonto {escape(angabe)}: BELEGNR=BETRAG, z. B. "
+                "RW-8890=53,55[/red]"
+            )
+            raise typer.Exit(1)
+        abzuege[nummer.strip()] = wert
     engine, make_session = session_factory(db)
     init_db(engine)
     # der Vorschlag wird zur freigegebenen Ausgleichsbuchung (Status geprueft):
@@ -1782,7 +1934,11 @@ def opos_bestaetigen(
     ):
         try:
             buchungen = bestaetige(
-                s, transaktion, lade_buchhaltung(config), aktuelle_person(person)
+                s,
+                transaktion,
+                lade_buchhaltung(config),
+                aktuelle_person(person),
+                skonto=abzuege,
             )
         except ZahlungslaufError as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")

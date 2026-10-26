@@ -152,6 +152,8 @@ def _beleg(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
         return [Eintrag("beleg_importiert")]
     if n is None:
         return [Eintrag("beleg_geloescht")]
+    if v.get("status") == "pruefung" and n.get("status") == "erfasst":
+        return [Eintrag("beleg_freigegeben")]  # accounti belege freigeben
     return [Eintrag("beleg_geaendert")]
 
 

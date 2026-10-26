@@ -451,7 +451,7 @@ def korrigiere(
 
 
 def _beleg_mit_satz(session: Session, b: Buchungssatz) -> bool:
-    """Liefert der Beleg der Buchung einen Steuersatz (ihre Position bzw. irgendeine)?"""
+    """Nennt der Beleg der Buchung einen Steuersatz (ihre bzw. irgendeine Position)?"""
     if b.beleg_id is None:
         return True
     beleg = lade_beleg(session, b.beleg_id)

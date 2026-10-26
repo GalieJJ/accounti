@@ -978,6 +978,17 @@ def lade_zuordnungen(
     return [_row_zu_zuordnung(r) for r in query.all()]
 
 
+def setze_zuordnung_skonto(
+    session: Session, zuordnung_id: UUID, skonto: Decimal
+) -> None:
+    """Skonto eines Vorschlags, wie der Mensch es beim Bestätigen anerkennt."""
+    row = session.get(ZahlungszuordnungRow, str(zuordnung_id))
+    if row is None:
+        raise ValueError(f"Zuordnung {zuordnung_id} nicht gefunden.")
+    row.skonto = skonto
+    session.flush()
+
+
 def setze_zuordnungen_status(
     session: Session, transaktion_id: UUID, status: ZuordnungStatus
 ) -> None:

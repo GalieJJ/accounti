@@ -95,39 +95,46 @@ def _mit_skonto(
 def _summe(
     posten: list[OffenerPosten], betrag: Decimal, tx: Transaktion, karenz: int
 ) -> tuple[Anteil, ...] | None:
-    """Teilmenge, deren Reste (ggf. abzüglich Skonto) genau den Betrag ergeben.
+    """Teilmenge, deren Reste (je Posten ggf. ohne Skonto) genau den Betrag ergeben.
 
-    Kleinere Teilmengen zuerst, innerhalb gleicher Größe die ältesten Posten.
+    Kleinere Teilmengen zuerst, innerhalb gleicher Größe die ältesten Posten. Skonto
+    zieht nur ein skontofähiger Posten (unberührt, in der Frist) — oft nur ein Teil der
+    Sammelzahlung, z. B. Rest einer Teilzahlung plus neue Rechnung abzüglich Skonto
+    (§ 17 Abs. 1 UStG: die Minderung des Skontopostens korrigiert die Steuer).
     """
     kandidaten = sorted(posten, key=lambda p: p.faellig_am)[:MAX_KANDIDATEN]
     for groesse in range(2, MAX_SAMMEL + 1):
         for kombination in combinations(kandidaten, groesse):
-            if sum((p.restbetrag for p in kombination), NULL) == betrag:
+            reste = sum((p.restbetrag for p in kombination), NULL)
+            if reste == betrag:
                 return tuple(Anteil(p, p.restbetrag) for p in kombination)
-            if all(_skonto_moeglich(p, tx, karenz) for p in kombination):
-                netto = sum(
-                    (p.restbetrag - (p.skonto_betrag or NULL) for p in kombination),
-                    NULL,
-                )
-                if abs(netto - betrag) <= SKONTO_TOLERANZ * groesse:
-                    anteile = [
-                        Anteil(
-                            p,
-                            p.restbetrag - (p.skonto_betrag or NULL),
-                            p.skonto_betrag or NULL,
+            faehig = [p for p in kombination if _skonto_moeglich(p, tx, karenz)]
+            # erst alle skontofähigen Posten mit Skonto, dann kleinere Teilmengen
+            for anzahl in range(len(faehig), 0, -1):
+                for mit in combinations(faehig, anzahl):
+                    abzug = sum((p.skonto_betrag or NULL for p in mit), NULL)
+                    if abs(reste - abzug - betrag) <= SKONTO_TOLERANZ * anzahl:
+                        return _mit_skonto_anteilen(
+                            kombination, {id(p) for p in mit}, betrag - reste + abzug
                         )
-                        for p in kombination
-                    ]
-                    # Rundungsrest auf den letzten Anteil, damit die Summe stimmt
-                    differenz = betrag - netto
-                    letzter = anteile[-1]
-                    anteile[-1] = Anteil(
-                        letzter.posten,
-                        letzter.betrag + differenz,
-                        letzter.skonto - differenz,
-                    )
-                    return tuple(anteile)
     return None
+
+
+def _mit_skonto_anteilen(
+    kombination: tuple[OffenerPosten, ...], mit: set[int], differenz: Decimal
+) -> tuple[Anteil, ...]:
+    """Anteile einer Sammelzahlung; der Rundungsrest geht auf den letzten Posten mit
+    Skonto, damit die Summe stimmt."""
+    anteile = [
+        Anteil(p, p.restbetrag - (p.skonto_betrag or NULL), p.skonto_betrag or NULL)
+        if id(p) in mit
+        else Anteil(p, p.restbetrag)
+        for p in kombination
+    ]
+    letzter = max(i for i, p in enumerate(kombination) if id(p) in mit)
+    a = anteile[letzter]
+    anteile[letzter] = Anteil(a.posten, a.betrag + differenz, a.skonto - differenz)
+    return tuple(anteile)
 
 
 def _auffuellen(posten: list[OffenerPosten], betrag: Decimal) -> tuple[Anteil, ...]:
