@@ -8,8 +8,7 @@ database:
 # Mandant
 mandant:
   name: "Meine Firma GmbH"
-  kontenrahmen: SKR03          # SKR03 oder SKR04
-  sachkonten_laenge: 4         # 4 oder 6
+  sachkonten_laenge: 4         # 4 oder 6 (Kontenrahmen: buchhaltung.kontenrahmen)
 
   # Für Ausgangsrechnungen (XRechnung verlangt Anschrift, Kontakt, E-Mail und Bank)
   kuerzel: "MF"                # Schlüssel des Nummernkreises (je Gesellschaft)
@@ -60,7 +59,8 @@ integrationen:
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
     amazon:
       verrechnungskonto: "1361"
-      bank_stichworte: ["AMAZON"]
+      bank_stichworte: ["AMAZON"] # Bankeingänge damit lässt classify bis zum Abgleich offen;
+                                # ohne Marktplatz-Import: bank_stichworte: [] (je Marktplatz)
       ust_gebuehren: vorsteuer  # vorsteuer | 13b (mit bu_gebuehren) | ohne — Amazon seit 08/2024 mit deutscher USt
       ust_werbung: null         # Werbung getrennt einstellen (nicht eingestellt → zur Prüfung)
       lager_nur_inland: false   # true: FBA nur aus deutschen Lagern (kein Pan-EU/CEE)
@@ -109,6 +109,12 @@ bank:
 
 # Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
 buchhaltung:
+  kontenrahmen: SKR03          # SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen,
+                               # Prüfregeln und DATEV. Die Standards der Konten unten
+                               # sind SKR03 — bei SKR04 setzen: bank_konto "1800",
+                               # standard_aufwand "6300", skonto_erhalten
+                               # {"19": "5736", "7": "5731", "0": "5730"},
+                               # skonto_gewaehrt {"19": "4736", "7": "4731", "0": "4730"}
   debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)
   debitoren_bis: 69999
   kreditoren_von: 70000

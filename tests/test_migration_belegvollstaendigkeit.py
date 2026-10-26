@@ -142,8 +142,8 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     db = tmp_path / "alt.db"
     _alter_stand(db)
     _ok(_alembic(db, "upgrade", "head"))
-    # auf den Stand vor Baustein 7 — spätere Migrationen (z. B. 2f7c7043043e) liegen
-    # darüber, „-1“ nähme nur die jüngste zurück
+    # auf den Stand vor Baustein 7 — spätere Migrationen (6d38d11fc348, 2f7c7043043e)
+    # liegen darüber, „-1“ nähme nur die jüngste zurück
     _ok(_alembic(db, "downgrade", VOR))
     tabellen, trigger, indizes, spalten = _schema(db)
     assert not tabellen & NEU and not trigger & TRIGGER
@@ -190,7 +190,15 @@ def test_sicherung_vor_der_migration_mit_neuem_code(tmp_path):
     neu = tmp_path / "neu" / "x.db"
     neu.parent.mkdir()
     stelle_wieder_her(ziel, f"sqlite:///{neu}", None, schluessel)
-    _ok(_alembic(neu, "upgrade", "head"))  # alembic_version stammt aus der Sicherung
+    # das Ziel legt init_db nach dem neuen Code an und vermerkt dessen Stand — nicht
+    # die ältere Revision aus der Sicherung (Befund Betrieb B2)
+    from accounti.db import SCHEMA_STAND
+
+    with sqlite3.connect(neu) as v:
+        assert v.execute("SELECT version_num FROM alembic_version").fetchall() == [
+            (SCHEMA_STAND,)
+        ]
+    _ok(_alembic(neu, "upgrade", "head"))
     assert "No new upgrade operations detected" in _ok(_alembic(neu, "check"))
     assert _journal(neu, "uebernehmen").exit_code == 0
     r = _journal(neu, "pruefen")

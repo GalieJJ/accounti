@@ -18,6 +18,14 @@ NAME = "anlagen"
 befehl = typer.Typer(
     help="Anlagenbuchhaltung: Anlagegüter, AfA, Abgang, Anlagenspiegel."
 )
+# Anlegen, Ändern, AfA-Lauf und Abgang (auch seine Rücknahme) sind Buchen (Gesamttest
+# Abschluss B8: ein Betrachter schied sonst einen Pkw unwiderruflich aus) — mit
+# Benutzern Rolle und Einmalcode
+VON_OPTION = typer.Option(
+    None,
+    help="Wer bucht (ohne Benutzer; sonst ACCOUNTI_BENUTZER bzw. Anmeldename — "
+    "mit Einmalcode)",
+)
 
 
 def _einstellungen(config: str):  # type: ignore[no-untyped-def]
@@ -98,6 +106,7 @@ def anlegen(
     kein_wechsel: bool = typer.Option(
         False, "--kein-wechsel", help="degressiv: nicht zur linearen AfA wechseln"
     ),
+    von: str | None = VON_OPTION,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -106,13 +115,14 @@ def anlegen(
     from accounti.anlagen.dienst import AnlageError, lege_an
     from accounti.anzeige import betrag_de
     from accounti.models.anlagen import AfaArt
+    from accounti.models.auth import Recht
 
     einst = _einstellungen(config)
     try:
         afa_art = AfaArt(art) if art else None
     except ValueError:
         ende(f"Unbekannte AfA-Art '{art}'")
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, von), sitzung(db)() as s:
         try:
             e = lege_an(
                 s,
@@ -323,6 +333,7 @@ def plan(
 def afa(
     jahr: int = typer.Option(..., help="Geschäftsjahr"),
     bis_monat: int = typer.Option(12, help="AfA bis einschließlich dieses Monats"),
+    von: str | None = VON_OPTION,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -330,6 +341,7 @@ def afa(
     from accounti.anlagen.afa import AfaRegelError
     from accounti.anlagen.lauf import afa_lauf
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     if not 1 <= bis_monat <= 12:
         ende(f"--bis-monat {bis_monat}: erlaubt sind 1 bis 12")
@@ -340,7 +352,7 @@ def afa(
         "--bis-monat {ende} für das Wirtschaftsjahr, das im Jahr endet, darüber ab "
         "Beginn des folgenden",
     )
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, von), sitzung(db)() as s:
         try:
             e = afa_lauf(s, jahr, einst, bis_monat)
         except (AfaRegelError, ValueError, JahrGesperrtError) as fehler:
@@ -415,11 +427,7 @@ def abgang(
         "--grund)",
     ),
     grund: str | None = typer.Option(None, help="Grund der Rücknahme (Journal)"),
-    von: str | None = typer.Option(
-        None,
-        help="Wer handelt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
-        "eingerichteten Benutzern: Rolle und Einmalcode)",
-    ),
+    von: str | None = VON_OPTION,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -428,6 +436,7 @@ def abgang(
     from accounti.anlagen.afa import AfaRegelError
     from accounti.anzeige import betrag_de
     from accounti.models.anlagen import AbgangArt
+    from accounti.models.auth import Recht
 
     if zuruecknehmen:
         _abgang_zuruecknehmen(nr, grund, von, db, config)
@@ -439,7 +448,7 @@ def abgang(
     except ValueError:
         ende(f"Unbekannte Abgangsart '{art}'")
     einst = _einstellungen(config)
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, von), sitzung(db)() as s:
         try:
             e = buche_abgang(
                 s,

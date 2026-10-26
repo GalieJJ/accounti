@@ -3,8 +3,10 @@
 Ist der Beleg zu einem Umsatz bekannt, muss nichts aus dem Verwendungszweck geraten
 werden: Lieferant, Positionen und Steuersätze stehen auf dem Beleg. Gebucht wird je
 Steuersatz, die Vorsteuer genau so, wie sie auf dem Beleg steht. Weicht der gezahlte
-Betrag ab (Trinkgeld, Rundung), geht die Differenz ohne Steuer auf das Sachkonto und
-die Buchung zur Prüfung.
+Betrag ab (Trinkgeld, Rundung), wird die Differenz eine eigene Buchung ohne Steuer auf
+das Sachkonto, zur Prüfung: Trinkgeld an das Personal ist kein Entgelt des Leistenden
+(Abschn. 10.1 Abs. 5 UStAE) und trägt keine Vorsteuer — in der Zeile mit Schlüssel
+rechnete DATEV sie aus dem ganzen Bruttobetrag heraus.
 """
 
 from __future__ import annotations
@@ -59,15 +61,23 @@ def sachkonto_fuer_beleg(
                 None, [beleg.belegnummer, *(p.bezeichnung for p in beleg.positionen)]
             )
         )
+        # gesucht ist ein Aufwandskonto: als Ausgabe fragen, auch bei einer
+        # Gutschrift (sie mindert denselben Aufwand) — Ausgaberegeln mit richtung
+        # greifen sonst nicht
         pseudo = Transaktion(
             datum=beleg.belegdatum or beleg.eingegangen_am.date(),
-            betrag=-(beleg.brutto or NULL),
+            betrag=-abs(beleg.brutto or NULL),
             verwendungszweck=text or name or "",
             gegenkonto_name=name,
             quelle=TransaktionQuelle.MANUELL,
             rohtext=f"Beleg {beleg.id}",
         )
-        for quelle, tx in (("Belegdaten", pseudo), ("Umsatz", umsatz)):
+        als_ausgabe = (
+            umsatz.model_copy(update={"betrag": -abs(umsatz.betrag)})
+            if umsatz is not None
+            else None
+        )
+        for quelle, tx in (("Belegdaten", pseudo), ("Umsatz", als_ausgabe)):
             if tx is None:
                 continue
             ergebnis = regelwerk.klassifiziere(tx)
@@ -87,6 +97,7 @@ class _Gruppe:
     pruefen: bool
     netto: Decimal = NULL
     steuer: Decimal = NULL
+    differenz: bool = False  # nur die Differenz gezahlt ≠ Beleg (eigene Zeile)
 
 
 def _saetze(beleg: Beleg) -> list[tuple[Decimal | None, Decimal, Decimal]]:
@@ -150,14 +161,21 @@ def kontiere_mit_beleg(
             g.netto += netto
             g.steuer += steuer
 
-    # Gezahlt ≠ Beleg (Trinkgeld, Rundung): Differenz ohne Steuer, zur Prüfung
+    # Gezahlt ≠ Beleg (Trinkgeld, Rundung): ohne Steuer, zur Prüfung — nie in eine
+    # Zeile mit Steuerschlüssel (Gesamttest Eingang B10)
     gutschrift = (beleg.brutto or NULL) < 0
     belegsumme = sum((abs(g.netto) + abs(g.steuer) for g in gruppen.values()), NULL)
     differenz = abs(tx.betrag) - belegsumme
     if differenz:
         groesste = max(gruppen.values(), key=lambda g: abs(g.netto))
-        groesste.netto += -differenz if gutschrift else differenz
-        groesste.pruefen = True
+        # in die Gruppe (Konto, ohne Schlüssel) — gibt es sie nicht, eine eigene Zeile
+        ohne = gruppen.get((groesste.konto, None))
+        if ohne is None:
+            ohne = _Gruppe(groesste.konto, None, True, differenz=True)
+            gruppen[(groesste.konto, None)] = ohne
+        # Vorzeichen wie die Belegpositionen: + mehr gezahlt, − weniger
+        ohne.netto += -differenz if gutschrift else differenz
+        ohne.pruefen = True
 
     text = f"{beleg.lieferant_name or ''} {beleg.belegnummer or ''}".strip()
     buchungen = []
@@ -165,8 +183,11 @@ def kontiere_mit_beleg(
         soll, haben = g.konto, tx.sachkonto or einstellungen.bank_konto
         if not eingang:
             soll, haben = haben, soll
-        if gutschrift:
+        if (g.netto < 0) if g.differenz else gutschrift:
             soll, haben = haben, soll
+        buchungstext = text or tx.verwendungszweck
+        if g.differenz:
+            buchungstext = f"Trinkgeld/Differenz {buchungstext}"
         buchungen.append(
             Buchungssatz(
                 transaktion_id=tx.id,
@@ -177,7 +198,7 @@ def kontiere_mit_beleg(
                 betrag_netto=abs(g.netto),
                 steuer_schluessel=g.schluessel,
                 steuer_betrag=abs(g.steuer) if g.schluessel is not None else None,
-                buchungstext=(text or tx.verwendungszweck)[:60],
+                buchungstext=buchungstext[:60],
                 beleg_nummer=(beleg.belegnummer or "")[:36] or None,
                 status=BuchungStatus.ZUR_PRUEFUNG
                 if g.pruefen

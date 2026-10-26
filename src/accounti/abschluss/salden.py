@@ -21,7 +21,12 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.abschluss.konfiguration import Wirtschaftsjahr, wirtschaftsjahr
-from accounti.abschluss.kontenrahmen import Gewinnermittlung, Kontenart, Kontenrahmen
+from accounti.abschluss.kontenrahmen import (
+    Gewinnermittlung,
+    Kontenart,
+    Kontenrahmen,
+    mit_eingerichteten_konten,
+)
 from accounti.db.repository import lade_buchungen
 from accounti.models import Buchungssatz, BuchungStatus
 
@@ -85,7 +90,9 @@ def lade_bewegungen(
     von: date | None = None,
     bis: date | None = None,
 ) -> list[Bewegung]:
-    """Bewegungen aus freigegebenen Buchungen im Zeitraum (Grenzen eingeschlossen)."""
+    """Bewegungen aus freigegebenen Buchungen im Zeitraum (Grenzen eingeschlossen);
+    eingerichtete Bank- und Kartenkonten zählen als Geldkonten."""
+    kr = mit_eingerichteten_konten(kr, session)
     ergebnis: list[Bewegung] = []
     for b in lade_buchungen(session, status=set(FREIGEGEBEN)):
         if (von is None or b.datum >= von) and (bis is None or b.datum <= bis):

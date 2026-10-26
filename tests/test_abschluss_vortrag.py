@@ -515,8 +515,10 @@ def test_cli_opos_verbuchen_im_gesperrten_jahr_ohne_abbruch(tmp_path):
             str(tmp_path / "x.yaml"),
         ],
     )
-    assert r.exit_code == 0, r.output
-    assert r.exception is None
+    # kein Abbruch mit Traceback, die übrigen Rechnungen sind verbucht — aber nicht
+    # verbuchte Rechnungen sind kein Erfolg: Exit 1 (Gesamttest Eingang)
+    assert r.exit_code == 1, r.output
+    assert isinstance(r.exception, SystemExit)
     assert "Nicht verbucht" in r.output and "RE-ALT" in r.output
     with factory() as s:
         assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}

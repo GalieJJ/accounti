@@ -54,6 +54,7 @@ from accounti.db.repo_auth import (
     lade_benutzer,
     lade_merker,
     loesche_merker,
+    merker_mit_praefix,
     rollen_von,
     setze_merker_einmal,
 )
@@ -64,6 +65,9 @@ UMGEBUNG_BENUTZER = "ACCOUNTI_BENUTZER"
 UMGEBUNG_EINMALCODE = "ACCOUNTI_EINMALCODE"
 MERKER_SYSTEM = "systemkennung"
 MERKER_BINDUNG = "benutzerverwaltung"
+# "verwaltet:<Kürzel>": die Gesellschaft hatte einen aktiven Verwalter mit zweitem
+# Faktor — ihre Einrichtungsphase öffnet sich nie wieder (Befund Betrieb B8)
+MERKER_VERWALTET = "verwaltet:"
 
 Frage = Callable[[str], str]
 console = Console(stderr=True)
@@ -395,16 +399,39 @@ def pruefe_befehlsrecht(
         )
 
 
-def _pruefe_zustaendig(s: Session, handelnder: str, ziel: str) -> None:
+def _pruefe_zustaendig(
+    s: Session, handelnder: str, ziel: str, einrichtung: str | None = None
+) -> None:
     """Wer einen Benutzer verwaltet, ist Verwalter in **jeder** Gesellschaft, in
     der dieser Rollen hat — sonst übernähme ein Verwalter von b das Konto eines
-    Freigebers von a (Passwort und zweiter Faktor gelten global)."""
+    Freigebers von a (Passwort und zweiter Faktor gelten global). Wer die
+    Gesellschaft ``einrichtung`` einrichtet, gilt dort als ihr Verwalter — aber nur
+    für Benutzer, die dort keine andere Rolle als ``verwalter`` haben (Nachprüfung
+    N2): Die Einrichtung bestimmt den ersten Verwalter; Passwort, Codes und Rollen
+    eines Freigebers von b gäben dem Verwalter von a dessen Konto."""
     z = lade_benutzer(s, ziel)
     h = lade_benutzer(s, handelnder)
     if z is None or h is None:
         return
-    noetig = {r.gesellschaft for r in rollen_von(s, z.id)}
+    zuordnungen = rollen_von(s, z.id)
+    noetig = {r.gesellschaft for r in zuordnungen}
     darf = {r.gesellschaft for r in rollen_von(s, h.id) if r.rolle is Rolle.VERWALTER}
+    if einrichtung is not None:
+        andere = sorted(
+            r.rolle.value
+            for r in zuordnungen
+            if r.gesellschaft == einrichtung and r.rolle is not Rolle.VERWALTER
+        )
+        if andere:
+            _verweigert(s, "recht_verweigert", h.name, Recht.VERWALTEN, einrichtung)
+            msg = (
+                f"{ziel} hat in {einrichtung} schon die Rolle {', '.join(andere)} — "
+                f"die Einrichtung von {einrichtung} bestimmt nur den ersten Verwalter "
+                "(neuer Benutzer oder einer, der dort nur Verwalter ist); "
+                f"{ziel} verwaltet danach der Verwalter von {einrichtung}"
+            )
+            raise RechteError(msg)
+        darf.add(einrichtung)
     fehlend = sorted(noetig - darf)
     if fehlend:
         _verweigert(
@@ -418,6 +445,36 @@ def _pruefe_zustaendig(s: Session, handelnder: str, ziel: str) -> None:
         raise RechteError(msg)
 
 
+def verwalter_mit_faktor(s: Session, gesellschaft: str | None = None) -> list[Benutzer]:
+    """Aktive Verwalter mit zweitem Faktor (in der Gesellschaft bzw. irgendwo).
+    Nach Fehlversuchen gesperrte zählen mit (``aktiv`` bleibt) — eine Flut aus dem
+    Netz öffnet keine Einrichtungsphase."""
+    return [
+        b
+        for b in benutzer_mit_rolle(s, Rolle.VERWALTER, gesellschaft)
+        if b.aktiv and b.totp_aktiv
+    ]
+
+
+def _merke_verwaltete(s: Session) -> set[str]:
+    """Merker ``verwaltet:<K>`` für jede Gesellschaft mit einem aktiven Verwalter mit
+    zweitem Faktor setzen; gibt alle so gemerkten Gesellschaften zurück."""
+    jetzt = datetime.now()
+    neu = False
+    for b in verwalter_mit_faktor(s):
+        for z in rollen_von(s, b.id):
+            schluessel = MERKER_VERWALTET + z.gesellschaft
+            if z.rolle is Rolle.VERWALTER and lade_merker(s, schluessel) is None:
+                setze_merker_einmal(s, schluessel, b.name, jetzt)
+                neu = True
+    if neu:
+        s.commit()
+    return {
+        m.removeprefix(MERKER_VERWALTET)
+        for m in merker_mit_praefix(s, MERKER_VERWALTET)
+    }
+
+
 def pruefe_verwaltung(
     db: str,
     config: str,
@@ -427,23 +484,32 @@ def pruefe_verwaltung(
 ) -> str:
     """Wer Benutzer und Token verwalten will — gibt den Handelnden zurück.
 
-    Einrichtungsphase: Solange kein aktiver Verwalter einen zweiten Faktor hat, ist
+    Einrichtungsphase der Installation: Solange kein aktiver Verwalter einen zweiten
+    Faktor hat **und** keine Gesellschaft je einen hatte (Merker ``verwaltet:``), ist
     alles erlaubt (sonst sperrte man sich beim Einrichten aus). Danach braucht es
-    einen Verwalter mit Einmalcode — oder, bei ``selbst``, den Benutzer selbst mit
-    seinem eingerichteten zweiten Faktor. Den ersten zweiten Faktor eines Benutzers
-    richtet ein Verwalter ein: Sonst könnte jeder mit Zugang zur Server-Shell unter
-    fremdem Namen einen Faktor anlegen. Geht es um einen Benutzer (``ziel``), muss
-    der Verwalter das in jeder Gesellschaft sein, in der dieser Rollen hat.
+    einen Verwalter der Gesellschaft mit Einmalcode — oder, bei ``selbst``, den
+    Benutzer selbst mit seinem eingerichteten zweiten Faktor. Den ersten zweiten
+    Faktor eines Benutzers richtet ein Verwalter ein: Sonst könnte jeder mit Zugang
+    zur Server-Shell unter fremdem Namen einen Faktor anlegen. Geht es um einen
+    Benutzer (``ziel``), muss der Verwalter das in jeder Gesellschaft sein, in der
+    dieser Rollen hat.
+
+    Einrichtungsphase einer Gesellschaft (Befund Betrieb B7): Hatte die gewählte
+    Gesellschaft noch nie einen aktiven Verwalter mit zweitem Faktor (zweite oder
+    später ergänzte Gesellschaft), genügt ein Verwalter irgendeiner Gesellschaft mit
+    Einmalcode — Ereignis ``einrichtung_gesellschaft`` im Protokoll. Den letzten
+    Verwalter sperren oder entrechten lehnt ``pruefe_nicht_letzter_verwalter`` ab;
+    der Merker hält die Phase auch dann geschlossen, wenn er an accounti vorbei
+    wegfällt (Befund B8, fail-closed).
     """
     person = aktueller_benutzername()
-    aktueller_kontext().pruefe()
+    kontext = aktueller_kontext().pruefe()
+    gesellschaft = kontext.gesellschaft.kuerzel if kontext.gesellschaft else None
+    if gesellschaft is None and not kontext.registry.eintraege:
+        gesellschaft = kontext.kuerzel
     with systemsitzung(db) as s:
-        verwalter = [
-            b
-            for b in benutzer_mit_rolle(s, Rolle.VERWALTER)
-            if b.aktiv and b.totp_aktiv
-        ]
-        if not verwalter:
+        verwaltet = _merke_verwaltete(s)
+        if not verwaltet and not verwalter_mit_faktor(s):
             return person
         e = auth_einstellungen(config)
         if selbst is not None and person == selbst:
@@ -455,14 +521,58 @@ def pruefe_verwaltung(
                     )
                     s.commit()
                 return person
-        kontext = aktueller_kontext()
-        gesellschaft = kontext.gesellschaft.kuerzel if kontext.gesellschaft else None
-        if gesellschaft is None and not kontext.registry.eintraege:
-            gesellschaft = kontext.kuerzel
-        pruefe_recht_in(s, e, Recht.VERWALTEN, person, gesellschaft, frage)
+        einrichtung = (
+            gesellschaft
+            if gesellschaft is not None
+            and gesellschaft not in verwaltet
+            and not verwalter_mit_faktor(s, gesellschaft)
+            else None
+        )
+        pruefe_recht_in(
+            s,
+            e,
+            Recht.VERWALTEN,
+            person,
+            None if einrichtung else gesellschaft,
+            frage,
+        )
+        if einrichtung is not None:
+            ereignis(
+                s,
+                "einrichtung_gesellschaft",
+                datetime.now(),
+                person,
+                gesellschaft=einrichtung,
+                hinweis="noch kein Verwalter mit zweitem Faktor — eingerichtet "
+                "durch den Verwalter einer anderen Gesellschaft",
+            )
+            s.commit()
         if ziel is not None and ziel != person:
-            _pruefe_zustaendig(s, person, ziel)
+            _pruefe_zustaendig(s, person, ziel, einrichtung)
         return person
+
+
+def pruefe_nicht_letzter_verwalter(
+    s: Session, b: Benutzer, gesellschaft: str | None = None
+) -> None:
+    """``RechteError``, wenn ``b`` in der Gesellschaft (ohne Angabe: in einer seiner
+    Verwalter-Gesellschaften) der letzte aktive Verwalter mit zweitem Faktor ist.
+
+    Für ``benutzer sperren`` und ``rolle verwalter --entfernen``: Sonst stünde die
+    Gesellschaft ohne Verwalter da — früher öffnete das die Einrichtungsphase für
+    jeden an der Shell (Befund Betrieb B8), heute bliebe nur die Datenbank."""
+    if not (b.aktiv and b.totp_aktiv):
+        return  # zählt ohnehin nicht als Verwalter
+    eigene = {z.gesellschaft for z in rollen_von(s, b.id) if z.rolle is Rolle.VERWALTER}
+    orte = sorted(eigene if gesellschaft is None else eigene & {gesellschaft})
+    for k in orte:
+        if not [v for v in verwalter_mit_faktor(s, k) if v.id != b.id]:
+            msg = (
+                f"{b.name} ist der letzte aktive Verwalter mit zweitem Faktor in {k} "
+                f"— erst einen weiteren einrichten (accounti -g {k} benutzer rolle "
+                "NAME --rolle verwalter, dann benutzer 2fa NAME); nichts geändert"
+            )
+            raise RechteError(msg)
 
 
 def _meldung(fehler: Exception) -> str:

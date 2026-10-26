@@ -89,7 +89,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | Status | Feature | Beschreibung |
 |--------|---------|-------------|
 | ✅ | **Belegvollständigkeit** | Prüfregeln mit Schweregrad und Schwellen aus der Konfiguration: Umsatz ohne Beleg (mit Betrag, Datum, Gegenpartei), Rechnung ohne Zahlung nach Zahlungsziel, Lücken in Nummernkreisen und Kontoauszügen; begründet belegfreie Umsätze per Muster |
-| ✅ | **Ordnungsmäßigkeit** | Pflichtangaben nach § 14 Abs. 4 UStG aus dem Original (Kleinbetragsrechnung § 33 UStDV bis 250 €), Rechenprobe, Steuerschlüssel ./. Sachkonto (DATEV-Automatikkonten), Steuersatz zum Land, Adressat, Vorsteuer aus ig. Erwerb ohne USt-IdNr., Dubletten, Zeitgerechtheit, Festschreibung — `accounti pruefen` |
+| ✅ | **Ordnungsmäßigkeit** | Pflichtangaben nach § 14 Abs. 4 UStG aus dem Original (Kleinbetragsrechnung § 33 UStDV bis 250 €), Rechenprobe, Steuerschlüssel ./. Sachkonto (DATEV-Automatikkonten), Bankumsatz ohne Bankkonto (Regel aus fremdem Kontenrahmen), Steuersatz zum Land, Adressat, Vorsteuer aus ig. Erwerb ohne USt-IdNr., Dubletten, Zeitgerechtheit, Festschreibung — `accounti pruefen` |
 | ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
 | ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen, auch am Bestand vorbei); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; mit Benutzern nur mit Rolle und Einmalcode, im Journal steht der Benutzer; Verfahrensdokumentation aus dem eingerichteten System |
 | ✅ | **Aufgaben & Rückfragen** | Aufgaben mit Bezug auf Buchung, Beleg, Umsatz, Kontakt oder Bankkonto; Prüfläufe (unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe) idempotent und mit Selbstabschluss; Zuständigkeit an Person oder Rolle, sonst gemeinsame Liste; Rückfragen am Beleg; gebündelte Tagesübersicht per E-Mail oder Webhook |
@@ -152,9 +152,11 @@ pip install -e ".[dev]"
 
 # Konfiguration
 cp config/accounti.example.yaml config/accounti.yaml
-# → API-Keys und Datenbankverbindung eintragen
+# → API-Keys und Datenbankverbindung eintragen; Kontenrahmen: buchhaltung.kontenrahmen
+#   (SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen, Prüfregeln und DATEV; bei SKR04
+#   auch bank_konto, standard_aufwand und die Skontokonten setzen, die Standards sind SKR03)
 
-# Datenbank initialisieren
+# Datenbank initialisieren (nach einem Update: accounti db upgrade)
 accounti db init
 
 # Ersten Benutzer (Verwalter) anlegen und zweiten Faktor einrichten
@@ -406,7 +408,11 @@ accounti datev kontoauszuege --period 2026-09 --kontrollsaldo 2.345,67
 
 Jede Abrechnung wird als Beleg archiviert und Bestandteil für Bestandteil gegen ein
 Verrechnungskonto gebucht; die Auszahlung ist nur der Abgleichspunkt gegen die Bank. Stimmt die
-Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Ein
+Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Bis zum
+Abgleich lassen `classify` und `bank lauf` Auszahlungen offen (Zahlungseingang mit einem der
+`bank_stichworte`, Umsatz zu einer offenen Auszahlung einer importierten Abrechnung) — sie sind
+kein Erlös; wer keine Marktplatz-Abrechnungen importiert, schaltet das mit
+`bank_stichworte: []` je Marktplatz ab. Ein
 weiterer Bericht zu einer bekannten Abrechnung (Monatsberichte, erneuter Export) bucht nur die
 Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nichts nachgetragen.
 Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
@@ -443,7 +449,7 @@ accounti kasse bestand --gezaehlt 275.10       # Kassensturz
 # Jahresabschluss
 accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # im ersten Jahr (abweichendes WJ: jedes)
 accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
-accounti abschluss buchen --jahr 2026          # AfA + Abgrenzungsvorschläge
+accounti abschluss buchen --jahr 2026 --von eva   # AfA + Abgrenzungsvorschläge (buchen)
 accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
 accounti abschluss abgrenzen 3f2a9c1e --von 2026-11-01 --bis 2027-10-31   # Zeitraum nicht im Text
 accounti abschluss pruefen --jahr 2026         # Fehler blockieren den Vortrag
@@ -532,8 +538,8 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `anlagen aendern`, `anlagen abgang --zuruecknehmen`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
-| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|aendern\|afa\|abgang` (auch `abgang --zuruecknehmen`), `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `anlagen freigeben`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege\|kontoauszuege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |
 | verwalten (`verwalter`) | `journal uebernehmen` |
@@ -545,8 +551,9 @@ Zeitraums. `opos verbuchen` und `periode schliessen` laufen nie neben `bank lauf
 oder einem anderen Buchungslauf derselben Datenbank (Laufsperre, sonst Exit 1),
 `nachfordern` nicht neben `aufgaben lauf`.
 
-Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `alembic upgrade head`
-(Migration `ddc9a184ddb4`); gleich danach — bevor accounti selbst schreibt — einmal
+Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `accounti db upgrade`
+(= `alembic upgrade head`, Migration `ddc9a184ddb4`; ohne Versionsvermerk — Datenbanken aus
+`db init` älterer Fassungen — leitet `db upgrade` den Stand aus dem Schema ab); gleich danach — bevor accounti selbst schreibt — einmal
 `accounti journal uebernehmen`, sonst meldet `journal pruefen` den älteren Bestand als
 „ohne Eintrag“. Später lehnt `journal uebernehmen` ab: Was dann ohne Eintrag ist, entstand an
 accounti vorbei ([Upgrades](docs/betrieb.md#upgrades)).
@@ -641,7 +648,7 @@ Verwendungszweck erraten.
 
 accounti nutzt einen **dreistufigen Ansatz**:
 
-1. **Regelwerk** (deterministisch): Feste Zuordnungen für bekannte Geschäftsvorfälle. "Amazon Payments" → Erlöse 8400, "AWS" → EDV-Kosten 4970. Schnell, zuverlässig, kein API-Call nötig.
+1. **Regelwerk** (deterministisch): Feste Zuordnungen für bekannte Geschäftsvorfälle, je Kontenrahmen (SKR03/SKR04) und mit Zahlungsrichtung: "Versicherung" → 4360 bzw. 6400; "Miete" und "AWS" ohne Steuerschlüssel zur Prüfung (Vorsteuer nur bei Option nach § 9 UStG bzw. § 13b). Eine Erstattung auf eine Ausgaberegel wird nicht zur zweiten Ausgabe, sondern als Gegenbuchung zur Prüfung vorgeschlagen (mindert Aufwand und Vorsteuer, § 17 UStG) — dieselbe Schranke gilt für gelernte Regeln und das LLM. Marktplatz-Auszahlungen (Amazon, eBay, Shopify, PayPal) lässt `classify` offen, bis `marktplatz import` sie mit der Abrechnung abgleicht. Schnell, zuverlässig, kein API-Call nötig.
 
 2. **LLM-Klassifikation** (probabilistisch): Für unbekannte Transaktionen. Das LLM bekommt den Kontenrahmen + Kontext und schlägt Konto + Steuerschlüssel vor. Confidence-Score bestimmt, ob automatisch gebucht oder zur Prüfung vorgelegt wird.
 

@@ -287,33 +287,54 @@ def _bank(d: _Doku) -> None:
 
 def _kontierung(d: _Doku) -> None:
     from accounti.buchung.mapper import zu_buchungssatz
-    from accounti.klassifikation.engine import STANDARD_REGELN
+    from accounti.klassifikation.engine import standard_regeln
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.konfiguration import Buchhaltung, lade_buchhaltung
 
     d("### 2.3 Kontierung", "")
     regeln_datei = Path("config/regeln.yaml")  # wie classify: im Arbeitsverzeichnis
-    eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
+    try:
+        eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
+    except KonfigurationError as fehler:
+        d(f"> **Regeldatei fehlerhaft:** {_zelle(fehler)}", "")
+        eigene = []
+    try:
+        buchhaltung = lade_buchhaltung(d.config)
+    except (KonfigurationError, ValueError):
+        buchhaltung = Buchhaltung()  # der Fehler steht schon in Abschnitt 1
+    standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
     schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
     llm = inspect.signature(LLMEngine).parameters
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
         f"Regelwerk: {len(eigene)} eigene Regeln ({_zelle(regeln_datei)}) vor "
-        f"{len(STANDARD_REGELN)} Standardregeln.",
+        f"{len(standard)} Standardregeln im Kontenrahmen {buchhaltung.kontenrahmen}.",
         "",
     )
     if eigene:
         d(
             *_tabelle(
-                ["Regel", "Muster", "Feld", "Soll", "Haben", "Schlüssel"],
+                [
+                    "Regel",
+                    "Muster",
+                    "Feld",
+                    "Richtung",
+                    "Soll",
+                    "Haben",
+                    "Schlüssel",
+                    "Prüfen",
+                ],
                 [
                     [
                         r.name,
                         r.muster.pattern,
                         r.feld,
+                        r.richtung or "beide",
                         r.soll_konto,
                         r.haben_konto,
                         r.steuer_schluessel,
+                        _ja(r.pruefen or r.confidence < schwelle),
                     ]
                     for r in eigene[:40]
                 ],
@@ -324,6 +345,16 @@ def _kontierung(d: _Doku) -> None:
         f"{llm['confidence_schwelle'].default}; Verwendungszweck und Name gehen "
         f"maskiert hinaus. **Automatisch gebucht** (Status auto) wird ab Confidence "
         f"{schwelle}; darunter geht die Buchung zur Prüfung.",
+        "",
+        "Immer zur Prüfung, unabhängig von der Confidence: Treffer einer Regel mit "
+        "`pruefen` (z. B. Miete, § 4 Nr. 12/§ 9 UStG; § 13b-Leistungen); ein Umsatz "
+        "gegen die Richtung einer Regel (Erstattung auf eine Ausgaberegel) als "
+        "Gegenbuchung mit getauschtem Soll/Haben (§ 17 Abs. 1 UStG); jeder Vorschlag "
+        "— auch aus gelernten Regeln und dem LLM — mit dem Bankkonto auf der falschen "
+        "oder auf keiner Seite. Marktplatz-Auszahlungen (Stichworte "
+        "`integrationen.marktplaetze.<name>.bank_stichworte`, offene Auszahlungen "
+        "importierter Abrechnungen) bucht die Kontierung nicht: Sie bleiben offen, "
+        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht.",
         "",
     )
     d(

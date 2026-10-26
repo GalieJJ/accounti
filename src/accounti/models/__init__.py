@@ -532,6 +532,10 @@ class Klassifikationsergebnis(BaseModel):
         description="Erklärung der KI warum dieses Konto gewählt wurde"
     )
     quelle: str = Field(description="'regelwerk' oder 'llm'")
+    pruefen: bool = Field(
+        default=False,
+        description="immer zur Prüfung (Regel mit pruefen, Gegenbuchung einer Regel)",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -24,7 +24,11 @@ from uuid import uuid4
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from accounti.abschluss.kontenrahmen import Kontenrahmen, lade_kontenrahmen
+from accounti.abschluss.kontenrahmen import (
+    Kontenrahmen,
+    lade_kontenrahmen,
+    mit_eingerichteten_konten,
+)
 from accounti.anzeige import datum_de
 from accounti.db.repo_pruefung import setze_storniert_durch, speichere_korrektur
 from accounti.db.repository import (
@@ -348,7 +352,7 @@ def storniere(
         person,
         grund.strip(),
         datum,
-        kontenrahmen or lade_kontenrahmen(),
+        mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session),
         None,
     )
 
@@ -380,7 +384,7 @@ def korrigiere(
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
     person = aktuelle_person(von)
-    kr = kontenrahmen or lade_kontenrahmen()
+    kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
     schluessel, netto, steuerbetrag = _steuer(b, steuer, ohne_steuer, grund)
     aenderung = {
