@@ -8,8 +8,7 @@ database:
 # Mandant
 mandant:
   name: "Meine Firma GmbH"
-  kontenrahmen: SKR03          # SKR03 oder SKR04
-  sachkonten_laenge: 4         # 4 oder 6
+  sachkonten_laenge: 4         # 4 oder 6 (Kontenrahmen: buchhaltung.kontenrahmen)
 
   # Für Ausgangsrechnungen (XRechnung verlangt Anschrift, Kontakt, E-Mail und Bank)
   kuerzel: "MF"                # Schlüssel des Nummernkreises (je Gesellschaft)
@@ -30,14 +29,16 @@ mandant:
     bic: "COBADEFFXXX"
   oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz
   rechnung:
-    nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr
+    nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr; ohne {jahr} jahresübergreifend
     zahlungsziel_tage: 14
 
 # DATEV-Export
 datev:
   berater_nummer: "12345"
   mandanten_nummer: "00001"
-  wirtschaftsjahr_beginn: "2026-01-01"
+  wirtschaftsjahr_beginn: "2026-01-01"   # nur Tag und Monat zählen; abweichendes WJ (§ 4a
+                                         # EStG) z.B. "2025-07-01": abschluss --jahr 2026
+                                         # = 01.07.2025–30.06.2026 (Jahr des WJ-Endes)
 
 # Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03)
 integrationen:
@@ -58,7 +59,8 @@ integrationen:
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen
     amazon:
       verrechnungskonto: "1361"
-      bank_stichworte: ["AMAZON"]
+      bank_stichworte: ["AMAZON"] # Bankeingänge damit lässt classify bis zum Abgleich offen;
+                                # ohne Marktplatz-Import: bank_stichworte: [] (je Marktplatz)
       ust_gebuehren: vorsteuer  # vorsteuer | 13b (mit bu_gebuehren) | ohne — Amazon seit 08/2024 mit deutscher USt
       ust_werbung: null         # Werbung getrennt einstellen (nicht eingestellt → zur Prüfung)
       lager_nur_inland: false   # true: FBA nur aus deutschen Lagern (kein Pan-EU/CEE)
@@ -107,6 +109,12 @@ bank:
 
 # Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
 buchhaltung:
+  kontenrahmen: SKR03          # SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen,
+                               # Prüfregeln und DATEV. Die Standards der Konten unten
+                               # sind SKR03 — bei SKR04 setzen: bank_konto "1800",
+                               # standard_aufwand "6300", skonto_erhalten
+                               # {"19": "5736", "7": "5731", "0": "5730"},
+                               # skonto_gewaehrt {"19": "4736", "7": "4731", "0": "4730"}
   debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)
   debitoren_bis: 69999
   kreditoren_von: 70000
@@ -254,7 +262,7 @@ mahnwesen:
   entwurf_gueltig_tage: 3      # so lange nach dem Mahndatum darf ein Entwurf noch raus
   zahlungsziel_vereinbart: false  # true: Zahlungsziele vertraglich vereinbart → Verzug ab Fälligkeit
   zugang_tage: 3               # Versand → Zugang einer Mahnung (Verzug durch Mahnung)
-  hinweis_30_tage: false       # true: Rechnungen an Verbraucher weisen auf § 286 Abs. 3 BGB hin
+  hinweis_30_tage: false       # true: Rechnungen an Verbraucher tragen den Hinweis nach § 286 Abs. 3 BGB (rechnung ausstellen)
   unbekannt_als: verbraucher   # oder unternehmer — wenn weder Kontakt noch Rechnung es sagen
   pauschale_b2b: 40.00         # § 288 Abs. 5 BGB
   pauschale_anrechnen: true    # Mahngebühren nur, soweit sie die Pauschale übersteigen

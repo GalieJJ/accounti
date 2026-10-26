@@ -222,16 +222,42 @@ class AusgangsPosition(BaseModel):
     sonstige_leistung: bool = Field(
         default=False, description="Dienstleistung statt Lieferung (Reverse Charge)"
     )
+    elektronisch: bool = Field(
+        default=False,
+        description="Telekommunikations-, Rundfunk- oder auf elektronischem Weg "
+        "erbrachte Leistung (§ 3a Abs. 5 Satz 2 UStG) — an Privatkunden im "
+        "Wohnsitzland steuerbar",
+    )
+
+    @model_validator(mode="after")
+    def _elektronisch_ist_leistung(self) -> AusgangsPosition:
+        if self.elektronisch:
+            self.sonstige_leistung = True
+        return self
 
     @property
     def netto(self) -> Decimal:
         return (self.menge * self.einzelpreis).quantize(Decimal("0.01"))
 
 
+# BT-3 (UNTDID 1001), die accounti ausstellt
+RECHNUNG = "380"
+GUTSCHRIFT = "381"  # kaufmännische Gutschrift: Minderung, positiv ausgewiesen
+RECHNUNGSKORREKTUR = "384"  # Korrektur: Differenz zur Rechnung, mit Vorzeichen
+RECHNUNGSTYPEN = (RECHNUNG, GUTSCHRIFT, RECHNUNGSKORREKTUR)
+
+
 class Ausgangsrechnung(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     status: AusgangsrechnungStatus = AusgangsrechnungStatus.ENTWURF
     nummer: str | None = None
+    rechnungstyp: str = Field(
+        default=RECHNUNG,
+        description="BT-3: 380 Rechnung, 381 Gutschrift, 384 Rechnungskorrektur",
+    )
+    korrektur_zu: str | None = Field(
+        default=None, description="BT-25: Nummer der berichtigten Rechnung"
+    )
     kunde: Rechnungsempfaenger
     positionen: list[AusgangsPosition] = Field(default_factory=list)
     leistungsdatum: date | None = None
@@ -245,6 +271,26 @@ class Ausgangsrechnung(BaseModel):
     datei_hash: str | None = Field(default=None, description="XRechnung im Archiv")
     pdf_hash: str | None = Field(default=None, description="ZUGFeRD-PDF im Archiv")
     erstellt_am: datetime = Field(default_factory=datetime.now)
+
+    @model_validator(mode="after")
+    def _korrektur(self) -> Ausgangsrechnung:
+        if self.rechnungstyp not in RECHNUNGSTYPEN:
+            msg = f"rechnungstyp {self.rechnungstyp!r}: 380, 381 oder 384"
+            raise ValueError(msg)
+        if self.rechnungstyp != RECHNUNG and not self.korrektur_zu:
+            msg = (
+                "Gutschrift/Rechnungskorrektur braucht korrektur_zu — den Bezug auf "
+                "die ursprüngliche Rechnung (BT-25)"
+            )
+            raise ValueError(msg)
+        if self.korrektur_zu and self.rechnungstyp == RECHNUNG:
+            msg = "korrektur_zu nur mit rechnungstyp 381 (Gutschrift) oder 384"
+            raise ValueError(msg)
+        return self
+
+    @property
+    def ist_korrektur(self) -> bool:
+        return self.rechnungstyp != RECHNUNG
 
 
 class Versandprotokoll(BaseModel):
@@ -355,12 +401,34 @@ class Zahlungszuordnung(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     transaktion_id: UUID
     posten_id: UUID
-    betrag: Decimal = Field(description="gezahlt, positiv")
+    betrag: Decimal = Field(
+        description="um so viel sinkt der Rest des Postens (Vorzeichen des Postens: "
+        "bei einer Gutschrift/Erstattung negativ)"
+    )
     skonto: Decimal = Field(default=Decimal("0"), description="abgezogen, positiv")
-    stufe: str = Field(description="referenz, exakt, skonto, teil, sammel, …")
+    stufe: str = Field(description="referenz, exakt, skonto, teil, sammel, hand, …")
     status: ZuordnungStatus
     confidence: float = Field(ge=0.0, le=1.0)
     begruendung: str
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
+class Verrechnung(BaseModel):
+    """Ausgleich gegenläufiger offener Posten desselben Kontakts ohne Bankumsatz.
+
+    Gutschrift gegen Rechnung, Guthaben gegen Folgerechnung: Beide Posten stehen auf
+    demselben Personenkonto, gebucht wird deshalb nichts — der Ausgleich steht hier
+    (nur anfügen) und im Journal.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    kontakt_id: UUID
+    posten_id: UUID = Field(description="Posten, dessen positiver Rest sinkt")
+    gegen_posten_id: UUID = Field(description="Gutschrift/Guthaben (negativer Rest)")
+    betrag: Decimal = Field(gt=0, description="verrechnet, positiv")
+    datum: date
+    person: str | None = None
+    grund: str | None = None
     erstellt_am: datetime = Field(default_factory=datetime.now)
 
 
@@ -538,6 +606,10 @@ class Klassifikationsergebnis(BaseModel):
         description="Erklärung der KI warum dieses Konto gewählt wurde"
     )
     quelle: str = Field(description="'regelwerk' oder 'llm'")
+    pruefen: bool = Field(
+        default=False,
+        description="immer zur Prüfung (Regel mit pruefen, Gegenbuchung einer Regel)",
+    )
 
 
 # ---------------------------------------------------------------------------

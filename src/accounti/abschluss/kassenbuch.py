@@ -22,6 +22,7 @@ from uuid import UUID, uuid4
 from sqlalchemy.orm import Session
 
 from accounti.abschluss.konfiguration import KassenEinstellungen
+from accounti.abschluss.salden import FREIGEGEBEN
 from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_kasse import (
@@ -177,7 +178,7 @@ def _speichere(
     session: Session,
     v: Kassenvorgang,
     einstellungen: KassenEinstellungen,
-    buchung_umkehren: Buchungssatz | None = None,
+    umkehren: list[Buchungssatz] | None = None,
 ) -> Kassenvorgang:
     pruefe_jahr_offen(session, v.datum.year)
     _pruefe_verlauf([*lade_kassenbuch(session), v])
@@ -190,24 +191,39 @@ def _speichere(
         sachkonto=einstellungen.konto,
     )
     speichere_transaktion(session, tx)
-    buchung: Buchungssatz | None = None
-    if buchung_umkehren is not None:
+    buchungen: list[Buchungssatz] = []
+    if umkehren:
         # die Gegenbuchung ist ein Storno der gültigen Buchung (Baustein 7): Vermerke
         # des Originals nicht mitkopieren, sondern auf das Original verweisen
-        buchung = buchung_umkehren.model_copy(
-            update={
-                "id": uuid4(),
-                "transaktion_id": tx.id,
-                "datum": v.datum,
-                "soll_konto": buchung_umkehren.haben_konto,
-                "haben_konto": buchung_umkehren.soll_konto,
-                "buchungstext": v.text[:60],
-                "status": BuchungStatus.GEPRUEFT,
-                "geprueft_von": v.erfasst_von or "kassenbuch",
-                "storniert_durch": None,
-                "storno_von": buchung_umkehren.id,
-            }
-        )
+        for original in umkehren:
+            storno = original.model_copy(
+                update={
+                    "id": uuid4(),
+                    "transaktion_id": tx.id,
+                    "datum": v.datum,
+                    "soll_konto": original.haben_konto,
+                    "haben_konto": original.soll_konto,
+                    "buchungstext": v.text[:60],
+                    "status": BuchungStatus.GEPRUEFT,
+                    "geprueft_von": v.erfasst_von or "kassenbuch",
+                    "storniert_durch": None,
+                    "storno_von": original.id,
+                }
+            )
+            speichere_buchung(session, storno)
+            session.flush()
+            setze_storniert_durch(session, original.id, storno.id)
+            speichere_korrektur(
+                session,
+                Buchungskorrektur(
+                    original_id=original.id,
+                    storno_id=storno.id,
+                    datum=v.datum,
+                    grund=v.text,
+                    person=v.erfasst_von or "kassenbuch",
+                ),
+            )
+            buchungen.append(storno)
     elif v.gegenkonto:
         buchung = _buchung(
             tx,
@@ -218,25 +234,12 @@ def _speichere(
             v.belegnummer,
             v.erfasst_von,
         )
-    if buchung is not None:
         speichere_buchung(session, buchung)
-    if buchung is not None and buchung_umkehren is not None:
-        session.flush()
-        setze_storniert_durch(session, buchung_umkehren.id, buchung.id)
-        speichere_korrektur(
-            session,
-            Buchungskorrektur(
-                original_id=buchung_umkehren.id,
-                storno_id=buchung.id,
-                datum=v.datum,
-                grund=v.text,
-                person=v.erfasst_von or "kassenbuch",
-            ),
-        )
+        buchungen.append(buchung)
     v = v.model_copy(
         update={
             "transaktion_id": tx.id,
-            "buchung_id": buchung.id if buchung else None,
+            "buchung_id": buchungen[0].id if buchungen else None,
         }
     )
     speichere_kassenvorgang(session, v)
@@ -297,6 +300,37 @@ def _gueltige_buchung(
     return b
 
 
+def _buchungen_zum_umsatz(
+    session: Session, transaktion_id: UUID, nr: int
+) -> list[Buchungssatz]:
+    """Die gültigen Buchungen am Umsatz eines Kassenvorgangs ohne eigene Buchung —
+    angelegt von ``classify`` (Regelwerk, Belegabgleich, auch Splitbuchungen); nach
+    ``korrigiere`` die Neubuchung (sie behält den Umsatz). Das Kassenbuch ist nur
+    anfügbar, ``buchung_id`` lässt sich dort nicht nachtragen — der Weg zur Buchung
+    führt deshalb über ``transaktion_id`` (Befund B5)."""
+    am_umsatz = [
+        b
+        for b in lade_buchungen(session)
+        if b.transaktion_id == transaktion_id and b.storno_von is None
+    ]
+    gueltig = [b for b in am_umsatz if b.storniert_durch is None]
+    if am_umsatz and not gueltig:
+        raise KassenbuchError(
+            f"Die Buchung zu Nr. {nr} ist storniert, ohne Neubuchung — es gibt keine "
+            "gültige Buchung, die sich umkehren ließe; den Umsatz erst neu buchen "
+            "(accounti classify), dann stornieren"
+        )
+    vorschlaege = [b for b in gueltig if b.status not in FREIGEGEBEN]
+    if vorschlaege:
+        kurz = ", ".join(str(b.id)[:8] for b in vorschlaege)
+        raise KassenbuchError(
+            f"Die Buchung {kurz} zu Nr. {nr} ist noch ein Vorschlag — erst freigeben "
+            "(accounti bestaetige) oder direkt korrigieren (accounti korrigiere), "
+            "dann stornieren"
+        )
+    return sorted(gueltig, key=lambda b: (b.datum, str(b.id)))
+
+
 def storniere(
     session: Session,
     nr: int,
@@ -305,7 +339,14 @@ def storniere(
     datum: date | None = None,
     von: str | None = None,
 ) -> Kassenvorgang:
-    """Gegeneintrag zu Nr. ``nr``; eine Buchung des Originals wird umgekehrt."""
+    """Gegeneintrag zu Nr. ``nr``; die gültige Buchung des Originals wird umgekehrt —
+    die eigene (mit Gegenkonto erfasst) oder die von ``classify`` am Umsatz.
+
+    Das Storno liegt nie vor dem Original: Der Gegeneintrag machte den Kassenbestand
+    dazwischen falsch (Kassensturzfähigkeit, § 146 Abs. 1 AO), und die Umsatzsteuer
+    würde vor dem Umsatz berichtigt. Ebenso nie vor der Buchung, die es umkehrt (nach
+    ``korrigiere --datum`` kann die Neubuchung später liegen). Ohne ``datum`` gilt
+    heute, frühestens der Tag des Originals bzw. dieser Buchung."""
     buch = lade_kassenbuch(session)
     original = next((v for v in buch if v.nr == nr), None)
     if original is None:
@@ -316,14 +357,29 @@ def storniere(
         )
     if any(v.storno_von == nr for v in buch):
         raise KassenbuchError(f"Nr. {nr} ist schon storniert")
-    umkehren = (
-        _gueltige_buchung(session, original.buchung_id, nr)
-        if original.buchung_id is not None
-        else None
-    )
+    umkehren: list[Buchungssatz] = []
+    if original.buchung_id is not None:
+        gueltig = _gueltige_buchung(session, original.buchung_id, nr)
+        umkehren = [gueltig] if gueltig is not None else []
+    elif original.transaktion_id is not None:
+        umkehren = _buchungen_zum_umsatz(session, original.transaktion_id, nr)
+    # auch nicht vor der Buchung, die es umkehrt (nach korrigiere --datum später)
+    frueheste = max([original.datum, *(b.datum for b in umkehren)])
+    tag = datum or max(date.today(), frueheste)
+    if tag < original.datum:
+        raise KassenbuchError(
+            f"Storno am {tag:%d.%m.%Y} läge vor Nr. {nr} vom "
+            f"{original.datum:%d.%m.%Y} — ein Storno frühestens am Tag des Originals"
+        )
+    if tag < frueheste:
+        raise KassenbuchError(
+            f"Storno am {tag:%d.%m.%Y} läge vor der Buchung vom "
+            f"{frueheste:%d.%m.%Y}, die es umkehrt (Neubuchung zu Nr. {nr}) — ein "
+            "Storno frühestens an deren Tag"
+        )
     v = Kassenvorgang(
         nr=naechste_kassennummer(session),
-        datum=datum or date.today(),
+        datum=tag,
         betrag=-original.betrag,
         art=Kassenart.STORNO,
         text=f"Storno Nr. {nr}: {grund}",

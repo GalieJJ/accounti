@@ -95,9 +95,18 @@ class OpAlter:
             alter = (k.stichtag - op.belegdatum).days
             text = None
             schwere = self.schwere
-            if abs(op.restbetrag) > abs(op.betrag) or (
-                op.betrag > 0 and op.restbetrag < 0
-            ):
+            if op.restbetrag * op.betrag < 0:
+                # Überzahlung bzw. zu hohe Erstattung: der Rest kehrt das Vorzeichen um
+                # und steht als Guthaben bzw. Nachforderung offen — kein Fehler
+                art = "Guthaben" if op.betrag > 0 else "Restbetrag"
+                text = (
+                    f"{art} {betrag_de(abs(op.restbetrag))} € (Betrag "
+                    f"{betrag_de(op.betrag)} €, überzahlt bzw. zu viel erstattet) — "
+                    "erstatten oder verrechnen (accounti opos zuordnen --transaktion, "
+                    "accounti opos verrechnen)"
+                )
+                schwere = Schwere.HINWEIS
+            elif abs(op.restbetrag) > abs(op.betrag):
                 text = (
                     f"Restbetrag {betrag_de(op.restbetrag)} € passt nicht zum Betrag "
                     f"{betrag_de(op.betrag)} €"

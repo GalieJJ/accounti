@@ -128,7 +128,9 @@ def test_teilzahlung_und_rest(umgebung):
     assert (p.restbetrag, p.status) == (Decimal("0.00"), PostenStatus.AUSGEGLICHEN)
 
 
-def test_ueberzahlung_schliesst_posten_und_bucht_den_vollen_betrag(umgebung):
+def test_ueberzahlung_bucht_den_vollen_betrag_und_laesst_das_guthaben_offen(umgebung):
+    """Das Guthaben (27,50 beim Kreditor) bleibt als negativer Rest ein offener Posten
+    — sonst wichen Personenkonto und Postenliste voneinander ab (Gesamttest B4)."""
     make_session, _ = umgebung
     posten = _mit_posten(make_session)
     zahlung = tx("-200.00")
@@ -137,10 +139,8 @@ def test_ueberzahlung_schliesst_posten_und_bucht_den_vollen_betrag(umgebung):
         s.commit()
         (p,) = lade_posten(s)
     (b,) = _zahlungs_und_skontobuchungen(make_session, zahlung)
-    assert b.betrag_netto == Decimal(
-        "200.00"
-    )  # 27,50 bleiben als Guthaben beim Kreditor
-    assert p.status is PostenStatus.AUSGEGLICHEN
+    assert b.betrag_netto == Decimal("200.00")
+    assert (p.restbetrag, p.status) == (Decimal("-27.50"), PostenStatus.TEILBEZAHLT)
 
 
 def test_skonto_bei_steuerfreier_rechnung(umgebung):

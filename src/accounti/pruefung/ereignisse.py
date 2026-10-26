@@ -19,8 +19,9 @@ Eingehängt von ``accounti.db.session_factory`` bzw. ``init_db``
   ``bulk_*``-Wege sperrt die Sitzungsklasse aus ``session_factory``.
 
 Erfasst werden ``buchungssaetze``, ``belege``, ``beleg_eingaenge`` (verworfene
-Dubletten), ``zahlungslaeufe`` (Anlage), ``zahlungslauf_protokoll`` (Statuswechsel)
-und ``abschlussprotokoll`` (Jahres- und Monatsabschlüsse, Öffnen). Die Sperrtabellen
+Dubletten), ``zahlungslaeufe`` (Anlage), ``zahlungslauf_protokoll`` (Statuswechsel),
+``abschlussprotokoll`` (Jahres- und Monatsabschlüsse, Öffnen) und ``verrechnungen``
+(Ausgleich gegenläufiger offener Posten ohne Buchung). Die Sperrtabellen
 ``abschluesse`` und ``periodenabschluesse`` selbst nicht — ihren Stand gleicht
 ``journal.pruefe_journal`` mit dem Journal ab. Rohes SQL umgeht die Ereignisse —
 dafür gibt es die Hash-Kette und den Bestandsabgleich in ``journal.pruefe_journal``.
@@ -47,6 +48,7 @@ from accounti.db.tabellen import (
     BelegRow,
     BuchungssatzRow,
     UnveraenderbarError,
+    VerrechnungRow,
 )
 from accounti.db.tabellen_abschluss import SPERRCACHE, VORAB_GEPRUEFT, ProtokollRow
 from accounti.db.tabellen_pruefung import sperrfehler
@@ -204,6 +206,20 @@ def _laufprotokoll(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
     ]
 
 
+def _verrechnung(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
+    # nur anfügen (tabellen.py) — jede Verrechnung offener Posten ist ein Vorgang
+    if v is None and n is not None:
+        return [
+            Eintrag(
+                "posten_verrechnet",
+                bezug=f"posten {n.get('posten_id')}",
+                person=n.get("person"),
+                grund=n.get("grund"),
+            )
+        ]
+    return []
+
+
 # Abschlussprotokoll (Baustein 12) → Journal: Jahres- und Monatsabschlüsse
 _ABSCHLUSS = {
     "abgeschlossen": ("jahr_abgeschlossen", "geschaeftsjahr"),
@@ -250,6 +266,10 @@ erfasse(
 erfasse(
     ProtokollRow.__table__,  # type: ignore[arg-type]
     Erfassung("abschlussprotokoll", _abschlussprotokoll),
+)
+erfasse(
+    VerrechnungRow.__table__,  # type: ignore[arg-type]
+    Erfassung("verrechnung", _verrechnung),
 )
 
 

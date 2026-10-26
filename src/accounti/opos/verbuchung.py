@@ -8,13 +8,12 @@ nicht nennen darf: die Steuer bei § 13b UStG und beim ig. Erwerb (Steuerfall AE
 Schlüssel 94 bzw. 19 zur Prüfung, ``buchung/steuergruppe.py``). Eine Steuer ohne Satz
 geht brutto und zur Prüfung auf das Konto, nie netto gegen einen Brutto-Posten.
 
-Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
-Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
-(``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und Eingangsdatum
-(``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt ist; die
-Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
-Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel. Offener
-Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
+Eingangsrechnungen werden auf das Belegdatum gebucht. Eine Eingangsrechnung, die erst
+nach der Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das
+Eingangsdatum (``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und
+Eingangsdatum (``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt
+ist; die Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem
+die Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel.
 
 Geht die Rechnung erst im Folgejahr ein (Bilanz: Aufwand und Verbindlichkeit bleiben im
 alten Jahr), bucht accounti die Vorsteuer auf „Vorsteuer im Folgejahr abziehbar“
@@ -27,10 +26,25 @@ mindert die Vorsteuer im Zeitraum, in dem sich die Bemessungsgrundlage geändert
 unabhängig davon, wann der Beleg eingeht (§ 17 Abs. 1 S. 8 UStG, Abschn. 17.1 UStAE).
 accounti nimmt dafür das Belegdatum der Gutschrift: kein 1548-Weg, kein § 15-Hinweis;
 gebucht in einem späteren Zeitraum (gesperrter Monat), geht sie zur Prüfung.
+
+Ausgangsrechnungen werden zum umsatzsteuerlichen Zeitpunkt gebucht
+(``steuer/leistungszeitpunkt.py``): zum Leistungsdatum, wenn die Leistung in einem
+früheren Monat lag (§ 13 Abs. 1 Nr. 1 Buchst. a UStG), eine innergemeinschaftliche
+Lieferung im Rechnungsmonat, spätestens am Ende des Folgemonats (§ 13 Abs. 1 Nr. 6
+UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Ist dieser
+Monat festgeschrieben, wird nicht still später gebucht: Der Monat ist zu öffnen und die
+Voranmeldung zu berichtigen. Ist die Voranmeldung des Zeitraums schon übermittelt, der
+Monat aber offen, weist die Verbuchung auf die Berichtigung hin (§ 153 Abs. 1 AO) — bei
+einer Minderung (Gutschrift, Korrektur nach unten) als Möglichkeit, nicht als Pflicht,
+denn sie verkürzt keine Steuer. Eine Gutschrift mit Bezug (BT-25) wird mit der noch
+offenen Rechnung desselben Kunden verrechnet.
+
+Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -51,13 +65,16 @@ from accounti.buchung.steuergruppe import (
 from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repository import (
     lade_belege,
+    lade_posten,
     speichere_buchung,
     speichere_posten,
     verbuchte_beleg_ids,
 )
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
+from accounti.elster.ustva import abgegeben
 from accounti.erechnung import ERechnungError, lies
+from accounti.erechnung.abbildung import GUTSCHRIFT_TYPEN
 from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
@@ -73,10 +90,15 @@ from accounti.models import (
     Kontakt,
     OffenerPosten,
     PostenRichtung,
+    PostenStatus,
 )
+from accounti.models.elster import Meldeart
+from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.eu_steuersaetze import ist_eu_land
 from accounti.steuer.kennziffern import VORSTEUER_FOLGEJAHR
+from accounti.steuer.leistungszeitpunkt import steuertag
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, OSS_UST_KONTEN_SKR03
+from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0")
 CENT = Decimal("0.01")
@@ -93,6 +115,8 @@ _ERLOES_STEUERFREI = {
     "E": "8100",  # steuerfreie Umsätze § 4 Nr. 8 ff.
 }
 _ERLOES_UNBEKANNT = "8200"
+# Belegtypen, die eine Rechnung mindern oder berichtigen (§ 17 UStG: Monat der Änderung)
+_KORREKTUR_TYPEN = GUTSCHRIFT_TYPEN | {"384"}
 
 
 class VerbuchungError(RuntimeError):
@@ -118,6 +142,15 @@ class Verbuchung:
     @property
     def merkmal(self) -> str | None:
         return self.treffer.merkmal
+
+
+@dataclass
+class _Gruppe(Gruppe):
+    """Gruppe mit Buchungstag — im Eingang der Buchungstag des Belegs, im Ausgang
+    der umsatzsteuerliche Zeitpunkt je Steuerkategorie
+    (``steuer/leistungszeitpunkt.py``)."""
+
+    tag: date = field(kw_only=True)
 
 
 def _satz(wert: Decimal | None) -> Decimal | None:
@@ -173,22 +206,31 @@ def _gruppen(
     sachkonto_pruefen: bool,
     rechnung: Rechnung | None,
     land: str,
+    tag_fuer: Callable[[str | None], date],
     ustid_bestaetigt: bool = True,
-) -> list[Gruppe]:
-    gruppen: dict[tuple[str, int | None], Gruppe] = {}
+) -> list[_Gruppe]:
+    """Buchungen je Konto, Steuerschlüssel und Buchungstag (``tag_fuer`` je
+    Steuerkategorie)."""
+    gruppen: dict[tuple[str, int | None, date], _Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
     if not positionen:
         # ohne Positionen: eine Gruppe über die Belegsummen (ohne Satz: brutto)
-        g = Gruppe(sachkonto if eingang else _ERLOES_UNBEKANNT, None, True)
+        konto = sachkonto if eingang else _ERLOES_UNBEKANNT
+        g = _Gruppe(konto, None, True, tag=tag_fuer(None))
         if beleg.netto is not None:
             g.addiere(beleg.netto, beleg.steuer or NULL)
         else:
             g.addiere(beleg.brutto or NULL, NULL)
         return [g]
 
-    def gruppe(konto: str, schluessel: int | None, pruefen: bool) -> Gruppe:
-        g = gruppen.setdefault((konto, schluessel), Gruppe(konto, schluessel, pruefen))
+    def gruppe(
+        konto: str, schluessel: int | None, pruefen: bool, kategorie: str | None
+    ) -> _Gruppe:
+        tag = tag_fuer(kategorie)
+        g = gruppen.setdefault(
+            (konto, schluessel, tag), _Gruppe(konto, schluessel, pruefen, tag=tag)
+        )
         g.pruefen = g.pruefen or pruefen
         return g
 
@@ -218,22 +260,20 @@ def _gruppen(
         elif kategorie == "S" and satz:
             # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands) — Erlös netto,
             # die ausländische Steuer auf das OSS-Steuerkonto des Landes
-            gruppe(OSS_ERLOES_KONTEN_SKR03.get(land, "8320"), None, True).addiere(
-                p.netto, NULL
-            )
-            gruppe(OSS_UST_KONTEN_SKR03.get(land, "1779"), None, True).addiere(
-                steuer, NULL
-            )
+            erloes = OSS_ERLOES_KONTEN_SKR03.get(land, "8320")
+            gruppe(erloes, None, True, kategorie).addiere(p.netto, NULL)
+            ust = OSS_UST_KONTEN_SKR03.get(land, "1779")
+            gruppe(ust, None, True, kategorie).addiere(steuer, NULL)
             continue
         else:
             konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
-        gruppe(konto, schluessel, pruefen).addiere(p.netto, steuer)
+        gruppe(konto, schluessel, pruefen, kategorie).addiere(p.netto, steuer)
     for g in gruppen.values():
         g.berechne_selbst()
     return list(gruppen.values())
 
 
-def _steuerhinweise(gruppen: list[Gruppe], anlass: str, land: str) -> list[str]:
+def _steuerhinweise(gruppen: list[_Gruppe], anlass: str, land: str) -> list[str]:
     """Was der Mensch bei 0-%-Positionen einer Eingangsrechnung prüfen muss."""
     hinweise = []
     schluessel = {g.schluessel for g in gruppen}
@@ -291,52 +331,45 @@ def verbuche_beleg(
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
-    gebucht_am, hinweis_datum = _buchungstag(
-        session,
-        beleg,
-        belegdatum,
-        buchungsdatum if eingang else "beleg",
-        anlass,
-        gewinnermittlung,
-    )
-    if ist_gesperrt(session, gebucht_am.year) and gebucht_am == belegdatum:
-        jahr = belegdatum.year
-        msg = (
-            f"{anlass}: Belegdatum {belegdatum:%d.%m.%Y} liegt im abgeschlossenen "
-            f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
-            f"--jahr {jahr}"
-            + (
-                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
-                "--buchungsdatum offen)"
-                if eingang
-                else ""
-            )
+    hinweise: list[str] = []
+    if eingang:
+        gebucht_am, hinweis_datum = _buchungstag(
+            session, beleg, belegdatum, buchungsdatum, anlass, gewinnermittlung
         )
-        raise JahrGesperrtError(msg)
-    if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
-        if eingang and beleg.steuer is not None and beleg.steuer < 0:
-            wege = _spaetere_wege(session, beleg, belegdatum, gewinnermittlung)
-            ausweg = (
-                " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
-                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
-                f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
-                "zum Belegdatum buchen"
-                + (
-                    f"; mit --buchungsdatum {wege} später gebucht, geht sie zur Prüfung"
-                    if wege
-                    else ""
-                )
-            )
-        elif eingang:
-            ausweg = (
-                " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
-                "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
-            )
-        else:
-            ausweg = " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
-        raise type(fehler)(
-            f"{anlass}: gebucht am {gebucht_am:%d.%m.%Y}: {fehler}{ausweg}"
+        hinweise += [hinweis_datum] if hinweis_datum else []
+        _pruefe_sperre(
+            session,
+            beleg,
+            anlass,
+            gebucht_am,
+            belegdatum,
+            gewinnermittlung,
+            eingang=True,
         )
+        tag_fuer = _fester_tag(gebucht_am)
+    else:
+        # Buchungstag je Steuerkategorie (tag_fuer); Abzug und Minderung der
+        # Vorsteuer, 1548-Weg und § 15-Hinweis betreffen nur den Eingang
+        gebucht_am, hinweis_datum = belegdatum, None
+        korrektur = (rechnung is not None and rechnung.typ in _KORREKTUR_TYPEN) or (
+            beleg.brutto is not None and beleg.brutto < 0
+        )
+        tag_fuer = _steuertag_fuer(belegdatum, beleg.leistungsdatum, korrektur)
+        kategorien = set(_kategorien(beleg, rechnung)) or {None}
+        for kategorie in sorted(kategorien, key=str):
+            tag, hinweis = steuertag(
+                belegdatum, beleg.leistungsdatum, kategorie, korrektur
+            )
+            if hinweis and hinweis not in hinweise:
+                hinweise.append(hinweis)
+            _pruefe_sperre(
+                session, beleg, anlass, tag, belegdatum, gewinnermittlung, eingang=False
+            )
+            berichtigung = _abgegebene_voranmeldung(
+                session, tag, minderung=beleg.brutto is not None and beleg.brutto < 0
+            )
+            if berichtigung and berichtigung not in hinweise:
+                hinweise.append(berichtigung)
 
     if eingang:
         if not beleg.lieferant_name:
@@ -404,7 +437,6 @@ def verbuche_beleg(
     )
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
-    hinweise = [hinweis_datum] if hinweis_datum else []
     # Kontakt widerspricht dem Beleg (z. B. gleiche IBAN, anderer Name): zur Prüfung
     widerspruch = treffer.widerspruch is not None and not treffer.neu
     if treffer.widerspruch is not None:
@@ -448,6 +480,7 @@ def verbuche_beleg(
         sachkonto_pruefen,
         rechnung,
         land,
+        tag_fuer,
         ustid_bestaetigt,
     )
     vorsteuer = [g.steuer for g in gruppen if g.schluessel in (8, 9) and g.steuer]
@@ -487,7 +520,7 @@ def verbuche_beleg(
             betrag: Decimal,
             schluessel: int | None = None,
             steuer: Decimal | None = None,
-            datum: date = gebucht_am,
+            datum: date = g.tag,
             status: BuchungStatus = status,
             pruefen: bool = pruefen,
         ) -> None:
@@ -561,6 +594,10 @@ def verbuche_beleg(
         skonto_betrag=skonto_betrag,
     )
     speichere_posten(session, posten)
+    if not eingang and rechnung is not None and rechnung.vorgaenger_nummer:
+        posten = _mit_rechnung_verrechnen(
+            session, posten, rechnung.vorgaenger_nummer, belegdatum, hinweise
+        )
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
 
 
@@ -664,6 +701,157 @@ def _spaetere_wege(
     if len(wege) < 2:
         return "".join(wege)
     return ", ".join(wege[:-1]) + " oder " + wege[-1]
+
+
+def _mit_rechnung_verrechnen(
+    session: Session,
+    gutschrift: OffenerPosten,
+    nummer: str,
+    tag: date,
+    hinweise: list[str],
+) -> OffenerPosten:
+    """Gutschrift/Korrektur mit Bezug (BT-25) gegen die noch offene Rechnung desselben
+    Kunden verrechnen — beide stehen auf demselben Debitor (keine Buchung)."""
+    if gutschrift.restbetrag >= 0:
+        return gutschrift
+    offen = [
+        p
+        for p in lade_posten(
+            session,
+            richtung=PostenRichtung.FORDERUNG,
+            status={PostenStatus.OFFEN, PostenStatus.TEILBEZAHLT},
+        )
+        if p.belegnummer == nummer
+        and p.kontakt_id == gutschrift.kontakt_id
+        and p.restbetrag > 0
+    ]
+    if len(offen) != 1:
+        return gutschrift
+    (rechnung,) = offen
+    try:
+        (v, *_) = verrechne_posten(
+            session,
+            [gutschrift, rechnung],
+            tag,
+            grund=f"{gutschrift.belegnummer} bezieht sich auf {nummer} (BT-25)",
+        )
+    except VerrechnungError as fehler:
+        hinweise.append(f"nicht mit Rechnung {nummer} verrechnet: {fehler}")
+        return gutschrift
+    rest = rechnung.restbetrag - v.betrag
+    hinweise.append(
+        f"mit Rechnung {nummer} verrechnet: {v.betrag:.2f} € (Rest {nummer} "
+        f"{rest:.2f} €) — accounti opos liste"
+    )
+    neuer_rest = gutschrift.restbetrag + v.betrag
+    return gutschrift.model_copy(
+        update={
+            "restbetrag": neuer_rest,
+            "status": PostenStatus.AUSGEGLICHEN
+            if neuer_rest == 0
+            else PostenStatus.TEILBEZAHLT,
+        }
+    )
+
+
+def _fester_tag(tag: date) -> Callable[[str | None], date]:
+    return lambda _: tag
+
+
+def _steuertag_fuer(
+    belegdatum: date, leistungsdatum: date | None, korrektur: bool
+) -> Callable[[str | None], date]:
+    """Buchungstag je Steuerkategorie einer Ausgangsrechnung (leistungszeitpunkt)."""
+    return lambda kategorie: steuertag(
+        belegdatum, leistungsdatum, kategorie, korrektur
+    )[0]
+
+
+def _pruefe_sperre(
+    session: Session,
+    beleg: Beleg,
+    anlass: str,
+    tag: date,
+    belegdatum: date,
+    gewinnermittlung: str | None,
+    *,
+    eingang: bool,
+) -> None:
+    """Abgeschlossenes Jahr oder festgeschriebener Monat am Buchungstag → Fehler."""
+    if ist_gesperrt(session, tag.year) and (tag == belegdatum or not eingang):
+        art = "Belegdatum" if tag == belegdatum else "Leistungsdatum"
+        msg = (
+            f"{anlass}: {art} {tag:%d.%m.%Y} liegt im abgeschlossenen "
+            f"Geschäftsjahr {tag.year} — verbuchen erst nach accounti abschluss "
+            f"oeffnen --jahr {tag.year}"
+            + (
+                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
+                "--buchungsdatum offen)"
+                if eingang
+                else ""
+            )
+        )
+        raise JahrGesperrtError(msg)
+    if (fehler := sperrfehler(session.connection(), tag)) is not None:
+        if eingang and beleg.steuer is not None and beleg.steuer < 0:
+            wege = _spaetere_wege(session, beleg, belegdatum, gewinnermittlung)
+            ausweg = (
+                " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
+                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
+                f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
+                "zum Belegdatum buchen"
+                + (
+                    f"; mit --buchungsdatum {wege} später gebucht, geht sie zur Prüfung"
+                    if wege
+                    else ""
+                )
+            )
+        elif eingang:
+            ausweg = (
+                " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
+                "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
+            )
+        else:
+            ausweg = (
+                f" — die Umsatzsteuer gehört in den Voranmeldungszeitraum {tag:%m/%Y} "
+                "(§ 13 Abs. 1 UStG), nicht still in einen späteren: Monat mit Grund "
+                f"öffnen (accounti periode oeffnen {tag:%Y-%m} --grund …), verbuchen "
+                f"und die Voranmeldung {tag:%m/%Y} berichtigen"
+            )
+        raise type(fehler)(f"{anlass}: gebucht am {tag:%d.%m.%Y}: {fehler}{ausweg}")
+
+
+def _abgegebene_voranmeldung(
+    session: Session, tag: date, *, minderung: bool = False
+) -> str | None:
+    """Ist die Voranmeldung des Zeitraums schon übermittelt (Monat oder Quartal), fehlt
+    die Umsatzsteuer dieser Buchung darin — sie ist zu berichtigen (§ 153 Abs. 1 AO,
+    berichtigte Anmeldung mit Kz 10). Eine ``minderung`` (Gutschrift, Korrektur nach
+    unten) verkürzt keine Steuer: keine Pflicht nach § 153 Abs. 1 AO, die berichtigte
+    Anmeldung ist nur möglich (§ 164 Abs. 2, § 168 AO) — sonst erfasst sie die
+    Jahreserklärung. Festgeschriebene Monate lehnt ``_pruefe_sperre`` vorher ab."""
+    for zeitraum in (
+        Zeitraum.monat_von(tag),
+        Zeitraum(tag.year, quartal=(tag.month - 1) // 3 + 1),
+    ):
+        if not abgegeben(session, Meldeart.USTVA, str(zeitraum)):
+            continue
+        if minderung:
+            return (
+                f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Minderung "
+                f"dieser Gutschrift/Korrektur (gebucht am {tag:%d.%m.%Y}) fehlt darin: "
+                "eine berichtigte Voranmeldung kann sie geltend machen (accounti ustva "
+                f"freigeben --period {zeitraum}, dann uebermitteln), sonst erfasst sie "
+                "die Jahreserklärung — keine Pflicht nach § 153 Abs. 1 AO, die Steuer "
+                "sinkt"
+            )
+        return (
+            f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Umsatzsteuer "
+            f"dieser Rechnung (gebucht am {tag:%d.%m.%Y}) fehlt darin: berichtigte "
+            f"Voranmeldung abgeben (accounti ustva freigeben --period {zeitraum}, "
+            "dann uebermitteln; § 153 Abs. 1 AO)"
+        )
+    return None
 
 
 def _buchungstag(

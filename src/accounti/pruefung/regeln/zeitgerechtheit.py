@@ -14,6 +14,7 @@ from accounti.db.repository import (
     gebuchte_beleg_ids,
     gebuchte_transaktion_ids,
     lade_abgleiche,
+    lade_ausgangsrechnungen,
     verbuchte_beleg_ids,
 )
 from accounti.db.tabellen_abschluss import AbschlussRow
@@ -21,6 +22,7 @@ from accounti.db.tabellen_pruefung import PeriodenabschlussRow
 from accounti.models import (
     AbgleichStatus,
     Belegart,
+    Belegrichtung,
     BelegStatus,
     Buchungssatz,
     BuchungStatus,
@@ -35,10 +37,15 @@ _UEBERNOMMEN = "bestand_uebernommen"  # Zeitpunkt der Buchung unbekannt
 
 
 def _eb_buchung(x: Buchungssatz) -> bool:
-    """EB-Buchung des Saldovortrags bzw. Eröffnungssaldos (abschluss/vortrag.py)."""
+    """EB-Buchung des Saldovortrags bzw. Eröffnungssaldos (abschluss/vortrag.py) —
+    am 01.01. oder, bei abweichendem Wirtschaftsjahr, an dessen Beginn mit der
+    Nummer des im Folgejahr endenden WJ (``EB-2026`` am 01.07.2025)."""
+    nummer = x.beleg_nummer or ""
     return (
-        (x.datum.month, x.datum.day) == (1, 1)
-        and (x.beleg_nummer or "").startswith("EB-")
+        (
+            ((x.datum.month, x.datum.day) == (1, 1) and nummer.startswith("EB-"))
+            or nummer == f"EB-{x.datum.year + 1}"
+        )
         and x.transaktion_id is None
         and x.beleg_id is None
     )
@@ -82,6 +89,12 @@ class BelegUnbearbeitet:
                 if a.status is not AbgleichStatus.ABGELEHNT
             }
         )
+        # bei Ausgangsrechnungen steht im Beleg die eigene Firma als Aussteller
+        kunden = {
+            r.beleg_id: r.kunde.name
+            for r in lade_ausgangsrechnungen(k.session)
+            if r.beleg_id is not None
+        }
         befunde = []
         for b in k.belege.values():
             eingang = b.eingegangen_am.date()
@@ -101,16 +114,21 @@ class BelegUnbearbeitet:
                 grund = "erfasst, aber nicht gebucht (accounti opos verbuchen)"
             else:
                 continue
+            gegenpartei = (
+                kunden.get(b.id)
+                if b.richtung is Belegrichtung.AUSGANG
+                else b.lieferant_name
+            )
             befunde.append(
                 befund(
                     self,
                     "beleg",
                     b.id,
-                    f"Beleg {b.belegnummer or b.dateiname} ({b.lieferant_name or '—'}) "
+                    f"Beleg {b.belegnummer or b.dateiname} ({gegenpartei or '—'}) "
                     f"seit {datum_de(eingang)} ({alter} Tage) unbearbeitet — {grund}",
                     datum=eingang,
                     betrag=b.brutto,
-                    gegenpartei=b.lieferant_name,
+                    gegenpartei=gegenpartei,
                 )
             )
         return befunde

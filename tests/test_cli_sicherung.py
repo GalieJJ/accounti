@@ -116,9 +116,15 @@ def test_mit_gesellschaft(umgebung, monkeypatch):
     _beleg_im_archiv(u.db["b"], u.archiv["b"])
     monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
     ziel = umgebung / "b.sicherung"
-    r = runner.invoke(app, ["-g", "b", "sicherung", "erstellen", "--ziel", str(ziel)])
+    r = runner.invoke(
+        app,
+        ["-g", "b", "sicherung", "erstellen", "--ziel", str(ziel)],
+        env={"COLUMNS": "300"},
+    )
     assert r.exit_code == 0, r.output
     assert "1 Belege ohne Datei im Archiv" in r.output
+    # Befund Betrieb B10: der Hinweis zum Üben nennt die Gesellschaft
+    assert "accounti -g b sicherung wiederherstellen DATEI" in r.output
     r = runner.invoke(app, ["sicherung", "pruefen", str(ziel)])
     assert "2 Belege" in r.output and "1 Archivdateien" in r.output
 

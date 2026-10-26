@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     event,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -144,6 +145,9 @@ class AusgangsrechnungRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     status: Mapped[str] = mapped_column(String(20))
     nummer: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    # BT-3 und BT-25: Gutschrift/Rechnungskorrektur mit Bezug (ohne Angabe: 380)
+    rechnungstyp: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    korrektur_zu: Mapped[str | None] = mapped_column(String(40), nullable=True)
     kunde_name: Mapped[str] = mapped_column(String(200))
     kunde_strasse: Mapped[str | None] = mapped_column(String(200), nullable=True)
     kunde_plz: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -198,6 +202,9 @@ class AusgangspositionRow(Base):
     einzelpreis: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     ermaessigt: Mapped[bool] = mapped_column(Boolean, default=False)
     sonstige_leistung: Mapped[bool] = mapped_column(Boolean, default=False)
+    elektronisch: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
 
 
 class NummernkreisRow(Base):
@@ -278,6 +285,28 @@ class ZahlungszuordnungRow(Base):
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
 
 
+class VerrechnungRow(Base):
+    """Verrechnung gegenläufiger offener Posten ohne Buchung — nur anfügen."""
+
+    __tablename__ = "verrechnungen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kontakt_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kontakte.id"), index=True
+    )
+    posten_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("offene_posten.id"), index=True
+    )
+    gegen_posten_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("offene_posten.id"), index=True
+    )
+    betrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    datum: Mapped[date] = mapped_column(Date)
+    person: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
 class BankkontoRow(Base):
     __tablename__ = "bankkonten"
 
@@ -351,6 +380,13 @@ class UstIdPruefungRow(Base):
     hash: Mapped[str] = mapped_column(String(64), unique=True)
 
 
+@event.listens_for(VerrechnungRow, "before_update")
+@event.listens_for(VerrechnungRow, "before_delete")
+def _verrechnung_nur_anfuegen(*_: object) -> None:
+    msg = "Verrechnungen sind unveränderbar — nur anfügen"
+    raise UnveraenderbarError(msg)
+
+
 @event.listens_for(UstIdPruefungRow, "before_update")
 @event.listens_for(UstIdPruefungRow, "before_delete")
 def _nur_anfuegen(*_: object) -> None:
@@ -371,4 +407,20 @@ USTID_TRIGGER = [
 def _ustid_trigger(_: object, verbindung: Connection, **__: object) -> None:
     if verbindung.dialect.name == "sqlite":
         for sql in USTID_TRIGGER:
+            verbindung.execute(text(sql))
+
+
+# Verrechnungen ebenso — PostgreSQL: ORM-Sperre und Bestandsabgleich (journal pruefen)
+VERRECHNUNG_TRIGGER = [
+    f"CREATE TRIGGER verrechnungen_kein_{aktion.lower()} BEFORE {aktion} "
+    "ON verrechnungen BEGIN "
+    "SELECT RAISE(ABORT, 'Verrechnungen sind unveränderbar'); END"
+    for aktion in ("UPDATE", "DELETE")
+]
+
+
+@event.listens_for(VerrechnungRow.__table__, "after_create")
+def _verrechnung_trigger(_: object, verbindung: Connection, **__: object) -> None:
+    if verbindung.dialect.name == "sqlite":
+        for sql in VERRECHNUNG_TRIGGER:
             verbindung.execute(text(sql))

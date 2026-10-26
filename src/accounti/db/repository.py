@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import func, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -482,6 +482,8 @@ def _row_zu_ausgangsrechnung(
         id=UUID(r.id),
         status=AusgangsrechnungStatus(r.status),
         nummer=r.nummer,
+        rechnungstyp=r.rechnungstyp or "380",
+        korrektur_zu=r.korrektur_zu,
         kunde=Rechnungsempfaenger(
             name=r.kunde_name,
             strasse=r.kunde_strasse,
@@ -502,6 +504,7 @@ def _row_zu_ausgangsrechnung(
                 einzelpreis=Decimal(str(p.einzelpreis)).normalize(),
                 ermaessigt=p.ermaessigt,
                 sonstige_leistung=p.sonstige_leistung,
+                elektronisch=bool(p.elektronisch),
             )
             for p in sorted(positionen, key=lambda p: p.nr)
         ],
@@ -534,6 +537,8 @@ def speichere_ausgangsrechnung(session: Session, r: Ausgangsrechnung) -> None:
             id=str(r.id),
             status=r.status.value,
             nummer=r.nummer,
+            rechnungstyp=r.rechnungstyp,
+            korrektur_zu=r.korrektur_zu,
             kunde_name=k.name,
             kunde_strasse=k.strasse,
             kunde_plz=k.plz,
@@ -576,6 +581,7 @@ def _speichere_ausgangsposition(
             einzelpreis=p.einzelpreis,
             ermaessigt=p.ermaessigt,
             sonstige_leistung=p.sonstige_leistung,
+            elektronisch=p.elektronisch,
         )
     )
     session.flush()
@@ -650,12 +656,17 @@ def markiere_ausgestellt(
     session.flush()
 
 
+# Jahr eines Nummernkreises, der über den Jahreswechsel weiterzählt (Format ohne {jahr})
+JAHRESUEBERGREIFEND = 0
+
+
 def naechste_nummer(session: Session, kreis: str, jahr: int) -> int:
     """Zählt den Nummernkreis in der laufenden Transaktion hoch.
 
     Das ``UPDATE`` sperrt die Zeile bis zum Commit; parallele Aussteller warten.
     Wird die Transaktion zurückgerollt, ist die Nummer wieder frei — so bleibt
-    der Kreis lückenlos.
+    der Kreis lückenlos. Ein jahresübergreifender Kreis (``JAHRESUEBERGREIFEND``)
+    beginnt hinter dem höchsten Stand der Jahreskreise desselben Kürzels.
     """
     bedingung = (NummernkreisRow.kreis == kreis) & (NummernkreisRow.jahr == jahr)
     erhoeht = session.execute(
@@ -664,10 +675,18 @@ def naechste_nummer(session: Session, kreis: str, jahr: int) -> int:
         .values(letzte=NummernkreisRow.letzte + 1)
     )
     if erhoeht.rowcount == 0:  # type: ignore[attr-defined]
+        erste = 1
+        if jahr == JAHRESUEBERGREIFEND:
+            bisher = (
+                session.query(func.max(NummernkreisRow.letzte))
+                .filter(NummernkreisRow.kreis == kreis)
+                .scalar()
+            )
+            erste = int(bisher or 0) + 1
         try:
             with session.begin_nested():
-                session.add(NummernkreisRow(kreis=kreis, jahr=jahr, letzte=1))
-            return 1
+                session.add(NummernkreisRow(kreis=kreis, jahr=jahr, letzte=erste))
+            return erste
         except IntegrityError:
             # Ein paralleler Aussteller hat den Kreis gerade angelegt.
             session.execute(
@@ -677,6 +696,16 @@ def naechste_nummer(session: Session, kreis: str, jahr: int) -> int:
             )
     wert = session.query(NummernkreisRow.letzte).filter(bedingung).scalar()
     return int(wert)
+
+
+def nummer_vergeben(session: Session, nummer: str) -> bool:
+    """Trägt schon eine Ausgangsrechnung diese Nummer?"""
+    return (
+        session.query(AusgangsrechnungRow.id)
+        .filter(AusgangsrechnungRow.nummer == nummer)
+        .first()
+        is not None
+    )
 
 
 def speichere_versandprotokoll(session: Session, p: Versandprotokoll) -> None:

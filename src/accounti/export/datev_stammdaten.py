@@ -189,13 +189,13 @@ def lade_datev_mandant(
     """Berater-/Mandantennummer aus Optionen oder Abschnitt ``datev`` der Konfiguration.
 
     Sachkontenlänge aus ``mandant.sachkonten_laenge`` (Standard 4), Kontenrahmen aus
-    ``buchhaltung.kontenrahmen`` bzw. ``mandant.kontenrahmen`` (SKR03 → ``03``),
+    ``lade_buchhaltung`` (``buchhaltung.kontenrahmen``, SKR03 → ``03``),
     Wirtschaftsjahresbeginn aus ``datev.wirtschaftsjahr_beginn`` (Tag und Monat,
     Standard 1. Januar) für das Wirtschaftsjahr, in dem ``stichtag`` liegt.
     """
     import yaml
 
-    from accounti.konfiguration import KonfigurationError
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     daten: dict[str, object] = {}
     datei = Path(pfad)
@@ -209,7 +209,6 @@ def lade_datev_mandant(
 
     datev = abschnitt("datev")
     firma = abschnitt("mandant")
-    buchhaltung = abschnitt("buchhaltung")
     berater = berater or str(datev.get("berater_nummer") or "") or None
     mandant = mandant or str(datev.get("mandanten_nummer") or "") or None
     if not berater or not berater.isdigit():
@@ -229,9 +228,8 @@ def lade_datev_mandant(
             msg = f"datev.wirtschaftsjahr_beginn {beginn!r}: Format JJJJ-MM-TT"
             raise KonfigurationError(msg) from fehler
     wj = wirtschaftsjahr_beginn(stichtag, beginn if isinstance(beginn, date) else None)
-    rahmen = str(
-        buchhaltung.get("kontenrahmen") or firma.get("kontenrahmen") or "SKR03"
-    )
+    # eine Quelle mit USt, Abschluss und Prüfregeln (Gesamttest Betrieb B4)
+    rahmen = lade_buchhaltung(datei).kontenrahmen
     laenge = firma.get("sachkonten_laenge", 4)
     return DatevMandant(
         berater=int(berater),

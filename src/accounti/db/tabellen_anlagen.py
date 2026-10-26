@@ -26,6 +26,11 @@ class AnlagegutRow(Base):
     wechsel_linear: Mapped[bool] = mapped_column(Boolean, default=True)
     immateriell: Mapped[bool] = mapped_column(Boolean, default=False)
     beleg_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    # Zugangsbuchung ohne Beleg (Bankumsatz direkt auf das Anlagekonto) — damit
+    # ``anlagen vorschlaege`` sie nicht weiter als „ohne Anlagegut“ nennt
+    buchung_id: Mapped[str | None] = mapped_column(
+        String(36), nullable=True, index=True
+    )
     typ: Mapped[str | None] = mapped_column(String(40), nullable=True)
     abgang_datum: Mapped[date | None] = mapped_column(Date, nullable=True)
     abgang_art: Mapped[str | None] = mapped_column(String(20), nullable=True)

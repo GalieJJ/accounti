@@ -76,8 +76,9 @@ ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
 
 # Befehle der CLI je Recht — mit eingerichteten Benutzern nur mit Rolle und Einmalcode
 # (Verfahrensdokumentation, docs/betrieb.md). Nicht gebunden sind Lesebefehle und
-# maschinelle Läufe (classify, opos verbuchen, opos zuordnen, bank abgleich, import,
-# bank lauf, aufgaben lauf, verfahrensdoku) — ihre Person ist im Journal „(ungeprüft)“.
+# maschinelle Läufe (classify, opos verbuchen, opos zuordnen ohne --transaktion, bank
+# abgleich, import, bank lauf, aufgaben lauf, verfahrensdoku) — ihre Person ist im
+# Journal „(ungeprüft)“.
 FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
     Recht.BUCHEN: (
         "korrigiere",
@@ -88,16 +89,20 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "nachfordern anfrage --senden",
         "zahlung anlegen|entfernen|sperre|iban-klaeren|abgleichen",
         "belege freigeben",
+        "anlagen anlegen|afa|abgang",
+        "abschluss saldo|buchen|abgrenzen",
     ),
     Recht.BUCHUNG_FREIGEBEN: (
         "bestaetige",
-        "opos bestaetigen|ablehnen",
+        "opos bestaetigen|ablehnen|verrechnen",
+        "opos zuordnen --transaktion",
         "abschluss bestaetigen|ablehnen",
         "anlagen freigeben",
         "periode schliessen",
         "abschluss vortrag",
         "export datev",
         "datev belege",
+        "datev kontoauszuege",
     ),
     Recht.ZAHLUNG_FREIGEBEN: ("zahlung freigeben|stornieren|sepa",),
     Recht.STEUER_FREIGEBEN: (

@@ -189,7 +189,7 @@ Transaktion
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
 
-`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg. Alle anderen Umsätze gehen wie bisher durch Regelwerk und LLM. *(vorhanden)*
+`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. *(vorhanden)*
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
@@ -203,7 +203,7 @@ Debitoren- und Kreditorenstammdaten mit Personenkontonummern aus den Nummernkrei
 
 Offene Posten mit Fälligkeit, Skontofrist und Restbetrag. `verbuchung.py` macht aus einem erfassten Beleg die Buchungen je Steuersatz (Eingang: Sachkonto aus Kontakt-Vorschlag, Regelwerk oder Standard zur Prüfung, Steuerfall AE → Schlüssel 94, K → 19 zur Prüfung; Ausgang: Erlöskonto nach Steuerkategorie der E-Rechnung) und den Posten; jeder Beleg genau einmal, jeder in eigenem Savepoint. Eine Position ohne Satz wird brutto gebucht (`buchung/steuergruppe.py`, gemeinsam mit `buchung/mit_beleg.py`), eine Gutschrift mit getauschten Seiten; bei Bilanzierung und Eingang im Folgejahr geht die Vorsteuer auf 1548 (SKR04 1434) und wird zum ersten offenen Tag des Eingangsmonats umgebucht — nur der Abzug: eine Gutschrift mindert die Vorsteuer zum Belegdatum (§ 17 Abs. 1 S. 8 UStG), später gebucht zur Prüfung. `abstimmung.py` vergleicht den Saldo jedes Personenkontos mit der Summe seiner offenen Posten (Prüfregel `personenkonto_op`, Abschlussprüfung `personenkonten`). `auswertung.py` liefert OPOS-Liste, Fälligkeitsstaffel und Summen je Kontakt. *(vorhanden)*
 
-`zuordnung.py` ordnet Banktransaktionen dreistufig zu — Referenz (Belegnummer im Verwendungszweck), exakt (einziger Posten des Kontakts über den Betrag), unscharf (Skonto ohne Referenz, Sammelzahlung als Teilmengensumme, Teilbetrag, Betrag ohne Kontakt). Automatisch gebucht wird nur Eindeutiges; der Rest wird Vorschlag. `ausgleich.py` bucht Zahlung und Skonto — das Skonto anteilig nach den Bruttoanteilen der Rechnung auf ihre Steuersätze verteilt, Netto und Steuer je Anteil aus `steuer/`, also immer mit Vorsteuer- bzw. Umsatzsteuerkorrektur. `zahlungslauf.py` verbindet beides, reserviert vorgeschlagene Posten und speichert jede Zuordnung in `zahlungszuordnungen`; `classify` kontiert nur noch Transaktionen ohne Buchung und ohne Zuordnung. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
+`zuordnung.py` ordnet Banktransaktionen dreistufig zu — Referenz (Belegnummer im Verwendungszweck), exakt (einziger Posten des Kontakts über den Betrag), unscharf (Skonto ohne Referenz, Sammelzahlung als Teilmengensumme, Teilbetrag, Betrag ohne Kontakt). Automatisch gebucht wird nur Eindeutiges; der Rest wird Vorschlag. Belegnummern zählen nur an Wortgrenzen und nicht, wenn ihre Ziffern nur als Datum im Zweck stehen („EREF+20260315…“, „vom 2026-03-15“ für 2026-0315, „RE 2026-03-15“ für RE-2026-0315 — ohne erkannten Zahler dann nur ein Vorschlag, neben einer echten Referenz gar nicht); nennt der Zweck nur Posten eines anderen Kontakts als des erkannten Zahlers, wird nichts automatisch gebucht. Als Guthaben zählen nur Posten der Zahlungsrichtung mit negativem Rest — keine Aufrechnung über zwei Personenkonten; in der Handzuordnung tilgt eine Gutschrift nur Posten desselben Kontakts. Posten mit negativem Rest (Gutschrift, Guthaben aus Überzahlung) nehmen teil: Erstattungen tilgen sie, Saldozahlungen verrechnen sie; `verrechnung.py` gleicht gegenläufige Posten desselben Kontakts ohne Buchung aus (Tabelle `verrechnungen`, Journal), `zahlungslauf.ordne_von_hand` ist die Handzuordnung. `ausgleich.py` bucht Zahlung und Skonto — das Skonto anteilig nach den Bruttoanteilen der Rechnung auf ihre Steuersätze verteilt, Netto und Steuer je Anteil aus `steuer/`, also immer mit Vorsteuer- bzw. Umsatzsteuerkorrektur. `zahlungslauf.py` verbindet beides, reserviert vorgeschlagene Posten und speichert jede Zuordnung in `zahlungszuordnungen`; `classify` kontiert nur noch Transaktionen ohne Buchung und ohne Zuordnung. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
 
 ### `zahlung/` und `mahnwesen/` *(vorhanden — [Baustein 6](specs/2026-08-10-zahlungsverkehr-mahnwesen.md))*
 
@@ -260,7 +260,7 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   `do_orm_execute` sperrt Massenänderungen; jede schreibende Transaktion hält ab dem ersten
   Flush mit Journal- oder Sperrbezug die Schreibsperre (`schreibsperre`). `pruefe_journal`
   prüft Kette, Anker, Übernahmen, Verlauf je Objekt und den Bestand (Buchungen, Belege,
-  Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
+  Verrechnungen, Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
   Person und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung
   der CLI (`befehle.handelnde_person`, geprüft), für API-Token die REST-API; jede andere
   Person kennzeichnet `fuege_an` als „(ungeprüft)“, sobald die Datenbank zu einer
@@ -345,7 +345,8 @@ Transaktion
 │ Geschäftsvorfall?    │
 │                      │
 │ Käufer DE? ─────────▶ Inland (19%/7%)
-│ Käufer EU + B2C? ───▶ OSS (Steuersatz Bestimmungsland)
+│ B2C-Dienstleistung? ▶ Inland (§ 3a Abs. 1), elektronisch: OSS (EU)
+│ Käufer EU + B2C? ───▶ OSS (Steuersatz Bestimmungsland, Fernverkauf)
 │ Käufer EU + B2B? ───▶ ig. Lieferung (0%, Reverse Charge)
 │ Käufer Drittland? ──▶ Ausfuhr (0%)
 └──────────────────────┘
@@ -392,11 +393,23 @@ Ergänzungen in `steuer/`:
   degressiv vom Restbuchwert mit Wechsel zur linearen AfA, GWG, Sammelposten (1/5 der Summe zum
   Jahresende), digital, E-Fahrzeug; Prüfung der Wahlrechte (einheitlicher Sammelposten). *(vorhanden)*
 - `lauf.py` — AfA-Lauf: je Anlagegut Soll bis Monat minus schon gebucht, eine Buchung je
-  AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“. *(vorhanden)*
+  AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“; bei abweichendem
+  Wirtschaftsjahr je Abschnitt des Kalenderjahres (`AnlagenEinstellungen.afa_abschnitt` aus
+  `datev.wirtschaftsjahr_beginn`). *(vorhanden)*
 - `abgang.py` — AfA bis Abgangsmonat, Restbuchwert auf 2310/2315, Erlös auf 8801/8820 mit USt aus
   `steuer/`. `spiegel.py` — Anlagenspiegel aus dem Plan. *(vorhanden)*
+- `dienst.py` — Anlegen aus Eingaben, AfA-Tabelle, Beleg oder Zugangsbuchung
+  (`anlagegueter.buchung_id`, Migration `2f7c7043043e`); `vorschlaege` nennt Zugänge auf
+  Anlagekonten ohne verknüpftes Gut, ein Gut mit gleichem Konto, Datum und Kosten nur als
+  „vermutlich erfasst“. `aenderung.py` — Stammdaten ändern und Abgang zurücknehmen: mit Grund
+  und Journaleintrag (`objekt_typ` `anlage`); eigene AfA-Vorschläge werden verworfen und neu
+  gerechnet, freigegebene AfA bekommt eine AfA-Korrektur (Vorschlag); gebuchte AfA in einem
+  abgeschlossenen Jahr sperrt die Änderung. *(vorhanden)*
 
-`abschluss/` arbeitet auf freigegebenen Buchungen.
+`abschluss/` arbeitet auf freigegebenen Buchungen, je Wirtschaftsjahr
+(`konfiguration.wirtschaftsjahr(jahr, beginn)` aus `datev.wirtschaftsjahr_beginn`; `jahr` = Kalenderjahr
+des WJ-Endes). Saldovortrag und Jahressperre gelten je Kalenderjahr und lehnen ein abweichendes
+Wirtschaftsjahr ab.
 
 - `kontenrahmen.py` + `kontenrahmen_skr03.yaml`/`…_skr04.yaml` — Kontoarten, Geld- und
   Steuerkonten, EÜR-Kennzahl je Kontenbereich. *(vorhanden)*
@@ -469,8 +482,9 @@ Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **System
 - `cli.py` — Rechte in der CLI: ohne Benutzer keine Prüfung; sonst Person mit Recht in der
   Gesellschaft der benutzten Datenbank und Einmalcode (in der CLI immer). Bindung jeder
   Gesellschafts-Datenbank an ihre Systemdatenbank (Merker `auth_merker`, fail-closed).
-  Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
-  Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
+  Verwaltung mit Einrichtungsphase (der Installation und je Gesellschaft, Merker
+  `verwaltet:<Kürzel>`), fremde Konten nur durch Verwalter aller ihrer Gesellschaften, der
+  letzte Verwalter einer Gesellschaft weder sperr- noch entrechtbar. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
   `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben` und — über
   `befehle.handelnde_person`, das zugleich die geprüfte Person im Journal setzt — in die
   Befehle von Baustein 7 (vollständige Liste je Recht: `models.auth.FREIGABEWEGE`).
@@ -602,7 +616,11 @@ können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen 
 | HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
 | REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
 
-Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`.
+Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`. Danach
+`SCHEMA_STAND` in `db/__init__.py` auf die neue Revision setzen: `init_db` vermerkt ihn in
+jeder neu angelegten Datenbank (`alembic_version`), `tests/test_db_upgrade.py` hält ihn gleich
+dem Kopf der Migrationen; `accounti db upgrade` leitet bei Datenbanken ohne Vermerk den Stand
+aus dem Schema ab (`db/upgrade.py`).
 
 ### Neues Bankformat hinzufügen
 
@@ -683,12 +701,24 @@ Namens. Eigene Objekttypen (`registriere_objekttyp`) und Benachrichtigungskanäl
 ### Neue Kontierungsregel hinzufügen
 
 ```yaml
-# config/regeln.yaml (geplant)
+# config/regeln.yaml (bzw. regeln: der Gesellschaft)
 - name: "mein_lieferant"
   muster: "Firma XY GmbH"
   feld: "gegenkonto_name"
+  richtung: ausgabe          # ausgabe | einnahme | beide
   soll_konto: "3300"
   haben_konto: "1200"
   steuer_schluessel: 9
+  pruefen: false             # true: Treffer immer zur Prüfung
+  confidence: 1.0            # ab 0,95 automatisch gebucht
   buchungstext: "Wareneinkauf Firma XY"
 ```
+
+Eine Regel mit `richtung` gilt nur für Umsätze dieser Richtung; passt sonst keine Regel
+(und kein LLM-Vorschlag), schlägt `KlassifikationsEngine` sie als Gegenbuchung vor — Soll
+und Haben getauscht, immer zur Prüfung (Erstattung mindert Aufwand und Vorsteuer, § 17
+UStG). Unabhängig von der Quelle prüft `buchung/mapper.py` die Bankseite gegen das
+Vorzeichen: Bankkonto auf der falschen Seite → tauschen und zur Prüfung; keine Seite das
+Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung. Die eingebauten Regeln
+liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
+Kontenrahmen keine).

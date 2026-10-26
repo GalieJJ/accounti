@@ -128,3 +128,19 @@ def test_csv():
     assert zeilen[0][:3] == ["Gruppe", "Bezeichnung", "AK 01.01."]
     assert zeilen[-1][0] == "Summe"
     assert zeilen[-1][-1] == "14150,00"
+
+
+def test_restbuchwerte_sammelposten_ohne_spaetere_zugaenge():
+    """Nachprüfung F, N5: Zum Stichtag eines abweichenden WJ (30.06.2026) zählte der
+    Sammelposten 2026 auch das Gut aus September 2026 mit (1.400 statt 500 €)."""
+    from accounti.anlagen.spiegel import restbuchwerte
+
+    maerz = gut(1, "Regal", "0485", "500", date(2026, 3, 1), AfaArt.SAMMELPOSTEN)
+    sept = gut(2, "Tisch", "0485", "900", date(2026, 9, 1), AfaArt.SAMMELPOSTEN)
+    assert restbuchwerte([maerz, sept], date(2026, 6, 30), STAND) == {
+        "0485": Decimal("500")
+    }
+    # zum Jahresende beide, ein Fünftel abgeschrieben
+    assert restbuchwerte([maerz, sept], date(2026, 12, 31), STAND) == {
+        "0485": Decimal("1120")
+    }

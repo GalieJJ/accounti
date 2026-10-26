@@ -48,6 +48,7 @@ class Gruppe:
     pruefen: bool
     netto: Decimal = NULL
     steuer: Decimal = NULL
+    differenz: bool = False  # nur die Differenz gezahlt ≠ Beleg (eigene Zeile)
 
     def addiere(self, netto: Decimal, steuer: Decimal) -> None:
         """Ohne Schlüssel kommt die Steuer in den Betrag (brutto) und die Gruppe zur

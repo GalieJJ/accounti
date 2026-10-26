@@ -112,6 +112,7 @@ def test_alle_regeln_aus_der_spec_sind_registriert():
         "buchung_ohne_beleg",
         "op_alter",
         "periode_nicht_festgeschrieben",
+        "bankumsatz_ohne_bankkonto",
     }
     from accounti.pruefung.regeln import _lade_regeln
 
@@ -645,6 +646,87 @@ def test_skr04_ohne_automatikdatei(make_session):
         buchhaltung=Buchhaltung(kontenrahmen="SKR04", bank_konto="1800"),
     )
     assert len(befunde) == 1 and "Erlöskonto 4400" in befunde[0].text
+
+
+# --- Richtigkeit: Bankumsatz ohne Bankkonto (Gesamttest Betrieb B3) ----------------
+
+SKR04 = Buchhaltung(kontenrahmen="SKR04", bank_konto="1800")
+
+
+def test_bankumsatz_ohne_bankkonto_skr03_regel_in_skr04(make_session):
+    """SKR03-Regel (Bank 1200) in einer SKR04-Gesellschaft: 1200 ist dort eine
+    Forderung — die Bereichsprüfung sieht nichts, die Bankabstimmung erst im
+    Abschluss."""
+    miete, versicherung = umsatz("-1200.00"), umsatz("-320.00")
+    falsch = buchung(miete, soll="4210", haben="1200", schluessel=None, steuer=None)
+    richtig = buchung(
+        versicherung, soll="6400", haben="1800", schluessel=None, steuer=None
+    )
+    anlegen(make_session, miete, versicherung, falsch, richtig)
+    (befund,) = pruefe(make_session, "bankumsatz_ohne_bankkonto", buchhaltung=SKR04)
+    assert befund.objekt_id == str(falsch.id) and befund.schwere is Schwere.FEHLER
+    assert "4210 an 1200" in befund.text and "1800" in befund.text
+    assert befund.abhilfe and f"korrigiere {str(falsch.id)[:8]}" in befund.abhilfe
+
+
+def test_bankumsatz_eigenes_konto_und_mehrere_buchungen_kein_befund(make_session):
+    karte = Bankkonto(iban="VISA1234", bezeichnung="Visa", sachkonto="3610")
+    with make_session() as s:
+        speichere_bankkonto(s, karte)
+        s.commit()
+    kartenumsatz = umsatz("-23.99", sachkonto="3610", bankkonto_id=karte.id)
+    kasse = umsatz("-12.00", sachkonto="1600")
+    zahlung = umsatz("-119.00")
+    anlegen(
+        make_session,
+        kartenumsatz,
+        kasse,
+        zahlung,
+        buchung(kartenumsatz, soll="6815", haben="3610"),
+        buchung(kasse, soll="6815", haben="1600"),
+        # Zahlung mit Skonto: eine Buchung trägt die Bank, die andere nicht
+        buchung(zahlung, soll="70001", haben="1800", schluessel=None, steuer=None),
+        buchung(zahlung, soll="70001", haben="5736", netto="4.20", steuer="0.80"),
+    )
+    assert pruefe(make_session, "bankumsatz_ohne_bankkonto", buchhaltung=SKR04) == []
+
+
+def test_bankumsatz_storno_und_ohne_umsatz_kein_befund(make_session):
+    tx = umsatz("-50.00")
+    falsch = buchung(tx, soll="4930", haben="1576", status=BuchungStatus.GEPRUEFT)
+    storno = buchung(
+        tx,
+        soll="1576",
+        haben="4930",
+        status=BuchungStatus.GEPRUEFT,
+        storno_von=falsch.id,
+    )
+    anlegen(
+        make_session,
+        tx,
+        falsch.model_copy(update={"storniert_durch": storno.id}),
+        storno,
+        buchung(soll="4930", haben="70001"),  # Belegbuchung ohne Umsatz
+    )
+    assert pruefe(make_session, "bankumsatz_ohne_bankkonto") == []
+
+
+def test_bankkonto_der_konfiguration_kein_bankkonto_im_kontenrahmen(make_session):
+    """SKR04 ohne buchhaltung.bank_konto: der Standard 1200 ist dort eine Forderung."""
+    tx = umsatz("-1200.00")
+    anlegen(
+        make_session,
+        tx,
+        buchung(tx, soll="6310", haben="1200", schluessel=None, steuer=None),
+    )
+    befunde = pruefe(
+        make_session,
+        "bankumsatz_ohne_bankkonto",
+        buchhaltung=Buchhaltung(kontenrahmen="SKR04"),
+    )
+    (befund,) = befunde
+    assert befund.objekt_typ == "konto" and befund.objekt_id == "1200"
+    assert "buchhaltung.bank_konto" in befund.text and "SKR04" in befund.text
 
 
 # --- Richtigkeit: Steuersatz, Adressat, ig. Erwerb, Dubletten -------------------------

@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.db.repo_abschluss import lade_gesperrte_jahre
+from accounti.db.repo_opos import finde_posten
 from accounti.db.repository import (
     gebuchte_transaktion_ids,
     lade_abgleiche,
@@ -31,17 +32,25 @@ from accounti.db.repository import (
 )
 from accounti.db.tabellen_pruefung import gesperrte_monate
 from accounti.konfiguration import Buchhaltung
+from accounti.kontakte.erkennung import finde_kontakt
 from accounti.models import (
     AbgleichStatus,
     Buchungssatz,
     BuchungStatus,
+    OffenerPosten,
     PostenStatus,
     Transaktion,
     Zahlungszuordnung,
     ZuordnungStatus,
 )
 from accounti.opos.ausgleich import gleiche_aus
-from accounti.opos.zuordnung import Anteil, Zuordnungsvorschlag, ordne_zu
+from accounti.opos.zuordnung import (
+    Anteil,
+    Stufe,
+    Zuordnungsvorschlag,
+    ordne_zu,
+    verteile,
+)
 
 
 class ZahlungslaufError(RuntimeError):
@@ -228,3 +237,112 @@ def lehne_ab(session: Session, praefix: str) -> Transaktion | None:
         session, zuordnungen[0].transaktion_id, ZuordnungStatus.ABGELEHNT
     )
     return lade_transaktion(session, zuordnungen[0].transaktion_id)
+
+
+@dataclass
+class Handzuordnung:
+    transaktion: Transaktion
+    anteile: tuple[Anteil, ...]
+    buchungen: list[Buchungssatz]
+    hinweise: list[str] = field(default_factory=list)
+
+
+def _offener_umsatz(session: Session, praefix: str) -> Transaktion:
+    treffer = [t for t in lade_transaktionen(session) if str(t.id).startswith(praefix)]
+    if not treffer:
+        msg = f"Kein Bankumsatz mit der ID '{praefix}'."
+        raise ZahlungslaufError(msg)
+    if len(treffer) > 1:
+        msg = f"'{praefix}' passt auf mehrere Bankumsätze — länger angeben."
+        raise ZahlungslaufError(msg)
+    (tx,) = treffer
+    if lade_zuordnungen(
+        session, status={ZuordnungStatus.VORGESCHLAGEN}, transaktion_praefix=str(tx.id)
+    ):
+        msg = (
+            f"Für den Umsatz {str(tx.id)[:8]} liegt ein Zuordnungsvorschlag vor — erst "
+            f"accounti opos ablehnen {str(tx.id)[:8]} (oder bestaetigen)"
+        )
+        raise ZahlungslaufError(msg)
+    if tx.id not in {t.id for t in offene_transaktionen(session, fuer_kontierung=True)}:
+        msg = (
+            f"Umsatz {str(tx.id)[:8]} ist nicht offen — schon gebucht oder zugeordnet, "
+            "im Belegabgleich oder in einem gesperrten Zeitraum"
+        )
+        raise ZahlungslaufError(msg)
+    return tx
+
+
+def ordne_von_hand(
+    session: Session,
+    praefix: str,
+    posten_schluessel: list[str],
+    einstellungen: Buchhaltung,
+    von: str | None = None,
+) -> Handzuordnung:
+    """Ordnet einen Bankumsatz von Hand offenen Posten zu und gleicht sie aus.
+
+    Gutschriften und Guthaben unter den Posten werden ganz verrechnet, der Betrag dann
+    in der angegebenen Reihenfolge verteilt; ein Überschuss bleibt als Guthaben auf dem
+    letzten Posten. Die Buchungen gelten als von ``von`` geprüft.
+    """
+    tx = _offener_umsatz(session, praefix)
+    posten: list[OffenerPosten] = []
+    for schluessel in posten_schluessel:
+        try:
+            p = finde_posten(session, schluessel)
+        except ValueError as fehler:
+            raise ZahlungslaufError(str(fehler)) from fehler
+        if p.status is PostenStatus.AUSGEGLICHEN or p.restbetrag == 0:
+            msg = f"Posten {p.belegnummer or p.id} ist schon ausgeglichen."
+            raise ZahlungslaufError(msg)
+        if p.id in {x.id for x in posten}:
+            msg = f"Posten {p.belegnummer or p.id} ist doppelt angegeben."
+            raise ZahlungslaufError(msg)
+        posten.append(p)
+    vorgeschlagen = {
+        z.posten_id
+        for z in lade_zuordnungen(session, status={ZuordnungStatus.VORGESCHLAGEN})
+    }
+    for p in posten:
+        if p.id in vorgeschlagen:
+            msg = (
+                f"Für Posten {p.belegnummer} ist eine andere Zahlung vorgeschlagen — "
+                "erst accounti opos bestaetigen oder ablehnen"
+            )
+            raise ZahlungslaufError(msg)
+    try:
+        anteile = verteile(tx, posten)
+    except ValueError as fehler:
+        raise ZahlungslaufError(str(fehler)) from fehler
+
+    hinweise = []
+    ohne = [p for p in posten if p.id not in {a.posten.id for a in anteile}]
+    if ohne:
+        nummern = ", ".join(p.belegnummer or "?" for p in ohne)
+        hinweise.append(f"Der Betrag reicht nicht bis {nummern} — bleibt offen")
+    zahler, _ = finde_kontakt(
+        lade_kontakte(session), iban=tx.gegenkonto_iban, name=tx.gegenkonto_name
+    )
+    if zahler is not None and any(p.kontakt_id != zahler.id for p in posten):
+        hinweise.append(
+            f"Zahler {zahler.name} ist nicht der Kontakt aller Posten — so gewollt?"
+        )
+    buchungen = gleiche_aus(
+        session,
+        tx,
+        list(anteile),
+        einstellungen,
+        status=BuchungStatus.GEPRUEFT,
+        geprueft_von=von[:50] if von else None,
+    )
+    vorschlag = Zuordnungsvorschlag(
+        anteile,
+        Stufe.HAND,
+        False,
+        1.0,
+        "von Hand zugeordnet" + (f" ({von})" if von else ""),
+        zahler,
+    )
+    _speichere(session, tx, vorschlag, ZuordnungStatus.GEBUCHT)
+    return Handzuordnung(tx, anteile, buchungen, hinweise)

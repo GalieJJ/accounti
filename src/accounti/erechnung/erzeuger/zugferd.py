@@ -2,7 +2,8 @@
 
 Profil XRECHNUNG: Das eingebettete ``xrechnung.xml`` ist byte-genau die XRechnung, die
 auch das KoSIT-Prüftool geprüft hat. Die PDF-Ansicht ist nur die menschenlesbare
-Darstellung; maßgeblich sind die strukturierten Daten.
+Darstellung; maßgeblich sind die strukturierten Daten. Eine Rechnung an Privatkunden
+ohne die XRechnung-Pflichtangaben trägt das Profil EN 16931 (``factur-x.xml``).
 """
 
 from __future__ import annotations
@@ -17,9 +18,13 @@ from xml.sax.saxutils import escape
 from fpdf import FPDF
 
 from accounti.anzeige import betrag_de
-from accounti.erechnung.modell import Partei, Rechnung
+from accounti.erechnung.modell import Partei, Profil, Rechnung
 
 ANHANG = "xrechnung.xml"
+ANHANG_EN16931 = "factur-x.xml"
+# Titel der Ansicht: kaufmännische Gutschrift — keine Gutschrift im Sinne des § 14
+# Abs. 2 Satz 2 UStG (Abrechnung durch den Leistungsempfänger)
+_TITEL = {"381": "Rechnungskorrektur (Gutschrift)", "384": "Rechnungskorrektur"}
 SCHRIFTEN = Path(__file__).resolve().parent.parent / "schriften"
 GUTSCHRIFT_TYPEN = {"381", "261", "396", "532"}
 
@@ -60,9 +65,17 @@ def _adresszeilen(p: Partei, *, mit_land: bool) -> list[str]:
     return [z for z in zeilen if z]
 
 
+def profil(r: Rechnung) -> tuple[str, str]:
+    """(Name des Anhangs, ConformanceLevel) für ZUGFeRD/Factur-X."""
+    if r.profil is Profil.XRECHNUNG:
+        return ANHANG, "XRECHNUNG"
+    return ANHANG_EN16931, "EN 16931"
+
+
 def _xmp(r: Rechnung, zeit: str) -> str:
     titel = escape(f"Rechnung {r.nummer}")
     autor = escape(r.verkaeufer.name or "")
+    anhang, stufe = profil(r)
     eigenschaften = [
         ("DocumentFileName", "The name of the embedded XML document"),
         ("DocumentType", "The type of the hybrid document in capital letters"),
@@ -112,9 +125,9 @@ def _xmp(r: Rechnung, zeit: str) -> str:
     <rdf:Description rdf:about=""
         xmlns:fx="urn:factur-x:pdfa:CrossIndustryDocument:invoice:1p0#">
       <fx:DocumentType>INVOICE</fx:DocumentType>
-      <fx:DocumentFileName>{ANHANG}</fx:DocumentFileName>
+      <fx:DocumentFileName>{anhang}</fx:DocumentFileName>
       <fx:Version>1.0</fx:Version>
-      <fx:ConformanceLevel>XRECHNUNG</fx:ConformanceLevel>
+      <fx:ConformanceLevel>{stufe}</fx:ConformanceLevel>
     </rdf:Description>
   </rdf:RDF>
 </x:xmpmeta>"""  # noqa: E501
@@ -194,6 +207,11 @@ def _kopf(pdf: _RechnungsPdf) -> None:
         ("Rechnungsdatum", _datum(r.datum)),
         ("Leistungsdatum", _datum(r.leistungsdatum)),
     ]
+    if r.vorgaenger_nummer:
+        bezug = r.vorgaenger_nummer
+        if r.vorgaenger_datum:
+            bezug += f" vom {_datum(r.vorgaenger_datum)}"
+        angaben.append(("Zu Rechnung", bezug))
     if r.leistungszeitraum_von or r.leistungszeitraum_bis:
         angaben.append(
             (
@@ -222,7 +240,9 @@ def _kopf(pdf: _RechnungsPdf) -> None:
         pdf.multi_cell(0, 4.5, wert, new_x="LMARGIN", new_y="NEXT")
 
     pdf.set_y(max(pdf.get_y(), 92) + 6)
-    titel = "Gutschrift" if r.typ in GUTSCHRIFT_TYPEN else "Rechnung"
+    titel = _TITEL.get(
+        r.typ or "", "Gutschrift" if r.typ in GUTSCHRIFT_TYPEN else "Rechnung"
+    )
     pdf.set_font("Sans", "B", 14)
     pdf.cell(0, 8, f"{titel} {r.nummer}", new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
@@ -340,10 +360,13 @@ def schreibe_zugferd(r: Rechnung, xml: bytes, erstellt_am: datetime) -> bytes:
     _positionen(pdf)
     _summen(pdf)
     _hinweise(pdf)
+    anhang, _ = profil(r)
     pdf.embed_file(
         bytes=xml,
-        basename=ANHANG,
-        desc="XRechnung (ZUGFeRD-Profil XRECHNUNG)",
+        basename=anhang,
+        desc="XRechnung (ZUGFeRD-Profil XRECHNUNG)"
+        if anhang == ANHANG
+        else "Rechnung nach EN 16931 (ZUGFeRD-Profil EN 16931)",
         mime_type="text/xml",
         modification_date=erstellt_am,
         associated_file_relationship="Alternative",

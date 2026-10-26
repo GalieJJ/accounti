@@ -1,7 +1,7 @@
 """add steuerkennzeichen to belege (Gesamttest Paket C: Steuerfall ohne Steuerausweis)
 
 Revision ID: 46371a6681c2
-Revises: ddc9a184ddb4
+Revises: a14acef69fae
 Create Date: 2026-10-23 10:56:12.325030
 
 ``belege.steuerkennzeichen`` hält den Steuerfall einer Rechnung ohne Steuerausweis
@@ -9,7 +9,10 @@ Create Date: 2026-10-23 10:56:12.325030
 dem Hinweistext des Belegs, der E-Rechnung oder ``accounti belege freigeben --steuer``.
 
 Hat ein Befehl des neuen Codes die Spalte schon angelegt (``init_db`` vor der
-Migration), übernimmt die Migration sie.
+Migration), übernimmt die Migration sie. Sie berührt nur diese eine Spalte und setzt
+nichts von Nachbar-Revisionen voraus — ihre Stelle in der Kette darf sich ändern.
+Ohne Versionsvermerk erkennt ``accounti db upgrade`` den Stand davor an der fehlenden
+Spalte (``init_db`` ergänzt keine Spalten an alten Tabellen).
 """
 from typing import Sequence, Union
 
@@ -19,7 +22,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '46371a6681c2'
-down_revision: Union[str, Sequence[str], None] = 'ddc9a184ddb4'
+down_revision: Union[str, Sequence[str], None] = 'a14acef69fae'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
