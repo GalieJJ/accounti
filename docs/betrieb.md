@@ -485,7 +485,9 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   Belegarchiv hat bewusst keinen Löschpfad; Buchungen und Protokolle sind unveränderbar.
   `belege.aufbewahren_bis` kommt aus derselben Quelle (`betrieb/aufbewahrung.py`):
   Buchungsbelege und Rechnungen 8 Jahre ab Schluss des Jahres des **Belegdatums** (ohne
-  erkanntes Belegdatum des Eingangs), Übermittlungs- und USt-IdNr.-Protokolle als
+  erkanntes Belegdatum des Eingangs; ein erkanntes Belegdatum vor dem Vorjahr des Eingangs
+  gilt als möglicher Lesefehler und verkürzt die Frist nicht — dann ab Eingang),
+  Übermittlungs- und USt-IdNr.-Protokolle als
   Aufzeichnungen 10 Jahre. Belege, die vor dieser Umstellung angelegt wurden, tragen noch
   10 Jahre ab Eingang — länger aufzubewahren ist zulässig. Der Bericht zählt Belege
   vorsichtig ab dem Eingang (nie früher aussonderbar als nach dem Belegdatum).

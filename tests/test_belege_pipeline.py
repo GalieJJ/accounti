@@ -141,3 +141,25 @@ def test_aufbewahrung_ab_belegdatum(umgebung):
         s.commit()
         (beleg,) = lade_belege(s)
     assert beleg.aufbewahren_bis == date(2034, 12, 31)
+
+
+def test_aufbewahrung_unplausibles_belegdatum_ab_eingang(umgebung):
+    """Nachprüfung F, N10: ein falsch gelesenes altes Belegdatum (2016 statt 2026)
+    verkürzte die Frist — vor dem Vorjahr des Eingangs zählt vorsichtig der Eingang."""
+    from datetime import datetime
+
+    make_session, archiv = umgebung
+    roh = RohBeleg(
+        dateiname="alt.pdf",
+        inhalt=b"Lesefehler",
+        kanal="upload",
+        herkunft="/alt.pdf",
+        eingegangen_am=datetime(2026, 3, 10, 9, 0),
+    )
+    erkenner = _erkenner("Müller GmbH", "RE-13", "119.00", date(2016, 3, 1))
+    with make_session() as s:
+        nimm_auf(s, archiv, roh, erkenner=erkenner)
+        s.commit()
+        (beleg,) = lade_belege(s)
+    assert beleg.belegdatum == date(2016, 3, 1)
+    assert beleg.aufbewahren_bis == date(2034, 12, 31)  # nicht 2024

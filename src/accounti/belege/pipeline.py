@@ -28,10 +28,15 @@ def _erkenne_sicher(
     """Ruft den Erkenner auf; ein Fehler schickt den Beleg in die Prüfung.
 
     Mit erkanntem Belegdatum beginnt die Aufbewahrungsfrist am Schluss seines Jahres
-    (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG), sonst am Schluss des Eingangsjahres."""
+    (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG), sonst am Schluss des Eingangsjahres.
+    Ein Belegdatum vor dem Vorjahr des Eingangs gilt als unsicher (Lesefehler, etwa
+    2016 statt 2026) und verkürzt die Frist nicht — dann vorsichtig ab Eingang."""
     try:
         neu = erkenner(roh, beleg)
-        beginn = neu.belegdatum or neu.eingegangen_am.date()
+        eingang = neu.eingegangen_am.date()
+        beginn = neu.belegdatum or eingang
+        if beginn.year < eingang.year - 1:
+            beginn = eingang
         return neu.model_copy(
             update={"aufbewahren_bis": aufbewahrungsende(beginn)}
         ), True
