@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -26,6 +27,28 @@ def pruefe_kontonummer(konto: str, feld: str = "Konto") -> str:
             f"{feld}: {wert or '(leer)'} ist keine Kontonummer (4–8 Ziffern)"
         )
     return wert
+
+
+def finanzkonto_fehler(
+    soll: str, haben: str, betrag: Decimal, finanzkonto: str
+) -> tuple[str, str] | None:
+    """Ein Bankumsatz läuft über sein Finanzkonto — eine Ausgabe im Haben, eine
+    Einnahme im Soll. Sonst stimmt der Bestand des Kontos in den Büchern nicht mehr mit
+    dem Kontoauszug (Buchungen müssen richtig sein, § 146 Abs. 1 AO, § 239 Abs. 2
+    HGB). ``(feld, meldung)`` bei einem Fehler, sonst ``None``."""
+    if betrag < 0:
+        feld, konto, art, seite = "haben", haben, "eine Ausgabe", "Haben"
+    elif betrag > 0:
+        feld, konto, art, seite = "soll", soll, "eine Einnahme", "Soll"
+    else:
+        return None
+    if konto == finanzkonto:
+        return None
+    return feld, (
+        f"Der Umsatz ist {art} über das Finanzkonto {finanzkonto} — {finanzkonto} "
+        f"muss im {seite} stehen (sonst stimmt der Kontostand in den Büchern nicht "
+        "mehr mit dem Kontoauszug)"
+    )
 
 
 @lru_cache(maxsize=8)

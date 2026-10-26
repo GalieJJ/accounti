@@ -370,4 +370,4 @@ def test_bank_lauf_mit_gelernter_regel(welt):
         h = herkunft(s, b)
     engine.dispose()
     assert (b.soll_konto, b.confidence) == ("4930", 1.0)
-    assert h.regel == "gelernt_bürobedarf"
+    assert h.regel == "gelernt_bürobedarf_müller"

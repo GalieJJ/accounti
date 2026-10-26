@@ -18,6 +18,7 @@ from accounti.buchung.pruefschlange import (
     LernWunsch,
     NichtInPruefungError,
     PruefschlangeError,
+    RegelBestaetigenError,
     SchonZurueckgestelltError,
     StandVeraltetError,
     freigeben,
@@ -30,7 +31,10 @@ from accounti.buchung.pruefschlange import (
     stand,
     zurueckstellen,
 )
-from accounti.db.repo_kontierung import speichere_kontierungsgrund
+from accounti.db.repo_kontierung import (
+    lade_kontierungsregeln,
+    speichere_kontierungsgrund,
+)
 from accounti.db.repo_pruefung import lade_korrekturen
 from accounti.db.repository import (
     finde_buchung,
@@ -629,6 +633,125 @@ def test_regel_aus_der_queue_nur_mit_angebot(make_session):
                 umgebung(),
                 lernen=LernWunsch(),
             )
+
+
+def test_korrektur_behaelt_das_finanzkonto(make_session):
+    """Nachbesserung M1: Eine Buchung zu einem Bankumsatz behält dessen Finanzkonto
+    auf der Seite seiner Zahlungsrichtung — sonst stimmt der Bankbestand der Bücher
+    nicht mehr mit dem Kontoauszug (und eine Regel lernte das falsche Geldkonto)."""
+    tx = umsatz()  # Ausgabe auf 1200
+    b = buchung(tx)
+    karte = umsatz(sachkonto="1210")
+    kb = buchung(karte, haben="1210")
+    anlegen(make_session, tx, b, karte, kb)
+    with make_session() as s:
+        for soll, haben in (("4930", "4980"), ("4930", "1000"), ("4930", "1210")):
+            with pytest.raises(PruefschlangeError, match="Finanzkonto 1200") as info:
+                korrigieren(
+                    s, b.id, Aenderung(soll, haben, steuer=9), "jan", None, umgebung()
+                )
+            assert info.value.feld == "haben" and info.value.status == 422
+            s.rollback()
+        with pytest.raises(PruefschlangeError, match="Finanzkonto 1210"):
+            korrigieren(
+                s, kb.id, Aenderung("4930", "1200", steuer=9), "jan", None, umgebung()
+            )
+        s.rollback()
+        assert finde_buchung(s, str(b.id)).status is BuchungStatus.ZUR_PRUEFUNG
+        k = korrigieren(
+            s, b.id, Aenderung("4930", "1200", steuer=9), "jan", None, umgebung()
+        )
+        s.commit()
+    assert k.korrektur.neu is not None and k.korrektur.neu.haben_konto == "1200"
+
+
+def test_erstattung_auf_der_falschen_seite_laesst_sich_richtigstellen(make_session):
+    """Eine Gutschrift, die eine Altregel ohne Richtung als Abgang gebucht hat
+    (4920 an 1200), wird zu 1200 an 4920 korrigiert — die falsche Seite behalten
+    geht nicht."""
+    tx = umsatz("25.00", zweck="Gutschrift Telekom", name="Deutsche Telekom AG")
+    b = buchung(tx, soll="4920", haben="1200")
+    anlegen(make_session, tx, b)
+    with make_session() as s:
+        with pytest.raises(PruefschlangeError, match="im Soll") as info:
+            korrigieren(
+                s, b.id, Aenderung("4920", "1200", steuer=9), "jan", None, umgebung()
+            )
+        assert info.value.feld == "soll"
+        s.rollback()
+        k = korrigieren(s, b.id, Aenderung("1200", "4920"), "jan", None, umgebung())
+        s.commit()
+    assert k.korrektur.neu is not None and k.korrektur.neu.soll_konto == "1200"
+
+
+def test_lernen_nur_aus_kontierungsvorschlaegen_auch_ausserhalb_der_queue(
+    make_session,
+):
+    """Nachbesserung M6: Auch der CLI-Weg (``nur_vorschlaege=False``) lernt nicht aus
+    Kreditkarte, Anlagen, Marktplatz oder OPOS; Altbuchungen ohne gespeicherte
+    Herkunft nur mit ``unbekannte_herkunft_lernbar`` (CLI)."""
+    for quelle in ("kreditkarte", "anlagen", "marktplatz", "opos"):
+        tx = umsatz(name="VISA Sammelbelastung")
+        b = buchung(tx, status=BuchungStatus.GEPRUEFT)
+        anlegen(make_session, tx, b)
+        with make_session() as s:
+            speichere_kontierungsgrund(s, b.id, quelle=quelle, begruendung="x")
+            s.commit()
+            with pytest.raises(PruefschlangeError, match="keine Regel"):
+                korrigieren(
+                    s, b.id, Aenderung("4930", "1200", steuer=9), "jan", None,
+                    umgebung(), lernen=LernWunsch(), nur_vorschlaege=False,
+                    unbekannte_herkunft_lernbar=True,
+                )  # fmt: skip
+            s.rollback()
+            assert lade_kontierungsregeln(s) == []
+    alt_tx = umsatz(name="Stadtwerke Hamburg")
+    alt = buchung(alt_tx, status=BuchungStatus.GEPRUEFT)
+    anlegen(make_session, alt_tx, alt)
+    with make_session() as s:
+        with pytest.raises(PruefschlangeError, match="keine Regel"):
+            korrigieren(
+                s, alt.id, Aenderung("4930", "1200", steuer=9), "jan", None,
+                umgebung(), lernen=LernWunsch(), nur_vorschlaege=False,
+            )  # fmt: skip
+        s.rollback()
+        e = korrigieren(
+            s, alt.id, Aenderung("4930", "1200", steuer=9), "jan", None, umgebung(),
+            lernen=LernWunsch(), nur_vorschlaege=False,
+            unbekannte_herkunft_lernbar=True,
+        )  # fmt: skip
+        s.commit()
+    assert e.regel is not None and e.regel.muster == "Stadtwerke Hamburg"
+
+
+def test_regel_auf_fremde_gegenparteien_nur_mit_bestaetigung(make_session):
+    """Nachbesserung H1: Trifft das Muster andere Gegenparteien, wird die Regel nicht
+    still gespeichert — weder Korrektur noch Regel, bis die Warnung bestätigt ist."""
+    tx = umsatz("-39.95", zweck="Mobilfunk 10/2026", name="Deutsche Telekom AG")
+    bahn = umsatz("-80.00", zweck="Fahrkarte", name="Deutsche Bahn AG")
+    b = buchung(tx, soll="4980")
+    anlegen(make_session, tx, bahn, b)
+    aenderung = Aenderung("4920", "1200", steuer=9)
+    with make_session() as s:
+        speichere_kontierungsgrund(s, b.id, quelle="llm", begruendung="x")
+        s.commit()
+        with pytest.raises(RegelBestaetigenError) as info:
+            korrigieren(
+                s, b.id, aenderung, "jan", None, umgebung(),
+                lernen=LernWunsch(muster="Deutsche"),
+            )  # fmt: skip
+        assert info.value.feld == "muster" and info.value.status == 422
+        assert info.value.vorschau.fremde == ["Deutsche Bahn AG"]
+        assert "andere Gegenparteien" in info.value.meldung
+        s.rollback()
+        assert lade_kontierungsregeln(s) == []
+        assert finde_buchung(s, str(b.id)).soll_konto == "4980"
+        e = korrigieren(
+            s, b.id, aenderung, "jan", None, umgebung(),
+            lernen=LernWunsch(muster="Deutsche", bestaetigt=True),
+        )  # fmt: skip
+        s.commit()
+    assert e.regel is not None and e.regel.muster == "Deutsche"
 
 
 def test_journal_nach_queue_aktionen_in_ordnung(make_session):

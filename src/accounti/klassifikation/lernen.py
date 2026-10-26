@@ -3,10 +3,13 @@
 Für CLI (``accounti korrigiere --lernen``, ``lerne``, ``regeln …``) und Browser
 (Supervisions-Queue) dieselben Funktionen (Spec 3: keine UI-eigene Logik):
 
-* ``entwurf_fuer`` / ``entwurf_aus_korrektur`` — Muster (erstes Wort der Gegenpartei,
-  sonst des Verwendungszwecks; unter 3 Zeichen die ersten zwei Wörter), Feld,
-  **Richtung** aus dem Vorzeichen des Umsatzes, Konten und Schlüssel der Neubuchung.
+* ``entwurf_fuer`` / ``entwurf_aus_korrektur`` — Muster (der ganze Name der
+  Gegenpartei ohne Rechtsform, sonst das erste Wort des Verwendungszwecks), Feld,
+  **Richtung** aus dem Vorzeichen des Umsatzes, Konten und Schlüssel der Neubuchung;
+  das Finanzkonto des Umsatzes muss auf seiner Seite bleiben.
 * ``pruefe_entwurf`` — Vorschau: was träfe die Regel in den letzten 24 Monaten?
+  Trifft sie andere Gegenparteien oder ist die Gegenpartei ein Zahlungsdienst, muss
+  die Warnung bestätigt werden (``Vorschau.bestaetigung_noetig``).
 * ``lerne`` (Text, aus dem Browser), ``lerne_regex`` (Betreiber, CLI),
   ``lerne_sachkonto`` (Belegbuchung → Sachkonto am Kontakt), ``deaktiviere``,
   ``uebernehme_aus_datei`` (alte ``gelernt_*``-Einträge der Regeldatei).
@@ -34,7 +37,12 @@ import yaml
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from accounti.buchung.konten import KontoError, kontobezeichnung, pruefe_kontonummer
+from accounti.buchung.konten import (
+    KontoError,
+    finanzkonto_fehler,
+    kontobezeichnung,
+    pruefe_kontonummer,
+)
 from accounti.db.repo_kontierung import (
     deaktiviere_regel,
     lade_kontierungsregeln,
@@ -104,9 +112,138 @@ def _woerter(text: str | None) -> list[str]:
     return [w.strip(".,;:!?/()[]\"'") for w in (text or "").split()]
 
 
+# Rechtsformen (ohne Punkte, kleingeschrieben): der Mustervorschlag nimmt den Namen
+# der Gegenpartei bis vor die erste — „Deutsche Telekom AG“ → „Deutsche Telekom“
+RECHTSFORMEN = frozenset(
+    {
+        "gmbh",
+        "ggmbh",
+        "mbh",
+        "gesmbh",
+        "ag",
+        "kg",
+        "kgaa",
+        "ohg",
+        "gbr",
+        "ug",
+        "haftungsbeschränkt",
+        "ek",
+        "ekfm",
+        "ekfr",
+        "ev",
+        "eg",
+        "se",
+        "partg",
+        "partgmbb",
+        "vvag",
+        "ltd",
+        "limited",
+        "inc",
+        "llc",
+        "llp",
+        "plc",
+        "corp",
+        "co",
+        "sa",
+        "sarl",
+        "sàrl",
+        "sas",
+        "sca",
+        "scs",
+        "bv",
+        "nv",
+        "spa",
+        "srl",
+        "sl",
+        "ab",
+        "as",
+        "asa",
+        "aps",
+        "oy",
+        "oyj",
+        "kft",
+        "sro",
+        "spzoo",
+    }
+)
+_VERBINDER = frozenset({"&", "+", "-", "und", "u", "et", "and", "cie"})
+# Zahlungsdienste als Gegenpartei: ein Muster auf ihren Namen träfe jeden Kauf über
+# den Dienst, gleich bei welchem Händler
+ZAHLUNGSDIENSTE = (
+    "PayPal",
+    "Klarna",
+    "Stripe",
+    "Adyen",
+    "Mollie",
+    "SumUp",
+    "Unzer",
+    "Heidelpay",
+    "Payone",
+    "Computop",
+    "Ratepay",
+    "Riverty",
+    "Afterpay",
+    "Amazon Payments",
+    "Sofort",
+    "Giropay",
+    "Paydirekt",
+    "Zettle",
+    "Worldline",
+    "Concardis",
+    "Nexi",
+    "Secupay",
+    "Skrill",
+)
+
+
+def _form(wort: str) -> str:
+    return "".join(z for z in wort.casefold() if z not in ".,;:()[]")
+
+
+def ohne_rechtsform(name: str | None) -> str:
+    """Name der Gegenpartei bis vor die erste Rechtsform (ab dem zweiten Wort), ohne
+    Verbinder davor: „Bürobedarf Müller GmbH & Co. KG“ → „Bürobedarf Müller“."""
+    woerter = (name or "").split()
+    ende = len(woerter)
+    for i in range(1, len(woerter)):
+        paar = _form(woerter[i]) + (
+            _form(woerter[i + 1]) if i + 1 < len(woerter) else ""
+        )
+        if _form(woerter[i]) in RECHTSFORMEN or paar in RECHTSFORMEN:
+            ende = i
+            break
+    while ende > 1 and _form(woerter[ende - 1]) in _VERBINDER | {""}:
+        ende -= 1
+    return " ".join(woerter[:ende]).strip(" ,;:-&+")
+
+
+def _gegenpartei(name: str | None) -> str:
+    """Vergleichsschlüssel einer Gegenpartei (ohne Rechtsform, Groß/klein egal)."""
+    return " ".join(ohne_rechtsform(name).casefold().split())
+
+
+def zahlungsdienst(name: str | None) -> str | None:
+    """Der Zahlungsdienst, wenn die Gegenpartei einer ist (PayPal, Klarna …)."""
+    for dienst in ZAHLUNGSDIENSTE:
+        if re.search(text_muster(dienst), name or "", re.IGNORECASE):
+            return dienst
+    return None
+
+
+def _auf_laenge(text: str) -> str:
+    if len(text) <= TEXT_MAX:
+        return text
+    gekuerzt = text[: TEXT_MAX + 1].rsplit(" ", 1)[0]
+    return gekuerzt if len(gekuerzt) >= TEXT_MIN else text[:TEXT_MAX]
+
+
 def vorschlag_muster(umsatz: Transaktion) -> str:
-    """Erstes Wort der Gegenpartei, sonst des Verwendungszwecks; ist es kürzer als 3
-    Zeichen, die ersten zwei Wörter."""
+    """Der ganze Name der Gegenpartei ohne Rechtsform — das erste Wort träfe fremde
+    Gegenparteien („Deutsche“: Telekom, Bahn, Rentenversicherung). Ohne Namen das
+    erste Wort des Verwendungszwecks (unter 3 Zeichen die ersten zwei Wörter)."""
+    name = ohne_rechtsform(umsatz.gegenkonto_name)
+    if len(name) >= TEXT_MIN:
+        return _auf_laenge(name)
     woerter = [w for w in _woerter(umsatz.gegenkonto_name) if w] or [
         w for w in _woerter(umsatz.verwendungszweck) if w
     ]
@@ -134,11 +271,18 @@ def entwurf_fuer(
 ) -> RegelEntwurf:
     """Entwurf aus Umsatz und (künftiger) Kontierung. Steht dort das Finanzkonto des
     Umsatzes (zweites Giro, Kreditkarte), speichert die Regel das Standard-Bankkonto —
-    ``kontiere_umsaetze`` setzt beim Anwenden das Finanzkonto wieder ein."""
+    ``kontiere_umsaetze`` setzt beim Anwenden das Finanzkonto wieder ein. Das
+    Finanzkonto muss auf der Seite seiner Zahlungsrichtung stehen (Ausgabe: Haben),
+    sonst ``RegelError`` — die Regel buchte künftige Umsätze am Konto vorbei."""
     finanz = umsatz.sachkonto
     if finanz and finanz != buchhaltung.bank_konto:
         soll = buchhaltung.bank_konto if soll == finanz else soll
         haben = buchhaltung.bank_konto if haben == finanz else haben
+    fehler = finanzkonto_fehler(
+        soll.strip(), haben.strip(), umsatz.betrag, buchhaltung.bank_konto
+    )
+    if fehler is not None:
+        raise RegelError(fehler[1], fehler[0])
     return RegelEntwurf(
         muster=(muster if muster is not None else vorschlag_muster(umsatz)).strip(),
         feld=feld or "beide",
@@ -290,11 +434,38 @@ class Vorschau:
     beispiele: list[Beispiel] = field(default_factory=list)
     greift_fuer_umsatz: bool = False
     verdraengt: str | None = None  # Regel, die bisher für diesen Umsatz griff
+    fremde: list[str] = field(default_factory=list)  # andere Gegenparteien (bis 5)
+    fremde_anzahl: int = 0  # Treffer bei anderen Gegenparteien
+    zahlungsdienst: str | None = None  # Muster trifft den Namen eines Zahlungsdiensts
     warnungen: list[str] = field(default_factory=list)
     hinweis: str = (
         "Die Regel wirkt nur auf Umsätze, die noch nicht gebucht sind (und auf "
         "Umsätze, die ein reines Storno wieder öffnet) — nicht rückwirkend."
     )
+
+    @property
+    def bestaetigung_noetig(self) -> bool:
+        """Die Regel träfe Umsätze anderer Gegenparteien bzw. jeden Kauf über einen
+        Zahlungsdienst — gespeichert wird sie dann nur mit ausdrücklicher
+        Bestätigung (Browser: Haken in der Regelvorschau, CLI: ``--trotz-warnung``)."""
+        return bool(self.fremde) or self.zahlungsdienst is not None
+
+    @property
+    def bestaetigungsgruende(self) -> list[str]:
+        gruende = []
+        if self.fremde:
+            gruende.append(
+                f"das Muster „{self.entwurf.muster}“ trifft auch andere "
+                f"Gegenparteien ({', '.join(self.fremde)}; {self.fremde_anzahl} "
+                "Umsätze)"
+            )
+        if self.zahlungsdienst is not None:
+            gruende.append(
+                f"die Gegenpartei ist der Zahlungsdienst {self.zahlungsdienst} — das "
+                f"Muster träfe jeden Umsatz über {self.zahlungsdienst}, gleich bei "
+                "welchem Händler"
+            )
+        return gruende
 
 
 def _kontierung_je_umsatz(session: Session) -> dict[UUID, str]:
@@ -312,13 +483,18 @@ def pruefe_entwurf(
     session: Session,
     entwurf: RegelEntwurf,
     umsatz: Transaktion | None,
-    regelwerk: RegelwerkEngine,
+    regelwerk: RegelwerkEngine | None,
     *,
     heute: date | None = None,
     einstellung: Einstellung = "automatisch",
     kontenrahmen: Kontenrahmen | None = None,
 ) -> Vorschau:
-    """Was träfe die Regel? Umsätze der letzten 24 Monate, getrennt nach Richtung."""
+    """Was träfe die Regel? Umsätze der letzten 24 Monate, getrennt nach Richtung.
+
+    Warnt außerdem, wenn Treffer **andere Gegenparteien** betreffen oder die
+    Gegenpartei ein Zahlungsdienst ist (dann ``bestaetigung_noetig``) und wenn weitere
+    Treffer heute anders gebucht sind. ``regelwerk``: für „verdrängt Regel X“ (ohne:
+    nicht ermittelt)."""
     from accounti.db.repository import lade_transaktionen
 
     v = Vorschau(entwurf)
@@ -360,9 +536,37 @@ def pruefe_entwurf(
         )
     if umsatz is not None:
         v.greift_fuer_umsatz = regel.passt(umsatz)
-        if v.greift_fuer_umsatz:
+        if v.greift_fuer_umsatz and regelwerk is not None:
             bisher = next((r for r in regelwerk.regeln if r.passt(umsatz)), None)
             v.verdraengt = bisher.name if bisher is not None else None
+        eigene = _gegenpartei(umsatz.gegenkonto_name)
+        fremd = [
+            t
+            for t in treffer
+            if t.id != umsatz.id and _gegenpartei(t.gegenkonto_name) != eigene
+        ]
+        v.fremde_anzahl = len(fremd)
+        for t in fremd:
+            name = (t.gegenkonto_name or "").strip() or "(ohne Namen)"
+            if name not in v.fremde and len(v.fremde) < BEISPIELE:
+                v.fremde.append(name)
+        dienst = zahlungsdienst(umsatz.gegenkonto_name)
+        if dienst is not None and entwurf.feld != "verwendungszweck":
+            name_allein = umsatz.model_copy(update={"verwendungszweck": ""})
+            if regel.passt_muster(name_allein):
+                v.zahlungsdienst = dienst
+        weitere = sum(
+            1
+            for t in treffer
+            if t.id != umsatz.id and kontierung.get(t.id) not in (None, ziel)
+        )
+        if weitere:
+            v.warnungen.append(
+                f"{weitere} weitere Treffer sind heute anders gebucht — prüfen, ob "
+                "die Regel auch für sie stimmt"
+            )
+    for grund in v.bestaetigungsgruende:
+        v.warnungen.append(grund[0].upper() + grund[1:] + " — Muster genauer fassen")
     if v.gesamt >= BREIT_AB and v.treffer > BREIT_ANTEIL * v.gesamt:
         v.warnungen.append(
             f"Muster sehr breit: {v.treffer} von {v.gesamt} Umsätzen "

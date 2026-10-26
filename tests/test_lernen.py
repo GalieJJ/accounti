@@ -81,7 +81,7 @@ def test_lernen_im_journal_mit_person(make_session):
         eintraege[0].person == "jan" and eintraege[0].objekt_typ == "kontierungsregel"
     )
     nachher = json.loads(eintraege[0].nachher or "{}")
-    assert nachher["muster"] == "Bürobedarf" and nachher["richtung"] == "ausgabe"
+    assert nachher["muster"] == "Bürobedarf Müller" and nachher["richtung"] == "ausgabe"
 
 
 def test_an_accounti_vorbei_geaenderte_regel_meldet_journal_pruefen(make_session):
@@ -130,7 +130,7 @@ def test_gelernte_regel_nur_in_ihrer_richtung(make_session):
         s.commit()
         werk = lade_regelwerk(s, None, "automatisch")
     e = werk.klassifiziere(mueller("-12.00"))
-    assert e is not None and e.regel == "gelernt_bürobedarf"
+    assert e is not None and e.regel == "gelernt_bürobedarf_müller"
     assert werk.klassifiziere(mueller("12.00", zweck="Gutschrift")) is None
 
 
@@ -190,7 +190,7 @@ def test_reihenfolge_gelernt_eigene_standard(make_session, tmp_path):
         s.commit()
         werk = lade_regelwerk(s, _eigene(tmp_path), "automatisch")
     namen = [r.name for r in werk.regeln]
-    assert namen[0] == "gelernt_bürobedarf" and namen[1] == "buero_falsch"
+    assert namen[0] == "gelernt_bürobedarf_müller" and namen[1] == "buero_falsch"
     assert namen[2:] == [r.name for r in RegelwerkEngine().regeln]
 
 
@@ -205,7 +205,7 @@ def test_gelernte_regel_schlaegt_falsch_treffende_eigene_regel(make_session, tmp
         werk = lade_regelwerk(s, eigene, "automatisch")
     e = werk.klassifiziere(mueller(tag=date(2026, 10, 15)))
     assert e is not None and e.soll_konto == "4930" and e.confidence == 1.0
-    assert e.regel == "gelernt_bürobedarf"
+    assert e.regel == "gelernt_bürobedarf_müller"
 
 
 def test_deaktivierte_regel_greift_nicht(make_session):
@@ -245,12 +245,61 @@ def test_schalter_aus_laedt_keine_gelernten(make_session):
 # --- Entwurf --------------------------------------------------------------------------
 
 
-def test_entwurf_erstes_wort_sonst_zwei_woerter():
-    assert entwurf_fuer(mueller(), "4930", "1200", 9, BH).muster == "Bürobedarf"
+def test_entwurf_ganzer_name_sonst_erstes_wort_des_zwecks():
+    """(umgestellt, Nachbesserung H1) Vorschlag ist der ganze Name der Gegenpartei
+    ohne Rechtsform — das erste Wort („Deutsche“) träfe fremde Gegenparteien. Ohne
+    Namen bleibt es beim ersten Wort des Verwendungszwecks."""
+    assert entwurf_fuer(mueller(), "4930", "1200", 9, BH).muster == "Bürobedarf Müller"
     kurz = mueller(name="AB Spedition KG")
     assert entwurf_fuer(kurz, "4930", "1200", 9, BH).muster == "AB Spedition"
     ohne_namen = mueller(name=None, zweck="Telekom. Rechnung 10/2026")
     assert entwurf_fuer(ohne_namen, "4920", "1200", 9, BH).muster == "Telekom"
+
+
+@pytest.mark.parametrize(
+    ("name", "muster"),
+    [
+        ("Deutsche Telekom AG", "Deutsche Telekom"),
+        ("Bürobedarf Müller GmbH & Co. KG", "Bürobedarf Müller"),
+        ("PayPal Europe S.a.r.l. et Cie S.C.A", "PayPal Europe"),
+        ("Amazon EU S.à r.l.", "Amazon EU"),
+        ("Müller e. K.", "Müller"),
+        ("Deutsche Rentenversicherung", "Deutsche Rentenversicherung"),
+        ("Muster UG (haftungsbeschränkt)", "Muster"),
+    ],
+)
+def test_mustervorschlag_ohne_rechtsform(name, muster):
+    from accounti.klassifikation.lernen import vorschlag_muster
+
+    assert vorschlag_muster(mueller(name=name)) == muster
+
+
+def test_mustervorschlag_hoechstens_100_zeichen():
+    from accounti.klassifikation.lernen import pruefe_text, vorschlag_muster
+
+    lang = " ".join(["Wort"] * 40) + " GmbH"
+    muster = vorschlag_muster(mueller(name=lang))
+    assert len(muster) <= 100 and pruefe_text(muster) == muster
+
+
+def test_text_muster_mit_mehrfachem_leerraum():
+    r = Regel.aus_text("t", "Deutsche Telekom", "4920", "1200", feld="beide")
+    assert r.passt(mueller(name="DEUTSCHE  TELEKOM AG"))
+    assert not r.passt(mueller(name="Deutsche Telekomik"))
+
+
+def test_entwurf_behaelt_das_finanzkonto_auf_seiner_seite():
+    """Nachbesserung M1: Die Regel bucht künftige Umsätze über ihr Finanzkonto —
+    eine Ausgabe im Haben, eine Einnahme im Soll."""
+    for soll, haben, feld in (("4930", "4980", "haben"), ("1200", "4930", "haben")):
+        with pytest.raises(RegelError, match="Finanzkonto 1200") as info:
+            entwurf_fuer(mueller(), soll, haben, 9, BH)
+        assert info.value.feld == feld
+    rein = mueller("100.00", zweck="Zahlung Kunde")
+    with pytest.raises(RegelError) as info:
+        entwurf_fuer(rein, "8400", "1200", 3, BH)
+    assert info.value.feld == "soll"
+    assert entwurf_fuer(rein, "1200", "8400", 3, BH).soll_konto == "1200"
 
 
 def test_text_muster_ist_kein_regex():
@@ -353,6 +402,8 @@ def test_vorschau_nur_24_monate(make_session):
 
 
 def test_vorschau_warnt_zu_kurz_zu_breit_doppelt(make_session):
+    """(angepasst, Nachbesserung H1: der Vorschlag ist jetzt der ganze Name — das
+    breite Muster „GmbH“ wird ausdrücklich angegeben)"""
     tx = mueller(name="GmbH Bürobedarf Müller")
     andere = [
         umsatz("-5.00", date(2026, 9, i + 1), f"Rechnung {i}", f"Lieferant {i} GmbH")
@@ -362,7 +413,11 @@ def test_vorschau_warnt_zu_kurz_zu_breit_doppelt(make_session):
     with make_session() as s:
         werk = lade_regelwerk(s, None, "automatisch")
         breit = pruefe_entwurf(
-            s, entwurf_fuer(tx, "4930", "1200", 9, BH), tx, werk, heute=HEUTE
+            s,
+            entwurf_fuer(tx, "4930", "1200", 9, BH, muster="GmbH"),
+            tx,
+            werk,
+            heute=HEUTE,
         )
         assert any("breit" in w for w in breit.warnungen)
         kurz = pruefe_entwurf(
@@ -384,6 +439,72 @@ def test_vorschau_warnt_zu_kurz_zu_breit_doppelt(make_session):
         )
     assert any("schon gelernt" in w for w in doppelt.warnungen)
     assert any("gelernte_regeln" in w for w in doppelt.warnungen)
+
+
+def _telekom_welt(make_session):  # noqa: ANN001, ANN202
+    tx = umsatz("-39.95", date(2026, 10, 1), "Rechnung 10/2026", "Deutsche Telekom AG")
+    frueher = umsatz(
+        "-39.95", date(2026, 9, 1), "Rechnung 09/2026", "DEUTSCHE TELEKOM AG"
+    )
+    bahn = umsatz("-80.00", date(2026, 9, 3), "Fahrkarte 4711", "Deutsche Bahn AG")
+    drv = umsatz("-450.00", date(2026, 9, 6), "Beitrag", "Deutsche Rentenversicherung")
+    anlegen(make_session, tx, frueher, bahn, drv)
+    return tx
+
+
+def test_vorschau_warnt_vor_fremden_gegenparteien(make_session):
+    """Nachbesserung H1: „Deutsche“ träfe Bahn und Rentenversicherung — die Vorschau
+    nennt sie und verlangt eine Bestätigung; der Standardvorschlag trifft nur die
+    Telekom (auch in anderer Schreibweise)."""
+    tx = _telekom_welt(make_session)
+    with make_session() as s:
+        breit = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4920", "1200", 9, BH, muster="Deutsche"), tx, None,
+            heute=HEUTE,
+        )  # fmt: skip
+        genau = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4920", "1200", 9, BH), tx, None, heute=HEUTE
+        )
+    assert breit.bestaetigung_noetig and breit.fremde_anzahl == 2
+    assert set(breit.fremde) == {"Deutsche Bahn AG", "Deutsche Rentenversicherung"}
+    assert any("andere Gegenparteien" in w for w in breit.warnungen)
+    assert genau.entwurf.muster == "Deutsche Telekom" and genau.treffer == 2
+    assert not genau.bestaetigung_noetig and genau.fremde == []
+
+
+def test_vorschau_warnt_vor_zahlungsdienst(make_session):
+    """Ein Muster auf „PayPal“ träfe jeden Kauf über PayPal — nur mit Bestätigung;
+    der Händler aus dem Verwendungszweck nicht."""
+    tx = umsatz(
+        "-19.99",
+        date(2026, 10, 7),
+        "PP.1234.PP . Spotify AB, Ihr Einkauf bei Spotify AB",
+        "PayPal Europe S.a.r.l. et Cie S.C.A",
+    )
+    anlegen(make_session, tx)
+    with make_session() as s:
+        dienst = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4940", "1200", 9, BH), tx, None, heute=HEUTE
+        )
+        haendler = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4940", "1200", 9, BH, muster="Spotify"), tx, None,
+            heute=HEUTE,
+        )  # fmt: skip
+    assert dienst.zahlungsdienst == "PayPal" and dienst.bestaetigung_noetig
+    assert any("Zahlungsdienst PayPal" in w for w in dienst.warnungen)
+    assert haendler.zahlungsdienst is None and not haendler.bestaetigung_noetig
+
+
+def test_vorschau_warnt_vor_anders_gebuchten_treffern(make_session):
+    tx = mueller()
+    frueher = mueller(tag=date(2026, 8, 3))
+    anlegen(make_session, tx, frueher, buchung(frueher, soll="4980", haben="1200"))
+    with make_session() as s:
+        v = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4930", "1200", 9, BH), tx, None, heute=HEUTE
+        )
+    assert any("1 weitere Treffer sind heute anders gebucht" in w for w in v.warnungen)
+    assert not v.bestaetigung_noetig  # dieselbe Gegenpartei: nur ein Hinweis
 
 
 def test_regel_nur_in_der_eigenen_datenbank(tmp_path):
@@ -514,7 +635,11 @@ def test_gelernte_regel_in_derselben_sitzung_buchbar(make_session):
         (b,) = lade_buchungen(s)
         g = lade_kontierungsgrund(s, b.id)
     assert b.soll_konto == "4930" and b.status is BuchungStatus.AUTO_GEBUCHT
-    assert g is not None and g.quelle == "regelwerk" and g.regel == "gelernt_bürobedarf"
+    assert (
+        g is not None
+        and g.quelle == "regelwerk"
+        and g.regel == "gelernt_bürobedarf_müller"
+    )
 
 
 def _unbenutzt() -> None:  # pragma: no cover — hält Importe für Hilfen stabil

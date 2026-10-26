@@ -182,7 +182,8 @@ def test_korrigiere_lernen(tmp_path, monkeypatch):
     assert res.exit_code == 0, res.output
     assert "Regel gelernt" in res.output
     (regel,) = _gelernt(url)
-    assert regel.muster == "Stadtwerke" and regel.ist_text
+    # der ganze Name der Gegenpartei (Nachbesserung H1)
+    assert regel.muster == "Stadtwerke Hamburg" and regel.ist_text
     assert regel.richtung is not None and regel.richtung.value == "ausgabe"
     assert (
         datei.read_text(encoding="utf-8") == "# eigene Regeln — Kommentar bleibt\n[]\n"
@@ -190,22 +191,28 @@ def test_korrigiere_lernen(tmp_path, monkeypatch):
 
 
 def test_korrigiere_lernt_den_schluessel_der_neubuchung(tmp_path, monkeypatch):
-    """Befund N-N5: Die Regel bucht künftig wie die Korrektur — bleibt das Sachkonto
-    (nur das Geldkonto wechselt), bleibt der Schlüssel und wird mit gelernt; ein neues
-    Sachkonto verlangt ihn ohnehin ausdrücklich. (umgestellt: Schlüssel in
-    ``kontierungsregeln``)"""
+    """Befund N-N5: Die Regel bucht künftig wie die Korrektur — bleibt das Sachkonto,
+    bleibt der Schlüssel und wird mit gelernt; ein neues Sachkonto verlangt ihn
+    ohnehin ausdrücklich. (umgestellt: Schlüssel in ``kontierungsregeln``;
+    Nachbesserung M1: bisher wechselte hier das Geldkonto 1200 → 1210 — das lehnt
+    die Korrektur jetzt ab, der Kontostand passte sonst nicht mehr zum Auszug. Das
+    Sachkonto bleibt deshalb durch eine unveränderte Bestätigung des Vorschlags.)"""
     monkeypatch.chdir(tmp_path)
     url = _url(tmp_path)
     bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
     pid = str(bs[0].id)[:8]
-    args = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
+    geldkonto = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
+    res = runner.invoke(app, [*geldkonto, "--db", url])
+    assert res.exit_code == 1 and "Finanzkonto 1200" in res.output
+    assert _gelernt(url) == []
+    args = ["korrigiere", pid, "--soll", "4900", "--haben", "1200", "--lernen"]
     res = runner.invoke(app, [*args, "--db", url])
     assert res.exit_code == 0, res.output
     _, make_session = session_factory(url)
     with make_session() as s:
         assert finde_buchung(s, pid).steuer_schluessel == 9
     (regel,) = _gelernt(url)
-    assert regel.steuer_schluessel == 9 and regel.haben_konto == "1210"
+    assert regel.steuer_schluessel == 9 and regel.haben_konto == "1200"
     assert not (tmp_path / "config" / "regeln.yaml").exists()
 
 

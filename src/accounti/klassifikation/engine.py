@@ -26,8 +26,11 @@ RICHTUNGEN = ("ausgabe", "einnahme")
 def text_muster(text: str) -> str:
     """Regulärer Ausdruck für ein Text-Muster: wörtlich (``re.escape``), nur als ganzes
     Wort — „Müller“ trifft nicht „Müllerstraße“. Lookarounds statt ``\\b``: das
-    Muster darf auch mit Satzzeichen beginnen oder enden."""
-    return rf"(?<!\w){re.escape(text.strip())}(?!\w)"
+    Muster darf auch mit Satzzeichen beginnen oder enden. Leerraum zwischen den
+    Wörtern darf im Umsatz auch mehrfach stehen („Deutsche  Telekom“) — ohne
+    verschachtelte Wiederholung, also ohne ReDoS."""
+    woerter = r"\s+".join(re.escape(w) for w in text.split())
+    return rf"(?<!\w){woerter}(?!\w)"
 
 
 class Regel:

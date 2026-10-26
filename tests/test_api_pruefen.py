@@ -78,6 +78,34 @@ def test_arbeitsflaeche_beleg_links_vorschlag_rechts(qw):
     assert links < iframe < rechts < vorschlag
 
 
+def test_umsatzdaten_auch_mit_beleg(qw):
+    """Nachbesserung M5: Der Mustervorschlag einer Regel stammt aus dem Umsatz —
+    Gegenpartei, IBAN und Verwendungszweck stehen deshalb auch dann auf der
+    Arbeitsfläche, wenn links der Beleg steht."""
+    beleg = qw.beleg(pdf())
+    tx = qw.umsatz(
+        zweck="EMPFAENGERMARKER RE 4711", gegenkonto_iban="DE89370400440532013000"
+    )
+    b = qw.buchung(beleg_id=beleg.id, transaktion_id=tx.id)
+    seite = qw.web.angemeldet("jan").get(f"/pruefen/{b.id}").text
+    rechts = seite[seite.index('class="rechts"') :]
+    assert "<h2>Umsatz</h2>" in rechts and "EMPFAENGERMARKER RE 4711" in rechts
+    assert "Bürobedarf Müller GmbH" in rechts and "DE89 3704 0044" in rechts
+    assert rechts.index("<h2>Umsatz</h2>") < rechts.index("<h2>Vorschlag</h2>")
+
+
+def test_korrektur_verlaesst_das_finanzkonto_422(qw):
+    """Nachbesserung M1: 4930 an 4980 für einen Umsatz auf 1200 wird abgelehnt
+    (Feld Haben markiert), die Buchung bleibt in der Prüfung."""
+    b = qw.unsicher()
+    client = qw.web.angemeldet("jan")
+    r = aktion(client, b.id, "korrigieren", HX, soll="4930", haben="4980", steuer="9")
+    assert r.status_code == 422
+    assert "Finanzkonto 1200" in r.text and 'id="haben"' in r.text
+    assert re.search(r'id="haben"[^>]*aria-invalid="true"', r.text)
+    assert status_von(qw, b.id)[:2] == ("pruefung", "4980")
+
+
 def test_konto_mit_bezeichnung_und_schluessel_mit_bedeutung(qw):
     bekannt = qw.buchung(soll="4930", haben="1200")
     unbekannt = qw.buchung(soll="4987", haben="1200")

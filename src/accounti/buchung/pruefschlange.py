@@ -33,7 +33,11 @@ from accounti.aufgaben import (
 )
 from accounti.aufgaben.erzeugung import RUECKFRAGE, Rueckfrage
 from accounti.belege.zuordnung import beleg_zur_buchung
-from accounti.buchung.konten import KontoError, pruefe_kontonummer
+from accounti.buchung.konten import (
+    KontoError,
+    finanzkonto_fehler,
+    pruefe_kontonummer,
+)
 from accounti.db.repo_aufgaben import lade_aufgaben
 from accounti.db.repo_kontierung import lade_kontierungsgruende, lade_kontierungsgrund
 from accounti.db.repository import (
@@ -43,6 +47,7 @@ from accounti.db.repository import (
     lade_transaktion,
 )
 from accounti.db.tabellen import BuchungssatzRow
+from accounti.konfiguration import Buchhaltung
 from accounti.models import (
     Beleg,
     Buchungssatz,
@@ -74,6 +79,7 @@ BELEG_FEHLT = "beleg_fehlt"
 # Quellen, aus denen eine Korrektur eine Regel lernen darf — nicht Kreditkarte,
 # Anlagen, Marktplatz, OPOS (eine Regel aus „VISA“ oder einer AfA wäre Unsinn)
 REGEL_QUELLEN = frozenset({"regelwerk", "llm", "standard"})
+GRUND_MAX = 500  # buchungskorrekturen.grund
 
 
 class Ansicht(str, enum.Enum):
@@ -113,6 +119,18 @@ class NichtInPruefungError(PruefschlangeError):
 
 class SchonZurueckgestelltError(PruefschlangeError):
     status = 409
+
+
+class RegelBestaetigenError(PruefschlangeError):
+    """Die Regel träfe andere Gegenparteien bzw. jeden Kauf über einen
+    Zahlungsdienst — gespeichert wird sie nur mit Bestätigung (``LernWunsch``).
+    ``vorschau`` zeigt, was sie träfe."""
+
+    status = 422
+
+    def __init__(self, meldung: str, *, vorschau: Any) -> None:
+        super().__init__(meldung, feld="muster")
+        self.vorschau = vorschau
 
 
 # --- Stand -------------------------------------------------------------------------
@@ -453,7 +471,7 @@ def lade_eintrag(
             flaeche.belegfrei = pruefung.belegfrei_nach_regel(
                 tx.verwendungszweck, tx.gegenkonto_name
             )
-    flaeche.regel_moeglich = tx is not None and h.quelle in REGEL_QUELLEN
+    flaeche.regel_moeglich = regel_lernbar(h, tx is not None)
     flaeche.sachkonto_lernbar = (
         tx is None
         and b.beleg_id is not None
@@ -504,10 +522,15 @@ class Aenderung:
 
 @dataclass(frozen=True)
 class LernWunsch:
-    """Regel aus der Korrektur — Muster und Feld wie im Formular (sonst Vorschlag)."""
+    """Regel aus der Korrektur — Muster und Feld wie im Formular (sonst Vorschlag).
+
+    ``bestaetigt``: die Warnungen der Regelvorschau (andere Gegenparteien,
+    Zahlungsdienst) sind gesehen und bestätigt — ohne sie wird so eine Regel nicht
+    gespeichert (``RegelBestaetigenError``)."""
 
     muster: str | None = None
     feld: Feld | None = None
+    bestaetigt: bool = False
 
 
 @dataclass
@@ -526,7 +549,38 @@ def _konten(a: Aenderung) -> Aenderung:
         haben = pruefe_kontonummer(a.haben, "Haben")
     except KontoError as fehler:
         raise PruefschlangeError(str(fehler), feld="haben") from fehler
+    if a.grund is not None and len(a.grund) > GRUND_MAX:
+        raise PruefschlangeError(
+            f"Der Grund ist zu lang — höchstens {GRUND_MAX} Zeichen", feld="grund"
+        )
     return Aenderung(soll, haben, a.steuer, a.ohne_steuer, a.grund, a.datum)
+
+
+def _pruefe_finanzkonto(
+    b: Buchungssatz, tx: Transaktion | None, a: Aenderung, buchhaltung: Buchhaltung
+) -> None:
+    """Eine Buchung zu einem Umsatz behält das Finanzkonto des Umsatzes
+    (``tx.sachkonto``, sonst ``buchhaltung.bank_konto``) auf der Seite seiner
+    Zahlungsrichtung — sonst stimmt der Kontostand nicht mehr mit dem Auszug. Geprüft
+    nur, wenn die Buchung das Finanzkonto heute berührt (Skonto- und Restbuchungen am
+    selben Umsatz tun das nicht)."""
+    if tx is None:
+        return
+    finanz = tx.sachkonto or buchhaltung.bank_konto
+    if finanz not in (b.soll_konto, b.haben_konto):
+        return
+    fehler = finanzkonto_fehler(a.soll, a.haben, tx.betrag, finanz)
+    if fehler is not None:
+        raise PruefschlangeError(fehler[1], feld=fehler[0])
+
+
+def regel_lernbar(h: Herkunft, mit_umsatz: bool, *, unbekannt: bool = False) -> bool:
+    """Aus einer Korrektur lernt eine Text-Regel nur, wer einen Kontierungsvorschlag
+    eines Umsatzes korrigiert — nicht Kreditkarte, Anlagen, Marktplatz, OPOS.
+    ``unbekannt``: auch ohne gespeicherte Herkunft (Altbuchungen vor 10b, CLI)."""
+    return mit_umsatz and (
+        h.quelle in REGEL_QUELLEN or (unbekannt and h.quelle is None)
+    )
 
 
 def korrigieren(
@@ -539,26 +593,39 @@ def korrigieren(
     *,
     lernen: LernWunsch | None = None,
     nur_vorschlaege: bool = True,
+    unbekannte_herkunft_lernbar: bool = False,
 ) -> Korrekturergebnis:
     """Korrektur über ``storno.korrigiere`` (Vorschlag direkt, freigegeben Storno und
-    Neubuchung) — mit der Umgebung der Gesellschaft, auf Wunsch mit Regel."""
+    Neubuchung) — mit der Umgebung der Gesellschaft, auf Wunsch mit Regel.
+
+    Gelernt wird nur aus Kontierungsvorschlägen (``regel_lernbar``) — in der Queue wie
+    in der CLI, unabhängig von ``nur_vorschlaege``; ``unbekannte_herkunft_lernbar``
+    lässt die CLI auch aus Altbuchungen ohne gespeicherte Herkunft lernen. Trifft die
+    Regel andere Gegenparteien oder einen Zahlungsdienst, nur mit
+    ``lernen.bestaetigt`` (sonst ``RegelBestaetigenError`` samt Vorschau)."""
     from accounti.klassifikation.lernen import (
         RegelError,
         entwurf_aus_korrektur,
         lerne,
         lerne_sachkonto,
+        pruefe_entwurf,
     )
 
     b = _sperren_und_pruefen(session, str(buchung_id), stand, nur_vorschlaege)
     a = _konten(aenderung)
-    if lernen is not None and nur_vorschlaege:
+    tx = lade_transaktion(session, b.transaktion_id) if b.transaktion_id else None
+    _pruefe_finanzkonto(b, tx, a, umgebung.buchhaltung)
+    if lernen is not None:
         h = herkunft(session, b)
-        regel_ok = b.transaktion_id is not None and h.quelle in REGEL_QUELLEN
+        regel_ok = regel_lernbar(
+            h, b.transaktion_id is not None, unbekannt=unbekannte_herkunft_lernbar
+        )
         sachkonto_ok = b.transaktion_id is None and b.beleg_id is not None
         if not (regel_ok or sachkonto_ok):
             raise PruefschlangeError(
                 "Für diese Buchung wird keine Regel angeboten (Herkunft "
-                f"{h.quelle or 'unbekannt'})",
+                f"{h.quelle or 'unbekannt'}) — Regeln entstehen nur aus "
+                "Kontierungsvorschlägen eines Umsatzes",
                 feld="regel",
             )
     k = korrigiere(
@@ -578,12 +645,25 @@ def korrigieren(
     ergebnis = Korrekturergebnis(k)
     if lernen is not None:
         if k.original.transaktion_id is not None:
-            tx = lade_transaktion(session, k.original.transaktion_id)
             if tx is not None:
-                entwurf = entwurf_aus_korrektur(
-                    k, tx, umgebung.buchhaltung, muster=lernen.muster, feld=lernen.feld
-                )
                 try:
+                    entwurf = entwurf_aus_korrektur(
+                        k,
+                        tx,
+                        umgebung.buchhaltung,
+                        muster=lernen.muster,
+                        feld=lernen.feld,
+                    )
+                    if not lernen.bestaetigt:
+                        v = pruefe_entwurf(session, entwurf, tx, None)
+                        if v.bestaetigung_noetig:
+                            raise RegelBestaetigenError(
+                                "Regel nicht gespeichert: "
+                                + "; ".join(v.bestaetigungsgruende)
+                                + " — das Muster genauer fassen oder die Warnung in "
+                                "der Regelvorschau bestätigen",
+                                vorschau=v,
+                            )
                     ergebnis.regel = lerne(session, entwurf, person)
                 except RegelError as fehler:
                     raise PruefschlangeError(

@@ -2643,7 +2643,15 @@ def korrigiere(
         "Umsatzes; Belegbuchung: Sachkonto am Kontakt)",
     ),
     muster: str | None = typer.Option(
-        None, help="mit --lernen: Text-Muster statt des ersten Worts der Gegenpartei"
+        None,
+        help="mit --lernen: Text-Muster statt des Namens der Gegenpartei (ohne "
+        "Rechtsform)",
+    ),
+    trotz_warnung: bool = typer.Option(
+        False,
+        "--trotz-warnung",
+        help="mit --lernen: Regel auch speichern, wenn das Muster andere "
+        "Gegenparteien oder jeden Kauf über einen Zahlungsdienst träfe",
     ),
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -2656,6 +2664,7 @@ def korrigiere(
         Aenderung,
         LernWunsch,
         PruefschlangeError,
+        RegelBestaetigenError,
         korrigieren,
     )
     from accounti.db import init_db, session_factory
@@ -2693,8 +2702,12 @@ def korrigiere(
                 aktuelle_person(person),
                 None,
                 umgebung,
-                lernen=LernWunsch(muster=muster) if lernen else None,
+                lernen=LernWunsch(muster=muster, bestaetigt=trotz_warnung)
+                if lernen
+                else None,
                 nur_vorschlaege=False,
+                # Altbuchungen ohne gespeicherte Herkunft (vor 10b) bleiben lernbar
+                unbekannte_herkunft_lernbar=True,
             )
             s.commit()
         except (
@@ -2704,6 +2717,12 @@ def korrigiere(
             UnveraenderbarError,
         ) as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
+            if isinstance(fehler, RegelBestaetigenError):
+                console.print(
+                    "[dim]Genaueres Muster mit --muster angeben oder bewusst mit "
+                    "--trotz-warnung speichern; ohne --lernen wird nur korrigiert."
+                    "[/dim]"
+                )
             raise typer.Exit(1) from fehler
     k = e.korrektur
     kurz = str(k.original.id)[:8]

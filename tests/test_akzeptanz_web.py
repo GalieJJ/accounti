@@ -357,7 +357,8 @@ def test_akzeptanz_2_korrektur_wird_regel_und_greift_beim_naechsten_lauf(
     assert (b.soll_konto, b.confidence) == ("4980", 0.62)
     jan = qw.web.angemeldet("jan")
     seite = jan.get(f"/pruefen/{b.id}").text
-    assert formularwert(seite, "muster") == "Bürobedarf"
+    # Vorschlag: der ganze Name der Gegenpartei ohne Rechtsform (Nachbesserung H1)
+    assert formularwert(seite, "muster") == "Bürobedarf Müller"
     vorschau = jan.post(
         f"/pruefen/{b.id}/regelvorschau",
         data={
@@ -365,7 +366,7 @@ def test_akzeptanz_2_korrektur_wird_regel_und_greift_beim_naechsten_lauf(
             "soll": "4930",
             "haben": "1200",
             "steuer": "9",
-            "muster": "Bürobedarf",
+            "muster": "Bürobedarf Müller",
             "feld": "beide",
         },
         headers=HX,

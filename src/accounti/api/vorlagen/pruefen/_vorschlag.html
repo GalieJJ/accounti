@@ -1,4 +1,8 @@
 {% import "_makros.html" as m with context %}
+{% if e.beleg and e.umsatz %}
+<h2>{{ _("Umsatz") }}</h2>
+{% include "pruefen/_umsatz.html" %}
+{% endif %}
 <h2>{{ _("Vorschlag") }}</h2>
 <dl class="daten vorschlag">
   <div><dt>{{ _("Soll") }}</dt><dd>{{ m.konto(b.soll_konto, kontonamen) }}</dd></div>

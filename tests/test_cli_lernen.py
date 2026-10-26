@@ -151,3 +151,49 @@ def test_gelernte_regel_greift_beim_naechsten_classify(url, tmp_path):
     assert neu[zweiter.id].soll_konto == "4930" and neu[zweiter.id].confidence == 1.0
     # die Erstattung trifft die (Ausgabe-)Regel nicht, nur die falsche eigene Regel
     assert neu[erstattung.id].soll_konto == "4980"
+
+
+def test_korrigiere_lernen_nicht_aus_kreditkarte(url):
+    """Nachbesserung M6 (Probe L1): Auch die CLI lernt aus einer VISA-Sammelbelastung
+    (Herkunft Kreditkartenabgleich) keine Regel — die Korrektur selbst bleibt
+    möglich."""
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+    from tests.pruefung_hilfe import buchung, kurz
+
+    engine, fabrik = session_factory(url)
+    tx = umsatz("-310.00", date(2026, 10, 1), "VISA 1234 Abrechnung", "VISA")
+    b = buchung(tx, soll="1361", haben="1200", schluessel=None, steuer=None)
+    anlegen(fabrik, tx, b)
+    with fabrik() as s:
+        speichere_kontierungsgrund(s, b.id, quelle="kreditkarte", begruendung="x")
+        s.commit()
+    engine.dispose()
+    r = run("korrigiere", kurz(b.id), "--soll", "1362", "--haben", "1200",
+            "--lernen", "--db", url)  # fmt: skip
+    assert r.exit_code == 1 and "keine Regel" in r.output
+    assert regeln(url) == []
+    r = run("korrigiere", kurz(b.id), "--soll", "1362", "--haben", "1200",
+            "--db", url)  # fmt: skip
+    assert r.exit_code == 0, r.output
+
+
+def test_korrigiere_lernen_breites_muster_nur_mit_trotz_warnung(url):
+    """Nachbesserung H1: --muster „Deutsche“ träfe die Deutsche Bahn — ohne
+    --trotz-warnung weder Korrektur noch Regel."""
+    from tests.pruefung_hilfe import buchung, kurz
+
+    engine, fabrik = session_factory(url)
+    bahn = umsatz("-80.00", date(2026, 9, 1), "Fahrkarte", "Deutsche Bahn AG")
+    tx = umsatz("-39.95", date(2026, 10, 1), "Mobilfunk", "Deutsche Telekom AG")
+    b = buchung(tx, soll="4980")
+    anlegen(fabrik, bahn, tx, b)
+    engine.dispose()
+
+    befehl = ["korrigiere", kurz(b.id), "--soll", "4920", "--haben", "1200"]
+    befehl += ["--steuer", "9", "--lernen", "--muster", "Deutsche", "--db", url]
+    r = run(*befehl)
+    assert r.exit_code == 1 and "Deutsche Bahn AG" in r.output
+    assert "--trotz-warnung" in r.output and regeln(url) == []
+    r = run(*befehl, "--trotz-warnung")
+    assert r.exit_code == 0, r.output
+    assert [x.muster for x in regeln(url)] == ["Deutsche"]

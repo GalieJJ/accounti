@@ -45,6 +45,7 @@ from accounti.buchung.pruefschlange import (
     BuchungFehltError,
     LernWunsch,
     PruefschlangeError,
+    RegelBestaetigenError,
     freigeben,
     korrigieren,
     lade_eintrag,
@@ -119,6 +120,7 @@ class Fehlerbild:
     meldung: Any
     feld: str | None = None
     fachlich: bool = True  # Meldung eines Fachmoduls (bleibt deutsch)
+    vorschau: Any = None  # Regelvorschau, deren Warnung zu bestätigen ist
 
 
 @dataclass
@@ -409,6 +411,10 @@ def _fehlerbild(fehler: Exception) -> Fehlerbild:
     from accounti.klassifikation.lernen import RegelError
     from accounti.pruefung.storno import StornoError
 
+    if isinstance(fehler, RegelBestaetigenError):
+        return Fehlerbild(
+            fehler.status, fehler.meldung, fehler.feld, vorschau=fehler.vorschau
+        )
     if isinstance(fehler, PruefschlangeError):
         return Fehlerbild(fehler.status, fehler.meldung, fehler.feld)
     if isinstance(fehler, StornoError):
@@ -482,6 +488,7 @@ async def _aktion(
             max_bytes,
             eingaben=felder,
             fehler=fehler,
+            vorschau=fehler.vorschau,
         )
         return _antwort(request, werte, status=fehler.status)
     meldungen = [ERLEDIGT[erledigt], *(ergebnis or [])]
@@ -506,6 +513,13 @@ async def _aktion(
             headers={"HX-Redirect": _ziel(None, ansicht, erledigt)},
         )
     return _antwort(request, naechste, push=_ziel(nach, ansicht))
+
+
+def _bestaetigt(felder: dict[str, str]) -> bool:
+    """Der Haken „trotzdem speichern“ der Regelvorschau gilt nur für das Muster, für
+    das er gesetzt wurde (sein Wert ist dieses Muster)."""
+    wert = " ".join((felder.get("regel_bestaetigt") or "").split())
+    return bool(wert) and wert == " ".join((felder.get("muster") or "").split())
 
 
 def _steuerangabe(wert: str) -> tuple[int | None, bool]:
@@ -576,7 +590,7 @@ async def korrigieren_seite(
             person,
             felder.get("stand", ""),
             lade_korrekturumgebung(g.konfiguration),
-            lernen=LernWunsch(felder.get("muster") or None, feld)
+            lernen=LernWunsch(felder.get("muster") or None, feld, _bestaetigt(felder))
             if mit_regel
             else None,
         )
@@ -648,6 +662,7 @@ async def regelvorschau(
         from accounti.abschluss.konfiguration import lade_abschluss
         from accounti.klassifikation.lernen import (
             FELDER,
+            RegelError,
             entwurf_fuer,
             lade_regelwerk,
             pruefe_entwurf,
@@ -669,15 +684,18 @@ async def regelvorschau(
         if feld is not None and feld not in FELDER:
             feld = None
         bh = lade_buchhaltung(g.konfiguration)
-        entwurf = entwurf_fuer(
-            e.umsatz,
-            felder.get("soll") or e.buchung.soll_konto,
-            felder.get("haben") or e.buchung.haben_konto,
-            None if ohne else steuer,
-            bh,
-            muster=felder.get("muster") or None,
-            feld=feld,
-        )
+        try:
+            entwurf = entwurf_fuer(
+                e.umsatz,
+                felder.get("soll") or e.buchung.soll_konto,
+                felder.get("haben") or e.buchung.haben_konto,
+                None if ohne else steuer,
+                bh,
+                muster=felder.get("muster") or None,
+                feld=feld,
+            )
+        except RegelError as f:
+            return None, _fehlerbild(f)
         try:
             kr = lade_abschluss(g.konfiguration).lade_kontenrahmen()
         except Exception:  # noqa: BLE001 — nur für den Hinweis „Konto unbekannt“

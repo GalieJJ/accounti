@@ -198,6 +198,8 @@ Dezember: December
 "Muster „%(muster)s“, Gegenrichtung (nicht betroffen): %(anzahl)s, davon heute anders gebucht: %(anders)s": "Pattern “%(muster)s”, opposite direction (not affected): %(anzahl)s, of the matches currently booked differently: %(anders)s"
 "Verdrängt Regel %(name)s für diesen Umsatz.": "Takes precedence over rule %(name)s for this transaction."
 "Bisher": "Current booking"
+"Auch andere Gegenparteien:": "Also other counterparties:"
+"Regel trotzdem mit diesem Muster speichern": "Save the rule with this pattern anyway"
 "offen": "open"
 # Tastenhilfe
 "Tastenkürzel": "Keyboard shortcuts"
