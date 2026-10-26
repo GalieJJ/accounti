@@ -330,6 +330,31 @@ def test_ausgangsrechnung_bucht_debitor_an_erloes(umgebung):
     assert v.beleg.richtung is Belegrichtung.AUSGANG
 
 
+def test_ausgangsrechnung_im_skr04_auf_skr04_erloese(umgebung):
+    """Gesamttest 10b-1 nach dem Merge M-3: im SKR04 4400/4300 statt der
+    SKR03-Konten 8400/8300 (im SKR04 „zur freien Verfügung“)."""
+    make_session, archiv = umgebung
+    skr04 = Buchhaltung(kontenrahmen="SKR04", bank_konto="1800")
+    _ausgangsrechnung(
+        make_session,
+        archiv,
+        entwurf(
+            kunde(),
+            pos("Bilderrahmen", "250", "4"),
+            pos("Katalog", "25", ermaessigt=True),
+        ),
+    )
+    with make_session() as s:
+        lauf = verbuche_belege(s, skr04, archiv=archiv)
+        s.commit()
+        buchungen = lade_buchungen(s)
+    assert lauf.fehler == []
+    assert {(b.soll_konto, b.haben_konto, b.steuer_schluessel) for b in buchungen} == {
+        ("10000", "4400", 3),
+        ("10000", "4300", 2),
+    }
+
+
 VORTAG = datetime(2026, 3, 9, 10, 0)
 
 
@@ -358,6 +383,35 @@ def test_steuerfreie_erloese(umgebung, k, position, erloes):
         (b,) = lade_buchungen(s)
     assert (b.soll_konto, b.haben_konto, b.steuer_schluessel) == ("10000", erloes, None)
     assert b.status is BuchungStatus.AUTO_GEBUCHT
+
+
+@pytest.mark.parametrize(
+    ("k", "position", "erloes"),
+    [
+        (
+            kunde(land="AT", ust_id="ATU12345678"),
+            pos("Hängung", "90", "8", sonstige_leistung=True),
+            "4336",
+        ),
+        (kunde(land="FR", ust_id="FR12345678901"), pos("Rahmen", "100"), "4125"),
+        (kunde(land="CH", ust_id=None), pos("Rahmen", "100"), "4120"),
+    ],
+    ids=["reverse_charge", "ig_lieferung", "ausfuhr"],
+)
+def test_steuerfreie_erloese_im_skr04(umgebung, k, position, erloes):
+    make_session, archiv = umgebung
+    if k.ust_id:
+        with make_session() as s:
+            bestaetige(s, k.ust_id, jetzt=VORTAG)
+            s.commit()
+    _ausgangsrechnung(make_session, archiv, entwurf(k, position))
+    skr04 = Buchhaltung(kontenrahmen="SKR04", bank_konto="1800")
+    with make_session() as s:
+        lauf = verbuche_belege(s, skr04, archiv=archiv)
+        s.commit()
+        (b,) = lade_buchungen(s)
+    assert lauf.fehler == []
+    assert (b.soll_konto, b.haben_konto, b.steuer_schluessel) == ("10000", erloes, None)
 
 
 def test_ungueltig_gewordene_ust_id_geht_zur_pruefung(umgebung):

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from accounti.anzeige import betrag_de
-from accounti.buchung.konten import kein_sachkonto
+from accounti.buchung.konten import erloeskonten, kein_sachkonto
 from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
@@ -34,8 +34,6 @@ from accounti.models import (
 NULL = Decimal("0")
 _VST = {Decimal("19"): 9, Decimal("7"): 8}
 _UST = {Decimal("19"): 3, Decimal("7"): 2}
-_ERLOES = {Decimal("19"): "8400", Decimal("7"): "8300"}
-_ERLOES_UNBEKANNT = "8200"
 
 
 @dataclass(frozen=True)
@@ -203,16 +201,19 @@ def kontiere_beleg(
         )
         sachkonto = sachkonto_fuer_beleg(beleg, kontakt, einstellungen, regelwerk, tx)
 
+    # Erlöskonten des Kontenrahmens der Buchhaltung (SKR04: 4400/4300/4200)
+    erloese = erloeskonten(einstellungen.kontenrahmen)
     gruppen: dict[tuple[str, int | None], _Gruppe] = {}
     for satz, netto, steuer in _saetze(beleg):
         if sachkonto is not None:
             konto, pruefen = sachkonto.konto, sachkonto.pruefen
             schluessel = _VST.get(satz) if satz is not None else None
         else:
-            konto = _ERLOES.get(satz, _ERLOES_UNBEKANNT) if satz else _ERLOES_UNBEKANNT
+            unbekannt = erloese.unbekannt
+            konto = erloese.steuerpflichtig.get(satz, unbekannt) if satz else unbekannt
             schluessel, pruefen = (
                 (_UST.get(satz) if satz else None),
-                satz not in _ERLOES,
+                satz not in erloese.steuerpflichtig,
             )
         if schluessel is None and satz != 0:
             pruefen = True  # Steuersatz unbekannt: brutto buchen, Mensch entscheidet

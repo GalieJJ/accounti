@@ -1,7 +1,8 @@
 """Beleg → Buchung auf ein Personenkonto + offener Posten.
 
 Eingang:  Aufwand an Kreditor (Vorsteuer per BU-Schlüssel)
-Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
+Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung, im
+          Kontenrahmen der Buchhaltung — ``buchung.konten.erloeskonten``)
 
 Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
 
@@ -40,6 +41,7 @@ from sqlalchemy.orm import Session
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
+from accounti.buchung.konten import Erloeskonten, erloeskonten
 from accounti.buchung.mit_beleg import Sachkonto, sachkonto_fuer_beleg
 from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repo_kontierung import speichere_kontierungsgrund
@@ -75,24 +77,17 @@ from accounti.models import (
 from accounti.models.elster import Meldeart
 from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.leistungszeitpunkt import steuertag
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0")
 CENT = Decimal("0.01")
 
-# Vorsteuer-BU-Schlüssel (Eingang) und Umsatzsteuer-BU-Schlüssel (Ausgang), SKR03
+# Vorsteuer-BU-Schlüssel (Eingang) und Umsatzsteuer-BU-Schlüssel (Ausgang)
 _VST_SCHLUESSEL = {Decimal("19"): 9, Decimal("7"): 8}
 _UST_SCHLUESSEL = {Decimal("19"): 3, Decimal("7"): 2}
-# Erlöskonten (SKR03) je EN-16931-Steuerkategorie
-_ERLOES_STEUERPFLICHTIG = {Decimal("19"): "8400", Decimal("7"): "8300"}
-_ERLOES_STEUERFREI = {
-    "AE": "8336",  # sonstige Leistung im EU-Ausland, Steuerschuld beim Empfänger
-    "K": "8125",  # steuerfreie innergemeinschaftliche Lieferung
-    "G": "8120",  # steuerfreie Ausfuhr
-    "E": "8100",  # steuerfreie Umsätze § 4 Nr. 8 ff.
-}
-_ERLOES_UNBEKANNT = "8200"
+# Erlöskonten je EN-16931-Steuerkategorie: buchung.konten.erloeskonten (SKR03 8400,
+# 8300, 8200, AE 8336, K 8125, G 8120, E 8100; SKR04 4400, 4300, 4200, 4336, 4125,
+# 4120, 4100 — Gesamttest 10b-1 nach dem Merge M-3, bisher im SKR04 SKR03-Konten)
 # Belegtypen, die eine Rechnung mindern oder berichtigen (§ 17 UStG: Monat der Änderung)
 _KORREKTUR_TYPEN = GUTSCHRIFT_TYPEN | {"384"}
 
@@ -187,15 +182,17 @@ def _gruppen(
     land: str,
     tag_fuer: Callable[[str | None], date],
     ustid_bestaetigt: bool = True,
+    erloese: Erloeskonten | None = None,
 ) -> list[_Gruppe]:
     """Buchungen je Konto, Steuerschlüssel und Buchungstag (``tag_fuer`` je
-    Steuerkategorie)."""
+    Steuerkategorie); ``erloese``: Erlöskonten des Kontenrahmens (ohne: SKR03)."""
+    erloese = erloese or erloeskonten("SKR03")
     gruppen: dict[tuple[str, int | None, date], _Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
     if not positionen:
         # ohne Positionen: eine Gruppe über die Belegsummen
-        konto = sachkonto if eingang else _ERLOES_UNBEKANNT
+        konto = sachkonto if eingang else erloese.unbekannt
         g = _Gruppe(konto, None, True, tag_fuer(None))
         g.netto = beleg.netto if beleg.netto is not None else (beleg.brutto or NULL)
         g.steuer = beleg.steuer or NULL
@@ -207,19 +204,19 @@ def _gruppen(
             konto = sachkonto
             # 0 % oder unbekannter Satz: § 13b, steuerfrei oder unklar → Mensch
             pruefen = sachkonto_pruefen or schluessel is None or kategorie == "AE"
-        elif kategorie in _ERLOES_STEUERFREI:
-            konto, schluessel = _ERLOES_STEUERFREI[kategorie], None
+        elif kategorie in erloese.steuerfrei:
+            konto, schluessel = erloese.steuerfrei[kategorie], None
             # K/AE nur mit bestätigter USt-IdNr. des Käufers automatisch
             pruefen = kategorie in USTID_KATEGORIEN and not ustid_bestaetigt
-        elif satz in _ERLOES_STEUERPFLICHTIG and kategorie in ("S", None):
-            konto, schluessel = _ERLOES_STEUERPFLICHTIG[satz], _UST_SCHLUESSEL[satz]
+        elif satz in erloese.steuerpflichtig and kategorie in ("S", None):
+            konto, schluessel = erloese.steuerpflichtig[satz], _UST_SCHLUESSEL[satz]
             pruefen = False
         elif kategorie == "S" and satz:
             # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands)
-            konto = OSS_ERLOES_KONTEN_SKR03.get(land, "8320")
+            konto = erloese.oss.get(land, erloese.oss_sammel)
             schluessel, pruefen = None, True
         else:
-            konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
+            konto, schluessel, pruefen = erloese.unbekannt, None, True
         tag = tag_fuer(kategorie)
         g = gruppen.setdefault(
             (konto, schluessel, tag), _Gruppe(konto, schluessel, pruefen, tag)
@@ -376,6 +373,7 @@ def verbuche_beleg(
         treffer.kontakt.land,
         tag_fuer,
         ustid_bestaetigt,
+        erloeskonten(einstellungen.kontenrahmen),
     ):
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
         if g.netto < 0:  # Gutschrift: Seiten tauschen, Beträge positiv
