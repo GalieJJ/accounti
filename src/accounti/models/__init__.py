@@ -349,12 +349,34 @@ class Zahlungszuordnung(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     transaktion_id: UUID
     posten_id: UUID
-    betrag: Decimal = Field(description="gezahlt, positiv")
+    betrag: Decimal = Field(
+        description="um so viel sinkt der Rest des Postens (Vorzeichen des Postens: "
+        "bei einer Gutschrift/Erstattung negativ)"
+    )
     skonto: Decimal = Field(default=Decimal("0"), description="abgezogen, positiv")
-    stufe: str = Field(description="referenz, exakt, skonto, teil, sammel, …")
+    stufe: str = Field(description="referenz, exakt, skonto, teil, sammel, hand, …")
     status: ZuordnungStatus
     confidence: float = Field(ge=0.0, le=1.0)
     begruendung: str
+    erstellt_am: datetime = Field(default_factory=datetime.now)
+
+
+class Verrechnung(BaseModel):
+    """Ausgleich gegenläufiger offener Posten desselben Kontakts ohne Bankumsatz.
+
+    Gutschrift gegen Rechnung, Guthaben gegen Folgerechnung: Beide Posten stehen auf
+    demselben Personenkonto, gebucht wird deshalb nichts — der Ausgleich steht hier
+    (nur anfügen) und im Journal.
+    """
+
+    id: UUID = Field(default_factory=uuid4)
+    kontakt_id: UUID
+    posten_id: UUID = Field(description="Posten, dessen positiver Rest sinkt")
+    gegen_posten_id: UUID = Field(description="Gutschrift/Guthaben (negativer Rest)")
+    betrag: Decimal = Field(gt=0, description="verrechnet, positiv")
+    datum: date
+    person: str | None = None
+    grund: str | None = None
     erstellt_am: datetime = Field(default_factory=datetime.now)
 
 

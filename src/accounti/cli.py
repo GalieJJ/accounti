@@ -1627,12 +1627,85 @@ _STUFEN = {
     "ueberzahlung": "Überzahlung",
     "sammel": "Sammelzahlung",
     "unscharf": "unscharf",
+    "hand": "von Hand",
 }
+
+
+def _von_hand_zuordnen(
+    db: str, config: str, transaktion: str, posten: list[str], von: str | None
+) -> None:
+    """``opos zuordnen --transaktion … --posten …`` — Zuordnung von Hand."""
+    from rich.markup import escape
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.befehle import handelnde_person, laufsperre_oder_ende
+    from accounti.db import init_db, session_factory
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.models.auth import Recht
+    from accounti.opos.zahlungslauf import ZahlungslaufError, ordne_von_hand
+    from accounti.pruefung.person import aktuelle_person
+
+    if not posten:
+        console.print("[red]--transaktion braucht mindestens ein --posten[/red]")
+        raise typer.Exit(1)
+    try:
+        einstellungen = lade_buchhaltung(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    # wie opos bestaetigen: die Ausgleichsbuchung gilt als freigegeben
+    with (
+        laufsperre_oder_ende(db),
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        make_session() as s,
+    ):
+        try:
+            ergebnis = ordne_von_hand(
+                s, transaktion, posten, einstellungen, aktuelle_person(person)
+            )
+        except (ZahlungslaufError, JahrGesperrtError) as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+    tx = ergebnis.transaktion
+    teile = ", ".join(
+        f"{a.posten.belegnummer or '?'} {betrag_de(a.betrag)}" for a in ergebnis.anteile
+    )
+    console.print(
+        f"[green]{datum_de(tx.datum)} {betrag_de(tx.betrag)} €[/green] → "
+        f"{escape(teile)} · von Hand — {len(ergebnis.buchungen)} Buchungen"
+    )
+    for hinweis in ergebnis.hinweise:
+        console.print(f"  [yellow]{escape(hinweis)}[/yellow]")
+
+
+POSTEN_OPTION = typer.Option(
+    None,
+    "--posten",
+    help="mit --transaktion: Belegnummer oder ID eines offenen Postens, mehrfach — "
+    "Gutschriften/Guthaben ganz, der Betrag in dieser Reihenfolge, ein Überschuss "
+    "bleibt als Guthaben auf dem letzten",
+)
 
 
 @opos_app.command("zuordnen")
 def opos_zuordnen(
     period: str | None = typer.Option(None, "--period", help="nur Monat JJJJ-MM"),
+    transaktion: str | None = typer.Option(
+        None,
+        "--transaktion",
+        help="Bankumsatz (Anfang der ID, z.B. aus 'accounti bank offen') von Hand "
+        "zuordnen",
+    ),
+    posten: list[str] | None = POSTEN_OPTION,
+    von: str | None = typer.Option(
+        None,
+        help="mit --transaktion: wer zuordnet (sonst ACCOUNTI_BENUTZER bzw. "
+        "Anmeldename; mit eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -1644,6 +1717,12 @@ def opos_zuordnen(
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.opos.zahlungslauf import zuordne_zahlungen
 
+    if transaktion is not None:
+        _von_hand_zuordnen(db, config, transaktion, posten or [], von)
+        return
+    if posten:
+        console.print("[red]--posten nur zusammen mit --transaktion[/red]")
+        raise typer.Exit(1)
     try:
         einstellungen = lade_buchhaltung(config)
     except KonfigurationError as fehler:
@@ -1680,12 +1759,84 @@ def opos_zuordnen(
     console.print(
         f"[green]{len(lauf.gebucht)} ausgeglichen[/green], "
         f"[yellow]{len(lauf.vorgeschlagen)} Vorschläge[/yellow], "
-        f"{lauf.ohne_treffer} ohne passenden Posten (→ classify)."
+        f"{lauf.ohne_treffer} ohne passenden Posten (→ classify oder von Hand: "
+        "accounti opos zuordnen --transaktion <ID> --posten <Nr>)."
     )
     if lauf.vorgeschlagen:
         console.print(
             "[dim]Prüfen: accounti opos vorschlaege · "
             "accounti opos bestaetigen <ID> · accounti opos ablehnen <ID>[/dim]"
+        )
+
+
+@opos_app.command("verrechnen")
+def opos_verrechnen(
+    posten: Annotated[
+        list[str],
+        typer.Argument(
+            help="Belegnummern oder IDs: Gutschriften/Guthaben (negativer Rest) und "
+            "die Posten, gegen die sie verrechnet werden — desselben Kontakts"
+        ),
+    ],
+    datum: str | None = typer.Option(
+        None, help="Tag der Verrechnung JJJJ-MM-TT (heute)"
+    ),
+    grund: str | None = typer.Option(None, help="Vermerk"),
+    von: str | None = typer.Option(
+        None,
+        help="Wer verrechnet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Gutschrift oder Guthaben gegen offene Posten desselben Kontakts verrechnen.
+
+    Beide stehen auf demselben Personenkonto — gebucht wird nichts, die Posten werden
+    ausgeglichen und der Vorgang im Journal festgehalten.
+    """
+    from datetime import date
+
+    from rich.markup import escape
+
+    from accounti.anzeige import betrag_de, datum_de
+    from accounti.befehle import handelnde_person
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_einen_posten
+    from accounti.models.auth import Recht
+    from accounti.opos.verrechnung import VerrechnungError, verrechne
+    from accounti.pruefung.person import aktuelle_person
+
+    tag = _datum_option(datum, "--datum") or date.today()
+    if tag > date.today():
+        console.print("[red]--datum: eine Verrechnung liegt nicht in der Zukunft[/red]")
+        raise typer.Exit(1)
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        make_session() as s,
+    ):
+        try:
+            ergebnis = verrechne(s, posten, tag, aktuelle_person(person), grund)
+        except VerrechnungError as fehler:
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+        s.commit()
+        zeilen = [
+            (
+                v,
+                lade_einen_posten(s, v.posten_id),
+                lade_einen_posten(s, v.gegen_posten_id),
+            )
+            for v in ergebnis
+        ]
+    for v, p, g in zeilen:
+        pn, gn = escape(p.belegnummer or "?"), escape(g.belegnummer or "?")
+        console.print(
+            f"[green]{gn} gegen {pn}[/green] {betrag_de(v.betrag)} € am "
+            f"{datum_de(v.datum)} · Rest {pn} {betrag_de(p.restbetrag)} €, "
+            f"{gn} {betrag_de(g.restbetrag)} €"
         )
 
 
@@ -2033,7 +2184,9 @@ def bank_offen(
     )
     for tx in bericht.umsaetze_ohne_beleg:
         stand = "kontiert" if tx.id in kontiert else "offen"
-        console.print(f"  {escape(_umsatz_text(tx))} [dim]{stand}[/dim]")
+        console.print(
+            f"  {str(tx.id)[:8]} {escape(_umsatz_text(tx))} [dim]{stand}[/dim]"
+        )
     console.print(
         f"[bold]Belege ohne Umsatz[/bold] ({len(bericht.belege_ohne_umsatz)})"
     )

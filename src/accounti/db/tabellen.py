@@ -277,6 +277,28 @@ class ZahlungszuordnungRow(Base):
     erstellt_am: Mapped[datetime] = mapped_column(DateTime)
 
 
+class VerrechnungRow(Base):
+    """Verrechnung gegenläufiger offener Posten ohne Buchung — nur anfügen."""
+
+    __tablename__ = "verrechnungen"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    kontakt_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("kontakte.id"), index=True
+    )
+    posten_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("offene_posten.id"), index=True
+    )
+    gegen_posten_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("offene_posten.id"), index=True
+    )
+    betrag: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    datum: Mapped[date] = mapped_column(Date)
+    person: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    grund: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    erstellt_am: Mapped[datetime] = mapped_column(DateTime)
+
+
 class BankkontoRow(Base):
     __tablename__ = "bankkonten"
 
@@ -348,6 +370,13 @@ class UstIdPruefungRow(Base):
     aufbewahren_bis: Mapped[date] = mapped_column(Date)
     vorgaenger_hash: Mapped[str] = mapped_column(String(64))
     hash: Mapped[str] = mapped_column(String(64), unique=True)
+
+
+@event.listens_for(VerrechnungRow, "before_update")
+@event.listens_for(VerrechnungRow, "before_delete")
+def _verrechnung_nur_anfuegen(*_: object) -> None:
+    msg = "Verrechnungen sind unveränderbar — eine Gegenverrechnung neu anlegen"
+    raise UnveraenderbarError(msg)
 
 
 @event.listens_for(UstIdPruefungRow, "before_update")
