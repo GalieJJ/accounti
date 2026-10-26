@@ -245,18 +245,31 @@ DATEV-Übergabe:
   Auszahlung (`auszahlung_anderweitig_gebucht`) dem Monat des Bankumsatzes zu. Den Tag liest
   `auszahlung.bankdaten` aus dem Befundtext — `marktplatz_befunde` hat keine Spalte dafür, eine
   Migration verlangte dieses Paket nicht.
-- Nachprüfung 3 E, M2: Einer anderen Abrechnung gehört ein Umsatz nur, wenn sein
-  Verwendungszweck deren Nummer als eigenes Wort nennt (mindestens 6 Zeichen, nicht die eigene)
-  und accounti sie kennt — gespeichert oder aus demselben Bericht. Eine noch nicht importierte
-  Nummer erkennt accounti nicht (Nummernformate der Marktplätze sind nicht geprüft, ein
-  Muster wie „10 Ziffern“ träfe auch Referenzen der Bank): kommt eine Abrechnung allein, während
-  nur der Umsatz einer späteren auf der Bank steht, nennt ihr Befund diesen Umsatz, bis die
-  spätere importiert ist und ein Abgleich (`marktplatz abgleichen`, `bank lauf`) den Befund
-  erledigt. Wer in dieser Lage den Vorschlag befolgt, bevor die spätere Abrechnung da ist, gibt
-  ihren Umsatz der früheren (die Kursdifferenz zeigt es). Mehrere schon gebuchte Umsätze ohne
-  Nummer: der Befund nennt alle, der Mensch entscheidet (kein „nächster Betrag“ — der wäre
-  geraten). Der exakte Betrag entscheidet bei „schon gebucht“ erst nach der eigenen Nummer (in
-  Fremdwährung ist er Zufall); beim Treffer bleibt er zuerst. `marktplatz import --buchungsdatum` prüft das
+- Nachprüfung 3 E, M2, und 4 E, M3 — die Regel, welcher Umsatz zu welcher Auszahlung gehört,
+  steht vollständig im Docstring von `integrationen/auszahlung.py`. Einer anderen Abrechnung
+  gehört ein Umsatz, wenn sein Verwendungszweck deren Nummer als eigenes Wort nennt (mindestens
+  6 Zeichen, nicht die eigene) und accounti sie kennt — gespeichert oder aus demselben Bericht.
+  Nennt einer die eigene Nummer, zählen nur die eigenen, auch ein schon per Regel gebuchter
+  (sonst nahm eine einzeln importierte Abrechnung per Toleranz den offenen Umsatz einer noch
+  nicht importierten, und der doppelte Erlös blieb still). Eine noch nicht importierte Nummer
+  erkennt accounti nur an der Form der eigenen (nur Ziffern, gleiche Länge): ein offener Umsatz
+  damit wird nicht zugeordnet (Warnung `auszahlung_andere_nummer`); ist er schon gebucht,
+  nennt ihn der Befund „schon gebucht“ mit dem Hinweis, erst die andere Abrechnung zu
+  importieren — bis dahin steht er vorübergehend da, und wer den Vorschlag trotzdem befolgt,
+  gibt den Umsatz dieser Abrechnung (die Kursdifferenz zeigt es; so bleibt ein Ausweg, wenn die
+  Zahl nur eine Referenz der Bank war). Nennt kein Umsatz eine Nummer, entscheiden Stichwort
+  und Betrag: in Fremdwährung ist dann geraten, welcher von zwei Umsätzen in der Toleranz zu
+  welcher Auszahlung gehört (Kursdifferenzen vertauscht, Summe richtig), und ein Umsatz ohne
+  Nummer kann Treffer werden, bevor der mit der eigenen auf der Bank steht. Wird dieser dann
+  als Erlös gebucht, ist das ein Fehler-Befund „schon gebucht“ an der Abrechnung (die
+  Voranmeldung warnt) — die falsche Zuordnung bleibt (sie zurückzunehmen hieße, accountis
+  Buchung zu stornieren); nach der vorgeschlagenen Korrektur steht die Kursdifferenz falsch
+  verteilt auf dem Verrechnungskonto, und die andere Auszahlung bleibt offen. Ein Umsatz, den
+  `bank lauf` nach dem Abgleich per Regel bucht, erscheint als Befund erst beim nächsten
+  Abgleich. Mehrere schon gebuchte Umsätze ohne Nummer: der Befund nennt alle, der Mensch
+  entscheidet (kein „nächster Betrag“ — der wäre geraten). Der exakte Betrag entscheidet bei
+  „schon gebucht“ erst nach der eigenen Nummer (in Fremdwährung ist er Zufall); beim Treffer
+  bleibt er zuerst. `marktplatz import --buchungsdatum` prüft das
   Kalenderjahr, nicht ein abweichendes Wirtschaftsjahr (`ziel.year != tag.year`, wie die
   Jahressperre und `opos verbuchen`); umgestellt wird beim Zusammenführen mit Paket F auf
   dessen Helfer `wirtschaftsjahr(jahr, config)`, damit nicht ein Befehl allein anders rechnet.

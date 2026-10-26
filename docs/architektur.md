@@ -158,11 +158,15 @@ eigenes Konto mit Guthaben).
   `kursdifferenz_aufwand`/`_ertrag`. „Schon gebucht“ ist nur ein Umsatz, der keinem Posten
   zugeordnet und nicht bloß Geldbewegung ist; steht er schon auf dem Verrechnungskonto (nach
   der vorgeschlagenen Korrektur), wird er zugeordnet und nur die Kursdifferenz umgebucht.
-  Ein Umsatz mit der Nummer einer anderen bekannten Abrechnung (gespeichert oder aus demselben
-  Bericht) scheidet aus; unter mehreren entscheidet die eigene Nummer, sonst nennt der Befund
-  alle (`bankdaten` liest die Tage für die Voranmeldung). Ein Lauf erledigt einen Befund
-  „schon gebucht“, den er nicht mehr so findet; eine Geldbewegung auf einem anderen Konto ist
-  `auszahlung_umgebucht` (Warnung).
+  Nummer vor Betrag: ein Umsatz mit der Nummer einer anderen bekannten Abrechnung (gespeichert
+  oder aus demselben Bericht) scheidet aus; nennt einer die eigene, zählen nur die eigenen —
+  auch ein schon gebuchter geht dann jedem Treffer vor; ein offener mit einer anderen, noch
+  unbekannten Nummer derselben Form wird nicht zugeordnet (`auszahlung_andere_nummer`,
+  Warnung). Mehrere gebuchte ohne Nummer nennt der Befund alle (`bankdaten` liest die Tage für
+  die Voranmeldung). Ein Lauf erledigt einen Befund über einen Umsatz, den er nicht mehr so
+  findet; eine Geldbewegung auf einem anderen Konto ist `auszahlung_umgebucht` (Warnung);
+  steht ein als Erlös gebuchter Umsatz mit der eigenen Nummer neben einer früheren Zuordnung
+  ohne sie, ist das „schon gebucht“. Die Regel steht vollständig im Docstring des Moduls.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
 - `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je

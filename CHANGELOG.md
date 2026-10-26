@@ -516,7 +516,17 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Treffer mit Toleranz) den zuerst importierten Umsatz: bucht `bank lauf` zwei eBay-Auszahlungen
   per Regel als Erlös, bevor der Transaktionsbericht kommt, nannten beide Befunde denselben Tag,
   die Voranmeldung des anderen Monats warnte nicht, und die Korrektur ordnete den Umsatz der
-  falschen Auszahlung zu (Kursdifferenz 0,41 € statt 0,02 €). Ist nicht zu entscheiden, welcher
+  falschen Auszahlung zu (Kursdifferenz 0,41 € statt 0,02 €). Nennt ein Umsatz im Zeitfenster
+  die eigene Nummer, zählt nur er, auch ein schon per Regel gebuchter — kein anderer wird
+  Treffer, weder mit Toleranz noch mit exaktem Betrag: vorher nahm eine einzeln importierte
+  Abrechnung per Toleranz den offenen Umsatz einer noch nicht importierten (0,41 €), während
+  ihr eigener als Erlös gebucht dastand; die andere fand danach keinen Umsatz und keinen
+  Befund mehr, die Voranmeldung schwieg bei doppeltem Erlös. Nennt ein Umsatz statt der
+  eigenen eine andere, noch unbekannte Nummer derselben Form, wird er nicht zugeordnet
+  (Warnung `auszahlung_andere_nummer`, mit dem Import jener Abrechnung erledigt); kommt der
+  Umsatz mit der eigenen Nummer erst, nachdem einer ohne Nummer zugeordnet wurde, und ist er
+  als Erlös gebucht, ist das ein Fehler-Befund „schon gebucht“ (die Zuordnung bleibt). Die
+  ganze Regel steht in `integrationen/auszahlung.py`. Ist nicht zu entscheiden, welcher
   gebuchte Umsatz die Auszahlung ist, nennt der Befund alle, statt zu raten, und die
   Voranmeldung jedes ihrer Monate warnt. Ein Befund „schon gebucht“ gilt, solange der Abgleich
   denselben Umsatz findet; nennt ein späterer Lauf einen anderen oder keinen mehr, ist er

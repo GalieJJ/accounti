@@ -1,39 +1,67 @@
 """Auszahlung ↔ Bankumsatz: der einzige Abgleichspunkt einer Abrechnung.
 
-Gesucht wird ein noch nicht gebuchter, keinem offenen Posten zugeordneter Bankumsatz
-mit **exakt** dem erwarteten Betrag im Zeitfenster um das Auszahlungsdatum. Gibt es
-mehrere, entscheidet das Stichwort im Verwendungszweck — bleibt es mehrdeutig, wird
-nicht geraten. Ein Umsatz in anderer Höhe mit Stichwort oder Abrechnungsnummer ist
-ein Befund, ebenso ein Umsatz, den schon eine Regel als Erlös gebucht hat (in
-Fremdwährung auch innerhalb der Toleranz) — nicht aber einer, den accounti schon
-einer anderen Auszahlung zugeordnet hat, oder einer, der nur zwischen Bank,
-Verrechnungs-, Geldtransit- und Kursdifferenzkonten gebucht ist (eine Geldbewegung).
-Eine Geldbewegung auf einem anderen als dem Gegenkonto der Abrechnung ist eine
-Warnung (``auszahlung_umgebucht``): die Auszahlung bleibt sonst still offen.
+Die Regel, welcher Bankumsatz zu welcher Auszahlung gehört, in einem Stück
+(``_umsaetze``, ``_kandidaten``, ``_befund``, ``_zweifel``; Nachprüfungen 1–4 E):
 
-Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung desselben Marktplatzes
-(und nicht die eigene), gehört er zu ihr — er ist weder Treffer noch Befund. Bleiben
-mehrere Umsätze, entscheidet die eigene Nummer im Verwendungszweck; bei „schon
-gebucht“ nennt der Befund sonst alle, statt den zuerst importierten zu nehmen.
-Ein solcher Befund gilt, solange der Abgleich ihn wiederfindet — nennt ein späterer
-Lauf einen anderen oder keinen gebuchten Umsatz mehr (z. B. weil die fremde Nummer
-inzwischen bekannt ist), ist der alte erledigt.
+1. In Frage kommen Bankumsätze im Zeitfenster um das Auszahlungsdatum mit derselben
+   Richtung, die weder früher noch in diesem Lauf einem Marktplatzposten zugeordnet
+   sind — nie PayPal-Umsätze oder Umsätze auf einem Verrechnungskonto.
+2. Nummer vor Betrag: Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung
+   desselben Marktplatzes (gespeichert oder aus demselben Bericht; als eigenes Wort,
+   mindestens 6 Zeichen) und nicht die eigene, gehört er zu ihr — hier weder Treffer
+   noch Befund.
+3. Nennt ein Umsatz im Fenster die eigene Nummer, zählen nur die eigenen, ob offen,
+   als Erlös gebucht oder umgebucht: Kein anderer wird Treffer, auch nicht mit
+   exaktem Betrag oder in der Toleranz, und keiner der anderen steht im Befund. Ein
+   Umsatz ohne die eigene Nummer kann nur Treffer werden, wenn keiner sie nennt.
+4. Nennt ein offener Umsatz statt der eigenen eine andere Nummer derselben Form (nur
+   Ziffern, gleiche Länge), die noch keine Abrechnung trägt, ist er wohl die
+   Auszahlung einer noch nicht importierten: weder Treffer noch Abweichung. Bleibt
+   sonst nichts, ist das die Warnung ``auszahlung_andere_nummer``; mit dem Import
+   jener Abrechnung gilt Regel 2, die Warnung erledigt sich. Ist er schon gebucht,
+   sagt der Befund „schon gebucht“ dazu, dass er wohl zu einer anderen gehört; hat
+   der Mensch ihn danach selbst aufs Gegenkonto gebucht, gilt das (Regel 5) — so
+   bleibt ein Ausweg, wenn die Zahl nur eine Referenz der Bank war.
+5. Treffer ist ein offener Umsatz — oder einer, der als Geldbewegung schon auf dem
+   Gegenkonto steht (die Korrektur nach „schon gebucht“, ``_vorgebucht``) — mit exakt
+   dem erwarteten Betrag, in Fremdwährung ohne solchen einer mit Stichwort oder
+   Nummer in der Toleranz. Mehrere grenzen Stichwort und eigene Nummer ein; bleiben
+   mehrere, ist das ``auszahlung_mehrdeutig`` — es wird nicht geraten.
+6. Ohne Treffer gilt der erste dieser Befunde: ein offener Umsatz mit Stichwort oder
+   Nummer in anderer Höhe (``auszahlung_abweichung``); ein als Erlös gebuchter mit
+   passendem Betrag (``auszahlung_anderweitig_gebucht``, Fehler — die Voranmeldung
+   des Bankmonats warnt, ``bankdaten``; mehrere grenzen eigene Nummer, keine andere
+   Nummer und exakter Betrag ein, sonst nennt der Befund alle); eine Geldbewegung auf
+   einem anderen Konto (``auszahlung_umgebucht``); Regel 4. Sonst ist die Auszahlung
+   noch nicht auf der Bank, ohne Befund.
+7. Befunde über einen Umsatz (``_UMSATZBEFUNDE``) gelten, solange ein Lauf sie so
+   wiederfindet — nennt ein späterer einen anderen oder keinen Umsatz mehr (etwa weil
+   die fremde Nummer inzwischen bekannt ist), ist der alte erledigt. Ein Treffer
+   erledigt alle Abgleichsbefunde des Postens.
+8. Kommt der Umsatz mit der eigenen Nummer erst, nachdem die Auszahlung einem ohne
+   sie zugeordnet wurde (als noch keiner sie nannte), und ist er als Erlös gebucht,
+   ist das ``auszahlung_anderweitig_gebucht`` an dieser Abrechnung — die
+   Voranmeldung seines Monats warnt. Die Zuordnung bleibt.
 
-Steht ein Umsatz schon auf dem Verrechnungskonto dieser Abrechnung — etwa nach der
-Korrektur, die der Befund „anderweitig gebucht“ vorschlägt —, ist er die Auszahlung:
-er wird zugeordnet, der Befund erledigt sich, gebucht wird nur noch eine
-Kursdifferenz, die auf dem Verrechnungskonto stehen bliebe.
+Grenzen: Ohne Nummer im Verwendungszweck entscheiden Stichwort und Betrag. In
+Fremdwährung ist dann geraten, welcher von zwei Umsätzen in der Toleranz zu welcher
+Auszahlung gehört (die Kursdifferenzen sind vertauscht, ihre Summe stimmt), und ein
+Umsatz ohne Nummer kann Treffer werden, bevor der mit der eigenen Nummer auf der Bank
+steht. Einen doppelten Erlös meldet dann ein Befund (Regel 6 oder 8), die
+Zuordnung selbst bleibt falsch.
 
 Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
 Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das
-fast nie. Deshalb gilt dort ein Umsatz mit Stichwort oder Abrechnungsnummer als
-Treffer, wenn er höchstens ``auszahlung_toleranz_prozent`` abweicht; gebucht wird der
+fast nie. Deshalb gilt dort ``auszahlung_toleranz_prozent``; gebucht wird der
 Bankbetrag, die Differenz geht auf die Kursdifferenzkonten (Aufwand bzw. Ertrag aus
 der Währungsumrechnung, ohne Umsatzsteuer — der Umsatz ist mit dem Kurs der
 Abrechnung bemessen, § 16 Abs. 6 UStG).
 
-Gebucht wird „Bank an Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit der
-``transaktion_id`` des Bankumsatzes — damit lässt ``classify`` ihn in Ruhe.
+Steht ein Umsatz schon auf dem Verrechnungskonto dieser Abrechnung — etwa nach der
+Korrektur, die der Befund „anderweitig gebucht“ vorschlägt —, wird nur noch die
+Kursdifferenz gebucht, die dort stehen bliebe. Sonst wird „Bank an
+Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit der ``transaktion_id`` des
+Bankumsatzes gebucht — damit lässt ``classify`` ihn in Ruhe.
 """
 
 from __future__ import annotations
@@ -91,10 +119,15 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_mehrdeutig",
     "auszahlung_anderweitig_gebucht",
     "auszahlung_umgebucht",
+    "auszahlung_andere_nummer",
 }
-# Befunde über einen schon gebuchten Umsatz: überholt, sobald ein Lauf ihn nicht mehr
-# so findet (``gleiche_auszahlungen_ab``)
-_UMSATZBEFUNDE = {"auszahlung_anderweitig_gebucht", "auszahlung_umgebucht"}
+# Befunde über einen bestimmten Umsatz: überholt, sobald ein Lauf ihn nicht mehr so
+# findet (``gleiche_auszahlungen_ab``, Regel 7)
+_UMSATZBEFUNDE = {
+    "auszahlung_anderweitig_gebucht",
+    "auszahlung_umgebucht",
+    "auszahlung_andere_nummer",
+}
 # Text des Befunds „auszahlung_anderweitig_gebucht“ — ``bankdaten`` liest die Tage
 # daraus zurück; beides nur hier ändern
 _SCHON_GEBUCHT = "Der Bankumsatz vom {tag:%d.%m.%Y} ist schon gebucht"
@@ -103,6 +136,8 @@ _SCHON_GEBUCHT_TAG = re.compile(
 )
 _SCHON_GEBUCHT_MEHRERE = "schon gebuchte Bankumsätze passen"
 _TAG = re.compile(r"vom (\d{2})\.(\d{2})\.(\d{4})")
+_ZIFFERN = re.compile(r"[0-9]+")
+_WORT = re.compile(r"[0-9A-Z]+")
 # kürzere Nummern stehen zu leicht zufällig in einem Verwendungszweck, um einen
 # Umsatz deshalb einer anderen Abrechnung zuzuschreiben
 _MINDESTLAENGE = 6
@@ -176,6 +211,8 @@ class _Lauf:
     benutzt: set[UUID] = field(default_factory=set)
     buchungen: dict[UUID, list[Buchungssatz]] = field(default_factory=dict)
     genannt: dict[tuple[UUID, str], set[str]] = field(default_factory=dict)
+    # Wort im Verwendungszweck → Umsätze (Regel 8, erst bei Bedarf gebaut)
+    woerter: dict[str, list[Transaktion]] | None = None
 
 
 def gleiche_auszahlungen_ab(
@@ -193,6 +230,9 @@ def gleiche_auszahlungen_ab(
 
     ``nummern``: (Marktplatz, Nummer) weiterer Abrechnungen desselben Berichts, die
     noch nicht gespeichert sind — ein Umsatz mit einer davon gehört nicht hierher.
+
+    Ergebnis: je offenem Posten ein ``Abgleich``, dazu einer (ohne ``transaktion``)
+    für jede frühere Zuordnung, die Regel 8 jetzt bezweifelt.
     """
     e = kontext.einstellungen
     if abrechnungen is None:
@@ -263,18 +303,47 @@ def gleiche_auszahlungen_ab(
                     and b.posten_nr == p.nr
                     and (neu is None or (b.code, b.text) != (neu.code, neu.text))
                 )
+    # Regel 8: Zuordnungen früherer Läufe ohne die eigene Nummer gegen Umsätze, die
+    # sie nennen und inzwischen als Erlös gebucht sind
+    zweifel: list[Abgleich] = []
+    for a in abrechnungen:
+        for p in a.posten:
+            if (
+                p.art not in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG)
+                or p.bank_transaktion_id is None
+                or p.id in ergebnisse
+            ):
+                continue
+            neu = _zweifel(lauf, a, p)
+            if neu is not None:
+                neue_befunde.setdefault(a.id, []).append(neu)
+                zweifel.append(Abgleich(a, p, befund=neu))
+            ueberholt.extend(
+                b
+                for b in a.offene_befunde
+                if b.code in _UMSATZBEFUNDE
+                and b.posten_nr == p.nr
+                and (neu is None or (b.code, b.text) != (neu.code, neu.text))
+            )
     for b in ueberholt:
         b.erledigt = True
     erledige_befunde(session, [b.id for b in ueberholt])
 
-    for a in {a.id: a for a, _p, _e in offene}.values():
+    erledigt = {b.id for b in ueberholt}
+    betroffen = {a.id: a for a, _p, _e in offene}
+    betroffen.update(
+        (a.id, a)
+        for a in abrechnungen
+        if a.id in neue_befunde or any(b.id in erledigt for b in a.befunde)
+    )
+    for a in betroffen.values():
         befunde = neue_befunde.get(a.id, [])
         if befunde:
             ergaenze_befunde(session, a.id, befunde)
             a.befunde.extend(befunde)
         a.status = status_von(a)
         setze_abrechnungsstatus(session, a.id, a.status)
-    return [ergebnisse[p.id] for _a, p, _e in offene]
+    return [ergebnisse[p.id] for _a, p, _e in offene] + zweifel
 
 
 def _fenster(lauf: _Lauf, p: Marktplatzposten) -> tuple[date, date]:
@@ -315,8 +384,8 @@ def _eigene_nummer(a: Abrechnung, t: Transaktion) -> bool:
 
 
 def _fremd(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
-    """Der Umsatz nennt die Nummer einer anderen bekannten Abrechnung desselben
-    Marktplatzes und nicht die eigene — er gehört zu jener Auszahlung."""
+    """Regel 2: Der Umsatz nennt die Nummer einer anderen bekannten Abrechnung
+    desselben Marktplatzes und nicht die eigene — er gehört zu jener Auszahlung."""
     schluessel = (t.id, a.marktplatz)
     if schluessel not in lauf.genannt:
         text = _text(t)
@@ -326,6 +395,45 @@ def _fremd(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
             if len(n) >= _MINDESTLAENGE and n.upper() in text and _nennt(text, n)
         }
     return bool(lauf.genannt[schluessel] - {a.nummer}) and not _eigene_nummer(a, t)
+
+
+def _andere_nummern(a: Abrechnung, t: Transaktion) -> list[str]:
+    """Regel 4: Zahlen im Verwendungszweck mit der Form der eigenen Nummer (nur
+    Ziffern, gleiche Länge, mindestens ``_MINDESTLAENGE``), wenn der Umsatz die eigene
+    nicht nennt — die Auszahlungsnummer einer Abrechnung, die accounti noch nicht
+    kennt. Leer bei Nummern anderer Form (PayPal-Zeitraum, Shopify ohne ID)."""
+    nummer = a.nummer
+    if not (
+        len(nummer) >= _MINDESTLAENGE and nummer.isascii() and nummer.isdigit()
+    ) or _eigene_nummer(a, t):
+        return []
+    text = _text(t)
+    return [
+        z.group()
+        for z in _ZIFFERN.finditer(text)
+        if len(z.group()) == len(nummer)
+        and (z.start() == 0 or not text[z.start() - 1].isalnum())
+        and (z.end() == len(text) or not text[z.end()].isalnum())
+    ]
+
+
+def _umsaetze(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> list[Transaktion]:
+    """Regeln 1–3: die Bankumsätze, unter denen Treffer und Befund des Postens
+    gesucht werden — im Fenster, in Richtung der Auszahlung, keinem Posten
+    zugeordnet, nicht fremd; nennt einer die eigene Nummer, nur die eigenen."""
+    von, bis = _fenster(lauf, p)
+    umsaetze = [
+        t
+        for t in lauf.bankumsaetze
+        if t.id not in lauf.benutzt
+        and t.id not in lauf.zugeordnet
+        and von <= t.datum <= bis
+        and (t.betrag > 0) == (erwartet > 0)
+        and not _fremd(lauf, a, t)
+    ]
+    return [t for t in umsaetze if _eigene_nummer(a, t)] or umsaetze
 
 
 def _eingrenzen(
@@ -412,33 +520,29 @@ def _in_toleranz(lauf: _Lauf, betrag: Decimal, erwartet: Decimal) -> bool:
     ) * prozent
 
 
+def _passt(lauf: _Lauf, a: Abrechnung, t: Transaktion, erwartet: Decimal) -> bool:
+    """Exakt der erwartete Betrag — in Fremdwährung auch in der Toleranz."""
+    return t.betrag == erwartet or (
+        a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet)
+    )
+
+
 def _kandidaten(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
 ) -> list[Transaktion]:
-    """Freie Bankumsätze mit exakt dem erwarteten Betrag im Zeitfenster — bei
-    Fremdwährung ohne exakten Treffer: mit Stichwort oder Abrechnungsnummer und
-    Betrag in der Toleranz. Frei ist ein offener Umsatz oder einer, der schon nur
-    auf dem Gegenkonto der Abrechnung steht (``_vorgebucht``) — nicht einer mit der
-    Nummer einer anderen Abrechnung (``_fremd``). Mehrere grenzen Stichwort und
+    """Regel 5: unter ``_umsaetze`` die offenen — außer mit einer anderen Nummer
+    (Regel 4) — oder die schon als Geldbewegung auf dem Gegenkonto stehenden
+    (``_vorgebucht``) mit exakt dem erwarteten Betrag, bei Fremdwährung ohne solchen
+    die mit Stichwort oder Nummer in der Toleranz. Mehrere grenzen Stichwort und
     eigene Nummer ein."""
-    von, bis = _fenster(lauf, p)
     frei = [
         t
-        for t in lauf.bankumsaetze
-        if t.id not in lauf.benutzt
-        and von <= t.datum <= bis
-        and (
-            t.id in lauf.offen_ids
+        for t in _umsaetze(lauf, a, p, erwartet)
+        if (
+            (t.id in lauf.offen_ids and not _andere_nummern(a, t))
             # Betrag zuerst: die Buchungen am Umsatz nur lesen, wo er passen kann
-            or (
-                (
-                    t.betrag == erwartet
-                    or (a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet))
-                )
-                and _vorgebucht(lauf, a, t) is not None
-            )
+            or (_passt(lauf, a, t, erwartet) and _vorgebucht(lauf, a, t) is not None)
         )
-        and not _fremd(lauf, a, t)
     ]
     kandidaten = _eingrenzen(
         [t for t in frei if t.betrag == erwartet],
@@ -506,10 +610,9 @@ def _zuordnen(
 def _befund(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
 ) -> Abgleich:
-    """Kein eindeutiger Treffer: mehrdeutig, abweichend, anderweitig gebucht — oder
-    einfach noch nicht auf der Bank."""
+    """Regel 6: kein eindeutiger Treffer — mehrdeutig, abweichend, anderweitig
+    gebucht, umgebucht, eine andere Nummer — oder einfach noch nicht auf der Bank."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
-    von, bis = _fenster(lauf, p)
     kandidaten = _kandidaten(lauf, a, p, erwartet)
     if kandidaten:
         return Abgleich(
@@ -526,21 +629,12 @@ def _befund(
                 posten_nr=p.nr,
             ),
         )
-    frei = [
-        t
-        for t in lauf.bankumsaetze
-        if t.id not in lauf.benutzt
-        and t.id not in lauf.zugeordnet
-        and von <= t.datum <= bis
-        and _erkennbar(lauf, a, t)
-        and not _fremd(lauf, a, t)  # gehört zu einer anderen Abrechnung (M2)
-    ]
+    # nur eigene, sonst keine fremden (Regeln 2, 3)
+    umsaetze = [t for t in _umsaetze(lauf, a, p, erwartet) if _erkennbar(lauf, a, t)]
     anders = [
         t
-        for t in frei
-        if t.id in lauf.offen_ids
-        and t.betrag != erwartet
-        and (t.betrag > 0) == (erwartet > 0)
+        for t in umsaetze
+        if t.id in lauf.offen_ids and t.betrag != erwartet and not _andere_nummern(a, t)
     ]
     if anders:
         (t, *_) = _eingrenzen(anders, lambda t: _eigene_nummer(a, t))
@@ -561,22 +655,23 @@ def _befund(
 
     # Fremdwährung: dieselbe Toleranz wie beim Treffer — die Bank rechnet mit ihrem
     # eigenen Kurs, exakt gleich ist der gebuchte Umsatz fast nie (sonst stünde der
-    # Erlös still doppelt in der Voranmeldung). Nicht „schon gebucht“: ein Umsatz,
-    # der einer anderen Auszahlung zugeordnet ist oder ihre Nummer nennt (``frei``),
-    # und eine Geldbewegung — sonst träfe die Toleranz den Umsatz der vorigen
-    # Auszahlung (Nachprüfung 2 E, M1; 3 E, M2)
-    def passt(t: Transaktion) -> bool:
-        return t.betrag == erwartet or (
-            a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet)
-        )
-
-    gebucht = [t for t in frei if t.id in lauf.gebucht and passt(t)]
-    # mehrere: die eigene Nummer, dann der exakte Betrag (in Fremdwährung Zufall,
-    # die Nummer nicht; in Euro sind ohnehin alle exakt) — sonst alle nennen
-    schon = _eingrenzen(
-        [t for t in gebucht if not _nur_geldbewegung(lauf, t)],
+    # Erlös still doppelt in der Voranmeldung). Ein zugeordneter oder fremder Umsatz
+    # (``_umsaetze``) und eine Geldbewegung sind nicht „schon gebucht“ — sonst träfe
+    # die Toleranz den Umsatz der vorigen Auszahlung (Nachprüfung 2 E, M1; 3 E, M2);
+    # nennt einer die eigene Nummer, nur er (4 E, M3)
+    gebucht = [
+        t for t in umsaetze if t.id in lauf.gebucht and _passt(lauf, a, t, erwartet)
+    ]
+    # mehrere: die eigene Nummer, keine andere, dann der exakte Betrag (in
+    # Fremdwährung Zufall, die Nummer nicht; in Euro sind ohnehin alle exakt) —
+    # sonst alle nennen
+    merkmale: tuple[Callable[[Transaktion], bool], ...] = (
         lambda t: _eigene_nummer(a, t),
+        lambda t: not _andere_nummern(a, t),
         lambda t: t.betrag == erwartet,
+    )
+    schon = _eingrenzen(
+        [t for t in gebucht if not _nur_geldbewegung(lauf, t)], *merkmale
     )
     if schon:
         return Abgleich(a, p, befund=_schon_gebucht(lauf, a, p, schon))
@@ -589,12 +684,79 @@ def _befund(
             for t in gebucht
             if _nur_geldbewegung(lauf, t) and _vorgebucht(lauf, a, t) is None
         ],
-        lambda t: _eigene_nummer(a, t),
-        lambda t: t.betrag == erwartet,
+        *merkmale,
     )
     if umgebucht:
         return Abgleich(a, p, befund=_umgebucht(lauf, a, p, umgebucht))
+    # Regel 4: passt nur ein Umsatz mit einer anderen Nummer, wird er nicht
+    # zugeordnet — er bliebe sonst der falschen Abrechnung, und ihre eigene fände
+    # später ihren Umsatz nicht mehr (Nachprüfung 4 E, M3)
+    andere = [
+        t
+        for t in umsaetze
+        if t.id in lauf.offen_ids
+        and _andere_nummern(a, t)
+        and _passt(lauf, a, t, erwartet)
+    ]
+    if andere:
+        return Abgleich(a, p, befund=_andere_nummer(a, p, andere))
     return Abgleich(a, p)
+
+
+def _nennende(lauf: _Lauf, a: Abrechnung) -> list[Transaktion]:
+    """Umsätze, die die eigene Nummer nennen — über ein Verzeichnis der Wörter im
+    Verwendungszweck, einmal je Lauf gebaut (Regel 8 prüft jede frühere
+    Zuordnung). Eine Nummer, die kein Wort aus Buchstaben und Ziffern ist
+    (PayPal-Zeitraum), findet es nicht — kein Verwendungszweck nennt sie so."""
+    if lauf.woerter is None:
+        lauf.woerter = {}
+        for t in lauf.bankumsaetze:
+            for wort in set(_WORT.findall(_text(t))):
+                if len(wort) >= _MINDESTLAENGE:
+                    lauf.woerter.setdefault(wort, []).append(t)
+    return [t for t in lauf.woerter.get(a.nummer.upper(), []) if _eigene_nummer(a, t)]
+
+
+def _zweifel(lauf: _Lauf, a: Abrechnung, p: Marktplatzposten) -> Befund | None:
+    """Regel 8: Die Auszahlung ist einem Umsatz zugeordnet, der ihre Nummer nicht
+    nennt (Stichwort und Betrag — damals nannte sie keiner). Steht jetzt im Fenster
+    einer mit der Nummer, als Erlös gebucht, sind die Erlöse doppelt: Fehler „schon
+    gebucht“, die Voranmeldung seines Monats warnt. Die Zuordnung bleibt — sie
+    zurückzunehmen hieße, accountis Buchung am anderen Umsatz zu stornieren."""
+    if a.waehrung != "EUR" and p.betrag_eur is None:
+        return None
+    erwartet = -(p.betrag_eur if p.betrag_eur is not None else p.betrag)
+    if not erwartet or len(a.nummer) < _MINDESTLAENGE:
+        return None
+    von, bis = _fenster(lauf, p)
+    eigene = [
+        t
+        for t in _nennende(lauf, a)
+        if von <= t.datum <= bis
+        and t.id not in lauf.zugeordnet
+        and t.id not in lauf.benutzt
+        and t.id in lauf.gebucht
+        and _passt(lauf, a, t, erwartet)
+        and not _nur_geldbewegung(lauf, t)
+    ]
+    if not eigene:
+        return None
+    zugeordnet = next(
+        (t for t in lauf.bankumsaetze if t.id == p.bank_transaktion_id), None
+    )
+    if zugeordnet is None or _eigene_nummer(a, zugeordnet):
+        return None
+    befund = _schon_gebucht(lauf, a, p, eigene)
+    return befund.model_copy(
+        update={
+            "text": (
+                f"{befund.text}. Zugeordnet ist aber der Bankumsatz vom "
+                f"{zugeordnet.datum:%d.%m.%Y}, der {a.nummer} nicht nennt — einer "
+                "von beiden gehört nicht zu dieser Auszahlung; die Zuordnung bleibt, "
+                "gehört er zu einer anderen Abrechnung, bleibt deren Auszahlung offen"
+            )
+        }
+    )
 
 
 def _liste(lauf: _Lauf, umsaetze: list[Transaktion]) -> tuple[str, str]:
@@ -618,9 +780,19 @@ def _schon_gebucht(
         (t,) = schon
         ids = [str(b.id)[:8] for b in _buchungen(lauf, t)]
         befehl = _umbuchung(lauf, a, schon, ids[0] if ids else "<ID>")
+        # Regel 4: nennt er eine andere Nummer, gehört er wohl zu einer noch nicht
+        # importierten Abrechnung — dann erledigt deren Import den Befund
+        andere = _andere_nummern(a, t)
+        vorbehalt = (
+            f" Er nennt {', '.join(andere)}, nicht {a.nummer} — gehört er zu einer "
+            "noch nicht importierten Abrechnung, erst diese importieren, dann "
+            "erledigt sich der Befund. Sonst korrigieren"
+            if andere
+            else " Korrigieren"
+        )
         text = (
             f"{markt} {a.nummer}: {_SCHON_GEBUCHT.format(tag=t.datum)} "
-            f"({', '.join(ids)}) — Erlöse wären doppelt. Korrigieren mit {befehl} "
+            f"({', '.join(ids)}) — Erlöse wären doppelt.{vorbehalt} mit {befehl} "
             "(die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer)"
         )
     else:
@@ -671,6 +843,32 @@ def _umgebucht(
             f"{', '.join(konten) or '?'} gebucht, nicht auf {gegen} — die Auszahlung "
             f"bleibt offen, {gegen} behält den Saldo. Umbuchen mit "
             f"{_umbuchung(lauf, a, umsaetze, ident)}"
+        ),
+        posten_nr=p.nr,
+    )
+
+
+def _andere_nummer(
+    a: Abrechnung, p: Marktplatzposten, umsaetze: list[Transaktion]
+) -> Befund:
+    """WARNUNG ``auszahlung_andere_nummer`` (Regel 4): passt nur ein Umsatz, der eine
+    andere Nummer derselben Form nennt — wohl die Auszahlung einer Abrechnung, die
+    noch nicht importiert ist."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    teile = "; ".join(
+        f"vom {t.datum:%d.%m.%Y} über {eur_text(t.betrag)} € "
+        f"(„{', '.join(_andere_nummern(a, t))}“)"
+        for t in umsaetze
+    )
+    wer = "Der Bankumsatz" if len(umsaetze) == 1 else f"{len(umsaetze)} Bankumsätze"
+    return Befund(
+        code="auszahlung_andere_nummer",
+        schweregrad=Schweregrad.WARNUNG,
+        text=(
+            f"{markt} {a.nummer}: {wer} {teile} passt im Betrag, nennt aber eine "
+            f"andere Nummer statt {a.nummer} — wohl die Auszahlung einer noch nicht "
+            "importierten Abrechnung, nicht zugeordnet. Mit deren Import erledigt "
+            "sich das; ist er doch diese Auszahlung, den Verwendungszweck prüfen"
         ),
         posten_nr=p.nr,
     )

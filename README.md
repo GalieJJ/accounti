@@ -415,9 +415,10 @@ er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bes
 FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`;
 die Bank darf bis `auszahlung_toleranz_prozent` abweichen (Differenz auf die Kursdifferenzkonten).
 Hat eine Regel die Auszahlung schon als Erlös gebucht, nennt der Befund den Befehl zur
-Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab. Nennt der
-Verwendungszweck die Nummer einer anderen Abrechnung, gehört der Umsatz zu ihr — einen
-Transaktionsbericht mit mehreren Auszahlungen daher vor der Korrektur ganz importieren.
+Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab. Die Nummer im
+Verwendungszweck geht dem Betrag vor: Nennt ein Umsatz die eigene, zählt nur er; nennt er die
+einer anderen Abrechnung, gehört er zu ihr — einen Transaktionsbericht mit mehreren
+Auszahlungen daher vor der Korrektur ganz importieren.
 Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
 bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
 Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne
