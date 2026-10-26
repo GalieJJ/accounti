@@ -548,3 +548,49 @@ def test_zurueckgehaltener_umsatz_warnt_auch_ohne_stichwort(umgebung):
     (m,) = gleiche_auszahlungen_ab(s, kontext)
     assert m.befund is not None and m.befund.code == "auszahlung_andere_nummer"
     assert str(tx.id)[:8] in m.befund.text
+
+
+def _ebay_eur(nummer, tag, betrag="100,00"):
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    return ebay_bericht(
+        (
+            "24.09.2026",
+            "Bestellung",
+            f"12-{nummer[-1]}",
+            "Deutschland",
+            betrag,
+            nummer,
+            "",
+        ),
+        (tag, "Auszahlung", "", "", f"-{betrag}", nummer, tag),
+    )
+
+
+def test_schon_gebucht_erledigt_sich_nach_der_korrektur_auch_wenn_mehrdeutig(umgebung):
+    """Simulation (zwei eBay-Abrechnungen über je 100 €, Umsätze ohne Nummer): A ist
+    als Erlös gebucht — „schon gebucht“ an 6009990001; B kommt offen, beide
+    Abrechnungen haben ihn als einzigen Kandidaten (mehrdeutig). Nach der
+    vorgeschlagenen Korrektur passen A und B (mehrdeutig) — der Fehler blieb offen,
+    schlug die Korrektur einer stornierten Buchung vor, die UStVA 09 warnte weiter.
+    Steht kein Erlös mehr da, ist er erledigt."""
+    from accounti.integrationen.lauf import importiere
+
+    s, archiv, kontext = umgebung
+    a = bank(s, date(2026, 9, 30), "100.00", f"{EBAY} AUSZAHLUNG", "eBay")
+    _als_erloes_gebucht(s, a, "84.03", "15.97")
+    importiere(s, archiv, kontext, "ebay", _ebay_eur("6009990001", "30.09.2026"), "x")
+    (befund,) = _offene(s, "6009990001")
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    bank(s, date(2026, 10, 1), "100.00", f"{EBAY} AUSZAHLUNG", "eBay")
+    importiere(s, archiv, kontext, "ebay", _ebay_eur("6009990002", "01.10.2026"), "y")
+    assert not _zugeordnet(s)
+    assert {b.code for b in _offene(s, "6009990001")} == {
+        "auszahlung_anderweitig_gebucht",
+        "auszahlung_mehrdeutig",
+    }
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    gleiche_auszahlungen_ab(s, kontext)
+    (danach,) = _offene(s, "6009990001")
+    assert danach.code == "auszahlung_mehrdeutig", danach.text
+    assert not _ustva_warnungen(s, "2026-09")

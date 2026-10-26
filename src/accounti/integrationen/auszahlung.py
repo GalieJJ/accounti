@@ -440,10 +440,23 @@ def gleiche_auszahlungen_ab(
             neu = ergebnis.befund
             if neu is not None:
                 neue_befunde.setdefault(a.id, []).append(neu)
+            # „mehrdeutig“ sucht nicht nach gebuchten — steht aber gar kein Erlös
+            # mehr da (nach der vorgeschlagenen Korrektur), ist „schon gebucht“
+            # trotzdem überholt (Simulation Nachprüfung 5 E)
+            ohne_erloes = (
+                neu is not None
+                and neu.code == "auszahlung_mehrdeutig"
+                and not _erloese(lauf, a, p, erwartet)
+            )
             ueberholt.extend(
                 b
                 for b in a.offene_befunde
-                if b.posten_nr == p.nr and _ueberholt(b, neu)
+                if b.posten_nr == p.nr
+                and (
+                    _ueberholt(b, None)
+                    if ohne_erloes and b.code == "auszahlung_anderweitig_gebucht"
+                    else _ueberholt(b, neu)
+                )
             )
     # Regel 8: Zuordnungen früherer Läufe ohne die eigene Nummer gegen Umsätze, die
     # sie nennen, oder mit der Nummer einer inzwischen bekannten anderen Abrechnung
@@ -971,6 +984,21 @@ def _befund(
     if andere:
         return Abgleich(a, p, befund=_andere_nummer(a, p, andere), umsaetze=andere)
     return Abgleich(a, p)
+
+
+def _erloese(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> list[Transaktion]:
+    """Die Umsätze, die „schon gebucht“ (Regel 6) nennen könnte: im Fenster, als
+    Erlös (nicht bloß Geldbewegung) gebucht, mit Stichwort oder Nummer oder exakt
+    dem Betrag."""
+    return [
+        t
+        for t in _umsaetze(lauf, a, p, erwartet)
+        if t.id in lauf.gebucht
+        and (_erkennbar(lauf, a, t) or t.betrag == erwartet)
+        and not _nur_geldbewegung(lauf, t)
+    ]
 
 
 def _mehrdeutig(
