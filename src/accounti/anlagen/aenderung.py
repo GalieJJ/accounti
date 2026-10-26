@@ -7,7 +7,11 @@ schon gebucht ist, bleibt: Die AfA wird nach dem Muster des AfA-Laufs neu gerech
 nur dieses Gut betreffen, werden verworfen und neu vorgeschlagen; freigegebene AfA
 bleibt stehen und bekommt eine AfA-Korrektur als Vorschlag (keine Löschung, GoBD
 Rz. 58 ff.). Liegt gebuchte AfA in einem abgeschlossenen Jahr, ist die Änderung
-gesperrt — dort wäre sie eine Bilanzberichtigung.
+gesperrt — dort wäre sie eine Bilanzberichtigung. Grenze: Fachlich gehört die Korrektur
+dann ins erste offene Jahr (Bilanzenzusammenhang, § 4 Abs. 2 Satz 1 EStG; bei falscher
+Nutzungsdauer Restbuchwert auf die Restnutzungsdauer, H 7.4 EStH „Unterlassene oder
+überhöhte AfA“) — der AfA-Plan rechnet aus den Stammdaten ab Anschaffung und kann das
+nicht; der Weg über ``abschluss oeffnen`` ändert festgestellte Jahre rückwirkend.
 
 Ein Abgang lässt sich zurücknehmen, solange seine Buchungen (Restbuchwert, Erlös)
 Vorschläge sind oder storniert wurden; die AfA-Vorschläge des Abgangs werden

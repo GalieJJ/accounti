@@ -204,8 +204,12 @@ def test_eroeffnung_am_wirtschaftsjahresbeginn_und_kein_vortrag(make_session, tm
         assert k.susa.zeile("1200").eb == D("5000")
         assert pruefe_abschluss(k, ["vortragskonten"]) == []
         # Saldovortrag und Jahressperre: nur im Kalenderjahr — abgelehnt statt falsch
-        with pytest.raises(AbschlussError, match="Abweichendes Wirtschaftsjahr"):
+        with pytest.raises(AbschlussError, match="Abweichendes Wirtschaftsjahr") as f:
             trage_vor(s, k, "chef")
+        # N9: der Weg ins Folge-WJ — Eröffnungssalden von Hand
+        assert "accounti abschluss eroeffnung --jahr 2027" in str(f.value)
+        folge = erfasse_eroeffnung(s, 2027, "1200", D("5000"), "chef", einst)
+    assert (folge.datum, folge.beleg_nummer) == (date(2026, 7, 1), "EB-2027")
 
 
 # --- Anlagen: AfA-Lauf über zwei Kalenderjahre ----------------------------------------

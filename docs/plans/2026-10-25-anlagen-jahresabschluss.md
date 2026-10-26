@@ -210,8 +210,27 @@ Kassenbuch: kasse buchen (lfd. Nr., Bestand ≥ 0, unveränderbar, Storno statt 
   je Wirtschaftsjahr — `abschluss pruefen` warnt. **EÜR der Land- und Forstwirte:** den
   Gewinn zeitanteilig auf zwei Kalenderjahre zu verteilen (§ 4a Abs. 2 Nr. 1 EStG, ohne
   Veräußerungsgewinne), rechnet accounti nach Monaten als Hinweis aus, trägt ihn aber in
-  keinen Vordruck ein (Anlage L/ESt). `anlagen afa`/`spiegel` und `kasse liste` bleiben im
-  Kalenderjahr (mit Hinweis).
+  keinen Vordruck ein (Anlage L/ESt). `anlagen afa` und `anlagen spiegel` rechnen im
+  Kalenderjahr (mit Hinweis), der AfA-Lauf je Abschnitt (`--jahr 2025` bis Dezember =
+  Juli–Dezember, `--bis-monat 6` = Januar–Juni; Soll und Gebuchtes je Abschnitt, damit das
+  erste WJ in accounti nicht die AfA des Vor-WJ aus dem Eröffnungssaldo mitbucht); beginnt
+  das WJ nicht am Monatsersten, zählt die AfA des Monats seines Endes zum endenden WJ (der Plan
+  rechnet in Kalendermonaten). `kasse liste --jahr` zeigt das Kalenderjahr (ohne Hinweis).
+  **Eröffnung der Folge-WJ:** Ohne Saldovortrag erfasst man die Eröffnungssalden jedes
+  folgenden Wirtschaftsjahres je Bestandskonto von Hand (`abschluss eroeffnung --jahr
+  <Folgejahr>`, am WJ-Beginn, Belegnummer `EB-<Jahr des WJ-Endes>`, auch in einen
+  festgeschriebenen ersten Monat); ohne sie meldet `pruefen` Bank, Kasse und Anlagen als
+  Fehler.
+- **Änderung nach dem Jahresabschluss** (`anlagen aendern`): Liegt gebuchte AfA in einem
+  abgeschlossenen Jahr, ist die Änderung gesperrt; der einzige Weg in accounti ist
+  `abschluss oeffnen` für jedes Jahr seit der Anschaffung — eine rückwirkende Änderung
+  festgestellter Jahre. Fachlich richtig wäre der Bilanzenzusammenhang (§ 4 Abs. 2 Satz 1
+  EStG): Korrektur im ersten offenen Jahr, bei falscher Nutzungsdauer bzw. unterlassener oder
+  überhöhter AfA den Restbuchwert auf die Restnutzungsdauer verteilen (H 7.4 EStH
+  „Unterlassene oder überhöhte AfA“). Das unterstützt accounti nicht (der AfA-Plan rechnet
+  aus den Stammdaten ab Anschaffung, ein Restbuchwert-Neustart im laufenden Plan fehlt) — mit
+  dem Steuerberater abstimmen. `anlagen aendern --konto` bucht den Buchwert nicht um und
+  `--datum` ins Vorjahr bucht dessen AfA nicht nach; beides nennt der Befehl als Hinweis.
 - **Entnahme** eines Anlageguts wird wie ein Verkauf gerechnet; die umsatzsteuerliche
   Bemessungsgrundlage (§ 10 Abs. 4 UStG) prüft accounti nicht.
 - **GWG und Sammelposten** bleiben mit RBW 0 im Anlagenspiegel (kein fiktiver Abgang). Ob ein

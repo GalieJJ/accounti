@@ -441,7 +441,7 @@ accounti kasse liste --jahr 2026               # laufende Nummer, Tagessaldo, Be
 accounti kasse bestand --gezaehlt 275.10       # Kassensturz
 
 # Jahresabschluss
-accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # nur im ersten Jahr
+accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # im ersten Jahr (abweichendes WJ: jedes)
 accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
 accounti abschluss buchen --jahr 2026          # AfA + Abgrenzungsvorschläge
 accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
@@ -456,7 +456,11 @@ accounti abschluss oeffnen --jahr 2026 --grund "Nachbuchung Beleg 4711" --von "E
 `--jahr` bezeichnet das Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`), bei abweichendem
 Wirtschaftsjahr über das **Kalenderjahr seines Endes**: `abschluss susa --jahr 2026` ist bei Beginn
 1. Juli der Zeitraum 01.07.2025–30.06.2026 (ebenso `pruefen`, `buchen`, `abgrenzungen`, `euer`,
-`eroeffnung`). Saldovortrag und Jahressperre gibt es dort noch nicht (`vortrag` lehnt ab); die EÜR
+`eroeffnung`). Saldovortrag und Jahressperre gibt es dort noch nicht (`vortrag` lehnt ab) — die
+Eröffnungssalden **jedes** folgenden Wirtschaftsjahres erfasst man deshalb je Bestandskonto mit
+`abschluss eroeffnung --jahr <Folgejahr>` (sonst meldet `pruefen` Bank, Kasse und Anlagen als
+Fehler). Der AfA-Lauf rechnet je Abschnitt: `anlagen afa --jahr 2025` ist bei Beginn 1. Juli
+Juli–Dezember 2025, `--bis-monat 6` Januar–Juni (`abschluss buchen` macht beides). Die EÜR
 folgt dem Vordruck des Jahres, in dem das Wirtschaftsjahr **beginnt** (Anlage EÜR 2025 für
 2025/2026, also für `--jahr 2026`), und nennt die zeitanteilige Verteilung nach § 4a Abs. 2 Nr. 1
 EStG nur als Hinweis.
@@ -528,7 +532,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `anlagen aendern`, `anlagen abgang --zuruecknehmen`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
 | Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |

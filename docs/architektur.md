@@ -391,7 +391,9 @@ Ergänzungen in `steuer/`:
   degressiv vom Restbuchwert mit Wechsel zur linearen AfA, GWG, Sammelposten (1/5 der Summe zum
   Jahresende), digital, E-Fahrzeug; Prüfung der Wahlrechte (einheitlicher Sammelposten). *(vorhanden)*
 - `lauf.py` — AfA-Lauf: je Anlagegut Soll bis Monat minus schon gebucht, eine Buchung je
-  AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“. *(vorhanden)*
+  AfA-/Anlagekonto, Begründung im Vorgang, Status „zur Prüfung“; bei abweichendem
+  Wirtschaftsjahr je Abschnitt des Kalenderjahres (`AnlagenEinstellungen.afa_abschnitt` aus
+  `datev.wirtschaftsjahr_beginn`). *(vorhanden)*
 - `abgang.py` — AfA bis Abgangsmonat, Restbuchwert auf 2310/2315, Erlös auf 8801/8820 mit USt aus
   `steuer/`. `spiegel.py` — Anlagenspiegel aus dem Plan. *(vorhanden)*
 - `dienst.py` — Anlegen aus Eingaben, AfA-Tabelle, Beleg oder Zugangsbuchung

@@ -96,7 +96,9 @@ Konfiguration (Kontenrahmen, Wirtschaftsjahr, Firmendaten, Bankkonten, Nummernkr
 Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`, nur Tag und Monat) gilt für den
 Jahresabschluss: `abschluss … --jahr` ist das Kalenderjahr des WJ-Endes (2026 = 01.07.2025–
 30.06.2026); `abschluss vortrag` lehnt ein abweichendes Wirtschaftsjahr noch ab (die
-Jahressperre gilt je Kalenderjahr). Die Registry steht in der globalen Konfiguration:
+Jahressperre gilt je Kalenderjahr) — die Eröffnungssalden jedes folgenden Wirtschaftsjahres
+erfasst man je Bestandskonto mit `abschluss eroeffnung --jahr <Folgejahr>`. Die EÜR nimmt den
+Vordruck des Jahres des WJ-Beginns. Die Registry steht in der globalen Konfiguration:
 
 ```yaml
 gesellschaften:

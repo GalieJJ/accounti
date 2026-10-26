@@ -176,7 +176,9 @@ def _abgrenzung_zeigen(a) -> None:  # type: ignore[no-untyped-def]
 @befehl.command("eroeffnung")
 def eroeffnung(
     jahr: int = typer.Option(
-        ..., help="erstes Geschäftsjahr in accounti (EB am Wirtschaftsjahresbeginn)"
+        ...,
+        help="erstes Geschäftsjahr in accounti (EB am Wirtschaftsjahresbeginn); bei "
+        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt",
     ),
     konto: str = typer.Option(..., "--konto", help="Bestandskonto, z.B. 1200"),
     saldo_text: str = typer.Option(

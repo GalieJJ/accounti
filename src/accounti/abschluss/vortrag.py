@@ -147,7 +147,8 @@ def erfasse_eroeffnung(
     einst: AbschlussEinstellungen,
 ) -> Buchungssatz | None:
     """Eröffnungssaldo eines Bestandskontos im ersten Jahr (Soll positiv), gebucht
-    am Beginn des Wirtschaftsjahres ``jahr``.
+    am Beginn des Wirtschaftsjahres ``jahr`` — bei abweichendem Wirtschaftsjahr in
+    jedem Jahr, denn den Saldovortrag gibt es dort nicht (``trage_vor``).
 
     Setzt den EB-Wert: Ein zweiter Aufruf bucht nur den Unterschied.
     """
@@ -185,7 +186,9 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
             f"({k.wirtschaftsjahr.zeitraum}): Saldovortrag und Jahressperre rechnet "
             "accounti noch im Kalenderjahr und sperrte das falsche Halbjahr — "
             "nicht unterstützt. Prüfen, Saldenliste, Abgrenzungen und EÜR rechnen "
-            "das Wirtschaftsjahr; den Abschluss bitte mit dem Steuerberater"
+            "das Wirtschaftsjahr; den Abschluss bitte mit dem Steuerberater. Die "
+            "Eröffnungssalden des folgenden Wirtschaftsjahres je Bestandskonto: "
+            f"accounti abschluss eroeffnung --jahr {jahr + 1} --konto … --saldo …"
         )
     if ist_gesperrt(session, jahr):
         raise AbschlussError(f"Geschäftsjahr {jahr} ist schon abgeschlossen")
