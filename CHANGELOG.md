@@ -523,8 +523,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Erfolgsmeldungen der Prüfung, „nicht gefunden“/„Methode nicht erlaubt“ und „Formular zu
   groß“ erscheinen in der Sprache der Oberfläche, Status, Belegart und Profil der E-Rechnung
   lesbar statt als Rohwert („zur Prüfung“ statt `pruefung`), „Strg“ englisch „Ctrl“;
-  Unicode-Ziffern („²“, „٩“, „４９３０“) in Seite, Steuerschlüssel und Konten gaben 500 oder
-  galten als Zahl bzw. Konto (jetzt nur ASCII-Ziffern, sonst 422); Fehler und Eingaben des
+  Unicode-Ziffern („²“, „٩“, „４９３０“) in Seite, Steuerschlüssel, Konten und Zeitraum der
+  USt-VA gaben 500 oder galten als Zahl bzw. Konto (jetzt nur ASCII-Ziffern, sonst 422);
+  Fehler und Eingaben des
   Storno-Formulars landeten im Korrektur-Formular; die Sprachwahl auf einer Antwort auf ein
   POST endete mit 405 (jetzt zurück zur Ansicht); eine fehlerhafte `abschluss.kontenzuordnung`
   gab beim Freigeben, Korrigieren und Stornieren 500 statt 409 mit Meldung; ein Doppelklick

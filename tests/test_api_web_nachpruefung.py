@@ -152,6 +152,25 @@ def test_konto_mit_unicode_ziffern_422(qw, konto):
     assert konten <= {"4980"}
 
 
+def test_ustva_zeitraum_mit_unicode_ziffern_422_ohne_code(qw):
+    client = qw.web.angemeldet("fritz")
+    daten = {
+        "csrf": csrf(client),
+        "zeitraum": "２０２６-09",
+        "einmalcode": qw.web.personen["fritz"].codes[-1],
+    }
+    r = client.post("/freigaben/ustva", data=daten, headers=EN)
+    assert r.status_code == 422 and "Period not understood" in r.text
+    assert (
+        zaehle(
+            qw.web.umgebung.system,
+            "SELECT count(*) FROM auth_wiederherstellungscodes "
+            "WHERE verbraucht_am IS NOT NULL",
+        )
+        == 0
+    )
+
+
 def _anfrage_mit_laenge(laenge: str):  # noqa: ANN202
     """POST mit ``Content-Length: laenge`` und dem Körper ``a=1`` (ohne Server)."""
     from types import SimpleNamespace

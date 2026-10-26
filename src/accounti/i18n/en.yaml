@@ -85,6 +85,7 @@ Zahlungslauf %(nr)s hat sich seit der Anzeige geändert — bitte neu laden und 
 "Zahlungslauf %(nr)s freigegeben von %(person)s: %(anzahl)s Zahlungen über %(summe)s €.": "Payment run %(nr)s approved by %(person)s: %(anzahl)s payments totalling %(summe)s €."
 Erste Freigabe von %(person)s — das Vier-Augen-Prinzip verlangt eine zweite Person.: First approval by %(person)s — the four-eyes principle requires a second person.
 Umsatzsteuer-Voranmeldung %(zeitraum)s freigegeben von %(person)s — Kz 83 %(kz83)s €.: USt-VA %(zeitraum)s approved by %(person)s — box 83 %(kz83)s €.
+Zeitraum unverständlich — erwartet z.B. 2026-08, 2026-Q3: Period not understood — expected e.g. 2026-08, 2026-Q3
 
 # --- Monate ---------------------------------------------------------------------------
 Januar: January
