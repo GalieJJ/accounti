@@ -446,21 +446,31 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Posten nehmen an der Zuordnung teil: Erstattungen (Zahlung in Gegenrichtung) treffen
   Gutschriften und Guthaben — auch bei Lieferanten —, nennt der Verwendungszweck
   Rechnung und Gutschrift, wird saldiert, und eine Zahlung „Rest abzüglich Guthaben“
-  wird vorgeschlagen. Neu: `opos verrechnen <Nr> <Nr>…` (gegenläufige Posten desselben
-  Kontakts, ohne Buchung, Tabelle `verrechnungen`, Journal `posten_verrechnet`) und
-  `opos zuordnen --transaktion <ID> --posten <Nr>…` (Handzuordnung, freigegeben wie
-  `opos bestaetigen`); `bank offen` zeigt die Umsatz-IDs. Beim erkannten Kunden mit genau
-  einem offenen Posten wird eine Überzahlung vorgeschlagen. Der Mahnlauf mahnt keinen
-  Kunden mit Guthaben, sondern nennt `opos verrechnen`; die Prüfregel `op_alter` meldet
-  ein Guthaben als Hinweis statt als Fehler. Alembic-Migration `a14acef69fae`
-  (`verrechnungen`, `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`,
-  `ausgangspositionen.elektronisch`) — **nach dem Update `accounti db upgrade`**
+  wird vorgeschlagen; der Gutschriftanteil einer Saldozahlung heißt in der Buchung
+  „Verrechnung …“ (nicht „Erstattung“). Als Guthaben zählen nur Posten derselben Richtung —
+  die Verbindlichkeit desselben Kontakts ist bei einem Zahlungseingang keins (keine
+  Aufrechnung über zwei Personenkonten, auch nicht in der Handzuordnung). Neu: `opos
+  verrechnen <Nr> <Nr>…` (gegenläufige Posten desselben Kontakts, ohne Buchung, frühestens
+  am Belegdatum beider Posten und am Tag der Zahlung, aus der ein Guthaben stammt; Tabelle
+  `verrechnungen` nur anfügen — unter SQLite per Trigger, im Bestandsabgleich von `journal
+  pruefen` —, Journal `posten_verrechnet`) und `opos zuordnen --transaktion <ID> --posten
+  <Nr>…` (Handzuordnung, freigegeben wie `opos bestaetigen`); `bank offen` zeigt die
+  Umsatz-IDs. Beim erkannten Kunden mit genau einem offenen Posten wird eine Überzahlung
+  vorgeschlagen. Der Mahnlauf mahnt keinen Kunden mit Guthaben, sondern nennt `opos
+  verrechnen`; die Prüfregel `op_alter` meldet ein Guthaben als Hinweis statt als Fehler.
+  Alembic-Migration `a14acef69fae` (`verrechnungen` mit SQLite-Triggern,
+  `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`, `ausgangspositionen.elektronisch`) —
+  **nach dem Update die Datenbank migrieren** (`accounti db upgrade`, siehe
+  [Upgrades](docs/betrieb.md#upgrades)), sonst scheitern Befehle an den neuen Spalten
 - **Zahlungszuordnung: Belegnummer nur an Wortgrenzen, fremder Zahler nur als Vorschlag**
   (B5): „2026-0315“ trifft nicht mehr das Datum in „EREF+20260315…“ als Teil einer
   längeren Zahl oder IBAN; nennt der Zweck nur Posten eines anderen Kontakts als des
-  erkannten Zahlers, hat der Zahler Vorrang und gebucht wird nichts automatisch; ist der
-  Zahler unbekannt und steht die Nummer nur als Datum im Zweck („EREF+20260315-0042“
-  für 2026-0315), bleibt es ein Vorschlag
+  erkannten Zahlers, hat der Zahler Vorrang und gebucht wird nichts automatisch. Steht
+  die Nummer nur als Datum im Zweck — zusammenhängend („EREF+20260315-0042“) oder mit
+  Trennzeichen anders gegliedert („Lieferung vom 2026-03-15“, „2026/03/15“) —, bleibt es
+  bei unbekanntem Zahler ein Vorschlag (eine Nummer ohne Trennzeichen wie „20260315“ ist
+  vom Datum nicht zu unterscheiden und deshalb ohne Zahler nie automatisch); beim
+  erkannten Zahler entscheidet dann der eindeutige Betrag
 - **Nummernformat ohne `{jahr}`** (B7): zählt über den Jahreswechsel weiter (statt am
   1. Januar mit `IntegrityError` stehen zu bleiben), beginnt hinter dem höchsten bisherigen
   Stand und überspringt schon vergebene Nummern; das Format wird beim Laden geprüft
@@ -473,18 +483,24 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Folgemonats der Lieferung (§ 13 Abs. 1 Nr. 6, § 18b Satz 2 UStG); eine
   Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Liegt der Monat
   festgeschrieben, bricht die Verbuchung mit Hinweis auf Öffnen und Berichtigung ab statt
-  still später zu buchen. `rechnung ausstellen` weist ein Rechnungsdatum in der Zukunft
-  oder in einem festgeschriebenen Monat ab (vor der Nummernvergabe) und weist auf einen
-  festgeschriebenen Leistungsmonat hin
+  still später zu buchen; ist die Voranmeldung des Zeitraums schon übermittelt, nennt sie
+  die berichtigte Voranmeldung (§ 153 Abs. 1 AO). `rechnung ausstellen` weist ein
+  Rechnungsdatum in der Zukunft oder in einem festgeschriebenen Monat ab (vor der
+  Nummernvergabe) und weist auf einen festgeschriebenen Leistungsmonat hin
 - **Leistungsort von Dienstleistungen an Privatkunden** (B9): § 3a Abs. 1 bzw. Abs. 3 Nr. 3
   Buchst. c UStG — deutsche Steuer auch für EU- und Drittlandskunden; OSS nur noch für
   Fernverkäufe und die neue Positionsart `rechnung position --elektronisch` (§ 3a Abs. 5
-  UStG). Elektronische Leistungen an Privatkunden im Drittland (§ 3a Abs. 4) werden
-  weiterhin abgelehnt (Kategorie O)
+  UStG). Elektronische Leistungen an Privatkunden im Drittland (§ 3a Abs. 5 Satz 1 UStG,
+  Ort am Wohnsitz) werden weiterhin abgelehnt (Kategorie O). Sonderorte des § 3a Abs. 3
+  (Grundstück, Vermietung von Beförderungsmitteln, Veranstaltungen, Vermittlung) und
+  Beförderungen (§ 3b) an Privatkunden erkennt accounti nicht — sie gelten als im Inland
+  ausgeführt
 - **Rechnungen an Privatkunden ohne E-Mail, Kleinbetragsrechnung** (B16): fehlen E-Mail,
   PLZ oder Ort, wird die Rechnung nach EN 16931 statt XRechnung erzeugt (ZUGFeRD-Profil
-  EN 16931, `factur-x.xml`, geprüft von Mustang; KoSIT nur für XRechnung); über 250 €
-  braucht sie PLZ und Ort, bis 250 € genügt der Name (§ 33 UStDV)
+  EN 16931, `factur-x.xml`, geprüft von Mustang; KoSIT nur für XRechnung). Über 250 €
+  braucht jede Rechnung — auch die XRechnung an Unternehmen — Straße oder Postfach, PLZ und
+  Ort des Empfängers (§ 14 Abs. 4 Satz 1 Nr. 1 UStG, Abschn. 14.5 Abs. 2 UStAE), bis 250 €
+  genügt der Name (§ 33 UStDV)
 - **§ 286-Hinweis** (B10): mit `mahnwesen.hinweis_30_tage: true` tragen Rechnungen an
   Verbraucher den Hinweis nach § 286 Abs. 3 BGB (bisher nahm nur der Mahnlauf ihn an)
 - **Offene Posten zum Stichtag** (B8): `opos liste|staffel --stichtag` zeigen den Stand

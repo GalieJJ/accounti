@@ -210,8 +210,8 @@ accounti rechnung pruefen ./eingang/rechnung.xml --kosit
 
 # Ausgangsrechnung schreiben und als XRechnung ausstellen (Firmendaten: config/accounti.yaml)
 scripts/pruefwerkzeuge_installieren.sh
-accounti rechnung neu --name "Kunde GmbH" --plz 10115 --ort Berlin \
-  --ust-id DE123456789 --email rechnung@kunde.example
+accounti rechnung neu --name "Kunde GmbH" --strasse "Kundenstraße 8" --plz 10115 \
+  --ort Berlin --ust-id DE123456789 --email rechnung@kunde.example
 accounti rechnung position <ID> --text "Beratung" --preis 120 --menge 8 --einheit HUR --leistung
 accounti rechnung zeigen <ID>
 accounti rechnung ausstellen <ID>     # Nummer, XRechnung + ZUGFeRD-PDF, Prüfung → rechnungen/
@@ -225,10 +225,13 @@ accounti rechnung position <ID> --text "Minderung wegen Mangel" --preis 100
 Ausgangsrechnungen bucht `opos verbuchen` im Monat der Leistung (§ 13 Abs. 1 Nr. 1
 Buchst. a UStG): Lag das Leistungsdatum in einem früheren Monat als die Rechnung, gilt das
 Leistungsdatum — eine ig. Lieferung gehört in den Rechnungsmonat, spätestens den Monat nach
-der Lieferung, eine Gutschrift in ihren eigenen Monat. Rechnungen an Privatkunden ohne
-E-Mail, PLZ oder Ort entstehen nach EN 16931 statt als XRechnung (bis 250 € genügt der
-Name, § 33 UStDV). Dienstleistungen an Privatkunden sind im Inland steuerbar; OSS gilt für
-Fernverkäufe und `rechnung position --elektronisch` (§ 3a Abs. 5 UStG).
+der Lieferung, eine Gutschrift in ihren eigenen Monat; ist die Voranmeldung dieses
+Zeitraums schon übermittelt, weist `opos verbuchen` auf die Berichtigung hin. Über 250 €
+braucht jede Rechnung Straße oder Postfach, PLZ und Ort des Empfängers (§ 14 Abs. 4
+Satz 1 Nr. 1 UStG). Rechnungen an Privatkunden ohne E-Mail, PLZ oder Ort entstehen nach
+EN 16931 statt als XRechnung (bis 250 € genügt der Name, § 33 UStDV). Dienstleistungen an
+Privatkunden sind im Inland steuerbar; OSS gilt für Fernverkäufe und `rechnung position
+--elektronisch` (§ 3a Abs. 5 UStG).
 
 ### Offene Posten
 
