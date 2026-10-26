@@ -417,6 +417,7 @@ accounti marktplatz import paypal ./aktivitaeten.csv     # PayPal ist ein eigene
 accounti marktplatz import shopify ./auszahlung.csv --laender ./bestellungen.csv
 accounti marktplatz liste                                # Status und Befunde je Abrechnung
 accounti marktplatz abgleichen                           # Auszahlungen ↔ Bankumsätze
+accounti marktplatz zuordnen 11223344556 3f21e8e4        # Bankumsatz von Hand zuordnen
 accounti marktplatz oss --quartal 2026-Q3                # OSS-Quartalsmeldung
 
 accounti datev stammdaten --ausgabe ./export             # Debitoren/Kreditoren
@@ -443,7 +444,12 @@ Hat eine Regel die Auszahlung schon als Erlös gebucht, nennt der Befund den Bef
 Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab. Die Nummer im
 Verwendungszweck geht dem Betrag vor: Nennt ein Umsatz die eigene, zählt nur er; nennt er die
 einer anderen Abrechnung, gehört er zu ihr — einen Transaktionsbericht mit mehreren
-Auszahlungen daher vor der Korrektur ganz importieren.
+Auszahlungen daher vor der Korrektur ganz importieren. Eine unbekannte Zahl, die wie eine
+Auszahlungsnummer desselben Marktplatzes aussieht (gleiche Länge, gleicher Anfang), hält den
+Umsatz zurück; ohne Nummer ist die Zuordnung geraten (Hinweis), und passt ein Umsatz zu zwei
+Abrechnungen, bekommt ihn keine. Wo der Abgleich nicht entscheidet, ordnet `marktplatz
+zuordnen <Nummer> <Umsatz>` ausdrücklich zu (die Befunde nennen den Befehl mit der Umsatz-ID;
+eine bisherige Zuordnung wird dabei storniert, `--loesen` löst nur).
 Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
 bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
 Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne

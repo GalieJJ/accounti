@@ -36,7 +36,8 @@ Nachprüfungen 1–5 E):
    mehrere, ist das ``auszahlung_mehrdeutig`` — es wird nicht geraten. Ebenso, wenn
    derselbe Umsatz der einzige Kandidat der Auszahlungen mehrerer Abrechnungen ist:
    keine bekommt ihn, jede warnt. Deshalb gleicht auch der Import einer einzelnen
-   Abrechnung alle ab. Nennt der Treffer die eigene Nummer nicht, ist die Zuordnung
+   Abrechnung alle ab, ein Bericht mit mehreren erst, wenn alle gespeichert sind.
+   Nennt der Treffer die eigene Nummer nicht, ist die Zuordnung
    geraten — das sagt ein Hinweis (``zuordnung_ohne_nummer``) mit dem Befehl aus
    Regel 9.
 6. Ohne Treffer gilt der erste dieser Befunde: ein als Erlös gebuchter mit passendem
@@ -86,7 +87,8 @@ Nummer auf der Bank steht (dann Regel 8). Richtig stellt das ``marktplatz zuordn
 Eine Bankreferenz mit denselben zwei ersten Ziffern hält Regel 4 zurück (Warnung,
 Regel 9). In Fremdwährung findet der Abgleich eine Auszahlung ohne Stichwort und
 ohne Nummer gar nicht — ohne Befund, die Kontierung bucht sie dann nach den Regeln;
-``bank_stichworte`` deshalb nur leeren, wer keine Abrechnungen importiert.
+``bank_stichworte`` deshalb nur leeren, wer keine Abrechnungen importiert (sonst warnt
+der Import: ``bank_stichworte_leer``).
 
 Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
 Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das

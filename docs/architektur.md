@@ -166,7 +166,15 @@ eigenes Konto mit Guthaben).
   die Voranmeldung). Ein Lauf erledigt einen Befund über einen Umsatz, den er nicht mehr so
   findet; eine Geldbewegung auf einem anderen Konto ist `auszahlung_umgebucht` (Warnung);
   steht ein als Erlös gebuchter Umsatz mit der eigenen Nummer neben einer früheren Zuordnung
-  ohne sie, ist das „schon gebucht“. Die Regel steht vollständig im Docstring des Moduls.
+  ohne sie, ist das „schon gebucht“, offen oder umgebucht `auszahlung_zweifel` (ebenso, wenn
+  der zugeordnete Umsatz die Nummer einer inzwischen bekannten anderen Abrechnung nennt).
+  „Dieselbe Form“ (Regel 4) heißt gleiche Länge und dieselben zwei ersten Ziffern, nicht
+  hinter einer Kunden-/Mandatsangabe; ein Umsatz, der einziger Kandidat zweier Abrechnungen
+  ist, bleibt offen (mehrdeutig), deshalb gleicht auch der Import einer Abrechnung alle ab;
+  eine Zuordnung ohne Nummer ist ein Hinweis. `ordne_zu` (`marktplatz zuordnen`) ordnet von
+  Hand zu oder löst (Storno der Bankbuchung, Journal, Hinweis als Merkmal für den Abgleich);
+  `Abgleich.umsaetze` hält `bank lauf` davon ab, einen Umsatz mit Befund zu kontieren. Die
+  Regel steht vollständig im Docstring des Moduls.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
 - `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je

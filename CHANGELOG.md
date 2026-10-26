@@ -284,6 +284,18 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **Geschäftsvorfall-Engine**: Inland, EU B2C (OSS), EU B2B (Reverse Charge), Drittland
 - Tests für Klassifikation, DATEV-Export, USt, OSS und EU-Steuersätze
 - CI-Pipeline (GitHub Actions)
+- **`accounti marktplatz zuordnen <Nummer> <Umsatz>`** (Nachprüfung 5 E, M4/N1): ordnet einen
+  Bankumsatz ausdrücklich der Aus- oder Einzahlung einer Abrechnung zu, wo der Abgleich nicht
+  entscheidet (Bankreferenz, die wie eine Auszahlungsnummer aussieht; mehrere passende
+  Umsätze; eine Zuordnung ohne Nummer, die ein späterer Umsatz bezweifelt). Eine bisherige
+  Zuordnung des Umsatzes oder der Auszahlung wird dabei gelöst (accountis Bankbuchung
+  storniert, `--datum` für einen abgeschlossenen Zeitraum), danach gleicht accounti alles neu
+  ab — der frei gewordene Umsatz findet seine Abrechnung. `--loesen` löst nur, und der Abgleich
+  nimmt den Umsatz für diese Auszahlung nicht wieder. Ein als Erlös gebuchter Umsatz wird erst
+  mit `korrigiere` umgebucht (die Meldung nennt den Befehl); Betrag und Richtung müssen passen.
+  Recht „buchen“ wie `korrigiere`, Journal (`auszahlung_zugeordnet`/`auszahlung_geloest`) mit
+  der handelnden Person, Hinweis an der Abrechnung; die Befunde des Abgleichs nennen den Befehl
+  mit der Umsatz-ID
 
 ### Geändert
 - **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
@@ -539,6 +551,41 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   import` und `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
   Auszahlung buchen); der Jahresabschluss prüft die Verrechnungskonten der Marktplätze
   (1361–1363)
+- **Marktplatz: echte Auszahlung mit Bankreferenz nicht zugeordnet, still doppelter Erlös**
+  (Nachprüfung 5 E, M4): Nannte der Verwendungszweck statt der Abrechnungsnummer eine andere
+  Zahl derselben Länge (`EREF 4711000815`, `KD 40123456789`), hielt der Abgleich den Umsatz für
+  die Auszahlung einer noch nicht importierten Abrechnung — nicht zugeordnet, `bank lauf`
+  buchte ihn im selben Lauf per Regel als Erlös, die UStVA schwieg bis zum nächsten Abgleich;
+  nach dem Zusammenführen mit #31 wäre er für immer offen geblieben. Als fremde
+  Auszahlungsnummer zählt jetzt nur eine Zahl mit denselben zwei ersten Ziffern (die Nummern
+  eines Marktplatzes laufen fort) und nicht hinter einer Kunden-, Mandats-, Konto- oder
+  Rechnungsangabe; die Warnung `auszahlung_andere_nummer` nennt `marktplatz zuordnen`. `bank
+  lauf` kontiert keinen Umsatz, über den der Abgleich desselben Laufs einen Befund hat, auch
+  nicht aus einem Beleg. Ist derselbe Umsatz ohne Nummer der einzige Kandidat zweier
+  Abrechnungen, bekommt ihn keine (`auszahlung_mehrdeutig` an beiden, vorher die zuerst
+  geprüfte); dafür gleicht auch der Import einer einzelnen Abrechnung alle ab — eine Warnung,
+  die sich mit ihm erledigt, ist sofort erledigt. Eine Zuordnung ohne Nummer im
+  Verwendungszweck ist geraten und sagt das als Hinweis (`zuordnung_ohne_nummer`). Ein Bericht
+  mit mehreren Abrechnungen gleicht erst ab, wenn alle gespeichert sind. „Schon gebucht“ gilt
+  mit exakt dem erwarteten Betrag auch ohne Stichwort (wie der Treffer); ohne `bank_stichworte`
+  warnt der Import (`bank_stichworte_leer`) — in Fremdwährung erkennt der Abgleich eine
+  Auszahlung ohne Stichwort und Nummer nicht, die Kontierung buchte sie als Erlös
+- **Marktplatz: bezweifelte Zuordnung ohne Ausweg** (Nachprüfung 5 E, N1): Kam der Umsatz mit
+  der eigenen Nummer nach einer Zuordnung ohne sie, blieb die Zuordnung, auch nach der
+  vorgeschlagenen Korrektur — das Verrechnungskonto behielt einen Rest, die andere Abrechnung
+  stand für immer „gebucht“ ohne Befund (mit #31 bleibt der eigene Umsatz offen, dann kam gar
+  kein Befund). Jetzt warnt der Abgleich (`auszahlung_zweifel`), solange der Umsatz mit der
+  Nummer offen oder als Geldbewegung auf dem Verrechnungskonto steht, ebenso wenn der
+  zugeordnete Umsatz die Nummer einer inzwischen bekannten anderen Abrechnung nennt; der
+  Befund — auch der Fehler „schon gebucht“ — nennt `marktplatz zuordnen`, das die Zuordnung
+  löst und beide richtig stellt. Die Ausgabe von `marktplatz abgleichen` und `bank lauf` zählt
+  eine bezweifelte Zuordnung nicht mehr als „offen“
+- **Marktplatz: eigene Nummer außerhalb der Toleranz ohne Befund** (Nachprüfung 5 E, N2): Ein
+  Umsatz mit der eigenen Abrechnungsnummer, vor dem Import als Erlös gebucht, bekam keinen
+  Befund, wenn sein Betrag außerhalb der Toleranz lag (falscher `--kurs`, Teilbetrag) — die
+  UStVA schwieg bei doppeltem Erlös. Jetzt „schon gebucht“ (Fehler, mit beiden Beträgen, die
+  Voranmeldung des Bankmonats warnt), nach der Korrektur `auszahlung_abweichung`; „schon
+  gebucht“ geht einer Abweichung vor
 - **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines
   Tracebacks beim Schreiben (und einer verwaisten Datei im Archiv) prüft der Import die Sperre
   vor dem Ablegen und meldet klar, was zu tun ist; `--buchungsdatum offen|JJJJ-MM-TT` bucht die
