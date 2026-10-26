@@ -269,9 +269,17 @@ _PFLICHTFELDER: dict[Belegart, tuple[str, ...]] = {
 }
 
 
+def _ohne_steuer_in_der_summe(werte: dict[str, Any]) -> bool:
+    netto, brutto = werte["netto"], werte["brutto"]
+    return netto is None or brutto is None or abs(netto - brutto) <= TOLERANZ
+
+
 def _fehlende_felder(art: Belegart, werte: dict[str, Any]) -> list[str]:
     """Pflichtfelder ohne Wert. Als Steuerangabe zählt auch ein Hinweis statt des
-    Steuerausweises (§ 13b, ig. Lieferung, § 19, § 4 UStG — ``steuerkennzeichen``)."""
+    Steuerausweises (§ 13b, ig. Lieferung, § 19, § 4 UStG — ``steuerkennzeichen``) —
+    aber nur, wenn Netto und Brutto gleich sind: sonst weist die Rechnung Steuer aus,
+    deren Zeile nicht gelesen wurde (Nachprüfung C, N1)."""
+    kennzeichen = werte.get("steuerkennzeichen")
     vorhanden = {
         "Lieferant": werte["lieferant_name"],
         "Belegnummer": werte["belegnummer"],
@@ -279,7 +287,7 @@ def _fehlende_felder(art: Belegart, werte: dict[str, Any]) -> list[str]:
         "Bruttobetrag": werte["brutto"],
         "Steuerausweis": werte["steuer"]
         if werte["steuer"] is not None
-        else werte.get("steuerkennzeichen"),
+        else (kennzeichen if _ohne_steuer_in_der_summe(werte) else None),
     }
     return [f for f in _PFLICHTFELDER.get(art, ()) if vorhanden[f] is None]
 
@@ -436,7 +444,9 @@ class BelegErkenner:
                     vom_llm.append("Positionen")
                 fehlend = _fehlende_felder(belegart, werte)
 
-        betrag = werte["netto"] or werte["brutto"]
+        # ohne Steuerzeile brutto: eine Position ohne Satz bucht brutto (zur Prüfung),
+        # der offene Posten steht brutto — netto stünde dagegen (Nachprüfung C, N1)
+        betrag = werte["brutto"] or werte["netto"]
         if not positionen and belegart in _PFLICHTFELDER and betrag:
             positionen = [
                 Belegposition(
@@ -454,13 +464,20 @@ class BelegErkenner:
                 "Rechenprobe stimmt nicht (Netto + Steuer ≠ Brutto oder Vorzeichen "
                 "uneinheitlich)"
             )
-        if extrakt.korrektur == "gutschrift" and extrakt.vorzeichen_gedreht:
-            # § 14 Abs. 2 S. 2 UStG: „Gutschrift“ heißt auch die Abrechnung durch den
-            # Leistungsempfänger — die wäre keine Minderung, sondern ein Erlös
+        if extrakt.vorzeichen_gedreht:
+            # Das Minus ist eine Deutung des Titels, nicht gedruckt: der Mensch
+            # bestätigt es (Nachprüfung C, M1). § 14 Abs. 2 S. 2 UStG: „Gutschrift“
+            # heißt auch die Abrechnung durch den Leistungsempfänger — ein Erlös
             gruende.append(
-                "Gutschrift mit positiven Beträgen als Minderung (Rechnungskorrektur) "
-                "übernommen — ist es eine Abrechnung des Leistungsempfängers (§ 14 "
-                "Abs. 2 S. 2 UStG), ist sie kein Aufwand: prüfen"
+                "Vorzeichen gedreht: Korrekturbeleg mit positiven Beträgen als "
+                "Minderung übernommen"
+                + (
+                    " — ist es eine Abrechnung des Leistungsempfängers (§ 14 Abs. 2 "
+                    "S. 2 UStG), ist sie kein Aufwand"
+                    if extrakt.korrektur == "gutschrift"
+                    else ""
+                )
+                + "; ist es keine Korrektur: belege freigeben … --vorzeichen umkehren"
             )
         if vom_llm:
             gruende.append("vom LLM ergänzt, bitte prüfen: " + ", ".join(vom_llm))

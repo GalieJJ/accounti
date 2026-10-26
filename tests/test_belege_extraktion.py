@@ -235,6 +235,90 @@ def test_gutschrift_als_posten_einer_rechnung_ist_kein_korrekturbeleg():
     assert e.korrektur is None and e.brutto == Decimal("119.00")
 
 
+RECHNUNG_MIT_FUSSZEILE = """Rahmenwerk Nord GmbH
+USt-IdNr.: DE811907980
+{titel}
+Rechnungsnummer: RW-5
+Rechnungsdatum: 20.10.2026
+
+Summe netto                                        300,00 €
+zzgl. 19 % USt                                      57,00 €
+Rechnungsbetrag                                    357,00 €
+
+{fusszeile}
+"""
+
+
+@pytest.mark.parametrize("titel", ["Rechnung", ""])
+@pytest.mark.parametrize(
+    "fusszeile",
+    [
+        "Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen",
+        "Gutschrift erfolgt nur bei Rücksendung der Ware in Originalverpackung",
+        "Credit notes are issued within 14 days",
+        "Stornorechnung wird bei Rücktritt gesondert erstellt",
+    ],
+)
+def test_korrekturwort_im_satz_ist_kein_belegtitel(titel, fusszeile):
+    """M1 (Nachprüfung C): Ein Satz, der mit „Rechnungskorrektur“ oder „Gutschrift“
+    beginnt, macht aus einer Rechnung keinen Korrekturbeleg — vorher wurde sie negiert
+    (−357) und bei geprüftem Kreditor automatisch gebucht. Titel ist nur eine Zeile aus
+    dem Schlüsselwort (höchstens mit Nummer oder Datum), und nie nach dem Titel
+    „Rechnung“."""
+    e = extrahiere(RECHNUNG_MIT_FUSSZEILE.format(titel=titel, fusszeile=fusszeile))
+    assert e.korrektur is None and not e.vorzeichen_gedreht
+    assert (e.netto, e.steuer, e.brutto) == (
+        Decimal("300.00"),
+        Decimal("57.00"),
+        Decimal("357.00"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("titel", "art"),
+    [
+        ("Gutschrift", "gutschrift"),
+        ("Gutschrift Nr. G-17", "gutschrift"),
+        ("Gutschrift-Nr.: G-17 vom 20.10.2026", "gutschrift"),
+        ("Gutschrift (Rechnungskorrektur)", "korrektur"),
+        ("Rechnungskorrektur zur Rechnung Nr. RE-2026-0042", "korrektur"),
+        ("Rechnungskorrektur", "korrektur"),
+        ("Stornorechnung", "korrektur"),
+        ("Credit Note No. CN-5", "korrektur"),
+        ("GUTSCHRIFT / CREDIT NOTE", "korrektur"),
+        ("Gutschrift Nr. G-17 zur Rechnung RE-5 vom 20.10.2026", "gutschrift"),
+    ],
+)
+def test_korrekturtitel_mit_nummer_oder_datum(titel, art):
+    e = extrahiere(RECHNUNG_MIT_FUSSZEILE.format(titel=titel, fusszeile=""))
+    assert e.korrektur == art
+    assert e.vorzeichen_gedreht and e.brutto == Decimal("-357.00")
+
+
+def test_titel_rechnung_vor_dem_korrekturwort_bleibt_rechnung():
+    """Steht vorher der Titel „Rechnung“, ist eine spätere Zeile „Gutschrift“ eine
+    Zwischenüberschrift (z. B. verrechnete Gutschrift), kein Belegtitel."""
+    e = extrahiere(
+        RECHNUNG_MIT_FUSSZEILE.format(titel="Rechnung", fusszeile="Gutschrift")
+    )
+    assert e.korrektur is None and e.brutto == Decimal("357.00")
+
+
+@pytest.mark.parametrize(
+    "zeile",
+    [
+        "Gutschrift-Nr.: G-2026-17",
+        "Gutschriftsnummer: G-2026-17",
+        "Credit note no. G-2026-17",
+    ],
+)
+def test_gutschriftnummer_ist_belegnummer(zeile):
+    """N2 (Nachprüfung C): typische Gutschriften gingen mit „fehlt: Belegnummer“ zur
+    Prüfung und wurden ohne Nummer gebucht."""
+    e = extrahiere(f"Rahmenwerk Nord GmbH\nGutschrift\n{zeile}\nDatum: 20.10.2026\n")
+    assert e.belegnummer == "G-2026-17"
+
+
 def test_ohne_abzug_heisst_ausdruecklich_kein_skonto():
     """B09: „ohne Abzug“ ist 0 % — nicht „unbekannt“ (sonst Kontakt-Skonto)."""
     e = extrahiere(REVERSE_CHARGE)
@@ -246,3 +330,27 @@ def test_ohne_abzug_heisst_ausdruecklich_kein_skonto():
     )
     assert (mit.skonto_prozent, mit.skonto_tage) == (Decimal("2"), 10)
     assert mit.zahlungsziel == date(2026, 10, 31)
+
+
+@pytest.mark.parametrize(
+    "zeile",
+    [
+        "Zahlbar innerhalb 30 Tagen ohne Abzug oder innerhalb 10 Tagen mit 2 % Skonto.",
+        "Innerhalb 10 Tagen 2 % Skonto, innerhalb 30 Tagen netto.",
+        "Zahlbar innerhalb von 30 Tagen netto; innerhalb von 10 Tagen 2 % Skonto.",
+    ],
+)
+def test_skontofrist_aus_dem_teilsatz_mit_skonto(zeile):
+    """N5 (Nachprüfung C): Stehen Zahlungsziel und Skonto in einer Zeile, kam die
+    Skontofrist aus der ersten Tagesangabe (30 statt 10 Tage), das Ziel fehlte."""
+    e = extrahiere(f"Firma GmbH\nRechnungsdatum: 01.10.2026\n{zeile}\n")
+    assert (e.skonto_prozent, e.skonto_tage) == (Decimal("2"), 10)
+    assert e.zahlungsziel == date(2026, 10, 31)
+
+
+def test_skonto_ohne_frist_im_teilsatz_nimmt_die_frist_der_zeile():
+    e = extrahiere(
+        "Firma GmbH\nRechnungsdatum: 01.10.2026\nSkonto: 2 %, innerhalb 10 Tagen\n"
+    )
+    assert (e.skonto_prozent, e.skonto_tage) == (Decimal("2"), 10)
+    assert e.zahlungsziel is None

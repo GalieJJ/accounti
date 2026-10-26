@@ -315,6 +315,53 @@ def test_gutschrift_mit_positiven_betraegen_zur_pruefung():
     assert "§ 14 Abs. 2 S. 2" in b.pruef_grund
 
 
+def test_rechnung_mit_korrekturwort_in_der_fusszeile_bleibt_positiv():
+    """M1 (Nachprüfung C): vorher −357 und „erfasst“ — bei geprüftem Kreditor
+    automatisch als Minderung gebucht (Vorsteuer um 114 € falsch)."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    text = RECHNUNG_MIT_FUSSZEILE.format(
+        titel="Rechnung",
+        fusszeile="Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen",
+    )
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.status is BelegStatus.ERFASST, b.pruef_grund
+    assert (b.netto, b.steuer, b.brutto) == (
+        Decimal("300.00"),
+        Decimal("57.00"),
+        Decimal("357.00"),
+    )
+
+
+def test_jeder_negierte_beleg_geht_zur_pruefung():
+    """M1: Auch eine eindeutige Rechnungskorrektur mit positiven Beträgen wird nur
+    vorgeschlagen negiert — das Vorzeichen bestätigt der Mensch (belege freigeben,
+    sonst --vorzeichen umkehren)."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    text = RECHNUNG_MIT_FUSSZEILE.format(titel="Rechnungskorrektur", fusszeile="")
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.brutto == Decimal("-357.00")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Vorzeichen" in b.pruef_grund and "--vorzeichen umkehren" in b.pruef_grund
+
+
+def test_hinweistext_ersetzt_den_steuerausweis_nur_ohne_steuer_in_der_summe():
+    """N1 (Nachprüfung C): Netto 200, Gesamt 238, Steuerzeile ohne Satz und ein
+    Hinweis auf § 19 — vorher „erfasst“ und netto gegen einen Brutto-Posten gebucht.
+    Jetzt fehlt der Steuerausweis, und die Position steht brutto."""
+    text = (
+        "Rahmenwerk Nord GmbH\nRechnung\nRechnungsnummer: RW-9\n"
+        "Rechnungsdatum: 20.10.2026\nSumme netto 200,00 €\nMwSt 38,00 €\n"
+        "Gesamtbetrag 238,00 €\nkein Kleinunternehmer im Sinne des § 19 UStG\n"
+    )
+    b = _erkenne(BelegErkenner(), pdf_mit_text(text))
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "Steuerausweis" in b.pruef_grund
+    (p,) = b.positionen
+    assert (p.netto, p.steuersatz) == (Decimal("238.00"), None)
+
+
 def test_zugferd_minimum_nimmt_steuersatz_aus_der_pdf_ansicht():
     """B05: MINIMUM liefert keinen Satz; die PDF-Ansicht schon — zur Prüfung bleibt
     der Beleg trotzdem (Buchungshilfe, keine E-Rechnung)."""

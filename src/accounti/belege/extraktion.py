@@ -78,6 +78,7 @@ _I = re.IGNORECASE
 _BELEGNUMMER = re.compile(
     r"(?:rechnungs?[\s-]*(?:nr|nummer)|rechnung\s+nr|re[\s-]?nr|"
     r"beleg[\s-]*(?:nr|nummer)|bon[\s-]*nr|quittungs?[\s-]*nr|"
+    r"gutschrifts?[\s-]*(?:nr|nummer)|credit\s*note\s*(?:no|number|#)|"
     r"invoice\s*(?:no|number|#))\.?\s*[:#]?\s*"
     r"([A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*)",
     _I,
@@ -124,6 +125,8 @@ _ZAHLBAR_BIS = re.compile(
     rf"(?:zahlbar\s+bis\s*(?:zum\s*)?|fällig\s*(?:am|bis)?\s*:?\s*)({DATUM})", _I
 )
 _ZAHLBAR_TAGE = re.compile(r"innerhalb\s+(?:von\s+)?(\d{1,3})\s+tag", _I)
+# Teilsätze einer Zahlungsbedingung („…, oder …; bzw. …“) — „2,5 %“ bleibt ganz
+_TEILSATZ = re.compile(r"\s+oder\s+|\s+bzw\.?\s+|;\s*|,\s+", _I)
 # Ausdrücklich ohne Skonto — schlägt ein Skonto aus den Stammdaten (0 % ≠ unbekannt)
 _OHNE_ABZUG = re.compile(
     r"ohne\s+(?:jeden\s+)?(?:skonto|abzug)|rein\s+netto|netto\s+kasse|"
@@ -164,12 +167,30 @@ _KENNZEICHEN: list[tuple[str, re.Pattern[str]]] = [
         ),
     ),
 ]
-# Titel eines Korrekturbelegs (am Zeilenanfang, ohne Betrag in der Zeile)
+# Titel eines Belegs: die ganze Zeile ist das Wort, höchstens mit Nummer, Datum oder
+# Bezug („Rechnungskorrektur zur Rechnung Nr. RE-5“) — nie ein Satz wie
+# „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ (Nachprüfung C, M1)
+_KORREKTUR_WORT = (
+    r"(?:rechnungskorrektur|korrekturrechnung|storno[\s-]*rechnung|rechnungsstorno|"
+    r"gutschrift|credit\s+note)"
+)
+_NUMMER = r"[A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*"  # wie bei der Belegnummer
+_TITELZUSATZ = (
+    r"(?:\s*[-:,]?\s*(?:"
+    rf"(?:nr|nummer|no|number)\b\.?\s*[:#]?\s*{_NUMMER}|#\s*{_NUMMER}"
+    r"|(?:zur|zu|für\s+die)\s+rechnung"
+    rf"(?:\s*(?:nr|nummer)\b\.?)?\s*[:#]?\s*(?:{_NUMMER})?"
+    rf"|(?:vom|datum\s*:?)\s*(?:{DATUM})"
+    r"))*\s*[.:]?\s*$"
+)
+# „Gutschrift (Rechnungskorrektur)“, „Gutschrift / Credit Note“
 _KORREKTUR_TITEL = re.compile(
-    r"^\s*(?:rechnungskorrektur|korrekturrechnung|storno[\s-]*rechnung|"
-    r"rechnungsstorno|gutschrift|credit\s+note)\b",
+    rf"^\s*{_KORREKTUR_WORT}"
+    rf"(?:\s*(?:\(\s*{_KORREKTUR_WORT}\s*\)|[/–-]\s*{_KORREKTUR_WORT}))?"
+    rf"{_TITELZUSATZ}",
     _I,
 )
+_RECHNUNG_TITEL = re.compile(rf"^\s*(?:rechnung|invoice|faktura){_TITELZUSATZ}", _I)
 _KORREKTUR_EINDEUTIG = re.compile(
     r"korrektur|storno|credit\s+note", _I
 )  # „Gutschrift“ allein kann auch § 14 Abs. 2 S. 2 UStG sein
@@ -263,11 +284,30 @@ def _steuerkennzeichen(text: str) -> str | None:
 
 
 def _korrektur(zeilen: list[str]) -> str | None:
-    """„korrektur“ (Rechnungskorrektur, Storno, Credit Note), „gutschrift“ oder None."""
+    """„korrektur“ (Rechnungskorrektur, Storno, Credit Note), „gutschrift“ oder None.
+
+    Zählt nur als Belegtitel unter den ersten 40 Zeilen — und nicht, wenn vorher der
+    Titel „Rechnung“ steht (dann ist es eine Zwischenüberschrift)."""
     for zeile in zeilen[:40]:
-        if _KORREKTUR_TITEL.match(zeile) and not _BETRAG.search(zeile):
+        if _RECHNUNG_TITEL.match(zeile):
+            return None
+        if _KORREKTUR_TITEL.match(zeile):
             return "korrektur" if _KORREKTUR_EINDEUTIG.search(zeile) else "gutschrift"
     return None
+
+
+def _zahlungsteile(zeile: str) -> list[tuple[str, bool]]:
+    """(Text, Skonto?) einer Zahlungsbedingung: „30 Tage ohne Abzug oder 10 Tage mit
+    2 % Skonto“ → Ziel und Skonto je Teilsatz (Nachprüfung C, N5). Nennt der Teilsatz
+    mit „Skonto“ selbst keine Frist („Skonto 2 %, innerhalb 10 Tagen“), bleibt die
+    Zeile ganz Skonto — wie bisher."""
+    if "skonto" not in zeile.lower():
+        return [(zeile, False)]
+    teile = _TEILSATZ.split(zeile)
+    skonto = [t for t in teile if "skonto" in t.lower()]
+    if not any(_ZAHLBAR_TAGE.search(t) for t in skonto):
+        return [(zeile, True)]
+    return [(t, "skonto" in t.lower()) for t in teile]
 
 
 def _betrag_nach_label(zeilen: list[str], muster: re.Pattern[str]) -> Decimal | None:
@@ -338,15 +378,17 @@ def extrahiere(text: str) -> Extrakt:
     ohne_abzug = False
     for zeile in zeilen:
         ohne_abzug = ohne_abzug or bool(_OHNE_ABZUG.search(zeile))
-        if "skonto" in zeile.lower():
-            if (p := _PROZENT.search(zeile)) and e.skonto_prozent is None:
-                e.skonto_prozent = Decimal(p.group(1).replace(",", "."))
-            if (t := _ZAHLBAR_TAGE.search(zeile)) and e.skonto_tage is None:
-                e.skonto_tage = int(t.group(1))
-        elif m := _ZAHLBAR_BIS.search(zeile):
-            e.zahlungsziel = e.zahlungsziel or parse_datum(m.group(1))
-        elif (t := _ZAHLBAR_TAGE.search(zeile)) and e.belegdatum:
-            e.zahlungsziel = e.zahlungsziel or e.belegdatum + timedelta(int(t.group(1)))
+        for teil, ist_skonto in _zahlungsteile(zeile):
+            if ist_skonto:
+                if (p := _PROZENT.search(teil)) and e.skonto_prozent is None:
+                    e.skonto_prozent = Decimal(p.group(1).replace(",", "."))
+                if (t := _ZAHLBAR_TAGE.search(teil)) and e.skonto_tage is None:
+                    e.skonto_tage = int(t.group(1))
+            elif m := _ZAHLBAR_BIS.search(teil):
+                e.zahlungsziel = e.zahlungsziel or parse_datum(m.group(1))
+            elif (t := _ZAHLBAR_TAGE.search(teil)) and e.belegdatum:
+                tage = int(t.group(1))
+                e.zahlungsziel = e.zahlungsziel or e.belegdatum + timedelta(tage)
     if ohne_abzug and e.skonto_prozent is None:
         # „ohne Abzug“: ausdrücklich kein Skonto — nicht das des Kontakts nehmen
         e.skonto_prozent, e.skonto_tage = Decimal("0"), 0
