@@ -750,6 +750,24 @@ class Uebernahme:
     uebernommen: list[str] = field(default_factory=list)
     uebersprungen: list[str] = field(default_factory=list)  # Name schon vergeben
     ungueltig: list[str] = field(default_factory=list)
+    ohne_richtung: list[str] = field(default_factory=list)  # keine Bankseite erkannt
+
+
+def richtung_der_bankseite(
+    soll: str, haben: str, bank_konto: str, kontenrahmen: Kontenrahmen | None = None
+) -> Richtung | None:
+    """Zahlungsrichtung einer Regel aus ihrer Bankseite: Bank im Haben → Ausgabe,
+    Bank im Soll → Einnahme (sonst ein Geldkonto des Kontenrahmens; ``None``, wenn
+    keine Seite ein Geldkonto ist)."""
+    for geld in (
+        lambda k: k == bank_konto,
+        lambda k: kontenrahmen is not None and kontenrahmen.ist_geldkonto(k),
+    ):
+        if geld(haben) and not geld(soll):
+            return Richtung.AUSGABE
+        if geld(soll) and not geld(haben):
+            return Richtung.EINNAHME
+    return None
 
 
 def uebernehme_aus_datei(
@@ -757,12 +775,20 @@ def uebernehme_aus_datei(
     regeldatei: str | Path,
     person: str,
     *,
+    bank_konto: str = "1200",
+    kontenrahmen: Kontenrahmen | None = None,
     probe: bool = False,
     jetzt: datetime | None = None,
 ) -> Uebernahme:
-    """``gelernt_*``-Einträge der Regeldatei → ``kontierungsregeln`` (ohne Richtung,
-    Muster bleibt regulärer Ausdruck — er ist schon ``re.escape``). Die Datei bleibt
-    unverändert; die Einträge löscht der Betreiber von Hand."""
+    """``gelernt_*``-Einträge der Regeldatei → ``kontierungsregeln`` (Muster bleibt
+    regulärer Ausdruck — er ist schon ``re.escape``). Die Datei bleibt unverändert;
+    die Einträge löscht der Betreiber von Hand.
+
+    Die Richtung kommt aus dem Eintrag, sonst aus seiner Bankseite
+    (``richtung_der_bankseite``): Eine übernommene Regel hat Vorrang vor der
+    Regeldatei und buchte ohne Richtung die Erstattung derselben Gegenpartei als
+    Geldabgang. Ohne erkennbare Bankseite bleibt sie ohne Richtung
+    (``Uebernahme.ohne_richtung``)."""
     pfad = Path(regeldatei)
     daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) if pfad.is_file() else []
     ergebnis = Uebernahme()
@@ -780,14 +806,20 @@ def uebernehme_aus_datei(
         try:
             muster = str(eintrag["muster"])
             re.compile(muster)
+            soll, haben = str(eintrag["soll_konto"]), str(eintrag["haben_konto"])
+            richtung = (
+                Richtung(eintrag["richtung"])
+                if eintrag.get("richtung")
+                else richtung_der_bankseite(soll, haben, bank_konto, kontenrahmen)
+            )
             regel = Kontierungsregel(
                 name=name[:100],
                 muster=muster,
                 ist_text=False,
                 feld=eintrag.get("feld", "verwendungszweck"),
-                richtung=eintrag.get("richtung"),
-                soll_konto=str(eintrag["soll_konto"]),
-                haben_konto=str(eintrag["haben_konto"]),
+                richtung=richtung,
+                soll_konto=soll,
+                haben_konto=haben,
                 steuer_schluessel=eintrag.get("steuer_schluessel"),
                 buchungstext=(eintrag.get("buchungstext") or None),
                 herkunft=RegelHerkunft.UEBERNAHME,
@@ -801,6 +833,8 @@ def uebernehme_aus_datei(
             continue
         vorhanden.add(name)
         ergebnis.uebernommen.append(name)
+        if richtung is None:
+            ergebnis.ohne_richtung.append(name)
         if not probe:
             try:
                 speichere_regel(session, regel)

@@ -214,7 +214,7 @@ Dezember: December
 "Tastenkürzel aus (nur in diesem Browser)": "Keyboard shortcuts off (this browser only)"
 # Gelernte Regeln
 "Zurück zur Prüfung": "Back to review"
-"Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Zahlungsrichtung ihres Quellumsatzes. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply only in the payment direction of their source transaction. They are not edited, only deactivated and learned again."
+"Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply only in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. They are not edited, only deactivated and learned again."
 "Name": "Name"
 "Muster": "Pattern"
 "Richtung": "Direction"

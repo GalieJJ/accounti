@@ -112,23 +112,41 @@ def uebernehmen(
     """``gelernt_*``-Einträge der Regeldatei in die Datenbank holen — vor 10b
     gelernte Regeln standen am Dateiende und griffen nach falsch treffenden eigenen
     Regeln. Die Datei bleibt unverändert; die Einträge danach von Hand löschen."""
+    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
     from accounti.betrieb.kontext import regeln_datei
     from accounti.klassifikation.lernen import RegelError, uebernehme_aus_datei
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.pruefung.person import aktuelle_person
 
     datei = regeln_datei()
+    try:  # Richtung aus der Bankseite: Bankkonto und Geldkonten der Gesellschaft
+        bank_konto = lade_buchhaltung(config).bank_konto
+        kontenrahmen = lade_abschluss(config).lade_kontenrahmen()
+    except (KonfigurationError, KontenrahmenError) as fehler:
+        ende(str(fehler))
     if probe:
         with sitzung(db)() as s:
-            ergebnis = uebernehme_aus_datei(s, datei, "probe", probe=True)
+            ergebnis = uebernehme_aus_datei(
+                s, datei, "probe", bank_konto=bank_konto,
+                kontenrahmen=kontenrahmen, probe=True,
+            )  # fmt: skip
             s.rollback()
     else:
+        # Übernommene Regeln buchen künftig automatisch wie gelernte: buchen und
+        # Regeln lernen (wie korrigiere --lernen) — der verwalter allein nicht
         with (
-            handelnde_person(db, config, Recht.REGELN_LERNEN, von) as person,
+            handelnde_person(
+                db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,)
+            ) as person,
             sitzung(db)() as s,
         ):
             try:
-                ergebnis = uebernehme_aus_datei(s, datei, aktuelle_person(person))
+                ergebnis = uebernehme_aus_datei(
+                    s, datei, aktuelle_person(person), bank_konto=bank_konto,
+                    kontenrahmen=kontenrahmen,
+                )  # fmt: skip
                 s.commit()
             except RegelError as fehler:
                 ende(str(fehler))
@@ -150,6 +168,12 @@ def uebernehmen(
         console.print(
             f"[red]Ungültig (nicht übernommen): "
             f"{escape(', '.join(ergebnis.ungueltig))}[/red]"
+        )
+    if ergebnis.ohne_richtung:
+        console.print(
+            "[yellow]Ohne erkennbare Bankseite (gelten für Ein- und Ausgänge): "
+            f"{escape(', '.join(ergebnis.ohne_richtung))} — bei Bedarf deaktivieren "
+            "und mit accounti lerne --richtung neu anlegen[/yellow]"
         )
     if ergebnis.uebernommen and not probe:
         console.print(

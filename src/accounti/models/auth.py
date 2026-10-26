@@ -75,8 +75,9 @@ ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
             Recht.STEUER_FREIGEBEN,
         }
     ),
-    # der Verwalter sieht, prüft und deaktiviert gelernte Regeln (Einstellungen); aus
-    # einer Korrektur lernen kann er nicht — ihm fehlt BUCHEN
+    # der Verwalter sieht, prüft und deaktiviert gelernte Regeln (Einstellungen);
+    # anlegen kann er keine — Lernen aus einer Korrektur, accounti lerne und regeln
+    # uebernehmen verlangen zusätzlich BUCHEN, das ihm fehlt
     Rolle.VERWALTER: frozenset({Recht.LESEN, Recht.VERWALTEN, Recht.REGELN_LERNEN}),
 }
 
@@ -113,10 +114,12 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "abschluss oeffnen",
     ),
     Recht.VERWALTEN: ("benutzer …", "token …", "journal uebernehmen"),
+    # Regeln anlegen zusätzlich mit BUCHEN (ein Einmalcode), deaktivieren ohne
     Recht.REGELN_LERNEN: (
-        "lerne",
-        "korrigiere --lernen",
-        "regeln deaktivieren|uebernehmen",
+        "lerne (dazu buchen)",
+        "korrigiere --lernen (dazu buchen)",
+        "regeln uebernehmen (dazu buchen)",
+        "regeln deaktivieren",
     ),
 }
 

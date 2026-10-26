@@ -21,10 +21,13 @@ _SCHLUESSEL_SATZ: dict[int, tuple[Decimal, bool]] = {
 }
 
 
+AUTO_SCHWELLE = 0.95  # ab dieser Confidence bucht ein Vorschlag automatisch
+
+
 def zu_buchungssatz(
     transaktion: Transaktion,
     ergebnis: Klassifikationsergebnis,
-    auto_schwelle: float = 0.95,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Buchungssatz:
     berechner = UStBerechner()
     brutto = abs(transaktion.betrag)

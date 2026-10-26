@@ -337,4 +337,6 @@ def test_regeln_lernen_nur_buchhalter_und_verwalter():
     mit = {r for r, rechte in ROLLEN_RECHTE.items() if Recht.REGELN_LERNEN in rechte}
     assert mit == {Rolle.BUCHHALTER, Rolle.VERWALTER}
     assert Recht.BUCHEN not in ROLLEN_RECHTE[Rolle.VERWALTER]
-    assert "lerne" in FREIGABEWEGE[Recht.REGELN_LERNEN]
+    # Regeln anlegen zusätzlich mit buchen (Nachbesserung Technik M1)
+    assert "lerne (dazu buchen)" in FREIGABEWEGE[Recht.REGELN_LERNEN]
+    assert "regeln deaktivieren" in FREIGABEWEGE[Recht.REGELN_LERNEN]

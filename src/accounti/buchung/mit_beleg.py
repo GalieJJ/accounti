@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from accounti.anzeige import betrag_de
+from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.erkennung import finde_kontakt
@@ -57,7 +58,12 @@ def sachkonto_fuer_beleg(
     umsatz: Transaktion | None = None,
 ) -> Sachkonto:
     """Aufwandskonto: Kontakt-Vorschlag, Regelwerk auf die Belegdaten, Regelwerk auf
-    den Umsatz, sonst der Standardaufwand (zur Prüfung)."""
+    den Umsatz, sonst der Standardaufwand (zur Prüfung).
+
+    Liegt die Confidence der Regel unter der Schwelle des automatischen Buchens
+    (gelernte Regeln mit ``buchhaltung.gelernte_regeln: pruefen``), geht auch die
+    Belegbuchung zur Prüfung — der Schalter gilt für jede Buchung, die die Regel
+    kontiert, nicht nur für reine Umsätze."""
     ungeprueft = kontakt is not None and kontakt.status is not KontaktStatus.GEPRUEFT
     if kontakt is not None and kontakt.sachkonto:
         return Sachkonto(kontakt.sachkonto, ungeprueft, f"Kontakt {kontakt.name}")
@@ -85,10 +91,12 @@ def sachkonto_fuer_beleg(
                 ergebnis is not None
                 and ergebnis.haben_konto == einstellungen.bank_konto
             ):
+                unsicher = ergebnis.confidence < AUTO_SCHWELLE
                 return Sachkonto(
                     ergebnis.soll_konto,
-                    ungeprueft,
-                    f"Regel '{ergebnis.regel}' ({quelle})",
+                    ungeprueft or unsicher,
+                    f"Regel '{ergebnis.regel}' ({quelle})"
+                    + (" — Einstellung: prüfen" if unsicher else ""),
                     ergebnis.regel,
                 )
     return Sachkonto(einstellungen.standard_aufwand, True, "Standard")

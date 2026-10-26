@@ -234,6 +234,34 @@ def test_schalter_pruefen_legt_vor(make_session):
     assert grund is not None and "Einstellung: prüfen" in grund.begruendung
 
 
+def test_schalter_pruefen_gilt_auch_fuer_belegbuchungen(make_session):
+    """Nachbesserung M2 (Probe p7): Mit ``gelernte_regeln: pruefen`` legt eine
+    gelernte Regel auch eine Belegbuchung (Umsatz mit Beleg, OPOS) nur vor — das
+    Sachkonto kommt aus der Regel, gebucht wird zur Prüfung."""
+    from accounti.buchung.mit_beleg import kontiere_beleg, sachkonto_fuer_beleg
+
+    with make_session() as s:
+        lerne(
+            s,
+            entwurf_fuer(mueller(), "4930", "1200", 9, BH, muster="Stadtwerke"),
+            "jan",
+        )
+        s.commit()
+        pruefen = lade_regelwerk(s, None, "pruefen")
+        automatisch = lade_regelwerk(s, None, "automatisch")
+    sk = sachkonto_fuer_beleg(beleg(), None, BH, pruefen)
+    assert sk.konto == "4930" and sk.pruefen and "Einstellung: prüfen" in sk.quelle
+    assert not sachkonto_fuer_beleg(beleg(), None, BH, automatisch).pruefen
+    tx = umsatz("-119.00", date(2026, 8, 12), "RE-2026-0815", "Stadtwerke Hamburg")
+    k = kontiere_beleg(tx, beleg(), BH, pruefen)
+    assert {(b.soll_konto, b.status) for b in k.buchungen} == {
+        ("4930", BuchungStatus.ZUR_PRUEFUNG)
+    }
+    assert k.regel == "gelernt_stadtwerke" and "Einstellung: prüfen" in k.begruendung
+    frei = kontiere_beleg(tx, beleg(), BH, automatisch)
+    assert {b.status for b in frei.buchungen} == {BuchungStatus.AUTO_GEBUCHT}
+
+
 def test_schalter_aus_laedt_keine_gelernten(make_session):
     with make_session() as s:
         lerne_mueller(s)
@@ -604,9 +632,50 @@ def test_uebernahme_gelernter_eintraege_aus_datei(make_session, tmp_path):
     ]
     neu = regeln["gelernt_müller"]
     assert neu.herkunft is RegelHerkunft.UEBERNAHME and not neu.ist_text
-    assert neu.richtung is None and neu.steuer_schluessel == 9
+    # (angepasst, Nachbesserung M3: Richtung aus der Bankseite statt ohne Richtung)
+    assert neu.richtung is Richtung.AUSGABE and neu.steuer_schluessel == 9
     assert len(eintraege) == 1
     assert datei.read_text(encoding="utf-8") == inhalt  # Datei unverändert
+
+
+def test_uebernahme_leitet_die_richtung_aus_der_bankseite_ab(make_session, tmp_path):
+    """Nachbesserung M3 (Probe L2): Eine übernommene Regel hat Vorrang vor der
+    Regeldatei — ohne Richtung buchte sie die Gutschrift der Telekom als Geldabgang
+    (4920 an 1200, Vorsteuer, automatisch). Bank im Haben → Ausgabe, im Soll →
+    Einnahme, Geldkonto des Kontenrahmens (Kreditkarte 1361) ebenso; ohne Bankseite
+    bleibt sie ohne Richtung und wird gemeldet."""
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: gelernt_telekom\n  muster: Telekom\n  feld: beide\n"
+        "  soll_konto: '4920'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "- name: gelernt_kunde\n  muster: Kunde\n  feld: beide\n"
+        "  soll_konto: '1200'\n  haben_konto: '8400'\n  steuer_schluessel: 3\n"
+        "- name: gelernt_karte\n  muster: Tanke\n  feld: beide\n"
+        "  soll_konto: '4530'\n  haben_konto: '1361'\n"
+        "- name: gelernt_umbuchung\n  muster: Umbuchung\n  feld: beide\n"
+        "  soll_konto: '4930'\n  haben_konto: '4980'\n"
+        "- name: gelernt_fest\n  muster: Fest\n  richtung: einnahme\n"
+        "  soll_konto: '1200'\n  haben_konto: '4930'\n",
+        encoding="utf-8",
+    )
+    with make_session() as s:
+        e = uebernehme_aus_datei(s, datei, "jan", kontenrahmen=lade_kontenrahmen())
+        s.commit()
+        regeln = {r.name: r.richtung for r in lade_kontierungsregeln(s)}
+        werk = lade_regelwerk(s, None, "automatisch")
+    assert regeln == {
+        "gelernt_telekom": Richtung.AUSGABE,
+        "gelernt_kunde": Richtung.EINNAHME,
+        "gelernt_karte": Richtung.AUSGABE,
+        "gelernt_umbuchung": None,
+        "gelernt_fest": Richtung.EINNAHME,
+    }
+    assert e.ohne_richtung == ["gelernt_umbuchung"]
+    gutschrift = mueller("25.00", zweck="Gutschrift Telekom", name="Deutsche Telekom")
+    treffer = werk.klassifiziere(gutschrift)
+    assert treffer is None or treffer.regel != "gelernt_telekom"
 
 
 def test_gelernte_regel_mit_kaputtem_ausdruck_wird_uebersprungen(make_session):

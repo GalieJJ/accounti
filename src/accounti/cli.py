@@ -2448,8 +2448,12 @@ def lerne(
         raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
+    # eine Regel bucht künftige Umsätze automatisch — buchen und Regeln lernen (wie
+    # korrigiere --lernen), mit einem Einmalcode; der verwalter allein darf es nicht
     with (
-        handelnde_person(db, config, Recht.REGELN_LERNEN, von) as person,
+        handelnde_person(
+            db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,)
+        ) as person,
         make_session() as s,
     ):
         try:

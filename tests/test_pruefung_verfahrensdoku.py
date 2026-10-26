@@ -321,3 +321,26 @@ def test_gelernte_regeln_in_der_verfahrensdoku(tmp_path, monkeypatch):
     assert "| telekom | /telekom/ | ausgabe | 4920 | 1200 | 9 | jan, " in text
     assert "deaktiviert (chef: Privatwagen)" in text
     assert "Kontierungsregeln lernen" in text  # Recht in der Rechtetabelle
+
+
+def test_verfahrensdoku_nennt_regeln_ohne_richtung(tmp_path, monkeypatch):
+    """Nachbesserung M3: Die Verfahrensdoku behauptet nicht mehr pauschal, gelernte
+    Regeln gälten nur in ihrer Zahlungsrichtung — ``accounti lerne`` ohne
+    ``--richtung`` gilt für Ein- und Ausgänge, und die Doku zählt solche Regeln."""
+    from accounti.klassifikation.lernen import lerne_regex
+
+    monkeypatch.chdir(tmp_path)
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        lerne_regex(s, "telekom", "telekom", "4920", "1200", 9, "jan")
+        s.commit()
+        text = erzeuge(
+            s,
+            tmp_path / "fehlt.yaml",
+            db_url="sqlite:///x.db",
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    assert "nur in der Zahlungsrichtung ihres Quellumsatzes" not in text
+    assert "„beide“" in text and "aktiv sind 1 solche Regeln" in text
+    assert "| telekom | /telekom/ | beide |" in text

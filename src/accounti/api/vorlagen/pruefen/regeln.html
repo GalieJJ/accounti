@@ -6,7 +6,7 @@
 <h1>{{ _("Gelernte Regeln") }}</h1>
 <p><a href="/pruefen">{{ _("Zurück zur Prüfung") }}</a></p>
 {{ m.fehlerkasten(aktion_fehler | default(none)) }}
-<p class="klein">{{ _("Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Zahlungsrichtung ihres Quellumsatzes. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.") }}</p>
+<p class="klein">{{ _("Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.") }}</p>
 {% if regeln %}
 <table class="liste">
   <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Muster") }}</th><th>{{ _("Richtung") }}</th><th>{{ _("Soll") }}</th><th>{{ _("Haben") }}</th><th>{{ _("Steuerschlüssel") }}</th><th class="zahl">{{ _("Treffer") }}</th><th>{{ _("Angelegt") }}</th><th>{{ _("Stand") }}</th><th></th></tr></thead>

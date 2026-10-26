@@ -603,3 +603,44 @@ def test_lerne_und_regeln_mit_recht(welt, monkeypatch):
     eintraege = _journal(url, "vorgang", "person")
     assert ("regel_gelernt", "eva") in eintraege
     assert ("regel_deaktiviert", "eva") in eintraege
+
+
+def test_verwalter_legt_keine_regeln_an_deaktiviert_aber(welt, monkeypatch, tmp_path):
+    """Nachbesserung Technik M1 / Fach N8 (Probe d): Eine Regel bucht künftige
+    Umsätze automatisch — ``lerne`` und ``regeln uebernehmen`` verlangen wie
+    ``korrigiere --lernen`` *buchen* und *Kontierungsregeln lernen*. Der verwalter
+    (ohne buchen) legt keine Regel an, deaktivieren darf er weiter."""
+    url, config, b, p = welt
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        p["vera"] = lege_person_an(s, "vera", Rolle.VERWALTER, jetzt=datetime.now())
+    engine.dispose()
+    lerne = ["lerne", "--muster", ".", "--soll", "4980", "--haben", "1200"]
+    lerne += ["--steuer", "9", "--name", "alles"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(url, config, *lerne, "--von", "vera")
+    assert r.exit_code == 1 and "vera darf" in r.output and "buchen" in r.output
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: gelernt_alles\n  muster: '.'\n  soll_konto: '4980'\n"
+        "  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(url, config, "regeln", "uebernehmen", "--von", "vera")
+    assert r.exit_code == 1 and "vera darf" in r.output
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        from accounti.db.repo_kontierung import lade_kontierungsregeln
+
+        assert lade_kontierungsregeln(s) == []
+    engine.dispose()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert _run(url, config, *lerne, "--von", "eva").exit_code == 0
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(
+        url, config, "regeln", "deaktivieren", "alles", "--grund", "zu breit",
+        "--von", "vera",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output

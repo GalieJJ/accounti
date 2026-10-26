@@ -292,16 +292,23 @@ def _kontierung(d: _Doku) -> None:
         else []
     )
     aktiv = [r for r in gelernt if r.aktiv]
+    ohne_richtung = sum(1 for r in aktiv if r.richtung is None)
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
         f"Regelwerk: {len(aktiv)} gelernte Regeln (Datenbank, neueste zuerst) vor "
         f"{len(eigene)} eigenen Regeln ({_zelle(regeln_datei)}) vor "
         f"{len(STANDARD_REGELN)} Standardregeln. Gelernte Regeln entstehen aus einer "
-        "Korrektur (Browser, accounti korrigiere --lernen) oder per accounti lerne — "
-        "nur mit dem Recht „Kontierungsregeln lernen“; sie gelten nur in der "
-        "Zahlungsrichtung ihres Quellumsatzes, werden nicht geändert, nur deaktiviert, "
-        f"und stehen im Journal. Schalter buchhaltung.gelernte_regeln: **{schalter}** "
-        "(automatisch: wie jede Regel; pruefen: nur Vorschlag zur Prüfung; aus: nicht "
+        "Korrektur (Browser, accounti korrigiere --lernen), per accounti lerne oder "
+        "als Übernahme alter Einträge der Regeldatei (accounti regeln uebernehmen) — "
+        "nur mit den Rechten „buchen und korrigieren“ und „Kontierungsregeln "
+        "lernen“. Jede gilt in der Richtung der Spalte „Richtung“: aus einer "
+        "Korrektur in der Zahlungsrichtung des Quellumsatzes, bei einer Übernahme in "
+        "der Richtung ihrer Bankseite; „beide“ (accounti lerne ohne --richtung, "
+        "Übernahme ohne erkennbare Bankseite) gilt für Ein- und Ausgänge — aktiv "
+        f"sind {ohne_richtung} solche Regeln. Gelernte Regeln werden nicht geändert, "
+        "nur deaktiviert, und stehen im Journal. Schalter "
+        f"buchhaltung.gelernte_regeln: **{schalter}** (automatisch: wie jede Regel; "
+        "pruefen: nur Vorschlag zur Prüfung, auch bei Belegbuchungen; aus: nicht "
         "geladen).",
         "",
     )
