@@ -98,6 +98,9 @@ class Kontenrahmen(BaseModel):
     bankkonten: list[_Spanne] = Field(default_factory=list)
     vortragskonten: Vortragskonten = Field(default_factory=Vortragskonten)
     steuerkonten: dict[int, str] = Field(default_factory=dict)
+    # § 13b und ig. Erwerb: (Vorsteuerkonto, Umsatzsteuerkonto) je Schlüssel — die
+    # Steuer steht auf beiden Seiten und hebt sich auf
+    steuerpaare: dict[int, tuple[str, str]] = Field(default_factory=dict)
     euer: list[_EuerRegel] = Field(default_factory=list)
     namen: dict[str, str] = Field(default_factory=dict)
 
@@ -147,6 +150,12 @@ class Kontenrahmen(BaseModel):
         satz, vorsteuer = STEUERSCHLUESSEL[schluessel]
         konten = VST_KONTEN_SKR03 if vorsteuer else UST_KONTEN_SKR03
         return konten.get(str(int(satz))) or None
+
+    def steuerpaar(self, schluessel: int | None) -> tuple[str, str] | None:
+        """(Vorsteuer-, Umsatzsteuerkonto) eines § 13b- bzw. Erwerbsschlüssels."""
+        if schluessel is None:
+            return None
+        return self.steuerpaare.get(schluessel)
 
     @staticmethod
     def ist_vorsteuer(schluessel: int | None) -> bool:

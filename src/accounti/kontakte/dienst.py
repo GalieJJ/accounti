@@ -108,6 +108,16 @@ def kontakt_fuer(
         )
         if wert and getattr(kontakt, feld) is None
     }
+    if (
+        partner.land
+        and partner.land.upper() != kontakt.land.upper()
+        and kontakt.land.upper() == "DE"
+        and not (kontakt.strasse or kontakt.plz or kontakt.ort)
+        and not (kontakt.ust_id or "").replace(" ", "").upper().startswith("DE")
+    ):
+        # „DE“ war nur die Vorgabe (Kreditor aus einem PDF ohne Land) — das Land aus
+        # der USt-IdNr. des Belegs gilt
+        ergaenzt["land"] = partner.land.upper()
     if getattr(kontakt, kontofeld) is None:
         ergaenzt[kontofeld] = naechste_kontonummer(_belegte_konten(kontakte), von, bis)
     if ergaenzt:

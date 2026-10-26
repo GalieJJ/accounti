@@ -70,6 +70,15 @@ vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 # leer: SKR03-Steuerkonten kommen aus accounti.steuer
 steuerkonten: {}
 
+# § 13b UStG (94/91) und ig. Erwerb (19/18): [Vorsteuer, Umsatzsteuer] — beide Seiten
+# der selbst berechneten Steuer (DATEV SKR 03 2026: 1577/1787 bzw. 1578/1785 § 13b,
+# 1574/1774 bzw. 1572/1772 ig. Erwerb)
+steuerpaare:
+  94: ["1577", "1787"]
+  91: ["1578", "1785"]
+  19: ["1574", "1774"]
+  18: ["1572", "1772"]
+
 # Anlage EÜR: Kennzahl je Kontenbereich; kz_haben gilt bei Haben-Saldo.
 # kz: null  — keine Zeile bekannt: zählt als „nicht zugeordnet“ mit (Warnung)
 # kz: "-"   — gehört nicht in die EÜR (weder Betriebseinnahme noch -ausgabe, z. B.

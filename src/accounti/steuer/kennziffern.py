@@ -26,7 +26,9 @@ Buchung mit Schlüssel, sonst fehlt die Korrektur der Umsatzsteuer; bei mehreren
 Kennziffern ist offen, welche gemindert wird. Ein Erlös im Haben ohne Schlüssel mindert
 nichts. Alles andere landet in ``ohne_kennziffer`` und sperrt die Freigabe.
 Buchungen auf Steuerkonten ohne Kennziffer (z. B. Einfuhrumsatzsteuer) sind eine
-Warnung.
+Warnung, ebenso Aufwand ohne Schlüssel gegen einen Kreditor im übrigen
+Gemeinschaftsgebiet mit USt-IdNr.: Dort ist meist § 13b (Schlüssel 94, Kz 46/47) oder
+ein ig. Erwerb (Schlüssel 19, Kz 89) anzumelden.
 
 DATEV-Schlüssel: 2/3 USt 7/19 %, 8/9 VSt 7/19 %, 18/19 ig. Erwerb 7/19 %,
 91/94 § 13b 7/19 %.
@@ -185,6 +187,8 @@ STEUERKONTEN: dict[str, Bereiche] = {
     "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
     "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
 }
+# Saldenvortrags- und statistische Konten (SKR03/SKR04 9000–9999)
+_VORTRAG: Bereiche = ((9000, 9999),)
 # Nicht steuerbare Umsätze, die bei einem EU-Unternehmer meist eine EU-Leistung sind
 _NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
     "SKR03": (frozenset({"8338", "8339"}), "8336"),
@@ -522,6 +526,38 @@ class _Ermittler:
             "Zusammenfassende Meldung"
         )
 
+    def _bezug_ohne_schluessel(self, b: Buchungssatz) -> None:
+        """Aufwand ohne Schlüssel von einem EU-Unternehmer: § 13b bzw. ig. Erwerb?
+
+        Der Leistungsempfänger schuldet die Steuer (§ 13b Abs. 1, 5 bzw. § 1a, § 13a
+        Abs. 1 Nr. 2 UStG) — ohne Schlüssel fehlt sie in der Anmeldung."""
+        soll, haben = b.soll_konto, b.haben_konto
+        plan = self.plan
+        if (
+            plan.ist_gegenkonto(soll)
+            or plan.ist_steuerkonto(soll)
+            or plan.ist_erloeskonto(soll)
+            or _im_bereich(soll, _VORTRAG)
+            or _im_bereich(haben, _VORTRAG)
+            or not plan.ist_gegenkonto(haben)
+            or haben in self.debitoren
+        ):
+            return
+        kontakt = self._kontakt(haben, b.beleg_id)
+        if (
+            kontakt is None
+            or not kontakt.ust_id
+            or kontakt.land.upper() == "DE"
+            or not ist_eu_land(kontakt.land)
+        ):
+            return
+        self.e.warnungen.append(
+            f"{_kurz(b)}: Bezug von {kontakt.name} ({kontakt.land}, USt-IdNr. "
+            f"{kontakt.ust_id}) ohne Steuerschlüssel — § 13b prüfen: sonstige Leistung "
+            "eines EU-Unternehmers → Schlüssel 94/91 (Kz 46/47, 67), Lieferung → ig. "
+            "Erwerb, Schlüssel 19/18 (Kz 89, 61): accounti korrigiere … --steuer 94"
+        )
+
     def konto(self, b: Buchungssatz) -> None:
         """Buchung ohne Steuerschlüssel: jede Seite für sich."""
         beitraege: list[tuple[Beitrag, Seite]] = []
@@ -550,6 +586,7 @@ class _Ermittler:
             self.e.ohne_kennziffer.append((b, "; ".join(gruende)))
             return
         if not beitraege:
+            self._bezug_ohne_schluessel(b)
             return  # Zahlung, Umbuchung, Aufwand ohne Vorsteuer
         self._buche(b, "; ".join(regeln), [beitrag for beitrag, _ in beitraege])
         for beitrag, seite in beitraege:

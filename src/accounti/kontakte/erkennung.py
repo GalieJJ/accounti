@@ -47,6 +47,18 @@ def _kompakt(wert: str | None) -> str:
     return re.sub(r"\s", "", wert or "").upper()
 
 
+def land_aus_kennung(ust_id: str | None, iban: str | None = None) -> str | None:
+    """Land eines Geschäftspartners aus dem Präfix der USt-IdNr. (EL → GR, XI → GB),
+    sonst aus der IBAN — ein PDF-Beleg nennt das Land selten auswertbar, und ohne Land
+    gälte jeder Kreditor als deutsch (§ 13b: Kz 46/47 nur für EU-Unternehmer)."""
+    for wert in (ust_id, iban):
+        kompakt = _kompakt(wert)
+        if len(kompakt) > 2 and kompakt[:2].isalpha():
+            code = kompakt[:2]
+            return {"EL": "GR", "XI": "GB"}.get(code, code)
+    return None
+
+
 def finde_kontakt(
     kontakte: list[Kontakt],
     iban: str | None = None,

@@ -3,7 +3,10 @@
 Eingang:  Aufwand an Kreditor (Vorsteuer per BU-Schlüssel)
 Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
 
-Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
+Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nur, was der Beleg
+nicht nennen darf: die Steuer bei § 13b UStG und beim ig. Erwerb (Steuerfall AE bzw. K,
+Schlüssel 94 bzw. 19 zur Prüfung, ``buchung/steuergruppe.py``). Eine Steuer ohne Satz
+geht brutto und zur Prüfung auf das Konto, nie netto gegen einen Brutto-Posten.
 
 Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
 Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
@@ -27,6 +30,10 @@ from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
 from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
+from accounti.buchung.steuergruppe import (
+    SCHLUESSEL_FUER_STEUERFALL,
+    Gruppe,
+)
 from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repository import (
     lade_belege,
@@ -41,7 +48,7 @@ from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.dienst import KontaktTreffer, Partnerdaten, kontakt_fuer
-from accounti.kontakte.erkennung import finde_kontakt
+from accounti.kontakte.erkennung import finde_kontakt, land_aus_kennung
 from accounti.kontakte.ustid import USTID_KATEGORIEN, aktuelle_bestaetigung
 from accounti.models import (
     Beleg,
@@ -53,7 +60,8 @@ from accounti.models import (
     OffenerPosten,
     PostenRichtung,
 )
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.eu_steuersaetze import ist_eu_land
+from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, OSS_UST_KONTEN_SKR03
 
 NULL = Decimal("0")
 CENT = Decimal("0.01")
@@ -95,15 +103,6 @@ class Verbuchung:
     @property
     def merkmal(self) -> str | None:
         return self.treffer.merkmal
-
-
-@dataclass
-class _Gruppe:
-    konto: str
-    schluessel: int | None
-    pruefen: bool
-    netto: Decimal = NULL
-    steuer: Decimal = NULL
 
 
 def _satz(wert: Decimal | None) -> Decimal | None:
@@ -160,24 +159,40 @@ def _gruppen(
     rechnung: Rechnung | None,
     land: str,
     ustid_bestaetigt: bool = True,
-) -> list[_Gruppe]:
-    gruppen: dict[tuple[str, int | None], _Gruppe] = {}
+) -> list[Gruppe]:
+    gruppen: dict[tuple[str, int | None], Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
     if not positionen:
-        # ohne Positionen: eine Gruppe über die Belegsummen
-        konto = sachkonto if eingang else _ERLOES_UNBEKANNT
-        g = _Gruppe(konto, None, True)
-        g.netto = beleg.netto if beleg.netto is not None else (beleg.brutto or NULL)
-        g.steuer = beleg.steuer or NULL
+        # ohne Positionen: eine Gruppe über die Belegsummen (ohne Satz: brutto)
+        g = Gruppe(sachkonto if eingang else _ERLOES_UNBEKANNT, None, True)
+        if beleg.netto is not None:
+            g.addiere(beleg.netto, beleg.steuer or NULL)
+        else:
+            g.addiere(beleg.brutto or NULL, NULL)
         return [g]
+
+    def gruppe(konto: str, schluessel: int | None, pruefen: bool) -> Gruppe:
+        g = gruppen.setdefault((konto, schluessel), Gruppe(konto, schluessel, pruefen))
+        g.pruefen = g.pruefen or pruefen
+        return g
+
+    schluessel: int | None
     for p, kategorie in zip(positionen, kategorien, strict=True):
         satz = _satz(p.steuersatz)
+        steuer = p.steuer_betrag or NULL
         if eingang:
-            schluessel = _VST_SCHLUESSEL.get(satz) if satz is not None else None
+            # Steuerfall ohne Steuerausweis: Kategorie der E-Rechnung bzw. Hinweis
+            fall = kategorie or (beleg.steuerkennzeichen if not satz else None)
             konto = sachkonto
-            # 0 % oder unbekannter Satz: § 13b, steuerfrei oder unklar → Mensch
-            pruefen = sachkonto_pruefen or schluessel is None or kategorie == "AE"
+            if fall in SCHLUESSEL_FUER_STEUERFALL and not satz:
+                # § 13b bzw. ig. Erwerb: die Steuer schuldet der Empfänger — 19 %
+                # vorgeschlagen, der Mensch prüft (7 %: 91 bzw. 18)
+                schluessel, pruefen = SCHLUESSEL_FUER_STEUERFALL[fall], True
+            else:
+                schluessel = _VST_SCHLUESSEL.get(satz) if satz is not None else None
+                # 0 % oder unbekannter Satz: steuerfrei, § 19 oder unklar → Mensch
+                pruefen = sachkonto_pruefen or schluessel is None
         elif kategorie in _ERLOES_STEUERFREI:
             konto, schluessel = _ERLOES_STEUERFREI[kategorie], None
             # K/AE nur mit bestätigter USt-IdNr. des Käufers automatisch
@@ -186,16 +201,40 @@ def _gruppen(
             konto, schluessel = _ERLOES_STEUERPFLICHTIG[satz], _UST_SCHLUESSEL[satz]
             pruefen = False
         elif kategorie == "S" and satz:
-            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands)
-            konto = OSS_ERLOES_KONTEN_SKR03.get(land, "8320")
-            schluessel, pruefen = None, True
+            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands) — Erlös netto,
+            # die ausländische Steuer auf das OSS-Steuerkonto des Landes
+            gruppe(OSS_ERLOES_KONTEN_SKR03.get(land, "8320"), None, True).addiere(
+                p.netto, NULL
+            )
+            gruppe(OSS_UST_KONTEN_SKR03.get(land, "1779"), None, True).addiere(
+                steuer, NULL
+            )
+            continue
         else:
             konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
-        g = gruppen.setdefault((konto, schluessel), _Gruppe(konto, schluessel, pruefen))
-        g.pruefen = g.pruefen or pruefen
-        g.netto += p.netto
-        g.steuer += p.steuer_betrag or NULL
+        gruppe(konto, schluessel, pruefen).addiere(p.netto, steuer)
+    for g in gruppen.values():
+        g.berechne_selbst()
     return list(gruppen.values())
+
+
+def _steuerhinweise(gruppen: list[Gruppe], anlass: str, land: str) -> list[str]:
+    """Was der Mensch bei 0-%-Positionen einer Eingangsrechnung prüfen muss."""
+    hinweise = []
+    schluessel = {g.schluessel for g in gruppen}
+    if schluessel & {94, 91}:
+        kz = "46/47" if land.upper() != "DE" and ist_eu_land(land) else "84/85"
+        hinweise.append(
+            f"{anlass}: Steuerschuldnerschaft des Leistungsempfängers (§ 13b UStG) — "
+            f"Schlüssel 94 (19 %) vorgeschlagen und zur Prüfung, Kz {kz} (Kreditor-"
+            f"Land {land.upper()}); bei 7 %: accounti korrigiere … --steuer 91"
+        )
+    if schluessel & {19, 18}:
+        hinweise.append(
+            f"{anlass}: steuerfreie ig. Lieferung an uns = ig. Erwerb (§ 1a UStG) — "
+            "Schlüssel 19 (19 %) vorgeschlagen und zur Prüfung; bei 7 %: --steuer 18"
+        )
+    return hinweise
 
 
 def _faelligkeit(
@@ -210,11 +249,12 @@ def _faelligkeit(
         if tage is None:
             tage = einstellungen.standard_zahlungsziel_tage
         faellig = belegdatum + timedelta(days=tage)
+    # Der Beleg geht vor: „ohne Abzug“ (0 %) schlägt das Skonto des Kontakts
     prozent = (
         beleg.skonto_prozent if beleg.skonto_prozent is not None else k.skonto_prozent
     )
     skonto_tage = beleg.skonto_tage if beleg.skonto_tage is not None else k.skonto_tage
-    if prozent is None or skonto_tage is None:
+    if not prozent or skonto_tage is None:
         return faellig, None, None, None
     brutto = beleg.brutto or NULL
     betrag = (brutto * prozent / 100).quantize(CENT, rounding=ROUND_HALF_UP)
@@ -274,7 +314,10 @@ def verbuche_beleg(
             msg = f"{anlass}: kein Lieferant erkannt"
             raise VerbuchungError(msg)
         partner = Partnerdaten(
-            name=beleg.lieferant_name, ust_id=beleg.lieferant_ust_id, iban=beleg.iban
+            name=beleg.lieferant_name,
+            ust_id=beleg.lieferant_ust_id,
+            iban=beleg.iban,
+            land=land_aus_kennung(beleg.lieferant_ust_id, beleg.iban),
         )
         if eigene_firma is not None:
             selbst = Kontakt(
@@ -327,8 +370,14 @@ def verbuche_beleg(
 
     hinweise = [hinweis_datum] if hinweis_datum else []
     ustid_bestaetigt = True
-    if rechnung is not None and any(
-        kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
+    # nur bei eigenen Rechnungen: K/AE im Eingang hängen an der USt-IdNr. des
+    # Lieferanten, nicht an unserer (die Bestätigung braucht der Lieferant)
+    if (
+        not eingang
+        and rechnung is not None
+        and any(
+            kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
+        )
     ):
         ust_id = rechnung.kaeufer.ust_id
         lage = aktuelle_bestaetigung(session, ust_id, belegdatum, ustid_max_alter_tage)
@@ -341,15 +390,28 @@ def verbuche_beleg(
             )
 
     buchungen = []
-    for g in _gruppen(
+    land = treffer.kontakt.land
+    if not eingang and rechnung is not None:
+        # OSS: Bestimmungsland aus der Rechnung (Lieferanschrift, sonst Käufer), nicht
+        # aus dem Kontakt — gleichnamige Kunden dürfen sich nicht vermischen
+        lieferung = rechnung.lieferanschrift
+        land = (
+            (lieferung.land if lieferung is not None else None)
+            or rechnung.kaeufer.anschrift.land
+            or land
+        )
+    gruppen = _gruppen(
         beleg,
         eingang,
         sachkonto,
         sachkonto_pruefen,
         rechnung,
-        treffer.kontakt.land,
+        land,
         ustid_bestaetigt,
-    ):
+    )
+    if eingang:
+        hinweise += _steuerhinweise(gruppen, anlass, land)
+    for g in gruppen:
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
         if g.netto < 0:  # Gutschrift: Seiten tauschen, Beträge positiv
             soll, haben = haben, soll

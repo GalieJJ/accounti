@@ -18,6 +18,7 @@ from accounti.export.datev_format import (
     automatik_widerspruch,
     belegfeld2_storno,
     bu_schluessel,
+    datev_umsatz,
 )
 from accounti.models import Buchungssatz
 
@@ -93,9 +94,7 @@ class DATEVExporter:
     def _buchung_zu_zeile(self, buchung: Buchungssatz) -> dict[str, str]:
         """Einzelnen Buchungssatz in DATEV-Zeilenformat umwandeln."""
         # Betrag: immer positiv, mit Komma als Dezimaltrenner
-        betrag = abs(buchung.betrag_netto)
-        if buchung.steuer_betrag:
-            betrag += abs(buchung.steuer_betrag)
+        betrag = datev_umsatz(buchung)
         betrag_str = f"{betrag:.2f}".replace(".", ",")
 
         # Soll/Haben-Kennzeichen

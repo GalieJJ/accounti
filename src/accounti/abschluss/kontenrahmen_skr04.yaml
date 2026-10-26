@@ -58,6 +58,14 @@ vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 # DATEV-BU-Schlüssel → Steuerkonto
 steuerkonten: {2: "3801", 3: "3806", 8: "1401", 9: "1406"}
 
+# § 13b UStG (94/91) und ig. Erwerb (19/18): [Vorsteuer, Umsatzsteuer] (DATEV SKR 04
+# 2026: 1407/3837 bzw. 1408/3835 § 13b, 1404/3804 bzw. 1402/3802 ig. Erwerb)
+steuerpaare:
+  94: ["1407", "3837"]
+  91: ["1408", "3835"]
+  19: ["1404", "3804"]
+  18: ["1402", "3802"]
+
 # Erlösschmälerungen und Forderungsverluste stehen bei der Kennzahl ihrer Erlöse und
 # mindern sie (Posten „Einnahmen“ im DATEV-Kontenrahmen für § 4 Abs. 3 EStG).
 euer:

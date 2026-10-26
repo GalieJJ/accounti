@@ -41,6 +41,7 @@ from accounti.export.datev_format import (
     belegfeld1,
     belegfeld2_storno,
     bu_schluessel,
+    datev_umsatz,
     feldnummer,
     kontoart,
     schreibe_extf,
@@ -174,7 +175,7 @@ def buchungsstapel_satz(
     b: Buchungssatz, link: str | None, automatikkonten: Mapping[str, int] | None = None
 ) -> dict[int, Wert]:
     """Ein Buchungssatz im Buchungsstapel; Umsatz brutto wie im vorhandenen Export."""
-    umsatz = abs(b.betrag_netto) + (abs(b.steuer_betrag) if b.steuer_betrag else 0)
+    umsatz = datev_umsatz(b)
     return {
         _F["umsatz"]: Decimal(umsatz),
         _F["sh"]: "S",
