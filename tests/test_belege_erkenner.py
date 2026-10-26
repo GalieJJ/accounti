@@ -403,3 +403,33 @@ def test_kreditkartenabrechnung_mit_langem_leerraum_haengt_nicht():
     with _zeitschranke(3):
         b = _erkenne(BelegErkenner(), text.encode(), "k.txt")
     assert b.belegart is Belegart.KONTOAUSZUG and b.positionen == []
+
+
+def test_gutschrift_zur_rechnung_wird_nicht_als_dublette_verworfen(tmp_path):
+    """M-2 (Nachprüfung C, Runde 3): Rechnung RE-5, dann „Gutschrift zur Rechnung
+    Nr. RE-5“ mit „Gutschrift-Nr.: GS-5“ — vorher „Dublette — Lieferant und
+    Belegnummer RE-5 bekannt“, die Gutschrift wurde nicht gespeichert."""
+    from accounti.models import Eingangsergebnis
+    from tests.test_belege_extraktion import GUTSCHRIFT_ZUR_RECHNUNG
+
+    rechnung = (
+        "Rahmenwerk Nord GmbH\nUSt-IdNr.: DE811907980\n\nRechnung\n"
+        "Rechnungsnummer: RE-5\nRechnungsdatum: 01.10.2026\n\n"
+        "Netto 500,00 €\nUSt 19 % 95,00 €\nGesamtbetrag 595,00 €\n"
+    )
+    gutschrift = GUTSCHRIFT_ZUR_RECHNUNG.format(
+        titel="Gutschrift zur Rechnung Nr. RE-5", nummer="Gutschrift-Nr.: GS-5"
+    )
+    engine, make_session = session_factory("sqlite:///:memory:")
+    init_db(engine)
+    archiv = BelegArchiv(tmp_path)
+    with make_session() as s:
+        nimm_auf(s, archiv, _roh(pdf_mit_text(rechnung), "r.pdf"), BelegErkenner())
+        eingang = nimm_auf(
+            s, archiv, _roh(pdf_mit_text(gutschrift), "g.pdf"), BelegErkenner()
+        )
+        s.commit()
+        belege = {b.belegnummer: b for b in lade_belege(s)}
+    assert eingang.ergebnis is Eingangsergebnis.NEU, eingang.hinweis
+    assert set(belege) == {"RE-5", "GS-5"}
+    assert belege["GS-5"].brutto == Decimal("-119.00")

@@ -79,10 +79,21 @@ _BELEGNUMMER = re.compile(
     r"(?:rechnungs?[\s-]*(?:nr|nummer)|rechnung\s+nr|re[\s-]?nr|"
     r"beleg[\s-]*(?:nr|nummer)|bon[\s-]*nr|quittungs?[\s-]*nr|"
     r"gutschrifts?[\s-]*(?:nr|nummer)|credit\s*note\s*(?:no|number|#)|"
+    r"(?:rechnungs)?korrektur[\s-]*(?:nr|nummer)|storno[\s-]*(?:nr|nummer)|"
     r"invoice\s*(?:no|number|#))\.?\s*[:#]?\s*"
     r"([A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*)",
     _I,
 )
+# Eine Nummer nach „zur/zu/für die/der/zu unserer … Rechnung“ oder „Bezug:“ verweist auf
+# einen anderen Beleg und ist nicht die eigene (Nachprüfung C, M-2); „Unsere Rechnung
+# Nr.“ (Nominativ) bleibt die eigene.
+_BEZUG_DAVOR = re.compile(
+    r"\b(?:zur|zu|für\s+die|der|unserer|ihrer|bezug(?:nehmend)?(?:\s+auf)?|"
+    r"bezüglich|betreff|betr\.)(?:\s+(?:ursprünglichen|genannten|o\.\s?g\.))?"
+    r"\s*:?\s*$",
+    _I,
+)
+_KORREKTURNUMMER = re.compile(r"gutschrift|credit|korrektur|storno", _I)
 _BELEGDATUM = re.compile(
     r"(?:\b(?:rechnungs|beleg|ausstellungs|abrechnungs)?datum|invoice\s+date)"
     rf"\s*[:\s]\s*({DATUM})",
@@ -253,6 +264,25 @@ def _finde_iban(text: str) -> str | None:
     return None
 
 
+def _finde_belegnummer(text: str, korrekturbeleg: bool) -> str | None:
+    """Die eigene Nummer des Belegs: kein Bezug auf einen anderen Beleg, und die
+    Nummer zur Belegart geht vor — bei einer Gutschrift „Gutschrift-Nr.“ vor
+    „Rechnung Nr.“, bei einer Rechnung umgekehrt; sonst der erste Treffer. Ohne
+    eigene Nummer None (der Beleg geht zur Prüfung, statt mit der Nummer der Rechnung
+    als deren Dublette verworfen zu werden)."""
+    eigene: list[tuple[bool, str]] = []
+    for m in _BELEGNUMMER.finditer(text):
+        zeilenanfang = text.rfind("\n", 0, m.start()) + 1
+        if _BEZUG_DAVOR.search(text[max(zeilenanfang, m.start() - 40) : m.start()]):
+            continue
+        label = text[m.start() : m.start(1)]
+        eigene.append((bool(_KORREKTURNUMMER.search(label)), m.group(1).rstrip(".")))
+    passend = [nummer for art, nummer in eigene if art is korrekturbeleg]
+    if passend:
+        return passend[0]
+    return eigene[0][1] if eigene else None
+
+
 def _finde_ust_ids(text: str) -> list[str]:
     gefunden: list[str] = []
     for muster in (_UST_ID_LABEL, _UST_ID_DE):
@@ -404,8 +434,8 @@ def extrahiere(text: str) -> Extrakt:
     zeilen = _zeilen(text)
     e = Extrakt()
 
-    if m := _BELEGNUMMER.search(text):
-        e.belegnummer = m.group(1).rstrip(".")
+    e.korrektur = _korrektur(zeilen)
+    e.belegnummer = _finde_belegnummer(text, korrekturbeleg=e.korrektur is not None)
     if m := _LEISTUNGSDATUM.search(text):
         e.leistungsdatum = parse_datum(m.group(1))
     if m := _BELEGDATUM.search(text):
@@ -469,7 +499,6 @@ def extrahiere(text: str) -> Extrakt:
     if not _vorzeichen_einig(e):
         e.rechenprobe = False
 
-    e.korrektur = _korrektur(zeilen)
     if e.korrektur and _alle_positiv(e):
         _negiere(e)
     return e

@@ -478,6 +478,66 @@ def test_betrag_nach_dem_korrekturwort_ist_keine_nummer(zeile):
     assert e.korrektur is None and e.brutto == Decimal("357.00")
 
 
+GUTSCHRIFT_ZUR_RECHNUNG = """Rahmenwerk Nord GmbH
+USt-IdNr.: DE811907980
+
+{titel}
+{nummer}
+Datum: 10.10.2026
+
+Netto -100,00 €
+USt 19 % -19,00 €
+Gutschriftbetrag -119,00 €
+"""
+
+
+@pytest.mark.parametrize(
+    ("titel", "nummer", "erwartet"),
+    [
+        ("Gutschrift zur Rechnung Nr. RE-5", "Gutschrift-Nr.: GS-5", "GS-5"),
+        ("Gutschrift", "Gutschrift-Nr.: GS-5 zur Rechnung Nr. RE-5", "GS-5"),
+        ("Rechnungskorrektur zur Rechnung Nr. RE-5", "Rechnungsnummer: RK-9", "RK-9"),
+        ("Rechnungskorrektur", "Korrektur-Nr. RK-9 zu Rechnung Nr. RE-5", "RK-9"),
+        ("Gutschrift", "Rechnungskorrektur-Nr. RK-9 zur Rechnung RE-5", "RK-9"),
+        ("Gutschrift", "Bezug: Rechnung Nr. RE-5\nRechnungsnummer: GS-5", "GS-5"),
+        ("Gutschrift", "Korrektur zu unserer Rechnung Nr. RE-5", None),
+        ("Gutschrift zur Rechnung Nr. RE-5", "", None),
+    ],
+)
+def test_bezug_auf_die_rechnung_ist_keine_belegnummer(titel, nummer, erwartet):
+    """M-2 (Nachprüfung C, Runde 3): Der erste Treffer im Text gewann — bei
+    „Gutschrift zur Rechnung Nr. RE-5“ wurde die Gutschrift mit der Nummer der
+    Rechnung gelesen und beim Import als Dublette verworfen (die Vorsteuerminderung
+    fehlte ohne Meldung). Eine Nummer nach „zur/zu/für die/der …“ ist ein Bezug; die
+    Gutschrift- bzw. Korrekturnummer geht der Rechnungsnummer vor. Ohne eigene Nummer
+    bleibt die Belegnummer leer (zur Prüfung, nicht als Dublette verworfen)."""
+    e = extrahiere(GUTSCHRIFT_ZUR_RECHNUNG.format(titel=titel, nummer=nummer))
+    assert e.korrektur is not None
+    assert e.belegnummer == erwartet
+
+
+@pytest.mark.parametrize(
+    ("text", "erwartet"),
+    [
+        ("Firma GmbH\nRechnung Nr. RE-7\n", "RE-7"),
+        ("Firma GmbH\nUnsere Rechnung Nr. RE-7\n", "RE-7"),
+        (
+            "Firma GmbH\nSchlussrechnung zur Rechnung Nr. A-1\nRechnungsnummer: S-2\n",
+            "S-2",
+        ),
+        (
+            "Firma GmbH\nRechnung\nGutschrift-Nr. G-3 verrechnet\nRechnungsnr. R-4\n",
+            "R-4",
+        ),
+        ("Firma GmbH\nRechnung\nGutschrift-Nr. G-3 verrechnet\n", "G-3"),
+    ],
+)
+def test_belegnummer_einer_rechnung(text, erwartet):
+    """Bei einer Rechnung geht die Rechnungsnummer vor; sonst der erste Treffer, der
+    kein Bezug ist."""
+    assert extrahiere(text).belegnummer == erwartet
+
+
 _LANG = 50_000
 LANGER_LEERRAUM = {
     "Nr. und Leerzeichen": "Rechnungsnr." + " " * _LANG + "x",

@@ -3,6 +3,7 @@
 Drei Stufen, von sicher nach unsicher:
 1. identischer Datei-Hash                         → Dublette
 2. gleicher Lieferant + gleiche Belegnummer       → Dublette
+   (bei anderem Bruttobetrag nur Verdacht)
 3. gleicher Lieferant + Brutto + Datum im Fenster → Verdacht (Mensch entscheidet)
 """
 
@@ -41,16 +42,23 @@ def _gleicher_lieferant(a: Beleg, b: Beleg) -> bool:
 
 def gleiche_belegnummer(kandidat: Beleg, bestand: Iterable[Beleg]) -> Beleg | None:
     """Ein anderer Beleg desselben Lieferanten mit derselben Belegnummer (Stufe 2)."""
+    return next(iter(_gleiche_belegnummern(kandidat, bestand)), None)
+
+
+def _gleiche_belegnummern(kandidat: Beleg, bestand: Iterable[Beleg]) -> list[Beleg]:
     if not kandidat.belegnummer:
-        return None
-    for b in bestand:
-        if (
-            b.id != kandidat.id
-            and _norm(b.belegnummer) == _norm(kandidat.belegnummer)
-            and _gleicher_lieferant(b, kandidat)
-        ):
-            return b
-    return None
+        return []
+    return [
+        b
+        for b in bestand
+        if b.id != kandidat.id
+        and _norm(b.belegnummer) == _norm(kandidat.belegnummer)
+        and _gleicher_lieferant(b, kandidat)
+    ]
+
+
+def _anderer_betrag(a: Beleg, b: Beleg) -> bool:
+    return a.brutto is not None and b.brutto is not None and a.brutto != b.brutto
 
 
 def pruefe_dublette(kandidat: Beleg, bestand: Iterable[Beleg]) -> DublettenBefund:
@@ -63,11 +71,24 @@ def pruefe_dublette(kandidat: Beleg, bestand: Iterable[Beleg]) -> DublettenBefun
                 Eingangsergebnis.DUBLETTE, b.id, "identische Datei (Hash)"
             )
 
-    if (gleich := gleiche_belegnummer(kandidat, bestand)) is not None:
+    # Stufe 2 nur bei gleichem (oder ungelesenem) Betrag: Eine Gutschrift mit der
+    # Nummer der Rechnung (Bezug) oder eine berichtigte Rechnung mit derselben Nummer
+    # ist keine Kopie — verworfen fehlte sie ohne Meldung (§ 17 Abs. 1 UStG,
+    # Nachprüfung C, M-2); ein Mensch entscheidet.
+    if gleiche := _gleiche_belegnummern(kandidat, bestand):
+        kopie = next((b for b in gleiche if not _anderer_betrag(b, kandidat)), None)
+        if kopie is not None:
+            return DublettenBefund(
+                Eingangsergebnis.DUBLETTE,
+                kopie.id,
+                f"Lieferant und Belegnummer {kandidat.belegnummer} bekannt",
+            )
         return DublettenBefund(
-            Eingangsergebnis.DUBLETTE,
-            gleich.id,
-            f"Lieferant und Belegnummer {kandidat.belegnummer} bekannt",
+            Eingangsergebnis.VERDACHT,
+            gleiche[0].id,
+            f"Lieferant und Belegnummer {kandidat.belegnummer} bekannt, aber Betrag "
+            f"{kandidat.brutto} statt {gleiche[0].brutto} — Gutschrift oder "
+            "berichtigte Rechnung?",
         )
 
     if kandidat.brutto is not None and kandidat.belegdatum is not None:

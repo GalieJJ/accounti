@@ -94,3 +94,39 @@ def test_anderer_lieferant_ist_neu():
         brutto=Decimal("173.50"),
     )
     assert pruefe_dublette(kandidat, [VORHANDEN]).ergebnis is Eingangsergebnis.NEU
+
+
+def test_stufe2_mit_anderem_betrag_ist_nur_verdacht():
+    """M-2 (Nachprüfung C, Runde 3): Gleiche Nummer, aber −119 statt 173,50 — eine
+    Gutschrift mit der Nummer der Rechnung (Bezug) oder eine berichtigte Rechnung,
+    keine Kopie. Vorher als Dublette verworfen (nicht gespeichert, die Minderung fehlte
+    ohne Meldung); jetzt gespeichert und dem Menschen vorgelegt."""
+    kandidat = _beleg(
+        datei_hash="b" * 64,
+        lieferant_ust_id="DE123456789",
+        belegnummer="RE-2026-0042",
+        belegdatum=date(2026, 3, 20),
+        brutto=Decimal("-119.00"),
+    )
+    befund = pruefe_dublette(kandidat, [VORHANDEN])
+    assert befund.ergebnis is Eingangsergebnis.VERDACHT
+    assert befund.beleg_id == VORHANDEN.id
+    assert "RE-2026-0042" in befund.grund and "-119.00" in befund.grund
+
+
+def test_stufe2_mit_gleichem_betrag_bleibt_dublette():
+    kandidat = _beleg(
+        datei_hash="b" * 64,
+        lieferant_ust_id="DE123456789",
+        belegnummer="RE-2026-0042",
+        brutto=Decimal("173.50"),
+    )
+    andere = _beleg(
+        datei_hash="c" * 64,
+        lieferant_ust_id="DE123456789",
+        belegnummer="RE-2026-0042",
+        brutto=Decimal("-20.00"),
+    )
+    befund = pruefe_dublette(kandidat, [andere, VORHANDEN])
+    assert befund.ergebnis is Eingangsergebnis.DUBLETTE
+    assert befund.beleg_id == VORHANDEN.id
