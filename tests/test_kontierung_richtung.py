@@ -260,6 +260,29 @@ def test_loader_falsche_richtung_ist_ein_konfigurationsfehler(tmp_path):
         lade_regeln(datei)
 
 
+@pytest.mark.parametrize(
+    "befehl", [["classify", "--no-llm"], ["bank", "lauf"], ["opos", "verbuchen"]]
+)
+def test_fehlerhafte_regeldatei_meldet_die_regel_statt_traceback(
+    tmp_path, monkeypatch, befehl
+):
+    """Der Konfigurationsfehler mit Regelname erreicht den Anwender als Meldung."""
+    monkeypatch.chdir(tmp_path)  # config/regeln.yaml im Arbeitsverzeichnis
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: kaputt\n  muster: x\n  soll_konto: '4900'\n  haben_konto: '1200'\n"
+        "  richtung: rueckwaerts\n",
+        encoding="utf-8",
+    )
+    url = f"sqlite:///{(tmp_path / 'r.db').as_posix()}"
+    from accounti.cli import app
+
+    r = CliRunner().invoke(app, [*befehl, "--db", url])
+    assert r.exit_code == 1, r.output
+    assert not isinstance(r.exception, KonfigurationError), r.exception
+    assert "kaputt" in r.output and "rueckwaerts" in r.output
+
+
 def test_mitgelieferte_regeln_haben_eine_richtung():
     for regel in [*lade_regeln(REGELN), *standard_regeln("SKR03")]:
         assert regel.richtung in ("ausgabe", "einnahme"), regel.name

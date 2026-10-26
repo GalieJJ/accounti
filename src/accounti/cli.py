@@ -1448,21 +1448,21 @@ def opos_verbuchen(
         gewinnermittlung_angegeben,
         lade_abschluss,
     )
+    from accounti.betrieb.kontext import regeln_datei
 
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
         lade_abschluss(config)  # prüft den Abschnitt
         gewinnermittlung = gewinnermittlung_angegeben(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     from accounti.befehle import laufsperre_oder_ende
-    from accounti.betrieb.kontext import regeln_datei
 
     regelwerk = RegelwerkEngine(
-        lade_regeln(regeln_datei())
-        + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
     )
     engine, make_session = session_factory(db)
     init_db(engine)
@@ -2225,6 +2225,7 @@ def bank_lauf_befehl(
 
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.db import init_db, session_factory
     from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
@@ -2239,15 +2240,15 @@ def bank_lauf_befehl(
     try:
         einstellungen = lade_buchhaltung(config)
         integrationen = lade_integrationen(config)
+        # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
-    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
         regelwerk=RegelwerkEngine(
-            lade_regeln(regeln_datei())
+            eigene
             + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
         ),
         llm=LLMEngine() if llm else None,
@@ -2290,6 +2291,7 @@ def classify(
     """Transaktionen automatisch kontieren — mit Beleg aus dem Beleg."""
     from rich.markup import escape
 
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
     from accounti.integrationen.einstellungen import lade_integrationen
@@ -2305,16 +2307,15 @@ def classify(
     try:
         einstellungen = lade_buchhaltung(config)
         integrationen = lade_integrationen(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
     # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
     # das Standard-Regelwerk im Kontenrahmen der Buchhaltung.
     regelwerk = RegelwerkEngine(
-        lade_regeln(regeln_datei())
-        + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
     )
     engine = KlassifikationsEngine(
         regelwerk=regelwerk,

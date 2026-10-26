@@ -444,7 +444,12 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Schranke im Mapper für jede Quelle (gelernte Regeln ohne Richtung, LLM): Bankkonto auf der
   falschen Seite → tauschen und zur Prüfung; keine Seite das Bankkonto → zur Prüfung. Neue
   Regelfelder `pruefen` (Treffer immer zur Prüfung) und `confidence`; ein falscher Wert in der
-  Regeldatei ist ein Konfigurationsfehler mit Regelname
+  Regeldatei ist ein Konfigurationsfehler mit Regelname (`classify`, `bank lauf`,
+  `opos verbuchen`: Meldung und Exit 1 statt Traceback). Die Verfahrensdokumentation
+  (Abschnitt 2.3) nennt Richtung und Prüfkennzeichen der eigenen Regeln (Muster lesbar statt
+  `re.compile(…)`), die Standardregeln im Kontenrahmen der Buchhaltung und was unabhängig von
+  der Confidence zur Prüfung geht bzw. als Marktplatz-Auszahlung offen bleibt; eine
+  fehlerhafte Regeldatei steht dort als Hinweis, statt die Erzeugung abzubrechen
 - **`classify` buchte Marktplatz-Auszahlungen vor dem Abgleich** (Gesamttest Steuer B2,
   Teil Kontierung): Eine Amazon-Auszahlung wurde nach Regel Erlös 8400 mit Umsatzsteuer
   (Erlös doppelt in Kz 81), eine Shopify-Auszahlung Aufwand mit Vorsteuer. `classify`,

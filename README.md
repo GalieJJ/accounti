@@ -406,7 +406,11 @@ accounti datev kontoauszuege --period 2026-09 --kontrollsaldo 2.345,67
 
 Jede Abrechnung wird als Beleg archiviert und Bestandteil für Bestandteil gegen ein
 Verrechnungskonto gebucht; die Auszahlung ist nur der Abgleichspunkt gegen die Bank. Stimmt die
-Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Ein
+Summe der Posten nicht mit der Auszahlung, ist das ein Befund — nichts wird geglättet. Bis zum
+Abgleich lassen `classify` und `bank lauf` Auszahlungen offen (Zahlungseingang mit einem der
+`bank_stichworte`, Umsatz zu einer offenen Auszahlung einer importierten Abrechnung) — sie sind
+kein Erlös; wer keine Marktplatz-Abrechnungen importiert, schaltet das mit
+`bank_stichworte: []` je Marktplatz ab. Ein
 weiterer Bericht zu einer bekannten Abrechnung (Monatsberichte, erneuter Export) bucht nur die
 Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nichts nachgetragen.
 Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
