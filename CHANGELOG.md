@@ -20,11 +20,12 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Korrektur eines Kontierungsvorschlags wird auf Wunsch eine Regel — Muster vorbelegt mit dem
   ganzen Namen der Gegenpartei ohne Rechtsform, mit Vorschau (Treffer je Richtung, verdrängte
   Regel, andere Gegenparteien, Zahlungsdienst, anders gebuchte Treffer; trifft das Muster andere
-  Gegenparteien oder jeden Kauf über einen Zahlungsdienst, nur nach Bestätigung), nur mit dem
-  neuen Recht `regeln_lernen` zusätzlich zu `buchen` (anlegen: buchhalter; sehen, voranschauen
-  und deaktivieren auch der verwalter), nur in der Zahlungsrichtung des Umsatzes und nur aus
-  Kontierungsvorschlägen (nicht aus Kreditkarte, Anlagen, Marktplatz, offenen Posten),
-  gespeichert in der Datenbank der Gesellschaft, im Journal (samt Bestandsabgleich in
+  Gegenparteien oder jeden Kauf über einen Zahlungsdienst oder hat der Umsatz keinen Namen der
+  Gegenpartei, nur nach Bestätigung), nur mit dem neuen Recht `regeln_lernen` zusätzlich zu
+  `buchen` (anlegen: buchhalter; sehen, voranschauen und deaktivieren auch der verwalter), nur
+  in der Zahlungsrichtung des Umsatzes und nur aus Kontierungsvorschlägen (nicht aus
+  Kreditkarte, Anlagen, Marktplatz, offenen Posten), gespeichert in der Datenbank der
+  Gesellschaft, im Journal (samt Bestandsabgleich in
   `journal pruefen`) und mit Vorrang vor eigenen und Standardregeln; `/pruefen/regeln` und
   `accounti regeln liste|deaktivieren|uebernehmen`. `/buchungen/{id}` zeigt Storno-Kette, Korrektur und Journal
   und korrigiert freigegebene oder exportierte Buchungen als Storno mit Neubuchung — mit
@@ -323,14 +324,19 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   --lernen`, `lerne` und `regeln uebernehmen` verlangen mit eingerichteten Benutzern die Rechte
   `buchen` und `regeln_lernen` (ein Einmalcode), `regeln deaktivieren` nur `regeln_lernen`.
   `korrigiere --lernen` schlägt als Muster den ganzen Namen der Gegenpartei ohne Rechtsform vor
-  (bisher das erste Wort), lernt nur aus Kontierungsvorschlägen (Altbuchungen ohne gespeicherte
-  Herkunft weiterhin) und speichert ein Muster, das andere Gegenparteien oder jeden Kauf über
-  einen Zahlungsdienst träfe, nur mit `--trotz-warnung`. Früher gelernte `gelernt_*`-Einträge
-  übernimmt `accounti regeln uebernehmen` — mit der Richtung ihrer Bankseite.
+  (bisher das erste Wort; Rechtsformen wie „Co“ oder „AB“ kürzen nicht auf ein einzelnes Wort),
+  lernt nur aus Kontierungsvorschlägen (Altbuchungen ohne gespeicherte Herkunft weiterhin, aber
+  nicht aus dem Kassenbuch) und speichert ein Muster, das andere Gegenparteien oder jeden Kauf
+  über einen Zahlungsdienst träfe, nur mit `--trotz-warnung` — ebenso jede Regel aus einem
+  Umsatz ohne Namen der Gegenpartei (das Muster stammt dann aus dem Verwendungszweck). Früher
+  gelernte `gelernt_*`-Einträge übernimmt `accounti regeln uebernehmen` — mit der Richtung
+  ihrer Bankseite.
 - `accounti korrigiere` (und die Korrektur im Browser) behält das Finanzkonto eines
   Bankumsatzes auf der Seite seiner Zahlungsrichtung (Ausgabe im Haben, Einnahme im Soll):
-  „4930 an 4980“ oder ein Wechsel auf ein anderes Geldkonto für einen Umsatz auf 1200 wird
-  abgelehnt — der Kontostand der Bücher passte sonst nicht mehr zum Kontoauszug.
+  „4930 an 4980“, „4930 an 1000“ (Kasse) oder ein nicht eingerichtetes Bankkonto für einen
+  Umsatz auf 1200 wird abgelehnt — der Kontostand der Bücher passte sonst nicht mehr zum
+  Kontoauszug. Ein falsch zugeordnetes Finanzkonto (etwa `import bank` ohne `--konto`) lässt
+  sich auf ein anderes eingerichtetes Bankkonto umbuchen — mit Warnung und ohne Regel.
 - `accounti bestaetige` (und Freigeben im Browser) prüft die Prüfregel
   `steuerschluessel_konto` wie eine Korrektur: Meldet sie einen Fehler (Vorsteuer auf einer
   Privatentnahme, Automatikkonto ohne Schlüssel), wird nicht freigegeben.

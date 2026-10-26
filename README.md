@@ -574,11 +574,14 @@ entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, 
 accounti den ganzen Namen der Gegenpartei ohne Rechtsform vor („Deutsche Telekom“); träfe ein
 Muster auch andere Gegenparteien oder jeden Kauf über einen Zahlungsdienst wie PayPal, speichert
 accounti die Regel nur nach Bestätigung (Haken in der Regelvorschau, in der CLI
-`--trotz-warnung`). Regeln anlegen verlangt die Rechte buchen und Regeln lernen; deaktivieren darf
-auch der verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor
-(auch Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
-Umsatzes, und Freigeben prüft die Prüfregel `steuerschluessel_konto` wie eine Korrektur. Tasten in
-der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
+`--trotz-warnung`). Hat der Umsatz keinen Namen der Gegenpartei (CSV ohne Namensspalte, MT940
+ohne `?32`), kommt das Muster aus dem Verwendungszweck, und die Bestätigung ist immer nötig.
+Regeln anlegen verlangt die Rechte buchen und Regeln lernen; deaktivieren darf auch der
+verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor (auch
+Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
+Umsatzes — nur der Wechsel auf ein anderes eingerichtetes Bankkonto (falsch zugeordneter Umsatz)
+geht, mit Warnung und ohne Regel —, und Freigeben prüft die Prüfregel `steuerschluessel_konto`
+wie eine Korrektur. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
 `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
 accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als

@@ -189,7 +189,10 @@ auf Wunsch eine Regel (Text-Muster: der ganze Name der Gegenpartei ohne Rechtsfo
 erste Wort des Verwendungszwecks; nur ganze Wörter, Zahlungsrichtung des Umsatzes, Konten der
 Korrektur mit dem Finanzkonto auf seiner Seite, Schlüssel der Neubuchung), mit Vorschau der
 Treffer und der verdrängten Regel; trifft das Muster andere Gegenparteien oder jeden Kauf über
-einen Zahlungsdienst, speichert `pruefschlange.korrigieren` sie nur mit Bestätigung. Gelernte Regeln — auch Regexe aus `accounti lerne` — liegen
+einen Zahlungsdienst oder hat der Umsatz keinen Namen der Gegenpartei, speichert
+`pruefschlange.korrigieren` sie nur mit Bestätigung. Eine Korrektur darf das Finanzkonto nur
+gegen ein anderes eingerichtetes Bankkonto tauschen (`Bankkontowechsel`, mit Warnung, ohne
+Regel). Gelernte Regeln — auch Regexe aus `accounti lerne` — liegen
 je Gesellschaft in der Tabelle `kontierungsregeln` (im Journal, nur deaktivierbar) und gehen in
 `lade_regelwerk` vor der Regeldatei und den Standardregeln — die erste passende Regel gewinnt.
 `buchhaltung.gelernte_regeln` schaltet sie auf automatisch, vorlegen oder aus. Bei Belegbuchungen

@@ -487,9 +487,9 @@ Paket kleiner gemacht (markiert mit **[7]**/**[10a]**: vorhanden, nur nutzen).
 | Richtung | `richtung` ∈ {`ausgabe`, `einnahme`} aus dem Vorzeichen des Quellumsatzes (`betrag < 0` → Ausgabe); `Regel` bekommt den optionalen Parameter `richtung`, `passt()` prüft ihn (ohne Angabe wie bisher beide Richtungen; in `regeln.yaml` als optionales Feld erlaubt). Belegdaten laufen als Pseudo-Ausgabe (`mit_beleg.py`, negativer Betrag) und passen zu Ausgaberegeln | Befund 13 |
 | Vorrang | `klassifikation/lernen.lade_regelwerk(session, regeldatei, einstellung)` = aktive gelernte Regeln (neueste zuerst) → Regeldatei der Gesellschaft → `STANDARD_REGELN`. CLI (`classify`, `bank lauf`, `opos verbuchen`) übergibt `betrieb.kontext.regeln_datei()`, `api/rest/laeufe._bank` `g.regeln`; **kein eigener Ausweichpfad**. Weil die Regeln jetzt in der Datenbank liegen, bauen `classify` und `bank lauf` die Engine **in** der Sitzung, nachdem sie die Laufsperre haben (bisher davor). Genutzt auch von `sachkonto_fuer_beleg` | Akzeptanz 2: „greift beim nächsten Lauf“ — auch wenn eine eigene Regel vorher falsch getroffen hat |
 | Schalter | `buchhaltung.gelernte_regeln: automatisch \| pruefen \| aus` (Standard `automatisch`). `automatisch`: Confidence 1,0 wie jede Regel; `pruefen`: Confidence 0,9 — unter der Schwelle von `zu_buchungssatz`, also `zur Prüfung` mit Grund „Regel 'gelernt_…' (Einstellung: prüfen)“; `aus`: gelernte Regeln werden nicht geladen (Lernen bleibt möglich) | vorsichtige Einführung möglich; Akzeptanz 2 gilt in beiden Stufen |
-| Übernahme | `accounti regeln uebernehmen [--probe]`: Einträge `gelernt_*` aus der Regeldatei der Gesellschaft → `kontierungsregeln` (`ist_text=False`, weil schon `re.escape`, `richtung` leer, `herkunft=uebernahme`); die Datei bleibt unverändert, die Ausgabe nennt die Einträge, die von Hand zu löschen sind; doppelte Namen werden übersprungen | vor 10b gelernte Regeln stehen mit kaputter Stellung am Dateiende |
+| Übernahme | `accounti regeln uebernehmen [--probe]`: Einträge `gelernt_*` aus der Regeldatei der Gesellschaft → `kontierungsregeln` (`ist_text=False`, weil schon `re.escape`, `richtung` aus der Bankseite — Bank im Haben → Ausgabe, im Soll → Einnahme, sonst ein Geldkonto des Kontenrahmens; ohne Bankseite leer und gemeldet —, `herkunft=uebernahme`); die Datei bleibt unverändert, die Ausgabe nennt die Einträge, die von Hand zu löschen sind; doppelte Namen werden übersprungen | vor 10b gelernte Regeln stehen mit kaputter Stellung am Dateiende |
 | Regelangebot | Haken „Regel daraus machen“ nur, wenn `herkunft.quelle` ∈ {`regelwerk`, `llm`, `standard`} und ein Umsatz vorliegt; bei Belegbuchungen mit Personenkonto „Sachkonto am Kontakt lernen“; bei `kreditkarte`, `anlagen`, `marktplatz`, `opos` ohne Personenkonto kein Angebot | eine Regel aus „VISA“ (Sammelbelastung) oder einer AfA-Buchung wäre Unsinn |
-| Regelentwurf | `entwurf_aus_korrektur(korrektur, umsatz, buchhaltung)`: Muster wie bisher (erstes Wort von Gegenkonto-Name, sonst Verwendungszweck; ist es kürzer als 3 Zeichen, die ersten zwei Wörter), im Browser änderbar; Treffer **nur auf ganze Wörter** (`\b…\b` um den escapten Text); Feld `gegenkonto_name`/`verwendungszweck`/`beide`; `richtung` aus dem Umsatz; Soll/Haben aus der Korrektur, Schlüssel **der Neubuchung** (`korrektur.neu.steuer_schluessel` — bei neuem Sachkonto ausdrücklich angegeben, sonst der des unveränderten Sachkontos, wie 7 es in `korrigiere --lernen` festgelegt hat); steht dort das Finanzkonto des Umsatzes (`tx.sachkonto`, z. B. Kreditkarte), speichert die Regel `buchhaltung.bank_konto`, weil `kontiere_umsaetze` das Finanzkonto beim Anwenden wieder einsetzt | die Regel bucht künftig wie die Korrektur; „Müller“ soll „Müllerstraße“ nicht treffen |
+| Regelentwurf | `entwurf_aus_korrektur(korrektur, umsatz, buchhaltung)`: Muster = der ganze Name der Gegenpartei ohne Rechtsform (Nachbesserung H1), ohne Namen das erste Wort des Verwendungszwecks (ist es kürzer als 3 Zeichen, die ersten zwei Wörter; dann verlangt die Regel immer die Bestätigung, Nachprüfung H-1), im Browser änderbar; Treffer **nur auf ganze Wörter** (`\b…\b` um den escapten Text); Feld `gegenkonto_name`/`verwendungszweck`/`beide`; `richtung` aus dem Umsatz; Soll/Haben aus der Korrektur, Schlüssel **der Neubuchung** (`korrektur.neu.steuer_schluessel` — bei neuem Sachkonto ausdrücklich angegeben, sonst der des unveränderten Sachkontos, wie 7 es in `korrigiere --lernen` festgelegt hat); steht dort das Finanzkonto des Umsatzes (`tx.sachkonto`, z. B. Kreditkarte), speichert die Regel `buchhaltung.bank_konto`, weil `kontiere_umsaetze` das Finanzkonto beim Anwenden wieder einsetzt | die Regel bucht künftig wie die Korrektur; „Müller“ soll „Müllerstraße“ nicht treffen |
 | Muster nur als Text | im Browser ist das Muster **Text, kein regulärer Ausdruck** (gespeichert mit `ist_text`, beim Laden `re.escape`), 3–100 Zeichen | eigene Regexe aus dem Browser liefen über alle Umsätze (ReDoS); Regexe bleiben Sache des Betreibers (`config/regeln.yaml`, `accounti lerne`) |
 | Vorschau | `pruefe_entwurf(s, entwurf, umsatz, regelwerk)` → Trefferzahl über die Umsätze der Gesellschaft der **letzten 24 Monate**, getrennt nach Richtung (Gegenrichtung als „nicht betroffen“), bis zu fünf Beispiele (Datum, Gegenkonto, Betrag, bisherige Kontierung), davon anders kontiert, „greift für diesen Umsatz: ja/nein“, „verdrängt Regel X“, Warnungen (zu kurz, zu breit > 20 % aller Umsätze, gleiches Muster schon gelernt, Konto unbekannt, Schalter steht auf `aus`). Hinweis: wirkt nur auf noch nicht gebuchte Umsätze (und auf Umsätze, die ein reines Storno wieder öffnet). Im Browser per `POST` (HTMX-Fragment, ohne JS über eine Schaltfläche „Vorschau“) | Spec-Auftrag „Vorschau der Regel“; POST, weil Muster Lieferantennamen enthalten — sie gehören nicht in URLs, Verlauf und Proxy-Protokolle |
 | Lernen bei Belegbuchungen | Buchung ohne Umsatz, mit Beleg und Personenkonto: `lerne_sachkonto(s, buchung, soll, haben, person)` (aus `cli._lerne_sachkonto` herausgelöst) setzt `Kontakt.sachkonto`; Journal `schreibe(s, "sachkonto_gelernt", "kontakt", id, vorher=…, nachher=…)`. Vorschau zeigt „Sachkonto 4930 künftig für Lieferant X vorschlagen“ | gleiche Lernschleife wie in der CLI; Kontakte stehen nicht im Journal-Bestand |
@@ -1142,6 +1142,22 @@ der UI-Teil von H1 (Vorschau automatisch beim Haken, Treffer nach Gegenpartei gr
 Händler aus dem Verwendungszweck bei Zahlungsdiensten); Technik N3 „an“ gegen die Benutzer
 prüfen (Auswahlfeld in 10c), N4 (PostgreSQL ohne Trigger für `kontierungsgruende`).
 
+**Nachprüfung, dritte Runde (26.10.2026)** — Prüfbericht zu 1d3cf59 (H-1, M-1, N-1 bis N-5);
+je Befund ein Test, der ohne die Korrektur scheitert:
+
+| Befund | Korrektur | Test |
+|--------|-----------|------|
+| H-1 — ohne Namen der Gegenpartei keine Warnung | `Vorschau.ohne_namen`: jeder weitere Treffer zählt als fremd (mit dem Anfang seines Verwendungszwecks), `bestaetigung_noetig` immer — 422 bzw. `--trotz-warnung` wie bei fremden Gegenparteien | `test_lernen.py::test_vorschau_ohne_namen_der_gegenpartei_verlangt_bestaetigung`, `test_pruefschlange.py::test_regel_ohne_namen_der_gegenpartei_nur_mit_bestaetigung`, `test_cli_lernen.py::test_korrigiere_lernen_ohne_namen_nur_mit_trotz_warnung`, `test_api_regeln.py::test_ohne_namen_der_gegenpartei_422_mit_vorschau_und_bestaetigung` |
+| M-1 — falsch zugeordnetes Finanzkonto nicht mehr richtigzustellen (Regression aus 593216c) | `_pruefe_finanzkonto` lässt den Wechsel auf ein anderes eingerichtetes Bankkonto (`eingerichtete_bankkonten`) zu: `Bankkontowechsel` mit Warnung in `Korrektur.warnungen`, ohne Regel (422 Feld `regel`); nach dem Wechsel gilt das neue Bankkonto als Finanzkonto der Buchung; Aufwand, Kasse, nicht eingerichtete Konten weiter 422 | `test_pruefschlange.py::test_falsch_zugeordnetes_bankkonto_laesst_sich_richtigstellen`, `test_cli_supervisor.py::test_korrigiere_falsch_zugeordnetes_bankkonto` |
+| N-2 — CLI lernt aus dem Kassenbuch | Kassenvorgänge (`quelle=manuell`) zählen nicht als Altbuchung ohne Herkunft | `test_cli_lernen.py::test_korrigiere_lernen_nicht_aus_dem_kassenbuch` |
+| N-3 — „Co“, „AB“, „AS“, „SE“ kürzen auf ein Wort | `_MEHRDEUTIG`: kürzt nur, wenn davor zwei Wörter bleiben | `test_lernen.py::test_mustervorschlag_ohne_rechtsform` (neue Fälle) |
+| N-5 — Plan veraltet | Übernahme (Richtung aus der Bankseite), Regelentwurf und Grenze „ohne Gegenpartei“ nachgezogen | — |
+
+Nicht behoben: N-1 (TIFF mit Millionen Strips: braucht einen eigenen Leser der
+TIFF-Verzeichnisse vor `Image.open`, keine Regression) und N-4 (Einmalcode bei Zahlungs- und
+UStVA-Freigabe vor der Fachprüfung, Baustein 10a; das Probe-Muster aus Technik M3 verlangt dort
+erst eine Prüfung der Seiteneffekte von `gib_frei` und der Zahlungsfreigabe) — beides Folgearbeit.
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1467,8 +1483,13 @@ Durchlaufs mit Markern in allen Fremddaten.
   Groß-/Kleinschreibung — Schreibvarianten derselben Firma („Telekom Deutschland GmbH“ neben
   „Deutsche Telekom AG“) zählen als andere und verlangen die Bestätigung. Zahlungsdienste
   erkennt accounti nur an einer festen Namensliste (PayPal, Klarna, Stripe …); einen
-  Händler aus dem Verwendungszweck schlägt es nicht vor (10c). Ohne Gegenpartei bleibt der
-  Vorschlag das erste Wort des Verwendungszwecks, die Vorschau warnt dann bei Bedarf.
+  Händler aus dem Verwendungszweck schlägt es nicht vor (10c). Rechtsformen, die auch Wörter
+  sind („Co“, „AB“, „AS“, „SE“, „SA“, „SL“), kürzen nur, wenn davor zwei Wörter bleiben
+  („Spotify AB“ bleibt ganz). Ohne Namen der Gegenpartei (CSV ohne Namensspalte, MT940 ohne
+  `?32`) bleibt der Vorschlag das erste Wort des Verwendungszwecks; jeder weitere Treffer zählt
+  dann als fremd, und die Regel verlangt **immer** die Bestätigung — auch ohne Treffer im
+  Bestand, weil sich nicht prüfen lässt, ob künftige Treffer von derselben Gegenpartei stammen.
+  Mit Namen kommt die Bestätigung nur, wenn passende fremde Umsätze schon im Bestand sind.
 - Die Bestätigung gilt für das Muster, für das der Haken gesetzt wurde; die Vorschau lädt
   nicht automatisch beim Setzen des Regel-Hakens (10c) — ohne Vorschau gespeichert wird aber
   nur ein Muster ohne solche Warnung.
@@ -1476,9 +1497,21 @@ Durchlaufs mit Markern in allen Fremddaten.
   können auch Kreditkarten- oder Marktplatzbuchungen sein; der Browser bietet dort keine
   Regel an.
 - Die Finanzkonto-Prüfung der Korrektur greift nur, wenn die Buchung das Finanzkonto des
-  Umsatzes (`tx.sachkonto`, sonst `buchhaltung.bank_konto` der Konfiguration) heute berührt —
+  Umsatzes (`tx.sachkonto`, sonst `buchhaltung.bank_konto` der Konfiguration) oder — nach einem
+  Wechsel — ein anderes eingerichtetes Bankkonto auf der Seite der Zahlung heute berührt —
   Skonto- und Restbuchungen am selben Umsatz und eine CLI-Korrektur mit falscher `--config`
   bleiben ungeprüft.
+- Ein falsch zugeordnetes Finanzkonto (Umsatz über `import bank` ohne `--konto`, falsches
+  `--konto`) stellt die Korrektur richtig: Der Wechsel auf ein **anderes eingerichtetes
+  Bankkonto** (`buchhaltung.bank_konto` oder `accounti bank verbinde … --sachkonto`, auch
+  Kartenkonten) geht mit Warnung; ob der Umsatz wirklich auf dem Auszug dieses Kontos steht,
+  prüft accounti nicht — erst die Bankabstimmung im Abschluss. Die Kontozuordnung des Umsatzes
+  (`tx.sachkonto`) bleibt: nach einem Storno bucht `classify` ihn wieder über das alte Konto.
+  Aus einem Wechsel wird keine Regel gelernt. Kasse, Aufwand und nicht eingerichtete Konten
+  bleiben abgewiesen (die Meldung nennt `accounti bank verbinde`, wenn das Konto im
+  Bankbereich des Kontenrahmens liegt).
+- Die CLI lernt nicht aus Kassenvorgängen (Kassenbuch, `quelle=manuell`); sie speichern keine
+  Herkunft und zählen nicht als Altbuchung.
 - Im Browser nur Text-Muster; Regexe nur über `accounti lerne` und von Hand in der Regeldatei.
   accounti schreibt die Regeldatei nicht mehr; `accounti regeln uebernehmen` holt alte
   `gelernt_*`-Einträge in die Datenbank, löscht sie aber nicht aus der Datei.
