@@ -990,6 +990,69 @@ def test_gleichnamige_privatkunden_werden_zwei_debitoren(umgebung):
     assert "gleichnamiger Kontakt 10000" in zweiter.pruef_grund
 
 
+def _ausstellen_am(make_session, archiv, e, tag):
+    with make_session() as s:
+        speichere_ausgangsrechnung(s, e)
+        stelle_aus(s, archiv, str(e.id)[:8], FIRMA, tag)
+        s.commit()
+
+
+def _privat(strasse, plz, ort, name="Max Muster"):
+    from accounti.models import Rechnungsempfaenger
+
+    return Rechnungsempfaenger(name=name, strasse=strasse, plz=plz, ort=ort, privat=True)
+
+
+def test_gutschrift_mit_bezug_bleibt_beim_debitor_der_rechnung(umgebung):
+    """Nachprüfung Merge N-1: Ein Privatkunde ohne E-Mail ist umgezogen, die Gutschrift
+    mit Bezug (BT-25) geht an die neue Anschrift. Sie gehört zum Debitor der Rechnung
+    und wird mit ihr verrechnet — vorher entstand ein zweiter Debitor, die Rechnung
+    blieb mit 238 € voll offen (eine Mahnung ginge über den ganzen Betrag)."""
+    make_session, archiv = umgebung
+    berlin = _privat("Weg 1", "10115", "Berlin")
+    _ausstellen_am(
+        make_session, archiv, entwurf(berlin, pos("Druck", "200")), date(2026, 3, 2)
+    )
+    _verbuche(make_session, archiv=archiv)
+    hamburg = _privat("Allee 9", "20095", "Hamburg")
+    gutschrift = entwurf(
+        hamburg, pos("Minderung", "50"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _ausstellen_am(make_session, archiv, gutschrift, date(2026, 3, 9))
+    (v,) = _verbuche(make_session, archiv=archiv)
+    assert (v.kontakt_neu, v.treffer.kontakt.debitor_konto) == (False, "10000")
+    assert any("mit Rechnung 2026-0001 verrechnet" in h for h in v.hinweise)
+    (anschrift,) = [h for h in v.hinweise if "Anschrift" in h]
+    assert "20095" in anschrift and "10115" in anschrift, anschrift
+    with make_session() as s:
+        assert len(lade_kontakte(s)) == 1
+        reste = {p.belegnummer: p.restbetrag for p in lade_posten(s)}
+    assert reste == {"2026-0001": Decimal("178.50"), "2026-0002": Decimal("0.00")}
+
+
+def test_gutschrift_mit_bezug_auf_die_rechnung_eines_anderen_kunden(umgebung):
+    """Gegenprobe zu N-1: Nennt die Gutschrift einen anderen Kunden als die Rechnung,
+    bleibt sie bei ihrem eigenen Debitor — der Hinweis sagt, warum nicht verrechnet
+    wurde."""
+    make_session, archiv = umgebung
+    _ausstellen_am(
+        make_session,
+        archiv,
+        entwurf(_privat("Weg 1", "10115", "Berlin"), pos("Druck", "200")),
+        date(2026, 3, 2),
+    )
+    _verbuche(make_session, archiv=archiv)
+    andere = _privat("Allee 9", "20095", "Hamburg", name="Erika Beispiel")
+    gutschrift = entwurf(
+        andere, pos("Minderung", "50"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _ausstellen_am(make_session, archiv, gutschrift, date(2026, 3, 9))
+    (v,) = _verbuche(make_session, archiv=archiv)
+    assert v.treffer.kontakt.debitor_konto == "10001"
+    (nicht,) = [h for h in v.hinweise if "nicht mit Rechnung 2026-0001" in h]
+    assert "10000" in nicht and "10001" in nicht, nicht
+
+
 # --- Gesamttest Paket C, Eingang B16: Rechnung erst im Folgejahr --------------------
 
 

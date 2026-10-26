@@ -65,6 +65,7 @@ from accounti.buchung.steuergruppe import (
 from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repository import (
     lade_belege,
+    lade_kontakte,
     lade_posten,
     speichere_buchung,
     speichere_posten,
@@ -79,7 +80,7 @@ from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.kontakte.dienst import KontaktTreffer, Partnerdaten, kontakt_fuer
-from accounti.kontakte.erkennung import finde_kontakt, land_aus_kennung
+from accounti.kontakte.erkennung import finde_kontakt, land_aus_kennung, suche_kontakt
 from accounti.kontakte.ustid import USTID_KATEGORIEN, aktuelle_bestaetigung
 from accounti.models import (
     Beleg,
@@ -416,8 +417,16 @@ def verbuche_beleg(
             email=k.email,
         )
         # Kunden einer eigenen Ausgangsrechnung sind bekannt — keine Prüfung nötig;
-        # ein gleichnamiger Kunde ist derselbe nur bei gleicher PLZ oder E-Mail
-        treffer = kontakt_fuer(
+        # ein gleichnamiger Kunde ist derselbe nur bei gleicher PLZ oder E-Mail,
+        # eine Gutschrift mit Bezug (BT-25) gehört zum Kunden ihrer Rechnung
+        bezug = (
+            _kunde_der_bezugsrechnung(
+                session, rechnung.vorgaenger_nummer, partner, anlass, hinweise
+            )
+            if rechnung is not None and rechnung.vorgaenger_nummer
+            else None
+        )
+        treffer = bezug or kontakt_fuer(
             session,
             einstellungen,
             "debitor",
@@ -703,6 +712,44 @@ def _spaetere_wege(
     return ", ".join(wege[:-1]) + " oder " + wege[-1]
 
 
+def _kunde_der_bezugsrechnung(
+    session: Session,
+    nummer: str,
+    partner: Partnerdaten,
+    anlass: str,
+    hinweise: list[str],
+) -> KontaktTreffer | None:
+    """Gutschrift/Korrektur mit Bezug (BT-25): der Debitor der Rechnung ``nummer``,
+    wenn der Käufer dort derselbe ist (Name, keine andere USt-IdNr., kein anderes
+    Land). Sonst teilte eine neue Anschrift — ein umgezogener Privatkunde ohne E-Mail —
+    den Kunden in zwei Debitoren, und die Verrechnung fiele still aus (Nachprüfung
+    Merge N-1). Eine abweichende Anschrift wird gemeldet, nicht übernommen."""
+    kunden = {
+        p.kontakt_id
+        for p in lade_posten(session, richtung=PostenRichtung.FORDERUNG)
+        if p.belegnummer == nummer
+    }
+    if len(kunden) != 1:
+        return None
+    kontakt = {k.id: k for k in lade_kontakte(session)}.get(kunden.pop())
+    if kontakt is None or kontakt.debitor_konto is None:
+        return None
+    gefunden = suche_kontakt(
+        [kontakt], ust_id=partner.ust_id, name=partner.name, land=partner.land
+    )
+    if gefunden.kontakt is None:
+        return None
+    if partner.plz and kontakt.plz and partner.plz.strip() != kontakt.plz.strip():
+        hinweise.append(
+            f"{anlass}: Kunde über den Bezug auf Rechnung {nummer} erkannt (Debitor "
+            f"{kontakt.debitor_konto}) — die Anschrift der Gutschrift/Korrektur "
+            f"({partner.plz} {partner.ort or ''}) weicht vom Kontakt ab "
+            f"({kontakt.plz} {kontakt.ort or ''}): Anschrift im Kontakt prüfen "
+            f"(accounti kontakte zeigen {kontakt.debitor_konto})"
+        )
+    return KontaktTreffer(kontakt, neu=False, merkmal=f"Bezug auf {nummer} (BT-25)")
+
+
 def _mit_rechnung_verrechnen(
     session: Session,
     gutschrift: OffenerPosten,
@@ -726,6 +773,23 @@ def _mit_rechnung_verrechnen(
         and p.restbetrag > 0
     ]
     if len(offen) != 1:
+        kontakte = {k.id: k for k in lade_kontakte(session)}
+        fremd = sorted(
+            {
+                kontakte[p.kontakt_id].debitor_konto or kontakte[p.kontakt_id].name
+                for p in lade_posten(session, richtung=PostenRichtung.FORDERUNG)
+                if p.belegnummer == nummer
+                and p.kontakt_id != gutschrift.kontakt_id
+                and p.kontakt_id in kontakte
+            }
+        )
+        eigen = kontakte.get(gutschrift.kontakt_id)
+        if not offen and fremd and eigen is not None:
+            hinweise.append(
+                f"nicht mit Rechnung {nummer} verrechnet: sie steht auf Debitor "
+                f"{', '.join(fremd)}, die Gutschrift auf {eigen.debitor_konto} "
+                "(anderer Kunde) — Bezug prüfen"
+            )
         return gutschrift
     (rechnung,) = offen
     try:
