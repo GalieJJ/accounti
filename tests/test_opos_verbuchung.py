@@ -1083,3 +1083,124 @@ def test_kein_paragraf_15_hinweis_bei_13b(umgebung):
     (v,) = _verbuche(make_session)
     assert any("§ 13b" in h for h in v.hinweise)
     assert not any("§ 15 Abs. 1 Nr. 1" in h for h in v.hinweise), v.hinweise
+
+
+# --- Nachprüfung Paket C: M1 (Vorzeichen) und M2 (Gutschrift und § 17) ------------
+
+
+def test_rechnung_mit_korrekturwort_in_der_fusszeile_bucht_positiv(umgebung):
+    """M1: Bei geprüftem Kreditor wurde die Rechnung (300 + 57) als Minderung
+    automatisch gebucht — Kreditor an Aufwand, Posten −357."""
+    from tests.test_belege_extraktion import RECHNUNG_MIT_FUSSZEILE
+
+    make_session, _ = umgebung
+    text = RECHNUNG_MIT_FUSSZEILE.format(
+        titel="Rechnung",
+        fusszeile="Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen",
+    )
+    with make_session() as s:
+        speichere_kontakt(
+            s,
+            Kontakt(
+                name="Rahmenwerk Nord GmbH",
+                ust_id="DE811907980",
+                kreditor_konto="70000",
+                status=KontaktStatus.GEPRUEFT,
+            ),
+        )
+        speichere_beleg(s, _aus_pdf(text))
+        s.commit()
+    _verbuche(make_session)
+    with make_session() as s:
+        (b,) = lade_buchungen(s)
+        (posten,) = lade_posten(s)
+    assert (b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_betrag) == (
+        "4900",
+        "70000",
+        Decimal("300.00"),
+        Decimal("57.00"),
+    )
+    assert posten.betrag == Decimal("357.00")
+
+
+def _gutschrift(**kw):
+    b = eingangsrechnung(
+        belegnummer="RW-G-0013",
+        netto=Decimal("-200.00"),
+        steuer=Decimal("-38.00"),
+        brutto=Decimal("-238.00"),
+        zahlungsziel=None,
+        skonto_prozent=None,
+        skonto_tage=None,
+        **kw,
+    )
+    b.positionen = [
+        Belegposition(
+            beleg_id=b.id,
+            bezeichnung="Rücknahme",
+            netto=Decimal("-200.00"),
+            steuersatz=Decimal("19"),
+            steuer_betrag=Decimal("-38.00"),
+        )
+    ]
+    return b
+
+
+@pytest.mark.parametrize("gewinnermittlung", ["bilanz", None])
+def test_gutschrift_aus_dem_vorjahr_mindert_die_vorsteuer_im_zeitraum_der_aenderung(
+    umgebung, gewinnermittlung
+):
+    """M2: Gutschrift vom 30.12.2025, erfasst 01.10.2026. Vorher: 1548-Weg, Kz 66
+    = −38 erst in 10/2026, Hinweis „abziehbar in 10/2026“. Die Minderung gehört in den
+    Zeitraum, in dem sich die Bemessungsgrundlage geändert hat (§ 17 Abs. 1 S. 8 UStG,
+    Abschn. 17.1 UStAE) — unabhängig vom Zugang des Belegs."""
+    from accounti.db.repository import setze_status
+    from accounti.steuer.kennziffern import Kontenplan, ermittle
+    from accounti.steuer.zeitraum import Zeitraum
+
+    make_session, _ = umgebung
+    gutschrift = _gutschrift(
+        belegdatum=date(2025, 12, 30), eingegangen_am=datetime(2026, 10, 1, 9, 0)
+    )
+    with make_session() as s:
+        speichere_beleg(s, gutschrift)
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung=gewinnermittlung)
+        s.commit()
+        assert lauf.fehler == []
+        (v,) = lauf.verbucht
+        zeilen = [
+            (b.datum, b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+            for b in lade_buchungen(s)
+        ]
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        buchungen = lade_buchungen(s)
+    assert zeilen == [(date(2025, 12, 30), "70000", "4900", Decimal("200.00"), 9)]
+    assert not any("1548" in h or "§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    assert any("§ 17 Abs. 1 S. 8" in h and "12/2025" in h for h in v.hinweise)
+    dezember = ermittle(buchungen, Zeitraum.lies("2025-12"), Kontenplan())
+    oktober = ermittle(buchungen, Zeitraum.lies("2026-10"), Kontenplan())
+    assert dezember.voranmeldung.werte.get(66) == Decimal("-38.00")
+    assert oktober.voranmeldung.werte == {}
+
+
+@pytest.mark.parametrize("gewinnermittlung", ["euer", "bilanz"])
+def test_gutschrift_spaet_erfasst_ohne_paragraf_15_hinweis(umgebung, gewinnermittlung):
+    """M2: Der § 15-Hinweis („gehört in den Eingangsmonat“) gilt nur für den Abzug —
+    bei einer Minderung der Hinweis auf § 17 Abs. 1 S. 8 UStG."""
+    make_session, _ = umgebung
+    with make_session() as s:
+        speichere_beleg(
+            s, _gutschrift(eingegangen_am=datetime(2026, 4, 20, 9, 0))
+        )  # Belegdatum 05.03.2026
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, EINSTELLUNGEN, gewinnermittlung=gewinnermittlung)
+        s.commit()
+    (v,) = lauf.verbucht
+    assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    assert any("§ 17 Abs. 1 S. 8" in h and "03/2026" in h for h in v.hinweise)
+    assert {b.datum for b in v.buchungen} == {date(2026, 3, 5)}

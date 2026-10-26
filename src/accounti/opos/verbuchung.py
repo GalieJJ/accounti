@@ -21,6 +21,12 @@ alten Jahr), bucht accounti die Vorsteuer auf „Vorsteuer im Folgejahr abziehba
 (SKR03 1548, SKR04 1434) und zum ersten offenen Tag des Eingangsmonats auf das
 Vorsteuerkonto um — erst dort zählt sie in der Voranmeldung (§ 15 Abs. 1 S. 1 Nr. 1
 UStG, Abschn. 15.2 Abs. 2 S. 7 UStAE: Leistung und Rechnung müssen vorliegen).
+
+Das gilt nur für den Abzug. Eine Gutschrift des Lieferanten (negative Vorsteuer)
+mindert die Vorsteuer im Zeitraum, in dem sich die Bemessungsgrundlage geändert hat —
+unabhängig davon, wann der Beleg eingeht (§ 17 Abs. 1 S. 8 UStG, Abschn. 17.1 UStAE).
+accounti nimmt dafür das Belegdatum der Gutschrift: kein 1548-Weg, kein § 15-Hinweis;
+gebucht in einem späteren Zeitraum (gesperrter Monat), geht sie zur Prüfung.
 """
 
 from __future__ import annotations
@@ -308,12 +314,21 @@ def verbuche_beleg(
         )
         raise JahrGesperrtError(msg)
     if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
-        ausweg = (
-            " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
-            "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
-            if eingang
-            else " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
-        )
+        if eingang and beleg.steuer is not None and beleg.steuer < 0:
+            ausweg = (
+                " — eine Gutschrift mindert die Vorsteuer im Zeitraum der Änderung "
+                f"({belegdatum:%m/%Y}, § 17 Abs. 1 S. 8 UStG): den Monat mit Grund "
+                f"öffnen (accounti periode oeffnen {belegdatum:%Y-%m} --grund …) und "
+                "zum Belegdatum buchen; mit --buchungsdatum eingang, offen oder "
+                "JJJJ-MM-TT später gebucht, geht sie zur Prüfung"
+            )
+        elif eingang:
+            ausweg = (
+                " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
+                "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
+            )
+        else:
+            ausweg = " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
         raise type(fehler)(
             f"{anlass}: gebucht am {gebucht_am:%d.%m.%Y}: {fehler}{ausweg}"
         )
@@ -430,14 +445,22 @@ def verbuche_beleg(
         land,
         ustid_bestaetigt,
     )
-    if (
-        hinweis_datum
-        and gebucht_am == belegdatum
-        and not any(g.schluessel in (8, 9) and g.steuer for g in gruppen)
-    ):
-        # der § 15-Hinweis zum Belegdatum gilt nur für Vorsteuer aus der Rechnung —
-        # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG)
+    vorsteuer = [g.steuer for g in gruppen if g.schluessel in (8, 9) and g.steuer]
+    abzug = any(s > 0 for s in vorsteuer)
+    minderung = any(s < 0 for s in vorsteuer)
+    if hinweis_datum and not abzug and (gebucht_am == belegdatum or minderung):
+        # der § 15-Hinweis gilt nur für den Abzug von Vorsteuer aus der Rechnung —
+        # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG), eine
+        # Gutschrift mindert im Zeitraum der Änderung (§ 17 Abs. 1 S. 8 UStG)
         hinweise.remove(hinweis_datum)
+    minderung_spaet = minderung and (gebucht_am.year, gebucht_am.month) != (
+        belegdatum.year,
+        belegdatum.month,
+    )
+    if minderung:
+        hinweise += _hinweis_minderung(
+            belegdatum, beleg.eingegangen_am.date(), gebucht_am, anlass
+        )
     if eingang:
         hinweise += _steuerhinweise(gruppen, anlass, land)
     folgejahr = _vorsteuer_folgejahr(
@@ -448,7 +471,9 @@ def verbuche_beleg(
         gedreht = g.netto < 0  # Gutschrift: Seiten tauschen, Beträge positiv
         if gedreht:
             soll, haben = haben, soll
-        pruefen = g.pruefen or widerspruch
+        # Minderung außerhalb ihres Zeitraums gebucht: die Voranmeldung stimmt so nicht
+        spaet = minderung_spaet and g.schluessel in (8, 9) and g.steuer < 0
+        pruefen = g.pruefen or widerspruch or spaet
         status = BuchungStatus.ZUR_PRUEFUNG if pruefen else BuchungStatus.AUTO_GEBUCHT
 
         def buche(
@@ -477,25 +502,23 @@ def verbuche_beleg(
             speichere_buchung(session, buchung)
             buchungen.append(buchung)
 
-        if folgejahr is not None and g.schluessel in (8, 9) and g.steuer:
+        # nur der Abzug wartet auf die Rechnung — eine Minderung (Gutschrift) gehört
+        # in den Zeitraum der Änderung (§ 17 Abs. 1 S. 8 UStG), also kein 1548-Weg
+        if folgejahr is not None and g.schluessel in (8, 9) and g.steuer > 0:
             konto_folgejahr, umbuchung_am, kr = folgejahr
-            vorsteuer = kr.steuerkonto(g.schluessel) or konto_folgejahr
-            steuer = abs(g.steuer)
+            vorsteuerkonto = kr.steuerkonto(g.schluessel) or konto_folgejahr
+            steuer = g.steuer
             buche(soll, haben, abs(g.netto))
             # Vorsteuer: im alten Jahr nur als „im Folgejahr abziehbar“ …
-            if gedreht:
-                buche(personenkonto, konto_folgejahr, steuer)
-                buche(konto_folgejahr, vorsteuer, steuer, datum=umbuchung_am)
-            else:
-                buche(konto_folgejahr, personenkonto, steuer)
-                # … und abziehbar im Zeitraum, in dem die Rechnung vorliegt
-                buche(vorsteuer, konto_folgejahr, steuer, datum=umbuchung_am)
+            buche(konto_folgejahr, personenkonto, steuer)
+            # … und abziehbar im Zeitraum, in dem die Rechnung vorliegt
+            buche(vorsteuerkonto, konto_folgejahr, steuer, datum=umbuchung_am)
             hinweise.append(
                 f"{anlass}: Rechnung vom {belegdatum:%d.%m.%Y} erst am "
                 f"{beleg.eingegangen_am:%d.%m.%Y} erfasst — Vorsteuer "
                 f"{betrag_de(steuer)} € auf "
                 f"{konto_folgejahr} „Vorsteuer im Folgejahr abziehbar“ und zum "
-                f"{umbuchung_am:%d.%m.%Y} auf {vorsteuer} umgebucht: abziehbar in "
+                f"{umbuchung_am:%d.%m.%Y} auf {vorsteuerkonto} umgebucht: abziehbar in "
                 f"{umbuchung_am:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG); lag die Rechnung "
                 "schon im alten Jahr vor (Eingang = Erfassung in accounti), die "
                 "Buchungen korrigieren"
@@ -557,6 +580,32 @@ def _vorsteuer_folgejahr(
     return konto, tag, kr
 
 
+def _hinweis_minderung(
+    belegdatum: date, eingegangen: date, gebucht_am: date, anlass: str
+) -> list[str]:
+    """Gutschrift: Die Vorsteuer mindert sich im Zeitraum der Änderung der
+    Bemessungsgrundlage (§ 17 Abs. 1 S. 8 UStG) — hier das Belegdatum —, nicht im
+    Zeitraum des Eingangs (Abschn. 17.1 UStAE; § 15 Abs. 1 Nr. 1 gilt nur für den
+    Abzug)."""
+    zeitraum = f"{belegdatum:%m/%Y}"
+    if (gebucht_am.year, gebucht_am.month) != (belegdatum.year, belegdatum.month):
+        return [
+            f"{anlass}: Gutschrift vom {belegdatum:%d.%m.%Y} am {gebucht_am:%d.%m.%Y} "
+            f"gebucht — die Minderung der Vorsteuer gehört in den Zeitraum der "
+            f"Änderung ({zeitraum}), nicht in einen späteren (§ 17 Abs. 1 S. 8 UStG): "
+            f"die Voranmeldung {zeitraum} ist zu berichtigen; Buchung zur Prüfung"
+        ]
+    if (eingegangen.year, eingegangen.month) > (belegdatum.year, belegdatum.month):
+        return [
+            f"{anlass}: Gutschrift vom {belegdatum:%d.%m.%Y}, erfasst am "
+            f"{eingegangen:%d.%m.%Y} — die Vorsteuer mindert sich im Zeitraum der "
+            f"Änderung ({zeitraum}), nicht im Eingangszeitraum (§ 17 Abs. 1 S. 8 UStG, "
+            f"Abschn. 17.1 UStAE); ist die Voranmeldung {zeitraum} schon abgegeben, "
+            "ist sie zu berichtigen"
+        ]
+    return []
+
+
 def _hinweis_eingang_spaeter(
     belegdatum: date, eingegangen: date, anlass: str, gewinnermittlung: str | None
 ) -> str | None:
@@ -571,7 +620,10 @@ def _hinweis_eingang_spaeter(
         f"{anlass}: zum Belegdatum {belegdatum:%d.%m.%Y} gebucht, erfasst am "
         f"{eingegangen:%d.%m.%Y} — die Vorsteuer zählt in {belegdatum:%m/%Y}; lag "
         f"die Rechnung erst nach Ende dieses Zeitraums vor, gehört sie in "
-        f"{eingegangen:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG, kein Wahlrecht)"
+        f"{eingegangen:%m/%Y} (§ 15 Abs. 1 Nr. 1 UStG, kein Wahlrecht). accounti "
+        "verschiebt sie nicht von sich aus (Eingang = Erfassung in accounti; "
+        "--buchungsdatum gilt nur für festgeschriebene Monate); die Voranmeldung "
+        f"{belegdatum:%m/%Y} meldet sie als Befund beleg_nach_zeitraum"
     )
 
 

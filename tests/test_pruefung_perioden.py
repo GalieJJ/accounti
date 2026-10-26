@@ -203,6 +203,34 @@ def test_spaete_eingangsrechnung_mit_buchungsdatum(make_session):
     assert any("§ 15 Abs. 1 Nr. 1 UStG" in h for h in v.hinweise)
 
 
+def test_spaete_gutschrift_fuer_festgeschriebenen_monat(make_session):
+    """M2 (Nachprüfung C): Die Minderung gehört in den Zeitraum der Änderung (§ 17
+    Abs. 1 S. 8 UStG), nicht in den Eingangszeitraum — mit --buchungsdatum später
+    gebucht, geht sie zur Prüfung, und der Hinweis nennt die zu berichtigende
+    Voranmeldung statt § 15 („zählt in diesem Zeitraum“)."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+    from tests.pruefung_hilfe import beleg
+
+    gutschrift = beleg(
+        tag=date(2026, 8, 10), netto="-100.00", steuer="-19.00", brutto="-119.00"
+    )
+    anlegen(make_session, gutschrift)
+    _geschlossen(make_session)  # 2026-08
+    with make_session() as s:
+        with (
+            pytest.raises(PeriodeGesperrtError, match="§ 17 Abs. 1 S. 8"),
+            s.begin_nested(),
+        ):
+            verbuche_beleg(s, gutschrift, Buchhaltung())
+        v = verbuche_beleg(s, gutschrift, Buchhaltung(), buchungsdatum="offen")
+        s.commit()
+    assert {b.datum for b in v.buchungen} == {date(2026, 9, 1)}
+    assert {b.status for b in v.buchungen} == {BuchungStatus.ZUR_PRUEFUNG}
+    assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
+    assert any("§ 17 Abs. 1 S. 8" in h and "08/2026" in h for h in v.hinweise)
+
+
 def test_buchungsdatum_eingang_und_fester_tag(make_session):
     from accounti.konfiguration import Buchhaltung
     from accounti.opos.verbuchung import VerbuchungError, verbuche_beleg

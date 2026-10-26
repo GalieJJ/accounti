@@ -197,16 +197,21 @@ def _beleg_nach_zeitraum(
     e: Ermittlung, belegeingang: Mapping[UUID, date]
 ) -> list[Befund]:
     """Vorsteuer (Kz 66) aus einer Belegbuchung, deren Rechnung erst nach Ende des
-    Zeitraums erfasst wurde: abziehbar ist sie erst, wenn die Rechnung vorliegt."""
+    Zeitraums erfasst wurde: abziehbar ist sie erst, wenn die Rechnung vorliegt.
+
+    Nur der Abzug: Eine Gutschrift (Kz 66 negativ) mindert die Vorsteuer im Zeitraum
+    der Änderung, gleich wann sie eingeht (§ 17 Abs. 1 S. 8 UStG)."""
     befunde = []
     for z in e.zugeordnet:
         b = z.buchung
         eingang = belegeingang.get(b.beleg_id) if b.beleg_id else None
+        kz66 = sum((x.betrag for x in z.beitraege if x.kz == 66), Decimal("0"))
         if (
             eingang is None
             or b.transaktion_id is not None
             or b.steuer_schluessel not in (8, 9)
             or eingang <= e.zeitraum.bis
+            or kz66 <= 0
         ):
             continue
         text = (
