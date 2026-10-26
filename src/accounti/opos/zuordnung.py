@@ -10,8 +10,9 @@ C  Unscharf   Skontobetrag ohne Referenz, Summe mehrerer Posten, Teilbetrag,
 Automatisch gebucht wird nur, was eindeutig ist: Stufe A mit genau einem Posten
 (voll, Skonto in der Frist, Teilzahlung) und Stufe B. Alles andere legt accounti
 dem Menschen vor — auch jeder Treffer, bei dem der erkannte Zahler nicht der Kontakt
-des Postens ist, und bei unbekanntem Zahler eine Belegnummer, die nur als Datum im
-Zweck steht („2026-0315“ in „EREF+20260315-0042“).
+des Postens ist, und eine Belegnummer, die nur als Datum im Zweck steht („2026-0315“ in
+„EREF+20260315-0042“ oder „Lieferung vom 2026-03-15“): bei unbekanntem Zahler höchstens
+ein Vorschlag, beim erkannten Zahler entscheidet der eindeutige Betrag (Stufe B).
 
 Gutschriften und Guthaben: Ein Posten mit negativem Rest (Gutschrift,
 Rechnungskorrektur, Überzahlung) wird durch eine Zahlung in Gegenrichtung getilgt
@@ -135,17 +136,24 @@ def _ist_datum(wort: str) -> bool:
     return True
 
 
-def nur_als_datum(zweck: list[str], nummer: str | None) -> bool:
-    """Steht eine Belegnummer mit Trennzeichen („2026-0315“) nur als zusammenhängende
-    Ziffernfolge im Zweck, die ein Datum ist („EREF+20260315-0042“)? Beim Format
-    ``{jahr}-{nummer:04d}`` sehen die Nummern 0101 bis 1231 wie Tage aus — dann ist
-    die Referenz mehrdeutig."""
-    treffer = _treffer(zweck, nummer)
-    return (
-        len(woerter(nummer)) > 1
-        and bool(treffer)
-        and all(len(t) == 1 and _ist_datum(t[0]) for t in treffer)
+def _datumsfolge(folge: list[str], nummer: str | None) -> bool:
+    """Ergibt die getroffene Wortfolge ein Datum JJJJMMTT, das anders gegliedert ist
+    als die Nummer („20260315“, „2026-03-15“, „2026/03/15“ für 2026-0315)? Eine Nummer
+    ohne Trennzeichen („20260315“ beim Format ``{jahr}{nummer:04d}``) ist als Datum
+    gleich geschrieben — dann zählt jeder Treffer, der ein Datum ist."""
+    teile = woerter(nummer)
+    return _ist_datum("".join(folge)) and (
+        len(teile) == 1 or [len(w) for w in folge] != [len(w) for w in teile]
     )
+
+
+def nur_als_datum(zweck: list[str], nummer: str | None) -> bool:
+    """Steht die Belegnummer nur als Datum im Zweck („EREF+20260315-0042“, „Lieferung
+    vom 2026-03-15“ für 2026-0315)? Beim Format ``{jahr}-{nummer:04d}`` sehen die
+    Nummern 0101 bis 1231 wie Tage aus — dann ist die Referenz mehrdeutig. Gleich
+    gegliedert wie die Nummer („RE 2026 0315“) bleibt sie eine Referenz."""
+    treffer = _treffer(zweck, nummer)
+    return bool(treffer) and all(_datumsfolge(t, nummer) for t in treffer)
 
 
 def _skonto_moeglich(p: OffenerPosten, tx: Transaktion, karenz: int) -> bool:
@@ -492,6 +500,10 @@ def _ordne(
         eigene = [p for p in referenziert if p.kontakt_id == kontakt.id]
         # Nennt der Zweck nur Posten anderer Kontakte, hat der Zahler Vorrang
         fremd, referenziert = ([], eigene) if eigene else (referenziert, [])
+        if eigene and all(nur_als_datum(zweck, p.belegnummer) for p in eigene):
+            return _eigenes_datum(
+                tx, betrag, kandidaten, gegenlaeufig, eigene, karenz, kontakt
+            )
     if referenziert:
         kontakte = {p.kontakt_id for p in referenziert}
         gegen = [
@@ -538,6 +550,13 @@ def _ohne_kontakt(
     return None
 
 
+def _nur_datum(referenziert: list[OffenerPosten]) -> str:
+    return (
+        f" — {_nummern(referenziert)} steht nur als Datum im Verwendungszweck "
+        "(JJJJMMTT), keine sichere Referenz"
+    )
+
+
 def _datum_statt_referenz(
     tx: Transaktion,
     betrag: Decimal,
@@ -547,14 +566,29 @@ def _datum_statt_referenz(
 ) -> Zuordnungsvorschlag:
     """Die Belegnummer steht nur als Datum im Zweck, der Zahler ist unbekannt:
     höchstens ein Vorschlag — der eindeutige Betrag geht der Referenz vor."""
-    zusatz = (
-        f" — {_nummern(referenziert)} steht nur als Datum im Verwendungszweck "
-        "(JJJJMMTT), keine sichere Referenz"
-    )
     v = _ohne_kontakt(betrag, kandidaten) or _referenz(
         tx, referenziert, [], [], betrag, karenz, None
     )
-    return _nur_vorschlag(v, zusatz, FREMDER_ZAHLER)
+    return _nur_vorschlag(v, _nur_datum(referenziert), FREMDER_ZAHLER)
+
+
+def _eigenes_datum(
+    tx: Transaktion,
+    betrag: Decimal,
+    kandidaten: list[OffenerPosten],
+    gegenlaeufig: list[OffenerPosten],
+    eigene: list[OffenerPosten],
+    karenz: int,
+    kontakt: Kontakt,
+) -> Zuordnungsvorschlag:
+    """Der Zweck nennt Posten des erkannten Zahlers nur als Datum: keine Referenz —
+    was beim Kontakt eindeutig ist (Stufe B), bucht automatisch; sonst höchstens ein
+    Vorschlag auf den genannten Posten."""
+    v = _beim_kontakt(tx, kandidaten, gegenlaeufig, betrag, karenz, kontakt)
+    if v is not None and v.automatisch:
+        return v
+    v = _referenz(tx, eigene, [], gegenlaeufig, betrag, karenz, kontakt)
+    return _nur_vorschlag(v, _nur_datum(eigene), FREMDER_ZAHLER)
 
 
 def faktor(p: OffenerPosten, zahlung: Decimal) -> int:
@@ -612,7 +646,10 @@ def ordne_zu(
     faktoren = {i: faktor(p, tx.betrag) for i, p in original.items()}
     sicht = [in_zahlungsrichtung(p, faktoren[p.id]) for p in original.values()]
     kandidaten = [p for p in sicht if p.restbetrag > 0]
-    gegenlaeufig = [p for p in sicht if p.restbetrag < 0]
+    # Guthaben: nur Posten der Zahlungsrichtung mit negativem eigenem Rest — eine
+    # Verbindlichkeit beim Zahlungseingang (Forderung beim Ausgang) stünde auf dem
+    # anderen Personenkonto des Kontakts (keine Aufrechnung über zwei Konten)
+    gegenlaeufig = [p for p in sicht if p.restbetrag < 0 and faktoren[p.id] == 1]
     if not kandidaten:
         return None
     kontakt, _ = finde_kontakt(
@@ -637,6 +674,15 @@ def verteile(tx: Transaktion, posten: list[OffenerPosten]) -> tuple[Anteil, ...]
             "Keiner der Posten wird von dieser Zahlung getilgt — ein Eingang tilgt "
             "Forderungen und Guthaben bei Lieferanten, ein Ausgang Verbindlichkeiten "
             "und Gutschriften an Kunden"
+        )
+        raise ValueError(msg)
+    kontakte = {p.kontakt_id for p in offen}
+    fremd = [g for g in gegen if faktoren[g.id] != 1 or g.kontakt_id not in kontakte]
+    if fremd:
+        msg = (
+            f"{_nummern(fremd)} stünde gegen Posten auf einem anderen Personenkonto "
+            "(Forderung gegen Verbindlichkeit oder Gutschrift eines anderen Kontakts) "
+            "— eine Aufrechnung über zwei Personenkonten bucht accounti nicht"
         )
         raise ValueError(msg)
     gutschriften = tuple(Anteil(g, g.restbetrag) for g in gegen)

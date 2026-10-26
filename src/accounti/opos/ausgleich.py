@@ -9,8 +9,11 @@ Steuersätze; Netto und Steuer je Anteil rechnet `steuer/umsatzsteuer.py`.
 Ein Anteil mindert den Rest des Postens um seinen Betrag (Vorzeichen des Postens). Ist
 er negativ — die Erstattung einer Gutschrift oder eines Guthabens, oder die Gutschrift
 in einer Saldozahlung —, fließt das Geld in die Gegenrichtung und die Buchung dreht
-sich um. Eine Überzahlung schließt den Posten nicht: Sein Rest wird negativ und steht
-als Guthaben des Kontakts in der Postenliste, so wie auf dem Personenkonto.
+sich um. Der Gutschriftanteil einer Saldozahlung heißt „Verrechnung“: Er steht als
+eigene Bankbuchung gegen die Zahlung (595 € herein, 119 € hinaus = 476 € auf dem
+Auszug), es fließt aber nichts zurück. Eine Überzahlung schließt den Posten nicht: Sein
+Rest wird negativ und steht als Guthaben des Kontakts in der Postenliste, so wie auf dem
+Personenkonto.
 """
 
 from __future__ import annotations
@@ -159,7 +162,12 @@ def gleiche_aus(
         herein = (anteil.betrag > 0) != eingang
         soll, haben = (bank, personenkonto) if herein else (personenkonto, bank)
         if anteil.betrag != 0:
-            art = "Zahlung" if anteil.betrag > 0 else "Erstattung"
+            # gegen die Zahlung: der Gutschrift- oder Guthabenanteil einer
+            # Saldozahlung — verrechnet, nicht erstattet (es fließt kein Geld zurück)
+            if herein != (tx.betrag > 0):
+                art = "Verrechnung"
+            else:
+                art = "Zahlung" if anteil.betrag > 0 else "Erstattung"
             zahlung = Buchungssatz(
                 transaktion_id=tx.id,
                 beleg_id=posten.beleg_id,

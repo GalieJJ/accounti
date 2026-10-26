@@ -164,6 +164,35 @@ def test_gutschrift_allein_ist_kein_kandidat_fuer_einen_zahlungseingang():
     assert ordne_zu(tx("119.00", "2026-0002"), [GUTSCHRIFT], KONTAKTE) is None
 
 
+BEIDE = Kontakt(
+    name="Rahmen und Kunst KG", debitor_konto="10005", kreditor_konto="70005"
+)
+
+
+def test_verbindlichkeit_desselben_kontakts_ist_kein_guthaben_fuer_einen_eingang():
+    # Nachprüfung N1: Forderung 1.000 und Verbindlichkeit 300 desselben Kontakts — ein
+    # Eingang über 700 ist keine „Zahlung mit Guthaben“ (zwei Personenkonten)
+    forderung = op("2026-0001", "1000.00", kontakt=BEIDE)
+    verbindlichkeit = op("ER-4711", "300.00", kontakt=BEIDE, richtung=V)
+    for zweck in ("Zahlung", "RE 2026-0001 abzgl. ER-4711"):
+        v = ordne_zu(
+            tx("700.00", zweck, BEIDE.name),
+            [forderung, verbindlichkeit],
+            [*KONTAKTE, BEIDE],
+        )
+        assert v is not None, zweck
+        assert [a.posten.belegnummer for a in v.anteile] == ["2026-0001"], zweck
+        assert "Guthaben" not in v.begruendung, zweck
+    # ein echtes Guthaben (Forderung mit negativem Rest) zählt weiter
+    guthaben = op("2026-0002", "1000.00", kontakt=BEIDE, rest="-300.00")
+    v = ordne_zu(
+        tx("700.00", "Zahlung", BEIDE.name),
+        [forderung, guthaben, verbindlichkeit],
+        [*KONTAKTE, BEIDE],
+    )
+    assert sorted(a.posten.belegnummer for a in v.anteile) == ["2026-0001", "2026-0002"]
+
+
 # --- Referenz: Wortgrenzen und Zahler (B5) -----------------------------------------
 
 
@@ -209,12 +238,71 @@ def test_datum_im_zweck_ist_ohne_erkannten_zahler_keine_sichere_referenz():
     for zweck in ("RE 2026-0315", "RE2026-0315", "2026/0315"):
         v = ordne_zu(tx("400.00", zweck, "Unbekannt"), [x, y], KONTAKTE)
         assert (v.stufe, v.automatisch) == (Stufe.TEIL, True), zweck
-    # keine Datumsform (Monat 13) oder Format ohne Trennzeichen: Referenz wie bisher
+    # keine Datumsform (Monat 13): Referenz wie bisher
     z = op("2026-1315", "1190.00", kontakt=Y)
     v = ordne_zu(tx("400.00", "EREF+20261315", "Unbekannt"), [z], KONTAKTE)
     assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+
+
+def test_iso_datum_mit_trennzeichen_ist_ohne_erkannten_zahler_keine_referenz():
+    # Nachprüfung M1: „2026-03-15“ ergibt zusammengesetzt „20260315“ = 2026-0315 — die
+    # Wortfolge ist anders gegliedert als die Nummer (4-2-2 statt 4-4), also ein Datum
+    x = op("2026-0001", "476.00", kontakt=X)
+    y = op("2026-0315", "1190.00", kontakt=Y)
+    for zweck in (
+        "Lieferung vom 2026-03-15",
+        "Zahlung 2026/03/15 Bild",
+        "EREF+2026-03-15-0042",
+        "Lieferung 2026 03 15",
+        "Lieferung 202603-15",
+    ):
+        v = ordne_zu(tx("476.00", zweck, "Hans Meier"), [x, y], KONTAKTE)
+        assert v is not None and not v.automatisch, zweck
+        assert v.confidence <= 0.6 and "Datum" in v.begruendung, zweck
+        # der eindeutige Betrag geht der Datumsreferenz vor
+        assert _anteile(v) == [("2026-0001", D("476.00"), D("0"))], zweck
+    v = ordne_zu(
+        tx("400.00", "Lieferung vom 2026-03-15", "Hans Meier"), [x, y], KONTAKTE
+    )
+    assert v is not None and not v.automatisch and v.confidence <= 0.6
+    # gleich gegliedert wie die Nummer: weiter eine Referenz
+    v = ordne_zu(tx("400.00", "RE 2026 0315", "Hans Meier"), [x, y], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+
+
+def test_nummer_ohne_trennzeichen_ist_ohne_erkannten_zahler_mehrdeutig():
+    # Format {jahr}{nummer:04d}: „20260315“ ist als Nummer und als Datum gleich
+    # geschrieben — ohne erkannten Zahler nie automatisch (vorher: „RE 20260315“ buchte
+    # automatisch, „EREF+20260315-0042“ ebenso auf den fremden Kunden)
     ohne = op("20260315", "1190.00", kontakt=Y)
-    v = ordne_zu(tx("400.00", "RE 20260315", "Unbekannt"), [ohne], KONTAKTE)
+    for zweck in ("RE 20260315", "EREF+20260315-0042", "Lieferung vom 2026-03-15"):
+        v = ordne_zu(tx("400.00", zweck, "Unbekannt"), [ohne], KONTAKTE)
+        assert v is not None and not v.automatisch, zweck
+        assert v.confidence <= 0.6 and "Datum" in v.begruendung, zweck
+    keins = op("20261315", "1190.00", kontakt=Y)  # Monat 13: kein Datum
+    v = ordne_zu(tx("400.00", "RE 20261315", "Unbekannt"), [keins], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+    # mit Buchstaben in der Nummer selbst ist sie kein Datum
+    re = op("RE20260315", "1190.00", kontakt=Y)
+    v = ordne_zu(tx("400.00", "RE20260315", "Unbekannt"), [re], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+
+
+def test_datum_im_zweck_trifft_beim_zahler_nicht_den_falschen_eigenen_posten():
+    # Erkannter Zahler mit zwei eigenen Posten: das Datum „2026-03-15“ ist keine
+    # Referenz auf seine 2026-0315 — der eindeutige Betrag entscheidet
+    a = op("2026-0001", "476.00", kontakt=X)
+    b = op("2026-0315", "1190.00", kontakt=X)
+    zweck = "Lieferung vom 2026-03-15"
+    v = ordne_zu(tx("476.00", zweck, "Kunde X GmbH"), [a, b], KONTAKTE)
+    assert (v.stufe, v.automatisch) == (Stufe.EXAKT, True)
+    assert _anteile(v) == [("2026-0001", D("476.00"), D("0"))]
+    # Betrag passt zu keinem Posten: der genannte Posten nur als Vorschlag
+    v = ordne_zu(tx("400.00", zweck, "Kunde X GmbH"), [a, b], KONTAKTE)
+    assert not v.automatisch and v.confidence <= 0.6 and "Datum" in v.begruendung
+    assert _anteile(v) == [("2026-0315", D("400.00"), D("0"))]
+    # eine echte Referenz bleibt automatisch
+    v = ordne_zu(tx("400.00", "RE 2026-0315", "Kunde X GmbH"), [a, b], KONTAKTE)
     assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
 
 
@@ -304,6 +392,32 @@ def test_saldozahlung_gleicht_rechnung_und_gutschrift_aus(fabrik):
     assert bank == D("476.00")
 
 
+def test_saldozahlung_bucht_den_gutschriftanteil_als_verrechnung(fabrik):
+    # Nachprüfung N3: der Gutschriftanteil einer Saldozahlung ist keine Erstattung —
+    # es fließt kein Geld an den Kunden zurück
+    _, (r, g, gut) = _kunde_mit_posten(
+        fabrik,
+        op("2026-0001", "595.00"),
+        op("2026-0002", "-119.00"),
+        op("2026-0004", "-50.00"),
+    )
+    t = _speichere_tx(fabrik, tx("476.00", "RE 2026-0001 ABZGL 2026-0002", "Kunde AG"))
+    with fabrik() as s:
+        buchungen = gleiche_aus(
+            s, t, [Anteil(r, D("595.00")), Anteil(g, D("-119.00"))], EINSTELLUNGEN
+        )
+        s.commit()
+    texte = {b.beleg_nummer: b.buchungstext for b in buchungen}
+    assert texte["2026-0001"].startswith("Zahlung 2026-0001")
+    assert texte["2026-0002"].startswith("Verrechnung 2026-0002")
+    # eine echte Erstattung (Geld geht an den Kunden) heißt weiter so
+    e = _speichere_tx(fabrik, tx("-50.00", "ERSTATTUNG"))
+    with fabrik() as s:
+        (b,) = gleiche_aus(s, e, [Anteil(gut, D("-50.00"))], EINSTELLUNGEN)
+        s.commit()
+    assert b.buchungstext.startswith("Erstattung 2026-0004")
+
+
 def test_kunde_mit_guthaben_wird_nicht_gemahnt(fabrik):
     _kunde_mit_posten(
         fabrik,
@@ -358,6 +472,33 @@ def test_verrechnen_verlangt_gegenlaeufige_posten_desselben_kontakts(fabrik):
         verrechne(s, ["2026-0001", "2026-0003"], date(2026, 3, 6))
 
 
+def test_verrechnen_nicht_vor_belegdatum_oder_der_zahlung_des_guthabens(fabrik):
+    # Nachprüfung N2: Guthaben aus der Überzahlung vom 20.03., Folgerechnung vom 05.03.
+    # bzw. 10.06. — eine Verrechnung davor passte nicht zur Stichtagsliste
+    k, _ = _kunde_mit_posten(fabrik, op("2026-0001", "1190.00"))
+    t = _speichere_tx(fabrik, tx("1200.00", "INV 2026-0001", "Kunde AG"))
+    with fabrik() as s:
+        ordne_von_hand(s, str(t.id)[:8], ["2026-0001"], EINSTELLUNGEN, "Prüferin")
+        s.commit()
+    frueh = op("2026-0002", "500.00", kontakt=k).model_copy(
+        update={"belegdatum": date(2026, 3, 5)}
+    )
+    spaet = op("2026-0003", "500.00", kontakt=k).model_copy(
+        update={"belegdatum": date(2026, 6, 10)}
+    )
+    speichere(fabrik, [], [frueh, spaet], [beleg_zu(frueh), beleg_zu(spaet)])
+    for nummer, tag, grund in (
+        ("2026-0002", date(2026, 3, 10), "Zahlung, aus der das Guthaben 2026-0001"),
+        ("2026-0003", date(2026, 4, 1), "Belegdatum von 2026-0003"),
+    ):
+        with fabrik() as s, pytest.raises(VerrechnungError, match=grund):
+            verrechne(s, ["2026-0001", nummer], tag)
+    with fabrik() as s:
+        (v,) = verrechne(s, ["2026-0001", "2026-0002"], date(2026, 3, 20))
+        s.commit()
+    assert (v.betrag, v.datum) == (D("10.00"), date(2026, 3, 20))
+
+
 # --- Handzuordnung (B6) --------------------------------------------------------------
 
 
@@ -401,6 +542,27 @@ def test_handzuordnung_bei_offenem_vorschlag_erst_ablehnen(fabrik):
         s.commit()
     with fabrik() as s, pytest.raises(ZahlungslaufError, match="ablehnen"):
         ordne_von_hand(s, str(t.id)[:8], ["2026-0001"], EINSTELLUNGEN, "Prüferin")
+
+
+def test_handzuordnung_verrechnet_nicht_ueber_zwei_personenkonten(fabrik):
+    # Nachprüfung N1: Forderung gegen Verbindlichkeit bzw. Gutschrift eines anderen
+    # Kunden — das wäre eine Aufrechnung über zwei Personenkonten
+    k = debitor(name=BEIDE.name, konto="10005", kreditor_konto="70005")
+    andere = debitor(name="Andere GmbH", konto="10009")
+    posten_ = [
+        op("2026-0001", "1000.00", kontakt=k),
+        op("ER-4711", "300.00", kontakt=k, richtung=V),
+        op("2026-0009", "-50.00", kontakt=andere),
+    ]
+    speichere(fabrik, [k, andere], posten_)
+    t = _speichere_tx(fabrik, tx("700.00", "Zahlung"))
+    for zweite in ("ER-4711", "2026-0009"):
+        with fabrik() as s, pytest.raises(ZahlungslaufError, match="Personenkonten"):
+            ordne_von_hand(
+                s, str(t.id)[:8], ["2026-0001", zweite], EINSTELLUNGEN, "Prüferin"
+            )
+    with fabrik() as s:
+        assert lade_zuordnungen(s) == []
 
 
 def test_handzuordnung_richtung_muss_passen(fabrik):

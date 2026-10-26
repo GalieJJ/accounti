@@ -10,13 +10,16 @@ Journal ``posten_verrechnet``).
 Rechtlich mindert eine Gutschrift wegen Minderung (§ 441 BGB) die Forderung selbst; ein
 Guthaben aus Überzahlung wird aufgerechnet (§§ 387, 389 BGB). Verrechnet werden nur
 Posten derselben Richtung und desselben Kontakts — Forderung gegen Verbindlichkeit
-(Aufrechnung über zwei Personenkonten) bucht accounti nicht.
+(Aufrechnung über zwei Personenkonten) bucht accounti nicht. Der Tag der Verrechnung
+liegt frühestens am Belegdatum beider Posten und am Tag der Zahlung, aus der ein
+Guthaben stammt (Aufrechnungslage, § 387 BGB: beide Forderungen müssen bestehen).
 """
 
 from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -25,7 +28,11 @@ from accounti.db.repo_opos import (
     lade_verrechnungen,
     speichere_verrechnung,
 )
-from accounti.db.repository import aktualisiere_posten, lade_zuordnungen
+from accounti.db.repository import (
+    aktualisiere_posten,
+    lade_transaktion,
+    lade_zuordnungen,
+)
 from accounti.db.tabellen_pruefung import sperrfehler
 from accounti.models import (
     OffenerPosten,
@@ -66,6 +73,34 @@ def verrechne(
         msg = "Ein Posten ist doppelt angegeben."
         raise VerrechnungError(msg)
     return verrechne_posten(session, posten, datum, person, grund)
+
+
+def _pruefe_datum(session: Session, posten: list[OffenerPosten], datum: date) -> None:
+    """Verrechnet wird frühestens, wenn beide Seiten bestehen: nicht vor dem
+    Belegdatum eines Postens und nicht vor der Zahlung, aus der ein Guthaben stammt
+    (Überzahlung) — sonst passten Stichtagsliste und Personenkonto nicht zusammen."""
+    guthaben = {p.id for p in posten if p.restbetrag < 0}
+    gezahlt: dict[UUID, date] = {}
+    for z in lade_zuordnungen(session, status={ZuordnungStatus.GEBUCHT}):
+        if z.posten_id in guthaben and z.betrag > 0:
+            tx = lade_transaktion(session, z.transaktion_id)
+            if tx is not None:
+                gezahlt[z.posten_id] = max(tx.datum, gezahlt.get(z.posten_id, tx.datum))
+    grenzen = []
+    for p in posten:
+        nummer = p.belegnummer or str(p.id)[:8]
+        grenzen.append((p.belegdatum, f"dem Belegdatum von {nummer}"))
+        if p.id in gezahlt:
+            grenzen.append(
+                (gezahlt[p.id], f"der Zahlung, aus der das Guthaben {nummer} stammt")
+            )
+    frueheste, grund = max(grenzen, key=lambda g: g[0])
+    if datum < frueheste:
+        msg = (
+            f"Verrechnung am {datum:%d.%m.%Y} liegt vor {grund} — frühestens am "
+            f"{frueheste:%d.%m.%Y} (--datum)"
+        )
+        raise VerrechnungError(msg)
 
 
 def verrechne_posten(
@@ -115,6 +150,7 @@ def verrechne_posten(
                 "accounti opos bestaetigen oder ablehnen"
             )
             raise VerrechnungError(msg)
+    _pruefe_datum(session, posten, datum)
     if (fehler := sperrfehler(session.connection(), datum)) is not None:
         msg = f"Verrechnung am {datum:%d.%m.%Y}: {fehler}"
         raise VerrechnungError(msg)
