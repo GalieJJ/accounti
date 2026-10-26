@@ -197,3 +197,30 @@ def test_korrigiere_lernen_breites_muster_nur_mit_trotz_warnung(url):
     r = run(*befehl, "--trotz-warnung")
     assert r.exit_code == 0, r.output
     assert [x.muster for x in regeln(url)] == ["Deutsche"]
+
+
+def test_korrigiere_lernen_ohne_namen_nur_mit_trotz_warnung(url):
+    """Nachbesserung H-1 (Probe q7): Ohne Namen der Gegenpartei schlägt die CLI das
+    erste Wort des Verwendungszwecks vor („Beitrag“) — es träfe Rentenversicherung
+    und IHK. Ohne --trotz-warnung weder Korrektur noch Regel, die Ausgabe nennt die
+    anderen Umsätze."""
+    from tests.pruefung_hilfe import buchung, kurz
+
+    engine, fabrik = session_factory(url)
+    drv = umsatz("-450.00", date(2026, 9, 10), "Beitrag 09/2026 DRV Bund", None)
+    ihk = umsatz("-95.00", date(2026, 9, 12), "Beitrag 2026 IHK Hamburg", None)
+    tx = umsatz("-39.95", date(2026, 10, 1), "Beitrag Oktober Fachverband", None)
+    b = buchung(tx, soll="4980")
+    anlegen(fabrik, drv, ihk, tx, b)
+    engine.dispose()
+
+    befehl = ["korrigiere", kurz(b.id), "--soll", "4920", "--haben", "1200"]
+    befehl += ["--steuer", "9", "--lernen", "--db", url]
+    r = run(*befehl)
+    assert r.exit_code == 1 and "keinen Namen der Gegenpartei" in r.output
+    assert "IHK Hamburg" in r.output and "--trotz-warnung" in r.output
+    assert regeln(url) == []
+    r = run(*befehl, "--muster", "Fachverband", "--trotz-warnung")
+    assert r.exit_code == 0, r.output
+    assert [x.muster for x in regeln(url)] == ["Fachverband"]
+

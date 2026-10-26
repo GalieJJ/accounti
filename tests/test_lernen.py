@@ -294,6 +294,14 @@ def test_entwurf_ganzer_name_sonst_erstes_wort_des_zwecks():
         ("Müller e. K.", "Müller"),
         ("Deutsche Rentenversicherung", "Deutsche Rentenversicherung"),
         ("Muster UG (haftungsbeschränkt)", "Muster"),
+        # Nachprüfung N-3: Rechtsformen, die auch Wörter sind („Co“, „AB“, „AS“,
+        # „SE“), kürzen nicht auf ein einzelnes Wort
+        ("Kaffee & Co", "Kaffee & Co"),
+        ("Möbel AB Werk Müller", "Möbel AB Werk Müller"),
+        ("Spotify AB", "Spotify AB"),
+        ("Bürobedarf Müller & Co. KG", "Bürobedarf Müller"),
+        ("Müller & Co. KG", "Müller & Co."),
+        ("Nordic Software AS", "Nordic Software"),
     ],
 )
 def test_mustervorschlag_ohne_rechtsform(name, muster):
@@ -498,6 +506,54 @@ def test_vorschau_warnt_vor_fremden_gegenparteien(make_session):
     assert any("andere Gegenparteien" in w for w in breit.warnungen)
     assert genau.entwurf.muster == "Deutsche Telekom" and genau.treffer == 2
     assert not genau.bestaetigung_noetig and genau.fremde == []
+
+
+def _beitraege_ohne_namen(make_session):  # noqa: ANN001, ANN202
+    """Probe q7: Umsätze ohne Namen der Gegenpartei (CSV-Profil ohne Namensspalte,
+    MT940 ohne ?32)."""
+    drv = umsatz(
+        "-450.00", date(2026, 9, 10), "Beitrag 09/2026 Deutsche Rentenversicherung",
+        None,
+    )  # fmt: skip
+    ihk = umsatz("-95.00", date(2026, 9, 12), "Beitrag 2026 IHK Hamburg", None)
+    tx = umsatz(
+        "-39.95", date(2026, 10, 1), "Beitrag Oktober Mitgliedschaft Fachverband", None
+    )
+    anlegen(make_session, drv, ihk, tx)
+    return tx
+
+
+def test_vorschau_ohne_namen_der_gegenpartei_verlangt_bestaetigung(make_session):
+    """Nachbesserung H-1: Ohne Namen der Gegenpartei ist der Vorschlag das erste Wort
+    des Verwendungszwecks — „Beitrag“ träfe Rentenversicherung und IHK. Jeder weitere
+    Treffer zählt als fremd (die Vorschau nennt ihn mit dem Verwendungszweck), und
+    die Regel verlangt die Bestätigung auch ohne weitere Treffer: ob künftige Treffer
+    von derselben Gegenpartei stammen, lässt sich nicht prüfen."""
+    tx = _beitraege_ohne_namen(make_session)
+    with make_session() as s:
+        breit = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4920", "1200", 9, BH), tx, None, heute=HEUTE
+        )
+        genau = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4920", "1200", 9, BH, muster="Fachverband"), tx,
+            None, heute=HEUTE,
+        )  # fmt: skip
+    assert breit.entwurf.muster == "Beitrag" and breit.treffer == 3
+    assert breit.ohne_namen and breit.bestaetigung_noetig
+    assert breit.fremde_anzahl == 2 and len(breit.fremde) == 2
+    assert any("Deutsche Rentenversicherung" in f for f in breit.fremde)
+    assert any("IHK Hamburg" in f for f in breit.fremde)
+    assert any("keinen Namen der Gegenpartei" in w for w in breit.warnungen)
+    assert any("2 weitere Umsätze" in g for g in breit.bestaetigungsgruende)
+    assert genau.fremde == [] and genau.bestaetigung_noetig
+    # mit Namen bleibt es bei der bisherigen Prüfung
+    mit_namen = mueller()
+    with make_session() as s:
+        v = pruefe_entwurf(
+            s, entwurf_fuer(mit_namen, "4930", "1200", 9, BH), mit_namen, None,
+            heute=HEUTE,
+        )  # fmt: skip
+    assert not v.ohne_namen and not v.bestaetigung_noetig
 
 
 def test_vorschau_warnt_vor_zahlungsdienst(make_session):

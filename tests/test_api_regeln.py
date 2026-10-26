@@ -276,6 +276,39 @@ def test_breites_muster_422_mit_vorschau_und_bestaetigung(qw):
     assert regel.muster == "Deutsche"
 
 
+def test_ohne_namen_der_gegenpartei_422_mit_vorschau_und_bestaetigung(qw):
+    """Nachbesserung H-1 (Probe q1, Fall 3): Ohne Namen der Gegenpartei ist der
+    Vorschlag das erste Wort des Verwendungszwecks — „Lastschrift“ träfe die
+    Rentenversicherung. Ohne Bestätigung 422 mit Vorschau (der andere Umsatz mit
+    seinem Verwendungszweck, Haken), mit dem Haken gespeichert."""
+    qw.umsatz(
+        "-450.00", date(2026, 9, 10), "Lastschrift Beitrag Rentenversicherung", None
+    )
+    b = qw.unsicher(betrag="-39.95", zweck="Lastschrift Fachverband 10/2026", name=None)
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/pruefen/{b.id}").text
+    assert 'value="Lastschrift"' in seite  # Vorschlag im Formular
+    daten = {
+        "csrf": csrf(client), "stand": stand_aus(seite), "soll": "4920",
+        "haben": "1200", "steuer": "9", "regel": "1", "muster": "Lastschrift",
+        "feld": "beide", "ansicht": "offen",
+    }  # fmt: skip
+    r = client.post(f"/pruefen/{b.id}/korrigieren", data=daten, headers=HX)
+    assert r.status_code == 422
+    assert "keinen Namen der Gegenpartei" in r.text
+    assert "Lastschrift Beitrag Rentenversicherung" in r.text
+    assert 'name="regel_bestaetigt" value="Lastschrift"' in r.text
+    assert regeln(qw) == []
+    r = client.post(
+        f"/pruefen/{b.id}/korrigieren",
+        data={**daten, "regel_bestaetigt": "Lastschrift"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303, r.text
+    (regel,) = regeln(qw)
+    assert regel.muster == "Lastschrift"
+
+
 def test_vorschau_mit_finanzkonto_ausserhalb_422(qw):
     b = qw.unsicher()
     r = vorschau(qw.web.angemeldet("jan"), b, HX, haben="4980")

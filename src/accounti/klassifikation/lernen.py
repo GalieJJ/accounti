@@ -8,8 +8,9 @@ Für CLI (``accounti korrigiere --lernen``, ``lerne``, ``regeln …``) und Brows
   **Richtung** aus dem Vorzeichen des Umsatzes, Konten und Schlüssel der Neubuchung;
   das Finanzkonto des Umsatzes muss auf seiner Seite bleiben.
 * ``pruefe_entwurf`` — Vorschau: was träfe die Regel in den letzten 24 Monaten?
-  Trifft sie andere Gegenparteien oder ist die Gegenpartei ein Zahlungsdienst, muss
-  die Warnung bestätigt werden (``Vorschau.bestaetigung_noetig``).
+  Trifft sie andere Gegenparteien, ist die Gegenpartei ein Zahlungsdienst oder hat
+  der Umsatz keinen Namen der Gegenpartei, muss die Warnung bestätigt werden
+  (``Vorschau.bestaetigung_noetig``).
 * ``lerne`` (Text, aus dem Browser), ``lerne_regex`` (Betreiber, CLI),
   ``lerne_sachkonto`` (Belegbuchung → Sachkonto am Kontakt), ``deaktiviere``,
   ``uebernehme_aus_datei`` (alte ``gelernt_*``-Einträge der Regeldatei).
@@ -79,6 +80,7 @@ REGEX_MAX = 200
 BREIT_ANTEIL = 0.2  # mehr als 20 % aller Umsätze: zu breit
 BREIT_AB = 10  # … erst ab so vielen Umsätzen aussagekräftig
 BEISPIELE = 5
+ZWECK_KURZ = 60  # Verwendungszweck eines Treffers ohne Namen in der Vorschau
 FELDER: tuple[Feld, ...] = ("gegenkonto_name", "verwendungszweck", "beide")
 
 
@@ -167,6 +169,8 @@ RECHTSFORMEN = frozenset(
     }
 )
 _VERBINDER = frozenset({"&", "+", "-", "und", "u", "et", "and", "cie"})
+# Rechtsformen, die auch gewöhnliche Wörter oder Kürzel in Namen sind
+_MEHRDEUTIG = frozenset({"co", "ab", "as", "se", "sa", "sl"})
 # Zahlungsdienste als Gegenpartei: ein Muster auf ihren Namen träfe jeden Kauf über
 # den Dienst, gleich bei welchem Händler
 ZAHLUNGSDIENSTE = (
@@ -200,20 +204,34 @@ def _form(wort: str) -> str:
     return "".join(z for z in wort.casefold() if z not in ".,;:()[]")
 
 
+def _ohne_verbinder(woerter: list[str], ende: int) -> int:
+    while ende > 1 and _form(woerter[ende - 1]) in _VERBINDER | {""}:
+        ende -= 1
+    return ende
+
+
 def ohne_rechtsform(name: str | None) -> str:
     """Name der Gegenpartei bis vor die erste Rechtsform (ab dem zweiten Wort), ohne
-    Verbinder davor: „Bürobedarf Müller GmbH & Co. KG“ → „Bürobedarf Müller“."""
+    Verbinder davor: „Bürobedarf Müller GmbH & Co. KG“ → „Bürobedarf Müller“.
+
+    Rechtsformen, die auch Wörter oder Kürzel sind (``_MEHRDEUTIG``: „Co“, „AB“ …),
+    kürzen nur, wenn davor mindestens zwei Wörter bleiben — „Kaffee & Co“ bliebe sonst
+    „Kaffee“, „Möbel AB Werk Müller“ „Möbel“, ein Muster, das fremde Gegenparteien
+    träfe."""
     woerter = (name or "").split()
     ende = len(woerter)
     for i in range(1, len(woerter)):
-        paar = _form(woerter[i]) + (
-            _form(woerter[i + 1]) if i + 1 < len(woerter) else ""
-        )
-        if _form(woerter[i]) in RECHTSFORMEN or paar in RECHTSFORMEN:
-            ende = i
-            break
-    while ende > 1 and _form(woerter[ende - 1]) in _VERBINDER | {""}:
-        ende -= 1
+        form = _form(woerter[i])
+        paar = form + (_form(woerter[i + 1]) if i + 1 < len(woerter) else "")
+        rechtsform = form if form in RECHTSFORMEN else paar
+        if rechtsform not in RECHTSFORMEN:
+            continue
+        vorher = _ohne_verbinder(woerter, i)
+        if rechtsform in _MEHRDEUTIG and vorher < 2:
+            continue
+        ende = vorher
+        break
+    ende = _ohne_verbinder(woerter, ende)
     return " ".join(woerter[:ende]).strip(" ,;:-&+")
 
 
@@ -437,6 +455,9 @@ class Vorschau:
     fremde: list[str] = field(default_factory=list)  # andere Gegenparteien (bis 5)
     fremde_anzahl: int = 0  # Treffer bei anderen Gegenparteien
     zahlungsdienst: str | None = None  # Muster trifft den Namen eines Zahlungsdiensts
+    # der Umsatz hat keinen Namen der Gegenpartei: jeder weitere Treffer zählt als
+    # fremd, und die Regel braucht immer die Bestätigung
+    ohne_namen: bool = False
     warnungen: list[str] = field(default_factory=list)
     hinweis: str = (
         "Die Regel wirkt nur auf Umsätze, die noch nicht gebucht sind (und auf "
@@ -446,14 +467,33 @@ class Vorschau:
     @property
     def bestaetigung_noetig(self) -> bool:
         """Die Regel träfe Umsätze anderer Gegenparteien bzw. jeden Kauf über einen
-        Zahlungsdienst — gespeichert wird sie dann nur mit ausdrücklicher
-        Bestätigung (Browser: Haken in der Regelvorschau, CLI: ``--trotz-warnung``)."""
-        return bool(self.fremde) or self.zahlungsdienst is not None
+        Zahlungsdienst, oder der Umsatz hat keinen Namen der Gegenpartei — gespeichert
+        wird sie dann nur mit ausdrücklicher Bestätigung (Browser: Haken in der
+        Regelvorschau, CLI: ``--trotz-warnung``).
+
+        Ohne Namen stammt das Muster aus dem Verwendungszweck („Beitrag“,
+        „Lastschrift“); ob künftige Treffer von derselben Gegenpartei kommen, lässt
+        sich nicht prüfen — auch dann nicht, wenn heute keine weiteren Treffer im
+        Bestand sind. Eine Regel auf fremde Umsätze bucht Vorsteuer, wo keine ist
+        (§ 15 Abs. 1 Nr. 1 UStG), und die Voranmeldung wird falsch (§ 18 UStG)."""
+        return bool(self.fremde) or self.zahlungsdienst is not None or self.ohne_namen
 
     @property
     def bestaetigungsgruende(self) -> list[str]:
         gruende = []
-        if self.fremde:
+        if self.ohne_namen:
+            treffer = (
+                f"; das Muster trifft {self.fremde_anzahl} weitere Umsätze "
+                f"({', '.join(self.fremde)})"
+                if self.fremde
+                else ""
+            )
+            gruende.append(
+                "der Umsatz hat keinen Namen der Gegenpartei — ob Umsätze mit "
+                f"„{self.entwurf.muster}“ von derselben Gegenpartei stammen, kann "
+                f"accounti nicht prüfen{treffer}"
+            )
+        elif self.fremde:
             gruende.append(
                 f"das Muster „{self.entwurf.muster}“ trifft auch andere "
                 f"Gegenparteien ({', '.join(self.fremde)}; {self.fremde_anzahl} "
@@ -466,6 +506,14 @@ class Vorschau:
                 "welchem Händler"
             )
         return gruende
+
+
+def _ohne_namen(t: Transaktion) -> str:
+    """Treffer ohne Namen der Gegenpartei: mit dem Anfang des Verwendungszwecks."""
+    zweck = " ".join((t.verwendungszweck or "").split())
+    if len(zweck) > ZWECK_KURZ:
+        zweck = zweck[:ZWECK_KURZ].rstrip() + " …"
+    return f"ohne Namen: {zweck}" if zweck else "(ohne Namen)"
 
 
 def _kontierung_je_umsatz(session: Session) -> dict[UUID, str]:
@@ -540,14 +588,18 @@ def pruefe_entwurf(
             bisher = next((r for r in regelwerk.regeln if r.passt(umsatz)), None)
             v.verdraengt = bisher.name if bisher is not None else None
         eigene = _gegenpartei(umsatz.gegenkonto_name)
+        # ohne eigenen Namen lässt sich kein weiterer Treffer derselben Gegenpartei
+        # zuordnen — alle zählen als fremd
+        v.ohne_namen = not eigene
         fremd = [
             t
             for t in treffer
-            if t.id != umsatz.id and _gegenpartei(t.gegenkonto_name) != eigene
+            if t.id != umsatz.id
+            and (v.ohne_namen or _gegenpartei(t.gegenkonto_name) != eigene)
         ]
         v.fremde_anzahl = len(fremd)
         for t in fremd:
-            name = (t.gegenkonto_name or "").strip() or "(ohne Namen)"
+            name = (t.gegenkonto_name or "").strip() or _ohne_namen(t)
             if name not in v.fremde and len(v.fremde) < BEISPIELE:
                 v.fremde.append(name)
         dienst = zahlungsdienst(umsatz.gegenkonto_name)

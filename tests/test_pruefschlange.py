@@ -755,6 +755,35 @@ def test_regel_auf_fremde_gegenparteien_nur_mit_bestaetigung(make_session):
     assert e.regel is not None and e.regel.muster == "Deutsche"
 
 
+def test_regel_ohne_namen_der_gegenpartei_nur_mit_bestaetigung(make_session):
+    """Nachbesserung H-1 (Probe q7): Ohne Namen der Gegenpartei träfe das Muster
+    „Beitrag“ (erstes Wort des Verwendungszwecks) auch die Rentenversicherung —
+    weder Korrektur noch Regel ohne Bestätigung."""
+    drv = umsatz("-450.00", zweck="Beitrag 09/2026 Rentenversicherung", name=None)
+    tx = umsatz("-39.95", zweck="Beitrag Oktober Fachverband", name=None)
+    b = buchung(tx, soll="4980")
+    anlegen(make_session, drv, tx, b)
+    aenderung = Aenderung("4920", "1200", steuer=9)
+    with make_session() as s:
+        speichere_kontierungsgrund(s, b.id, quelle="llm", begruendung="x")
+        s.commit()
+        with pytest.raises(RegelBestaetigenError) as info:
+            korrigieren(
+                s, b.id, aenderung, "jan", None, umgebung(), lernen=LernWunsch()
+            )
+        assert info.value.status == 422 and info.value.vorschau.fremde_anzahl == 1
+        assert "keinen Namen der Gegenpartei" in info.value.meldung
+        s.rollback()
+        assert lade_kontierungsregeln(s) == []
+        assert finde_buchung(s, str(b.id)).soll_konto == "4980"
+        e = korrigieren(
+            s, b.id, aenderung, "jan", None, umgebung(),
+            lernen=LernWunsch(bestaetigt=True),
+        )  # fmt: skip
+        s.commit()
+    assert e.regel is not None and e.regel.muster == "Beitrag"
+
+
 def test_freigeben_prueft_die_pruefregel_steuerschluessel(make_session):
     """Nachbesserung M4 (Probe p8): Ein Vorschlag, den die Prüfregel
     ``steuerschluessel_konto`` als Fehler einstuft (Vorsteuer auf einer

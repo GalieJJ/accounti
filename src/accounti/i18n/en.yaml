@@ -202,6 +202,7 @@ Dezember: December
 "Verdrängt Regel %(name)s für diesen Umsatz.": "Takes precedence over rule %(name)s for this transaction."
 "Bisher": "Current booking"
 "Auch andere Gegenparteien:": "Also other counterparties:"
+"Weitere Treffer, Gegenpartei nicht erkennbar:": "Further matches, counterparty not identifiable:"
 "Regel trotzdem mit diesem Muster speichern": "Save the rule with this pattern anyway"
 "offen": "open"
 # Tastenhilfe

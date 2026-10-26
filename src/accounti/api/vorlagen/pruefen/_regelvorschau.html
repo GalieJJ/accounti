@@ -17,7 +17,7 @@
     </tbody>
   </table>
   {% endif %}
-  {% if vorschau.fremde %}<p class="hinweis">{{ _("Auch andere Gegenparteien:") }} <span lang="de">{{ vorschau.fremde | join(", ") }}</span></p>{% endif %}
+  {% if vorschau.fremde %}<p class="hinweis">{% if vorschau.ohne_namen %}{{ _("Weitere Treffer, Gegenpartei nicht erkennbar:") }}{% else %}{{ _("Auch andere Gegenparteien:") }}{% endif %} <span lang="de">{{ vorschau.fremde | join(", ") }}</span></p>{% endif %}
   {% if vorschau.warnungen %}<ul class="warnungen" lang="de">{% for w in vorschau.warnungen %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
   {% if vorschau.bestaetigung_noetig %}
   <label class="haken bestaetigen"><input type="checkbox" name="regel_bestaetigt" value="{{ vorschau.entwurf.muster }}"> {{ _("Regel trotzdem mit diesem Muster speichern") }}</label>
