@@ -81,8 +81,7 @@ def erloeskonten(kontenrahmen: str) -> Erloeskonten:
     """Erlöskonten des Kontenrahmens (DATEV SKR03 bzw. SKR04, Kontenrahmen 2026):
     SKR03 8400 (19 %), 8300 (7 %), 8200 (ohne Satz); SKR04 4400, 4300, 4200 — im
     SKR04 sind 8400/8300/8200 „zur freien Verfügung“ (Gesamttest 10b-1 nach dem
-    Merge, M-3). Ein anderer Kontenrahmen ist ``KonfigurationError`` der
-    Buchhaltung (nur SKR03/SKR04)."""
+    Merge, M-3). Andere Kontenrahmen lässt ``Buchhaltung`` nicht zu."""
     from accounti.steuer.kennziffern import KENNZIFFERN_KONTEN
     from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
