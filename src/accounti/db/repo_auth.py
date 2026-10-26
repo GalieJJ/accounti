@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import CursorResult, case, delete, func, or_, select, update
+from sqlalchemy import CursorResult, and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -603,19 +603,27 @@ def lade_ereignisse(
     *,
     neueste: bool = False,
     gesellschaften: set[str] | None = None,
+    fremde: set[str] | None = None,
 ) -> list[AuthEreignis]:
     """Ereignisse aufsteigend nach Zeit — die ersten ``grenze`` oder, mit
     ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``). Mit
-    ``gesellschaften`` nur deren Ereignisse und die ohne Gesellschaft."""
+    ``gesellschaften`` nur deren Ereignisse und die ohne Gesellschaft — von diesen
+    nicht die über Benutzer aus ``fremde``."""
     abfrage = select(AuthEreignisRow)
     if benutzer is not None:
         abfrage = abfrage.where(AuthEreignisRow.benutzer == benutzer)
     if gesellschaften is not None:
-        abfrage = abfrage.where(
-            or_(
-                AuthEreignisRow.gesellschaft.is_(None),
-                AuthEreignisRow.gesellschaft.in_(sorted(gesellschaften)),
+        ohne = AuthEreignisRow.gesellschaft.is_(None)
+        if fremde:
+            ohne = and_(
+                ohne,
+                or_(
+                    AuthEreignisRow.benutzer.is_(None),
+                    AuthEreignisRow.benutzer.not_in(sorted(fremde)),
+                ),
             )
+        abfrage = abfrage.where(
+            or_(ohne, AuthEreignisRow.gesellschaft.in_(sorted(gesellschaften)))
         )
     if neueste:
         abfrage = abfrage.order_by(

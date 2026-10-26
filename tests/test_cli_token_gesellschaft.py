@@ -135,3 +135,32 @@ def test_protokoll_zeigt_nur_die_eigenen_gesellschaften(welt):
     a = lade(lade_ereignisse, gesellschaften={"b"})
     assert all(e.gesellschaft in (None, "b") for e in a)
     assert any(e.gesellschaft is None for e in a)
+
+
+def test_protokoll_ohne_gesellschaft_nur_ueber_benutzer_der_sicht(welt):
+    """Nachprüfung N6: Ereignisse ohne Gesellschaft (Sperren, Codes, Passwort) über
+    einen Benutzer, der nur in a Rollen hat, sah auch der Verwalter von b."""
+    u, als, lade = welt
+    engine, fabrik = session_factory(u.system)
+    with fabrik() as s:
+        lege_person_an(s, "eva", Rolle.BUCHHALTER, gesellschaft="a")
+    engine.dispose()
+    for befehl in ("sperren", "entsperren"):
+        als("chef")
+        r = run("-g", "a", "benutzer", befehl, "eva")
+        assert r.exit_code == 0, r.output
+    als("sven")
+    r = run("-g", "b", "benutzer", "protokoll", "--anzahl", "500")
+    assert r.exit_code == 0, r.output
+    assert "eva" not in r.output
+    assert "benutzer_angelegt" in r.output  # sven selbst, ohne Gesellschaft
+    als("chef")
+    r = run("-g", "a", "benutzer", "protokoll", "--anzahl", "500")
+    assert "benutzer_deaktiviert" in r.output and "eva" in r.output
+
+
+def test_protokoll_hilfe_ohne_befundnummer():
+    """Nachprüfung N7: Die Hilfe zeigte „(Befund Betrieb B9)“ mitten im Satz."""
+    r = run("benutzer", "protokoll", "--help")
+    assert r.exit_code == 0, r.output
+    assert "Befund" not in r.output and "Anmeldungen, Fehlversuche" in r.output

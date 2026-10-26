@@ -300,7 +300,11 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   Fehlversuche, Sperren, Rollen, Token; nur anfügen). Mit mehreren Gesellschaften zeigt
   es die Ereignisse der Gesellschaften, in denen der Aufrufer Verwalter ist (dazu die
   gewählte, wenn er sie gerade einrichtet), und die ohne Gesellschaft (z. B. ein neuer
-  Benutzer) — ein Verwalter von b sieht nicht, was in a geschah.
+  Benutzer, Sperren, Passwort, Codes) — diese nur über Benutzer, die in einer dieser
+  Gesellschaften eine Rolle haben (oder gar keine). Ein Verwalter von b sieht so nicht,
+  was in a geschah; über Benutzer mit Rollen in a **und** b sieht er auch, was sie in a
+  betrifft, soweit es keiner Gesellschaft zugeordnet ist (Passwort und zweiter Faktor
+  gelten global).
 
 ## REST-API
 

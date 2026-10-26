@@ -458,7 +458,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   der Name jetzt unter den aktiven Token einer Gesellschaft (Index, Prüfung, Widerruf;
   Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index).
   `benutzer protokoll` zeigt mit mehreren Gesellschaften nur die Ereignisse der
-  Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft
+  Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft — diese
+  nur über Benutzer mit einer Rolle dort oder ohne Rolle (der Verwalter von b sah sonst
+  Sperren und Codes eines Benutzers nur von a)
 - **Zweite Gesellschaft bekam keinen Verwalter, der letzte Verwalter öffnete die
   Einrichtungsphase** (Betrieb B7, B8): Nach der Einrichtung verlangte `-g b benutzer
   rolle|anlegen` einen Verwalter **in** b — eine später ergänzte Gesellschaft ließ sich nur

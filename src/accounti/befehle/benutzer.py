@@ -426,18 +426,28 @@ def protokoll(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Anmeldungen, Fehlversuche, Sperren, Rollen- und Tokenänderungen — mit
-    mehreren Gesellschaften die, in denen der Handelnde Verwalter ist, und die ohne
-    Gesellschaft (Befund Betrieb B9)."""
+    """Anmeldungen, Fehlversuche, Sperren, Rollen- und Tokenänderungen.
+
+    Mit mehreren Gesellschaften nur die der Gesellschaften, in denen der Aufrufer
+    Verwalter ist, und die ohne Gesellschaft — außer über Benutzer, die nur in
+    anderen Gesellschaften Rollen haben."""
+    # Befund Betrieb B9, Nachprüfung N6: ein Verwalter von b sieht nicht, was in a
+    # geschah — auch nicht Sperren, Passwörter und Codes eines Benutzers nur von a
     from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
     from accounti.betrieb.kontext import aktueller_kontext
-    from accounti.db.repo_auth import lade_benutzer, lade_ereignisse, rollen_von
+    from accounti.db.repo_auth import (
+        lade_alle_benutzer,
+        lade_benutzer,
+        lade_ereignisse,
+        rollen_von,
+    )
     from accounti.models.auth import Rolle
 
     durch = verwaltung_oder_ende(db, config)
     kontext = aktueller_kontext()
     with systemsitzung(db) as s:
         sicht: set[str] | None = None
+        fremde: set[str] = set()
         b = lade_benutzer(s, durch)
         if kontext.registry.eintraege and b is not None:
             sicht = {
@@ -447,9 +457,18 @@ def protokoll(
             }
             if kontext.gesellschaft is not None:  # dort Verwalter oder Einrichtung
                 sicht.add(kontext.gesellschaft.kuerzel)
+            for anderer in lade_alle_benutzer(s):
+                orte = {z.gesellschaft for z in rollen_von(s, anderer.id)}
+                if orte and not orte & sicht:
+                    fremde.add(anderer.name)
         # die neuesten — absteigend mit LIMIT gelesen (Befund A-M5)
         ereignisse = lade_ereignisse(
-            s, name, grenze=max(anzahl, 1), neueste=True, gesellschaften=sicht
+            s,
+            name,
+            grenze=max(anzahl, 1),
+            neueste=True,
+            gesellschaften=sicht,
+            fremde=fremde,
         )
     tabelle = Table(title="Anmeldeprotokoll")
     for spalte in ("Zeitpunkt", "Ereignis", "Benutzer", "Ges.", "Quelle", "Hinweis"):
