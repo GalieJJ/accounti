@@ -463,6 +463,30 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   3817, `oss_ust_konto`, je Land `oss_ust_konten`) statt auf 177720–177725, die der Stapel mit
   Sachkontenlänge 4 nicht annahm; sie erscheint nicht als „Steuerkonto ohne Kennziffer“ in der
   Voranmeldung. Wer schon auf 1777xx gebucht hat, stellt diese Konten in `oss_ust_konten` ein
+- **Korrektur nach Abgabe der Voranmeldung ohne Befund** (Gesamttest Steuer B5, Eingang B13,
+  Ausgang): `storniere`/`korrigiere` warnen, wenn die Voranmeldung des Zeitraums schon
+  abgegeben oder freigegeben ist; der Hinweis beim Storno in einen anderen Monat unterscheidet
+  § 17 UStG (Berichtigung im Zeitraum der Änderung) von der Fehlbuchung (Monat öffnen, dort
+  stornieren — sonst wirkt die Korrektur doppelt). `ustva` meldet `abgegeben_abweichend`, wenn
+  die Buchungen nicht mehr zur abgegebenen Anmeldung passen (§ 153 Abs. 1 AO), und die
+  Prüfregel `abgegeben_abweichend` (`accounti pruefen`) findet Buchungen, die laut Journal nach
+  der Abgabe in ihren Zeitraum kamen. Die Plausibilisierung bezieht die Prüfregeln aus
+  Baustein 7 über den Zeitraum ein (deren Fehler als Warnung) — der Hinweis „Baustein 7 nicht
+  angeschlossen“ ist weg. Nach der echten Abgabe bietet `ustva uebermitteln` das
+  Festschreiben an (GoBD Rz. 108–110, nicht erzwungen). Eine Saldenvortragsbuchung auf ein
+  Steuerkonto (EB 1576 an 9000) ist kein Umsatz und keine Warnung mehr wert
+- **Voranmeldung für einen laufenden Zeitraum** (Gesamttest Steuer B10): ein noch nicht
+  abgelaufener Zeitraum ist ein Fehler — keine Freigabe, keine Abgabe (§ 18 Abs. 1 UStG); im
+  Testmodus eine Warnung
+- **Marktplatz-Auszahlungen als Erlös gebucht** (Gesamttest Steuer B2, Teil Abgleich): `bank lauf`
+  (auch über REST) gleicht Auszahlungen importierter Abrechnungen vor dem Kontieren ab und bucht
+  sie „Bank an Verrechnungskonto“; in Fremdwährung gilt ein Bankumsatz mit Stichwort oder
+  Abrechnungsnummer innerhalb von `integrationen.auszahlung_toleranz_prozent` (Vorgabe 2 %) als
+  Treffer — gebucht wird der Bankbetrag, die Differenz auf `kursdifferenz_aufwand`/`_ertrag`
+  (SKR03 2150/2660, SKR04 6880/4840), mit Hinweis an der Abrechnung (vorher kam ein Treffer bei
+  Fremdwährung praktisch nie zustande, und die Regel buchte die Auszahlung als Erlös 19 %).
+  Offene Fehler-Befunde einer Abrechnung stehen als Warnung in der Voranmeldung ihres
+  Zeitraums; der Jahresabschluss prüft die Verrechnungskonten der Marktplätze (1361–1363)
 - **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
   8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (S/AM, gewährte Skonti), 3731/3736 (S/AV,
   erhaltene Skonti) und 3730/8730 (ohne Satz) — beide DATEV-Exporte lassen dort das BU-Feld

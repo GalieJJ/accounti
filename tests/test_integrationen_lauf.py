@@ -421,3 +421,114 @@ def test_shopify_reserve_in_fremdwaehrung(umgebung):
     assert nl.betrag_netto == D("24.31")  # 25,00 GBP = 29,41 EUR / 1,21
     assert saldo(buchungen, "1363") == 0
     assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABGEGLICHEN
+
+
+# --- Gesamttest Steuer B2: Fremdwährung mit Toleranz, Kursdifferenz -------------------
+
+
+def test_fremdwaehrung_bankbetrag_in_der_toleranz_mit_kursdifferenz(umgebung):
+    """51,68 GBP: Summe der einzeln umgerechneten Posten 59,73 €, die Bank schreibt
+    59,75 € gut (eigener Kurs). Früher nie ein Treffer — danach buchte classify die
+    Auszahlung als Erlös. Jetzt: Bankbetrag gebucht, 0,02 € Kursdifferenz (2660),
+    Verrechnungskonto glatt."""
+    s, archiv, kontext = umgebung
+    eingang = bank(
+        s,
+        date(2026, 9, 11),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    (abgleich,) = ergebnis.abgleich
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == eingang.id
+    assert abgleich.befund is not None and abgleich.befund.code == "kursdifferenz"
+    assert abgleich.befund.schweregrad is Schweregrad.HINWEIS
+    buchungen = lade_buchungen(s)
+    bank_seite = sorted(
+        (b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+        for b in buchungen
+        if b.transaktion_id == eingang.id
+    )
+    assert bank_seite == [
+        ("1200", "1362", D("59.73"), None),
+        ("1200", "2660", D("0.02"), None),
+    ]
+    assert saldo(buchungen, "1362") == 0
+    assert saldo(buchungen, "1200") == D("59.75")
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    assert eingang.id not in {t.id for t in offene_transaktionen(s, True)}
+
+
+def test_fremdwaehrung_ausserhalb_der_toleranz_bleibt_befund(umgebung):
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 9, 11), "55.00", "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    assert [a.befund.code for a in ergebnis.abgleich if a.befund] == [
+        "auszahlung_abweichung"
+    ]
+    assert not [b for b in lade_buchungen(s) if b.transaktion_id is not None]
+
+
+def test_fremdwaehrung_ohne_stichwort_kein_toleranztreffer(umgebung):
+    """Die Toleranz gilt nur mit Stichwort oder Abrechnungsnummer — ein fremder
+    Eingang über 59,75 € ist kein Treffer."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 9, 11), "59.75", "MIETE SEPTEMBER", "Hausverwaltung")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    assert all(a.transaktion is None for a in ergebnis.abgleich)
+
+
+def test_offener_marktplatzbefund_ist_ustva_warnung(umgebung):
+    """Gesamttest Steuer B2: die per Regel als Erlös gebuchte Auszahlung (Erlös
+    doppelt in Kz 81) stand nur in ``marktplatz liste`` — die Voranmeldung des
+    Monats nennt den offenen Fehler-Befund jetzt als Warnung."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import bereite_vor
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 8, 18), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    speichere_buchung(
+        s,
+        Buchungssatz(
+            transaktion_id=tx.id,
+            datum=tx.datum,
+            soll_konto="1200",
+            haben_konto="8400",
+            betrag_netto=D("176.34"),
+            steuer_schluessel=3,
+            steuer_betrag=D("33.51"),
+            buchungstext="Amazon-Auszahlung",
+            status=BuchungStatus.AUTO_GEBUCHT,
+        ),
+    )
+    amazon(s, archiv, kontext)
+    v = bereite_vor(
+        s,
+        Zeitraum.lies("2026-08"),
+        buchhaltung=Buchhaltung(),
+        einstellungen=ElsterEinstellungen(),
+    )
+    (befund,) = [b for b in v.befunde if b.regel == "marktplatz"]
+    assert befund.schweregrad.value == "warnung"
+    assert (
+        "auszahlung_anderweitig_gebucht" in befund.text and "11223344556" in befund.text
+    )
+    juli = bereite_vor(
+        s,
+        Zeitraum.lies("2026-07"),
+        buchhaltung=Buchhaltung(),
+        einstellungen=ElsterEinstellungen(),
+    )
+    assert not [b for b in juli.befunde if b.regel == "marktplatz"]

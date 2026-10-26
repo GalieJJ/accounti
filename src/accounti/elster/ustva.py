@@ -20,7 +20,11 @@ from sqlalchemy.orm import Session
 from accounti import __version__
 from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
-from accounti.db.repo_elster import lade_beleg_kontakte, lade_uebermittlungen
+from accounti.db.repo_elster import (
+    lade_beleg_kontakte,
+    lade_freigaben,
+    lade_uebermittlungen,
+)
 from accounti.db.repository import (
     lade_bankkonten,
     lade_buchungen,
@@ -103,14 +107,144 @@ class Vorbereitung:
         return [b for b in self.befunde if b.schweregrad is Schweregrad.FEHLER]
 
 
-def _zeitraum_befunde(zeitraum: Zeitraum, einst: ElsterEinstellungen) -> list[Befund]:
-    if zeitraum.art == einst.voranmeldungszeitraum:
+def _zeitraum_befunde(
+    zeitraum: Zeitraum,
+    einst: ElsterEinstellungen,
+    heute: date | None = None,
+    test: bool = False,
+) -> list[Befund]:
+    befunde = []
+    if zeitraum.art != einst.voranmeldungszeitraum:
+        text = (
+            f"{zeitraum} ist kein Voranmeldungszeitraum: elster.voranmeldungszeitraum "
+            f"ist „{einst.voranmeldungszeitraum}“"
+        )
+        befunde.append(Befund("zeitraum", Schweregrad.FEHLER, text))
+    heute = heute or date.today()
+    if zeitraum.bis >= heute:
+        # § 18 Abs. 1 S. 1 UStG: abzugeben nach Ablauf des Voranmeldungszeitraums —
+        # vorher fehlen Buchungen; im Testmodus nur ein Hinweis auf vorläufige Werte
+        text = (
+            f"Zeitraum {zeitraum} ist noch nicht abgelaufen (endet am "
+            f"{zeitraum.bis:%d.%m.%Y}) — abgegeben wird nach seinem Ablauf "
+            "(§ 18 Abs. 1 UStG), die Werte sind vorläufig"
+        )
+        schwere = Schweregrad.WARNUNG if test else Schweregrad.FEHLER
+        befunde.append(Befund("zeitraum_laufend", schwere, text))
+    return befunde
+
+
+def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
+    """``abgegeben_abweichend``: Die zuletzt abgegebene Voranmeldung des Zeitraums
+    passt nicht mehr zu den Buchungen (Korrektur oder Storno danach) — eine
+    berichtigte Anmeldung ist abzugeben (§ 153 Abs. 1 AO, § 18 Abs. 1 UStG)."""
+    zeitraum = str(e.zeitraum)
+    abgaben = [
+        u
+        for u in lade_uebermittlungen(session, Meldeart.USTVA, zeitraum, Modus.ECHT)
+        if u.erfolgreich
+    ]
+    if not abgaben:
+        return []
+    letzte = abgaben[-1]
+    alt: dict[int, Decimal] | None = None
+    if letzte.freigabe_id is not None:
+        for f in lade_freigaben(session, Meldeart.USTVA, zeitraum):
+            if f.id == letzte.freigabe_id:
+                alt = {int(k): Decimal(v) for k, v in json.loads(f.werte).items()}
+    jetzt = e.voranmeldung.formularwerte()
+    if alt is None:  # Abgabe ohne gespeicherte Werte: nur die Zahllast vergleichen
+        alt = {83: letzte.betrag} if letzte.betrag is not None else {}
+        jetzt = {83: jetzt[83]}
+    alt.pop(10, None)
+    jetzt.pop(10, None)
+    geaendert = [
+        kz
+        for kz in sorted(set(alt) | set(jetzt))
+        if alt.get(kz, Decimal(0)) != jetzt.get(kz, Decimal(0))
+    ]
+    if not geaendert:
         return []
     text = (
-        f"{zeitraum} ist kein Voranmeldungszeitraum: elster.voranmeldungszeitraum ist "
-        f"„{einst.voranmeldungszeitraum}“"
+        f"Die Voranmeldung {zeitraum} ist am {letzte.zeitpunkt:%d.%m.%Y} abgegeben "
+        f"(Kz 83 {betrag_de(alt.get(83))} €), die Buchungen ergeben inzwischen "
+        f"Kz 83 {betrag_de(jetzt.get(83))} € (geändert: Kz "
+        f"{', '.join(str(kz) for kz in geaendert)}) — berichtigte Voranmeldung "
+        f"freigeben und abgeben (accounti ustva freigeben --period {zeitraum}; Kz 10), "
+        "§ 153 Abs. 1 AO"
     )
-    return [Befund("zeitraum", Schweregrad.FEHLER, text)]
+    return [Befund("abgegeben_abweichend", Schweregrad.WARNUNG, text)]
+
+
+def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
+    """Offene Fehler-Befunde von Marktplatz-Abrechnungen des Zeitraums — z.B. eine
+    Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt)."""
+    from accounti.db.repo_integrationen import lade_abrechnungen
+    from accounti.integrationen.buchung import ANZEIGE
+    from accounti.models.integrationen import Schweregrad as MarktSchwere
+
+    befunde = []
+    for a in lade_abrechnungen(session):
+        if a.bis < zeitraum.von or a.von > zeitraum.bis:
+            continue
+        for b in a.offene_befunde:
+            if b.schweregrad is not MarktSchwere.FEHLER:
+                continue
+            markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+            text = (
+                f"Marktplatz {markt} {a.nummer} ({a.von:%d.%m.}–{a.bis:%d.%m.%Y}) hat "
+                f"einen offenen Befund {b.code}: {b.text} — vor der Abgabe klären "
+                "(accounti marktplatz zeigen …)"
+            )
+            befunde.append(Befund("marktplatz", Schweregrad.WARNUNG, text))
+    return befunde
+
+
+def pruef_befunde(
+    session: Session,
+    zeitraum: Zeitraum,
+    buchhaltung: Buchhaltung,
+    konfiguration: str | Path,
+) -> list[Befund]:
+    """Prüfregeln aus Baustein 7 über den Zeitraum: ihre Fehler als Warnung (gesehen
+    haben, nicht sperren — die Voranmeldung sperrt nur, was ihre Werte betrifft), der
+    Rest als ein Hinweis mit der Zahl."""
+    from accounti.konfiguration import lade_eigene_firma
+    from accounti.models.pruefung import Schwere
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.regeln import Kontext as PruefKontext
+    from accounti.pruefung.regeln import PruefungError, fuehre_regeln_aus
+
+    try:
+        einstellungen = lade_pruefung(konfiguration)
+        ordner = Path(einstellungen.archiv)
+        k = PruefKontext(
+            session,
+            einstellungen,
+            buchhaltung,
+            date.today(),
+            zeitraum.von,
+            zeitraum.bis,
+            firma=lade_eigene_firma(konfiguration),
+            archiv=BelegArchiv(ordner) if ordner.is_dir() else None,
+        )
+        bericht = fuehre_regeln_aus(k)
+    except (KonfigurationError, PruefungError) as fehler:
+        text = f"Prüfregeln (Baustein 7) nicht gelaufen: {fehler}"
+        return [Befund("pruefung", Schweregrad.WARNUNG, text)]
+    befunde = [
+        Befund("pruefung", Schweregrad.WARNUNG, f"Prüfbefund {b.regel}: {b.text}")
+        for b in bericht.befunde
+        if b.schwere is Schwere.FEHLER
+    ]
+    rest = sum(1 for b in bericht.befunde if b.schwere is not Schwere.FEHLER)
+    if rest:
+        text = (
+            f"{rest} weitere Prüfbefunde (Warnung, Hinweis) im Zeitraum — accounti "
+            f"pruefen --period {zeitraum}"
+        )
+        befunde.append(Befund("pruefung", Schweregrad.HINWEIS, text))
+    return befunde
 
 
 class _Daten:
@@ -151,11 +285,17 @@ def bereite_vor(
     einstellungen: ElsterEinstellungen,
     ustid_max_alter_tage: int = 30,
     oss_aktiv: bool = False,
+    konfiguration: str | Path | None = None,
+    test: bool = False,
+    heute: date | None = None,
 ) -> Vorbereitung:
     """Kennziffern und Befunde eines Voranmeldungszeitraums.
 
     Wurde der Zeitraum schon einmal erfolgreich abgegeben, ist die neue Anmeldung eine
-    berichtigte (Kz 10) — sie tritt neben die alte.
+    berichtigte (Kz 10) — sie tritt neben die alte; weichen die Buchungen von der
+    abgegebenen ab, sagt es ``abgegeben_abweichend``. Mit ``konfiguration`` laufen
+    die Prüfregeln aus Baustein 7 über den Zeitraum mit. ``test``: ein noch nicht
+    abgelaufener Zeitraum ist nur eine Warnung (Testmodus).
     """
     daten = _Daten(session, buchhaltung, einstellungen)
     e = daten.ermittle(zeitraum)
@@ -165,7 +305,19 @@ def bereite_vor(
     def bestaetigung(ust_id: str | None, stichtag: date) -> Bewertung:
         return aktuelle_bestaetigung(session, ust_id, stichtag, ustid_max_alter_tage)
 
-    befunde = _zeitraum_befunde(zeitraum, einstellungen) + svz_befunde
+    befunde = _zeitraum_befunde(zeitraum, einstellungen, heute, test) + svz_befunde
+    weitere = abgabe_befunde(session, e) + marktplatz_befunde(session, zeitraum)
+    if konfiguration is not None:
+        weitere += pruef_befunde(session, zeitraum, buchhaltung, konfiguration)
+    else:
+        weitere.append(
+            Befund(
+                "pruefung",
+                Schweregrad.HINWEIS,
+                "Prüfregeln (Baustein 7) hier nicht gelaufen — accounti pruefen "
+                f"--period {zeitraum}",
+            )
+        )
     befunde += plausibilisiere(
         e,
         bestaetigung=bestaetigung,
@@ -178,6 +330,7 @@ def bereite_vor(
             abweichung_prozent=einstellungen.abweichung_prozent,
             abweichung_mindestens=einstellungen.abweichung_mindestens,
         ),
+        weitere=weitere,
     )
     rang = {Schweregrad.FEHLER: 0, Schweregrad.WARNUNG: 1, Schweregrad.HINWEIS: 2}
     return Vorbereitung(zeitraum, e, sorted(befunde, key=lambda b: rang[b.schweregrad]))

@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -47,6 +48,10 @@ from accounti.klassifikation.engine import KlassifikationsEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.models import Bankkonto, KontoZustand, Transaktion
 from accounti.opos.zahlungslauf import Zahlungslauf, zuordne_zahlungen
+
+if TYPE_CHECKING:
+    from accounti.integrationen.auszahlung import Abgleich
+    from accounti.integrationen.einstellungen import Kontext
 
 UEBERLAPPUNG = timedelta(days=14)  # Banken buchen nach; Dubletten fängt der Schutz
 # warten auf einen Menschen — ohne Rückfrage wird nicht erneut abgerufen
@@ -183,6 +188,7 @@ class Banklauf:
     zuordnung: Zahlungslauf = field(default_factory=Zahlungslauf)
     abgleich: Abgleichsergebnis = field(default_factory=Abgleichsergebnis)
     kontierung: Kontierungslauf = field(default_factory=Kontierungslauf)
+    marktplatz: list[Abgleich] = field(default_factory=list)
 
 
 def bank_lauf(
@@ -192,19 +198,26 @@ def bank_lauf(
     schluessel: str | None = None,
     bank_einstellungen: BankEinstellungen | None = None,
     sichern: Callable[[], None] | None = None,
+    marktplatz: Kontext | None = None,
 ) -> Banklauf:
-    """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
-    abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
-    bevor offene Posten oder das Regelwerk sie sehen. ``sichern`` schreibt den
-    Abruf je Konto fest — die Buchungen danach beginnen eine eigene Transaktion
-    (unter PostgreSQL mit der Schreibsperre zuerst)."""
+    """Der geplante Lauf: abrufen → Kreditkarten → Marktplatz-Auszahlungen →
+    offene Posten zuordnen → abgleichen → kontieren. Die Sammelbelastung einer Karte
+    und die Auszahlung einer importierten Marktplatz-Abrechnung (``marktplatz``:
+    Abschnitt ``integrationen``) sind damit gebucht — „Bank an Verrechnungskonto“
+    ohne Umsatzsteuer —, bevor offene Posten oder das Regelwerk sie sehen; sonst
+    bucht eine Regel die Auszahlung als Erlös und der Umsatz zählt doppelt.
+    ``sichern`` schreibt den Abruf je Konto fest — die Buchungen danach beginnen
+    eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst)."""
     bank = bank_einstellungen or lade_bank_einstellungen()
-    return Banklauf(
-        abrufe=rufe_ab(session, schluessel, sichern=sichern),
-        kreditkarten=gleiche_sammelbelastungen_ab(
-            session, einstellungen, bank.kreditkarte
-        ),
-        zuordnung=zuordne_zahlungen(session, einstellungen),
-        abgleich=gleiche_belege_ab(session),
-        kontierung=kontiere_umsaetze(session, engine, einstellungen),
+    lauf = Banklauf(abrufe=rufe_ab(session, schluessel, sichern=sichern))
+    lauf.kreditkarten = gleiche_sammelbelastungen_ab(
+        session, einstellungen, bank.kreditkarte
     )
+    if marktplatz is not None:
+        from accounti.integrationen.auszahlung import gleiche_auszahlungen_ab
+
+        lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
+    lauf.zuordnung = zuordne_zahlungen(session, einstellungen)
+    lauf.abgleich = gleiche_belege_ab(session)
+    lauf.kontierung = kontiere_umsaetze(session, engine, einstellungen)
+    return lauf

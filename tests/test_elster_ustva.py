@@ -7,7 +7,7 @@ import pytest
 from accounti.belege.archiv import BelegArchiv
 from accounti.db import session_factory
 from accounti.db.repo_elster import lade_freigaben, lade_uebermittlungen
-from accounti.db.repository import speichere_buchung
+from accounti.db.repository import lade_buchungen, speichere_buchung
 from accounti.elster.datensatz import Absender, lies_kennzahlen, pruefe_datensatz
 from accounti.elster.freigabe import FreigabeError, gib_frei
 from accounti.elster.konfiguration import lade_elster
@@ -357,3 +357,117 @@ def test_eu_leistung_ueber_die_bank_findet_den_leistenden_am_beleg(db):
     assert v.voranmeldung.wert(46) == Decimal("1800.00")  # 800 Agentur Wien + 1000
     assert v.voranmeldung.wert(84) == 0
     assert not any("Leistender unbekannt" in b.text for b in v.befunde)
+
+
+# --- Gesamttest Steuer B5, B10, Eingang B13 ------------------------------------------
+
+
+def test_korrektur_nach_abgabe_abgegeben_abweichend(db):
+    """Steuer B5: nach der Abgabe ändert ein Storno den Monat — ``ustva`` sagt, dass
+    die abgegebene Anmeldung nicht mehr passt (§ 153 Abs. 1 AO)."""
+    from accounti.pruefung.storno import storniere
+
+    make_session, einstellungen, archiv = db
+    with make_session() as s:
+        _abgeben(s, einstellungen, archiv, EricDoppel())
+        v = vorbereiten(s, einstellungen)
+        assert not [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
+        ziel = next(
+            b
+            for b in lade_buchungen(s)
+            if b.haben_konto == "8400" and b.storniert_durch is None
+        )
+        k = storniere(s, str(ziel.id)[:8], grund="Fehlbuchung", von="Erika")
+        s.commit()
+        (warnung,) = [w for w in k.warnungen if "schon abgegeben" in w]
+        assert "08/2026" in warnung or "August 2026" in warnung
+        v = vorbereiten(s, einstellungen)
+    (befund,) = [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
+    assert befund.schweregrad.value == "warnung"
+    assert "Kz 83 2.145,18 €" in befund.text and "83" in befund.text
+
+
+def test_ohne_abgabe_kein_befund_und_kein_veralteter_hinweis(db):
+    """Eingang B13 / Ausgang: der Hinweis „Baustein 7 nicht angeschlossen“ ist weg."""
+    make_session, einstellungen, _ = db
+    with make_session() as s:
+        v = vorbereiten(s, einstellungen)
+    texte = " ".join(b.text for b in v.befunde)
+    assert "nicht angeschlossen" not in texte
+    assert not [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
+
+
+def test_pruefregeln_laufen_mit(db, tmp_path):
+    """Mit der Konfiguration laufen die Prüfregeln (Baustein 7) über den Zeitraum."""
+    make_session, einstellungen, _ = db
+    konfig = tmp_path / "leer.yaml"
+    konfig.write_text("", encoding="utf-8")
+    with make_session() as s:
+        speichere_buchung(
+            s, buchung("4900", "1200", "100.00", 9, "19.00", text="ohne Beleg")
+        )
+        s.commit()
+        v = bereite_vor(
+            s,
+            AUGUST,
+            buchhaltung=Buchhaltung(),
+            einstellungen=einstellungen,
+            konfiguration=konfig,
+        )
+    pruefung = [b for b in v.befunde if b.regel == "pruefung"]
+    assert pruefung and all(b.schweregrad.value != "fehler" for b in pruefung)
+    assert any("accounti pruefen --period 2026-08" in b.text for b in pruefung)
+
+
+def test_laufender_zeitraum_fehler_im_test_warnung(db):
+    """Steuer B10: § 18 Abs. 1 UStG — abgegeben wird nach Ablauf des Zeitraums."""
+    make_session, einstellungen, _ = db
+    with make_session() as s:
+        v = bereite_vor(
+            s,
+            AUGUST,
+            buchhaltung=Buchhaltung(),
+            einstellungen=einstellungen,
+            heute=date(2026, 8, 31),
+        )
+        (b,) = [x for x in v.befunde if x.regel == "zeitraum_laufend"]
+        assert b.schweregrad.value == "fehler" and v.gesperrt
+        assert "31.08.2026" in b.text
+        with pytest.raises(FreigabeError, match="nicht abgelaufen"):
+            gib_frei(s, v, "Erika")
+        test = bereite_vor(
+            s,
+            AUGUST,
+            buchhaltung=Buchhaltung(),
+            einstellungen=einstellungen,
+            heute=date(2026, 8, 31),
+            test=True,
+        )
+        (b,) = [x for x in test.befunde if x.regel == "zeitraum_laufend"]
+        assert b.schweregrad.value == "warnung"
+        abgelaufen = bereite_vor(
+            s,
+            AUGUST,
+            buchhaltung=Buchhaltung(),
+            einstellungen=einstellungen,
+            heute=date(2026, 9, 1),
+        )
+        assert not [x for x in abgelaufen.befunde if x.regel == "zeitraum_laufend"]
+
+
+def test_saldenvortrag_ist_kein_umsatz(db):
+    """Eingang B13: EB-Buchung 1576 an 9000 — keine Warnung „Steuerkonto ohne
+    Kennziffer“, keine Kennziffer."""
+    make_session, einstellungen, _ = db
+    with make_session() as s:
+        vorher = vorbereiten(s, einstellungen).voranmeldung.formularwerte()
+        speichere_buchung(
+            s,
+            buchung(
+                "1576", "9000", "250.00", text="EB Vorsteuer", datum=date(2026, 8, 1)
+            ),
+        )
+        s.commit()
+        v = vorbereiten(s, einstellungen)
+    assert not [b for b in v.befunde if "1576" in b.text]
+    assert v.voranmeldung.formularwerte() == vorher

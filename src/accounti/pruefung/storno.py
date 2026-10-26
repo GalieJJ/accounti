@@ -299,24 +299,58 @@ def _storno(
         neu,
         storno,
         korrektur,
-        _warnungen(b, tag),
+        _warnungen(session, b, tag, kr),
     )
 
 
-def _warnungen(b: Buchungssatz, tag: date) -> list[str]:
-    """Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort."""
-    if b.steuer_schluessel is None or (tag.year, tag.month) == (
-        b.datum.year,
-        b.datum.month,
-    ):
+def _umsatzsteuerlich(b: Buchungssatz, kr: Kontenrahmen) -> bool:
+    """Wirkt die Buchung auf die Voranmeldung (Schlüssel, Steuer, Erlöskonto)?"""
+    from accounti.steuer.kennziffern import Kontenplan
+
+    if b.steuer_schluessel is not None or b.steuer_betrag:
+        return True
+    plan = Kontenplan(kontenrahmen=kr.name.upper())
+    return any(
+        k in plan.funktionskonten or plan.ist_erloeskonto(k) or plan.ist_steuerkonto(k)
+        for k in (b.soll_konto, b.haben_konto)
+    )
+
+
+def _warnungen(
+    session: Session, b: Buchungssatz, tag: date, kr: Kontenrahmen
+) -> list[str]:
+    """Hinweise zur Umsatzsteuer-Voranmeldung (§ 18 Abs. 1 UStG, § 153 Abs. 1 AO).
+
+    * Ist die Voranmeldung des Originalzeitraums (oder des Storno-Zeitraums) schon
+      abgegeben oder freigegeben, ändert die Korrektur ihre Werte — berichtigte
+      Anmeldung (``meldungen_im_zeitraum``; die Abweichung meldet ``ustva`` als
+      ``abgegeben_abweichend``).
+    * Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort. Das ist nur
+      bei einer Änderung der Bemessungsgrundlage richtig (§ 17 Abs. 1 S. 7 UStG:
+      Berichtigung im Zeitraum der Änderung). Eine Fehlbuchung wird im
+      Originalzeitraum berichtigt — dann den Monat öffnen und dort stornieren, statt
+      die Voranmeldung zusätzlich von Hand zu berichtigen (sonst doppelt).
+    """
+    if not _umsatzsteuerlich(b, kr):
         return []
-    return [
-        f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum als "
-        f"das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im Zeitraum "
-        f"des Stornos — ist die Voranmeldung für {b.datum:%m/%Y} schon abgegeben "
-        "und war sie falsch, ist eine berichtigte Voranmeldung für diesen Zeitraum "
-        "abzugeben"
-    ]
+    from accounti.pruefung.perioden import meldungen_im_zeitraum
+
+    warnungen = meldungen_im_zeitraum(session, b.datum, b.datum)
+    anders = (tag.year, tag.month) != (b.datum.year, b.datum.month)
+    if anders:
+        warnungen += meldungen_im_zeitraum(session, tag, tag)
+        warnungen.append(
+            f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum "
+            f"als das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im "
+            f"Zeitraum des Stornos ({tag:%m/%Y}). Richtig ist das bei einer Änderung "
+            "der Bemessungsgrundlage (§ 17 Abs. 1 S. 7 UStG: Berichtigung im Zeitraum "
+            "der Änderung). War die Buchung ein Fehler, gehört die Berichtigung in "
+            f"{b.datum:%m/%Y}: den Monat öffnen (accounti periode oeffnen "
+            f"{b.datum:%Y-%m} --grund …), dort stornieren und die berichtigte "
+            f"Voranmeldung aus accounti abgeben — {tag:%m/%Y} dann nicht zusätzlich "
+            "von Hand berichtigen, sonst wirkt die Korrektur doppelt"
+        )
+    return warnungen
 
 
 def storniere(

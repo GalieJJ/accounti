@@ -271,7 +271,7 @@ def _abgrenzungen(k: Abschlusskontext) -> list[Befund]:
 
 
 def _verrechnungskonten(k: Abschlusskontext) -> list[Befund]:
-    return [
+    befunde = [
         Befund(
             "verrechnungskonten",
             Schwere.WARNUNG,
@@ -281,6 +281,20 @@ def _verrechnungskonten(k: Abschlusskontext) -> list[Befund]:
         for konto in k.einstellungen.verrechnungskonten
         if k.susa.saldo(konto) != 0
     ]
+    eigene = set(k.einstellungen.verrechnungskonten)
+    befunde += [
+        Befund(
+            "verrechnungskonten",
+            Schwere.WARNUNG,
+            f"Marktplatz-Verrechnungskonto {konto} ist zum {k.stichtag:%d.%m.%Y} nicht "
+            f"ausgeglichen: {_euro(k.susa.saldo(konto))} — Auszahlung erst im neuen "
+            "Jahr (dann in Ordnung) oder ein Rest aus Kurs, Rundung oder fehlender "
+            "Abrechnung (accounti marktplatz liste)",
+        )
+        for konto in k.einstellungen.marktplatz_konten
+        if konto not in eigene and k.susa.saldo(konto) != 0
+    ]
+    return befunde
 
 
 def _vortragskonten(k: Abschlusskontext) -> list[Befund]:

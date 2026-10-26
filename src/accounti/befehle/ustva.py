@@ -63,7 +63,9 @@ class Lauf:
     ustid_max_alter_tage: int
     oss: bool
 
-    def vorbereiten(self, s: Session) -> Vorbereitung:
+    def vorbereiten(self, s: Session, test: bool = False) -> Vorbereitung:
+        """Kennziffern und Befunde — mit den Prüfregeln aus Baustein 7 über den
+        Zeitraum; ``test``: Testmodus (laufender Zeitraum nur eine Warnung)."""
         from accounti.elster.ustva import bereite_vor
 
         return bereite_vor(
@@ -73,6 +75,8 @@ class Lauf:
             einstellungen=self.einstellungen,
             ustid_max_alter_tage=self.ustid_max_alter_tage,
             oss_aktiv=self.oss,
+            konfiguration=self.config,
+            test=test,
         )
 
 
@@ -399,7 +403,7 @@ def uebermitteln(
         if uebermittler is None:
             console.print(f"[dim]{escape(grund)}[/dim]")
         modus = modus_fuer(s, Meldeart.USTVA, modus, uebermittler)
-        v = lauf.vorbereiten(s)
+        v = lauf.vorbereiten(s, test=modus is not Modus.ECHT)
         zeige_befunde(v.befunde)
         try:
             u = uebermittle(
@@ -416,6 +420,11 @@ def uebermitteln(
         z, zahllast_fehler = buche_zahllast_sicher(
             s, u, lauf.buchhaltung, lauf.einstellungen, kontext.steuernummer
         )
+        offen = (
+            offene_monate(s, lauf.zeitraum)
+            if u.erfolgreich and modus is Modus.ECHT
+            else []
+        )
     if ausgabe:
         Path(ausgabe).write_text(u.datensatz, encoding="utf-8")
         console.print(f"[dim]Datensatz → {escape(ausgabe)}[/dim]")
@@ -423,8 +432,23 @@ def uebermitteln(
     if z is not None:
         zeige_zahllast(z)
     melde_zahllast_fehler(zahllast_fehler)
+    if offen:
+        # GoBD Rz. 108–110: Festschreibung macht die gemeldeten Buchungen
+        # unveränderbar — angeboten, nicht erzwungen
+        befehle = "; ".join(f"accounti periode schliessen {m}" for m in offen)
+        console.print(
+            "Abgegeben — jetzt festschreiben, damit die gemeldeten Buchungen "
+            f"unverändert bleiben: {befehle}"
+        )
     if not u.erfolgreich:
         raise typer.Exit(1)
+
+
+def offene_monate(s: Session, zeitraum: Zeitraum) -> list[str]:
+    """Monate des Zeitraums, die noch nicht festgeschrieben sind."""
+    from accounti.pruefung.perioden import sperre_am
+
+    return [str(m) for m in zeitraum.monate() if sperre_am(s, m.von) is None]
 
 
 def zeige_zahllast(z: Zahllastbuchung) -> None:

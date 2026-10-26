@@ -201,6 +201,10 @@ _NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
 
 EU_ARTEN = {41: "L", 42: "D", 21: "S"}  # Art der Leistung in der ZM
 
+# Saldenvortragskonten (SKR03 und SKR04, Klasse 9): Eröffnungsbuchungen sind keine
+# Umsätze — ein Vorsteuer- oder Umsatzsteuerkonto gegen sie gehört in keine Kennziffer
+SALDENVORTRAG = frozenset({"9000", "9008", "9009"})
+
 # Vorsteuerfelder: ein Zugang steht im Soll
 _VORSTEUER_KZ = frozenset({66, 61, 62, 67, 63, 59, 64})
 # berechnet (83) oder aus der Sondervorauszahlung (39) — nie über ein Konto
@@ -556,7 +560,9 @@ class _Ermittler:
                     continue
                 beitraege.append((ergebnis, seite))
                 regeln.append(f"Konto {konto} mindert die Rechnung (Kz {ergebnis.kz})")
-            elif self.plan.ist_steuerkonto(konto):
+            elif self.plan.ist_steuerkonto(konto) and not (
+                {b.soll_konto, b.haben_konto} & SALDENVORTRAG
+            ):
                 self._steuerkonto(b, konto)
         if gruende:
             self.e.ohne_kennziffer.append((b, "; ".join(gruende)))

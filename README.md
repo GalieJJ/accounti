@@ -101,7 +101,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 |--------|---------|-------------|
 | ✅ | **Umsatzsteuer** | USt/VSt-Berechnung, Steuerautomatik, Geschäftsvorfall-Bestimmung |
 | ✅ | **OSS-Verfahren** | EU-weite MwSt (27 Länder), Schwellenwertprüfung, Quartalsmeldung |
-| ✅ | **USt-Voranmeldung** | Kennziffern nach Vordruck 2026 aus den Buchungen (Steuerschlüssel + Automatikkonten), volle Euro wie ELSTER, Plausibilisierung (ohne Steuerschlüssel, unbestätigte USt-IdNr., Verprobung, Vormonatsvergleich), Freigabe durch den Menschen |
+| ✅ | **USt-Voranmeldung** | Kennziffern nach Vordruck 2026 aus den Buchungen (Steuerschlüssel + Automatikkonten), volle Euro wie ELSTER, Plausibilisierung (ohne Steuerschlüssel, unbestätigte USt-IdNr., Verprobung, Vormonatsvergleich, Prüfregeln des Zeitraums, offene Marktplatz-Befunde, Abweichung von der abgegebenen Anmeldung, Zeitraum noch nicht abgelaufen), Freigabe durch den Menschen; nach der Abgabe wird das Festschreiben angeboten |
 | 🟨 | **Elektronische Übermittlung** | ELSTER-Datensatz UStVA/Dauerfristverlängerung, Testmodus ohne Abgabe, ERiC-Anbindung über ctypes (mit eigener Hersteller-ID und Zertifikat), unveränderbares Protokoll, Zahllast als offener Posten beim Finanzamt; Zusammenfassende Meldung als Portaldatei |
 | ✅ | **Fristenkalender** | UStVA, Dauerfristverlängerung, Sondervorauszahlung, ZM, OSS — verschoben nach § 108 Abs. 3 AO mit Feiertagen des Bundeslands |
 | ✅ | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |

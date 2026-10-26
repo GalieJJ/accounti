@@ -6,6 +6,14 @@ mehrere, entscheidet das Stichwort im Verwendungszweck — bleibt es mehrdeutig,
 nicht geraten. Ein Umsatz in anderer Höhe mit Stichwort oder Abrechnungsnummer ist
 ein Befund, ebenso ein Umsatz, den schon eine Regel als Erlös gebucht hat.
 
+Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
+Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das
+fast nie. Deshalb gilt dort ein Umsatz mit Stichwort oder Abrechnungsnummer als
+Treffer, wenn er höchstens ``auszahlung_toleranz_prozent`` abweicht; gebucht wird der
+Bankbetrag, die Differenz geht auf die Kursdifferenzkonten (Aufwand bzw. Ertrag aus
+der Währungsumrechnung, ohne Umsatzsteuer — der Umsatz ist mit dem Kurs der
+Abrechnung bemessen, § 16 Abs. 6 UStG).
+
 Gebucht wird „Bank an Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit der
 ``transaktion_id`` des Bankumsatzes — damit lässt ``classify`` ihn in Ruhe.
 """
@@ -142,7 +150,7 @@ def gleiche_auszahlungen_ab(
                 continue
             kandidaten = _kandidaten(lauf, a, p, erwartet)
             if len(kandidaten) == 1:
-                ergebnisse[p.id] = _zuordnen(lauf, a, p, kandidaten[0])
+                ergebnisse[p.id] = _zuordnen(lauf, a, p, kandidaten[0], erwartet)
                 weiter = True
     neue_befunde: dict[UUID, list[Befund]] = {}
     for a, p, erwartet in offene:
@@ -176,28 +184,48 @@ def _erkennbar(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
     )
 
 
+def _in_toleranz(lauf: _Lauf, betrag: Decimal, erwartet: Decimal) -> bool:
+    """Fremdwährung: Bankbetrag höchstens ``auszahlung_toleranz_prozent`` neben der
+    umgerechneten Auszahlung, gleiches Vorzeichen."""
+    prozent = lauf.kontext.einstellungen.auszahlung_toleranz_prozent
+    return (betrag > 0) == (erwartet > 0) and abs(betrag - erwartet) * 100 <= abs(
+        erwartet
+    ) * prozent
+
+
 def _kandidaten(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
 ) -> list[Transaktion]:
-    """Freie Bankumsätze mit exakt dem erwarteten Betrag im Zeitfenster."""
+    """Freie Bankumsätze mit exakt dem erwarteten Betrag im Zeitfenster — bei
+    Fremdwährung ohne exakten Treffer: mit Stichwort oder Abrechnungsnummer und
+    Betrag in der Toleranz."""
     von, bis = _fenster(lauf, p)
-    kandidaten = [
+    frei = [
         t
         for t in lauf.bankumsaetze
-        if t.id in lauf.offen_ids
-        and t.id not in lauf.benutzt
-        and t.betrag == erwartet
-        and von <= t.datum <= bis
+        if t.id in lauf.offen_ids and t.id not in lauf.benutzt and von <= t.datum <= bis
     ]
+    kandidaten = [t for t in frei if t.betrag == erwartet]
     if len(kandidaten) > 1:
         kandidaten = [t for t in kandidaten if _erkennbar(lauf, a, t)] or kandidaten
+    if not kandidaten and a.waehrung != "EUR":
+        kandidaten = [
+            t
+            for t in frei
+            if _erkennbar(lauf, a, t) and _in_toleranz(lauf, t.betrag, erwartet)
+        ]
     return kandidaten
 
 
 def _zuordnen(
-    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, t: Transaktion
+    lauf: _Lauf,
+    a: Abrechnung,
+    p: Marktplatzposten,
+    t: Transaktion,
+    erwartet: Decimal,
 ) -> Abgleich:
-    """Exakter Treffer: Befunde zu diesem Posten aus früheren Läufen erledigen sich."""
+    """Eindeutiger Treffer: Befunde zu diesem Posten aus früheren Läufen erledigen
+    sich; eine Kursdifferenz (Fremdwährung) steht als Hinweis an der Abrechnung."""
     erledigt = [
         b
         for b in a.offene_befunde
@@ -210,8 +238,26 @@ def _zuordnen(
     setze_bank_transaktion(lauf.session, p.id, t.id)
     p.bank_transaktion_id = t.id
     a.status = status_von(a)
-    _buche(lauf.session, lauf.kontext, a, t)
-    return Abgleich(a, p, t)
+    _buche(lauf.session, lauf.kontext, a, t, erwartet)
+    befund = None
+    if t.betrag != erwartet:
+        e = lauf.kontext.einstellungen
+        differenz = t.betrag - erwartet
+        konto = e.kursdifferenz_ertrag if differenz > 0 else e.kursdifferenz_aufwand
+        befund = Befund(
+            code="kursdifferenz",
+            schweregrad=Schweregrad.HINWEIS,
+            text=(
+                f"{ANZEIGE.get(a.marktplatz, a.marktplatz)} {a.nummer}: Bank "
+                f"{eur_text(t.betrag)} € ≠ Abrechnung {eur_text(erwartet)} € "
+                f"({a.waehrung}, Kurs {a.kurs}) — Differenz {eur_text(differenz)} € "
+                f"als Kursdifferenz auf {konto} gebucht"
+            ),
+            posten_nr=p.nr,
+        )
+        ergaenze_befunde(lauf.session, a.id, [befund])
+        a.befunde.append(befund)
+    return Abgleich(a, p, t, befund)
 
 
 def _befund(
@@ -294,7 +340,16 @@ def _befund(
     return Abgleich(a, p)
 
 
-def _buche(session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion) -> None:
+def _buche(
+    session: Session,
+    kontext: Kontext,
+    a: Abrechnung,
+    t: Transaktion,
+    erwartet: Decimal | None = None,
+) -> None:
+    """Bank an Verrechnungskonto über die Auszahlung laut Abrechnung; weicht der
+    Bankbetrag ab (Fremdwährung), geht die Differenz auf ein Kursdifferenzkonto —
+    das Verrechnungskonto ist danach ausgeglichen, die Bank hat ihren Betrag."""
     e = kontext.einstellungen
     bank = t.sachkonto or kontext.buchhaltung.bank_konto
     gegen = (
@@ -302,25 +357,33 @@ def _buche(session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion) ->
         if a.marktplatz == "paypal"
         else e.marktplatz(a.marktplatz).verrechnungskonto
     )
-    soll, haben = (bank, gegen) if t.betrag > 0 else (gegen, bank)
     pruefen = status_von(a) is AbrechnungStatus.ABWEICHUNG
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     art = "Auszahlung" if t.betrag > 0 else "Einzahlung"
-    speichere_buchung(
-        session,
-        Buchungssatz(
-            transaktion_id=t.id,
-            beleg_id=a.beleg_id,
-            datum=t.datum,
-            soll_konto=soll,
-            haben_konto=haben,
-            betrag_netto=abs(t.betrag),
-            buchungstext=f"{markt} {art} {a.nummer}"[:60],
-            beleg_nummer=a.nummer[:36],
-            status=BuchungStatus.ZUR_PRUEFUNG
-            if pruefen
-            else BuchungStatus.AUTO_GEBUCHT,
-            confidence=0.5 if pruefen else 1.0,
-        ),
-    )
+    erwartet = t.betrag if erwartet is None else erwartet
+    differenz = t.betrag - erwartet
+    teile = [(erwartet, gegen, f"{markt} {art} {a.nummer}")]
+    if differenz:
+        konto = e.kursdifferenz_ertrag if differenz > 0 else e.kursdifferenz_aufwand
+        teile.append((differenz, konto, f"{markt} Kursdifferenz {a.nummer}"))
+    for betrag, konto, text in teile:
+        # positiver Betrag: Geld kommt auf die Bank (Bank im Soll)
+        soll, haben = (bank, konto) if betrag > 0 else (konto, bank)
+        speichere_buchung(
+            session,
+            Buchungssatz(
+                transaktion_id=t.id,
+                beleg_id=a.beleg_id,
+                datum=t.datum,
+                soll_konto=soll,
+                haben_konto=haben,
+                betrag_netto=abs(betrag),
+                buchungstext=text[:60],
+                beleg_nummer=a.nummer[:36],
+                status=BuchungStatus.ZUR_PRUEFUNG
+                if pruefen
+                else BuchungStatus.AUTO_GEBUCHT,
+                confidence=0.5 if pruefen else 1.0,
+            ),
+        )
     session.flush()

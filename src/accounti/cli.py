@@ -2222,6 +2222,7 @@ def bank_lauf_befehl(
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_kontext
     from accounti.klassifikation.engine import (
         STANDARD_REGELN,
         KlassifikationsEngine,
@@ -2233,6 +2234,7 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        marktplatz = lade_kontext(config)  # Auszahlungen vor dem Kontieren abgleichen
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2250,7 +2252,9 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
-            ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
+            ergebnis = bank_lauf(
+                s, engine, einstellungen, sichern=s.commit, marktplatz=marktplatz
+            )
             s.commit()
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2264,6 +2268,17 @@ def bank_lauf_befehl(
         f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
+    abgeglichen = [m for m in ergebnis.marktplatz if m.transaktion is not None]
+    if ergebnis.marktplatz:
+        console.print(
+            f"Marktplatz: {len(abgeglichen)} Auszahlungen abgeglichen, "
+            f"{len(ergebnis.marktplatz) - len(abgeglichen)} offen"
+        )
+    for m in ergebnis.marktplatz:
+        if m.befund is not None:
+            console.print(
+                f"  [yellow]{m.befund.code}: {escape(m.befund.text)}[/yellow]"
+            )
 
 
 # ---------------------------------------------------------------------------
