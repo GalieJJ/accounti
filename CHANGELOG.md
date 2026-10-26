@@ -473,6 +473,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Rechenprobe. Die Differenz kommt jetzt in die Zeile ohne Schlüssel des Kontos (sonst eine
   eigene Zeile „Trinkgeld/Differenz …“), zur Prüfung; die Belegzeilen bleiben, wie der Beleg
   sie ausweist. Trinkgeld ist kein Entgelt des Wirts (Abschn. 10.1 Abs. 5 UStAE)
+- **Kreditkartenumsätze auf 1730 nicht korrigierbar** (Gesamttest Eingang B08): Mit dem
+  Kartenkonto aus dem README (SKR03 1730, SKR04 3610 „Kreditkartenabrechnung“) lehnten
+  `korrigiere` und `buchung storniere` jeden Kartenumsatz mit Vorsteuer ab („beide Seiten
+  haben dieselbe Natur“), und eine Erstattung auf der Karte stand in der Saldenliste netto
+  auf 1730. 1730 bzw. 3610 sind jetzt Geldkonten (1731–1739 bleiben Sachkonten:
+  Agenturwaren, Kautionen, Steuerverbindlichkeiten), und Salden, Storno und Korrektur
+  zählen die Sachkonten aller eingerichteten Bank- und Kartenkonten als Geldkonten
 - **`config/regeln.yaml`** (Gesamttest Eingang B15): Reisekosten auf 4670 (Reisekosten
   Unternehmer, EÜR Kz 221) statt 4600 Werbekosten; Miete ohne Steuerschlüssel und zur
   Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen
