@@ -345,6 +345,27 @@ def _euer_zuordnung(k: Abschlusskontext) -> list[Befund]:
     return befunde
 
 
+def _personenkonten(k: Abschlusskontext) -> list[Befund]:
+    """Saldo jedes Personenkontos = Summe seiner offenen Posten zum Stichtag
+    (``opos/abstimmung.py``) — eine Warnung: der Abschluss bleibt möglich, die
+    Bilanz zeigt aber nur das Hauptbuch."""
+    from accounti.db.repository import lade_kontakte, lade_posten, lade_zuordnungen
+    from accounti.opos.abstimmung import abweichungen, befundtext
+
+    return [
+        Befund("personenkonten", Schwere.WARNUNG, befundtext(a, k.stichtag))
+        for a in abweichungen(
+            k.stichtag,
+            k.kontenrahmen,
+            lade_buchungen(k.session),
+            lade_posten(k.session),
+            {kontakt.id: kontakt for kontakt in lade_kontakte(k.session)},
+            lade_zuordnungen(k.session),
+            {t.id: t for t in lade_transaktionen(k.session)},
+        )
+    ]
+
+
 def _protokoll(k: Abschlusskontext) -> list[Befund]:
     """Hash-Kette des Abschlussprotokolls — eine Warnung, kein Fehler: Ein einmal
     gebrochenes Protokoll lässt sich (nur anfügen) nicht mehr heilen und sperrte sonst
@@ -370,6 +391,7 @@ PRUEFUNGEN: dict[str, Callable[[Abschlusskontext], list[Befund]]] = {
     "vortragskonten": _vortragskonten,
     "euer_personenkonten": _euer_personenkonten,
     "euer_zuordnung": _euer_zuordnung,
+    "personenkonten": _personenkonten,
     "protokoll": _protokoll,
 }
 

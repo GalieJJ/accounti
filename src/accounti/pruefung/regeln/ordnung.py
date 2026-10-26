@@ -169,5 +169,52 @@ class PeriodeNichtFestgeschrieben:
         return befunde
 
 
-for _regel in (BuchungOhneBeleg(), OpAlter(), PeriodeNichtFestgeschrieben()):
+class PersonenkontoOffenePosten:
+    """Saldo eines Kreditoren-/Debitorenkontos = Summe seiner offenen Posten
+    (Hauptbuch und Nebenbuch, GoBD Rz. 58 ff.; ``opos/abstimmung.py``)."""
+
+    name = "personenkonto_op"
+    kategorie = Kategorie.ORDNUNG
+    schwere = Schwere.WARNUNG
+    beschreibung = "Saldo eines Personenkontos weicht von seinen offenen Posten ab"
+
+    class Parameter(BaseModel):
+        pass
+
+    def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
+        from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+        from accounti.db.repository import lade_zuordnungen
+        from accounti.opos.abstimmung import abweichungen, befundtext
+
+        stichtag = min(k.bis, k.stichtag) if k.bis else k.stichtag
+        return [
+            befund(
+                self,
+                "kontakt",
+                a.kontakt.id,
+                befundtext(a, stichtag),
+                datum=stichtag,
+                betrag=a.differenz,
+                gegenpartei=a.kontakt.name,
+                abhilfe="Buchungen und Posten des Kontos vergleichen (accounti "
+                f"kontakte zeigen {a.konto}); falsche Buchung korrigieren",
+            )
+            for a in abweichungen(
+                stichtag,
+                lade_kontenrahmen(k.buchhaltung.kontenrahmen),
+                k.buchungen,
+                k.posten,
+                k.kontakte,
+                lade_zuordnungen(k.session),
+                k.transaktionen,
+            )
+        ]
+
+
+for _regel in (
+    BuchungOhneBeleg(),
+    OpAlter(),
+    PeriodeNichtFestgeschrieben(),
+    PersonenkontoOffenePosten(),
+):
     registriere_pruefregel(_regel)
