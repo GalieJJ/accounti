@@ -172,11 +172,25 @@ def erstellen(
     except SQLAlchemyError as fehler:
         raise _nicht_erreichbar(quelle, fehler) from fehler
     _zusammenfassung(f"Gesichert nach {escape(str(datei))}", e)
+    # mit Registry gehört -g dazu (Gesamttest Betrieb B10), die Systemdatenbank
+    # braucht --system und kein Archiv
+    aufruf = "accounti sicherung wiederherstellen DATEI --system --db "
+    aufruf += "sqlite:////tmp/probe/system.db"
+    if not system:
+        aufruf = "accounti " + (f"-g {kuerzel} " if kuerzel and _registry() else "")
+        aufruf += "sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db"
+        aufruf += " --ohne-archiv" if ohne_archiv else " --archiv /tmp/probe/belege"
     console.print(
-        "[dim]Wiederherstellung üben: accounti sicherung wiederherstellen DATEI "
-        "--db sqlite:////tmp/probe/x.db --archiv /tmp/probe/archiv[/dim]",
+        f"[dim]Wiederherstellung üben: {escape(aufruf)} (docs/betrieb.md, "
+        "Wiederherstellungstest)[/dim]",
         soft_wrap=True,
     )
+
+
+def _registry() -> bool:
+    from accounti.betrieb.kontext import aktueller_kontext
+
+    return bool(aktueller_kontext().registry.eintraege)
 
 
 @befehl.command("pruefen")

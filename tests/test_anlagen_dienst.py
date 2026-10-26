@@ -261,3 +261,97 @@ def test_stornierter_zugang_ist_kein_vorschlag(make_session, einst):
         )
         s.commit()
         assert vorschlaege(s, einst, 2026) == []
+
+
+# --- Gesamttest Abschluss B11: Zugang ohne Beleg ------------------------------------
+
+
+def _bankzugang(make_session, netto="1500", konto="0410", tag=date(2026, 2, 15)):
+    b = Buchungssatz(
+        datum=tag,
+        soll_konto=konto,
+        haben_konto="1200",
+        betrag_netto=D(netto),
+        steuer_schluessel=9,
+        steuer_betrag=(D(netto) * D("0.19")).quantize(D("0.01")),
+        buchungstext="CYBERPORT NOTEBOOK",
+        status=BuchungStatus.AUTO_GEBUCHT,
+    )
+    with make_session() as s:
+        speichere_buchung(s, b)
+        s.commit()
+    return b
+
+
+def test_anlegen_mit_zugangsbuchung_ohne_beleg(make_session, einst):
+    """Befund B11: Bankumsatz direkt auf 0410, kein Beleg — nach dem Anlegen blieb er
+    in ``vorschlaege``; ``--buchung`` verknüpft ihn."""
+    from accounti.db.repo_anlagen import lade_anlage
+
+    b = _bankzugang(make_session)
+    with make_session() as s:
+        assert [x.id for x in vorschlaege(s, einst, 2026)] == [b.id]
+        e = lege_an(s, einst, buchung=str(b.id)[:8], typ="notebook", nutzungsdauer=3)
+        s.commit()
+    a = e.anlage
+    assert (a.buchung_id, a.anschaffungskosten, a.anschaffungsdatum, a.konto) == (
+        b.id,
+        D("1500"),
+        date(2026, 2, 15),
+        "0410",
+    )
+    assert not any("≠" in h or "Umbuchung" in h for h in e.hinweise)
+    with make_session() as s:
+        assert lade_anlage(s, "1").buchung_id == b.id
+        assert vorschlaege(s, einst, 2026) == []
+
+
+def test_zugangsbuchung_mit_abweichung_und_storno(make_session, einst):
+    from accounti.pruefung.storno import storniere
+
+    b = _bankzugang(make_session, "600", "0420", date(2026, 3, 1))
+    with make_session() as s:
+        e = lege_an(
+            s,
+            einst,
+            buchung=str(b.id),
+            bezeichnung="Monitor",
+            kosten=D("6000"),
+            nutzungsdauer=13,
+            art=AfaArt.LINEAR,
+        )
+        s.commit()
+    assert any("6.000,00 ≠ Buchung" in h for h in e.hinweise)
+    anderer = _bankzugang(make_session, "700", "0420", date(2026, 3, 2))
+    with make_session() as s:
+        storniere(s, str(anderer.id), grund="falsch", von="erika")
+        s.commit()
+        with pytest.raises(AnlageError, match="storniert"):
+            lege_an(s, einst, buchung=str(anderer.id), nutzungsdauer=5)
+        with pytest.raises(AnlageError, match="gefunden"):
+            lege_an(s, einst, buchung="ffffffff", nutzungsdauer=5)
+
+
+def test_vermutlich_erfasst_statt_vorschlag(make_session, einst):
+    """Ohne Verknüpfung: ein Gut mit Konto, Datum und Kosten der Buchung heißt
+    „vermutlich erfasst“ — ein zweiter gleicher Zugang bleibt Vorschlag."""
+    from accounti.anlagen.dienst import vermutlich_erfasst
+
+    b1 = _bankzugang(make_session)
+    b2 = _bankzugang(make_session)
+    with make_session() as s:
+        a = lege_an(
+            s,
+            einst,
+            bezeichnung="Notebook",
+            datum=date(2026, 2, 15),
+            kosten=D("1500"),
+            typ="notebook",
+            nutzungsdauer=3,
+        ).anlage
+        s.commit()
+        offen = vorschlaege(s, einst, 2026)
+        vermutlich = vermutlich_erfasst(s, einst, 2026)
+    assert len(offen) == 1 and len(vermutlich) == 1
+    assert {offen[0].id, vermutlich[0][0].id} == {b1.id, b2.id}
+    assert vermutlich[0][1].id == a.id

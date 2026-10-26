@@ -1,7 +1,7 @@
 """add verrechnungen und rechnungskorrektur (Gesamttest Debitoren)
 
 Revision ID: a14acef69fae
-Revises: ddc9a184ddb4
+Revises: 2f7c7043043e
 Create Date: 2026-10-26 09:34:30.297540
 
 Tabelle ``verrechnungen`` (Ausgleich gegenläufiger offener Posten ohne Buchung, nur
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'a14acef69fae'
-down_revision: Union[str, Sequence[str], None] = 'ddc9a184ddb4'
+down_revision: Union[str, Sequence[str], None] = '2f7c7043043e'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

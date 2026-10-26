@@ -47,6 +47,7 @@ geldkonten:
   - {von: "1460", bis: "1460"}   # Geldtransit
   - {von: "1600", bis: "1899"}   # Kasse, Bank
   - {von: "3300", bis: "3399"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+  - {von: "3610", bis: "3610"}   # Kreditkartenabrechnung
 
 # Bankkonten (Postbank, LZB, Bundesbank, Bank 1800–1850) — ohne Kasse 1600–1699 und
 # Finanzmittelanlagen/Verbindlichkeiten ggü. Kreditinstituten 1890/1895

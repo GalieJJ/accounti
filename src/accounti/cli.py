@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 from rich.console import Console
 
+from accounti.betrieb.cli import Wurzelgruppe
+
 if TYPE_CHECKING:
     from datetime import date
     from types import ModuleType
@@ -15,6 +17,7 @@ if TYPE_CHECKING:
     from accounti.bank.lauf import KontoAbruf
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
+    from accounti.buchung.kontierung import Kontierungslauf
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
@@ -34,6 +37,7 @@ app = typer.Typer(
     name="accounti",
     help="KI-gestützte Buchhaltungsautomatisierung für deutsche Unternehmen.",
     no_args_is_help=True,
+    cls=Wurzelgruppe,  # merkt sich die Argumente (Hilfe ohne -g, Befund Betrieb B11)
 )
 console = Console()
 
@@ -1586,7 +1590,7 @@ def opos_verbuchen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import STANDARD_REGELN, RegelwerkEngine
+    from accounti.klassifikation.engine import RegelwerkEngine, standard_regeln
     from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import (
         KonfigurationError,
@@ -1606,19 +1610,22 @@ def opos_verbuchen(
         gewinnermittlung_angegeben,
         lade_abschluss,
     )
+    from accounti.betrieb.kontext import regeln_datei
 
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
         lade_abschluss(config)  # prüft den Abschnitt
         gewinnermittlung = gewinnermittlung_angegeben(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     from accounti.befehle import laufsperre_oder_ende
-    from accounti.betrieb.kontext import regeln_datei
 
-    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
+    regelwerk = RegelwerkEngine(
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine, make_session = session_factory(db)
     init_db(engine)
     # bucht dieselben Belege, die classify und der Belegabgleich lesen — wie die
@@ -1667,6 +1674,10 @@ def opos_verbuchen(
             "[dim]Nächster Schritt: Bankumsätze importieren und 'accounti opos "
             "zuordnen' vor 'accounti classify' ausführen.[/dim]"
         )
+    if lauf.fehler:  # kein Erfolg für Skripte und Cron (Gesamttest Eingang)
+        n = len(lauf.fehler)
+        console.print(f"[red]{n} Rechnung{'en' if n > 1 else ''} nicht verbucht[/red]")
+        raise typer.Exit(1)
 
 
 @opos_app.command("liste")
@@ -2541,11 +2552,13 @@ def bank_lauf_befehl(
 
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2553,14 +2566,18 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
+        # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
-    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
+        regelwerk=RegelwerkEngine(
+            eigene
+            + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+        ),
         llm=LLMEngine() if llm else None,
     )
     from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
@@ -2570,7 +2587,9 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
-            ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
+            ergebnis = bank_lauf(
+                s, engine, einstellungen, sichern=s.commit, integrationen=integrationen
+            )
             s.commit()
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2584,6 +2603,7 @@ def bank_lauf_befehl(
         f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
+    _marktplatz_hinweis(k)
 
 
 # ---------------------------------------------------------------------------
@@ -2598,12 +2618,14 @@ def classify(
     """Transaktionen automatisch kontieren — mit Beleg aus dem Beleg."""
     from rich.markup import escape
 
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2611,18 +2633,17 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
     # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
-    # das Standard-Regelwerk.
-    regeln = lade_regeln(regeln_datei())
-    if regeln:
-        regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
-    else:
-        regelwerk = RegelwerkEngine()
+    # das Standard-Regelwerk im Kontenrahmen der Buchhaltung.
+    regelwerk = RegelwerkEngine(
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine = KlassifikationsEngine(
         regelwerk=regelwerk,
         llm=LLMEngine() if llm else None,
@@ -2636,12 +2657,24 @@ def classify(
     with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        lauf = kontiere_umsaetze(s, engine, einstellungen)
+        lauf = kontiere_umsaetze(s, engine, einstellungen, integrationen)
         s.commit()
     console.print(
         f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "
         f"[yellow]{lauf.offen}[/yellow] offen."
     )
+    _marktplatz_hinweis(lauf)
+
+
+def _marktplatz_hinweis(lauf: "Kontierungslauf") -> None:
+    """Offen gelassene Marktplatz-Auszahlungen: was zu tun ist (Steuer B2)."""
+    from rich.markup import escape
+
+    from accounti.buchung.marktplatz import hinweis
+
+    if lauf.marktplatz:
+        text = hinweis(lauf.marktplaetze, lauf.marktplatz)
+        console.print(f"[yellow]{escape(text)}[/yellow]")
 
 
 # ---------------------------------------------------------------------------
@@ -2940,7 +2973,8 @@ def korrigiere(
     grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
     datum: str | None = typer.Option(
         None,
-        help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist",
+        help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist "
+        "(nie vor dem Original)",
     ),
     lernen: bool = typer.Option(False, "--lernen", help="Korrektur als Regel merken"),
     config: str = KONFIG_OPTION,
@@ -3065,12 +3099,45 @@ app.add_typer(db_app, name="db")
 
 @db_app.command("init")
 def db_init(db: str = typer.Option("sqlite:///accounti.db", help="DB-URL")) -> None:
-    """Datenbank initialisieren."""
+    """Datenbank initialisieren (eine neue bekommt den Versionsvermerk)."""
     from accounti.db import init_db, session_factory
 
     engine, _ = session_factory(db)
     init_db(engine)
     console.print(f"[green]Datenbank initialisiert:[/green] {db}")
+
+
+@db_app.command("upgrade")
+def db_upgrade(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    alembic_ini: str | None = typer.Option(
+        None, "--alembic-ini", help="sonst die des Quellbaums bzw. /app/alembic.ini"
+    ),
+) -> None:
+    """Migrationen bis zum Stand dieses Codes — auch ohne Versionsvermerk."""
+    from rich.markup import escape
+
+    from accounti.betrieb.kontext import ohne_passwort
+    from accounti.db.upgrade import UpgradeError, aktualisiere, finde_alembic_ini
+
+    try:
+        e = aktualisiere(db, finde_alembic_ini(alembic_ini))
+    except UpgradeError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    if e.abgeleitet:
+        console.print(
+            f"Ohne Versionsvermerk — Stand aus dem Schema abgeleitet: {e.vorher}"
+        )
+    console.print(
+        f"[green]{escape(ohne_passwort(db))}: Stand {e.nachher}[/green] "
+        f"({len(e.revisionen)} Migration(en))"
+    )
+    if "ddc9a184ddb4" in e.revisionen:
+        console.print(
+            "Jetzt einmal 'accounti journal uebernehmen' — bevor accounti selbst "
+            "schreibt (docs/betrieb.md, Upgrades)."
+        )
 
 
 # ---------------------------------------------------------------------------

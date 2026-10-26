@@ -16,7 +16,20 @@ import pkgutil
 from collections.abc import Iterable
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, inspect
+from sqlalchemy import (
+    Column,
+    Engine,
+    MetaData,
+    PrimaryKeyConstraint,
+    String,
+    Table,
+    create_engine,
+    func,
+    insert,
+    inspect,
+    select,
+)
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 # Tabellen, die nur einzeln über die Sitzung geändert werden (Journal, Storno-Regel,
@@ -109,6 +122,48 @@ def registriere_ereignisse() -> None:
     _EREIGNISSE.append(True)
 
 
+# Alembic-Revision, deren Schema ``init_db`` anlegt — der Kopf der Migrationen
+# (tests/test_db_upgrade.py hält beides gleich; beim Zusammenführen neuer Migrationen
+# hier nachziehen)
+SCHEMA_STAND = "a14acef69fae"
+ALEMBIC_VERSION = "alembic_version"
+
+
+def versionstabelle() -> Table:
+    """``alembic_version`` wie Alembic sie anlegt."""
+    return Table(
+        ALEMBIC_VERSION,
+        MetaData(),
+        Column("version_num", String(32), nullable=False),
+        PrimaryKeyConstraint("version_num", name="alembic_version_pkc"),
+    )
+
+
+def stemple(engine: Engine, revision: str = SCHEMA_STAND) -> None:
+    """Versionsvermerk setzen, wenn es noch keinen gibt (wie ``alembic stamp``)."""
+    tabelle = versionstabelle()
+    try:
+        with engine.begin() as v:
+            tabelle.create(v, checkfirst=True)
+            if not v.execute(select(func.count()).select_from(tabelle)).scalar():
+                v.execute(insert(tabelle).values(version_num=revision))
+    except (IntegrityError, OperationalError, ProgrammingError):
+        # gleichzeitig angelegt: der andere Prozess stempelt; schlimmstenfalls bleibt
+        # die Datenbank ohne Vermerk — dann leitet ``accounti db upgrade`` ihn ab
+        pass
+
+
 def init_db(engine: Engine) -> None:
+    """Fehlende Tabellen anlegen.
+
+    Eine **neue** Datenbank (keine Tabelle von accounti, kein Versionsvermerk) bekommt
+    danach den Vermerk ``SCHEMA_STAND`` — das angelegte Schema ist der Stand dieser
+    Migration. Ohne ihn begänne ``alembic upgrade head`` beim nächsten Update mit der
+    ersten Migration und bräche an „table … already exists“ ab (Befund Betrieb B2).
+    Ältere Datenbanken ohne Vermerk bringt ``accounti db upgrade`` auf den Stand."""
     registriere_ereignisse()
+    vorhanden = set(inspect(engine).get_table_names())
+    neu = ALEMBIC_VERSION not in vorhanden and not vorhanden & set(Base.metadata.tables)
     Base.metadata.create_all(engine)
+    if neu:
+        stemple(engine)

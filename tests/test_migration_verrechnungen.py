@@ -17,15 +17,13 @@ from accounti.db import init_db, session_factory
 from tests.test_migration_belegvollstaendigkeit import WURZEL, _alembic, _ok
 
 REVISION = "a14acef69fae"
+VOR = "2f7c7043043e"  # Anlagen-Buchung (Gesamttest Abschluss), der Stand davor
 TRIGGER = {"verrechnungen_kein_update", "verrechnungen_kein_delete"}
 
 
-def _vorher() -> str:
-    """Die Revision vor dieser (beim Zusammenführen kann sie sich ändern)."""
+def test_revision_folgt_auf_die_anlagen_buchung():
     skripte = ScriptDirectory.from_config(Config(str(WURZEL / "alembic.ini")))
-    vorher = skripte.get_revision(REVISION).down_revision
-    assert isinstance(vorher, str)
-    return vorher
+    assert skripte.get_revision(REVISION).down_revision == VOR
 
 
 def _trigger(db: Path) -> set[str]:
@@ -55,7 +53,7 @@ def test_migration_legt_die_trigger_an_und_nimmt_sie_zurueck(tmp_path):
     assert _trigger(db) == TRIGGER
     with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
         _roh_aendern(db)
-    _ok(_alembic(db, "downgrade", _vorher()))
+    _ok(_alembic(db, "downgrade", VOR))
     assert _trigger(db) == set()
     _ok(_alembic(db, "upgrade", "head"))
     assert _trigger(db) == TRIGGER
@@ -69,6 +67,6 @@ def test_migration_nach_init_db(tmp_path):
     init_db(engine)
     engine.dispose()
     assert _trigger(db) == TRIGGER
-    _ok(_alembic(db, "stamp", _vorher()))
+    _ok(_alembic(db, "stamp", VOR))
     _ok(_alembic(db, "upgrade", "head"))
     assert _trigger(db) == TRIGGER

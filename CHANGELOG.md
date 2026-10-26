@@ -461,9 +461,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Umsatz-IDs. Beim erkannten Kunden mit genau einem offenen Posten wird eine Überzahlung
   vorgeschlagen. Der Mahnlauf mahnt keinen Kunden mit Guthaben, sondern nennt `opos
   verrechnen`; die Prüfregel `op_alter` meldet ein Guthaben als Hinweis statt als Fehler.
-  Alembic-Migration `a14acef69fae` (`verrechnungen` mit SQLite-Triggern,
-  `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`, `ausgangspositionen.elektronisch`) —
-  **nach dem Update die Datenbank migrieren** (`alembic upgrade head`, siehe
+  Alembic-Migration `a14acef69fae` nach `2f7c7043043e` (`verrechnungen` mit
+  SQLite-Triggern, `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`,
+  `ausgangspositionen.elektronisch`; hat `init_db` die Tabelle schon angelegt, übernimmt
+  sie sie, und `db upgrade` erkennt den Stand ohne Vermerk an den fehlenden Spalten) —
+  **nach dem Update die Datenbank migrieren** (`accounti db upgrade`, siehe
   [Upgrades](docs/betrieb.md#upgrades)), sonst scheitern Befehle an den neuen Spalten
 - **Zahlungszuordnung: Belegnummer nur an Wortgrenzen, fremder Zahler nur als Vorschlag**
   (B5): „2026-0315“ trifft nicht mehr das Datum in „EREF+20260315…“ als Teil einer
@@ -521,6 +523,203 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Frist, 0 < Satz < 100 (auch beim Ausstellen); `rechnung senden --eml` verlangt eine
   ausgestellte Rechnung; `rechnung zeigen` schreibt 20 % statt „2E+1 %“;
   `beleg_unbearbeitet` nennt bei Ausgangsrechnungen den Kunden statt der eigenen Firma
+- **Jahresabschluss ignorierte das abweichende Wirtschaftsjahr** (Gesamttest Betrieb B5):
+  `abschluss susa|pruefen|buchen|abgrenzungen|abgrenzen|bestaetigen|euer|eroeffnung`
+  rechnen jetzt mit `datev.wirtschaftsjahr_beginn` der Gesellschaft (ein Helfer
+  `abschluss/konfiguration.wirtschaftsjahr`). **`--jahr` ist das Kalenderjahr des
+  Wirtschaftsjahresendes** (2026 = 01.07.2025–30.06.2026, § 4a Abs. 2 Nr. 2 EStG):
+  Saldenliste und Prüfungen über das Wirtschaftsjahr zum Stichtag seines Endes,
+  Abgrenzung zum WJ-Ende mit Auflösung zum WJ-Beginn, Eröffnungssalden am WJ-Beginn
+  (Belegnummer `EB-<Jahr des WJ-Endes>`, auch in einen festgeschriebenen ersten Monat),
+  `abschluss buchen` lässt den AfA-Lauf in beiden berührten Kalenderjahren laufen. Der
+  AfA-Lauf rechnet dabei je Abschnitt des Kalenderjahres (`anlagen afa --jahr 2025` bei
+  Beginn 1. Juli: Juli–Dezember, `--bis-monat 6`: Januar–Juni) — so bucht das erste
+  Wirtschaftsjahr nicht die AfA des Vor-WJ aus dem Eröffnungssaldo mit, auch beim Abgang
+  und bei `anlagen aendern`. Der Anlagenabgleich zum WJ-Ende zählt im Sammelposten nur Güter
+  bis zum Stichtag. Die EÜR nimmt den Vordruck des Jahres des **WJ-Beginns** (Anlage EÜR
+  2025 für 2025/2026, BMF 29.08.2025) und nennt bei abweichendem Wirtschaftsjahr die
+  zeitanteilige Verteilung des Gewinns auf zwei Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG,
+  Land- und Forstwirte) als Hinweis. Grenzen: `abschluss vortrag` lehnt ein abweichendes
+  Wirtschaftsjahr ab (die Jahressperre gilt je Kalenderjahr und sperrte das falsche
+  Halbjahr) — die Eröffnungssalden jedes Folge-WJ erfasst man mit `abschluss eroeffnung
+  --jahr <Folgejahr>`; `abschluss pruefen` warnt bei degressiver AfA, Sammelposten und
+  E-Fahrzeug-Staffel (je Wirtschaftsjahr, der Plan rechnet im Kalenderjahr); `anlagen
+  afa`/`spiegel` weisen darauf hin
+- **Verfahrensdokumentation und Aufbewahrungsfrist** (Gesamttest Abschluss B10): Die
+  Tabelle der Kontierungsregeln zeigte das Muster als `re.compile(…)` und nicht das Feld;
+  jetzt Muster und Feld, ein `|` im Muster bleibt erhalten (in Markdown maskiert, im PDF
+  wie konfiguriert). Die Aufbewahrung der Belege kommt aus einer Quelle
+  (`betrieb/aufbewahrung.py`) für Archiv, Bericht und Dokument: Buchungsbelege und
+  Rechnungen 8 Jahre (§ 147 Abs. 3 AO i. d. F. des BEG IV, § 14b UStG) ab Schluss des
+  Jahres des Belegdatums, ohne Belegdatum des Eingangs (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz
+  3 UStG) — vorher fest 10 Jahre ab Eingangsjahr; ein erkanntes Belegdatum vor dem
+  Vorjahr des Eingangs (möglicher Lesefehler) verkürzt die Frist nicht. Übermittlungs- und
+  USt-IdNr.-Protokolle bleiben Aufzeichnungen mit 10 Jahren. Institute behalten 10 Jahre
+  (Art. 97 § 19a Abs. 3 EGAO i. d. F. vom 22.12.2025, gegengeprüft)
+- **Anlagegut und Abgang ließen sich nicht korrigieren** (Gesamttest Abschluss B7): Ein
+  Tippfehler bei den Anschaffungskosten oder ein falsches Abgangsdatum sperrte den
+  Jahresabschluss dauerhaft. Neu `accounti anlagen aendern <Nr>` (Bezeichnung, Datum,
+  Kosten, Nutzungsdauer, Art, Konten; AfA-relevante Änderungen nur mit `--grund`): eigene
+  AfA-Vorschläge werden verworfen und neu gerechnet, freigegebene AfA bleibt stehen und
+  bekommt eine AfA-Korrektur als Vorschlag; gebuchte AfA in einem abgeschlossenen Jahr
+  sperrt die Änderung (Grenze: die Korrektur im ersten offenen Jahr nach dem
+  Bilanzenzusammenhang unterstützt accounti nicht). Ein neues Anlagekonto oder ein
+  Anschaffungsdatum im Vorjahr nennt den umzubuchenden Buchwert bzw. den fehlenden
+  AfA-Lauf als Hinweis. `accounti anlagen abgang <Nr> --zuruecknehmen --grund …` nimmt einen
+  Abgang zurück, solange Restbuchwert- und Erlösbuchung Vorschläge sind (freigegebene erst
+  stornieren). Beides steht im Journal (`objekt_typ` `anlage`, vorher/nachher, Grund);
+  `abgang` braucht `--datum` nur noch ohne `--zuruecknehmen`
+- **`anlagen vorschlaege` nannte angelegte Güter weiter** (Gesamttest Abschluss B11): Ein
+  Bankumsatz direkt auf das Anlagekonto hat keinen Beleg, der Abgleich lief nur über den
+  Beleg. Neu `anlagen anlegen --buchung <ID>` (übernimmt fehlende Angaben, Hinweis bei
+  abweichenden Kosten oder Konto) und `anlagen aendern <Nr> --buchung <ID>`; verknüpfte
+  Zugänge sind kein Vorschlag mehr, ein Gut mit gleichem Konto, Datum und Kosten erscheint
+  als „vermutlich erfasst“. Alembic-Migration `2f7c7043043e` nach `6d38d11fc348` (Spalte
+  `anlagegueter.buchung_id`; schon per `init_db` angelegt, übernimmt sie sie; ohne
+  Versionsvermerk erkennt `db upgrade` den Stand davor an der fehlenden Spalte)
+- **Kassen-Storno nach `classify` kehrte nichts um** (Gesamttest Abschluss B5): Ein
+  Kassenvorgang ohne `--konto` wird von `classify` am Umsatz kontiert; das nur anfügbare
+  Kassenbuch kennt diese Buchung nicht. `kasse storno` findet die gültige Buchung jetzt
+  über den Umsatz (nach `korrigiere` die Neubuchung, auch Splitbuchungen) und kehrt sie
+  als Storno mit Verknüpfung um (`storno_von`, Buchungskorrektur). Ein noch nicht
+  freigegebener Vorschlag wird nicht storniert (erst freigeben oder korrigieren); ein
+  noch nicht kontierter Vorgang bleibt ohne Buchung, mit Hinweis, beide Umsätze gleich
+  zu kontieren
+- **Storno vor dem Original** (Gesamttest Abschluss B9): `buchung storniere`,
+  `korrigiere --datum` und `kasse storno --datum` lehnen ein Datum vor der Buchung bzw.
+  dem Kassenvorgang ab (§ 17 Abs. 1 Satz 7 UStG; Kassensturzfähigkeit, § 146 Abs. 1
+  AO) und `kasse storno` auch ein Datum vor der umzukehrenden Buchung (nach `korrigiere
+  --datum` liegt die Neubuchung später). `kasse storno` ohne `--datum` nimmt heute,
+  frühestens den Tag des Originals bzw. dieser Buchung
+- **Wiederherstellungstest passte nicht zu mehreren Gesellschaften** (Betrieb B10):
+  `docs/betrieb.md` zeigt den Test jetzt mit `-g K` und als Stichprobe nur lesende Befehle
+  (`abschluss susa`, `journal`) statt `export datev` (das eine abweichende `--db`
+  ablehnt und sonst in die Probe schriebe); Dateinamensbeispiel mit Sekunden. Der Hinweis
+  nach `sicherung erstellen` nennt `-g K` bzw. `--system`
+- **`opos verbuchen` endete mit Exit 0, auch wenn Rechnungen nicht verbucht wurden**
+  (Gesamttest Eingang): Die übrigen Rechnungen werden weiter verbucht, am Ende steht „N
+  Rechnung(en) nicht verbucht“ und Exit 1 — Skripte und Cron sehen den Fehler
+- **Betrachter schrieb Anlagen, Saldo und Kontoauszüge** (Abschluss B8): `anlagen
+  anlegen|afa|abgang`, `abschluss saldo|buchen|abgrenzen` liefen mit eingerichteten
+  Benutzern ohne Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, legte
+  über `abschluss buchen` — derselbe AfA-Lauf wie `anlagen afa` — AfA-Buchungen an, im
+  Journal „… (ungeprüft)“), `datev kontoauszuege` schrieb Auszüge fest. Jetzt buchen
+  (`buchhalter`) bzw. Buchungen freigeben für die Kontoauszüge, jeweils mit Einmalcode;
+  `anlagen anlegen|afa|abgang` und `abschluss buchen` haben `--von` (bei `abschluss
+  abgrenzen` ist `--von` der Leistungszeitraum, die Person kommt aus
+  `ACCOUNTI_BENUTZER`), `abschluss saldo` vermerkt den geprüften Benutzer.
+  `FREIGABEWEGE`, README und Verfahrensdokumentation nennen die Befehle
+- **Token-Namen und Anmeldeprotokoll über Gesellschaftsgrenzen** (Betrieb B9): Der Index
+  `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a
+  eines hatte, und die Meldung riet zu einem Widerruf, der in b nicht ging. Eindeutig ist
+  der Name jetzt unter den aktiven Token einer Gesellschaft (Index, Prüfung, Widerruf;
+  Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index;
+  ihr Downgrade bricht bei gleichen aktiven Namen in mehreren Gesellschaften ab, bevor es
+  den Index löscht).
+  `benutzer protokoll` zeigt mit mehreren Gesellschaften nur die Ereignisse der
+  Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft — diese
+  nur über Benutzer mit einer Rolle dort oder ohne Rolle (der Verwalter von b sah sonst
+  Sperren und Codes eines Benutzers nur von a)
+- **Zweite Gesellschaft bekam keinen Verwalter, der letzte Verwalter öffnete die
+  Einrichtungsphase** (Betrieb B7, B8): Nach der Einrichtung verlangte `-g b benutzer
+  rolle|anlegen` einen Verwalter **in** b — eine später ergänzte Gesellschaft ließ sich nur
+  per SQL besetzen. Jetzt richtet ein Verwalter irgendeiner Gesellschaft mit Einmalcode
+  eine Gesellschaft ein, die noch nie einen Verwalter mit zweitem Faktor hatte (Ereignis
+  `einrichtung_gesellschaft`). Umgekehrt legte sich der letzte Verwalter mit `benutzer
+  sperren` still oder nahm sich die Rolle, und jeder an der Shell legte ohne Code einen
+  neuen an. `sperren` und `rolle verwalter --entfernen` lehnen das für den letzten aktiven
+  Verwalter mit zweitem Faktor einer Gesellschaft ab; der Merker `verwaltet:<Kürzel>`
+  hält die Einrichtungsphase einer einmal verwalteten Gesellschaft geschlossen (fail-closed).
+  Die Einrichtung erstreckt sich nicht auf Benutzer, die in der Gesellschaft schon eine
+  andere Rolle als `verwalter` haben (sonst setzte der Verwalter von a Passwort und Codes
+  eines Freigebers von b); `wiederherstellungscodes_neu` nennt im Protokoll, wer die Codes
+  eines anderen erneuert hat
+- **`mandant.kontenrahmen` aus der Vorlage wurde ignoriert** (Betrieb B4 = Steuer B3 =
+  Abschluss B6): Die Vorlage führte den Kontenrahmen unter `mandant`, gelesen wurde für USt,
+  Abschluss, Anlagen und Prüfregeln nur `buchhaltung.kontenrahmen` — eine SKR04-Gesellschaft
+  rechnete mit SKR03, nur der DATEV-Kopf sagte „04“. Eine Quelle: `lade_buchhaltung`
+  übernimmt `mandant.kontenrahmen`, wenn `buchhaltung.kontenrahmen` fehlt; widersprechen
+  sich beide, bricht accounti mit einer Meldung ab; ein unbekannter Wert (`SKR4`) ist ein
+  Fehler statt still SKR03. Die DATEV-Stammdaten lesen über denselben Lader; die Vorlage
+  führt den Schlüssel unter `buchhaltung`. Fehlermeldungen zu `buchhaltung` und
+  `ustid_pruefung` nennen ihren Abschnitt (bisher stand immer „mandant.“ vor dem Feld)
+- **Upgrade-Weg für Datenbanken aus `db init`** (Betrieb B2): `init_db` legte nur Tabellen
+  an, ohne Versionsvermerk — der dokumentierte `alembic upgrade head` begann bei der ersten
+  Migration und brach an „table … already exists“ ab, der neue Code ohne Migration an
+  „no such column storniert_durch“. Eine neue Datenbank bekommt jetzt den Vermerk des
+  Codes, der sie anlegt (`alembic_version`); der neue Befehl `accounti db upgrade` leitet
+  bei Datenbanken ohne Vermerk den Stand aus dem Schema ab, stempelt ihn und migriert
+  (`--alembic-ini`, sonst die des Quellbaums bzw. `/app/alembic.ini`). `alembic/env.py`
+  nimmt dafür eine übergebene Verbindung. `sicherung wiederherstellen` behält den Vermerk
+  des Ziels statt einer älteren Revision aus der Sicherung. Scheitert eine Migration,
+  meldet `db upgrade` den Grund und den erreichten Stand (Exit 1) statt eines Tracebacks;
+  eine SQLite-Datei, die es nicht gibt (Tippfehler in `--db`), legt es nicht neu an —
+  das ist `db init`
+- **`-g`/`ACCOUNTI_DB` wirkten nicht bei `ustva`, `pruefen`, `journal` und `nachfordern`**
+  (Gesamttest Betrieb B1): Befehlsgruppen mit eigenem Callback bekamen `--db` und
+  `--config` der Gesellschaft nicht — `accounti -g sued ustva` zeigte die Kennziffern einer
+  leeren `accounti.db` im Arbeitsverzeichnis, `pruefen` „keine Befunde“, `nachfordern`
+  schrieb dorthin. Der Kontext setzt die Standardwerte jetzt auch an der Gruppe selbst
+- **`--help` brauchte bei mehreren Gesellschaften `-g`** (Betrieb B11): `accounti abschluss
+  --help` brach mit Exit 2 ab. Die Hilfe kommt jetzt ohne Gesellschaft, auch hinter
+  Optionen einer Gruppe (`ustva --period 2025-08 pruefen --help`); ob es eine Hilfe ist,
+  entscheidet Clicks Parser (`--text --help` bleibt ein Wert und bricht ab)
+- **Gutschriften wie Ausgaben kontiert** (Gesamttest Eingang B07, Abschluss B4, Steuer B1):
+  `classify` buchte eine Erstattung (+119 € Telekom) auf eine Ausgaberegel als zweite Ausgabe
+  mit zusätzlicher Vorsteuer (Kz 66 doppelt statt null) und eine „Untermiete“ als Mietaufwand.
+  Regeln haben jetzt eine `richtung` (`ausgabe`, `einnahme`, `beide`; mitgelieferte und
+  eingebaute Regeln getaggt) und gelten nur für Umsätze dieser Richtung; passt sonst keine Regel
+  und kein LLM-Vorschlag, schlägt accounti die Regel als Gegenbuchung vor — Soll/Haben
+  getauscht, immer zur Prüfung (Minderung von Aufwand und Vorsteuer, § 17 Abs. 1 Satz 2 UStG).
+  Schranke im Mapper für jede Quelle (gelernte Regeln ohne Richtung, LLM): Bankkonto auf der
+  falschen Seite → tauschen und zur Prüfung; keine Seite das Bankkonto → zur Prüfung. Neue
+  Regelfelder `pruefen` (Treffer immer zur Prüfung) und `confidence`; ein falscher Wert in der
+  Regeldatei ist ein Konfigurationsfehler mit Regelname (`classify`, `bank lauf`,
+  `opos verbuchen`: Meldung und Exit 1 statt Traceback). Die Verfahrensdokumentation
+  (Abschnitt 2.3) nennt Richtung und Prüfkennzeichen der eigenen Regeln (Muster lesbar statt
+  `re.compile(…)`), die Standardregeln im Kontenrahmen der Buchhaltung und was unabhängig von
+  der Confidence zur Prüfung geht bzw. als Marktplatz-Auszahlung offen bleibt; eine
+  fehlerhafte Regeldatei steht dort als Hinweis, statt die Erzeugung abzubrechen
+- **`classify` buchte Marktplatz-Auszahlungen vor dem Abgleich** (Gesamttest Steuer B2,
+  Teil Kontierung): Eine Amazon-Auszahlung wurde nach Regel Erlös 8400 mit Umsatzsteuer
+  (Erlös doppelt in Kz 81), eine Shopify-Auszahlung Aufwand mit Vorsteuer. `classify`,
+  `bank lauf` und `POST /laeufe/bank` lassen jetzt offen, was der Marktplatz-Abgleich
+  erwartet — Zahlungseingänge mit einem Stichwort aus
+  `integrationen.marktplaetze.<name>.bank_stichworte` und Umsätze zu einer offenen Aus- oder
+  Einzahlung einer importierten Abrechnung (auch mit Abgleichsbefund: Zeitfenster,
+  Vorzeichen, Stichwort, Abrechnungsnummer oder genauer Betrag) — und sagen, was zu tun ist
+  (`marktplatz import`; ohne Marktplatz-Import `bank_stichworte: []`). Umsätze des
+  PayPal-Kontos selbst kontiert `classify` weiter. Neu: `kontierung.marktplatz` in der
+  Antwort von `POST /laeufe/bank`
+- **Standardregeln im SKR03 auch für SKR04-Gesellschaften** (Gesamttest Betrieb B3): Die
+  eingebauten Regeln kommen aus `standard_regeln(kontenrahmen, bank_konto)` — SKR04-Fassung
+  (Bank 1800, Miete 6310, Versicherung 6400, Sonstiges 6300, Geldtransit 1460), für andere
+  Kontenrahmen keine. Miete ohne Vorsteuer und zur Prüfung (§ 4 Nr. 12, § 9 UStG), AWS ohne
+  Schlüssel auf sonstige Aufwendungen statt Nebenkosten des Geldverkehrs und zur Prüfung
+  (§ 13b UStG), Amazon/PayPal-Auszahlung als Geldtransit statt Erlös 8400 mit Umsatzsteuer.
+  Neue Prüfregel `bankumsatz_ohne_bankkonto` (Fehler): Buchung zu einem Bankumsatz, die
+  weder dessen Bankkonto noch ein eingerichtetes Bank-/Kartenkonto trägt (SKR03-Regel mit
+  1200 in SKR04, wo die Bereichsprüfung nichts sieht), und `buchhaltung.bank_konto`, das im
+  Kontenrahmen kein Bankkonto ist (SKR04 ohne Angabe: Standard 1200)
+- **Trinkgeld in der Zeile mit Vorsteuer** (Gesamttest Eingang B10): Zahlte der Umsatz mehr
+  oder weniger als der Beleg (Quittung 59,50 €, Karte 65,00 €), schlug `classify` die
+  Differenz der größten Zeile zu — mit Schlüssel 9; der DATEV-Export trug dann 65,00 € mit
+  BU 9 (DATEV rechnet 10,38 € Vorsteuer statt 9,50 €), `pruefen` meldete die eigene
+  Rechenprobe. Die Differenz kommt jetzt in die Zeile ohne Schlüssel des Kontos (sonst eine
+  eigene Zeile „Trinkgeld/Differenz …“), zur Prüfung; die Belegzeilen bleiben, wie der Beleg
+  sie ausweist. Trinkgeld ist kein Entgelt des Wirts (Abschn. 10.1 Abs. 5 UStAE)
+- **Kreditkartenumsätze auf 1730 nicht korrigierbar** (Gesamttest Eingang B08): Mit dem
+  Kartenkonto aus dem README (SKR03 1730, SKR04 3610 „Kreditkartenabrechnung“) lehnten
+  `korrigiere` und `buchung storniere` jeden Kartenumsatz mit Vorsteuer ab („beide Seiten
+  haben dieselbe Natur“), und eine Erstattung auf der Karte stand in der Saldenliste netto
+  auf 1730. 1730 bzw. 3610 sind jetzt Geldkonten (1731–1739 bleiben Sachkonten:
+  Agenturwaren, Kautionen, Steuerverbindlichkeiten), und Salden, Storno und Korrektur
+  zählen die Sachkonten aller eingerichteten Bank- und Kartenkonten als Geldkonten
+- **`config/regeln.yaml`** (Gesamttest Eingang B15): Reisekosten auf 4670 (Reisekosten
+  Unternehmer, EÜR Kz 221) statt 4600 Werbekosten; Miete ohne Steuerschlüssel und zur
+  Prüfung (bisher Vorsteuer 19 % automatisch aus jedem Dauerauftrag); EU-Digitalleistungen
+  zur Prüfung; Marktplatz- und Zahlungsdienst-Auszahlungen als „Bank an Verrechnungskonto
+  bzw. Geldtransit“ ohne Umsatzsteuer zur Prüfung statt Erlös 8400 mit Schlüssel 3
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

@@ -66,7 +66,10 @@ class TestRegelwerkEngine:
         assert ergebnis.soll_konto == "4930"
         assert ergebnis.buchungstext == "Spezialfall-Buchung"
 
-    def test_amazon_erloes_positiv(self) -> None:
+    def test_amazon_auszahlung_ist_geldtransit(self) -> None:
+        """Die Auszahlung ist Nettobetrag nach Gebühren, kein Entgelt (§ 10 Abs. 1
+        UStG): Geldtransit ohne Umsatzsteuer, zur Prüfung — den Erlös bucht die
+        Abrechnung (vorher: 8400 mit Schlüssel 3, Gesamttest Steuer B2)."""
         engine = RegelwerkEngine()
         t = _beispiel_transaktion(
             betrag=Decimal("150.00"),
@@ -75,8 +78,9 @@ class TestRegelwerkEngine:
         )
         ergebnis = engine.klassifiziere(t)
         assert ergebnis is not None
-        assert ergebnis.haben_konto == "8400"
-        assert ergebnis.steuer_schluessel == 3
+        assert (ergebnis.soll_konto, ergebnis.haben_konto) == ("1200", "1360")
+        assert ergebnis.steuer_schluessel is None
+        assert ergebnis.pruefen
 
 
 class TestKlassifikationsEngine:

@@ -181,6 +181,55 @@ def test_fassungen_im_journal_und_historie(tmp_path):
     engine.dispose()
 
 
+def test_kontierung_nennt_richtung_pruefung_und_marktplatz(tmp_path, monkeypatch):
+    """Gesamttest Kontierung (Eingang B07/B15, Betrieb B3, Steuer B2): Die
+    Verfahrensdokumentation beschreibt, was unabhängig von der Confidence zur
+    Prüfung geht, welche Standardregeln im Kontenrahmen gelten und dass classify
+    Marktplatz-Auszahlungen bis zum Abgleich offen lässt."""
+    monkeypatch.chdir(tmp_path)  # config/regeln.yaml der Gesellschaft
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- {name: miete, muster: miete, richtung: ausgabe, soll_konto: '6310',\n"
+        "   haben_konto: '1800', steuer_schluessel: null, pruefen: true}\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "accounti.yaml"
+    config.write_text(
+        "mandant: {name: X}\nbuchhaltung: {kontenrahmen: SKR04, bank_konto: '1800'}\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, config)
+    for erwartet in (
+        "1 eigene Regeln",
+        "5 Standardregeln im Kontenrahmen SKR04",
+        "| Regel | Muster | Feld | Richtung | Soll | Haben | Schlüssel | Prüfen |",
+        "| miete | miete | verwendungszweck | ausgabe | 6310 | 1800 | — | ja |",
+        "unabhängig von der Confidence",
+        "Gegenbuchung",
+        "Bankkonto auf der falschen oder auf keiner Seite",
+        "Marktplatz-Auszahlungen",
+    ):
+        assert erwartet in text, erwartet
+    engine.dispose()
+
+
+def test_fehlerhafte_regeldatei_steht_im_dokument(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- {name: kaputt, muster: x, soll_konto: '4900', haben_konto: '1200',\n"
+        "   richtung: rueckwaerts}\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    assert "Regeldatei fehlerhaft" in text and "kaputt" in text
+    engine.dispose()
+
+
 def test_fehlerhafte_konfiguration_steht_im_dokument(tmp_path):
     engine, fabrik = _fabrik(tmp_path)
     config = tmp_path / "accounti.yaml"
@@ -290,3 +339,51 @@ def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
     engine.dispose()
     assert "| eva | buchhalter (a) |" in text
     assert "bob" not in text
+
+
+def test_regelmuster_feld_und_aufbewahrung(tmp_path, monkeypatch):
+    """Gesamttest Abschluss B10: das Muster stand als ``re.compile(…)`` im Dokument,
+    das Feld fehlte; die Aufbewahrung nannte 10 Jahre ab Ende des Eingangsjahres —
+    im Widerspruch zu ``betrieb aufbewahrung``."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: alpha, muster: "ALPHA", feld: beide, soll_konto: "1200", '
+        'haben_konto: "8400", steuer_schluessel: 3}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    kopf = "| Regel | Muster | Feld | Richtung | Soll | Haben | Schlüssel | Prüfen |"
+    assert kopf in text
+    assert "| alpha | ALPHA | beide | beide | 1200 | 8400 | 3 | nein |" in text
+    assert "re.compile" not in text
+    assert "Ende des Eingangsjahres" not in text
+    assert "Aufbewahrung der Buchungsbelege 8 Jahre" in text
+    assert "Rechnungen 8 Jahre (§ 14b Abs. 1 UStG)" in text
+    assert "ab Schluss des Kalenderjahres des Belegdatums" in text
+    assert "Bücher und Aufzeichnungen 10 Jahre" in text
+
+
+def test_regelmuster_mit_senkrechtem_strich(tmp_path, monkeypatch):
+    """Nachprüfung F, N6: ``|`` im Muster wurde in der Tabelle zu ``/`` — die
+    dokumentierte Regel war eine andere als die angewandte (GoBD Rz. 151 ff.)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: porto, muster: "PORTO|BRIEFMARKE", feld: verwendungszweck, '
+        'soll_konto: "4910", haben_konto: "1200"}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    zeile = "| porto | PORTO\\|BRIEFMARKE | verwendungszweck | beide | 4910 | 1200 |"
+    assert zeile in text
+    assert "PORTO/BRIEFMARKE" not in text
+    pdf = als_pdf(text, tmp_path / "doku.pdf")
+    inhalt = "".join(seite.extract_text() for seite in PdfReader(pdf).pages)
+    assert "PORTO|BRIEFMARKE" in inhalt and "PORTO\\|" not in inhalt

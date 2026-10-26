@@ -161,11 +161,12 @@ KoSIT-Prüftool hat nur XRechnung-Szenarien — die EN-16931-Rechnung prüft Mus
   demselben Grund nennt der Hinweis bei einer Gutschrift die Berichtigung nur als
   Möglichkeit. Unterschieden wird am Vorzeichen des Bruttos: Eine Korrektur, die eine
   Steuerart erhöht und eine andere stärker mindert, gilt als Minderung.
-- **Ohne Migration** (N7): Der neue Code setzt Migration `a14acef69fae` voraus; ohne sie
-  enden Befehle an den neuen Spalten mit einem Datenbankfehler statt einer Meldung. Die
-  Doku verlangt die Migration vor dem ersten Befehl (`accounti db upgrade` aus Paket A, mit
-  Versionsvermerk gleichwertig `alembic upgrade head`); eine Schemaprüfung beim Start
-  gehört zu Paket A (Versionsvermerk), nicht hierher.
+- **Ohne Migration** (N7): Der neue Code setzt Migration `a14acef69fae` (nach
+  `2f7c7043043e`, `SCHEMA_STAND`) voraus; ohne sie enden Befehle an den neuen Spalten mit
+  einem Datenbankfehler statt einer Meldung. Die Doku verlangt die Migration vor dem
+  ersten Befehl mit `accounti db upgrade` (Paket A; erkennt auch den Stand ohne
+  Versionsvermerk); eine Schemaprüfung beim Start gehört zu Paket A (Versionsvermerk),
+  nicht hierher.
 - **Trigger nur unter SQLite:** Wie bei Journal und Protokollen sperrt PostgreSQL rohes
   SQL auf `verrechnungen` nicht; dort fällt eine Änderung im Bestandsabgleich von
   `journal pruefen` auf.

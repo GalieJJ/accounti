@@ -37,10 +37,15 @@ _UEBERNOMMEN = "bestand_uebernommen"  # Zeitpunkt der Buchung unbekannt
 
 
 def _eb_buchung(x: Buchungssatz) -> bool:
-    """EB-Buchung des Saldovortrags bzw. Eröffnungssaldos (abschluss/vortrag.py)."""
+    """EB-Buchung des Saldovortrags bzw. Eröffnungssaldos (abschluss/vortrag.py) —
+    am 01.01. oder, bei abweichendem Wirtschaftsjahr, an dessen Beginn mit der
+    Nummer des im Folgejahr endenden WJ (``EB-2026`` am 01.07.2025)."""
+    nummer = x.beleg_nummer or ""
     return (
-        (x.datum.month, x.datum.day) == (1, 1)
-        and (x.beleg_nummer or "").startswith("EB-")
+        (
+            ((x.datum.month, x.datum.day) == (1, 1) and nummer.startswith("EB-"))
+            or nummer == f"EB-{x.datum.year + 1}"
+        )
         and x.transaktion_id is None
         and x.beleg_id is None
     )

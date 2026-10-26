@@ -11,9 +11,10 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID, uuid4
 
-from sqlalchemy import CursorResult, case, delete, func, or_, select, update
+from sqlalchemy import CursorResult, and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from accounti.db.tabellen_auth import (
     ApiTokenRow,
@@ -281,14 +282,18 @@ def entferne_rolle(
     return ergebnis.rowcount > 0
 
 
-def benutzer_mit_rolle(session: Session, rolle: Rolle) -> list[Benutzer]:
-    zeilen = session.scalars(
+def benutzer_mit_rolle(
+    session: Session, rolle: Rolle, gesellschaft: str | None = None
+) -> list[Benutzer]:
+    """Benutzer mit der Rolle — in der Gesellschaft, ohne Angabe in irgendeiner."""
+    abfrage = (
         select(BenutzerRow)
         .join(RollenzuordnungRow, RollenzuordnungRow.benutzer_id == BenutzerRow.id)
         .where(RollenzuordnungRow.rolle == rolle.value)
-        .distinct()
     )
-    return [_zu_benutzer(z) for z in zeilen]
+    if gesellschaft is not None:
+        abfrage = abfrage.where(RollenzuordnungRow.gesellschaft == gesellschaft)
+    return [_zu_benutzer(z) for z in session.scalars(abfrage.distinct())]
 
 
 # ---------------------------------------------------------------------------
@@ -488,10 +493,16 @@ def _zu_token(r: ApiTokenRow) -> ApiToken:
 
 
 def speichere_api_token(session: Session, t: ApiToken) -> None:
-    msg = f"Es gibt schon ein aktives Token {t.name!r} — erst widerrufen"
+    """Eindeutig ist der Name unter den aktiven Token einer Gesellschaft."""
+    msg = (
+        f"Es gibt schon ein aktives Token {t.name!r} in {t.gesellschaft} — erst "
+        "widerrufen"
+    )
     if session.scalar(
         select(ApiTokenRow.id).where(
-            ApiTokenRow.name == t.name, ApiTokenRow.widerrufen_am.is_(None)
+            ApiTokenRow.name == t.name,
+            ApiTokenRow.gesellschaft == t.gesellschaft,
+            ApiTokenRow.widerrufen_am.is_(None),
         )
     ):
         raise ValueError(msg)
@@ -532,18 +543,25 @@ def lade_api_tokens(session: Session) -> list[ApiToken]:
     return [_zu_token(z) for z in zeilen]
 
 
-def widerrufe_api_token(session: Session, name: str, jetzt: datetime) -> None:
+def widerrufe_api_token(
+    session: Session, name: str, jetzt: datetime, gesellschaft: str
+) -> None:
+    """Das aktive Token ``name`` der Gesellschaft widerrufen."""
     ergebnis = cast(
         CursorResult[Any],
         session.execute(
             update(ApiTokenRow)
-            .where(ApiTokenRow.name == name, ApiTokenRow.widerrufen_am.is_(None))
+            .where(
+                ApiTokenRow.name == name,
+                ApiTokenRow.gesellschaft == gesellschaft,
+                ApiTokenRow.widerrufen_am.is_(None),
+            )
             .values(widerrufen_am=jetzt)
             .execution_options(synchronize_session=False)
         ),
     )
     if ergebnis.rowcount == 0:
-        msg = f"Es gibt kein aktives Token {name!r}"
+        msg = f"Es gibt kein aktives Token {name!r} in {gesellschaft}"
         raise ValueError(msg)
 
 
@@ -585,12 +603,29 @@ def lade_ereignisse(
     grenze: int = 1000,
     *,
     neueste: bool = False,
+    gesellschaften: set[str] | None = None,
+    fremde: set[str] | None = None,
 ) -> list[AuthEreignis]:
     """Ereignisse aufsteigend nach Zeit — die ersten ``grenze`` oder, mit
-    ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``)."""
+    ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``). Mit
+    ``gesellschaften`` nur deren Ereignisse und die ohne Gesellschaft — von diesen
+    nicht die über Benutzer aus ``fremde``."""
     abfrage = select(AuthEreignisRow)
     if benutzer is not None:
         abfrage = abfrage.where(AuthEreignisRow.benutzer == benutzer)
+    if gesellschaften is not None:
+        ohne: ColumnElement[bool] = AuthEreignisRow.gesellschaft.is_(None)
+        if fremde:
+            ohne = and_(
+                ohne,
+                or_(
+                    AuthEreignisRow.benutzer.is_(None),
+                    AuthEreignisRow.benutzer.not_in(sorted(fremde)),
+                ),
+            )
+        abfrage = abfrage.where(
+            or_(ohne, AuthEreignisRow.gesellschaft.in_(sorted(gesellschaften)))
+        )
     if neueste:
         abfrage = abfrage.order_by(
             AuthEreignisRow.zeitpunkt.desc(), AuthEreignisRow.id.desc()
@@ -623,6 +658,17 @@ def lade_ereignisse(
 def lade_merker(session: Session, schluessel: str) -> str | None:
     zeile = session.get(AuthMerkerRow, schluessel, populate_existing=True)
     return zeile.wert if zeile else None
+
+
+def merker_mit_praefix(session: Session, praefix: str) -> list[str]:
+    """Schlüssel der Merker, die mit ``praefix`` beginnen."""
+    return list(
+        session.scalars(
+            select(AuthMerkerRow.schluessel).where(
+                AuthMerkerRow.schluessel.startswith(praefix, autoescape=True)
+            )
+        )
+    )
 
 
 def loesche_merker(session: Session, schluessel: str) -> None:

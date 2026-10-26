@@ -22,6 +22,15 @@ befehl = typer.Typer(
 )
 
 CSV_OPTION = typer.Option("--csv", help="zusätzlich als CSV")
+# Konvention (konfiguration.wirtschaftsjahr): das Kalenderjahr des WJ-Endes
+_JAHR = (
+    "Geschäftsjahr — bei abweichendem Wirtschaftsjahr (datev.wirtschaftsjahr_beginn) "
+    "das Kalenderjahr seines Endes, z.B. 2026 für 01.07.2025–30.06.2026"
+)
+_ERFASST = (
+    "Wer erfasst (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
+    "Benutzern: Rolle und Einmalcode)"
+)
 _ENTSCHEIDET = (
     "Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
     "Benutzern: Rolle und Einmalcode)"
@@ -39,19 +48,26 @@ def saldo(
     konto: str = typer.Option(..., "--konto", help="IBAN des eingerichteten Kontos"),
     stichtag: str = typer.Option(..., "--stichtag", help="z.B. 2026-12-31"),
     saldo_text: str = typer.Option(..., "--saldo", help="Saldo laut Kontoauszug"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(None, help=_ERFASST),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """Saldo laut Kontoauszug zum Stichtag erfassen (für die Bank-Abstimmung)."""
+    """Saldo laut Kontoauszug zum Stichtag erfassen (für die Bank-Abstimmung).
+
+    Buchen (Gesamttest Abschluss B8): der Saldo entscheidet die Bank-Abstimmung
+    des Abschlusses — mit Benutzern Rolle buchhalter und Einmalcode."""
     from accounti.abschluss.pruefungen import erfasse_kontoauszugssaldo
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     tag = datum(stichtag, "--stichtag")
     wert = betrag(saldo_text, "--saldo")
-    with sitzung(db)() as s:
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            erfasse_kontoauszugssaldo(s, konto, tag, wert, von)
+            erfasse_kontoauszugssaldo(s, konto, tag, wert, person)
         except ValueError as fehler:
             ende(str(fehler))
         s.commit()
@@ -74,7 +90,7 @@ def _befunde_ausgeben(befunde: list) -> None:  # type: ignore[type-arg]
 
 @befehl.command("pruefen")
 def pruefen(
-    jahr: int = typer.Option(..., help="Geschäftsjahr"),
+    jahr: int = typer.Option(..., help=_JAHR),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
@@ -86,17 +102,23 @@ def pruefen(
             befunde = pruefe_abschluss(kontext(s, jahr, config))
         except ValueError as fehler:
             ende(str(fehler))
+    wj = _einstellungen(config).wirtschaftsjahr(jahr)
     _befunde_ausgeben(befunde)
     if blockiert(befunde):
-        console.print(f"[red]Abschluss {jahr} gesperrt — Fehler beheben.[/red]")
+        console.print(
+            f"[red]Abschluss {wj.bezeichnung} ({wj.zeitraum}) gesperrt — Fehler "
+            "beheben.[/red]"
+        )
         raise typer.Exit(1)
-    console.print(f"[green]Abschluss {jahr}: keine Fehler.[/green]")
+    console.print(
+        f"[green]Abschluss {wj.bezeichnung} ({wj.zeitraum}): keine Fehler.[/green]"
+    )
 
 
 @befehl.command("susa")
 def susa(
-    jahr: int = typer.Option(..., help="Geschäftsjahr"),
-    bis: str | None = typer.Option(None, help="Stichtag (31.12.)"),
+    jahr: int = typer.Option(..., help=_JAHR),
+    bis: str | None = typer.Option(None, help="Stichtag (Ende des Wirtschaftsjahres)"),
     csv: Annotated[Path | None, CSV_OPTION] = None,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
@@ -107,6 +129,7 @@ def susa(
     from accounti.anzeige import betrag_de
 
     einst = _einstellungen(config)
+    wj = einst.wirtschaftsjahr(jahr)
     with sitzung(db)() as s:
         liste = summen_und_salden(
             s,
@@ -114,8 +137,12 @@ def susa(
             einst.lade_kontenrahmen(),
             einst.gewinnermittlung,
             datum(bis, "--bis") if bis else None,
+            wj=wj,
         )
-    t = Table(title=f"Summen- und Saldenliste {jahr} (bis {liste.bis:%d.%m.%Y})")
+    t = Table(
+        title=f"Summen- und Saldenliste {wj.bezeichnung} "
+        f"({wj.von:%d.%m.%Y} bis {liste.bis:%d.%m.%Y})"
+    )
     t.add_column("Konto")
     t.add_column("Bezeichnung", overflow="fold")
     for spalte in ("EB", "Soll", "Haben", "Saldo"):
@@ -159,7 +186,11 @@ def _abgrenzung_zeigen(a) -> None:  # type: ignore[no-untyped-def]
 
 @befehl.command("eroeffnung")
 def eroeffnung(
-    jahr: int = typer.Option(..., help="erstes Geschäftsjahr in accounti"),
+    jahr: int = typer.Option(
+        ...,
+        help="erstes Geschäftsjahr in accounti (EB am Wirtschaftsjahresbeginn); bei "
+        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt",
+    ),
     konto: str = typer.Option(..., "--konto", help="Bestandskonto, z.B. 1200"),
     saldo_text: str = typer.Option(
         ..., "--saldo", help="Eröffnungssaldo — Soll positiv, Haben negativ"
@@ -195,34 +226,52 @@ def eroeffnung(
     if b is None:
         console.print(f"Eröffnungssaldo {konto} {jahr}: unverändert")
         return
-    console.print(f"[green]Eröffnungssaldo {konto} {jahr}:[/green] {betrag_de(wert)} €")
+    console.print(
+        f"[green]Eröffnungssaldo {konto} {jahr} ({b.datum:%d.%m.%Y}):[/green] "
+        f"{betrag_de(wert)} €"
+    )
     _buchung_zeigen(b)
 
 
 @befehl.command("buchen")
 def buchen(
-    jahr: int = typer.Option(..., help="Geschäftsjahr"),
+    jahr: int = typer.Option(..., help=_JAHR),
+    von: str | None = typer.Option(None, help=_ERFASST),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Abschlussbuchungen als Vorschläge: AfA des Jahres und Abgrenzungen."""
+    """Abschlussbuchungen als Vorschläge: AfA des Jahres und Abgrenzungen.
+
+    Buchen wie ``anlagen afa`` (Nachprüfung M1: derselbe AfA-Lauf) — mit Benutzern
+    Rolle buchhalter und Einmalcode."""
     from accounti.abschluss.abgrenzung import schlage_abgrenzungen_vor
     from accounti.anlagen.konfiguration import lade_anlagen
     from accounti.anlagen.lauf import afa_lauf
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
     einst = _einstellungen(config)
     anlagen = lade(lade_anlagen, config)
-    with sitzung(db)() as s:
+    wj = einst.wirtschaftsjahr(jahr)
+    with handelnde_person(db, config, Recht.BUCHEN, von), sitzung(db)() as s:
         try:
-            afa = afa_lauf(s, jahr, anlagen, 12)
+            # der AfA-Lauf rechnet im Kalenderjahr: ein abweichendes Wirtschaftsjahr
+            # berührt zwei — das erste ab WJ-Beginn bis Dezember, das zweite bis zum
+            # WJ-Ende (der Abschnitt folgt aus datev.wirtschaftsjahr_beginn)
+            laeufe = [afa_lauf(s, kj, anlagen, monat) for kj, monat in wj.kalenderjahre]
             lauf = schlage_abgrenzungen_vor(s, jahr, einst, anlagen.rechtsstand())
         except (ValueError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
-    if afa.buchungen:
-        console.print(f"[bold]AfA {jahr}[/bold] (zur Prüfung)")
+    for afa in laeufe:
+        bis = "" if afa.bis_monat == 12 else f" bis {afa.bis_monat:02d}"
+        if afa.ab_monat > 1:
+            bis = f" ab {afa.ab_monat:02d}{bis}"
+        if not afa.buchungen:
+            console.print(f"AfA {afa.jahr}{bis}: nichts zu buchen")
+            continue
+        console.print(f"[bold]AfA {afa.jahr}{bis}[/bold] (zur Prüfung)")
         for p in afa.positionen:
             console.print(
                 f"  {escape(p.bezeichnung)}: {betrag_de(p.differenz)} "
@@ -230,23 +279,23 @@ def buchen(
             )
         for b in afa.buchungen:
             _buchung_zeigen(b)
-        console.print(f"freigeben: accounti anlagen freigeben --jahr {jahr}")
-    else:
-        console.print(f"AfA {jahr}: nichts zu buchen")
+        console.print(f"freigeben: accounti anlagen freigeben --jahr {afa.jahr}")
     if lauf.vorschlaege:
-        console.print(f"[bold]Abgrenzungen {jahr}[/bold] (Vorschläge, nichts gebucht)")
+        console.print(
+            f"[bold]Abgrenzungen {wj.bezeichnung}[/bold] (Vorschläge, nichts gebucht)"
+        )
         for a in lauf.vorschlaege:
             _abgrenzung_zeigen(a)
         console.print("entscheiden: accounti abschluss bestaetigen|ablehnen <Nr>")
     else:
-        console.print(f"Abgrenzungen {jahr}: keine neuen Vorschläge")
+        console.print(f"Abgrenzungen {wj.bezeichnung}: keine neuen Vorschläge")
     for hinweis in lauf.hinweise:
         console.print(f"[dim]{escape(hinweis)}[/dim]")
 
 
 @befehl.command("abgrenzungen")
 def abgrenzungen(
-    jahr: int = typer.Option(..., help="Geschäftsjahr"),
+    jahr: int = typer.Option(..., help=_JAHR),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,  # noqa: ARG001
 ) -> None:
@@ -282,13 +331,18 @@ def abgrenzen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Abgrenzung für eine Buchung vorschlagen, deren Zeitraum nicht im Text steht."""
+    """Abgrenzung für eine Buchung vorschlagen, deren Zeitraum nicht im Text steht.
+
+    Buchen (Nachprüfung M1) — mit Benutzern Rolle buchhalter und Einmalcode; die
+    Person kommt aus ACCOUNTI_BENUTZER bzw. dem Anmeldenamen (``--von`` ist hier der
+    Leistungszeitraum)."""
     from accounti.abschluss.abgrenzung import AbgrenzungError, grenze_ab
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
     einst = _einstellungen(config)
     von, bis = datum(von_text, "--von"), datum(bis_text, "--bis")
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, None), sitzung(db)() as s:
         try:
             a = grenze_ab(s, buchung, von, bis, einst)
         except (AbgrenzungError, JahrGesperrtError) as fehler:
@@ -314,12 +368,13 @@ def bestaetigen(
 
     # ein Vorschlag wird zur freigegebenen Buchung: Buchungen freigeben (buchhalter,
     # freigeber) und Einmalcode — wie accounti bestaetige
+    beginn = _einstellungen(config).wirtschaftsjahr_beginn
     with (
         handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
         sitzung(db)() as s,
     ):
         try:
-            a = bestaetige_abgrenzung(s, nr, aktuelle_person(person))
+            a = bestaetige_abgrenzung(s, nr, aktuelle_person(person), beginn)
         except (AbgrenzungError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
@@ -360,7 +415,7 @@ def ablehnen(
 
 @befehl.command("euer")
 def euer(
-    jahr: int = typer.Option(..., help="Geschäftsjahr"),
+    jahr: int = typer.Option(..., help=_JAHR),
     csv: Annotated[Path | None, CSV_OPTION] = None,
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
@@ -372,13 +427,18 @@ def euer(
 
     einst = _einstellungen(config)
     kr = einst.lade_kontenrahmen()
+    wj = einst.wirtschaftsjahr(jahr)
     with sitzung(db)() as s:
-        liste = summen_und_salden(s, jahr, kr, einst.gewinnermittlung)
+        liste = summen_und_salden(s, jahr, kr, einst.gewinnermittlung, wj=wj)
     try:
         e = erstelle_euer(liste, kr)
     except EuerError as fehler:
         ende(str(fehler))
-    t = Table(title=f"Einnahmenüberschussrechnung {jahr} (Vordruck {e.vordruck_jahr})")
+    zeitraum = f", {wj.zeitraum}" if wj.abweichend else ""
+    t = Table(
+        title=f"Einnahmenüberschussrechnung {wj.bezeichnung} (Vordruck "
+        f"{e.vordruck_jahr}{zeitraum})"
+    )
     t.add_column("Zeile", justify="right")
     t.add_column("Kz")
     t.add_column("Bezeichnung", overflow="fold")
@@ -455,7 +515,7 @@ def euer(
 
 @befehl.command("vortrag")
 def vortrag(
-    jahr: int = typer.Option(..., help="abzuschließendes Geschäftsjahr"),
+    jahr: int = typer.Option(..., help=f"abzuschließendes {_JAHR}"),
     von: str = typer.Option(..., help="Wer schließt ab (steht im Protokoll)"),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,

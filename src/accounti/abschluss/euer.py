@@ -12,6 +12,15 @@ Ergebnis = Gewinn − nicht abziehbare Betriebsausgaben − Konten außerhalb de
 
 Die Zeilen ab „Ermittlung des Gewinns“ (Hinzurechnungen, Kürzungen, § 7g, § 4 Abs. 4a)
 berechnet accounti nicht.
+
+Abweichendes Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``): Die EÜR umfasst das
+Wirtschaftsjahr, Vordruck des Kalenderjahres seines **Beginns** — die Anlage EÜR 2025
+gilt für das Kalenderjahr 2025 bzw. das Wirtschaftsjahr 2025/2026 (Kz 131
+„abweichender Beginn TTMM 2025“, BMF 29.08.2025). Land- und Forstwirte — auch
+mit EÜR (§ 4a Abs. 1 Satz 2 Nr. 1 EStG) — verteilen den Gewinn zeitanteilig auf die
+beiden Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG, ohne Veräußerungsgewinne); accounti
+rechnet die Verteilung nach Monaten als Hinweis aus, trägt sie aber in keinen Vordruck
+ein (Anlage L/ESt mit dem Steuerberater).
 """
 
 from __future__ import annotations
@@ -20,6 +29,7 @@ import csv
 import io
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from functools import cache
 from importlib import resources
@@ -27,8 +37,10 @@ from typing import Any
 
 import yaml
 
+from accounti.abschluss.konfiguration import Wirtschaftsjahr
 from accounti.abschluss.kontenrahmen import NICHT_IN_EUER, Kontenart, Kontenrahmen
 from accounti.abschluss.salden import Susa
+from accounti.anlagen.afa import runde
 from accounti.anzeige import betrag_de
 
 NULL = Decimal("0")
@@ -133,7 +145,9 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
     if susa.gewinnermittlung != "euer":
         msg = f"Gewinnermittlung ist {susa.gewinnermittlung} — keine EÜR"
         raise EuerError(msg)
-    vordruck_jahr, v = _vordruck(susa.jahr)
+    # das Jahr des WJ-Beginns bestimmt den Vordruck (beim Kalenderjahr dasselbe)
+    gesucht = susa.wirtschaftsjahr.von.year
+    vordruck_jahr, v = _vordruck(gesucht)
     euer = Euer(
         susa.jahr,
         vordruck_jahr,
@@ -144,9 +158,9 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
         entnahmen_zeile=v["entnahmen"][0],
         einlagen_zeile=v["einlagen"][0],
     )
-    if vordruck_jahr != susa.jahr:
+    if vordruck_jahr != gesucht:
         euer.hinweise.append(
-            f"Für {susa.jahr} ist kein Vordruck hinterlegt — Zeilen nach dem "
+            f"Für {gesucht} ist kein Vordruck hinterlegt — Zeilen nach dem "
             f"Vordruck {vordruck_jahr}"
         )
     zeilen: dict[tuple[str, str], EuerZeile] = {}
@@ -199,7 +213,45 @@ def erstelle_euer(susa: Susa, kr: Kontenrahmen) -> Euer:
     euer.entnahmen = entnahmen_einlagen["entnahmen"]
     euer.einlagen = entnahmen_einlagen["einlagen"]
     euer.hinweise += _konten_hinweise(euer, kr)
+    wj = susa.wirtschaftsjahr
+    if wj.abweichend:
+        euer.hinweise.append(_paragraf_4a(euer.gewinn, wj))
     return euer
+
+
+def verteilung_4a(
+    gewinn: Decimal, wj: Wirtschaftsjahr
+) -> list[tuple[int, Decimal, str]]:
+    """Zeitanteilige Verteilung des Gewinns eines abweichenden Wirtschaftsjahres auf
+    die beiden Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG): (Kalenderjahr, Anteil,
+    Zeitanteil) — nach Monaten, bei einem Beginn nicht am Monatsersten nach Tagen."""
+    if not wj.abweichend:
+        return [(wj.jahr, gewinn, "12 Monate")]
+    if wj.von.day == 1:
+        erst, gesamt, einheit = 12 - wj.von.month + 1, 12, "Monate"
+    else:
+        erst = (date(wj.von.year, 12, 31) - wj.von).days + 1
+        gesamt, einheit = (wj.bis - wj.von).days + 1, "Tage"
+    anteil = runde(gewinn * erst / gesamt)
+    return [
+        (wj.von.year, anteil, f"{erst} {einheit}"),
+        (wj.bis.year, gewinn - anteil, f"{gesamt - erst} {einheit}"),
+    ]
+
+
+def _paragraf_4a(gewinn: Decimal, wj: Wirtschaftsjahr) -> str:
+    teile = ", ".join(
+        f"{jahr}: {betrag_de(anteil)} € ({zeit})"
+        for jahr, anteil, zeit in verteilung_4a(gewinn, wj)
+    )
+    return (
+        f"Abweichendes Wirtschaftsjahr {wj.bezeichnung} ({wj.zeitraum}): Land- und "
+        "Forstwirte verteilen den Gewinn zeitanteilig auf die Kalenderjahre (§ 4a "
+        f"Abs. 2 Nr. 1 EStG, ohne Veräußerungsgewinne) — {teile}; bei im "
+        "Handelsregister eingetragenen Gewerbetreibenden gilt er im Kalenderjahr "
+        f"{wj.bis.year} als bezogen (Nr. 2). accounti trägt die Verteilung in keinen "
+        "Vordruck ein — mit dem Steuerberater abstimmen"
+    )
 
 
 def _kontenliste(konten: list[str]) -> str:

@@ -8,9 +8,7 @@ import re
 from datetime import date
 from pathlib import Path
 
-# § 147 Abs. 3 AO: Buchungsbelege zehn Jahre aufbewahren.
-AUFBEWAHRUNG_JAHRE = 10
-
+from accounti.betrieb.aufbewahrung import Unterlage, frist_ende
 
 _ENDUNG = re.compile(r"[a-z0-9]{1,10}")
 
@@ -22,12 +20,19 @@ def bereinige_endung(endung: str) -> str:
     return f".{rein}" if _ENDUNG.fullmatch(rein) else ""
 
 
-def aufbewahrungsende(eingang: date) -> date:
-    """Letzter Tag der Aufbewahrungsfrist.
+def aufbewahrungsende(
+    entstanden: date, unterlage: Unterlage = Unterlage.BUCHUNGSBELEG
+) -> date:
+    """Letzter Tag der Aufbewahrungsfrist — Frist aus ``betrieb.aufbewahrung`` (eine
+    Quelle für Archiv, Bericht und Verfahrensdokumentation).
 
-    Die Frist beginnt mit dem Schluss des Kalenderjahres (§ 147 Abs. 4 AO).
+    Buchungsbelege und Rechnungen 8 Jahre (§ 147 Abs. 1 Nr. 4, Abs. 3 AO i. d. F. des
+    BEG IV; § 14b Abs. 1 UStG), Protokolle als Aufzeichnungen (``Unterlage.BUCH``) 10
+    Jahre. Beginn mit dem Schluss des Kalenderjahres, in dem der Beleg entstanden bzw.
+    die Rechnung ausgestellt ist (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG) — also
+    ab dem Belegdatum, ohne Belegdatum ab dem Eingang.
     """
-    return date(eingang.year + AUFBEWAHRUNG_JAHRE, 12, 31)
+    return frist_ende(unterlage, entstanden)
 
 
 class BelegArchiv:
