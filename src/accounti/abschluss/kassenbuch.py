@@ -344,8 +344,9 @@ def storniere(
 
     Das Storno liegt nie vor dem Original: Der Gegeneintrag machte den Kassenbestand
     dazwischen falsch (Kassensturzfähigkeit, § 146 Abs. 1 AO), und die Umsatzsteuer
-    würde vor dem Umsatz berichtigt. Ohne ``datum`` gilt heute, frühestens der Tag
-    des Originals."""
+    würde vor dem Umsatz berichtigt. Ebenso nie vor der Buchung, die es umkehrt (nach
+    ``korrigiere --datum`` kann die Neubuchung später liegen). Ohne ``datum`` gilt
+    heute, frühestens der Tag des Originals bzw. dieser Buchung."""
     buch = lade_kassenbuch(session)
     original = next((v for v in buch if v.nr == nr), None)
     if original is None:
@@ -356,18 +357,26 @@ def storniere(
         )
     if any(v.storno_von == nr for v in buch):
         raise KassenbuchError(f"Nr. {nr} ist schon storniert")
-    tag = datum or max(date.today(), original.datum)
-    if tag < original.datum:
-        raise KassenbuchError(
-            f"Storno am {tag:%d.%m.%Y} läge vor Nr. {nr} vom "
-            f"{original.datum:%d.%m.%Y} — ein Storno frühestens am Tag des Originals"
-        )
     umkehren: list[Buchungssatz] = []
     if original.buchung_id is not None:
         gueltig = _gueltige_buchung(session, original.buchung_id, nr)
         umkehren = [gueltig] if gueltig is not None else []
     elif original.transaktion_id is not None:
         umkehren = _buchungen_zum_umsatz(session, original.transaktion_id, nr)
+    # auch nicht vor der Buchung, die es umkehrt (nach korrigiere --datum später)
+    frueheste = max([original.datum, *(b.datum for b in umkehren)])
+    tag = datum or max(date.today(), frueheste)
+    if tag < original.datum:
+        raise KassenbuchError(
+            f"Storno am {tag:%d.%m.%Y} läge vor Nr. {nr} vom "
+            f"{original.datum:%d.%m.%Y} — ein Storno frühestens am Tag des Originals"
+        )
+    if tag < frueheste:
+        raise KassenbuchError(
+            f"Storno am {tag:%d.%m.%Y} läge vor der Buchung vom "
+            f"{frueheste:%d.%m.%Y}, die es umkehrt (Neubuchung zu Nr. {nr}) — ein "
+            "Storno frühestens an deren Tag"
+        )
     v = Kassenvorgang(
         nr=naechste_kassennummer(session),
         datum=tag,

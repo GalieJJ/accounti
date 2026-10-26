@@ -116,7 +116,9 @@ def storno(
     nr: int = typer.Argument(help="Nummer des Kassenvorgangs"),
     grund: str = typer.Option(..., "--grund", help="Warum storniert wird"),
     datum_text: str | None = typer.Option(
-        None, "--datum", help="Datum (heute; nie vor dem Original)"
+        None,
+        "--datum",
+        help="Datum (heute; nie vor dem Original und der Buchung, die es umkehrt)",
     ),
     von: str | None = typer.Option(
         None,

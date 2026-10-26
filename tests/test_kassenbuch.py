@@ -416,6 +416,44 @@ def test_kassen_storno_ohne_datum_fruehestens_am_tag_des_originals(make_session)
     assert st.datum == morgen
 
 
+def test_kassen_storno_nie_vor_der_neubuchung(make_session):
+    """Nachprüfung F, N4: nach ``korrigiere --datum`` liegt die Neubuchung später als
+    der Kassenvorgang — ein Storno dazwischen kehrte eine Buchung um, die es an
+    diesem Tag noch nicht gab."""
+    from accounti.pruefung.storno import korrigiere
+
+    _start(make_session)
+    aus = _buche(make_session, "-30", date(2026, 3, 2), "Porto")
+    gebucht = _classify_bucht(make_session, aus, "4930", "1000")
+    with make_session() as s:
+        korrigiere(
+            s, str(gebucht.id), "4910", "1000", von="erika", datum=date(2026, 5, 1)
+        )
+        s.commit()
+    with make_session() as s, pytest.raises(KassenbuchError, match="01.05.2026"):
+        storniere(s, aus.nr, "doppelt", KASSE, datum=date(2026, 3, 5))
+    with make_session() as s:
+        st = storniere(s, aus.nr, "doppelt", KASSE, datum=date(2026, 5, 1))
+        s.commit()
+    assert st.datum == date(2026, 5, 1)
+
+
+def test_kassen_storno_ohne_datum_fruehestens_am_tag_der_neubuchung(make_session):
+    from accounti.pruefung.storno import korrigiere
+
+    spaeter = date.today().replace(year=date.today().year + 1, month=1, day=2)
+    _start(make_session, "300", date.today())
+    aus = _buche(make_session, "-30", date.today(), "Porto")
+    gebucht = _classify_bucht(make_session, aus, "4930", "1000")
+    with make_session() as s:
+        korrigiere(s, str(gebucht.id), "4910", "1000", von="erika", datum=spaeter)
+        s.commit()
+    with make_session() as s:
+        st = storniere(s, aus.nr, "doppelt", KASSE)
+        s.commit()
+    assert st.datum == spaeter
+
+
 def test_cli_kassen_storno_nach_classify(tmp_path, monkeypatch):
     """Befund B5 wie im Gesamttest: kasse buchen ohne --konto, classify, kasse storno
     — danach meldet abschluss pruefen weder ungebuchte Umsätze noch eine Kasse ≠
