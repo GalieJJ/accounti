@@ -19,9 +19,10 @@ from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 from accounti.belege.extraktion import (
+    GEKUERZT,
     TOLERANZ,
     Extrakt,
-    begrenze_leerraum,
+    begrenze_text,
     extrahiere,
 )
 from accounti.belege.kanaele import RohBeleg
@@ -211,7 +212,9 @@ _REGELN: list[tuple[re.Pattern[str], Belegart, float, str]] = [
         "Rechnungsmerkmal im Text",
     ),
     (
-        re.compile(r"\w*vertrag\b|vertragslaufzeit|vertragsbeginn", _I),
+        # „Mietvertrag“ ohne ``\w*`` davor: das setzte an jedem Zeichen eines langen
+        # Wortes neu an (quadratisch, Nachprüfung C, Runde 4, Mittel 2)
+        re.compile(r"vertrag\b|vertragslaufzeit|vertragsbeginn", _I),
         Belegart.VERTRAG,
         0.8,
         "Vertragsmerkmal im Text",
@@ -384,7 +387,9 @@ class BelegErkenner:
         )
 
     def _lies(self, text: str, beleg: Beleg) -> Beleg:
-        text = begrenze_leerraum(text)  # Fremddaten: alle Muster linear (H/M-1)
+        # Fremddaten: Leerraum und Länge begrenzt, bevor ein Muster den Text sieht
+        # (Nachprüfung C, H/M-1 und Runde 4, Mittel 2) — auch für LLM und Zerlegung
+        text, gekuerzt = begrenze_text(text)
         extrakt = extrahiere(text)
         art = erkenne_belegart(text, extrakt, self.eigene_ust_ids, self.eigene_firma)
         belegart = art.belegart
@@ -461,6 +466,8 @@ class BelegErkenner:
             ]
 
         gruende = []
+        if gekuerzt:
+            gruende.append(f"{GEKUERZT}, Angaben am Original prüfen")
         if belegart is Belegart.SONSTIGES:
             gruende.append("Belegart nicht erkannt")
         if fehlend:

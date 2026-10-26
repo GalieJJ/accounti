@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
+from itertools import islice
 
 from accounti.belege.zahlen import BETRAG, DATUM, parse_betrag, parse_datum
 
@@ -83,7 +84,10 @@ _BELEGNUMMER = re.compile(
     r"gutschrifts?[\s-]*(?:nr|nummer)|credit\s*note\s*(?:no|number|#)|"
     r"(?:rechnungs)?korrektur[\s-]*(?:nr|nummer)|storno[\s-]*(?:nr|nummer)|"
     r"invoice\s*(?:no|number|#))\.?\s*[:#]?\s*"
-    r"([A-Z0-9][A-Z0-9\-/_.]*\d[A-Z0-9\-/_]*)",
+    # Länge begrenzt (Nachprüfung C, Runde 4, Mittel 2): Ohne Grenze las die Nummer
+    # an jedem „renr“ einer langen Folge bis zu ihrem Ende (quadratisch); eine längere
+    # Folge ist keine Belegnummer.
+    r"([A-Z0-9][A-Z0-9\-/_.]{0,40}\d[A-Z0-9\-/_]{0,40})(?![A-Z0-9\-/_])",
     _I,
 )
 # Eine Nummer nach „zur/zu/für die/der/zu unserer … Rechnung“ oder „Bezug:“ verweist auf
@@ -173,7 +177,9 @@ _KENNZEICHEN: list[tuple[str, re.Pattern[str]]] = [
         "E",
         re.compile(
             r"§\s*19\s*(?:abs\.?\s*1\s*)?ustg|kleinunternehmer|"
-            r"(?:umsatz)?steuerfrei\w*\s+(?:nach|gem(?:\.|äß))\s*§\s*4\b|"
+            # ``\w{0,8}`` (steuerfreie, Steuerfreiheit): ``\w*`` las an jedem
+            # „steuerfrei“ einer langen Folge bis zum Wortende (Runde 4, Mittel 2)
+            r"(?:umsatz)?steuerfrei\w{0,8}\s+(?:nach|gem(?:\.|äß))\s*§\s*4\b|"
             r"§\s*4\s*nr\.?\s*\d+\s*(?:buchst\.?\s*[a-z]\s*)?ustg|"
             r"(?:umsatz)?steuerbefreit",
             _I,
@@ -244,6 +250,44 @@ def begrenze_leerraum(text: str) -> str:
             continue
         zeilen.append(zeile if zeile.strip() else "")
     return "\n".join(zeilen) + "\n" if zeilen else ""
+
+
+# … und die Länge (Nachprüfung C, Runde 4, Mittel 2): Die Leerraumgrenze half nicht
+# gegen lange Folgen ohne Leerzeichen — ein komprimiertes PDF von 1,1 KB mit 300 KB
+# Text hielt ``belege import`` Minuten auf. Die bekannten Muster sind linear; die
+# Grenze sichert auch die übrigen. Ein Beleg ist kürzer (rund 30 Seiten); von einem
+# längeren Text bleiben Anfang (Kopf: Lieferant, Nummer, Datum) und Ende (Summen,
+# Steuer), die Mitte fällt weg — und der Beleg geht zur Prüfung.
+TEXT_MAX = 100_000  # Zeichen
+GEKUERZT = (
+    f"Belegtext gekürzt: länger als {TEXT_MAX:,} Zeichen".replace(",", ".")
+    + " — nur Anfang und Ende gelesen"
+)
+_ROH_MAX = 4 * TEXT_MAX  # vor der Leerraumgrenze: auch die soll keine 25 MB sehen
+
+
+def _anfang_und_ende(text: str, laenge: int) -> str:
+    """Je die Hälfte von vorn und von hinten, an Zeilengrenzen geschnitten (eine
+    überlange Zeile hart)."""
+    haelfte = (laenge - 1) // 2
+    anfang, ende = text[:haelfte], text[-haelfte:]
+    if (umbruch := anfang.rfind("\n")) >= 0:
+        anfang = anfang[: umbruch + 1]
+    if (umbruch := ende.find("\n")) >= 0 and umbruch + 1 < len(ende):
+        ende = ende[umbruch + 1 :]
+    return anfang + ("" if anfang.endswith("\n") else "\n") + ende
+
+
+def begrenze_text(text: str) -> tuple[str, bool]:
+    """Fremddaten vor den Mustern: Leerraum begrenzt und höchstens ``TEXT_MAX``
+    Zeichen — mit True, wenn die Mitte weggefallen ist (dann zur Prüfung)."""
+    gekuerzt = len(text) > _ROH_MAX
+    if gekuerzt:
+        text = _anfang_und_ende(text, _ROH_MAX)
+    text = begrenze_leerraum(text)
+    if len(text) > TEXT_MAX:
+        text, gekuerzt = _anfang_und_ende(text, TEXT_MAX), True
+    return text, gekuerzt
 
 
 def _zeilen(text: str) -> list[str]:
@@ -406,6 +450,12 @@ def _betrag_nach_label(zeilen: list[str], muster: re.Pattern[str]) -> Decimal | 
     return wert
 
 
+# Summen-Labels je Zeile: Jedes sucht den Betrag im Rest der Zeile — auf einer langen
+# Zeile voller Labels quadratisch (Nachprüfung C, Runde 4, Mittel 2); so viele hat
+# keine Belegzeile.
+_LABELS_JE_ZEILE = 20
+
+
 def _brutto(zeilen: list[str]) -> Decimal | None:
     """Gesamtbetrag: erster Betrag hinter einem Brutto-Label, die letzte Zeile gewinnt.
 
@@ -415,11 +465,11 @@ def _brutto(zeilen: list[str]) -> Decimal | None:
     for muster in _BRUTTO:
         wert = None
         for zeile in zeilen:
-            for label in muster.finditer(zeile):
+            for label in islice(muster.finditer(zeile), _LABELS_JE_ZEILE):
                 rest = zeile[label.end() :]
                 betrag = _BETRAG.search(rest)
                 if betrag is None:
-                    continue
+                    break  # auch hinter einem späteren Label steht keiner
                 zwischen = rest[: betrag.start()]
                 if _NETTO.search(zwischen):
                     continue
@@ -441,7 +491,7 @@ def _brutto(zeilen: list[str]) -> Decimal | None:
 
 def extrahiere(text: str) -> Extrakt:
     """Liest alle Felder, die das Regelwerk sicher erkennt."""
-    text = begrenze_leerraum(text)
+    text, _ = begrenze_text(text)  # gekürzt? — das meldet, wer den Beleg anlegt
     zeilen = _zeilen(text)
     e = Extrakt()
 

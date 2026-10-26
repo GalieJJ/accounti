@@ -654,3 +654,87 @@ def test_rechnungsbezug_nach_dem_korrekturtitel_ist_eindeutig():
     )
     assert e.korrektur == "gutschrift" and e.vorzeichen_gedreht
     assert not e.titel_mehrdeutig and e.belegnummer == "GS-5"
+
+
+_300_KB = 300_000
+
+
+@pytest.mark.parametrize(
+    ("muster", "text"),
+    [
+        ("_BETRAG", "1" * _300_KB),
+        ("_BETRAG", "111." * (_300_KB // 4)),
+        ("_BELEGNUMMER", "renr" * (_300_KB // 4)),
+    ],
+    ids=["Ziffern", "Tausendergruppen", "renr"],
+)
+def test_muster_linear_auf_langen_folgen_ohne_leerzeichen(muster, text):
+    """Mittel 2 (Nachprüfung C, Runde 4): ``BETRAG`` und die Belegnummer setzten an
+    jeder Ziffer bzw. jedem „renr“ einer langen Folge neu an und lasen bis zu ihrem
+    Ende (40 000 Zeichen: 5 bis 10 s, doppelte Länge das Vierfache)."""
+    with _zeitschranke(2):
+        assert getattr(extraktion, muster).search(text) is None
+
+
+@pytest.mark.parametrize(
+    ("zeile", "brutto"),
+    [
+        ("Gesamtbetrag.......238,00 €", "238.00"),
+        ("Gesamtbetrag 1.234,56 €", "1234.56"),
+        ("Gesamtbetrag 23,99-", "-23.99"),
+        ("Gesamtbetrag -5,00", "-5.00"),
+        ("Gesamtbetrag EUR1234,50", "1234.50"),
+    ],
+)
+def test_betrag_nach_punkten_tausendern_und_vorzeichen(zeile, brutto):
+    assert extrahiere(f"Firma GmbH\n{zeile}\n").brutto == Decimal(brutto)
+
+
+def test_ueberlange_belegnummer_wird_nicht_gelesen():
+    """Die Länge der Belegnummer ist begrenzt (rund 80 Zeichen): Eine längere Folge
+    ist keine Nummer — und Punkte danach gehören nicht dazu."""
+    lang = extrahiere("Firma GmbH\nRechnungsnr. R1" + "A" * 500 + "\n")
+    assert lang.belegnummer is None
+    punkte = extrahiere("Firma GmbH\nRechnungsnr. RE-2026-5" + "." * 80 + "\n")
+    assert punkte.belegnummer == "RE-2026-5"
+
+
+def test_langer_text_behaelt_anfang_und_ende():
+    """Fremddaten über ``TEXT_MAX`` Zeichen: Anfang (Kopf mit Nummer und Datum) und
+    Ende (Summen) bleiben, die Mitte fällt weg — und das wird gemeldet."""
+    mitte = "Pos. Ware 1,00\n" * 20_000
+    text = "Firma GmbH\nRechnung Nr. RE-7\n" + mitte + "Gesamtbetrag 238,00 €\n"
+    gekuerzt, ist_gekuerzt = extraktion.begrenze_text(text)
+    assert ist_gekuerzt and len(gekuerzt) <= extraktion.TEXT_MAX
+    assert gekuerzt.startswith("Firma GmbH\nRechnung Nr. RE-7\n")
+    assert gekuerzt.endswith("Gesamtbetrag 238,00 €\n")
+    assert all(z in ("Pos. Ware 1,00", "") for z in gekuerzt.splitlines()[2:-1])
+    assert extraktion.begrenze_text(gekuerzt) == (gekuerzt, False)
+    kurz = "Firma GmbH\nRechnung Nr. RE-7\n"
+    assert extraktion.begrenze_text(kurz) == (kurz, False)
+
+
+LANGE_ZEILEN = {  # eine Zeile mit vielen Summen-Labels bzw. Hinweiswörtern
+    "Summe": "summe " * 15_000,
+    "Summe 19 %": "summe 19 % " * 9_000,
+    "Gesamt inkl": "gesamt inkl " * 8_000,
+    "steuerfrei": "steuerfrei" * 9_000,  # unter TEXT_MAX: nicht gekürzt
+}
+
+
+@pytest.mark.parametrize("zeile", LANGE_ZEILEN.values(), ids=LANGE_ZEILEN.keys())
+def test_lange_zeile_mit_vielen_labels_bremst_nicht(zeile):
+    """Mittel 2, gleiche Klasse (Nachprüfung C, Runde 4): Je Summen-Label suchte
+    ``_brutto`` den Betrag im Rest der Zeile (90 000 Zeichen: über 30 s), und
+    ``steuerfrei\\w*`` las an jedem Vorkommen bis zum Wortende."""
+    with _zeitschranke(2):
+        e = extrahiere(f"Firma GmbH\n{zeile}\nNettobetrag 100,00 €\n")
+    assert e.netto == Decimal("100.00") and e.brutto is None
+
+
+def test_brutto_nach_mehreren_labels_in_einer_zeile():
+    """Die erste passende Angabe der Zeile gewinnt — wie bisher."""
+    e = extrahiere("Firma GmbH\nSumme netto 100,00 Summe 19 % 19,00 Summe 119,00\n")
+    assert e.brutto == Decimal("119.00")
+    e = extrahiere("Firma GmbH\nGesamt inkl. 19 % USt 119,00\n")
+    assert e.brutto == Decimal("119.00")

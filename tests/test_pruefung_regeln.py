@@ -426,6 +426,31 @@ def test_rechnung_mit_steuernummer_ist_vollstaendig(make_session, tmp_path):
     assert pruefe(make_session, "pflichtangaben", archiv=archiv) == []
 
 
+def test_belegangaben_begrenzen_leerraum_und_laenge(make_session, tmp_path):
+    """Mittel 2 (Nachprüfung C, Runde 4): Der Prüflauf liest das Original aus dem
+    Archiv — dort war weder der Leerraum begrenzt (20 000 Leerzeichen nach
+    „Steuer-Nr.“: 7,5 s, quadratisch) noch die Länge. Anfang und Ende bleiben, der
+    Hinweis sagt, dass gekürzt wurde."""
+    from accounti.pruefung.belegangaben import lies_angaben
+    from tests.test_belege_extraktion import _zeitschranke
+
+    zusatz = (
+        "Steuer-Nr."
+        + " " * 20_000
+        + "x\n"
+        + "a" * 300_000
+        + "\nSteuernummer: 12/345/67890"
+    )
+    archiv, b = _archiviert(
+        make_session, tmp_path, RECHNUNGSTEXT.format(zusatz=zusatz).encode()
+    )
+    with _zeitschranke(5):
+        a = lies_angaben(b, archiv)
+    assert a.steuernummer == "12/345/67890"
+    assert a.hinweis is not None and "gekürzt" in a.hinweis
+    assert a.text is not None and len(a.text) <= 100_000
+
+
 def test_kleinbetragsrechnung_braucht_keine_steuernummer(make_session, tmp_path):
     archiv, _ = _archiviert(
         make_session, tmp_path, RECHNUNGSTEXT.format(zusatz="").encode()

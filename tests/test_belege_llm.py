@@ -88,3 +88,16 @@ def test_unbrauchbare_werte_werden_verworfen():
 def test_fehler_gibt_none():
     with patch("accounti.belege.llm.completion", side_effect=RuntimeError):
         assert LLMBelegEngine().lies("x", extrahiere("x")) is None
+
+
+def test_maskierung_ist_linear_auf_langen_folgen():
+    """Mittel 2 (Nachprüfung C, Runde 4): ``_EMAIL`` setzte an jedem Zeichen eines
+    langen Wortes neu an und las bis zu dessen Ende (20 000 Zeichen: 1,2 s,
+    quadratisch) — eine E-Mail beginnt nur am Anfang eines Wortes."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    text = "a" * 100_000 + "\nmax.muster+beleg@post.example.com\n"
+    with _zeitschranke(2):
+        maskiert = maskiere_beleg(text, extrahiere("Firma\n"))
+    assert "max.muster+beleg@post.example.com" not in maskiert
+    assert maskiert.endswith("\n[EMAIL]\n")

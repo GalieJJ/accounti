@@ -447,3 +447,51 @@ def test_gutschrift_mit_rechnungsbezug_im_infoblock_geht_zur_pruefung():
     assert "Titel mehrdeutig" in b.pruef_grund
     assert "--vorzeichen umkehren" in b.pruef_grund
     assert (b.brutto, b.belegnummer) == (Decimal("238.00"), "GS-5")
+
+
+_300_KB = 300_000
+LANGE_FOLGEN = {
+    "Wort": "a" * _300_KB,
+    "Ziffern": "Summe " + "1" * _300_KB,
+    "Tausendergruppen": "Summe " + "111." * (_300_KB // 4),
+    "renr": "renr" * (_300_KB // 4),
+    "Vertrag": "Mietvertrag" * (_300_KB // 11),
+    "steuerfrei": "steuerfrei" * (_300_KB // 10),
+}
+
+
+@pytest.mark.parametrize("folge", LANGE_FOLGEN.values(), ids=LANGE_FOLGEN.keys())
+def test_lange_folgen_ohne_leerzeichen_bremsen_den_import_nicht(folge):
+    """Mittel 2 (Nachprüfung C, Runde 4): Die Leerraumgrenze half nicht gegen lange
+    Folgen ohne Leerzeichen — ``\\w*vertrag``, ``BETRAG`` und die Belegnummer waren
+    darauf quadratisch; ein komprimiertes PDF von 1,1 KB mit 300 KB Text hielt
+    ``belege import`` rund 12 min auf. Der Text ist jetzt begrenzt (Anfang und Ende
+    bleiben), der Beleg geht zur Prüfung."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    text = (
+        "Rahmenwerk Nord GmbH\nRechnung Nr. RE-7\nDatum: 01.10.2026\n"
+        f"{folge}\nNetto 200,00 €\nUSt 19 % 38,00 €\nGesamtbetrag 238,00 €\n"
+    )
+    with _zeitschranke(5):
+        b = _erkenne(BelegErkenner(), text.encode(), "r.txt")
+    assert b.status is BelegStatus.ZUR_PRUEFUNG
+    assert "gekürzt" in b.pruef_grund
+    assert (b.belegnummer, b.brutto, b.steuer) == (
+        "RE-7",
+        Decimal("238.00"),
+        Decimal("38.00"),
+    )
+
+
+def test_langer_text_geht_auch_an_das_llm_nur_begrenzt():
+    """Die LLM-Stufe bekommt denselben begrenzten Text (Maskierung linear)."""
+    from tests.test_belege_extraktion import _zeitschranke
+
+    llm = MagicMock()
+    llm.lies.return_value = None
+    text = "Firma\n" + "a" * _300_KB + "\nGesamtbetrag 119,00 €\n"
+    with _zeitschranke(5):
+        b = _erkenne(BelegErkenner(llm=llm), text.encode(), "r.txt")
+    (gelesen, _), _ = llm.lies.call_args
+    assert len(gelesen) <= 100_000 and b.status is BelegStatus.ZUR_PRUEFUNG
