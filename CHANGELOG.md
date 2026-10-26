@@ -481,6 +481,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Folgejahr eingeht (kein 1548-Weg, kein § 15-Hinweis, kein Befund
   `beleg_nach_zeitraum`); in einem späteren Zeitraum gebucht (festgeschriebener Monat,
   `--buchungsdatum`), geht sie zur Prüfung
+- **Belegeingang hing an einer Titelzeile im Spaltenlayout (ReDoS)** (Nachprüfung C,
+  H/M-1): Das Muster der Titelerkennung brauchte exponentiell lange, wenn eine Zeile mit
+  „Rechnung“/„Gutschrift“ begann und am Ende nicht passte (Spaltenlayout mit 12
+  Leerzeichen: 15 s; mit 25 hing `belege import`) — jedes PDF an Postfach oder Webhook
+  konnte den Eingang lahmlegen. Die Titelmuster sind jetzt linear (atomare Gruppen,
+  possessive Wiederholung, einfache Leerzeichen), eine Titelzeile hat höchstens 120
+  Zeichen, und die Belegerkennung kürzt Leerraum vor allen Mustern auf höchstens 20
+  Leerzeichen am Stück und eine Leerzeile (an langen Leerraum-Folgen wurden auch
+  Belegnummer, Belegdatum, USt-IdNr., Skonto und die Kreditkartenzerlegung
+  quadratisch). Als Titel gelten auch „Gutschrift GS-2026-12“, „Credit Note CN-77“,
+  „Rechnungskorrektur zu RE-5“ (Nummer ohne „Nr.“, kein Betrag) und eine Seitenzahl in
+  der Titelzeile (Nachprüfung C, N-1)
+- **Gutschrift „zur Rechnung Nr. RE-5“ als Dublette verworfen** (Nachprüfung C, M-2):
+  Die erste Nummer im Text war die Belegnummer — die Gutschrift trug die Nummer der
+  Rechnung, wurde als deren Dublette nicht gespeichert, und die Minderung der Vorsteuer
+  fehlte ohne Meldung. Eine Nummer nach „zur/zu/für die/der/zu unserer … Rechnung“ oder
+  „Bezug:“ ist ein Bezug, nicht die eigene Nummer; bei einem Korrekturbeleg geht die
+  Gutschrift-/Korrekturnummer vor (neu: „Korrektur-Nr.“, „Storno-Nr.“), bei einer
+  Rechnung die Rechnungsnummer; ohne eigene Nummer bleibt das Feld leer (zur Prüfung).
+  Gleiche Belegnummer desselben Lieferanten mit anderem Bruttobetrag ist nur noch
+  Dublettenverdacht (gespeichert, zur Prüfung) statt Dublette
+- **Meldungen zu Gutschriften über den Jahreswechsel** (Nachprüfung C, N-2, N-4): Bei
+  Bilanzierung nennt die Meldung für eine Gutschrift aus dem Vorjahr nicht mehr den
+  1548-Weg der Rechnung, sondern die Minderung im Zeitraum der Änderung (§ 17 Abs. 1
+  S. 8 UStG); die Sperrmeldung bietet `--buchungsdatum` nur an, wo es zulässig ist. Der
+  Hinweis bei einer später gebuchten Gutschrift sagt, dass diese Buchung zu stornieren
+  und zum Belegdatum neu zu buchen ist — sonst zählt die Minderung nach der Berichtigung
+  der Voranmeldung doppelt
 - **ZUGFeRD MINIMUM: Steuer verloren, Personenkonto ≠ offener Posten** (Eingang B05): Eine
   Belegposition ohne Steuersatz buchte netto an den Kreditor, der offene Posten stand
   brutto. Ohne Schlüssel wird die Steuer jetzt in den Betrag gebucht (brutto, zur

@@ -49,7 +49,34 @@ nur, wenn vorher kein Titel „Rechnung“/„Invoice“ steht — ein Satz wie
 Rechnung eine automatisch gebuchte Minderung. „Gutschrift“ allein ist mehrdeutig (§ 14
 Abs. 2 S. 2 UStG: Abrechnung durch den Leistungsempfänger wäre ein Erlös) — der Prüfgrund
 sagt das zusätzlich. Gutschrift-Nummern („Gutschrift-Nr.“, „Gutschriftsnummer“, „Credit
-note no.“) sind Belegnummern.
+note no.“, „Korrektur-Nr.“, „Storno-Nr.“) sind Belegnummern. Als Nummer im Titel zählt
+auch eine ohne „Nr.“ („Gutschrift GS-2026-12“, „Rechnungskorrektur zu RE-5“), aber kein
+Betrag („Gutschrift 50,00“), dazu eine Seitenzahl („Seite 1/2“, Spaltenlayout;
+Nachprüfung C, N-1).
+
+**Eigene Nummer statt Bezug (Nachprüfung C, M-2).** Eine Gutschrift trägt ihre eigene
+Nummer (§ 14 Abs. 4 Nr. 4 UStG: einmalig je Aussteller); „zur Rechnung Nr. RE-5“ ist der
+Bezug auf die berichtigte Rechnung. Vorher gewann der erste Treffer im Text, die
+Gutschrift bekam RE-5 und wurde beim Import als Dublette der Rechnung verworfen — die
+Minderung fehlte ohne Meldung. Jetzt zählt eine Nummer nach „zur/zu/für die/der/zu
+unserer/zu Ihrer … Rechnung“ oder „Bezug:/bezüglich/betreff“ nicht; bei einem
+Korrekturbeleg geht die Gutschrift-/Korrekturnummer vor, bei einer Rechnung die
+Rechnungsnummer, sonst der erste Treffer; ohne eigene Nummer bleibt das Feld leer
+(„fehlt: Belegnummer“, zur Prüfung). Dubletten-Stufe 2 (Lieferant + Belegnummer) gilt
+nur bei gleichem oder ungelesenem Bruttobetrag; mit anderem Betrag (Gutschrift mit der
+Nummer der Rechnung, berichtigte Rechnung mit derselben Nummer) ist es ein Verdacht — der
+Beleg wird gespeichert und geht zur Prüfung.
+
+**Muster auf Fremddaten bleiben linear (Nachprüfung C, H/M-1).** Belegtexte kommen aus
+Postfach, Webhook und Connectoren, also von jedem, der ein PDF schicken kann. Die
+Titelerkennung hatte mehrdeutige Leerraum-Quantoren zwischen wiederholten Gruppen
+(exponentiell; ein Titel im Spaltenlayout ließ `belege import` hängen). Die Titelmuster
+arbeiten jetzt auf der Zeile mit einfachen Leerzeichen, mit atomaren Gruppen und
+possessiver Wiederholung (Python ≥ 3.11), und nur auf Zeilen bis 120 Zeichen. Weil auch
+andere Muster an langen Leerraum-Folgen quadratisch wurden (Belegnummer, Belegdatum,
+USt-IdNr., Skonto, Kreditkartenzerlegung), kürzt die Belegerkennung den Text vorher auf
+höchstens 20 Leerzeichen am Stück und eine Leerzeile; Zeilenumbrüche aller Art werden
+`\n`. Tests mit Zeitschranke (SIGALRM unterbricht auch einen laufenden Regex).
 
 **Ohne Schlüssel brutto (B05).** Eine Position ohne Steuersatz bucht die Steuer in den
 Betrag (zur Prüfung), statt sie zu verwerfen — sonst stünde netto auf dem Personenkonto
@@ -145,8 +172,27 @@ Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt de
 - **Zeitpunkt der Änderung bei Gutschriften** ist das Belegdatum der Gutschrift; ein
   davon abweichender Tag der Rücknahme bzw. Vereinbarung steht nicht im Beleg.
 - **Korrekturtitel per Muster:** Ein Korrekturbeleg mit positiven Beträgen und anderem
-  Titel (etwa „Ihre Gutschrift“, „Credit memo“, Titel erst nach „Rechnung“) bleibt
-  positiv und bucht wie eine Rechnung; gedruckte Minusbeträge sind davon unabhängig.
+  Titel (etwa „Ihre Gutschrift“, „Credit memo“, Titel erst nach „Rechnung“, weitere
+  Angaben in der Titelzeile wie „Kunden-Nr.“, Titelzeile über 120 Zeichen, einstellige
+  Nummer „Gutschrift Nr. 7“) bleibt positiv und bucht wie eine Rechnung; gedruckte
+  Minusbeträge sind davon unabhängig.
+- **Bezug per Wortliste:** Ein Bezug ist eine Nummer nach „zur/zu/für die/der/zu
+  unserer/zu Ihrer (ursprünglichen) … Rechnung“ oder „Bezug/bezüglich/betreff“ in
+  derselben Zeile. Steht die Rechnungsnummer ohne solches Wort („Rechnung Nr. RE-5:
+  Rücksendung“) und fehlt eine eigene Nummer, trägt die Gutschrift die Nummer der
+  Rechnung — dank anderem Betrag dann Dublettenverdacht, nicht Dublette. Eine Kopie
+  derselben Rechnung mit anders gelesenem Betrag ist ebenfalls nur Verdacht.
+- **Leerraum gekürzt:** Muster sehen höchstens 20 Leerzeichen am Stück und eine
+  Leerzeile; breitere Spalten zählen wie 20 Leerzeichen. Das Original im Archiv bleibt
+  unverändert, und das Maskieren für das LLM arbeitet auf demselben gekürzten Text.
+- **Gemischte Vorzeichen in einer Rechnung** (Nachprüfung C, N-3): Eine Rechnung mit
+  +500/+35 zu 7 % und −100/−19 zu 19 % (Leergutrücknahme) bucht die Minderung im
+  Belegmonat und nennt sie im Hinweis „Gutschrift“; die Vorsteuer aus der Rechnung geht
+  bei Eingang im Folgejahr über 1548. Für eine Rücknahme stimmt das (§ 17 UStG); wäre
+  der Minusbetrag ein Rabatt auf dieselbe Lieferung, gehörte nur der Saldo der Rechnung
+  in den Eingangsmonat — accounti unterscheidet das nicht; der Beleg geht wegen der
+  uneinheitlichen Vorzeichen zur Prüfung (Rechenprobe), der Mensch entscheidet vor der
+  Freigabe.
 - **Freigabe berichtigt keine Beträge außer dem Vorzeichen** und nicht den Lieferanten.
   Ein erneuter Import endet als Dublette (Datei-Hash); falsch gelesene Beträge: ohne
   Änderung freigeben, verbuchen (zur Prüfung) und die Buchung mit `korrigiere`

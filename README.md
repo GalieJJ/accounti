@@ -256,7 +256,8 @@ gilt für Kreditoren aus dem übrigen EU-Gebiet (Land aus USt-IdNr. oder IBAN, s
 im Zeitraum ihres Belegdatums (§ 17 Abs. 1 S. 8 UStG); einen Korrekturbeleg mit positiven
 Beträgen (Titel „Rechnungskorrektur“, „Gutschrift“, „Stornorechnung“, „Credit Note“)
 negiert accounti und legt ihn zur Prüfung — ist es doch eine Rechnung: `belege freigeben
-… --vorzeichen umkehren`. Kommt eine Rechnung bei Bilanzierung erst im Folgejahr an,
+… --vorzeichen umkehren`. Eine Gutschrift „zur Rechnung Nr. RE-5“ trägt ihre eigene
+Nummer; dieselbe Nummer mit anderem Betrag ist Dublettenverdacht, keine Dublette. Kommt eine Rechnung bei Bilanzierung erst im Folgejahr an,
 steht die Vorsteuer zunächst auf „Vorsteuer im Folgejahr abziehbar“ (SKR03 1548, SKR04
 1434) und wird im Eingangsmonat umgebucht (§ 15 Abs. 1 Nr. 1 UStG). Als Eingang gilt die
 Erfassung in accounti.
