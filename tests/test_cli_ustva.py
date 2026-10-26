@@ -428,6 +428,20 @@ def test_laufender_zeitraum_nicht_freigeben_testmodus_mit_warnung(tmp_path):
     assert "Warnung" in text(r) and "nicht abgelaufen" in text(r)
 
 
+def test_testmodus_im_laufenden_zeitraum_verspricht_keine_freigabe(tmp_path):
+    """Nachprüfung N5: ``uebermitteln --test`` für einen laufenden Zeitraum zeigte
+    „Freigabe möglich (accounti ustva freigeben)“ — ``freigeben`` lehnt dann ab."""
+    url, konfig = umgebung(tmp_path)
+    basis = ["--period", "2099-12", "--db", url, "--config", konfig]
+    r = runner.invoke(
+        app,
+        ["ustva", "uebermitteln", "--test", *basis, "--archiv", str(tmp_path / "a")],
+    )
+    assert r.exit_code == 0, r.output
+    assert "Freigabe möglich" not in text(r)
+    assert "nach Ablauf" in text(r) and "31.12.2099" in text(r)
+
+
 def test_nach_der_abgabe_festschreiben_angeboten_und_korrektur_gemeldet(
     tmp_path, monkeypatch
 ):

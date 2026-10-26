@@ -321,24 +321,25 @@ def _warnungen(
 ) -> list[str]:
     """Hinweise zur Umsatzsteuer-Voranmeldung (§ 18 Abs. 1 UStG, § 153 Abs. 1 AO).
 
-    * Ist die Voranmeldung des Originalzeitraums (oder des Storno-Zeitraums) schon
-      abgegeben oder freigegeben, ändert die Korrektur ihre Werte — berichtigte
-      Anmeldung (``meldungen_im_zeitraum``; die Abweichung meldet ``ustva`` als
+    * Ist die Voranmeldung des Zeitraums, in dem das Storno liegt, schon abgegeben
+      oder freigegeben, ändert die Korrektur ihre Werte — berichtigte Anmeldung
+      (``meldungen_im_zeitraum``; die Abweichung meldet ``ustva`` als
       ``abgegeben_abweichend``).
-    * Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort. Das ist nur
-      bei einer Änderung der Bemessungsgrundlage richtig (§ 17 Abs. 1 S. 7 UStG:
-      Berichtigung im Zeitraum der Änderung). Eine Fehlbuchung wird im
-      Originalzeitraum berichtigt — dann den Monat öffnen und dort stornieren, statt
-      die Voranmeldung zusätzlich von Hand zu berichtigen (sonst doppelt).
+    * Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort, die
+      Voranmeldung des Originals bleibt, wie sie ist (keine Warnung „berichtigte
+      Anmeldung“ für sie — das widerspräche dem Folgenden). Das ist nur bei einer
+      Änderung der Bemessungsgrundlage richtig (§ 17 Abs. 1 S. 7 UStG: Berichtigung
+      im Zeitraum der Änderung). Eine Fehlbuchung wird im Originalzeitraum
+      berichtigt — dann den Monat öffnen und dort stornieren, statt die
+      Voranmeldung zusätzlich von Hand zu berichtigen (sonst doppelt).
     """
     if not _umsatzsteuerlich(b, kr):
         return []
     from accounti.pruefung.perioden import meldungen_im_zeitraum
 
-    warnungen = meldungen_im_zeitraum(session, b.datum, b.datum)
+    warnungen = meldungen_im_zeitraum(session, tag, tag)
     anders = (tag.year, tag.month) != (b.datum.year, b.datum.month)
     if anders:
-        warnungen += meldungen_im_zeitraum(session, tag, tag)
         warnungen.append(
             f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum "
             f"als das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im "

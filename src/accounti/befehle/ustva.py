@@ -6,6 +6,7 @@ import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import TYPE_CHECKING, NoReturn
 
 import typer
@@ -404,7 +405,19 @@ def uebermitteln(
             console.print(f"[dim]{escape(grund)}[/dim]")
         modus = modus_fuer(s, Meldeart.USTVA, modus, uebermittler)
         v = lauf.vorbereiten(s, test=modus is not Modus.ECHT)
-        zeige_befunde(v.befunde)
+        laufend = next((b for b in v.befunde if b.regel == "zeitraum_laufend"), None)
+        if laufend is not None:
+            # im Testmodus nur eine Warnung — freigeben lehnt den Zeitraum ab, bis er
+            # abgelaufen ist (§ 18 Abs. 1 UStG); keine „Freigabe möglich“ versprechen
+            zeige_befunde(
+                v.befunde,
+                moeglich=(
+                    "Test möglich[/green] — freigeben erst nach Ablauf des Zeitraums "
+                    f"(ab {v.zeitraum.bis + timedelta(days=1):%d.%m.%Y})"
+                ),
+            )
+        else:
+            zeige_befunde(v.befunde)
         try:
             u = uebermittle(
                 s,

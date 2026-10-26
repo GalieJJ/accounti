@@ -387,6 +387,35 @@ def test_korrektur_nach_abgabe_abgegeben_abweichend(db):
     assert "Kz 83 2.145,18 €" in befund.text and "83" in befund.text
 
 
+def test_storno_in_anderem_monat_verlangt_keine_berichtigung_des_originals(db):
+    """Nachprüfung N4: Storno am 02.10. zu einer Buchung aus dem abgegebenen August.
+    accounti zählt das Storno im Oktober, ``ustva 2026-08`` bleibt unverändert — die
+    Warnung „berichtigte Voranmeldung 08 abgeben“ widersprach dem § 17-Hinweis
+    daneben. Es bleibt der Hinweis, der beide Fälle unterscheidet."""
+    from datetime import date
+
+    from accounti.pruefung.storno import storniere
+
+    make_session, einstellungen, archiv = db
+    with make_session() as s:
+        _abgeben(s, einstellungen, archiv, EricDoppel())
+        ziel = next(
+            b
+            for b in lade_buchungen(s)
+            if b.haben_konto == "8400" and b.storniert_durch is None
+        )
+        k = storniere(
+            s, str(ziel.id)[:8], grund="Rabatt", von="Erika", datum=date(2026, 10, 2)
+        )
+        s.commit()
+        assert not [w for w in k.warnungen if "schon abgegeben" in w], k.warnungen
+        (hinweis,) = k.warnungen
+        assert "§ 17 Abs. 1 S. 7 UStG" in hinweis and "10/2026" in hinweis
+        assert "periode oeffnen 2026-08" in hinweis
+        v = vorbereiten(s, einstellungen)
+    assert not [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
+
+
 def test_ohne_abgabe_kein_befund_und_kein_veralteter_hinweis(db):
     """Eingang B13 / Ausgang: der Hinweis „Baustein 7 nicht angeschlossen“ ist weg."""
     make_session, einstellungen, _ = db
