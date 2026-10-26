@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import CursorResult, and_, case, delete, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.elements import ColumnElement
 
 from accounti.db.tabellen_auth import (
     ApiTokenRow,
@@ -613,7 +614,7 @@ def lade_ereignisse(
     if benutzer is not None:
         abfrage = abfrage.where(AuthEreignisRow.benutzer == benutzer)
     if gesellschaften is not None:
-        ohne = AuthEreignisRow.gesellschaft.is_(None)
+        ohne: ColumnElement[bool] = AuthEreignisRow.gesellschaft.is_(None)
         if fremde:
             ohne = and_(
                 ohne,

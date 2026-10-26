@@ -182,11 +182,15 @@ def _pruefe_datei(db: str) -> None:
 def _stand(engine: Engine) -> str | None:
     from alembic.runtime.migration import MigrationContext
 
+    with engine.connect() as v:
+        return MigrationContext.configure(v).get_current_revision()
+
+
+def _stand_nach_fehler(engine: Engine) -> str:
     try:
-        with engine.connect() as v:
-            return MigrationContext.configure(v).get_current_revision()
+        return _stand(engine) or "ohne Versionsvermerk"
     except SQLAlchemyError:
-        return None
+        return "unbekannt (keine Verbindung)"
 
 
 def aktualisiere(db: str, ini: Path) -> Ergebnis:
@@ -200,12 +204,13 @@ def aktualisiere(db: str, ini: Path) -> Ergebnis:
     except SQLAlchemyError as fehler:
         ursache = getattr(fehler, "orig", None) or fehler
         grund = (str(ursache).strip().splitlines() or [type(ursache).__name__])[0]
-        stand = _stand(engine) or "ohne Versionsvermerk"
-        msg = (
-            f"Migration abgebrochen: {grund} — Stand jetzt: {stand}. Unter SQLite kann "
-            "ein Schritt halb ausgeführt sein: die Sicherung von vor dem Update "
-            "zurückspielen (docs/betrieb.md, Upgrades)"
-        )
+        stand = _stand_nach_fehler(engine)
+        msg = f"Upgrade abgebrochen: {grund} — Stand jetzt: {stand}"
+        if engine.dialect.name == "sqlite":
+            msg += (
+                ". Unter SQLite kann ein Schritt halb ausgeführt sein: die Sicherung "
+                "von vor dem Update zurückspielen (docs/betrieb.md, Upgrades)"
+            )
         raise UpgradeError(msg) from fehler
     finally:
         engine.dispose()

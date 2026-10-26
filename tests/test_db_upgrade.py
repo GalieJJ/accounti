@@ -161,7 +161,7 @@ def test_db_upgrade_scheitert_mit_meldung_statt_traceback(tmp_path):
     )
     assert r.exit_code == 1, r.output
     assert not isinstance(r.exception, SQLAlchemyError), r.exception
-    assert "Migration abgebrochen" in r.output and "33d478b807fc" in r.output
+    assert "Upgrade abgebrochen" in r.output and "33d478b807fc" in r.output
     assert "api_tokens" in r.output
 
 
@@ -228,7 +228,7 @@ def test_downgrade_token_index_bricht_vor_dem_loeschen_ab(tmp_path):
     assert _version(db) == [SCHEMA_STAND]
 
 
-def _alembic_url(url: str, cwd: Path, *args: str) -> str:
+def _alembic_url(url: str, cwd: Path, *args: str, ok: bool = True) -> str:
     umgebung = {**os.environ, "ACCOUNTI_DB": url, "PYTHONPATH": str(WURZEL / "src")}
     e = subprocess.run(
         [sys.executable, "-m", "alembic", "-c", str(WURZEL / "alembic.ini"), *args],
@@ -238,7 +238,7 @@ def _alembic_url(url: str, cwd: Path, *args: str) -> str:
         text=True,
         check=False,
     )
-    assert e.returncode == 0, e.stdout + e.stderr
+    assert (e.returncode == 0) is ok, e.stdout + e.stderr
     return e.stdout + e.stderr
 
 
@@ -272,6 +272,11 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
         v.execute(zeile, {"id": "2", "h": "h2", "g": "b"})
     from sqlalchemy.exc import IntegrityError
 
+    with pytest.raises(IntegrityError), engine.begin() as v:
+        v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
+    # Nachprüfung N3: das Downgrade bricht vorher ab, der Index bleibt
+    ausgabe = _alembic_url(url, tmp_path, "downgrade", "-1", ok=False)
+    assert "Downgrade abgebrochen" in ausgabe, ausgabe
     with pytest.raises(IntegrityError), engine.begin() as v:
         v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
     with engine.begin() as v:
