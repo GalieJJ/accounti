@@ -8,6 +8,16 @@ ein Befund, ebenso ein Umsatz, den schon eine Regel als Erlös gebucht hat (in
 Fremdwährung auch innerhalb der Toleranz) — nicht aber einer, den accounti schon
 einer anderen Auszahlung zugeordnet hat, oder einer, der nur zwischen Bank,
 Verrechnungs-, Geldtransit- und Kursdifferenzkonten gebucht ist (eine Geldbewegung).
+Eine Geldbewegung auf einem anderen als dem Gegenkonto der Abrechnung ist eine
+Warnung (``auszahlung_umgebucht``): die Auszahlung bleibt sonst still offen.
+
+Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung desselben Marktplatzes
+(und nicht die eigene), gehört er zu ihr — er ist weder Treffer noch Befund. Bleiben
+mehrere Umsätze, entscheidet die eigene Nummer im Verwendungszweck; bei „schon
+gebucht“ nennt der Befund sonst alle, statt den zuerst importierten zu nehmen.
+Ein solcher Befund gilt, solange der Abgleich ihn wiederfindet — nennt ein späterer
+Lauf einen anderen oder keinen gebuchten Umsatz mehr (z. B. weil die fremde Nummer
+inzwischen bekannt ist), ist der alte erledigt.
 
 Steht ein Umsatz schon auf dem Verrechnungskonto dieser Abrechnung — etwa nach der
 Korrektur, die der Befund „anderweitig gebucht“ vorschlägt —, ist er die Auszahlung:
@@ -29,6 +39,7 @@ Gebucht wird „Bank an Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit d
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -37,6 +48,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.db.repo_integrationen import (
+    abrechnungsnummern,
     ergaenze_befunde,
     erledige_befunde,
     lade_abrechnungen,
@@ -78,32 +90,56 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_abweichung",
     "auszahlung_mehrdeutig",
     "auszahlung_anderweitig_gebucht",
+    "auszahlung_umgebucht",
 }
-# Text des Befunds „auszahlung_anderweitig_gebucht“ — ``bankdatum`` liest den Tag
+# Befunde über einen schon gebuchten Umsatz: überholt, sobald ein Lauf ihn nicht mehr
+# so findet (``gleiche_auszahlungen_ab``)
+_UMSATZBEFUNDE = {"auszahlung_anderweitig_gebucht", "auszahlung_umgebucht"}
+# Text des Befunds „auszahlung_anderweitig_gebucht“ — ``bankdaten`` liest die Tage
 # daraus zurück; beides nur hier ändern
 _SCHON_GEBUCHT = "Der Bankumsatz vom {tag:%d.%m.%Y} ist schon gebucht"
 _SCHON_GEBUCHT_TAG = re.compile(
     r"Der Bankumsatz vom (\d{2})\.(\d{2})\.(\d{4}) ist schon gebucht"
 )
+_SCHON_GEBUCHT_MEHRERE = "schon gebuchte Bankumsätze passen"
+_TAG = re.compile(r"vom (\d{2})\.(\d{2})\.(\d{4})")
+# kürzere Nummern stehen zu leicht zufällig in einem Verwendungszweck, um einen
+# Umsatz deshalb einer anderen Abrechnung zuzuschreiben
+_MINDESTLAENGE = 6
+
+
+def bankdaten(befund: Befund) -> list[date]:
+    """Tage der schon gebuchten Bankumsätze eines Befunds
+    ``auszahlung_anderweitig_gebucht`` — dort steht die Fehlbuchung und damit der
+    doppelte Erlös in der Voranmeldung, nicht im Zeitraum der Abrechnung (z. B.
+    Abrechnung 16.–31.08., Auszahlung am 03.09.). Passen mehrere Umsätze, nennt der
+    Befund alle (es wird nicht geraten), die Voranmeldung jedes Tages warnt. Die
+    Tabelle ``marktplatz_befunde`` hat keine Spalte dafür, die Tage stehen im
+    Befundtext; leer bei anderen Befunden oder einem Text ohne Tag."""
+    if befund.code != "auszahlung_anderweitig_gebucht":
+        return []
+    einer = _SCHON_GEBUCHT_TAG.search(befund.text)
+    if einer is not None:
+        treffer = [einer]
+    elif _SCHON_GEBUCHT_MEHRERE in befund.text:
+        kopf = befund.text.split(" — ", 1)[0]
+        treffer = list(_TAG.finditer(kopf))
+    else:
+        return []
+    tage = []
+    for t in treffer:
+        tag, monat, jahr = (int(x) for x in t.groups())
+        try:
+            tage.append(date(jahr, monat, tag))
+        except ValueError:
+            continue
+    return tage
 
 
 def bankdatum(befund: Befund) -> date | None:
-    """Tag des schon gebuchten Bankumsatzes eines Befunds
-    ``auszahlung_anderweitig_gebucht`` — dort steht die Fehlbuchung und damit der
-    doppelte Erlös in der Voranmeldung, nicht im Zeitraum der Abrechnung (z. B.
-    Abrechnung 16.–31.08., Auszahlung am 03.09.). Die Tabelle ``marktplatz_befunde``
-    hat keine Spalte dafür, der Tag steht im Befundtext; ``None`` bei anderen
-    Befunden oder einem Text ohne Tag."""
-    if befund.code != "auszahlung_anderweitig_gebucht":
-        return None
-    treffer = _SCHON_GEBUCHT_TAG.search(befund.text)
-    if treffer is None:
-        return None
-    tag, monat, jahr = (int(x) for x in treffer.groups())
-    try:
-        return date(jahr, monat, tag)
-    except ValueError:
-        return None
+    """Erster Tag aus ``bankdaten`` (``None``, wenn der Befund keinen nennt)."""
+    tage = bankdaten(befund)
+    return tage[0] if tage else None
 
 
 def status_von(abrechnung: Abrechnung) -> AbrechnungStatus:
@@ -135,14 +171,18 @@ class _Lauf:
     zugeordnet: set[UUID]
     # Verrechnungs-, Geldtransit- und Kursdifferenzkonten: Geldbewegung, kein Erlös
     geldkonten: set[str]
+    # bekannte Abrechnungsnummern je Marktplatz (gespeichert und aus dem Bericht)
+    nummern: dict[str, set[str]] = field(default_factory=dict)
     benutzt: set[UUID] = field(default_factory=set)
     buchungen: dict[UUID, list[Buchungssatz]] = field(default_factory=dict)
+    genannt: dict[tuple[UUID, str], set[str]] = field(default_factory=dict)
 
 
 def gleiche_auszahlungen_ab(
     session: Session,
     kontext: Kontext,
     abrechnungen: list[Abrechnung] | None = None,
+    nummern: Iterable[tuple[str, str]] = (),
 ) -> list[Abgleich]:
     """Gleicht offene Auszahlungen (und PayPal-Einzahlungen) mit der Bank ab.
 
@@ -150,10 +190,16 @@ def gleiche_auszahlungen_ab(
     Treffer die Kandidaten der übrigen verkleinert —, danach erst Befunde für den
     Rest gebildet. So ist ein Umsatz, den im selben Lauf eine andere Auszahlung
     bekommen hat, für niemanden eine Abweichung, unabhängig von der Reihenfolge.
+
+    ``nummern``: (Marktplatz, Nummer) weiterer Abrechnungen desselben Berichts, die
+    noch nicht gespeichert sind — ein Umsatz mit einer davon gehört nicht hierher.
     """
     e = kontext.einstellungen
     if abrechnungen is None:
         abrechnungen = lade_abrechnungen(session)
+    bekannt = abrechnungsnummern(session)
+    for markt, nummer in [*((a.marktplatz, a.nummer) for a in abrechnungen), *nummern]:
+        bekannt.setdefault(markt, set()).add(nummer)
     marktkonten = {k.verrechnungskonto for k in e.marktplaetze.values()}
     lauf = _Lauf(
         session=session,
@@ -169,6 +215,7 @@ def gleiche_auszahlungen_ab(
         zugeordnet=zugeordnete_bank_transaktionen(session),
         geldkonten=marktkonten
         | {e.geldtransit_konto, e.kursdifferenz_ertrag, e.kursdifferenz_aufwand},
+        nummern=bekannt,
     )
     offene: list[tuple[Abrechnung, Marktplatzposten, Decimal]] = []
     for a in abrechnungen:
@@ -196,12 +243,29 @@ def gleiche_auszahlungen_ab(
                 ergebnisse[p.id] = _zuordnen(lauf, a, p, kandidaten[0], erwartet)
                 weiter = True
     neue_befunde: dict[UUID, list[Befund]] = {}
+    ueberholt: list[Befund] = []
     for a, p, erwartet in offene:
         if p.id not in ergebnisse:
             ergebnis = _befund(lauf, a, p, erwartet)
             ergebnisse[p.id] = ergebnis
-            if ergebnis.befund is not None:
-                neue_befunde.setdefault(a.id, []).append(ergebnis.befund)
+            neu = ergebnis.befund
+            if neu is not None:
+                neue_befunde.setdefault(a.id, []).append(neu)
+            # „schon gebucht“ gilt, solange der Lauf denselben Umsatz findet: nennt er
+            # einen anderen oder keinen mehr, ist der alte Befund überholt (etwa weil
+            # der Umsatz die Nummer einer inzwischen bekannten Abrechnung trägt). Nach
+            # „mehrdeutig“/„abweichung“ nicht — dort wird nach gebuchten nicht gesucht
+            if neu is None or neu.code in _UMSATZBEFUNDE:
+                ueberholt.extend(
+                    b
+                    for b in a.offene_befunde
+                    if b.code in _UMSATZBEFUNDE
+                    and b.posten_nr == p.nr
+                    and (neu is None or (b.code, b.text) != (neu.code, neu.text))
+                )
+    for b in ueberholt:
+        b.erledigt = True
+    erledige_befunde(session, [b.id for b in ueberholt])
 
     for a in {a.id: a for a, _p, _e in offene}.values():
         befunde = neue_befunde.get(a.id, [])
@@ -218,13 +282,62 @@ def _fenster(lauf: _Lauf, p: Marktplatzposten) -> tuple[date, date]:
     return p.datum - VORLAUF, p.datum + toleranz
 
 
+def _text(t: Transaktion) -> str:
+    return f"{t.verwendungszweck} {t.gegenkonto_name or ''}".upper()
+
+
 def _erkennbar(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
     konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
-    text = f"{t.verwendungszweck} {t.gegenkonto_name or ''}".upper()
+    text = _text(t)
     return (
         any(w.upper() in text for w in konten.bank_stichworte)
         or a.nummer.upper() in text
     )
+
+
+def _nennt(text: str, nummer: str) -> bool:
+    """``nummer`` steht als eigenes Wort im (großgeschriebenen) Text — nicht als Teil
+    einer längeren Nummer (6009990001 nicht in 60099900012)."""
+    gesucht = nummer.upper()
+    start = text.find(gesucht) if gesucht else -1
+    while start >= 0:
+        ende = start + len(gesucht)
+        if (start == 0 or not text[start - 1].isalnum()) and (
+            ende == len(text) or not text[ende].isalnum()
+        ):
+            return True
+        start = text.find(gesucht, start + 1)
+    return False
+
+
+def _eigene_nummer(a: Abrechnung, t: Transaktion) -> bool:
+    return _nennt(_text(t), a.nummer)
+
+
+def _fremd(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
+    """Der Umsatz nennt die Nummer einer anderen bekannten Abrechnung desselben
+    Marktplatzes und nicht die eigene — er gehört zu jener Auszahlung."""
+    schluessel = (t.id, a.marktplatz)
+    if schluessel not in lauf.genannt:
+        text = _text(t)
+        lauf.genannt[schluessel] = {
+            n
+            for n in lauf.nummern.get(a.marktplatz, set())
+            if len(n) >= _MINDESTLAENGE and n.upper() in text and _nennt(text, n)
+        }
+    return bool(lauf.genannt[schluessel] - {a.nummer}) and not _eigene_nummer(a, t)
+
+
+def _eingrenzen(
+    kandidaten: list[Transaktion], *merkmale: Callable[[Transaktion], bool]
+) -> list[Transaktion]:
+    """Grenzt mehrere Kandidaten Merkmal für Merkmal ein; ein Merkmal, das keiner
+    hat, grenzt nichts ein — bleiben mehrere, wird nicht geraten."""
+    for merkmal in merkmale:
+        if len(kandidaten) <= 1:
+            break
+        kandidaten = [t for t in kandidaten if merkmal(t)] or kandidaten
+    return kandidaten
 
 
 def _gegenkonto(kontext: Kontext, a: Abrechnung) -> str:
@@ -233,6 +346,18 @@ def _gegenkonto(kontext: Kontext, a: Abrechnung) -> str:
     if a.marktplatz == "paypal":
         return e.geldtransit_konto
     return e.marktplatz(a.marktplatz).verrechnungskonto
+
+
+def _umbuchung(
+    lauf: _Lauf, a: Abrechnung, umsaetze: list[Transaktion], ident: str
+) -> str:
+    """Der korrigiere-Befehl, der den Umsatz zur Geldbewegung auf das Gegenkonto
+    der Abrechnung macht — wie ``_buche`` (Auszahlung: Bank an Gegenkonto)."""
+    banken = {t.sachkonto or lauf.kontext.buchhaltung.bank_konto for t in umsaetze}
+    bank = banken.pop() if len(banken) == 1 else "<Bankkonto>"
+    gegen = _gegenkonto(lauf.kontext, a)
+    soll, haben = (bank, gegen) if umsaetze[0].betrag > 0 else (gegen, bank)
+    return f"accounti korrigiere {ident} --soll {soll} --haben {haben} --ohne-steuer"
 
 
 def _buchungen(lauf: _Lauf, t: Transaktion) -> list[Buchungssatz]:
@@ -293,7 +418,9 @@ def _kandidaten(
     """Freie Bankumsätze mit exakt dem erwarteten Betrag im Zeitfenster — bei
     Fremdwährung ohne exakten Treffer: mit Stichwort oder Abrechnungsnummer und
     Betrag in der Toleranz. Frei ist ein offener Umsatz oder einer, der schon nur
-    auf dem Gegenkonto der Abrechnung steht (``_vorgebucht``)."""
+    auf dem Gegenkonto der Abrechnung steht (``_vorgebucht``) — nicht einer mit der
+    Nummer einer anderen Abrechnung (``_fremd``). Mehrere grenzen Stichwort und
+    eigene Nummer ein."""
     von, bis = _fenster(lauf, p)
     frei = [
         t
@@ -311,16 +438,22 @@ def _kandidaten(
                 and _vorgebucht(lauf, a, t) is not None
             )
         )
+        and not _fremd(lauf, a, t)
     ]
-    kandidaten = [t for t in frei if t.betrag == erwartet]
-    if len(kandidaten) > 1:
-        kandidaten = [t for t in kandidaten if _erkennbar(lauf, a, t)] or kandidaten
+    kandidaten = _eingrenzen(
+        [t for t in frei if t.betrag == erwartet],
+        lambda t: _erkennbar(lauf, a, t),
+        lambda t: _eigene_nummer(a, t),
+    )
     if not kandidaten and a.waehrung != "EUR":
-        kandidaten = [
-            t
-            for t in frei
-            if _erkennbar(lauf, a, t) and _in_toleranz(lauf, t.betrag, erwartet)
-        ]
+        kandidaten = _eingrenzen(
+            [
+                t
+                for t in frei
+                if _erkennbar(lauf, a, t) and _in_toleranz(lauf, t.betrag, erwartet)
+            ],
+            lambda t: _eigene_nummer(a, t),
+        )
     return kandidaten
 
 
@@ -375,7 +508,6 @@ def _befund(
 ) -> Abgleich:
     """Kein eindeutiger Treffer: mehrdeutig, abweichend, anderweitig gebucht — oder
     einfach noch nicht auf der Bank."""
-    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     von, bis = _fenster(lauf, p)
     kandidaten = _kandidaten(lauf, a, p, erwartet)
@@ -401,6 +533,7 @@ def _befund(
         and t.id not in lauf.zugeordnet
         and von <= t.datum <= bis
         and _erkennbar(lauf, a, t)
+        and not _fremd(lauf, a, t)  # gehört zu einer anderen Abrechnung (M2)
     ]
     anders = [
         t
@@ -410,7 +543,7 @@ def _befund(
         and (t.betrag > 0) == (erwartet > 0)
     ]
     if anders:
-        t = anders[0]
+        (t, *_) = _eingrenzen(anders, lambda t: _eigene_nummer(a, t))
         return Abgleich(
             a,
             p,
@@ -425,42 +558,122 @@ def _befund(
                 posten_nr=p.nr,
             ),
         )
+
     # Fremdwährung: dieselbe Toleranz wie beim Treffer — die Bank rechnet mit ihrem
     # eigenen Kurs, exakt gleich ist der gebuchte Umsatz fast nie (sonst stünde der
     # Erlös still doppelt in der Voranmeldung). Nicht „schon gebucht“: ein Umsatz,
-    # der einer anderen Auszahlung zugeordnet ist (``frei``), und eine Geldbewegung
-    # — sonst träfe die Toleranz den Umsatz der vorigen Auszahlung (Nachprüfung 2 E)
-    schon = [
-        t
-        for t in frei
-        if t.id in lauf.gebucht
-        and (
-            t.betrag == erwartet
-            or (a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet))
+    # der einer anderen Auszahlung zugeordnet ist oder ihre Nummer nennt (``frei``),
+    # und eine Geldbewegung — sonst träfe die Toleranz den Umsatz der vorigen
+    # Auszahlung (Nachprüfung 2 E, M1; 3 E, M2)
+    def passt(t: Transaktion) -> bool:
+        return t.betrag == erwartet or (
+            a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet)
         )
-        and not _nur_geldbewegung(lauf, t)
-    ]
+
+    gebucht = [t for t in frei if t.id in lauf.gebucht and passt(t)]
+    # mehrere: die eigene Nummer, dann der exakte Betrag (in Fremdwährung Zufall,
+    # die Nummer nicht; in Euro sind ohnehin alle exakt) — sonst alle nennen
+    schon = _eingrenzen(
+        [t for t in gebucht if not _nur_geldbewegung(lauf, t)],
+        lambda t: _eigene_nummer(a, t),
+        lambda t: t.betrag == erwartet,
+    )
     if schon:
-        t = schon[0]
-        ids = [str(b.id)[:8] for b in _buchungen(lauf, t)]
-        bank = t.sachkonto or lauf.kontext.buchhaltung.bank_konto
-        return Abgleich(
-            a,
-            p,
-            befund=Befund(
-                code="auszahlung_anderweitig_gebucht",
-                schweregrad=Schweregrad.FEHLER,
-                text=(
-                    f"{markt} {a.nummer}: {_SCHON_GEBUCHT.format(tag=t.datum)} "
-                    f"({', '.join(ids)}) — Erlöse wären doppelt. "
-                    f"Korrigieren mit accounti korrigiere {ids[0] if ids else '<ID>'} "
-                    f"--soll {bank} --haben {konten.verrechnungskonto} --ohne-steuer "
-                    "(die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer)"
-                ),
-                posten_nr=p.nr,
-            ),
-        )
+        return Abgleich(a, p, befund=_schon_gebucht(lauf, a, p, schon))
+    # eine Geldbewegung, aber auf einem anderen Konto (z. B. Geldtransit statt
+    # Verrechnungskonto): kein doppelter Erlös, doch die Auszahlung bliebe still
+    # offen und das Verrechnungskonto mit Saldo (Nachprüfung 3 E, L-b)
+    umgebucht = _eingrenzen(
+        [
+            t
+            for t in gebucht
+            if _nur_geldbewegung(lauf, t) and _vorgebucht(lauf, a, t) is None
+        ],
+        lambda t: _eigene_nummer(a, t),
+        lambda t: t.betrag == erwartet,
+    )
+    if umgebucht:
+        return Abgleich(a, p, befund=_umgebucht(lauf, a, p, umgebucht))
     return Abgleich(a, p)
+
+
+def _liste(lauf: _Lauf, umsaetze: list[Transaktion]) -> tuple[str, str]:
+    """(„vom 30.09.2026: eea596bb; vom …“, ID für den korrigiere-Befehl)."""
+    teile, erste = [], "<ID>"
+    for t in umsaetze:
+        ids = [str(b.id)[:8] for b in _buchungen(lauf, t)]
+        teile.append(f"vom {t.datum:%d.%m.%Y}: {', '.join(ids) or '?'}")
+        if len(umsaetze) == 1 and ids:
+            erste = ids[0]
+    return "; ".join(teile), erste
+
+
+def _schon_gebucht(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, schon: list[Transaktion]
+) -> Befund:
+    """FEHLER ``auszahlung_anderweitig_gebucht``: ein Umsatz — oder, nicht
+    entscheidbar, mehrere — schon als Erlös gebucht; ``bankdaten`` liest die Tage."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    if len(schon) == 1:
+        (t,) = schon
+        ids = [str(b.id)[:8] for b in _buchungen(lauf, t)]
+        befehl = _umbuchung(lauf, a, schon, ids[0] if ids else "<ID>")
+        text = (
+            f"{markt} {a.nummer}: {_SCHON_GEBUCHT.format(tag=t.datum)} "
+            f"({', '.join(ids)}) — Erlöse wären doppelt. Korrigieren mit {befehl} "
+            "(die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer)"
+        )
+    else:
+        liste, ident = _liste(lauf, schon)
+        text = (
+            f"{markt} {a.nummer}: {len(schon)} {_SCHON_GEBUCHT_MEHRERE} ({liste}) — "
+            "einer davon ist die Auszahlung, ihre Erlöse wären doppelt; welcher, "
+            "nennt kein Verwendungszweck, es wird nicht geraten. Den richtigen "
+            f"korrigieren mit {_umbuchung(lauf, a, schon, ident)} (die Auszahlung "
+            "ist eine Geldbewegung ohne Umsatzsteuer)"
+        )
+    return Befund(
+        code="auszahlung_anderweitig_gebucht",
+        schweregrad=Schweregrad.FEHLER,
+        text=text,
+        posten_nr=p.nr,
+    )
+
+
+def _umgebucht(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, umsaetze: list[Transaktion]
+) -> Befund:
+    """WARNUNG ``auszahlung_umgebucht``: die Auszahlung ist als Geldbewegung gebucht,
+    aber nicht auf dem Gegenkonto der Abrechnung."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    gegen = _gegenkonto(lauf.kontext, a)
+    banken = {t.sachkonto or lauf.kontext.buchhaltung.bank_konto for t in umsaetze}
+    konten = sorted(
+        {
+            k
+            for t in umsaetze
+            for b in _buchungen(lauf, t)
+            for k in (b.soll_konto, b.haben_konto)
+        }
+        - banken
+    )
+    liste, ident = _liste(lauf, umsaetze)
+    wer = (
+        f"Der Bankumsatz ({liste}) ist"
+        if len(umsaetze) == 1
+        else f"{len(umsaetze)} Bankumsätze ({liste}) sind"
+    )
+    return Befund(
+        code="auszahlung_umgebucht",
+        schweregrad=Schweregrad.WARNUNG,
+        text=(
+            f"{markt} {a.nummer}: {wer} als Geldbewegung auf "
+            f"{', '.join(konten) or '?'} gebucht, nicht auf {gegen} — die Auszahlung "
+            f"bleibt offen, {gegen} behält den Saldo. Umbuchen mit "
+            f"{_umbuchung(lauf, a, umsaetze, ident)}"
+        ),
+        posten_nr=p.nr,
+    )
 
 
 def _buche(

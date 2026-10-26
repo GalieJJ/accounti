@@ -506,8 +506,22 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Nach der vorgeschlagenen Korrektur (`korrigiere … --soll 1200 --haben 1361 --ohne-steuer`)
   ordnet der nächste Abgleich den Umsatz zu und erledigt den Befund, statt einen zweiten
   anzulegen; in Fremdwährung bucht er die Kursdifferenz vom Verrechnungskonto um (vorher blieb
-  die Abrechnung „abweichung“ und die Voranmeldung warnte dauerhaft). `marktplatz import` und
-  `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
+  die Abrechnung „abweichung“ und die Voranmeldung warnte dauerhaft). Ein Umsatz, dessen
+  Verwendungszweck die Nummer einer anderen bekannten Abrechnung desselben Marktplatzes nennt
+  (auch einer aus demselben Bericht), ist weder Treffer noch „schon gebucht“; unter mehreren
+  entscheidet die eigene Nummer — vorher nahm „schon gebucht“ (und nach der Korrektur der
+  Treffer mit Toleranz) den zuerst importierten Umsatz: bucht `bank lauf` zwei eBay-Auszahlungen
+  per Regel als Erlös, bevor der Transaktionsbericht kommt, nannten beide Befunde denselben Tag,
+  die Voranmeldung des anderen Monats warnte nicht, und die Korrektur ordnete den Umsatz der
+  falschen Auszahlung zu (Kursdifferenz 0,41 € statt 0,02 €). Ist nicht zu entscheiden, welcher
+  gebuchte Umsatz die Auszahlung ist, nennt der Befund alle, statt zu raten, und die
+  Voranmeldung jedes ihrer Monate warnt. Ein Befund „schon gebucht“ gilt, solange der Abgleich
+  denselben Umsatz findet; nennt ein späterer Lauf einen anderen oder keinen mehr, ist er
+  erledigt. Ist die Auszahlung als Geldbewegung auf ein anderes Konto gebucht (z. B. 1360 statt
+  1361), warnt der Abgleich (`auszahlung_umgebucht`) mit der Umbuchung — vorher kam seit der
+  Korrektur oben kein Befund mehr, das Verrechnungskonto behielt still den Saldo; bei PayPal
+  nennt der Korrekturvorschlag das Geldtransitkonto, auf das accounti selbst bucht. `marktplatz
+  import` und `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
   Auszahlung buchen); der Jahresabschluss prüft die Verrechnungskonten der Marktplätze
   (1361–1363)
 - **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines

@@ -268,6 +268,7 @@ def _nachtrag(
     beleg_id: UUID | None,
     auszahlung: Decimal | None,
     buchungsdatum: Buchungsdatum | None = None,
+    berichtsnummern: frozenset[tuple[str, str]] = frozenset(),
 ) -> Importergebnis:
     """Ergänzt eine bekannte Abrechnung um die Posten, die sie noch nicht hat.
 
@@ -350,7 +351,7 @@ def _nachtrag(
     for buchung in gebucht.buchungen:
         speichere_buchung(session, buchung)
     session.flush()
-    abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
+    abgleich = gleiche_auszahlungen_ab(session, kontext, [a], berichtsnummern)
     return Importergebnis(
         a,
         neu=False,
@@ -478,6 +479,10 @@ def _importiere(
     )
     beleg_id = eingang.beleg_id
     konten = kontext.einstellungen.marktplatz(markt)
+    # die Nummern aller Abrechnungen des Berichts zählen beim Abgleich schon, bevor
+    # sie gespeichert sind: ein Umsatz mit einer davon gehört nicht zur ersten
+    # (Nachprüfung 3 E, M2 — ein Transaktionsbericht mit mehreren Auszahlungen)
+    berichtsnummern = frozenset((x.marktplatz, x.nummer) for x in abrechnungen)
     ergebnisse = []
     for a in abrechnungen:
         if eingang.ergebnis is Eingangsergebnis.DUBLETTE:
@@ -493,6 +498,7 @@ def _importiere(
                     beleg_id,
                     auszahlung,
                     buchungsdatum,
+                    berichtsnummern,
                 )
             )
             continue
@@ -521,7 +527,7 @@ def _importiere(
         for b in gebucht.buchungen:
             speichere_buchung(session, b)
         session.flush()
-        abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
+        abgleich = gleiche_auszahlungen_ab(session, kontext, [a], berichtsnummern)
         ergebnisse.append(
             Importergebnis(
                 a,

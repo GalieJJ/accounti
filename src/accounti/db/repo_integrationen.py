@@ -349,6 +349,17 @@ def setze_bank_transaktion(
     session.flush()
 
 
+def abrechnungsnummern(session: Session) -> dict[str, set[str]]:
+    """Nummern der gespeicherten Abrechnungen je Marktplatz (ohne Posten zu laden)."""
+    nummern: dict[str, set[str]] = {}
+    rows = session.query(
+        MarktplatzAbrechnungRow.marktplatz, MarktplatzAbrechnungRow.nummer
+    ).all()
+    for marktplatz, nummer in rows:
+        nummern.setdefault(marktplatz, set()).add(nummer)
+    return nummern
+
+
 def zugeordnete_bank_transaktionen(session: Session) -> set[UUID]:
     """Bankumsätze, die schon einem Marktplatzposten (Auszahlung, Einzahlung)
     zugeordnet sind."""

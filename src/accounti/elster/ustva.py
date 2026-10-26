@@ -182,9 +182,11 @@ def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
 
     Maßgeblich ist der Zeitraum der Abrechnung; eine schon gebuchte Auszahlung
     (``auszahlung_anderweitig_gebucht``) zählt dagegen im Zeitraum der Bankbuchung —
-    nur dort steht der doppelte Erlös (``auszahlung.bankdatum``)."""
+    nur dort steht der doppelte Erlös (``auszahlung.bankdaten``; nennt der Befund
+    mehrere Umsätze, weil nicht zu entscheiden ist, welcher die Auszahlung ist, in
+    jedem ihrer Zeiträume)."""
     from accounti.db.repo_integrationen import lade_abrechnungen
-    from accounti.integrationen.auszahlung import bankdatum
+    from accounti.integrationen.auszahlung import bankdaten
     from accounti.integrationen.buchung import ANZEIGE
     from accounti.models.integrationen import Schweregrad as MarktSchwere
 
@@ -194,9 +196,11 @@ def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
         for b in a.offene_befunde:
             if b.schweregrad is not MarktSchwere.FEHLER:
                 continue
-            tag = bankdatum(b)
+            tage = bankdaten(b)
             if not (
-                zeitraum.von <= tag <= zeitraum.bis if tag is not None else im_zeitraum
+                any(zeitraum.von <= tag <= zeitraum.bis for tag in tage)
+                if tage
+                else im_zeitraum
             ):
                 continue
             markt = ANZEIGE.get(a.marktplatz, a.marktplatz)

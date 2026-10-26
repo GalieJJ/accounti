@@ -243,8 +243,20 @@ DATEV-Übergabe:
   gebildet (oder mit `--auszahlung` vorgegeben).
 - Gesamttest, Nachprüfung Paket E: Die Voranmeldung ordnet eine schon als Erlös gebuchte
   Auszahlung (`auszahlung_anderweitig_gebucht`) dem Monat des Bankumsatzes zu. Den Tag liest
-  `auszahlung.bankdatum` aus dem Befundtext — `marktplatz_befunde` hat keine Spalte dafür, eine
-  Migration verlangte dieses Paket nicht. `marktplatz import --buchungsdatum` prüft das
+  `auszahlung.bankdaten` aus dem Befundtext — `marktplatz_befunde` hat keine Spalte dafür, eine
+  Migration verlangte dieses Paket nicht.
+- Nachprüfung 3 E, M2: Einer anderen Abrechnung gehört ein Umsatz nur, wenn sein
+  Verwendungszweck deren Nummer als eigenes Wort nennt (mindestens 6 Zeichen, nicht die eigene)
+  und accounti sie kennt — gespeichert oder aus demselben Bericht. Eine noch nicht importierte
+  Nummer erkennt accounti nicht (Nummernformate der Marktplätze sind nicht geprüft, ein
+  Muster wie „10 Ziffern“ träfe auch Referenzen der Bank): kommt eine Abrechnung allein, während
+  nur der Umsatz einer späteren auf der Bank steht, nennt ihr Befund diesen Umsatz, bis die
+  spätere importiert ist und ein Abgleich (`marktplatz abgleichen`, `bank lauf`) den Befund
+  erledigt. Wer in dieser Lage den Vorschlag befolgt, bevor die spätere Abrechnung da ist, gibt
+  ihren Umsatz der früheren (die Kursdifferenz zeigt es). Mehrere schon gebuchte Umsätze ohne
+  Nummer: der Befund nennt alle, der Mensch entscheidet (kein „nächster Betrag“ — der wäre
+  geraten). Der exakte Betrag entscheidet bei „schon gebucht“ erst nach der eigenen Nummer (in
+  Fremdwährung ist er Zufall); beim Treffer bleibt er zuerst. `marktplatz import --buchungsdatum` prüft das
   Kalenderjahr, nicht ein abweichendes Wirtschaftsjahr (`ziel.year != tag.year`, wie die
   Jahressperre und `opos verbuchen`); umgestellt wird beim Zusammenführen mit Paket F auf
   dessen Helfer `wirtschaftsjahr(jahr, config)`, damit nicht ein Befehl allein anders rechnet.
