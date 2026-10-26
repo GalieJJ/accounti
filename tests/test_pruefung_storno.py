@@ -778,3 +778,18 @@ def test_gleichzeitiges_storno_meldet_klar(make_session, monkeypatch):
     monkeypatch.setattr(storno_modul, "_lade", lambda _s, _id: alt)
     with make_session() as s, pytest.raises(StornoError, match="inzwischen"):
         storniere(s, str(b.id), grund="doppelt", von="jan")
+
+
+def test_storno_und_korrektur_nie_vor_dem_original(make_session):
+    """Gesamttest Abschluss B9: § 17 Abs. 1 Satz 7 UStG berichtigt im Zeitraum der
+    Änderung, ein Buchungsirrtum im Zeitraum des Originals — nie davor."""
+    b = buchung(status=BuchungStatus.GEPRUEFT, tag=date(2026, 3, 15))
+    anlegen(make_session, b)
+    with make_session() as s:
+        with pytest.raises(StornoError, match="vor der Buchung"):
+            storniere(s, kurz(b.id), grund="x", von="erika", datum=date(2026, 1, 10))
+        with pytest.raises(StornoError, match="vor der Buchung"):
+            korrigiere(s, kurz(b.id), "4930", "1200", steuer=9, datum=date(2026, 3, 14))
+        k = storniere(s, kurz(b.id), grund="x", von="erika", datum=date(2026, 3, 15))
+        s.commit()
+    assert k.storno.datum == date(2026, 3, 15)

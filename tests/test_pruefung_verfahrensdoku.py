@@ -204,8 +204,8 @@ def test_kontierung_nennt_richtung_pruefung_und_marktplatz(tmp_path, monkeypatch
     for erwartet in (
         "1 eigene Regeln",
         "5 Standardregeln im Kontenrahmen SKR04",
-        "| Regel | Muster | Richtung | Soll | Haben | Schlüssel | Prüfen |",
-        "| miete | miete | ausgabe | 6310 | 1800 | — | ja |",
+        "| Regel | Muster | Feld | Richtung | Soll | Haben | Schlüssel | Prüfen |",
+        "| miete | miete | verwendungszweck | ausgabe | 6310 | 1800 | — | ja |",
         "unabhängig von der Confidence",
         "Gegenbuchung",
         "Bankkonto auf der falschen oder auf keiner Seite",
@@ -339,3 +339,51 @@ def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
     engine.dispose()
     assert "| eva | buchhalter (a) |" in text
     assert "bob" not in text
+
+
+def test_regelmuster_feld_und_aufbewahrung(tmp_path, monkeypatch):
+    """Gesamttest Abschluss B10: das Muster stand als ``re.compile(…)`` im Dokument,
+    das Feld fehlte; die Aufbewahrung nannte 10 Jahre ab Ende des Eingangsjahres —
+    im Widerspruch zu ``betrieb aufbewahrung``."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: alpha, muster: "ALPHA", feld: beide, soll_konto: "1200", '
+        'haben_konto: "8400", steuer_schluessel: 3}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    kopf = "| Regel | Muster | Feld | Richtung | Soll | Haben | Schlüssel | Prüfen |"
+    assert kopf in text
+    assert "| alpha | ALPHA | beide | beide | 1200 | 8400 | 3 | nein |" in text
+    assert "re.compile" not in text
+    assert "Ende des Eingangsjahres" not in text
+    assert "Aufbewahrung der Buchungsbelege 8 Jahre" in text
+    assert "Rechnungen 8 Jahre (§ 14b Abs. 1 UStG)" in text
+    assert "ab Schluss des Kalenderjahres des Belegdatums" in text
+    assert "Bücher und Aufzeichnungen 10 Jahre" in text
+
+
+def test_regelmuster_mit_senkrechtem_strich(tmp_path, monkeypatch):
+    """Nachprüfung F, N6: ``|`` im Muster wurde in der Tabelle zu ``/`` — die
+    dokumentierte Regel war eine andere als die angewandte (GoBD Rz. 151 ff.)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: porto, muster: "PORTO|BRIEFMARKE", feld: verwendungszweck, '
+        'soll_konto: "4910", haben_konto: "1200"}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    zeile = "| porto | PORTO\\|BRIEFMARKE | verwendungszweck | beide | 4910 | 1200 |"
+    assert zeile in text
+    assert "PORTO/BRIEFMARKE" not in text
+    pdf = als_pdf(text, tmp_path / "doku.pdf")
+    inhalt = "".join(seite.extract_text() for seite in PdfReader(pdf).pages)
+    assert "PORTO|BRIEFMARKE" in inhalt and "PORTO\\|" not in inhalt

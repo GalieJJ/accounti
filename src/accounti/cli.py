@@ -2653,7 +2653,8 @@ def korrigiere(
     grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
     datum: str | None = typer.Option(
         None,
-        help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist",
+        help="Datum für Storno und Neubuchung, wenn der Zeitraum abgeschlossen ist "
+        "(nie vor dem Original)",
     ),
     lernen: bool = typer.Option(False, "--lernen", help="Korrektur als Regel merken"),
     config: str = KONFIG_OPTION,

@@ -229,7 +229,16 @@ def _pruefe_umkehrbar(b: Buchungssatz, kr: Kontenrahmen) -> None:
 
 
 def _stornodatum(session: Session, b: Buchungssatz, datum: date | None) -> date:
+    """Datum von Storno und Neubuchung: ohne ``datum`` das des Originals, sonst
+    ``datum`` — nie davor. Eine Änderung der Bemessungsgrundlage wird im Zeitraum
+    berichtigt, in dem sie eintritt (§ 17 Abs. 1 Satz 7 UStG), ein Buchungsirrtum im
+    Zeitraum des Originals (berichtigte Voranmeldung) — beides nie vor dem Umsatz."""
     tag = datum or b.datum
+    if tag < b.datum:
+        raise StornoError(
+            f"Storno am {datum_de(tag)} läge vor der Buchung {_kurz(b)} vom "
+            f"{datum_de(b.datum)} — ein Storno gilt frühestens ab dem Tag des Originals"
+        )
     if gesperrt(session.connection(), tag):
         if datum is None:
             raise StornoError(

@@ -115,7 +115,11 @@ def buchen(
 def storno(
     nr: int = typer.Argument(help="Nummer des Kassenvorgangs"),
     grund: str = typer.Option(..., "--grund", help="Warum storniert wird"),
-    datum_text: str | None = typer.Option(None, "--datum", help="Datum (heute)"),
+    datum_text: str | None = typer.Option(
+        None,
+        "--datum",
+        help="Datum (heute; nie vor dem Original und der Buchung, die es umkehrt)",
+    ),
     von: str | None = typer.Option(
         None,
         help="Wer erfasst (mit eingerichteten Benutzern: der Benutzer, mit Rolle "
@@ -130,7 +134,7 @@ def storno(
     from accounti.models.auth import Recht
 
     kasse = _kasse(config)
-    tag = datum(datum_text, "--datum")
+    tag = datum(datum_text, "--datum") if datum_text else None
     # mit Benutzern: buchen (buchhalter) und Einmalcode; die Umkehrbuchung einer
     # freigegebenen Buchung ist ein Storno (Baustein 7)
     with (
@@ -142,7 +146,16 @@ def storno(
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         s.commit()
-    console.print(f"[green]Nr. {v.nr}[/green] {escape(v.text)} {betrag_de(v.betrag)} €")
+    console.print(
+        f"[green]Nr. {v.nr}[/green] {v.datum:%d.%m.%Y} {escape(v.text)} "
+        f"{betrag_de(v.betrag)} €"
+    )
+    if v.buchung_id is None:
+        console.print(
+            f"[dim]Nr. {nr} war noch nicht kontiert — beide Umsätze (Nr. {nr} und "
+            f"Nr. {v.nr}) mit demselben Gegenkonto kontieren (accounti classify, "
+            "review), dann heben sie sich auf.[/dim]"
+        )
 
 
 @befehl.command("liste")

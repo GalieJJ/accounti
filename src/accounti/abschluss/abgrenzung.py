@@ -12,6 +12,10 @@ Auflösung zum 01.01. in Höhe des Anteils dieses Jahres. Bei einem Zeitraum üb
 als ein Folgejahr bleibt der Rest so im Abgrenzungsposten, bis sein Jahr kommt. Nur
 bei Bilanzierung (§ 5 Abs. 5 EStG, § 250 HGB) — die EÜR folgt dem
 Zufluss-/Abflussprinzip (§ 11 EStG).
+
+Mit abweichendem Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``) gelten statt 31.12.
+und 01.01. Ende und Beginn der Wirtschaftsjahre; ``jahr`` ist das Kalenderjahr des
+Wirtschaftsjahresendes (``konfiguration.wirtschaftsjahr``).
 """
 
 from __future__ import annotations
@@ -23,7 +27,11 @@ from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
-from accounti.abschluss.konfiguration import AbschlussEinstellungen
+from accounti.abschluss.konfiguration import (
+    AbschlussEinstellungen,
+    wirtschaftsjahr,
+    wirtschaftsjahr_zum,
+)
 from accounti.abschluss.kontenrahmen import Kontenart, Kontenrahmen
 from accounti.abschluss.salden import FREIGEGEBEN
 from accounti.anlagen.afa import monatsende, runde
@@ -108,18 +116,23 @@ def anteil_nach(zeitraum: Zeitraum, stichtag: date) -> tuple[int, int, str]:
     return nach, (bis - von).days + 1, "Tage"
 
 
-def aufloesungen(a: Abgrenzung) -> list[tuple[int, Decimal]]:
-    """(Jahr, Betrag) der Auflösung je Folgejahr — jeweils der Anteil dieses Jahres.
+def aufloesungen(
+    a: Abgrenzung, beginn: date | None = None
+) -> list[tuple[int, Decimal]]:
+    """(Jahr, Betrag) der Auflösung je Folge-Wirtschaftsjahr — jeweils der Anteil
+    dieses Jahres (``beginn``: Wirtschaftsjahresbeginn, ohne: Kalenderjahr).
 
     Gerechnet über den Rest nach jedem Stichtag (kaufmännisch gerundet), damit die
     Summe der Auflösungen genau den abgegrenzten Betrag ergibt.
     """
     zeitraum = Zeitraum(a.von, a.bis)
-    nach_jahr = anteil_nach(zeitraum, date(a.jahr, 12, 31))[0]
+    nach_jahr = anteil_nach(zeitraum, wirtschaftsjahr(a.jahr, beginn).bis)[0]
     ergebnis: list[tuple[int, Decimal]] = []
     rest = a.betrag
-    for jahr in range(a.jahr + 1, max(a.bis.year, a.jahr + 1) + 1):
-        nach = anteil_nach(zeitraum, date(jahr, 12, 31))[0] if nach_jahr else 0
+    letztes = max(wirtschaftsjahr_zum(a.bis, beginn).jahr, a.jahr + 1)
+    for jahr in range(a.jahr + 1, letztes + 1):
+        stichtag = wirtschaftsjahr(jahr, beginn).bis
+        nach = anteil_nach(zeitraum, stichtag)[0] if nach_jahr else 0
         neuer_rest = runde(a.betrag * nach / nach_jahr) if nach else NULL
         if rest != neuer_rest:
             ergebnis.append((jahr, rest - neuer_rest))
@@ -154,7 +167,7 @@ def _vorschlag(
     if art_konto is None:
         return None
     art, konto = art_konto
-    stichtag = date(jahr, 12, 31)
+    stichtag = einst.wirtschaftsjahr(jahr).bis
     nach, gesamt, einheit = anteil_nach(zeitraum, stichtag)
     betrag = runde(b.betrag_netto * nach / gesamt)
     if betrag == 0:
@@ -175,7 +188,7 @@ def _vorschlag(
         bis=zeitraum.bis,
         rechenweg=rechenweg,
     )
-    teile = aufloesungen(a)
+    teile = aufloesungen(a, einst.wirtschaftsjahr_beginn)
     if len(teile) > 1:
         je_jahr = " · ".join(f"{j} {betrag_de(t)}" for j, t in teile)
         a = a.model_copy(update={"rechenweg": f"{rechenweg}; Auflösung {je_jahr}"})
@@ -198,7 +211,8 @@ def schlage_abgrenzungen_vor(
         )
         return lauf
     kr = einst.lade_kontenrahmen()
-    stichtag = date(jahr, 12, 31)
+    wj = einst.wirtschaftsjahr(jahr)
+    stichtag = wj.bis
     verzicht = einst.rap_verzicht_bis_gwg and rechtsstand.rap_verzicht_moeglich(
         stichtag
     )
@@ -208,7 +222,7 @@ def schlage_abgrenzungen_vor(
     umsaetze = {t.id: t for t in lade_transaktionen(session)}
     verzichtet = 0
     for b in lade_buchungen(session, status=set(FREIGEGEBEN)):
-        if b.datum.year != jahr or b.id in schon:
+        if not wj.enthaelt(b.datum) or b.id in schon:
             continue
         if b.storniert_durch or b.storno_von:
             continue  # Storno-Paar hebt sich auf; abgegrenzt wird die Neubuchung
@@ -252,7 +266,8 @@ def grenze_ab(
         b = finde_buchung(session, buchung)
     except ValueError as fehler:
         raise AbgrenzungError(str(fehler)) from fehler
-    pruefe_jahr_offen(session, b.datum.year)
+    jahr = einst.wirtschaftsjahr_zum(b.datum).jahr
+    pruefe_jahr_offen(session, jahr)
     if b.id in abgegrenzte_buchungen(session):
         raise AbgrenzungError(
             f"Für Buchung {str(b.id)[:8]} gibt es schon einen Vorschlag"
@@ -260,7 +275,7 @@ def grenze_ab(
     if von > bis:
         raise AbgrenzungError("Der Zeitraum endet vor seinem Beginn")
     vorschlag = _vorschlag(
-        b, Zeitraum(von, bis), b.datum.year, einst, einst.lade_kontenrahmen()
+        b, Zeitraum(von, bis), jahr, einst, einst.lade_kontenrahmen()
     )
     if vorschlag is None:
         msg = (
@@ -281,10 +296,14 @@ def _offen(session: Session, schluessel: str) -> Abgrenzung:
     return a
 
 
-def bestaetige_abgrenzung(session: Session, schluessel: str, von: str) -> Abgrenzung:
-    """Bucht die Abgrenzung zum 31.12. und je Folgejahr die Auflösung zum 01.01."""
+def bestaetige_abgrenzung(
+    session: Session, schluessel: str, von: str, beginn: date | None = None
+) -> Abgrenzung:
+    """Bucht die Abgrenzung zum Ende des Wirtschaftsjahres (31.12.) und je Folgejahr
+    die Auflösung zu dessen Beginn (01.01.); ``beginn`` aus
+    ``AbschlussEinstellungen.wirtschaftsjahr_beginn``."""
     a = _offen(session, schluessel)
-    teile = aufloesungen(a)
+    teile = aufloesungen(a, beginn)
     for jahr in [a.jahr, *(j for j, _ in teile)]:
         pruefe_jahr_offen(session, jahr)
     name = a.art.value.upper()
@@ -309,10 +328,17 @@ def bestaetige_abgrenzung(session: Session, schluessel: str, von: str) -> Abgren
         )
 
     text = f"{name} {a.jahr} {a.konto} (Nr. {a.nr})"
-    abgrenzung = buchung(date(a.jahr, 12, 31), soll, haben, text, a.betrag)
+    ende = wirtschaftsjahr(a.jahr, beginn).bis
+    abgrenzung = buchung(ende, soll, haben, text, a.betrag)
     speichere_buchung(session, abgrenzung)
     gebucht = [
-        buchung(date(jahr, 1, 1), haben, soll, f"Auflösung {jahr} {text}", betrag)
+        buchung(
+            wirtschaftsjahr(jahr, beginn).von,
+            haben,
+            soll,
+            f"Auflösung {jahr} {text}",
+            betrag,
+        )
         for jahr, betrag in teile
     ]
     for aufloesung in gebucht:

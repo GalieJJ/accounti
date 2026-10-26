@@ -434,6 +434,10 @@ accounti anlagen plan 1                        # AfA-Plan bis zum Ende
 accounti anlagen afa --jahr 2026 --bis-monat 9 # monatlich oder am Jahresende — idempotent
 accounti anlagen freigeben --jahr 2026         # AfA-Vorschläge freigeben
 accounti anlagen abgang 1 --datum 2026-11-30 --erloes 500 --gegenkonto 1200
+accounti anlagen abgang 1 --zuruecknehmen --grund "Datum vertippt"   # solange Vorschläge
+accounti anlagen aendern 1 --kosten 600 --grund "Tippfehler"   # AfA-Korrektur als Vorschlag
+accounti anlagen anlegen --buchung 3f2a9c1e --typ notebook   # Bankzugang ohne Beleg verknüpfen
+accounti anlagen vorschlaege --jahr 2026       # Zugänge auf Anlagekonten ohne Anlagegut
 accounti anlagen spiegel --jahr 2026 --csv anlagenspiegel.csv
 
 # Kassenbuch — ein Eintrag, der den Bestand negativ machen würde, wird abgelehnt
@@ -443,7 +447,7 @@ accounti kasse liste --jahr 2026               # laufende Nummer, Tagessaldo, Be
 accounti kasse bestand --gezaehlt 275.10       # Kassensturz
 
 # Jahresabschluss
-accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # nur im ersten Jahr
+accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # im ersten Jahr (abweichendes WJ: jedes)
 accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
 accounti abschluss buchen --jahr 2026 --von eva   # AfA + Abgrenzungsvorschläge (buchen)
 accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
@@ -454,6 +458,18 @@ accounti abschluss euer --jahr 2026            # Anlage EÜR nach Zeilen und Ken
 accounti abschluss vortrag --jahr 2026 --von "E. Muster"   # EB 01.01.2027, 2026 gesperrt
 accounti abschluss oeffnen --jahr 2026 --grund "Nachbuchung Beleg 4711" --von "E. Muster"
 ```
+
+`--jahr` bezeichnet das Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`), bei abweichendem
+Wirtschaftsjahr über das **Kalenderjahr seines Endes**: `abschluss susa --jahr 2026` ist bei Beginn
+1. Juli der Zeitraum 01.07.2025–30.06.2026 (ebenso `pruefen`, `buchen`, `abgrenzungen`, `euer`,
+`eroeffnung`). Saldovortrag und Jahressperre gibt es dort noch nicht (`vortrag` lehnt ab) — die
+Eröffnungssalden **jedes** folgenden Wirtschaftsjahres erfasst man deshalb je Bestandskonto mit
+`abschluss eroeffnung --jahr <Folgejahr>` (sonst meldet `pruefen` Bank, Kasse und Anlagen als
+Fehler). Der AfA-Lauf rechnet je Abschnitt: `anlagen afa --jahr 2025` ist bei Beginn 1. Juli
+Juli–Dezember 2025, `--bis-monat 6` Januar–Juni (`abschluss buchen` macht beides). Die EÜR
+folgt dem Vordruck des Jahres, in dem das Wirtschaftsjahr **beginnt** (Anlage EÜR 2025 für
+2025/2026, also für `--jahr 2026`), und nennt die zeitanteilige Verteilung nach § 4a Abs. 2 Nr. 1
+EStG nur als Hinweis.
 
 Grenzbeträge (GWG, Sammelposten, degressive Fenster) gelten **ab dem Anschaffungstag** — ein Zugang
 aus 2015 rechnet mit 410 €, einer aus 2026 mit 800 €. Abschlussbuchungen sind immer Vorschläge zur
@@ -522,7 +538,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|afa\|abgang`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|aendern\|afa\|abgang` (auch `abgang --zuruecknehmen`), `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
 | Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `anlagen freigeben`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege\|kontoauszuege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |

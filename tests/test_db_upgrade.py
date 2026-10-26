@@ -21,6 +21,8 @@ from tests.pg_hilfe import mit_postgresql
 
 WURZEL = Path(__file__).resolve().parents[1]
 VOR_BAUSTEIN_7 = "a684d10751de"
+VOR_TOKEN = "ddc9a184ddb4"  # Journal und Storno (Baustein 7)
+TOKEN_JE_GESELLSCHAFT = "6d38d11fc348"  # der Stand vor 2f7c7043043e (Anlagen-Buchung)
 runner = CliRunner()
 
 
@@ -122,6 +124,29 @@ def test_db_upgrade_leitet_den_stand_aus_dem_schema_ab(tmp_path):
     assert "No new upgrade operations detected" in _alembic(db, "check")
 
 
+def test_db_upgrade_ohne_vermerk_vor_der_anlagen_buchung(tmp_path):
+    """Stand 6d38d11fc348 ohne Vermerk (z. B. eine Sicherung ohne ``alembic_version``),
+    danach ``init_db`` des neuen Codes: ``anlagegueter`` gibt es schon, die Spalte
+    ``buchung_id`` nicht — ``db upgrade`` erkennt den Stand an der fehlenden Spalte und
+    holt 2f7c7043043e nach."""
+    db = tmp_path / "alt.db"
+    _alembic(db, "upgrade", TOKEN_JE_GESELLSCHAFT)
+    with sqlite3.connect(db) as v:
+        v.execute("DROP TABLE alembic_version")
+    engine, _ = session_factory(f"sqlite:///{db}")
+    init_db(engine)
+    engine.dispose()
+    assert "buchung_id" not in _spalten(db, "anlagegueter")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"abgeleitet: {TOKEN_JE_GESELLSCHAFT}" in r.output
+    assert _version(db) == [SCHEMA_STAND] == ["2f7c7043043e"]
+    assert "buchung_id" in _spalten(db, "anlagegueter")
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
 def test_db_upgrade_mit_vermerk_und_leer(tmp_path):
     mit = tmp_path / "mit.db"
     _alembic(mit, "upgrade", VOR_BAUSTEIN_7)
@@ -182,7 +207,7 @@ def test_db_upgrade_legt_keine_neue_sqlite_datei_an(tmp_path):
 def test_migration_token_je_gesellschaft(tmp_path):
     """Befund Betrieb B9: Index ``uq_api_token_aktiv`` auf (gesellschaft, name)."""
     db = tmp_path / "t.db"
-    _alembic(db, "upgrade", "ddc9a184ddb4")
+    _alembic(db, "upgrade", VOR_TOKEN)
     zeile = (
         "INSERT INTO api_tokens (id, name, token_hash, gesellschaft, rechte, "
         "angelegt_von, angelegt_am) VALUES (?, 'erp', ?, ?, '[]', 'x', "
@@ -198,7 +223,7 @@ def test_migration_token_je_gesellschaft(tmp_path):
     assert "No new upgrade operations detected" in _alembic(db, "check")
     with sqlite3.connect(db) as v:
         v.execute("DELETE FROM api_tokens WHERE id = '2'")
-    _alembic(db, "downgrade", "-1")
+    _alembic(db, "downgrade", VOR_TOKEN)  # „-1“ nähme nur die jüngste zurück
     _alembic(db, "upgrade", "head")
     assert _alembic(db, "heads").count("(head)") == 1
 
@@ -215,7 +240,7 @@ def test_downgrade_token_index_bricht_vor_dem_loeschen_ab(tmp_path):
     """Nachprüfung N3: Mit zwei aktiven „erp“ (a und b) scheiterte das Downgrade erst
     beim Anlegen des alten Index — unter SQLite war der neue da schon gelöscht."""
     db = tmp_path / "t.db"
-    _alembic(db, "upgrade", "head")
+    _alembic(db, "upgrade", TOKEN_JE_GESELLSCHAFT)
     zeile = (
         "INSERT INTO api_tokens (id, name, token_hash, gesellschaft, rechte, "
         "angelegt_von, angelegt_am) VALUES (?, 'erp', ?, ?, '[]', 'x', "
@@ -227,7 +252,7 @@ def test_downgrade_token_index_bricht_vor_dem_loeschen_ab(tmp_path):
     ausgabe = _alembic(db, "downgrade", "-1", ok=False)
     assert "Downgrade abgebrochen" in ausgabe and "erp" in ausgabe, ausgabe
     assert _token_index(db) == ["gesellschaft", "name"]
-    assert _version(db) == [SCHEMA_STAND]
+    assert _version(db) == [TOKEN_JE_GESELLSCHAFT]
 
 
 def _alembic_url(url: str, cwd: Path, *args: str, ok: bool = True) -> str:
@@ -276,8 +301,9 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
 
     with pytest.raises(IntegrityError), engine.begin() as v:
         v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
-    # Nachprüfung N3: das Downgrade bricht vorher ab, der Index bleibt
-    ausgabe = _alembic_url(url, tmp_path, "downgrade", "-1", ok=False)
+    # Nachprüfung N3: das Downgrade bricht vorher ab, der Index bleibt (PostgreSQL:
+    # eine Transaktion, auch der Schritt 2f7c7043043e davor wird zurückgerollt)
+    ausgabe = _alembic_url(url, tmp_path, "downgrade", VOR_TOKEN, ok=False)
     assert "Downgrade abgebrochen" in ausgabe, ausgabe
     with pytest.raises(IntegrityError), engine.begin() as v:
         v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
@@ -286,5 +312,5 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
         stand = v.execute(text("SELECT version_num FROM alembic_version")).all()
     engine.dispose()
     assert stand == [(SCHEMA_STAND,)]
-    _alembic_url(url, tmp_path, "downgrade", "-1")
+    _alembic_url(url, tmp_path, "downgrade", VOR_TOKEN)
     _alembic_url(url, tmp_path, "upgrade", "head")

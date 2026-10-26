@@ -434,6 +434,74 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Jahresabschluss ignorierte das abweichende Wirtschaftsjahr** (Gesamttest Betrieb B5):
+  `abschluss susa|pruefen|buchen|abgrenzungen|abgrenzen|bestaetigen|euer|eroeffnung`
+  rechnen jetzt mit `datev.wirtschaftsjahr_beginn` der Gesellschaft (ein Helfer
+  `abschluss/konfiguration.wirtschaftsjahr`). **`--jahr` ist das Kalenderjahr des
+  Wirtschaftsjahresendes** (2026 = 01.07.2025–30.06.2026, § 4a Abs. 2 Nr. 2 EStG):
+  Saldenliste und Prüfungen über das Wirtschaftsjahr zum Stichtag seines Endes,
+  Abgrenzung zum WJ-Ende mit Auflösung zum WJ-Beginn, Eröffnungssalden am WJ-Beginn
+  (Belegnummer `EB-<Jahr des WJ-Endes>`, auch in einen festgeschriebenen ersten Monat),
+  `abschluss buchen` lässt den AfA-Lauf in beiden berührten Kalenderjahren laufen. Der
+  AfA-Lauf rechnet dabei je Abschnitt des Kalenderjahres (`anlagen afa --jahr 2025` bei
+  Beginn 1. Juli: Juli–Dezember, `--bis-monat 6`: Januar–Juni) — so bucht das erste
+  Wirtschaftsjahr nicht die AfA des Vor-WJ aus dem Eröffnungssaldo mit, auch beim Abgang
+  und bei `anlagen aendern`. Der Anlagenabgleich zum WJ-Ende zählt im Sammelposten nur Güter
+  bis zum Stichtag. Die EÜR nimmt den Vordruck des Jahres des **WJ-Beginns** (Anlage EÜR
+  2025 für 2025/2026, BMF 29.08.2025) und nennt bei abweichendem Wirtschaftsjahr die
+  zeitanteilige Verteilung des Gewinns auf zwei Kalenderjahre (§ 4a Abs. 2 Nr. 1 EStG,
+  Land- und Forstwirte) als Hinweis. Grenzen: `abschluss vortrag` lehnt ein abweichendes
+  Wirtschaftsjahr ab (die Jahressperre gilt je Kalenderjahr und sperrte das falsche
+  Halbjahr) — die Eröffnungssalden jedes Folge-WJ erfasst man mit `abschluss eroeffnung
+  --jahr <Folgejahr>`; `abschluss pruefen` warnt bei degressiver AfA, Sammelposten und
+  E-Fahrzeug-Staffel (je Wirtschaftsjahr, der Plan rechnet im Kalenderjahr); `anlagen
+  afa`/`spiegel` weisen darauf hin
+- **Verfahrensdokumentation und Aufbewahrungsfrist** (Gesamttest Abschluss B10): Die
+  Tabelle der Kontierungsregeln zeigte das Muster als `re.compile(…)` und nicht das Feld;
+  jetzt Muster und Feld, ein `|` im Muster bleibt erhalten (in Markdown maskiert, im PDF
+  wie konfiguriert). Die Aufbewahrung der Belege kommt aus einer Quelle
+  (`betrieb/aufbewahrung.py`) für Archiv, Bericht und Dokument: Buchungsbelege und
+  Rechnungen 8 Jahre (§ 147 Abs. 3 AO i. d. F. des BEG IV, § 14b UStG) ab Schluss des
+  Jahres des Belegdatums, ohne Belegdatum des Eingangs (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz
+  3 UStG) — vorher fest 10 Jahre ab Eingangsjahr; ein erkanntes Belegdatum vor dem
+  Vorjahr des Eingangs (möglicher Lesefehler) verkürzt die Frist nicht. Übermittlungs- und
+  USt-IdNr.-Protokolle bleiben Aufzeichnungen mit 10 Jahren. Institute behalten 10 Jahre
+  (Art. 97 § 19a Abs. 3 EGAO i. d. F. vom 22.12.2025, gegengeprüft)
+- **Anlagegut und Abgang ließen sich nicht korrigieren** (Gesamttest Abschluss B7): Ein
+  Tippfehler bei den Anschaffungskosten oder ein falsches Abgangsdatum sperrte den
+  Jahresabschluss dauerhaft. Neu `accounti anlagen aendern <Nr>` (Bezeichnung, Datum,
+  Kosten, Nutzungsdauer, Art, Konten; AfA-relevante Änderungen nur mit `--grund`): eigene
+  AfA-Vorschläge werden verworfen und neu gerechnet, freigegebene AfA bleibt stehen und
+  bekommt eine AfA-Korrektur als Vorschlag; gebuchte AfA in einem abgeschlossenen Jahr
+  sperrt die Änderung (Grenze: die Korrektur im ersten offenen Jahr nach dem
+  Bilanzenzusammenhang unterstützt accounti nicht). Ein neues Anlagekonto oder ein
+  Anschaffungsdatum im Vorjahr nennt den umzubuchenden Buchwert bzw. den fehlenden
+  AfA-Lauf als Hinweis. `accounti anlagen abgang <Nr> --zuruecknehmen --grund …` nimmt einen
+  Abgang zurück, solange Restbuchwert- und Erlösbuchung Vorschläge sind (freigegebene erst
+  stornieren). Beides steht im Journal (`objekt_typ` `anlage`, vorher/nachher, Grund);
+  `abgang` braucht `--datum` nur noch ohne `--zuruecknehmen`
+- **`anlagen vorschlaege` nannte angelegte Güter weiter** (Gesamttest Abschluss B11): Ein
+  Bankumsatz direkt auf das Anlagekonto hat keinen Beleg, der Abgleich lief nur über den
+  Beleg. Neu `anlagen anlegen --buchung <ID>` (übernimmt fehlende Angaben, Hinweis bei
+  abweichenden Kosten oder Konto) und `anlagen aendern <Nr> --buchung <ID>`; verknüpfte
+  Zugänge sind kein Vorschlag mehr, ein Gut mit gleichem Konto, Datum und Kosten erscheint
+  als „vermutlich erfasst“. Alembic-Migration `2f7c7043043e` nach `6d38d11fc348` (Spalte
+  `anlagegueter.buchung_id`; schon per `init_db` angelegt, übernimmt sie sie; ohne
+  Versionsvermerk erkennt `db upgrade` den Stand davor an der fehlenden Spalte)
+- **Kassen-Storno nach `classify` kehrte nichts um** (Gesamttest Abschluss B5): Ein
+  Kassenvorgang ohne `--konto` wird von `classify` am Umsatz kontiert; das nur anfügbare
+  Kassenbuch kennt diese Buchung nicht. `kasse storno` findet die gültige Buchung jetzt
+  über den Umsatz (nach `korrigiere` die Neubuchung, auch Splitbuchungen) und kehrt sie
+  als Storno mit Verknüpfung um (`storno_von`, Buchungskorrektur). Ein noch nicht
+  freigegebener Vorschlag wird nicht storniert (erst freigeben oder korrigieren); ein
+  noch nicht kontierter Vorgang bleibt ohne Buchung, mit Hinweis, beide Umsätze gleich
+  zu kontieren
+- **Storno vor dem Original** (Gesamttest Abschluss B9): `buchung storniere`,
+  `korrigiere --datum` und `kasse storno --datum` lehnen ein Datum vor der Buchung bzw.
+  dem Kassenvorgang ab (§ 17 Abs. 1 Satz 7 UStG; Kassensturzfähigkeit, § 146 Abs. 1
+  AO) und `kasse storno` auch ein Datum vor der umzukehrenden Buchung (nach `korrigiere
+  --datum` liegt die Neubuchung später). `kasse storno` ohne `--datum` nimmt heute,
+  frühestens den Tag des Originals bzw. dieser Buchung
 - **Wiederherstellungstest passte nicht zu mehreren Gesellschaften** (Betrieb B10):
   `docs/betrieb.md` zeigt den Test jetzt mit `-g K` und als Stichprobe nur lesende Befehle
   (`abschluss susa`, `journal`) statt `export datev` (das eine abweichende `--db`
