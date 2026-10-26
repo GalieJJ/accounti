@@ -63,6 +63,7 @@ from accounti.pruefung.storno import (
     Korrekturumgebung,
     SteuerOptionen,
     korrigiere,
+    steuer_befunde,
     steuer_optionen,
     storniere,
 )
@@ -119,6 +120,13 @@ class NichtInPruefungError(PruefschlangeError):
 
 class SchonZurueckgestelltError(PruefschlangeError):
     status = 409
+
+
+class PruefregelError(PruefschlangeError):
+    """Die Prüfregel ``steuerschluessel_konto`` meldet einen Fehler — so wird die
+    Buchung nicht freigegeben (erst korrigieren)."""
+
+    status = 422
 
 
 class RegelBestaetigenError(PruefschlangeError):
@@ -392,10 +400,22 @@ class Arbeitsflaeche:
     regel_moeglich: bool = False
     sachkonto_lernbar: bool = False
     steuer: SteuerOptionen | None = None
+    # Prüfregel steuerschluessel_konto: (Schwere, Text) — ein Fehler sperrt Freigeben
+    steuer_befunde: list[tuple[Any, str]] = field(default_factory=list)
+
+    @property
+    def freigabe_gesperrt(self) -> bool:
+        return any(_ist_fehler(schwere) for schwere, _ in self.steuer_befunde)
 
     @property
     def ist_vorschlag(self) -> bool:
         return self.buchung.status in VORSCHLAG
+
+
+def _ist_fehler(schwere: Any) -> bool:
+    from accounti.models.pruefung import Schwere
+
+    return bool(schwere is Schwere.FEHLER)
 
 
 def _kontakt(session: Session, b: Buchungssatz, beleg: Beleg | None) -> Kontakt | None:
@@ -420,7 +440,10 @@ def lade_eintrag(
     buchung_id: UUID | str,
     *,
     pruefung: PruefEinstellungen | None = None,
+    buchhaltung: Buchhaltung | None = None,
 ) -> Arbeitsflaeche:
+    """Alles für die Entscheidung über eine Buchung. Mit ``buchhaltung`` auch die
+    Befunde der Prüfregel ``steuerschluessel_konto`` (``steuer_befunde``)."""
     from accounti.aufgaben import aufgaben_zu
     from accounti.models.aufgaben import KommentarArt
     from accounti.pruefung.perioden import sperre_am
@@ -472,6 +495,8 @@ def lade_eintrag(
                 tx.verwendungszweck, tx.gegenkonto_name
             )
     flaeche.regel_moeglich = regel_lernbar(h, tx is not None)
+    if buchhaltung is not None and flaeche.ist_vorschlag:
+        flaeche.steuer_befunde = steuer_befunde(session, b, buchhaltung, pruefung)
     flaeche.sachkonto_lernbar = (
         tx is None
         and b.beleg_id is not None
@@ -500,9 +525,30 @@ def freigeben(
     stand: str | None = None,
     *,
     nur_vorschlaege: bool = True,
+    umgebung: Korrekturumgebung | None = None,
 ) -> tuple[Buchungssatz, bool]:
-    """Vorschlag → ``geprueft`` (CLI ``bestaetige``: auch ``auto``, ohne Stand)."""
+    """Vorschlag → ``geprueft`` (CLI ``bestaetige``: auch ``auto``, ohne Stand).
+
+    Mit ``umgebung`` prüft die Freigabe die Prüfregel ``steuerschluessel_konto``
+    wie eine Korrektur: Meldet sie einen Fehler (Vorsteuer auf einer Privatentnahme,
+    Automatikkonto ohne Schlüssel …), wird nicht freigegeben (``PruefregelError``)
+    — eine Korrektur mit denselben Werten lehnt ``korrigiere`` ebenso ab."""
     b = _sperren_und_pruefen(session, str(buchung_id), stand, nur_vorschlaege)
+    if umgebung is not None and b.status is not BuchungStatus.GEPRUEFT:
+        fehler = [
+            text
+            for schwere, text in steuer_befunde(
+                session, b, umgebung.buchhaltung, umgebung.pruefung
+            )
+            if _ist_fehler(schwere)
+        ]
+        if fehler:
+            schluessel = b.steuer_schluessel if b.steuer_schluessel is not None else "—"
+            raise PruefregelError(
+                f"Buchung {str(b.id)[:8]} ({b.soll_konto} an {b.haben_konto}, "
+                f"Schlüssel {schluessel}): " + "; ".join(fehler) + " — so nicht "
+                "freigeben, erst Steuerschlüssel oder Konto korrigieren"
+            )
     neu, geaendert = storno_freigeben(session, str(b.id), von=person)
     if geaendert:
         _schliesse_aufgaben(session, neu, f"Buchung geprüft von {person}", person)

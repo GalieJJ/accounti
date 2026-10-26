@@ -106,6 +106,24 @@ def test_korrektur_verlaesst_das_finanzkonto_422(qw):
     assert status_von(qw, b.id)[:2] == ("pruefung", "4980")
 
 
+def test_freigeben_mit_pruefregel_fehler_gesperrt(qw):
+    """Nachbesserung M4: 1800 an 1200 mit Schlüssel 9 — die Arbeitsfläche zeigt den
+    Befund der Prüfregel statt „Freigeben“; ein trotzdem gesendetes Freigeben
+    ergibt 422, die Buchung bleibt in der Prüfung."""
+    b = qw.buchung(soll="1800", haben="1200")
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/pruefen/{b.id}").text
+    assert "Prüfregel Steuerschlüssel und Konto" in seite
+    assert f'action="/pruefen/{b.id}/freigeben"' not in seite
+    r = client.post(
+        f"/pruefen/{b.id}/freigeben",
+        data={"csrf": csrf(client), "stand": stand_aus(seite), "ansicht": "offen"},
+        headers=HX,
+    )
+    assert r.status_code == 422 and "nicht freigeben" in r.text
+    assert status_von(qw, b.id)[0] == "pruefung"
+
+
 def test_konto_mit_bezeichnung_und_schluessel_mit_bedeutung(qw):
     bekannt = qw.buchung(soll="4930", haben="1200")
     unbekannt = qw.buchung(soll="4987", haben="1200")

@@ -4,8 +4,15 @@
 {% elif e.sperre %}
 <p class="hinweis sperre">{% if e.sperre.art == "jahr" %}{{ _("Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.", jahr=e.sperre.zeitraum) }}{% else %}{{ _("Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.", monat=e.sperre.zeitraum) }}{% endif %}</p>
 {% else %}
+{% if e.steuer_befunde %}
+<div class="hinweis pruefregel">
+  <p>{{ _("Prüfregel Steuerschlüssel und Konto:") }}</p>
+  <ul lang="de">{% for schwere, text in e.steuer_befunde %}<li>{% if schwere.value == "fehler" %}<strong>{{ _("Fehler") }}:</strong> {% endif %}{{ text }}</li>{% endfor %}</ul>
+  {% if e.freigabe_gesperrt %}<p>{{ _("Freigeben erst nach einer Korrektur von Steuerschlüssel oder Konto.") }}</p>{% endif %}
+</div>
+{% endif %}
 <div class="aktionen">
-  {% if darf_freigeben %}
+  {% if darf_freigeben and not e.freigabe_gesperrt %}
   <form method="post" action="/pruefen/{{ b.id }}/freigeben" hx-post="/pruefen/{{ b.id }}/freigeben" hx-target="#arbeitsflaeche" hx-disabled-elt="find button" class="freigeben">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="stand" value="{{ e.stand }}">

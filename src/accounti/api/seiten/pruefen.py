@@ -212,6 +212,15 @@ def _pruefeinstellungen(a: Angemeldet) -> Any:
         return None
 
 
+def _buchhaltung(a: Angemeldet) -> Any:
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+
+    try:
+        return lade_buchhaltung(a.gesellschaft.konfiguration)
+    except (KonfigurationError, ValueError):
+        return None
+
+
 def flaechenwerte(
     s: Session,
     a: Angemeldet,
@@ -227,7 +236,9 @@ def flaechenwerte(
     from accounti.klassifikation.lernen import vorschlag_muster
 
     try:
-        e: Arbeitsflaeche = lade_eintrag(s, buchung_id, pruefung=_pruefeinstellungen(a))
+        e: Arbeitsflaeche = lade_eintrag(
+            s, buchung_id, pruefung=_pruefeinstellungen(a), buchhaltung=_buchhaltung(a)
+        )
     except BuchungFehltError as f:
         raise HTTPException(404, Text("Buchung nicht gefunden")) from f
     b = e.buchung
@@ -540,10 +551,19 @@ async def freigeben_seite(
     a: Annotated[Angemeldet, Depends(erfordert(Recht.BUCHUNG_FREIGEBEN))],
     s: Annotated[Session, Depends(gesellschaft_db)],
 ) -> Response:
+    from accounti.pruefung.storno import lade_korrekturumgebung
+
     felder = await formular(request)
+    g = a.gesellschaft
 
     def ausfuehren(s: Session, person: str) -> list[Any]:
-        freigeben(s, buchung_id, person, felder.get("stand", ""))
+        freigeben(
+            s,
+            buchung_id,
+            person,
+            felder.get("stand", ""),
+            umgebung=lade_korrekturumgebung(g.konfiguration),
+        )
         return []
 
     return await _aktion(request, a, s, buchung_id, felder, ausfuehren, "freigegeben")

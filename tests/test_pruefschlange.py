@@ -17,6 +17,7 @@ from accounti.buchung.pruefschlange import (
     Ansicht,
     LernWunsch,
     NichtInPruefungError,
+    PruefregelError,
     PruefschlangeError,
     RegelBestaetigenError,
     SchonZurueckgestelltError,
@@ -752,6 +753,36 @@ def test_regel_auf_fremde_gegenparteien_nur_mit_bestaetigung(make_session):
         )  # fmt: skip
         s.commit()
     assert e.regel is not None and e.regel.muster == "Deutsche"
+
+
+def test_freigeben_prueft_die_pruefregel_steuerschluessel(make_session):
+    """Nachbesserung M4 (Probe p8): Ein Vorschlag, den die Prüfregel
+    ``steuerschluessel_konto`` als Fehler einstuft (Vorsteuer auf einer
+    Privatentnahme, Erlöskonto mit Automatik ohne Schlüssel), wird nicht
+    freigegeben — die Arbeitsfläche zeigt den Befund; ein unauffälliger schon."""
+    privat = buchung(soll="1800", haben="1200")
+    automatik = buchung(soll="1200", haben="8400", schluessel=None, steuer=None)
+    gut = buchung(soll="4930", haben="1200")
+    anlegen(make_session, privat, automatik, gut)
+    with make_session() as s:
+        for b in (privat, automatik):
+            with pytest.raises(PruefregelError) as info:
+                freigeben(s, b.id, "jan", stand(s, b.id), umgebung=umgebung())
+            assert info.value.status == 422 and "nicht freigeben" in info.value.meldung
+            s.rollback()
+            e = lade_eintrag(s, b.id, buchhaltung=BH)
+            assert e.freigabe_gesperrt and e.steuer_befunde
+        assert (
+            "Automatikkonto"
+            in lade_eintrag(s, automatik.id, buchhaltung=BH).steuer_befunde[0][1]
+        )
+        assert finde_buchung(s, str(privat.id)).status is BuchungStatus.ZUR_PRUEFUNG
+        assert not lade_eintrag(s, gut.id, buchhaltung=BH).freigabe_gesperrt
+        neu, geaendert = freigeben(
+            s, gut.id, "jan", stand(s, gut.id), umgebung=umgebung()
+        )
+        s.commit()
+    assert geaendert and neu.status is BuchungStatus.GEPRUEFT
 
 
 def test_journal_nach_queue_aktionen_in_ordnung(make_session):

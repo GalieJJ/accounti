@@ -2576,14 +2576,16 @@ def bestaetige(
     """Eine Buchung freigeben (geprüft) — die Freigabe steht im Journal."""
     from rich.markup import escape
 
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
     from accounti.befehle import handelnde_person
     from accounti.buchung.pruefschlange import PruefschlangeError, freigeben
     from accounti.db import session_factory
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.konfiguration import KonfigurationError
     from accounti.models.auth import Recht
     from accounti.pruefung.person import aktuelle_person
-    from accounti.pruefung.storno import StornoError
+    from accounti.pruefung.storno import StornoError, lade_korrekturumgebung
 
     _, make_session = session_factory(db)
     # mit Benutzern: Buchungen freigeben (buchhalter, freigeber) und Einmalcode;
@@ -2594,8 +2596,13 @@ def bestaetige(
         make_session() as s,
     ):
         try:
+            # Prüfregel steuerschluessel_konto wie in der Queue (Fehler: nicht frei)
             b, geaendert = freigeben(
-                s, buchung_id, aktuelle_person(person), nur_vorschlaege=False
+                s,
+                buchung_id,
+                aktuelle_person(person),
+                nur_vorschlaege=False,
+                umgebung=lade_korrekturumgebung(config),
             )
             s.commit()
         except (
@@ -2603,6 +2610,8 @@ def bestaetige(
             StornoError,
             JahrGesperrtError,
             UnveraenderbarError,
+            KonfigurationError,
+            KontenrahmenError,
         ) as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler

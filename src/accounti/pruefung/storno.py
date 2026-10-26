@@ -587,6 +587,39 @@ def _pruefe_steuerschluessel(
         )
 
 
+def steuer_befunde(
+    session: Session,
+    b: Buchungssatz,
+    buchhaltung: Buchhaltung | None = None,
+    einstellungen: PruefEinstellungen | None = None,
+) -> list[tuple[Any, str]]:
+    """Was die Prüfregel ``steuerschluessel_konto`` an einer Buchung findet — dazu
+    ein DATEV-Automatikkonto ohne Schlüssel (Fehler), wie ``korrigiere`` es
+    ablehnt. ``(Schwere, Text)``; für die Freigabe in der Queue und die Anzeige."""
+    from accounti.models.pruefung import Schwere
+    from accounti.pruefung.regeln.richtigkeit import (
+        automatikkonten,
+        steuerschluessel_probleme,
+    )
+
+    buchhaltung = buchhaltung or Buchhaltung()
+    befunde: list[tuple[Any, str]] = []
+    if b.steuer_schluessel is None and not b.steuer_betrag:
+        automatik = automatikkonten(buchhaltung, einstellungen)
+        for konto in (b.soll_konto, b.haben_konto):
+            if konto in automatik:
+                befunde.append(
+                    (
+                        Schwere.FEHLER,
+                        f"Konto {konto} ist DATEV-Automatikkonto (Schlüssel "
+                        f"{automatik[konto]}) — ohne Schlüssel rechnete DATEV "
+                        "trotzdem Steuer heraus",
+                    )
+                )
+    befunde += steuerschluessel_probleme(session, b, buchhaltung, einstellungen)
+    return befunde
+
+
 def freigeben(
     session: Session, buchung_id: str, von: str | None = None
 ) -> tuple[Buchungssatz, bool]:
