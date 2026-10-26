@@ -30,6 +30,7 @@ from accounti.api.seiten.pruefen import (
     _fachfehler,
     _fehlerbild,
     _steuerangabe,
+    formularkonto,
     kontonamen,
     steuernamen,
 )
@@ -48,6 +49,7 @@ from accounti.models import Buchungssatz
 from accounti.models.auth import Recht
 
 router = APIRouter()
+KORREKTUR, STORNO = "korrektur", "storno"
 
 
 def _lade(s: Session, buchung_id: UUID) -> Buchungssatz:
@@ -68,6 +70,7 @@ def buchungswerte(
     fehler: Fehlerbild | None = None,
     meldungen: list[Any] | None = None,
     mit_einmalcode: bool = True,
+    formular: str | None = None,
 ) -> dict[str, Any]:
     from accounti.belege.zuordnung import beleg_zur_buchung
     from accounti.db.repo_pruefung import korrektur_zu
@@ -119,6 +122,7 @@ def buchungswerte(
         "mit_einmalcode": mit_einmalcode,
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,
+        "aktion_formular": formular,  # abgesendetes Formular (Fehler, Eingaben)
         "aktion_meldungen": meldungen or [],
         "brutto": b.betrag_netto + (b.steuer_betrag or 0),
     }
@@ -169,6 +173,7 @@ async def _storno_aktion(
     felder: dict[str, str],
     vorab: Any,
     ausfuehren: Any,
+    formular: str,
 ) -> Response:
     """Stand prüfen (409 ohne verbrauchten Code), Pflichtangaben prüfen (422), die
     Aktion zur Probe ausführen und zurückrollen (409/422 der Fachlogik, ohne
@@ -190,6 +195,7 @@ async def _storno_aktion(
             fehler=fehler,
             meldungen=meldungen,
             mit_einmalcode=code,
+            formular=formular,
         )
 
     def pruefen() -> Fehlerbild | None:
@@ -270,6 +276,8 @@ async def korrigieren_seite(
     g = a.gesellschaft
 
     def vorab() -> None:
+        formularkonto(felder.get("soll"), "soll")
+        formularkonto(felder.get("haben"), "haben")
         _steuerangabe(felder.get("steuer", ""))
         _datum(felder.get("datum", ""))
 
@@ -279,8 +287,8 @@ async def korrigieren_seite(
             s,
             buchung_id,
             Aenderung(
-                felder.get("soll", ""),
-                felder.get("haben", ""),
+                formularkonto(felder.get("soll"), "soll"),
+                formularkonto(felder.get("haben"), "haben"),
                 steuer,
                 ohne,
                 (felder.get("grund") or "").strip() or None,
@@ -304,7 +312,9 @@ async def korrigieren_seite(
         )
         return [meldung, *k.warnungen]
 
-    return await _storno_aktion(request, a, s, buchung_id, felder, vorab, ausfuehren)
+    return await _storno_aktion(
+        request, a, s, buchung_id, felder, vorab, ausfuehren, KORREKTUR
+    )
 
 
 @router.post("/buchungen/{buchung_id:uuid}/stornieren", response_class=HTMLResponse)
@@ -351,4 +361,6 @@ async def stornieren_seite(
             )
         return [*meldungen, *k.warnungen]
 
-    return await _storno_aktion(request, a, s, buchung_id, felder, vorab, ausfuehren)
+    return await _storno_aktion(
+        request, a, s, buchung_id, felder, vorab, ausfuehren, STORNO
+    )

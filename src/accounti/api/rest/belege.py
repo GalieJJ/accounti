@@ -31,7 +31,7 @@ KANAL = "api"
 
 async def _koerper(request: Request, grenze: int) -> bytes:
     laenge = request.headers.get("content-length", "")
-    if laenge.isdigit() and int(laenge) > grenze:
+    if laenge.isascii() and laenge.isdigit() and int(laenge) > grenze:
         raise HTTPException(413, f"Anfrage größer als {grenze // (1024 * 1024)} MB")
     teile: list[bytes] = []
     groesse = 0

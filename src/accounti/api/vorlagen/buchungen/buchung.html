@@ -46,25 +46,30 @@
     <p class="hinweis">{{ _("Diese Buchung ist ein Vorschlag — entscheiden in der Prüfung.") }} <a href="/pruefen/{{ b.id }}">{{ _("Zur Prüfung") }}</a></p>
     {% elif korrigierbar %}
     {% set datum_pflicht = sperre is not none %}
+    {# Fehler und Eingaben gehören zu dem Formular, das abgesendet wurde #}
+    {% set fk = aktion_fehler if aktion_formular == "korrektur" else none %}
+    {% set ek = eingaben if aktion_formular == "korrektur" else {} %}
+    {% set fs = aktion_fehler if aktion_formular == "storno" else none %}
+    {% set es = eingaben if aktion_formular == "storno" else {} %}
     <form method="post" action="/buchungen/{{ b.id }}/korrigieren" class="korrektur">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="stand" value="{{ stand }}">
       <fieldset>
         <legend>{{ _("Korrigieren (Storno und Neubuchung)") }}</legend>
         <label for="soll">{{ _("Soll") }}</label>
-        <input id="soll" name="soll" value="{{ eingaben.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(aktion_fehler, "soll") }}>
+        <input id="soll" name="soll" value="{{ ek.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(fk, "soll") }}>
         <label for="haben">{{ _("Haben") }}</label>
-        <input id="haben" name="haben" value="{{ eingaben.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(aktion_fehler, "haben") }}>
+        <input id="haben" name="haben" value="{{ ek.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(fk, "haben") }}>
         <label for="steuer">{{ _("Steuerschlüssel") }}</label>
-        <select id="steuer" name="steuer"{{ m.feldfehler(aktion_fehler, "steuer") }}>
+        <select id="steuer" name="steuer"{{ m.feldfehler(fk, "steuer") }}>
           <option value="">{{ _("unverändert") }}</option>
-          {% for nr in steuer.schluessel %}<option value="{{ nr }}"{% if eingaben.get('steuer') == nr | string %} selected{% endif %}>{{ nr }}: {{ steuernamen.get(nr, "") }}</option>{% endfor %}
-          {% if steuer.ohne_steuer %}<option value="ohne"{% if eingaben.get('steuer') == "ohne" %} selected{% endif %}>{{ _("ohne Steuer") }}</option>{% endif %}
+          {% for nr in steuer.schluessel %}<option value="{{ nr }}"{% if ek.get('steuer') == nr | string %} selected{% endif %}>{{ nr }}: {{ steuernamen.get(nr, "") }}</option>{% endfor %}
+          {% if steuer.ohne_steuer %}<option value="ohne"{% if ek.get('steuer') == "ohne" %} selected{% endif %}>{{ _("ohne Steuer") }}</option>{% endif %}
         </select>
         <label for="grund-k">{{ _("Grund (steht im Journal)") }}</label>
-        <input id="grund-k" name="grund" value="{{ eingaben.get('grund', '') }}" maxlength="500"{{ m.feldfehler(aktion_fehler, "grund") }}>
+        <input id="grund-k" name="grund" value="{{ ek.get('grund', '') }}" maxlength="500"{{ m.feldfehler(fk, "grund") }}>
         <label for="datum-k">{{ _("Datum für Storno und Neubuchung") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
-        <input id="datum-k" name="datum" type="date" value="{{ eingaben.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(aktion_fehler, "datum") }}>
+        <input id="datum-k" name="datum" type="date" value="{{ ek.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(fk, "datum") }}>
         {% if mit_einmalcode %}<label for="code-k">{{ _("Einmalcode") }}</label>
         <input id="code-k" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
         <button type="submit">{{ _("Korrigieren") }}</button>
@@ -76,9 +81,9 @@
       <fieldset>
         <legend>{{ _("Stornieren") }}</legend>
         <label for="grund-s">{{ _("Grund (Pflicht, steht im Journal)") }}</label>
-        <input id="grund-s" name="grund" required maxlength="500" value="">
+        <input id="grund-s" name="grund" required maxlength="500" value="{{ es.get('grund', '') }}"{{ m.feldfehler(fs, "grund") }}>
         <label for="datum-s">{{ _("Datum des Stornos") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
-        <input id="datum-s" name="datum" type="date" value=""{% if datum_pflicht %} required{% endif %}>
+        <input id="datum-s" name="datum" type="date" value="{{ es.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(fs, "datum") }}>
         {% if mit_einmalcode %}<label for="code-s">{{ _("Einmalcode") }}</label>
         <input id="code-s" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
         <button type="submit">{{ _("Stornieren") }}</button>

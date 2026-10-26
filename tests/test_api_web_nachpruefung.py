@@ -7,11 +7,12 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from uuid import UUID
 
 import pytest
 
 from accounti.models import BuchungStatus
-from tests.api_hilfe import csrf
+from tests.api_hilfe import csrf, formularwert
 from tests.auth_hilfe import billige_hashes
 from tests.pruefen_hilfe import pdf, queuewelt, stand_aus
 
@@ -90,6 +91,231 @@ def test_erfolgsmeldungen_der_queue_englisch_mit_und_ohne_htmx(qw):
     # Deutsch unverändert
     seite = client.get("/pruefen?erledigt=freigegeben", headers=DE).text
     assert "Buchung freigegeben." in seite
+
+
+# --- gw-web N2: nur ASCII-Ziffern -----------------------------------------------------
+
+
+@pytest.mark.parametrize("ziffer", ["²", "٣", "３"])
+def test_seite_mit_unicode_ziffer_ist_seite_eins(qw, ziffer):
+    vorschlaege(qw, 1)
+    client = qw.web.angemeldet("leo")
+    r = client.get(f"/pruefen?seite={ziffer}")
+    assert r.status_code == 200 and 'aria-current="page"' in r.text
+
+
+@pytest.mark.parametrize("steuer", ["²", "٩", "９"])
+def test_steuer_mit_unicode_ziffer_422_auf_allen_wegen(qw, steuer):
+    (b,) = vorschlaege(qw, 1)
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 5))
+    client = qw.web.angemeldet("jan")
+    felder = {"soll": "4930", "haben": "1200", "steuer": steuer}
+    for kopf in ({}, HX):
+        r = senden(client, f"/pruefen/{b.id}/korrigieren", kopf, **felder)
+        assert r.status_code == 422, (kopf, r.status_code)
+        assert "Unbekannter Steuerschlüssel" in r.text
+        r = senden(client, f"/pruefen/{b.id}/regelvorschau", kopf, regel="1", **felder)
+        assert r.status_code == 422, (kopf, r.status_code)
+    code = qw.web.personen["jan"].codes[-1]
+    r = senden(client, f"/buchungen/{frei.id}/korrigieren", einmalcode=code, **felder)
+    assert r.status_code == 422 and "Unbekannter Steuerschlüssel" in r.text
+    assert 'aria-invalid="true"' in eingabe(r.text, "steuer")
+    assert qw.sql("SELECT status FROM buchungssaetze WHERE id = :i", i=str(b.id)) == [
+        ("pruefung",)
+    ]
+    # kein Code verbraucht, keine Buchung angelegt
+    r = senden(client, f"/buchungen/{frei.id}/stornieren", einmalcode=code, grund="x")
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.parametrize("konto", ["４９３０", "4９30", "²930"])
+def test_konto_mit_unicode_ziffern_422(qw, konto):
+    (b,) = vorschlaege(qw, 1)
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 5))
+    client = qw.web.angemeldet("jan")
+    r = senden(
+        client, f"/pruefen/{b.id}/korrigieren", soll=konto, haben="1200", steuer="9"
+    )
+    assert r.status_code == 422 and 'aria-invalid="true"' in eingabe(r.text, "soll")
+    r = senden(
+        client,
+        f"/buchungen/{frei.id}/korrigieren",
+        soll=konto,
+        haben="1200",
+        steuer="9",
+        einmalcode=qw.web.personen["jan"].codes[-1],
+    )
+    assert r.status_code == 422 and 'aria-invalid="true"' in eingabe(r.text, "soll")
+    konten = {z[0] for z in qw.sql("SELECT soll_konto FROM buchungssaetze")}
+    assert konten <= {"4980"}
+
+
+def _anfrage_mit_laenge(laenge: str):  # noqa: ANN202
+    """POST mit ``Content-Length: laenge`` und dem Körper ``a=1`` (ohne Server)."""
+    from types import SimpleNamespace
+
+    from starlette.requests import Request
+
+    async def empfangen():  # noqa: ANN202
+        return {"type": "http.request", "body": b"a=1", "more_body": False}
+
+    app = SimpleNamespace(
+        state=SimpleNamespace(
+            dienste=SimpleNamespace(server=SimpleNamespace(max_formular_bytes=10))
+        )
+    )
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/",
+            "headers": [
+                (b"content-type", b"application/x-www-form-urlencoded"),
+                (b"content-length", laenge.encode("latin-1")),
+            ],
+            "app": app,
+        },
+        empfangen,
+    )
+
+
+def test_formular_und_rest_koerper_mit_unicode_laenge():
+    """„²“ als Content-Length: ``isdigit`` wahr, ``int`` scheiterte (500)."""
+    import asyncio
+
+    from accounti.api.formular import formular
+    from accounti.api.rest.belege import _koerper
+
+    assert asyncio.run(formular(_anfrage_mit_laenge("²"))) == {"a": "1"}
+    assert asyncio.run(_koerper(_anfrage_mit_laenge("²"), 10)) == b"a=1"
+
+
+# --- gw-web N3: Fehler im Storno-Formular --------------------------------------------
+
+
+def test_storno_fehler_im_storno_formular(qw):
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 1))
+    client = qw.web.angemeldet("jan")
+    code = qw.web.personen["jan"].codes[-1]
+    r = senden(
+        client,
+        f"/buchungen/{b.id}/stornieren",
+        einmalcode=code,
+        grund="falsch",
+        datum="2026-09-01",
+    )
+    assert r.status_code == 422 and "läge vor der Buchung" in r.text
+    assert 'aria-invalid="true"' in eingabe(r.text, "datum-s")
+    assert 'value="2026-09-01"' in eingabe(r.text, "datum-s")
+    assert 'value="falsch"' in eingabe(r.text, "grund-s")
+    for feld in ("datum-k", "grund-k"):
+        assert "aria-invalid" not in eingabe(r.text, feld), feld
+        assert 'value=""' in eingabe(r.text, feld), feld
+    r = senden(client, f"/buchungen/{b.id}/stornieren", einmalcode=code, grund=" ")
+    assert r.status_code == 422
+    assert 'aria-invalid="true"' in eingabe(r.text, "grund-s")
+    assert "aria-invalid" not in eingabe(r.text, "grund-k")
+
+
+def test_korrektur_fehler_bleibt_im_korrektur_formular(qw):
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 1))
+    client = qw.web.angemeldet("jan")
+    r = senden(
+        client,
+        f"/buchungen/{b.id}/korrigieren",
+        einmalcode=qw.web.personen["jan"].codes[-1],
+        soll="4930",
+        haben="1200",
+        steuer="9",
+        grund="falsch",
+        datum="2026-09-01",
+    )
+    assert r.status_code == 422
+    assert 'aria-invalid="true"' in eingabe(r.text, "datum-k")
+    assert 'value="falsch"' in eingabe(r.text, "grund-k")
+    assert "aria-invalid" not in eingabe(r.text, "datum-s")
+    assert 'value=""' in eingabe(r.text, "grund-s")
+
+
+# --- gw-web N4: Sprachwahl nach einer POST-Antwort ----------------------------------
+
+
+def _sprache_auf(client, html, sprache="en"):  # noqa: ANN001, ANN201
+    weiter = formularwert(html, "weiter")
+    r = client.post(
+        "/einstellungen/sprache",
+        data={"csrf": csrf(client), "sprache": sprache, "weiter": weiter},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    return weiter, client.get(r.headers["location"])
+
+
+def test_sprachwahl_nach_post_fuehrt_auf_eine_get_seite(qw):
+    b, gelernt = vorschlaege(qw, 2)
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 5))
+    client = qw.web.angemeldet("jan")
+    r = senden(
+        client,
+        f"/pruefen/{gelernt.id}/korrigieren",
+        soll="4930",
+        haben="1200",
+        steuer="9",
+        regel="1",
+        muster="Bürobedarf Müller",
+        feld="beide",
+    )
+    assert r.status_code == 303, r.text
+    ((regel_id,),) = qw.sql("SELECT id FROM kontierungsregeln")
+    regel_id = UUID(str(regel_id))
+    faelle = [
+        (
+            senden(client, f"/pruefen/{b.id}/korrigieren", soll="12", haben="1200"),
+            f"/pruefen/{b.id}",
+        ),
+        (
+            senden(client, f"/pruefen/{b.id}/regelvorschau", soll="4930", haben="1200"),
+            f"/pruefen/{b.id}",
+        ),
+        (
+            senden(client, f"/buchungen/{frei.id}/stornieren", grund=" "),
+            f"/buchungen/{frei.id}",
+        ),
+        (
+            senden(
+                client,
+                f"/pruefen/regeln/{regel_id}/deaktivieren",
+                ansicht="/pruefen/regeln",
+                grund=" ",
+            ),
+            "/pruefen/regeln",
+        ),
+    ]
+    for antwort, erwartet in faelle:
+        assert antwort.status_code in (200, 422), antwort.status_code
+        weiter, ziel = _sprache_auf(client, antwort.text)
+        assert weiter == erwartet
+        assert ziel.status_code == 200, (weiter, ziel.status_code)
+    # Fehlerseite eines POST (403): zurück auf die nächste GET-Seite darüber
+    leo = qw.web.angemeldet("leo")
+    r = leo.post(
+        f"/pruefen/{b.id}/freigeben",
+        data={"csrf": csrf(leo), "stand": "x"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 403
+    weiter, ziel = _sprache_auf(leo, r.text)
+    assert weiter == f"/pruefen/{b.id}" and ziel.status_code == 200
+    # GET-Seiten behalten ihren Pfad, fremde Ziele bleiben ausgeschlossen
+    assert formularwert(client.get("/pruefen/regeln").text, "weiter") == (
+        "/pruefen/regeln"
+    )
+    r = client.post(
+        "/einstellungen/sprache",
+        data={"csrf": csrf(client), "sprache": "", "weiter": "//evil.example/x"},
+        follow_redirects=False,
+    )
+    assert r.headers["location"] == "/"
 
 
 # --- gw-web N5: lesbare Statuswerte, „Strg“ -----------------------------------------

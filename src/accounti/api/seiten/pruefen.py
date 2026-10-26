@@ -87,6 +87,26 @@ ERLEDIGT = {
 }
 
 
+def ascii_zahl(wert: str | None) -> int | None:
+    """Ganze Zahl aus Formular oder Abfrage — nur aus ASCII-Ziffern, sonst ``None``.
+    ``str.isdigit()`` ist auch für „²“ wahr (``int`` scheitert: 500) und für „٩“
+    (``int`` liest 9)."""
+    wert = (wert or "").strip()
+    return int(wert) if wert.isascii() and wert.isdigit() else None
+
+
+def formularkonto(wert: str | None, feld: str) -> str:
+    """Kontonummer aus dem Formular: nur ASCII — die Fachprüfung (``\\d``) ließe
+    vollbreite Ziffern wie „４９３０“ als Konto durch."""
+    wert = (wert or "").strip()
+    if not wert.isascii():
+        raise PruefschlangeError(
+            f"{feld.capitalize()}: {wert} ist keine Kontonummer (4–8 Ziffern)",
+            feld=feld,
+        )
+    return wert
+
+
 def confidence_prozent(confidence: float) -> int:
     """Confidence abgerundet in ganzen Prozent — ohne Gleitkommafehler (0,57 · 100
     ist 56,99…; ``int()`` zeigte „56 %“)."""
@@ -310,8 +330,7 @@ async def liste(
     ansicht: str = "offen",
     erledigt: str | None = None,
 ) -> HTMLResponse:
-    nummer = request.query_params.get("seite", "1")
-    seite_wert = int(nummer) if nummer.isdigit() else 1
+    seite_wert = ascii_zahl(request.query_params.get("seite")) or 1
     gewaehlt = _ansicht(ansicht)
     daten = await run_in_threadpool(lade_pruefschlange, s, gewaehlt, seite_wert)
     return seite(
@@ -550,8 +569,9 @@ def _steuerangabe(wert: str) -> tuple[int | None, bool]:
         return None, False
     if wert == "ohne":
         return None, True
-    if wert.isdigit() and int(wert) in STEUERSCHLUESSEL:
-        return int(wert), False
+    nummer = ascii_zahl(wert)
+    if nummer is not None and nummer in STEUERSCHLUESSEL:
+        return nummer, False
     raise PruefschlangeError("Unbekannter Steuerschlüssel", feld="steuer")
 
 
@@ -611,8 +631,8 @@ async def korrigieren_seite(
             s,
             buchung_id,
             Aenderung(
-                felder.get("soll", ""),
-                felder.get("haben", ""),
+                formularkonto(felder.get("soll"), "soll"),
+                formularkonto(felder.get("haben"), "haben"),
                 steuer,
                 ohne,
                 (felder.get("grund") or "").strip() or None,
@@ -707,6 +727,8 @@ async def regelvorschau(
             )
         try:
             steuer, ohne = _steuerangabe(felder.get("steuer", ""))
+            soll = formularkonto(felder.get("soll"), "soll") or e.buchung.soll_konto
+            haben = formularkonto(felder.get("haben"), "haben") or e.buchung.haben_konto
         except PruefschlangeError as f:
             return None, _fehlerbild(f)
         if not steuer and not ohne:
@@ -718,8 +740,8 @@ async def regelvorschau(
         try:
             entwurf = entwurf_fuer(
                 e.umsatz,
-                felder.get("soll") or e.buchung.soll_konto,
-                felder.get("haben") or e.buchung.haben_konto,
+                soll,
+                haben,
                 None if ohne else steuer,
                 bh,
                 muster=felder.get("muster") or None,

@@ -22,6 +22,7 @@ from fastapi.responses import HTMLResponse
 from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
 from jinja2.runtime import Context
 from jinja2.utils import pass_context
+from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
@@ -172,6 +173,31 @@ def sprache_der_anfrage(request: Request) -> str:
     )
 
 
+def _beantwortet_get(request: Request, pfad: str) -> bool:
+    """Gibt es eine Route, die GET auf ``pfad`` annimmt? (Eingehängte Router von
+    FastAPI prüfen ihre Routen selbst.)"""
+    bereich = {"type": "http", "path": pfad, "root_path": "", "method": "GET"}
+    return any(r.matches(bereich)[0] is Match.FULL for r in request.app.router.routes)
+
+
+def ansichtspfad(request: Request) -> str:
+    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst, nach
+    einem POST die nächste Seite darüber, die GET beantwortet
+    (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
+    ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
+    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung."""
+    pfad = request.url.path
+    if request.method in ("GET", "HEAD"):
+        return pfad
+    teile = pfad.rstrip("/").split("/")
+    while len(teile) > 2:
+        teile.pop()
+        kandidat = "/".join(teile)
+        if _beantwortet_get(request, kandidat):
+            return kandidat
+    return "/"
+
+
 def seite(
     request: Request,
     vorlage: str,
@@ -193,7 +219,7 @@ def seite(
         "sprache": sprache,
         "sprachen": i18n.NAMEN,
         "benutzersprache": a.benutzer.sprache if a is not None else None,
-        "pfad": request.url.path,
+        "pfad": ansichtspfad(request),
         "htmx_konfig": HTMX_KONFIG,
         "hx_kopf": json.dumps({"X-CSRF-Token": csrf}),
     }

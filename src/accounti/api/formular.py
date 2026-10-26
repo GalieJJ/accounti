@@ -28,7 +28,7 @@ async def formular(request: Request) -> dict[str, str]:
     if art == "application/x-www-form-urlencoded":
         grenze = request.app.state.dienste.server.max_formular_bytes
         laenge = request.headers.get("content-length", "")
-        if laenge.isdigit() and int(laenge) > grenze:
+        if laenge.isascii() and laenge.isdigit() and int(laenge) > grenze:
             raise HTTPException(413, Text("Formular zu groß"))
         koerper = b""
         async for stueck in request.stream():
