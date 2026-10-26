@@ -436,7 +436,8 @@ def korrigiere(
                 session, str(b.id), b.model_copy(update=aenderung)
             )
             session.flush()
-        return Korrektur(b, neu, warnungen=_warnung_selbst(b, ohne_steuer))
+        warnungen = _warnung_selbst(b, ohne_steuer) + _warnung_uebergeben(session, b)
+        return Korrektur(b, neu, warnungen=warnungen)
     if all(
         getattr(b, k) == v
         for k, v in aenderung.items()
@@ -454,6 +455,22 @@ def korrigiere(
     k = _storno(session, b, person, text, datum, kr, neu)
     k.warnungen.extend(_warnung_selbst(b, ohne_steuer))
     return k
+
+
+def _warnung_uebergeben(session: Session, b: Buchungssatz) -> list[str]:
+    """Ein Vorschlag, der ungeprüft mit ``export datev --alle`` übergeben wurde, gilt
+    als exportiert (Journal ``ungeprueft``) — die direkte Korrektur kommt mit dem
+    nächsten Export nicht nach DATEV, dort steht weiter das alte Konto."""
+    from accounti.export.datev import schon_exportiert
+
+    if b.id not in schon_exportiert(session):
+        return []
+    return [
+        f"Buchung {_kurz(b)} ging schon an DATEV (export datev --alle) — dort steht "
+        f"weiter {b.soll_konto} an {b.haben_konto}, der nächste Export bringt die "
+        "Korrektur nicht. In DATEV von Hand korrigieren oder den Stapel dort ersetzen: "
+        f"accounti export datev --period {b.datum:%Y-%m} --erneut"
+    ]
 
 
 def _warnung_selbst(b: Buchungssatz, ohne_steuer: bool) -> list[str]:

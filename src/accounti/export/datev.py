@@ -19,7 +19,7 @@ https://developer.datev.de/datev/platform/de/dtvf
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -178,12 +178,18 @@ class DATEVExporter:
         self,
         buchungen: list[Buchungssatz],
         ausgabe_pfad: str | Path,
+        vergeben: Collection[str] = (),
     ) -> Path:
         """Buchungsstapel als DATEV-ASCII-Datei exportieren.
 
         Args:
             buchungen: Liste der zu exportierenden Buchungssätze (in dieser Folge)
             ausgabe_pfad: Verzeichnis für die Ausgabedatei
+            vergeben: Dateinamen, die frühere Exporte schon hatten (Journal,
+                ``exportierte_dateien``) — sie werden übersprungen, auch wenn die
+                Datei nicht mehr im Ordner liegt (nach dem Hochladen weggeräumt):
+                sonst trügen zwei Stapel denselben Namen und im selben Archivordner
+                überschriebe der neue den alten
 
         Returns:
             Pfad zur erzeugten Datei — eine vorhandene wird nie überschrieben: der
@@ -205,6 +211,9 @@ class DATEVExporter:
         nr = 1
         while True:
             datei = ordner / (f"{stamm}.csv" if nr == 1 else f"{stamm}_{nr}.csv")
+            if datei.name in vergeben:
+                nr += 1
+                continue
             try:
                 # "x": anlegen oder scheitern — auch zwei gleichzeitige Exporte
                 # überschreiben einander nicht
@@ -216,6 +225,31 @@ class DATEVExporter:
             return datei
 
 
+def _exporte(session: Session) -> list[dict[str, object]]:
+    """Journaleinträge ``export`` (Buchungsstapel, Belegpaket) als Daten."""
+    from accounti.pruefung.journal import journal_vorhanden, lade_journal
+
+    if not journal_vorhanden(session.connection()):
+        return []
+    daten = []
+    for e in lade_journal(session, vorgang="export"):
+        if e.objekt_id not in EXPORTARTEN or not e.nachher:
+            continue
+        try:
+            nachher = json.loads(e.nachher)
+        except ValueError:
+            continue
+        if isinstance(nachher, dict):
+            daten.append(nachher)
+    return daten
+
+
+def exportierte_dateien(session: Session) -> set[str]:
+    """Dateinamen früherer Exporte laut Journal — für die laufende Nummer des
+    nächsten Stapels (``DATEVExporter.exportiere``)."""
+    return {str(d["datei"]) for d in _exporte(session) if d.get("datei")}
+
+
 def schon_exportiert(session: Session) -> set[UUID]:
     """Buchungen, die ein früherer Export laut Journal übergeben hat.
 
@@ -224,20 +258,11 @@ def schon_exportiert(session: Session) -> set[UUID]:
     nicht ``exportiert`` — der Export vermerkt beide nur im Journal
     (``markiere_exportiert``, Listen ``gesperrt`` und ``ungeprueft``).
     """
-    from accounti.pruefung.journal import journal_vorhanden, lade_journal
-
-    if not journal_vorhanden(session.connection()):
-        return set()
     ids: set[UUID] = set()
-    for e in lade_journal(session, vorgang="export"):
-        if e.objekt_id not in EXPORTARTEN or not e.nachher:
-            continue
-        try:
-            nachher = json.loads(e.nachher)
-        except ValueError:
-            continue
+    for nachher in _exporte(session):
         for schluessel in ("markiert", "gesperrt", "ungeprueft"):
-            for wert in nachher.get(schluessel) or []:
+            werte = nachher.get(schluessel)
+            for wert in werte if isinstance(werte, list) else []:
                 try:
                     ids.add(UUID(str(wert)))
                 except ValueError:

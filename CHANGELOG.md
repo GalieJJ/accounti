@@ -449,9 +449,12 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Stapel über die Grenze des Wirtschaftsjahrs wird abgelehnt (DATEV läse das Belegdatum TTMM
   im falschen Jahr). Schon exportierte Buchungen — auch solche in festgeschriebenen Monaten,
   die den Status nicht mehr wechseln, und ungeprüfte, die mit `--alle` im Stapel waren (sie
-  stehen als `ungeprueft` im Journal) — kommen nur mit `--erneut` noch einmal. Ein weiterer
-  Export desselben Zeitraums schreibt eine eigene Datei (`…_2.csv`, `…_3.csv`) und überschreibt
-  nie einen früheren Stapel (vorher war der erste weg, der SHA-256 im Journal verwies ins Leere).
+  stehen als `ungeprueft` im Journal) — kommen nur mit `--erneut` noch einmal; `korrigiere`
+  warnt, wenn ein solcher Vorschlag danach noch geändert wird (in DATEV steht das alte Konto).
+  Ein weiterer Export desselben Zeitraums schreibt eine eigene Datei (`…_2.csv`, `…_3.csv`) und
+  überschreibt nie einen früheren Stapel (vorher war der erste weg, der SHA-256 im Journal
+  verwies ins Leere); die Nummer zählt auch die Stapel, die laut Journal schon übergeben und
+  aus dem Ordner geräumt sind (sonst trugen zwei Stapel denselben Namen).
   `--berater`/`--mandant` fallen auf `datev.berater_nummer`/`mandanten_nummer` zurück. Der
   Stapel entsteht aus denselben Bausteinen wie `datev belege`: 31 Kopffelder, Herkunft „RE“,
   Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),

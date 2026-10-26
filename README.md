@@ -769,8 +769,10 @@ accounti erzeugt DATEV-konforme ASCII-Dateien nach dem Format "Buchungsstapel" (
   exportierten, solange sie in einem Wirtschaftsjahr liegen (sonst Abbruch — ein Stapel
   gehört zu genau einem Wirtschaftsjahr, das Belegdatum steht nur als TTMM). Schon
   exportierte Buchungen kommen nur mit `--erneut` noch einmal; ungeprüfte nur mit `--alle`
-  (sie gelten danach als übergeben). Ein weiterer Export desselben Zeitraums schreibt eine
-  neue Datei (`EXTF_Buchungsstapel_JJJJMMTT_JJJJMMTT_2.csv` …), nie über eine vorhandene.
+  (sie gelten danach als übergeben; `korrigiere` warnt, wenn einer danach noch geändert
+  wird). Ein weiterer Export desselben Zeitraums schreibt eine neue Datei
+  (`EXTF_Buchungsstapel_JJJJMMTT_JJJJMMTT_2.csv` …), nie unter dem Namen eines früheren
+  Stapels — auch wenn der Ordner nach dem Hochladen geräumt ist (die Namen stehen im Journal).
   Kopf und Datensätze wie `datev belege` (31 Kopffelder, Herkunft „RE“, Textfelder maskiert,
   Kostenstelle in KOST1); Konten, die nicht zur Sachkontenlänge passen, meldet der Export.
 - **EXTF Debitoren/Kreditoren**: Stammdaten

@@ -597,6 +597,36 @@ def test_export_datev_zweiter_stapel_ueberschreibt_den_ersten_nicht(umgebung):
         assert hashlib.sha256(inhalt).hexdigest() == e["sha256"]
 
 
+def test_export_datev_nummer_zaehlt_die_namen_im_journal(umgebung):
+    """Nachprüfung 2 E, L2: Den ersten Stapel nach dem Hochladen aus dem Ordner
+    geschoben — der nächste Export hieß wieder ``…_20260831.csv``. Zwei
+    Journaleinträge mit demselben Namen und verschiedenem SHA-256; im selben
+    Archivordner überschriebe die neue Datei die erste. Die laufende Nummer
+    überspringt jetzt auch die Namen, die das Journal schon kennt."""
+    import json
+
+    from accounti.pruefung.journal import lade_journal
+
+    tmp_path, basis, _ = umgebung
+    ex = tmp_path / "ex"
+    assert _export(basis, ex, "--period", "2026-08").exit_code == 0
+    (erste,) = ex.glob("EXTF_*.csv")
+    erste.rename(tmp_path / erste.name)  # hochgeladen und weggeräumt
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-2", tag=20)
+        s.commit()
+    r = _export(basis, ex, "--period", "2026-08")
+    assert r.exit_code == 0 and "1 Buchungen" in _text(r), r.output
+    (zweite,) = ex.glob("EXTF_*.csv")
+    assert zweite.name == "EXTF_Buchungsstapel_20260801_20260831_2.csv"
+    with make() as s:
+        namen = [
+            json.loads(e.nachher)["datei"] for e in lade_journal(s, vorgang="export")
+        ]
+    assert namen == [erste.name, zweite.name]
+
+
 def test_export_datev_alle_ungepruefte_nach_der_freigabe_nicht_noch_einmal(umgebung):
     """N3: ``--alle`` nimmt ungeprüfte Buchungen in den Stapel. Sie wechseln den
     Status nicht (exportiert hieße freigegeben), standen aber auch nicht im Journal —
@@ -624,3 +654,44 @@ def test_export_datev_alle_ungepruefte_nach_der_freigabe_nicht_noch_einmal(umgeb
     assert r.exit_code == 0, r.output
     assert "Keine Buchungen zu exportieren" in _text(r)
     assert not (tmp_path / "b").exists()
+
+
+def test_korrigiere_warnt_wenn_der_vorschlag_schon_bei_datev_ist(umgebung):
+    """Nachprüfung 2 E, L3: Ein Vorschlag aus ``export datev --alle`` gilt als
+    übergeben. Wird er danach direkt korrigiert (ohne Storno), kommt er nie mehr nach
+    DATEV — dort steht das alte Konto, ohne Hinweis beim Korrigieren. Jetzt warnt
+    ``korrigiere`` und nennt den Weg (``--erneut``); ein nicht übergebener
+    Vorschlag bleibt ohne Warnung."""
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.storno import korrigiere
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        offen = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    assert _export(basis, tmp_path / "a", "--alle").exit_code == 0
+    r = runner.invoke(
+        app,
+        [
+            "korrigiere",
+            str(offen.id)[:8],
+            "--soll",
+            "4940",
+            "--haben",
+            "70001",
+            "--steuer",
+            "9",
+            "--von",
+            "Erika",
+            *basis,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "schon an DATEV" in text and "4930 an 70001" in text, r.output
+    assert "export datev --period 2026-08 --erneut" in text, r.output
+    with make() as s:
+        neu = _buchung(s, "R-9", tag=9, status=BuchungStatus.ZUR_PRUEFUNG)
+        k = korrigiere(s, str(neu.id), "4940", "70001", steuer=9, von="Erika")
+        assert not [w for w in k.warnungen if "DATEV" in w]

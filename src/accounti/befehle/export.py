@@ -81,7 +81,12 @@ def buchungsstapel(
     """
     from accounti.db import session_factory
     from accounti.db.repository import lade_buchungen
-    from accounti.export.datev import DATEVConfig, DATEVExporter, schon_exportiert
+    from accounti.export.datev import (
+        DATEVConfig,
+        DATEVExporter,
+        exportierte_dateien,
+        schon_exportiert,
+    )
     from accounti.export.datev_format import DatevFormatError
     from accounti.export.datev_stammdaten import lade_datev_mandant
     from accounti.konfiguration import KonfigurationError
@@ -154,7 +159,9 @@ def buchungsstapel(
                     automatikkonten=automatik,
                 )
             )
-            datei = exporter.exportiere(buchungen, output)
+            datei = exporter.exportiere(
+                buchungen, output, vergeben=exportierte_dateien(s)
+            )
         except (KonfigurationError, DatevFormatError) as fehler:
             s.rollback()
             raise _fehler(fehler) from fehler

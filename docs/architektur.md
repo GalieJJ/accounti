@@ -427,7 +427,8 @@ Ergänzungen in `steuer/`:
 - `datev.py` — Buchungsstapel (`accounti export datev --period`), aus denselben Bausteinen wie
   `datev belege` (ohne Beleglink); ein Stapel je Wirtschaftsjahr, schon exportierte Buchungen
   (Status oder Journalvermerk, auch ungeprüfte aus `--alle`) nur mit `--erneut`; eine
-  vorhandene Stapeldatei wird nie überschrieben (`…_2.csv`).
+  vorhandene Stapeldatei wird nie überschrieben (`…_2.csv`), ein Name aus dem Journal nie
+  wieder vergeben.
 - `datev_format.py`, `datev_felder.py` — Kopfzeile, Feldtypen und Feldlisten wörtlich aus DATEVs
   Musterdateien und Formatbeschreibung; was nicht passt, ist ein `DatevFormatError`.
 - `datev_stammdaten.py` — Debitoren/Kreditoren (Kategorie 16, Version 5) aus `kontakte/`.

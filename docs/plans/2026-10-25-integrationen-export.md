@@ -298,7 +298,9 @@ DATEV-Übergabe:
   Mensch (`--ausgabe`); der SHA-256 eines früheren Journaleintrags passt dann nicht mehr zur
   Datei. Ungeprüfte Buchungen aus `export datev --alle` gelten als übergeben (Journal
   `ungeprueft`): wird eine vor der Freigabe noch geändert (`korrigiere` ändert Vorschläge ohne
-  Storno), kommt sie nur mit `--erneut` noch einmal — der Export warnt.
+  Storno), kommt sie nur mit `--erneut` noch einmal — der Export warnt, `korrigiere` auch
+  (Nachprüfung 2 E, L3). Die laufende Nummer eines Stapels zählt die Namen im Journal und im
+  Ordner (L2).
 
 **Kontoauszüge**
 - Der MT940-Import in DATEV ist nicht echt geprüft, nur gegen die DK-Spezifikation und eine
