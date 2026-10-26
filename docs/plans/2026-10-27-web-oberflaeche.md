@@ -1174,6 +1174,29 @@ TIFF-Verzeichnisse vor `Image.open`, keine Regression) und N-4 (Einmalcode bei Z
 UStVA-Freigabe vor der Fachprüfung, Baustein 10a; das Probe-Muster aus Technik M3 verlangt dort
 erst eine Prüfung der Seiteneffekte von `gib_frei` und der Zahlungsfreigabe) — beides Folgearbeit.
 
+**Nachprüfung nach dem Zusammenführen mit main (2de9a1b)** — Prüfberichte gw-regeln,
+gw-migration, gw-storno, gw-regress (fachlicher Teil; die Web-Befunde behebt ein eigener
+Zweig); je Befund ein Test, der ohne die Korrektur scheitert:
+
+| Befund | Korrektur | Test |
+|--------|-----------|------|
+| gw-regeln H-1 (a) — aus einer Umbuchung Giro ↔ Tagesgeld wird „1200 an 1200“ | `entwurf_fuer` und `lerne_regex`: Soll und Haben beide Zahlungsmittel (`Kontenrahmen.ist_zahlungsmittel`, neuer Abschnitt `zahlungsmittel` der Kontenrahmendateien, dazu Bankkonto, Finanzkonto des Umsatzes, eingerichtete Konten; `buchung.konten.umbuchung_fehler`) → `RegelError` Feld `regel`; CLI Exit 1 ohne Korrektur, Queue/Vorschau 422 | `test_umbuchung_geldkonten.py::test_aus_einer_umbuchung_wird_keine_regel`, `::test_lerne_regex_lehnt_umbuchung_ab`, `::test_cli_korrigiere_lernen_aus_umbuchung_exit_1_ohne_regel`, `::test_cli_lerne_umbuchung_exit_1`, `::test_web_korrektur_mit_regel_aus_umbuchung_422` |
+| H-1 (b) — Soll = Haben automatisch (Regeldatei „1210 an 1200“ auf 1210, gelernte Altregeln, Gegenrichtung, LLM) | eine Schranke in `kontiere_umsaetze` für alle Quellen (Beleg, Regel, LLM, Gegenrichtung) — deckt `classify`, `bank lauf` und den REST-Lauf; der Umsatz bleibt offen (`Kontierungslauf.umbuchungen`, CLI-Hinweis, REST `kontierung.umbuchung`). OPOS läuft nicht durch `kontiere_umsaetze`: `sachkonto_fuer_beleg` (Belegbuchung und OPOS) nimmt kein Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto als Sachkonto (`konten.kein_sachkonto`) — sonst „70001 an 70001“ | `::test_regeldatei_umbuchung_auf_dem_zweiten_konto_bleibt_offen`, `::test_alte_gelernte_umbuchungsregeln_buchen_nie_soll_gleich_haben`, `::test_llm_vorschlag_mit_soll_gleich_haben_bleibt_offen`, `::test_belegbuchung_nimmt_kein_geld_oder_personenkonto_als_sachkonto`, `::test_opos_verbuchen_mit_kreditorregel_bucht_nicht_kreditor_an_kreditor`, `::test_classify_meldet_die_offene_umbuchung`, `::test_bank_lauf_bleibt_offen`, `::test_rest_lauf_bleibt_offen_und_meldet_die_umbuchung` |
+| H-1 (c) — Altfälle fallen nicht auf | Prüfregel `soll_gleich_haben` (Richtigkeit, Fehler; ohne stornierte Paare) | `::test_pruefen_meldet_buchungen_mit_soll_gleich_haben`, `::test_pruefregel_uebergeht_stornierte` |
+| M-1 — Übernahme vor neueren Korrekturen | `lade_kontierungsregeln` ordnet nach Herkunft: übernommene hinter allen anderen gelernten, untereinander wie in der Datei (kein geschönter Zeitstempel) | `test_lernen.py::test_uebernahme_steht_hinter_vorhandenen_gelernten_regeln`, `test_cli_lernen.py::test_regeln_uebernehmen_hinter_der_korrektur` |
+| M-2 — `pruefen`/`confidence` gehen verloren | Einträge mit `pruefen: true` oder `confidence` < 1 bleiben in der Regeldatei (greifen dort wie bisher) und werden genannt — **keine Migration**: die Regeldatei kennt das Kennzeichen schon; ein Feld je gelernter Regel bräuchte Schema, Journal-Bestand, Liste, Browser und REST, und im Browser lässt sich ohnehin keine solche Regel anlegen. Ebenso Umbuchungen | `test_lernen.py::test_uebernahme_laesst_eintraege_mit_pruefkennzeichen_in_der_datei`, `test_cli_lernen.py::test_regeln_uebernehmen_nennt_was_in_der_datei_bleibt` |
+| M-3 — SKR04-Ausgangsbeleg auf 8400 (besteht auf main) | `buchung.konten.erloeskonten` je Kontenrahmen (SKR04 4400/4300/4200; steuerfrei aus `KENNZIFFERN_KONTEN`: 4125/4120/4100/4336; OSS 4320 zur Prüfung) für `mit_beleg` und `opos/verbuchung` | `test_erloeskonten_kontenrahmen.py` (SKR03/SKR04, EÜR Kz 112 ohne „nicht zugeordnet“), `test_opos_verbuchung.py::test_ausgangsrechnung_im_skr04_auf_skr04_erloese`, `::test_steuerfreie_erloese_im_skr04` |
+| gw-regeln N-1 — „davon heute anders gebucht“ der falschen Richtung | `Vorschau.gegenrichtung_anders`, Vorlage `_regelvorschau.html` | `test_lernen.py::test_vorschau_zaehlt_anders_gebuchte_je_richtung`, `test_api_regeln.py::test_vorschau_gegenrichtung_zaehlt_ihre_eigenen_anders_gebuchten` |
+| gw-regeln N-2 — kaputtes Muster/`feld`: 500 bzw. Traceback | Lader: `re.error`, unbekanntes `feld`, YAML-Fehler, keine Liste → `KonfigurationError` mit Regelname | `test_regeln_loader.py::test_fehlerhafte_regeldatei_meldet_konfigurationsfehler`, `::test_classify_mit_kaputtem_muster_meldung_statt_traceback` |
+| gw-migration N-1 / gw-regress N1 — Vorabstand: „0 Migration(en)“, dann OperationalError | `db upgrade` prüft das Schema gegen die Tabellen und Spalten des Codes (`fehlendes_schema`) und bricht mit abgeleitetem Stand und verlustfreiem Weg ab; `db upgrade --aus-schema` stempelt zurück (`purge`) und migriert | `test_db_upgrade.py::test_db_upgrade_erkennt_den_vorabstand_und_bricht_mit_weg_ab`, `::test_db_upgrade_aus_schema_holt_die_migrationen_verlustfrei_nach` |
+| gw-migration N-2 — `lerne --name` von main nicht übernommen | `regeln uebernehmen --name`; die Ausgabe nennt die Einträge, die in der Datei bleiben | `test_lernen.py::test_uebernahme_mit_namen_und_hinweis_auf_eigene_eintraege` |
+| gw-migration N-3 — Traceback auf nicht migrierter Datenbank | die Wurzelgruppe der CLI fängt „no such column/table“ (PostgreSQL 42703/42P01) und nennt `accounti db upgrade` | `test_db_upgrade.py::test_cli_auf_nicht_migrierter_datenbank_hinweis_statt_traceback` |
+| gw-storno N3 — Einmalcode vor der Fachprüfung verbraucht (besteht auf main) | Fachprobe nach der Rechteprüfung und vor dem Code (`handelnde_person(vorab=…)`, `befehle.fachprobe`) für `buchung storniere`, `korrigiere`, `lerne`, dazu `bestaetige` | `test_cli_einmalcode_fachprobe.py` |
+
+Angepasst: `test_api_rest.py::test_laeufe_anstossen` (neuer Schlüssel `umbuchung`),
+`test_pruefung_regeln.py::test_alle_regeln_aus_der_spec_sind_registriert`
+(`soll_gleich_haben`).
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1537,6 +1560,28 @@ Durchlaufs mit Markern in allen Fremddaten.
 - Auf `/buchungen/{id}` (Storno-Korrektur) gibt es kein Regelangebot; dort hilft
   `accounti korrigiere … --lernen`.
 - Die Vorschau zählt über die Umsätze der letzten 24 Monate (ein Durchlauf in Python).
+- Umbuchungen zwischen eigenen Geldkonten erkennt accounti an den Konten (Abschnitt
+  `zahlungsmittel` des Kontenrahmens, Bankkonto, Finanzkonto des Umsatzes, eingerichtete Bank-
+  und Kartenkonten); ein Geldkonto außerhalb davon (z. B. ein eigenes Geldtransit-Konto aus
+  `integrationen`) zählt nicht. Eine Regel, die eine Umbuchung nur auf einem der beiden Konten
+  richtig bucht (Regeldatei, `lerne` vor dieser Korrektur), bucht dort weiter; auf dem anderen
+  Konto bleibt der Umsatz offen (die Umbuchung steht auf beiden Auszügen und wird so nur einmal
+  gebucht) — wie er dort zu buchen ist, entscheidet der Mensch. Die Regelvorschau im Browser
+  kennt eingerichtete Konten außerhalb der Bereiche nicht (gespeichert wird trotzdem nicht).
+- `regeln uebernehmen` lässt Einträge mit `pruefen`/`confidence` und Umbuchungen in der
+  Regeldatei; dort greifen sie nach den gelernten Regeln. Ein eigenes Prüfkennzeichen je
+  gelernter Regel gibt es nicht (nur den Schalter `buchhaltung.gelernte_regeln` für alle).
+  Ein unbekannter Name bei `--name` wird gemeldet, die übrigen Einträge werden trotzdem
+  übernommen.
+- Die Einmalcode-Probe der CLI läuft vor dem Code; ändert jemand die Buchung genau zwischen
+  Probe und Lauf, ist der Code verbraucht (wie im Browser). `regeln uebernehmen` hat nach dem
+  Code keine Fachprüfung mehr; Zahlungs- und UStVA-Freigabe (10a, N-4) bleiben, wie sie sind.
+- SKR04: Erlöse eines OSS-Fernverkaufs gehen auf das Sammelkonto 4320 (zur Prüfung, ohne
+  Länderkonten); die DATEV-Automatik von 4400/4300 kennt accounti im SKR04 nur mit einer
+  eigenen `pruefung.kontenrahmen_datei` (sonst trägt der Export den BU-Schlüssel mit).
+  Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten.
+- `db upgrade` erkennt einen unpassenden Vermerk an fehlenden Tabellen und Spalten, nicht an
+  fehlenden Indizes oder Triggern; `--aus-schema` stempelt nur zurück, nie vor.
 
 **Auswertungen**
 - Die BWA-Zuordnung ist accountis eigene, an DATEV-Form 01 angelehnte Tabelle — nicht

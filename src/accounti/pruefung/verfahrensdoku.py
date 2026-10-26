@@ -414,7 +414,12 @@ def _kontierung(d: _Doku) -> None:
         "oder auf keiner Seite. Marktplatz-Auszahlungen (Stichworte "
         "`integrationen.marktplaetze.<name>.bank_stichworte`, offene Auszahlungen "
         "importierter Abrechnungen) bucht die Kontierung nicht: Sie bleiben offen, "
-        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht.",
+        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht. "
+        "Eine Buchung mit demselben Konto im Soll und im Haben entsteht nie "
+        "automatisch — der Umsatz bleibt offen (meist eine Umbuchung zwischen eigenen "
+        "Geldkonten, die auf beiden Kontoauszügen steht); aus einer solchen Umbuchung "
+        "wird keine gelernte Regel, und die Prüfregel soll_gleich_haben meldet "
+        "Altfälle.",
         "",
     )
     d(

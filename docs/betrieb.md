@@ -278,7 +278,11 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
   `sperre`, `iban-klaeren`, `abgleichen`, `sepa` und `stornieren` sowie die Befehle aus
-  Baustein 7 (siehe oben). Der Einmalcode lässt sich in
+  Baustein 7 (siehe oben). `buchung storniere`, `korrigiere`, `lerne` und `bestaetige`
+  führen die Aktion nach der Rechteprüfung zuerst zur Probe aus (zurückgerollt) und
+  bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum vor der Buchung,
+  Umbuchung als Regel, ungültiges Muster, Prüfregel) verbraucht ihn nicht, wie im Browser.
+  Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
   Browser), Sperrwerte gar nicht.
@@ -630,7 +634,8 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
 **Update Gesamttest Debitoren** (Migration `a14acef69fae` nach `2f7c7043043e`: Tabelle
 `verrechnungen` mit SQLite-Triggern, Spalten `ausgangsrechnungen.rechnungstyp`/
 `korrektur_zu`, `ausgangspositionen.elektronisch`): ohne die Migration scheitern Befehle
-an den neuen Spalten (Datenbankfehler statt Meldung) — also die Datenbank wie oben mit
+an den neuen Spalten (die CLI meldet den Datenbankfehler mit dem Hinweis auf `accounti db
+upgrade`, wie für jede fehlende Tabelle oder Spalte) — also die Datenbank wie oben mit
 `accounti db upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Hat
 ein Befehl des neuen Abbilds die Tabelle `verrechnungen` schon angelegt (`init_db`),
 übernimmt die Migration sie; ohne Versionsvermerk erkennt `db upgrade` den Stand
@@ -678,15 +683,38 @@ docker compose run --rm app -g muster regeln uebernehmen --probe   # alte gelern
 
 Gleichwertig für Datenbanken **mit** Versionsvermerk: `docker compose run --rm -e
 ACCOUNTI_DB="$ACCOUNTI_SYSTEM_DB" --entrypoint alembic app -c /app/alembic.ini upgrade head`
-(je Datenbank). Eine Datenbank, die schon mit einem Vorabstand von Baustein 10b migriert
+(je Datenbank). Eine Datenbank, die schon mit einem **Vorabstand von Baustein 10b** migriert
 wurde (die beiden Migrationen hingen dort an `ddc9a184ddb4`), steht auf dem Kopf
-`e7153706b43a`, ohne die Migrationen von main dazwischen — sie aus der Sicherung von davor
-neu migrieren.
+`e7153706b43a`, ohne die Migrationen von main dazwischen (`verrechnungen`,
+`anlagegueter.buchung_id`, Index `uq_api_token_aktiv` …). `db upgrade` prüft nach der
+Migration das Schema gegen den Code und bricht dann mit den fehlenden Tabellen und Spalten,
+dem aus dem Schema abgeleiteten Stand (`ddc9a184ddb4`) und diesem Weg ab — verlustfrei,
+die Daten seit dem Update bleiben:
+
+```bash
+docker compose run --rm app -g muster sicherung erstellen --ziel /sicherungen/   # vorher sichern
+docker compose run --rm app -g muster db upgrade --aus-schema   # Stand aus dem Schema, Migrationen nach
+```
+
+`--aus-schema` leitet den Stand auch bei vorhandenem Vermerk aus dem Schema ab, stempelt ihn,
+wenn er älter ist (`alembic stamp --purge`), und migriert bis zum Kopf — die Migrationen ab
+Baustein 7 übernehmen schon vorhandene Tabellen. Von Hand gleichwertig: `alembic stamp
+--purge ddc9a184ddb4` und `alembic upgrade head` (mit der ini-Kopie auf diese Datenbank),
+oder `sicherung erstellen` aus der alten Datenbank und `sicherung wiederherstellen` in eine
+leere (das Schema legt der laufende Code an).
 
 Früher gelernte Regeln (`gelernt_*` am Ende der Regeldatei) übernimmt `regeln uebernehmen` in die
 Datenbank, mit der Richtung ihrer Bankseite (mit eingerichteten Benutzern mit den Rechten
 `buchen` und `regeln_lernen` — Rolle `buchhalter` — und Einmalcode, z. B.
 `-e ACCOUNTI_BENUTZER=eva -e ACCOUNTI_EINMALCODE=…`); Einträge ohne erkennbare Bankseite meldet
-der Befehl, sie gelten für Ein- und Ausgänge. Danach die genannten Einträge von Hand aus der
+der Befehl, sie gelten für Ein- und Ausgänge. Übernommene Regeln stehen hinter den schon in der
+Datenbank gelernten (eine Korrektur seit dem Update behält Vorrang), untereinander in der
+Reihenfolge der Datei. **Andere Einträge bleiben in der Regeldatei** und greifen dort wie
+bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
+--name X` gelernt wurden (ohne Präfix `gelernt_`; mit `regeln uebernehmen --name X`
+übernehmen), Einträge mit `pruefen: true` oder `confidence` unter 1 (eine gelernte Regel hat
+kein eigenes Prüfkennzeichen — übernommen buchte sie automatisch; dauerhaft prüfen lässt
+sich nur über `buchhaltung.gelernte_regeln: pruefen` für alle) und Umbuchungen zwischen
+Geldkonten. Danach die übernommenen Einträge von Hand aus der
 Datei löschen. Hat ein Befehl des neuen Abbilds die neuen Tabellen vor der Migration
 schon angelegt, übernimmt die Migration sie.

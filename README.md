@@ -608,12 +608,15 @@ accounti lerne --name miete --muster 'miete\s+\d{4}' --soll 4210 --haben 1200   
 accounti regeln liste                   # gelernte Regeln, die neueste zuerst (--alle: auch deaktivierte)
 accounti regeln deaktivieren <ID> --grund "zu breit"
 accounti regeln uebernehmen --probe     # alte gelernt_*-Einträge aus der Regeldatei übernehmen
+accounti regeln uebernehmen --name telekom   # dazu einen Eintrag ohne Präfix (alte lerne --name)
 ```
 
 Aus einer Korrektur gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie
 entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, `lerne` ohne
-`--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Gelernte Regeln
-haben Vorrang vor der Regeldatei und den Standardregeln des Kontenrahmens und folgen demselben
+`--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Übernommene Regeln
+stehen hinter den schon gelernten; Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
+ohne Präfix `gelernt_` (ohne `--name`) bleiben in der Regeldatei — die Ausgabe nennt sie. Gelernte
+Regeln haben Vorrang vor der Regeldatei und den Standardregeln des Kontenrahmens und folgen demselben
 Regelmodell: ein Umsatz gegen ihre Richtung wird höchstens als Gegenbuchung zur Prüfung
 vorgeschlagen, und die Schranke des Mappers (Bankkonto auf der falschen Seite) greift auch für
 sie. Als Muster schlägt
@@ -627,7 +630,10 @@ verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen n
 Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
 Umsatzes — nur der Wechsel auf ein anderes eingerichtetes Bankkonto (falsch zugeordneter Umsatz)
 geht, mit Warnung und ohne Regel —, und Freigeben prüft die Prüfregel `steuerschluessel_konto`
-wie eine Korrektur. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
+wie eine Korrektur. Aus einer Umbuchung zwischen eigenen Geldkonten (Giro ↔ Tagesgeld, Bank ↔
+Kasse oder Kreditkarte, Geldtransit) wird keine Regel, und eine Buchung mit demselben Konto im
+Soll und im Haben legt accounti nie automatisch an — der Umsatz bleibt offen und der Lauf nennt
+ihn; `accounti pruefen` meldet ältere Fälle (Prüfregel `soll_gleich_haben`). Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
 `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
 accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als

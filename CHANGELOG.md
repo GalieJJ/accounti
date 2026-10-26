@@ -522,6 +522,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - `korrigiere --lernen` und `lerne` hängten die Regel ans Ende der Regeldatei — hatte eine frühere
   Regel falsch kontiert, griff die gelernte nie; dabei gingen die Kommentare der Datei verloren,
   und im Container (schreibgeschütztes `config/`) brachen beide ab.
+- **Nachbesserung 10b-1 nach dem Zusammenführen mit main** (Prüfberichte gw-regeln,
+  gw-migration, gw-storno): Aus einer **Umbuchung zwischen eigenen Geldkonten** (Soll und
+  Haben Kasse, Bank, Kreditkarte, Geldtransit oder eingerichtete Konten — neuer Abschnitt
+  `zahlungsmittel` der Kontenrahmendateien, eine eigene Kontenzuordnung ohne ihn nimmt die
+  Bankkonten) wird keine Regel: `korrigiere --lernen` und `lerne` enden mit Meldung und
+  Exit 1, Queue und Regelvorschau mit 422 — bisher wurde aus „1200 an 1210“ auf dem Tagesgeld
+  die Regel „1200 an 1200“. **Eine Buchung mit Soll = Haben entsteht nie mehr automatisch**
+  (gelernte Regel, Regeldatei, Standardregel, Gegenbuchung, LLM, Beleg): `classify`, `bank
+  lauf` und der REST-Lauf lassen den Umsatz offen und nennen ihn (REST
+  `kontierung.umbuchung`); Belegbuchung und OPOS nehmen kein Geld-, Personen-, Forderungs- oder
+  Verbindlichkeitskonto als Sachkonto (sonst „70001 an 70001“). Neue Prüfregel
+  `soll_gleich_haben` (Fehler) meldet Altfälle. `regeln uebernehmen` stellt die übernommenen
+  Regeln hinter alle schon gelernten (bisher gewann ein alter Eintrag gegen eine neuere
+  Korrektur), lässt Einträge mit `pruefen`/`confidence` und Umbuchungen in der Regeldatei
+  (eine gelernte Regel hat kein Prüfkennzeichen und buchte sie automatisch), übernimmt mit
+  `--name` auch Einträge ohne Präfix `gelernt_` und nennt, was in der Datei bleibt. **SKR04:**
+  Belegbuchung und OPOS buchten Ausgangsbelege auf die SKR03-Erlöskonten 8400/8300/8200 (EÜR
+  „nicht zugeordnet“) — jetzt 4400/4300/4200, steuerfrei 4125/4120/4100/4336 (besteht auf
+  main). Die Regelvorschau zählt „davon heute anders gebucht“ der Gegenrichtung in deren
+  Richtung; eine Regeldatei mit ungültigem Muster, falschem `feld` oder kaputtem YAML ergibt
+  eine Meldung mit Regelname statt Traceback bzw. 500. `db upgrade` prüft nach der Migration
+  das Schema: Eine Datenbank vom Vorabstand von 10b-1 (Vermerk `e7153706b43a`, Migrationen von
+  main fehlen) meldet es mit dem verlustfreien Weg statt „0 Migration(en)“; `db upgrade
+  --aus-schema` holt die Migrationen nach. CLI-Befehle auf einer nicht migrierten Datenbank
+  nennen `accounti db upgrade` statt eines Tracebacks. Die CLI verbraucht den Einmalcode
+  (auch einen Wiederherstellungscode) bei `buchung storniere`, `korrigiere`, `lerne` und
+  `bestaetige` erst nach einer Fachprobe — ein fachlicher Fehler kostet ihn nicht mehr
+  (besteht auf main).
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur
