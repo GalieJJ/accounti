@@ -138,6 +138,17 @@ async def buchung_seite(
     return seite(request, "buchungen/buchung.html", werte)
 
 
+def _wieder_offen(s: Session, transaktion_id: UUID) -> bool:
+    """Ist der Umsatz nach dem Storno wieder offen für den nächsten Lauf? Nicht,
+    wenn ein weiterer Buchungssatz am selben Umsatz bleibt (zwei Steuersätze)."""
+    from accounti.opos.zahlungslauf import offene_transaktionen
+
+    s.flush()
+    return any(
+        t.id == transaktion_id for t in offene_transaktionen(s, fuer_kontierung=True)
+    )
+
+
 def _datum(text: str) -> date | None:
     text = (text or "").strip()
     if not text:
@@ -329,7 +340,9 @@ async def stornieren_seite(
                 storno=str(k.storno.id)[:8] if k.storno else "—",
             )
         ]
-        if k.original.transaktion_id is not None:
+        if k.original.transaktion_id is not None and _wieder_offen(
+            s, k.original.transaktion_id
+        ):
             meldungen.append(
                 Text(
                     "Der Umsatz ist wieder offen und wird beim nächsten Lauf neu "

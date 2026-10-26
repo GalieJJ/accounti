@@ -90,6 +90,55 @@ def mit_beleg_aus_abgleich(qw, b, inhalt: bytes, endung: str = ".pdf", **kw):  #
 # --- Akzeptanz 1 ----------------------------------------------------------------------
 
 
+def test_akzeptanz_1_mit_abgleich_vor_der_kontierung(qw):
+    """Nachbesserung Fach N7: der Ablauf wie im Betrieb — der Beleg ist vor der
+    Kontierung abgeglichen, die Buchung ist eine Belegbuchung (Beleg links,
+    Umsatzdaten rechts). Dann greifen die Beleg-Schlüsselsperre und „ohne Steuer“
+    nur mit Grund; die Korrektur mit bestätigtem Schlüssel geht durch."""
+    tx = qw.umsatz(zweck="RE-4711 Büromaterial")
+    beleg = qw.beleg(pdf("Rechnung RE-4711 Bürobedarf Müller GmbH 59,50 EUR"))
+    with qw.fabrik()() as s:
+        speichere_abgleich(
+            s,
+            Belegabgleich(
+                transaktion_id=tx.id,
+                beleg_id=beleg.id,
+                stufe="referenz",
+                status=AbgleichStatus.BESTAETIGT,
+                confidence=1.0,
+                begruendung="Rechnungsnummer im Verwendungszweck",
+            ),
+        )
+        s.commit()
+    (b,) = [x for x in qw.kontiere() if x.transaktion_id == tx.id]
+    assert b.beleg_id == beleg.id and b.status is BuchungStatus.ZUR_PRUEFUNG
+    jan = qw.web.angemeldet("jan")
+    flaeche = jan.get(f"/pruefen/{b.id}").text
+    assert f'<iframe class="beleg" src="/belege/{beleg.id}/datei"' in flaeche
+    assert "RE-4711 Büromaterial" in flaeche  # Umsatzdaten (M5)
+    assert '<option value="8"' not in flaeche  # nur der Schlüssel des Belegs
+    daten = {
+        "csrf": csrf(jan),
+        "stand": stand_aus(flaeche),
+        "ansicht": "offen",
+        "soll": "4930",
+        "haben": "1200",
+    }
+    anderer = jan.post(f"/pruefen/{b.id}/korrigieren", data={**daten, "steuer": "8"})
+    assert anderer.status_code == 422 and "Beleg" in anderer.text
+    ohne = jan.post(f"/pruefen/{b.id}/korrigieren", data={**daten, "steuer": "ohne"})
+    assert ohne.status_code == 422 and "Grund" in ohne.text
+    r = jan.post(
+        f"/pruefen/{b.id}/korrigieren",
+        data={**daten, "steuer": "9"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    korrigiert = buchung(qw, b.id)
+    assert (korrigiert.soll_konto, korrigiert.steuer_schluessel) == ("4930", 9)
+    assert korrigiert.status is BuchungStatus.KORRIGIERT
+
+
 def test_akzeptanz_1_unsichere_buchung_pruefen_korrigieren_freigeben(qw):
     erste = qw.unsicher(tag=date(2026, 10, 1))
     zweite = qw.unsicher(

@@ -224,6 +224,27 @@ def test_reines_storno_hinweis_umsatz_wieder_offen(qw):
     )
 
 
+def test_storno_hinweis_nur_wenn_der_umsatz_wirklich_offen_ist(qw):
+    """Nachbesserung Fach N4 (Probe p4): Bleibt ein weiterer Buchungssatz am selben
+    Umsatz (zwei Steuersätze), ist der Umsatz nach einem Storno nicht wieder offen —
+    kein Hinweis „wird beim nächsten Lauf neu kontiert“."""
+    from decimal import Decimal
+
+    tx = qw.umsatz()
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT, transaktion_id=tx.id)
+    qw.buchung(
+        status=BuchungStatus.GEPRUEFT,
+        transaktion_id=tx.id,
+        soll="4930",
+        steuer_schluessel=8,
+        betrag_netto=Decimal("10.00"),
+        steuer_betrag=Decimal("0.70"),
+    )
+    r = senden(qw, qw.web.angemeldet("jan"), b, "stornieren", grund="falsch")
+    assert r.status_code == 200 and "Storniert durch Storno" in r.text
+    assert "Der Umsatz ist wieder offen" not in r.text
+
+
 def test_storno_eines_stornos_abgelehnt(qw):
     from accounti.pruefung.storno import storniere
 

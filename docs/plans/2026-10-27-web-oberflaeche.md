@@ -1102,6 +1102,46 @@ bericht_csv(bericht) -> str ; bericht_pdf(bericht, gesellschaft="Alpha Papier Gm
 - Der Vorschau-Knopf heißt „Regelvorschau“ (eindeutiger als „Vorschau“ neben der
   Belegvorschau).
 
+**Nachbesserung nach den Prüfberichten (26.10.2026)** — fachliche Prüfung `fach-10b-1.md`,
+technische Prüfung `befunde-10b1-technik.md`; je Befund ein Test, der ohne die Korrektur
+scheitert:
+
+| Befund | Korrektur | Test |
+|--------|-----------|------|
+| Fach H1 — Muster nur erstes Wort | Vorschlag = ganzer Name der Gegenpartei ohne Rechtsform (`lernen.ohne_rechtsform`); Vorschau nennt andere Gegenparteien, Zahlungsdienst und weitere anders gebuchte Treffer; trifft das Muster andere Gegenparteien oder einen Zahlungsdienst, speichert `korrigieren` die Regel nur mit `LernWunsch.bestaetigt` (Browser: Haken `regel_bestaetigt` = Muster, sonst 422 mit Vorschau; CLI `--trotz-warnung`); Text-Muster dulden mehrfachen Leerraum | `test_lernen.py::test_mustervorschlag_ohne_rechtsform`, `::test_vorschau_warnt_vor_fremden_gegenparteien`, `::test_vorschau_warnt_vor_zahlungsdienst`, `test_pruefschlange.py::test_regel_auf_fremde_gegenparteien_nur_mit_bestaetigung`, `test_api_regeln.py::test_standardmuster_trifft_keine_fremde_gegenpartei`, `::test_breites_muster_422_mit_vorschau_und_bestaetigung`, `test_cli_lernen.py::test_korrigiere_lernen_breites_muster_nur_mit_trotz_warnung` |
+| Fach M1 — Finanzkonto verlassen | `konten.finanzkonto_fehler`: Ausgabe → Finanzkonto im Haben, Einnahme → im Soll; in `korrigieren` (wenn die Buchung das Finanzkonto berührt) und in `entwurf_fuer` | `test_pruefschlange.py::test_korrektur_behaelt_das_finanzkonto`, `::test_erstattung_auf_der_falschen_seite_laesst_sich_richtigstellen`, `test_lernen.py::test_entwurf_behaelt_das_finanzkonto_auf_seiner_seite`, `test_api_pruefen.py::test_korrektur_verlaesst_das_finanzkonto_422` |
+| Fach M2 — Schalter bei Belegbuchungen | `sachkonto_fuer_beleg` legt vor, wenn die Regel-Confidence unter `mapper.AUTO_SCHWELLE` liegt | `test_lernen.py::test_schalter_pruefen_gilt_auch_fuer_belegbuchungen` |
+| Fach M3 — Übernahme ohne Richtung | `richtung_der_bankseite` (Bankkonto, sonst Geldkonto des Kontenrahmens); ohne Bankseite gemeldet; Verfahrensdoku und Regelseite ohne Pauschalaussage | `test_lernen.py::test_uebernahme_leitet_die_richtung_aus_der_bankseite_ab`, `test_pruefung_verfahrensdoku.py::test_verfahrensdoku_nennt_regeln_ohne_richtung` |
+| Fach M4 — Freigeben ohne Prüfregel | `storno.steuer_befunde`; `freigeben(…, umgebung=)` lehnt bei Fehler ab (422), Arbeitsfläche zeigt die Befunde statt „Freigeben“; `bestaetige` ebenso | `test_pruefschlange.py::test_freigeben_prueft_die_pruefregel_steuerschluessel`, `test_api_pruefen.py::test_freigeben_mit_pruefregel_fehler_gesperrt` |
+| Fach M5 — Umsatzdaten mit Beleg | `_umsatz.html` rechts über dem Vorschlag | `test_api_pruefen.py::test_umsatzdaten_auch_mit_beleg` |
+| Fach M6 — CLI lernt aus Kreditkarte | `regel_lernbar` unabhängig von `nur_vorschlaege`; CLI mit `unbekannte_herkunft_lernbar` | `test_pruefschlange.py::test_lernen_nur_aus_kontierungsvorschlaegen_auch_ausserhalb_der_queue`, `test_cli_lernen.py::test_korrigiere_lernen_nicht_aus_kreditkarte` |
+| Technik M1 / Fach N8 — Verwalter legt Regeln an | `lerne` und `regeln uebernehmen` über `handelnde_person(…, BUCHEN, …, (REGELN_LERNEN,))`; `FREIGABEWEGE` | `test_cli_rechte_pruefung.py::test_verwalter_legt_keine_regeln_an_deaktiviert_aber` |
+| Technik M2 — TIFF mit vielen Seiten | Seiten per `seek` bis `MAX_SEITEN` statt `n_frames` | `test_api_belege.py::test_tiff_mit_sehr_vielen_seiten_liest_nur_die_ersten` |
+| Technik M3 — Einmalcode bei 422 verbraucht | Probelauf der Aktion mit Rollback vor dem Code, dann Code, dann Lauf. Abweichung vom Vorschlag (Aktion bis zum Flush, Code, Commit): ohne Registry liegen Benutzer und Buchungen in derselben SQLite-Datei, die Codebestätigung wartete auf die eigene Schreibsperre | `test_api_buchungen.py::test_fachlich_abgelehnte_aktion_verbraucht_keinen_einmalcode` |
+| Fach N1 — Confidence | `confidence_prozent` (`floor(round(c·100, 6))`) | `test_api_pruefen.py::test_confidence_ohne_gleitkommafehler` |
+| Fach N4 — „wieder offen“ | nur, wenn der Umsatz in `offene_transaktionen(…, fuer_kontierung=True)` steht | `test_api_buchungen.py::test_storno_hinweis_nur_wenn_der_umsatz_wirklich_offen_ist` |
+| Fach N6 — Doku | README `regeln liste`, betrieb `.env` laden | — |
+| Fach N7 — Testlücken | Mutationen N10/N19 und der Ablauf mit Abgleich vor der Kontierung | `test_lernen.py::test_uebernahme_behaelt_die_reihenfolge_der_datei`, `::test_text_regel_aus_der_datenbank_bleibt_woertlich`, `test_akzeptanz_web.py::test_akzeptanz_1_mit_abgleich_vor_der_kontierung` |
+| Technik N1 — DTD in UTF-16 | expat-Vorprüfung in `parse_sicher` (wie `importers.camt`) | `test_erechnung_parser.py::test_doctype_auch_in_utf16_abgelehnt` |
+| Technik N2 — alle Buchungen je Ansicht | `repository.lade_buchungen_zu` für die Geschwister | `test_pruefschlange.py::test_arbeitsflaeche_laedt_nur_die_geschwister` |
+| Technik N3 — Freitextlängen | Grund ≤ 500, „an“ ≤ 100 → 422 | `test_pruefschlange.py::test_freitexte_mit_laengengrenze` |
+| Technik N5, N6 | `.haken input { flex: none; }`; Katalogwerte nur mit den Tags ihrer msgid | `test_i18n_katalog.py::test_katalogwert_nur_mit_den_tags_seiner_msgid` |
+
+Angepasste Tests, die altes Verhalten festschrieben: das Standardmuster „erstes Wort“
+(`Bürobedarf`, `Stadtwerke`, `gelernt_bürobedarf` in `test_lernen.py`, `test_api_rest.py`,
+`test_akzeptanz_web.py`, `test_cli_supervisor.py`), „Übernahme ohne Richtung“
+(`test_uebernahme_gelernter_eintraege_aus_datei`), der Geldkontowechsel als Vehikel
+(`test_cli_supervisor.py::test_korrigiere_lernt_den_schluessel_der_neubuchung`,
+`test_cli_journal_storno.py::test_cli_ausgleichsbuchung`) und `FREIGABEWEGE`
+(`test_auth_dienst.py`).
+
+Bewusst nicht behoben (Eingaben für 10c bzw. Grenze unten): Fach N2 (Meldungen ohne
+JavaScript über den 303), N3 (Herkunft „korrigiert von …“ statt der LLM-Begründung), N5
+(„Strg“, rohe Statuswerte, Glossar „Booking“), N9 (Lernen am Kontakt bei Herkunft `kontakt`),
+der UI-Teil von H1 (Vorschau automatisch beim Haken, Treffer nach Gegenpartei gruppiert,
+Händler aus dem Verwendungszweck bei Zahlungsdiensten); Technik N3 „an“ gegen die Benutzer
+prüfen (Auswahlfeld in 10c), N4 (PostgreSQL ohne Trigger für `kontierungsgruende`).
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1380,7 +1420,8 @@ Durchlaufs mit Markern in allen Fremddaten.
   Betrachter abgeschottet aus, die Seite erreichen sie nicht, das Sitzungscookie ist `HttpOnly`.
   Eine CSP-Sandbox für das PDF ist nicht möglich, weil Chromium es dann nicht anzeigt; eine
   serverseitige Umwandlung in Bilder bräuchte einen PDF-Renderer (neue Abhängigkeit).
-- Keine Vorschau für HEIC, WebP, Office, E-Mail; TIFF höchstens 20 Seiten. Eingebettete Anlagen
+- Keine Vorschau für HEIC, WebP, Office, E-Mail; TIFF höchstens 20 Seiten (weitere Seiten
+  liest accounti nicht einmal ein; ein Hinweis auf sie fehlt). Eingebettete Anlagen
   einer XRechnung (BT-125) werden nicht gelesen und nicht angezeigt. Die E-Rechnungsansicht ist
   eine eigene Darstellung, nicht die KoSIT-Visualisierung, und kein Prüfbericht.
 - Die Nachforderung wird nur angezeigt; die Anfrage an den Lieferanten verschickt weiter nur
@@ -1394,6 +1435,14 @@ Durchlaufs mit Markern in allen Fremddaten.
   abschaltbar). Rückgängig nur per Storno — dann mit Einmalcode und sichtbar im Journal. In der
   CLI verlangt dieselbe Freigabe den Code (keine Sitzung).
 - Kein Vier-Augen-Prinzip für Buchungen (wie in 7); Funktionstrennung über die Rollen.
+- Freigeben prüft nur die Prüfregel `steuerschluessel_konto` (Schwere Fehler sperrt, Warnungen
+  stehen als Hinweis da) — die übrigen Prüfregeln laufen weiter über `accounti pruefen`.
+- Storno und Korrektur auf `/buchungen/{id}` laufen erst zur Probe (zurückgerollt), dann mit
+  Einmalcode; ändert jemand die Buchung genau zwischen Probe und Lauf, ist der Code trotzdem
+  verbraucht (Meldung 409).
+- „an“ beim Zurückstellen ist ein freier Name (≤ 100 Zeichen) wie in `aufgaben rueckfrage`
+  (auch Rollen und Empfänger aus `aufgaben.zustaendigkeit`); eine Auswahl der Benutzer folgt
+  mit 10c.
 - Gleichzeitige Bearbeitung wird erkannt (409), nicht zusammengeführt. Schreibt ein Lauf länger
   als 30 s, bekommt eine Aktion 503 und muss wiederholt werden.
 - Kontenbezeichnungen gibt es nur für die Konten der mitgelieferten Listen (rund 45 SKR03, 26
@@ -1410,7 +1459,26 @@ Durchlaufs mit Markern in allen Fremddaten.
   Vorschau, Journal, Schalter und Deaktivieren. Regeln wirken nur auf noch nicht gebuchte
   Umsätze, nicht rückwirkend (ein reines Storno öffnet einen Umsatz aber wieder).
 - Die Richtung schützt vor vertauschten Seiten bei Erstattungen, nicht vor einer falschen
-  Kontierung in derselben Richtung.
+  Kontierung in derselben Richtung. `accounti lerne` ohne `--richtung` gilt wie eine Regel der
+  Regeldatei in beide Richtungen; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab
+  und lässt Einträge ohne Geldkonto ohne Richtung (gemeldet).
+- Mustervorschlag: der Name der Gegenpartei bis vor die erste Rechtsform (feste Liste deutscher
+  und gängiger ausländischer Rechtsformen). „Andere Gegenpartei“ vergleicht diesen Namen ohne
+  Groß-/Kleinschreibung — Schreibvarianten derselben Firma („Telekom Deutschland GmbH“ neben
+  „Deutsche Telekom AG“) zählen als andere und verlangen die Bestätigung. Zahlungsdienste
+  erkennt accounti nur an einer festen Namensliste (PayPal, Klarna, Stripe …); einen
+  Händler aus dem Verwendungszweck schlägt es nicht vor (10c). Ohne Gegenpartei bleibt der
+  Vorschlag das erste Wort des Verwendungszwecks, die Vorschau warnt dann bei Bedarf.
+- Die Bestätigung gilt für das Muster, für das der Haken gesetzt wurde; die Vorschau lädt
+  nicht automatisch beim Setzen des Regel-Hakens (10c) — ohne Vorschau gespeichert wird aber
+  nur ein Muster ohne solche Warnung.
+- Die CLI lernt weiterhin aus Altbuchungen ohne gespeicherte Herkunft (vor 10b) — darunter
+  können auch Kreditkarten- oder Marktplatzbuchungen sein; der Browser bietet dort keine
+  Regel an.
+- Die Finanzkonto-Prüfung der Korrektur greift nur, wenn die Buchung das Finanzkonto des
+  Umsatzes (`tx.sachkonto`, sonst `buchhaltung.bank_konto` der Konfiguration) heute berührt —
+  Skonto- und Restbuchungen am selben Umsatz und eine CLI-Korrektur mit falscher `--config`
+  bleiben ungeprüft.
 - Im Browser nur Text-Muster; Regexe nur über `accounti lerne` und von Hand in der Regeldatei.
   accounti schreibt die Regeldatei nicht mehr; `accounti regeln uebernehmen` holt alte
   `gelernt_*`-Einträge in die Datenbank, löscht sie aber nicht aus der Datei.
@@ -1454,6 +1522,9 @@ Durchlaufs mit Markern in allen Fremddaten.
   (Alembic liest nur `ACCOUNTI_DB`); ohne die Spalte startet `serve` nicht. Altbuchungen haben
   keine Begründung (außer AfA über `AfaVorgang` und Prüfgründe an Beleg, Abgleich, Zuordnung,
   Kontakt).
+- Unter PostgreSQL sind `kontierungsgruende` wie das Journal nur über die ORM-Sperre und
+  `db.GESCHUETZT` unveränderbar, ohne Datenbank-Trigger (SQLite: Trigger); ein UPDATE an
+  accounti vorbei geht durch und fällt, anders als bei Regeln, keinem Bestandsabgleich auf.
 - Die HTMX-Fehlerwege sind serverseitig getestet; ob htmx sie im Browser eintauscht, prüft nur die
   Browserprobe (kein automatischer Browsertest im Projekt).
 - Nicht in 10b: Seiten `/belege` (Liste, Suche, Eingang), `/opos` (Zuordnen, Vorschläge),

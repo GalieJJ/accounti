@@ -78,6 +78,19 @@ def test_arbeitsflaeche_beleg_links_vorschlag_rechts(qw):
     assert links < iframe < rechts < vorschlag
 
 
+@pytest.mark.parametrize(("confidence", "text"), [(0.57, "57 %"), (0.29, "29 %")])
+def test_confidence_ohne_gleitkommafehler(qw, confidence, text):
+    """Nachbesserung Fach N1: 0,57 · 100 = 56,99… — angezeigt wird 57 %, nicht 56 %
+    (abgerundet bleibt abgerundet: 0,629 → 62 %)."""
+    from accounti.api.seiten.pruefen import confidence_prozent
+
+    assert confidence_prozent(0.629) == 62 and confidence_prozent(0.95) == 95
+    b = qw.buchung(confidence=confidence)
+    client = qw.web.angemeldet("jan")
+    assert text in client.get("/pruefen").text
+    assert f'class="confidence">{text}' in client.get(f"/pruefen/{b.id}").text
+
+
 def test_umsatzdaten_auch_mit_beleg(qw):
     """Nachbesserung M5: Der Mustervorschlag einer Regel stammt aus dem Umsatz —
     Gegenpartei, IBAN und Verwendungszweck stehen deshalb auch dann auf der

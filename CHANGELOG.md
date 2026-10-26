@@ -17,12 +17,16 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (`j k f e r z b ?`, abschaltbar) und mit HTMX ohne Seitenwechsel; ein Prüfstand in jedem
   Formular verhindert, dass eine veraltete Ansicht storniert, Konflikte und Fachfehler
   erscheinen als Meldung, ein neues Sachkonto verlangt die ausdrückliche Steuerangabe. Aus der
-  Korrektur eines Kontierungsvorschlags wird auf Wunsch eine Regel — mit Vorschau (Treffer je
-  Richtung, verdrängte Regel, Warnungen), nur mit dem neuen Recht `regeln_lernen` (buchhalter,
-  verwalter), nur in der Zahlungsrichtung des Umsatzes, gespeichert in der Datenbank der
-  Gesellschaft, im Journal (samt Bestandsabgleich in `journal pruefen`) und mit Vorrang vor
-  eigenen und Standardregeln; `/pruefen/regeln` und `accounti regeln
-  liste|deaktivieren|uebernehmen`. `/buchungen/{id}` zeigt Storno-Kette, Korrektur und Journal
+  Korrektur eines Kontierungsvorschlags wird auf Wunsch eine Regel — Muster vorbelegt mit dem
+  ganzen Namen der Gegenpartei ohne Rechtsform, mit Vorschau (Treffer je Richtung, verdrängte
+  Regel, andere Gegenparteien, Zahlungsdienst, anders gebuchte Treffer; trifft das Muster andere
+  Gegenparteien oder jeden Kauf über einen Zahlungsdienst, nur nach Bestätigung), nur mit dem
+  neuen Recht `regeln_lernen` zusätzlich zu `buchen` (anlegen: buchhalter; sehen, voranschauen
+  und deaktivieren auch der verwalter), nur in der Zahlungsrichtung des Umsatzes und nur aus
+  Kontierungsvorschlägen (nicht aus Kreditkarte, Anlagen, Marktplatz, offenen Posten),
+  gespeichert in der Datenbank der Gesellschaft, im Journal (samt Bestandsabgleich in
+  `journal pruefen`) und mit Vorrang vor eigenen und Standardregeln; `/pruefen/regeln` und
+  `accounti regeln liste|deaktivieren|uebernehmen`. `/buchungen/{id}` zeigt Storno-Kette, Korrektur und Journal
   und korrigiert freigegebene oder exportierte Buchungen als Storno mit Neubuchung — mit
   frischem Einmalcode. Oberfläche auf Deutsch und Englisch (Sprache je Benutzer, sonst nach
   Browser; Zahlen und Daten je Sprache; Fachbegriffe wie „Buchungssatz“ bleiben deutsch).
@@ -314,10 +318,22 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - `accounti korrigiere --lernen` **und `accounti lerne`** speichern die Regel in der Datenbank
   der Gesellschaft (Tabelle `kontierungsregeln`, mit Journal) statt sie an die Regeldatei
   anzuhängen; accounti schreibt die Regeldatei nicht mehr. Gelernte Regeln haben Vorrang vor der
-  Regeldatei und den Standardregeln und gelten nur in der Zahlungsrichtung ihres Quellumsatzes.
-  `korrigiere --lernen`, `lerne` und `regeln deaktivieren|uebernehmen` verlangen mit
-  eingerichteten Benutzern das Recht `regeln_lernen` (bei `korrigiere --lernen` mit demselben
-  Einmalcode). Früher gelernte `gelernt_*`-Einträge übernimmt `accounti regeln uebernehmen`.
+  Regeldatei und den Standardregeln; aus einer Korrektur gelernte gelten nur in der
+  Zahlungsrichtung ihres Quellumsatzes, `lerne` ohne `--richtung` in beide. `korrigiere
+  --lernen`, `lerne` und `regeln uebernehmen` verlangen mit eingerichteten Benutzern die Rechte
+  `buchen` und `regeln_lernen` (ein Einmalcode), `regeln deaktivieren` nur `regeln_lernen`.
+  `korrigiere --lernen` schlägt als Muster den ganzen Namen der Gegenpartei ohne Rechtsform vor
+  (bisher das erste Wort), lernt nur aus Kontierungsvorschlägen (Altbuchungen ohne gespeicherte
+  Herkunft weiterhin) und speichert ein Muster, das andere Gegenparteien oder jeden Kauf über
+  einen Zahlungsdienst träfe, nur mit `--trotz-warnung`. Früher gelernte `gelernt_*`-Einträge
+  übernimmt `accounti regeln uebernehmen` — mit der Richtung ihrer Bankseite.
+- `accounti korrigiere` (und die Korrektur im Browser) behält das Finanzkonto eines
+  Bankumsatzes auf der Seite seiner Zahlungsrichtung (Ausgabe im Haben, Einnahme im Soll):
+  „4930 an 4980“ oder ein Wechsel auf ein anderes Geldkonto für einen Umsatz auf 1200 wird
+  abgelehnt — der Kontostand der Bücher passte sonst nicht mehr zum Kontoauszug.
+- `accounti bestaetige` (und Freigeben im Browser) prüft die Prüfregel
+  `steuerschluessel_konto` wie eine Korrektur: Meldet sie einen Fehler (Vorsteuer auf einer
+  Privatentnahme, Automatikkonto ohne Schlüssel), wird nicht freigegeben.
 - Regeln in der Regeldatei dürfen ein optionales Feld `richtung: ausgabe|einnahme` tragen; ohne
   Angabe gelten sie wie bisher in beide Richtungen.
 - `accounti classify`, `bank lauf` und `opos verbuchen` nehmen zur Regeldatei der Gesellschaft die
@@ -479,6 +495,18 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Nachbesserung Web-Oberfläche Teil 1** (Prüfberichte 10b-1): gelernte Regeln mit
+  `buchhaltung.gelernte_regeln: pruefen` legten Belegbuchungen und offene Posten trotzdem
+  automatisch an; übernommene Regeln ohne Richtung buchten Erstattungen als Geldabgang; ein
+  TIFF mit sehr vielen Seiten blockierte die Belegvorschau (Seiten werden jetzt nur bis zur
+  Höchstzahl gelesen); ein Einmalcode auf `/buchungen/{id}` war verbraucht, auch wenn die
+  Korrektur danach fachlich scheiterte (jetzt nur bei Erfolg); die Arbeitsfläche zeigte bei
+  Buchungen mit Beleg die Umsatzdaten nicht; Confidence-Werte wie 0,57 erschienen als „56 %“;
+  der Hinweis „Der Umsatz ist wieder offen“ erschien auch, wenn ein weiterer Buchungssatz am
+  Umsatz blieb; Grund und „an“ ohne Längengrenze auf dem Server; die Arbeitsfläche lud für
+  die Geschwister alle Buchungen. E-Rechnungen: DTD- und Entity-Deklarationen werden auch in
+  UTF-16 abgelehnt (bisher fand der Byte-Vergleich sie nicht, eine interne Entity wurde in der
+  Ansicht expandiert).
 - `korrigiere --lernen` und `lerne` hängten die Regel ans Ende der Regeldatei — hatte eine frühere
   Regel falsch kontiert, griff die gelernte nie; dabei gingen die Kommentare der Datei verloren,
   und im Container (schreibgeschütztes `config/`) brachen beide ab.

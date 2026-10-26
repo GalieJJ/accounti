@@ -678,6 +678,42 @@ def test_uebernahme_leitet_die_richtung_aus_der_bankseite_ab(make_session, tmp_p
     assert treffer is None or treffer.regel != "gelernt_telekom"
 
 
+def test_uebernahme_behaelt_die_reihenfolge_der_datei(make_session, tmp_path):
+    """Nachbesserung Fach N7 (Mutation N10): In der Datei gewann der erste passende
+    Eintrag — nach der Übernahme ebenso."""
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: gelernt_erst\n  muster: Müller\n  feld: beide\n"
+        "  soll_konto: '4930'\n  haben_konto: '1200'\n"
+        "- name: gelernt_dann\n  muster: Müller\n  feld: beide\n"
+        "  soll_konto: '4980'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    with make_session() as s:
+        uebernehme_aus_datei(s, datei, "jan")
+        s.commit()
+        werk = lade_regelwerk(s, None, "automatisch")
+    e = werk.klassifiziere(mueller())
+    assert e is not None and e.regel == "gelernt_erst" and e.soll_konto == "4930"
+
+
+def test_text_regel_aus_der_datenbank_bleibt_woertlich(make_session):
+    """Nachbesserung Fach N7 (Mutation N19): Eine im Browser gelernte Text-Regel
+    wird beim Laden aus der Datenbank wieder wörtlich und nur als ganzes Wort
+    angewandt — kein regulärer Ausdruck."""
+    with make_session() as s:
+        for muster in ("Müller (alt)", "a.c Handel"):
+            lerne(
+                s, entwurf_fuer(mueller(), "4930", "1200", 9, BH, muster=muster), "jan"
+            )
+        s.commit()
+        werk = lade_regelwerk(s, None, "automatisch")
+    assert werk.klassifiziere(mueller(name="Müller (alt) GmbH")) is not None
+    for name in ("Müller alt GmbH", "abc Handel", "Müller (alt)straße"):
+        e = werk.klassifiziere(mueller(name=name, zweck="RE 1"))
+        assert e is None or not (e.regel or "").startswith("gelernt_"), name
+
+
 def test_gelernte_regel_mit_kaputtem_ausdruck_wird_uebersprungen(make_session):
     """Ein an accounti vorbei gespeicherter ungültiger Ausdruck bricht keinen Lauf ab
     (``journal pruefen`` meldet die Änderung)."""

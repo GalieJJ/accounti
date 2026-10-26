@@ -563,14 +563,21 @@ accounti serve                          # dann https://…/pruefen (TLS über de
 accounti review                         # dieselbe Liste in der Konsole, mit Begründung
 accounti korrigiere 3f2a… --soll 4930 --haben 1200 --steuer 9 --lernen   # Regel in der Datenbank, mit Vorrang
 accounti lerne --name miete --muster 'miete\s+\d{4}' --soll 4210 --haben 1200   # Regex, ebenfalls in der Datenbank
-accounti regeln liste                   # gelernte, eigene und Standardregeln in Reihenfolge
+accounti regeln liste                   # gelernte Regeln, die neueste zuerst (--alle: auch deaktivierte)
 accounti regeln deaktivieren <ID> --grund "zu breit"
 accounti regeln uebernehmen --probe     # alte gelernt_*-Einträge aus der Regeldatei übernehmen
 ```
 
-Gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie entstanden sind.
-Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor, mit `aus` greifen sie
-gar nicht. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel,
+Aus einer Korrektur gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie
+entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, `lerne` ohne
+`--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Als Muster schlägt
+accounti den ganzen Namen der Gegenpartei ohne Rechtsform vor („Deutsche Telekom“); träfe ein
+Muster auch andere Gegenparteien oder jeden Kauf über einen Zahlungsdienst wie PayPal, speichert
+accounti die Regel nur nach Bestätigung (Haken in der Regelvorschau, in der CLI
+`--trotz-warnung`). Regeln anlegen verlangt die Rechte buchen und Regeln lernen; deaktivieren darf
+auch der verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor
+(auch Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
+Umsatzes, und Freigeben prüft die Prüfregel `steuerschluessel_konto` wie eine Korrektur. Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel,
 `z` zurückstellen, `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das
 Sachkonto, fragt accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als

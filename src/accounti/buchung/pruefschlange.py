@@ -43,6 +43,7 @@ from accounti.db.repo_kontierung import lade_kontierungsgruende, lade_kontierung
 from accounti.db.repository import (
     finde_buchung,
     lade_buchungen,
+    lade_buchungen_zu,
     lade_kontakte,
     lade_transaktion,
 )
@@ -81,6 +82,7 @@ BELEG_FEHLT = "beleg_fehlt"
 # Anlagen, Marktplatz, OPOS (eine Regel aus „VISA“ oder einer AfA wäre Unsinn)
 REGEL_QUELLEN = frozenset({"regelwerk", "llm", "standard"})
 GRUND_MAX = 500  # buchungskorrekturen.grund
+AN_MAX = 100  # aufgaben.zustaendig
 
 
 class Ansicht(str, enum.Enum):
@@ -458,12 +460,8 @@ def lade_eintrag(
     aufgaben = [a for a in aufgaben_zu(session, objekt) if a.aktiv]
     geschwister = [
         x
-        for x in lade_buchungen(session)
+        for x in lade_buchungen_zu(session, b.transaktion_id, b.beleg_id)
         if x.id != b.id
-        and (
-            (b.transaktion_id is not None and x.transaktion_id == b.transaktion_id)
-            or (b.beleg_id is not None and x.beleg_id == b.beleg_id)
-        )
     ]
     h = herkunft(session, b)
     flaeche = Arbeitsflaeche(
@@ -738,6 +736,10 @@ def stornieren(
 ) -> Korrektur:
     """Storno einer freigegebenen Buchung (``/buchungen/{id}``, CLI ``buchung
     storniere``)."""
+    if len(grund or "") > GRUND_MAX:
+        raise PruefschlangeError(
+            f"Der Grund ist zu lang — höchstens {GRUND_MAX} Zeichen", feld="grund"
+        )
     b = _sperren_und_pruefen(session, str(buchung_id), stand, False)
     k = storniere(
         session,
@@ -764,6 +766,10 @@ def zurueckstellen(
     erscheint in der Ansicht „zurückgestellt“. Nur einmal (sonst 409)."""
     if not (text or "").strip():
         raise PruefschlangeError("Die Rückfrage braucht einen Text", feld="text")
+    if an is not None and len(an) > AN_MAX:
+        raise PruefschlangeError(
+            f"„an“ ist zu lang — höchstens {AN_MAX} Zeichen (Benutzername)", feld="an"
+        )
     b = _sperren_und_pruefen(session, str(buchung_id), None, True)
     if str(b.id) in _zurueckgestellte(session):
         raise SchonZurueckgestelltError(

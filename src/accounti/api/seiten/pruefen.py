@@ -14,6 +14,7 @@ markiertem Feld, sonst der nächste Eintrag und ``HX-Push-Url``).
 from __future__ import annotations
 
 import inspect
+import math
 from dataclasses import dataclass, field
 from datetime import date
 from typing import Annotated, Any
@@ -82,6 +83,12 @@ ERLEDIGT = {
         "Buchung zurückgestellt — die Rückfrage steht in den Aufgaben."
     ),
 }
+
+
+def confidence_prozent(confidence: float) -> int:
+    """Confidence abgerundet in ganzen Prozent — ohne Gleitkommafehler (0,57 · 100
+    ist 56,99…; ``int()`` zeigte „56 %“)."""
+    return math.floor(round(confidence * 100, 6))
 
 
 def auto_schwelle() -> float:
@@ -257,7 +264,7 @@ def flaechenwerte(
         "steuernamen": steuernamen(),
         "quellen": QUELLEN,
         "schwelle": auto_schwelle(),
-        "confidence_prozent": int(b.confidence * 100),
+        "confidence_prozent": confidence_prozent(b.confidence),
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,
         "aktion_meldungen": meldungen or [],
@@ -314,6 +321,7 @@ async def liste(
             "ansicht": gewaehlt.value,
             "quellen": QUELLEN,
             "meldung": ERLEDIGT.get(erledigt or ""),
+            "confidence_prozent": confidence_prozent,
         },
     )
 

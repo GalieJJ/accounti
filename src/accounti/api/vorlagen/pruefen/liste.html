@@ -23,7 +23,7 @@
       <td>{% if e.umsatz %}{{ e.umsatz.gegenkonto_name or "—" }}<br><span class="klein">{{ e.umsatz.verwendungszweck }}</span>{% else %}{{ e.buchung.buchungstext }}{% endif %}</td>
       <td class="zahl">{{ (e.umsatz.betrag if e.umsatz else e.buchung.betrag_netto + (e.buchung.steuer_betrag or 0)) | betrag }}</td>
       <td>{{ e.buchung.soll_konto }} {{ _("an") }} {{ e.buchung.haben_konto }}{% if e.buchung.steuer_schluessel is not none %} · {{ _("Steuerschlüssel") }} {{ e.buchung.steuer_schluessel }}{% endif %}</td>
-      <td class="zahl">{{ (e.buchung.confidence * 100) | int | prozent_ganz }}</td>
+      <td class="zahl">{{ confidence_prozent(e.buchung.confidence) | prozent_ganz }}</td>
       <td>{% if e.herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ e.herkunft.text | truncate(90) }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</td>
     </tr>
   {% endfor %}

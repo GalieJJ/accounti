@@ -185,9 +185,11 @@ Transaktion
 ```
 
 **Stufe 3 — Lernschleife** (`lernen.py`): Aus der Korrektur eines Kontierungsvorschlags entsteht
-auf Wunsch eine Regel (Text-Muster aus Gegenpartei oder Verwendungszweck, nur ganze Wörter,
-Zahlungsrichtung des Umsatzes, Konten der Korrektur und Schlüssel der Neubuchung), mit Vorschau
-der Treffer und der verdrängten Regel. Gelernte Regeln — auch Regexe aus `accounti lerne` — liegen
+auf Wunsch eine Regel (Text-Muster: der ganze Name der Gegenpartei ohne Rechtsform, sonst das
+erste Wort des Verwendungszwecks; nur ganze Wörter, Zahlungsrichtung des Umsatzes, Konten der
+Korrektur mit dem Finanzkonto auf seiner Seite, Schlüssel der Neubuchung), mit Vorschau der
+Treffer und der verdrängten Regel; trifft das Muster andere Gegenparteien oder jeden Kauf über
+einen Zahlungsdienst, speichert `pruefschlange.korrigieren` sie nur mit Bestätigung. Gelernte Regeln — auch Regexe aus `accounti lerne` — liegen
 je Gesellschaft in der Tabelle `kontierungsregeln` (im Journal, nur deaktivierbar) und gehen in
 `lade_regelwerk` vor der Regeldatei und den Standardregeln — die erste passende Regel gewinnt.
 `buchhaltung.gelernte_regeln` schaltet sie auf automatisch, vorlegen oder aus. Bei Belegbuchungen
@@ -630,8 +632,10 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 - Vorschläge entscheidet die angemeldete Sitzung (Passwort und zweiter Faktor); Storno und
   Korrektur freigegebener Buchungen verlangen wie Zahlungslauf und USt-VA einen frischen
   Einmalcode; im Journal steht immer der angemeldete Benutzer
-- Regelmuster aus dem Browser sind Text, keine regulären Ausdrücke; gelernte Regeln gelten nur in
-  ihrer Zahlungsrichtung
+- Regelmuster aus dem Browser sind Text, keine regulären Ausdrücke; aus Korrekturen gelernte
+  Regeln gelten nur in ihrer Zahlungsrichtung; Regeln anlegen verlangt buchen und Regeln lernen
+- E-Rechnungen: DTD und Entities lehnt der Parser in jeder Kodierung ab (auch UTF-16); TIFF-Seiten
+  werden nur bis zur Höchstzahl gelesen
 - TIFF-Belege dekodiert nur der TIFF-Decoder von Pillow, mit Pixelgrenze je Seite; Belegdateien
   werden vor der Auslieferung gegen ihren Hash geprüft
 

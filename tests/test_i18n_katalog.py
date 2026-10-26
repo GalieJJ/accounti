@@ -84,6 +84,20 @@ def test_platzhalter_gleich():
             assert platzhalter(uebersetzung) == platzhalter(msgid), (msgid, form)
 
 
+def test_katalogwert_nur_mit_den_tags_seiner_msgid():
+    """Nachbesserung 10b-1 Technik N6: ``_()`` behandelt Katalogwerte als Markup
+    (Jinja-Newstyle) — eine Übersetzung darf keine Tags mitbringen, die ihre msgid
+    nicht hat (sonst käme Markup ungeprüft aus dem Katalog in die Seite)."""
+    import re
+
+    tag = re.compile(r"</?\s*([a-zA-Z][\w-]*)[^>]*>")
+    for msgid, eintrag in katalog("en").items():
+        erlaubt = sorted(tag.findall(msgid))
+        for form, uebersetzung in katalogtexte(eintrag).items():
+            assert sorted(tag.findall(uebersetzung)) == erlaubt, (msgid, form)
+            assert "<script" not in uebersetzung.lower(), msgid
+
+
 def test_fachbegriffe_bleiben_deutsch():
     for msgid, eintrag in katalog("en").items():
         for begriff in FACHBEGRIFFE:

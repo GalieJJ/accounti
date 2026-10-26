@@ -785,6 +785,58 @@ def test_freigeben_prueft_die_pruefregel_steuerschluessel(make_session):
     assert geaendert and neu.status is BuchungStatus.GEPRUEFT
 
 
+def test_freitexte_mit_laengengrenze(make_session):
+    """Nachbesserung Technik N3: Grund (≤ 500, Spalte buchungskorrekturen.grund) und
+    „an“ (≤ 100, aufgaben.zustaendig) werden auf dem Server geprüft — sonst gäbe
+    es unter PostgreSQL einen DataError (500) statt 422."""
+    from accounti.buchung.pruefschlange import stornieren
+
+    b = buchung()
+    frei = buchung(status=BuchungStatus.GEPRUEFT)
+    anlegen(make_session, b, frei)
+    with make_session() as s:
+        with pytest.raises(PruefschlangeError) as info:
+            korrigieren(
+                s, b.id, Aenderung("4930", "1200", grund="x" * 501), "jan", None,
+                umgebung(),
+            )  # fmt: skip
+        assert info.value.feld == "grund" and info.value.status == 422
+        with pytest.raises(PruefschlangeError) as info:
+            stornieren(s, frei.id, "x" * 501, "jan", None, umgebung())
+        assert info.value.feld == "grund"
+        with pytest.raises(PruefschlangeError) as info:
+            zurueckstellen(s, b.id, "Beleg?", "jan", an="x" * 101)
+        assert info.value.feld == "an"
+        s.rollback()
+        assert lade_korrekturen(s) == []
+
+
+def test_arbeitsflaeche_laedt_nur_die_geschwister(make_session, monkeypatch):
+    """Nachbesserung Technik N2: Die Geschwister (weitere Buchungssätze desselben
+    Umsatzes bzw. Belegs) kommen gezielt aus der Datenbank — nicht über alle
+    Buchungen (21 000 Buchungen: 2 s je Ansicht)."""
+    from accounti.buchung import pruefschlange
+
+    tx = umsatz()
+    a = buchung(tx)
+    zweite = buchung(tx, soll="4930", schluessel=8, steuer="7.00")
+    mit_beleg = buchung(beleg_id=uuid4())
+    am_beleg = buchung(beleg_id=mit_beleg.beleg_id, soll="4930")
+    fremd = buchung(umsatz())
+    anlegen(make_session, tx, a, zweite, mit_beleg, am_beleg, fremd)
+
+    def alle(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise AssertionError("lade_buchungen über alle Buchungen")
+
+    monkeypatch.setattr(pruefschlange, "lade_buchungen", alle)
+    with make_session() as s:
+        assert [x.id for x in lade_eintrag(s, a.id).geschwister] == [zweite.id]
+        assert [x.id for x in lade_eintrag(s, mit_beleg.id).geschwister] == [
+            am_beleg.id
+        ]
+        assert lade_eintrag(s, fremd.id).geschwister == []
+
+
 def test_journal_nach_queue_aktionen_in_ordnung(make_session):
     from accounti.pruefung.journal import pruefe_journal
 

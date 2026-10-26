@@ -551,9 +551,10 @@ des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`
 `kontierungsgruende`, `kontierungsregeln`, `auth_benutzer.sprache`): Alembic migriert die
 Datenbank aus `ACCOUNTI_DB` — bei mehreren Gesellschaften **jede** Datenbank einzeln, die
 Systemdatenbank zuerst (ohne `auth_benutzer.sprache` startet `serve` nicht); die URLs stehen in
-`.env`:
+`.env` und werden auf dem Host eingesetzt — deshalb zuerst die `.env` in die Shell laden:
 
 ```bash
+set -a; . ./.env; set +a
 docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_SYSTEM_DB" --entrypoint alembic app -c /app/alembic.ini upgrade head
 docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_DB_MUSTER" --entrypoint alembic app -c /app/alembic.ini upgrade head
 docker compose run --rm -e ACCOUNTI_DB="$ACCOUNTI_DB_TOCHTER" --entrypoint alembic app -c /app/alembic.ini upgrade head
@@ -561,7 +562,9 @@ docker compose run --rm app -g muster regeln uebernehmen --probe   # alte gelern
 ```
 
 Früher gelernte Regeln (`gelernt_*` am Ende der Regeldatei) übernimmt `regeln uebernehmen` in die
-Datenbank (mit eingerichteten Benutzern mit dem Recht `regeln_lernen` und Einmalcode, z. B.
-`-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`); danach die genannten Einträge von Hand
-aus der Datei löschen. Hat ein Befehl des neuen Abbilds die neuen Tabellen vor der Migration
+Datenbank, mit der Richtung ihrer Bankseite (mit eingerichteten Benutzern mit den Rechten
+`buchen` und `regeln_lernen` — Rolle `buchhalter` — und Einmalcode, z. B.
+`-e ACCOUNTI_BENUTZER=eva -e ACCOUNTI_EINMALCODE=…`); Einträge ohne erkennbare Bankseite meldet
+der Befehl, sie gelten für Ein- und Ausgänge. Danach die genannten Einträge von Hand aus der
+Datei löschen. Hat ein Befehl des neuen Abbilds die neuen Tabellen vor der Migration
 schon angelegt, übernimmt die Migration sie.
