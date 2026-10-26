@@ -13,8 +13,9 @@ Für CLI (``accounti korrigiere --lernen``, ``lerne``, ``regeln …``) und Brows
   (``Vorschau.bestaetigung_noetig``).
 * ``lerne`` (Text, aus dem Browser), ``lerne_regex`` (Betreiber, CLI),
   ``lerne_sachkonto`` (Belegbuchung → Sachkonto am Kontakt), ``deaktiviere``,
-  ``uebernehme_aus_datei`` (alte ``gelernt_*``-Einträge der Regeldatei).
-* ``lade_regelwerk`` — gelernte Regeln (neueste zuerst) → Regeldatei der Gesellschaft
+  ``uebernehme_aus_datei`` (alte ``gelernt_*``-Einträge der Regeldatei und gewählte).
+* ``lade_regelwerk`` — gelernte Regeln (neueste zuerst, übernommene dahinter) →
+  Regeldatei der Gesellschaft
   → Standardregeln des Kontenrahmens. Die gelernte Regel greift also auch dann, wenn
   eine eigene Regel vorher falsch getroffen hat (Akzeptanz 2). Alle drei Quellen
   teilen ein Regelmodell (``engine.Regel``: Richtung ``ausgabe``/``einnahme``,
@@ -446,9 +447,10 @@ def lade_regelwerk(
     *,
     buchhaltung: Buchhaltung | None = None,
 ) -> RegelwerkEngine:
-    """Gelernt (neueste zuerst) → Regeldatei der Gesellschaft → Standardregeln des
-    Kontenrahmens (``engine.standard_regeln`` mit Kontenrahmen und Bankkonto der
-    ``buchhaltung``; ohne: SKR03, Bank 1200).
+    """Gelernt (neueste zuerst, aus der Regeldatei übernommene dahinter) →
+    Regeldatei der Gesellschaft → Standardregeln des Kontenrahmens
+    (``engine.standard_regeln`` mit Kontenrahmen und Bankkonto der ``buchhaltung``;
+    ohne: SKR03, Bank 1200).
 
     ``regeldatei``: in der CLI ``betrieb.kontext.regeln_datei()``, in Web und REST
     ``gesellschaft.regeln`` — kein eigener Ausweichpfad. Eine ungültige Regeldatei
@@ -848,6 +850,14 @@ class Uebernahme:
     uebersprungen: list[str] = field(default_factory=list)  # Name schon vergeben
     ungueltig: list[str] = field(default_factory=list)
     ohne_richtung: list[str] = field(default_factory=list)  # keine Bankseite erkannt
+    # bleiben in der Regeldatei und greifen dort wie bisher (hinter den gelernten):
+    # ``pruefen: true`` oder ``confidence`` unter 1 kennt eine gelernte Regel nicht
+    mit_pruefkennzeichen: list[str] = field(default_factory=list)
+    umbuchungen: list[str] = field(default_factory=list)  # Soll und Haben Geldkonten
+    eigene: list[str] = field(default_factory=list)  # nicht gelernt_* und nicht gewählt
+    unbekannt: list[str] = field(
+        default_factory=list
+    )  # gewählt, aber nicht in der Datei
 
 
 def richtung_der_bankseite(
@@ -867,6 +877,18 @@ def richtung_der_bankseite(
     return None
 
 
+def _mit_pruefkennzeichen(eintrag: dict[str, object]) -> bool:
+    """``pruefen: true`` oder ``confidence`` unter 1 (``ValueError`` bei ungültigen
+    Werten — wie der Lader der Regeldatei)."""
+    pruefen = eintrag.get("pruefen", False)
+    if not isinstance(pruefen, bool):
+        raise ValueError(f"pruefen {pruefen!r}")
+    confidence = float(eintrag.get("confidence", 1.0))  # type: ignore[arg-type]
+    if not 0.0 <= confidence <= 1.0:
+        raise ValueError(f"confidence {confidence}")
+    return pruefen or confidence < 1.0
+
+
 def uebernehme_aus_datei(
     session: Session,
     regeldatei: str | Path,
@@ -876,26 +898,46 @@ def uebernehme_aus_datei(
     kontenrahmen: Kontenrahmen | None = None,
     probe: bool = False,
     jetzt: datetime | None = None,
+    namen: Iterable[str] = (),
+    buchhaltung: Buchhaltung | None = None,
 ) -> Uebernahme:
-    """``gelernt_*``-Einträge der Regeldatei → ``kontierungsregeln`` (Muster bleibt
-    regulärer Ausdruck — er ist schon ``re.escape``). Die Datei bleibt unverändert;
-    die Einträge löscht der Betreiber von Hand.
+    """``gelernt_*``-Einträge der Regeldatei (dazu die Einträge mit einem Namen aus
+    ``namen``, z. B. von ``accounti lerne --name`` vor 10b) → ``kontierungsregeln``
+    (Muster bleibt regulärer Ausdruck — er ist schon ``re.escape``). Die Datei bleibt
+    unverändert; die Einträge löscht der Betreiber von Hand. Andere Einträge nennt
+    ``Uebernahme.eigene`` — sie bleiben eigene Regeln der Datei.
 
     Die Richtung kommt aus dem Eintrag, sonst aus seiner Bankseite
     (``richtung_der_bankseite``): Eine übernommene Regel hat Vorrang vor der
     Regeldatei und buchte ohne Richtung die Erstattung derselben Gegenpartei als
     Geldabgang. Ohne erkennbare Bankseite bleibt sie ohne Richtung
-    (``Uebernahme.ohne_richtung``)."""
+    (``Uebernahme.ohne_richtung``).
+
+    Übernommene Regeln stehen hinter allen anderen gelernten
+    (``repo_kontierung.lade_kontierungsregeln``) — wie bisher die Datei hinter den
+    Korrekturen in der Datenbank —, untereinander in der Reihenfolge der Datei.
+
+    In der Datei bleiben (und greifen dort wie bisher): Einträge mit ``pruefen: true``
+    oder ``confidence`` unter 1 — eine gelernte Regel hat kein eigenes
+    Prüfkennzeichen, übernommen buchte sie automatisch (``mit_pruefkennzeichen``) —
+    und Umbuchungen zwischen Geldkonten (``umbuchungen``, wie ``entwurf_fuer``)."""
     pfad = Path(regeldatei)
     daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) if pfad.is_file() else []
     ergebnis = Uebernahme()
     vorhanden = regelnamen(session)
+    gewaehlt = {n.strip() for n in namen if n and n.strip()}
+    gefunden: set[str] = set()
     zeit = jetzt or datetime.now()
-    for nr, eintrag in enumerate(daten or []):
+    geld = zahlungsmittel(
+        buchhaltung or Buchhaltung(bank_konto=bank_konto), kontenrahmen
+    )
+    for nr, eintrag in enumerate(daten if isinstance(daten, list) else []):
         if not isinstance(eintrag, dict):
             continue
         name = str(eintrag.get("name") or "")
-        if not name.startswith("gelernt_"):
+        gefunden.add(name)
+        if not name.startswith("gelernt_") and name not in gewaehlt:
+            ergebnis.eigene.append(name or "(ohne Namen)")
             continue
         if name in vorhanden:
             ergebnis.uebersprungen.append(name)
@@ -904,6 +946,12 @@ def uebernehme_aus_datei(
             muster = str(eintrag["muster"])
             re.compile(muster)
             soll, haben = str(eintrag["soll_konto"]), str(eintrag["haben_konto"])
+            if _mit_pruefkennzeichen(eintrag):
+                ergebnis.mit_pruefkennzeichen.append(name)
+                continue
+            if umbuchung_fehler(soll, haben, geld) is not None:
+                ergebnis.umbuchungen.append(name)
+                continue
             angabe = eintrag.get("richtung")
             if angabe == "beide":  # ausdrücklich ohne Richtung (wie die Regeldatei)
                 richtung = None
@@ -924,10 +972,11 @@ def uebernehme_aus_datei(
                 herkunft=RegelHerkunft.UEBERNAHME,
                 angelegt_von=person,
                 # Vorrang wie in der Datei (die erste passende Regel gewinnt): ein
-                # früherer Eintrag gilt als neuer
+                # früherer Eintrag gilt als neuer — hinter den anderen gelernten
+                # Regeln stehen alle übernommenen (Herkunft, lade_kontierungsregeln)
                 angelegt_am=zeit - timedelta(microseconds=nr),
             )
-        except (KeyError, re.error, ValueError):
+        except (KeyError, TypeError, re.error, ValueError):
             ergebnis.ungueltig.append(name)
             continue
         vorhanden.add(name)
@@ -939,6 +988,7 @@ def uebernehme_aus_datei(
                 speichere_regel(session, regel)
             except IntegrityError as fehler:  # pragma: no cover — gleichzeitig angelegt
                 raise RegelError(f"Regelname {name} ist schon vergeben") from fehler
+    ergebnis.unbekannt = sorted(gewaehlt - gefunden)
     return ergebnis
 
 

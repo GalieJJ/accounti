@@ -118,6 +118,67 @@ def test_regeln_uebernehmen_probe_und_echt(url, tmp_path):
     assert datei.read_text(encoding="utf-8") == inhalt
 
 
+def test_regeln_uebernehmen_nennt_was_in_der_datei_bleibt(url, tmp_path):
+    """Gesamttest 10b-1 nach dem Merge M-2 und gw-migration N-2: Einträge mit
+    pruefen/confidence bleiben in der Datei, Einträge ohne Präfix gelernt_ ebenso —
+    die Ausgabe nennt beide; --name übernimmt einen Eintrag ausdrücklich."""
+    (tmp_path / "config").mkdir()
+    datei = tmp_path / "config" / "regeln.yaml"
+    datei.write_text(
+        "- name: telekom\n  muster: TELEKOM\n  soll_konto: '4920'\n"
+        "  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "- name: gelernt_miete_lager\n  muster: 'lager nord'\n  feld: beide\n"
+        "  soll_konto: '4210'\n  haben_konto: '1200'\n  pruefen: true\n"
+        "- name: gelernt_staples\n  muster: Staples\n  feld: beide\n"
+        "  soll_konto: '4930'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    r = run("regeln", "uebernehmen", "--probe", "--db", url)
+    assert r.exit_code == 0, r.output
+    assert "1 Regeln würde übernehmen" in r.output and "gelernt_staples" in r.output
+    assert "Bleiben in der Regeldatei" in r.output
+    assert "gelernt_miete_lager" in r.output
+    assert "eigene Regeln der Datei" in r.output and "telekom" in r.output
+    assert "--name" in r.output
+    r = run("regeln", "uebernehmen", "--name", "telekom", "--db", url)
+    assert r.exit_code == 0 and "2 Regeln übernommen" in r.output, r.output
+    assert {x.name for x in regeln(url)} == {"telekom", "gelernt_staples"}
+
+
+def test_regeln_uebernehmen_hinter_der_korrektur(url, tmp_path):
+    """M-1 (Probe s8): nach korrigiere --lernen und regeln uebernehmen gewinnt die
+    Korrektur, nicht der alte Eintrag der Datei."""
+    from tests.pruefung_hilfe import buchung, kurz
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: gelernt_telekom\n  muster: telekom\n  feld: beide\n"
+        "  soll_konto: '4900'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = session_factory(url)
+    tx = umsatz("-119.00", date(2026, 8, 3), "Rechnung 08/2026", "Telekom Deutschland")
+    b = buchung(tx, soll="4900")
+    anlegen(fabrik, tx, b)
+    r = run("korrigiere", kurz(b.id), "--soll", "4920", "--haben", "1200",
+            "--steuer", "9", "--lernen", "--db", url)  # fmt: skip
+    assert r.exit_code == 0, r.output
+    r = run("regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 0 and "1 Regeln übernommen" in r.output, r.output
+    neu = umsatz("-119.00", date(2026, 9, 3), "Rechnung 09/2026", "Telekom Deutschland")
+    anlegen(fabrik, neu)
+    r = run("classify", "--no-llm", "--db", url)
+    assert r.exit_code == 0, r.output
+    with fabrik() as s:
+        (x,) = [x for x in lade_buchungen(s) if x.transaktion_id == neu.id]
+    engine.dispose()
+    assert x.soll_konto == "4920"
+    r = run("regeln", "liste", "--db", url)
+    assert r.output.index("gelernt_telekom_deutschland") < r.output.index(
+        "gelernt_telekom "
+    )
+
+
 def test_gelernte_regel_greift_beim_naechsten_classify(url, tmp_path):
     """Durchlauf in der CLI: Vorschlag → Korrektur mit --lernen → classify bucht den
     nächsten Umsatz derselben Gegenpartei nach der Regel (vor einer eigenen Regel,

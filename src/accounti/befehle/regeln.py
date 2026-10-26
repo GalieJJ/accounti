@@ -28,7 +28,8 @@ def liste(
     alle: bool = typer.Option(False, "--alle", help="auch deaktivierte"),
     db: str = DB_OPTION,
 ) -> None:
-    """Gelernte Regeln, die neueste zuerst (sie hat Vorrang)."""
+    """Gelernte Regeln in ihrem Vorrang: die neueste zuerst, aus der Regeldatei
+    übernommene dahinter."""
     from accounti.klassifikation.lernen import lade_gelernte_regeln
 
     with sitzung(db)() as s:
@@ -96,11 +97,20 @@ def deaktivieren(
     console.print(f"[green]Regel {escape(aus.name)} deaktiviert.[/green]")
 
 
+NAME_OPTION = typer.Option(
+    None,
+    "--name",
+    help="auch diesen Eintrag übernehmen (mehrfach; z. B. vor 10b mit accounti lerne "
+    "--name angelegte Regeln ohne Präfix gelernt_)",
+)
+
+
 @befehl.command("uebernehmen")
 def uebernehmen(
     probe: bool = typer.Option(
         False, "--probe", help="nur zeigen, was übernommen würde"
     ),
+    name: list[str] | None = NAME_OPTION,
     von: str | None = typer.Option(
         None,
         help="Wer übernimmt (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
@@ -109,9 +119,11 @@ def uebernehmen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """``gelernt_*``-Einträge der Regeldatei in die Datenbank holen — vor 10b
-    gelernte Regeln standen am Dateiende und griffen nach falsch treffenden eigenen
-    Regeln. Die Datei bleibt unverändert; die Einträge danach von Hand löschen."""
+    """``gelernt_*``-Einträge der Regeldatei (und mit ``--name`` gewählte) in die
+    Datenbank holen — vor 10b gelernte Regeln standen am Dateiende und griffen nach
+    falsch treffenden eigenen Regeln. Übernommene Regeln stehen hinter den schon
+    gelernten. Die Datei bleibt unverändert; die Einträge danach von Hand löschen.
+    Einträge mit pruefen/confidence und Umbuchungen bleiben in der Datei."""
     from accounti.abschluss.konfiguration import lade_abschluss
     from accounti.abschluss.kontenrahmen import (
         KontenrahmenError,
@@ -125,7 +137,8 @@ def uebernehmen(
 
     datei = regeln_datei()
     try:  # Richtung aus der Bankseite: Bankkonto und Geldkonten der Gesellschaft
-        bank_konto = lade_buchhaltung(config).bank_konto
+        buchhaltung = lade_buchhaltung(config)
+        bank_konto = buchhaltung.bank_konto
         kontenrahmen = lade_abschluss(config).lade_kontenrahmen()
     except (KonfigurationError, KontenrahmenError) as fehler:
         ende(str(fehler))
@@ -135,6 +148,7 @@ def uebernehmen(
             ergebnis = uebernehme_aus_datei(
                 s, datei, "probe", bank_konto=bank_konto,
                 kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s), probe=True,
+                namen=name or (), buchhaltung=buchhaltung,
             )  # fmt: skip
             s.rollback()
     else:
@@ -150,6 +164,7 @@ def uebernehmen(
                 ergebnis = uebernehme_aus_datei(
                     s, datei, aktuelle_person(person), bank_konto=bank_konto,
                     kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
+                    namen=name or (), buchhaltung=buchhaltung,
                 )  # fmt: skip
                 s.commit()
             except RegelError as fehler:
@@ -178,6 +193,30 @@ def uebernehmen(
             "[yellow]Ohne erkennbare Bankseite (gelten für Ein- und Ausgänge): "
             f"{escape(', '.join(ergebnis.ohne_richtung))} — bei Bedarf deaktivieren "
             "und mit accounti lerne --richtung neu anlegen[/yellow]"
+        )
+    if ergebnis.mit_pruefkennzeichen:
+        console.print(
+            "[yellow]Bleiben in der Regeldatei (pruefen bzw. confidence unter 1 — "
+            "eine gelernte Regel hat kein eigenes Prüfkennzeichen und buchte "
+            f"automatisch): {escape(', '.join(ergebnis.mit_pruefkennzeichen))}. Sie "
+            "greifen dort wie bisher, jetzt hinter den gelernten Regeln.[/yellow]"
+        )
+    if ergebnis.umbuchungen:
+        console.print(
+            "[yellow]Bleiben in der Regeldatei (Soll und Haben sind Geldkonten — aus "
+            f"einer Umbuchung wird keine gelernte Regel): "
+            f"{escape(', '.join(ergebnis.umbuchungen))}[/yellow]"
+        )
+    if ergebnis.eigene:
+        console.print(
+            "[dim]Weitere Einträge bleiben eigene Regeln der Datei (greifen nach den "
+            f"gelernten): {escape(', '.join(ergebnis.eigene))} — mit --name NAME "
+            "übernehmen, z. B. vor 10b mit accounti lerne --name gelernte.[/dim]"
+        )
+    if ergebnis.unbekannt:
+        console.print(
+            f"[red]Nicht in der Regeldatei: {escape(', '.join(ergebnis.unbekannt))}"
+            "[/red]"
         )
     if ergebnis.uebernommen and not probe:
         console.print(

@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from accounti.db.tabellen_kontierung import KontierungsgrundRow, KontierungsregelRow
@@ -175,9 +175,15 @@ def _zu_regel(z: KontierungsregelRow) -> Kontierungsregel:
 def lade_kontierungsregeln(
     session: Session, *, nur_aktive: bool = False
 ) -> list[Kontierungsregel]:
-    """Gelernte Regeln, die neueste zuerst (sie hat Vorrang)."""
+    """Gelernte Regeln in ihrem Vorrang: die neueste zuerst — die aus der
+    Regeldatei übernommenen (``accounti regeln uebernehmen``) hinter allen anderen,
+    wie vorher die Datei hinter den Korrekturen in der Datenbank (Gesamttest 10b-1
+    M-1: sonst gewann ein alter Eintrag gegen eine neuere Korrektur)."""
+    uebernommen = case(
+        (KontierungsregelRow.herkunft == RegelHerkunft.UEBERNAHME.value, 1), else_=0
+    )
     abfrage = select(KontierungsregelRow).order_by(
-        KontierungsregelRow.angelegt_am.desc(), KontierungsregelRow.name
+        uebernommen, KontierungsregelRow.angelegt_am.desc(), KontierungsregelRow.name
     )
     if nur_aktive:
         abfrage = abfrage.where(KontierungsregelRow.aktiv.is_(True))

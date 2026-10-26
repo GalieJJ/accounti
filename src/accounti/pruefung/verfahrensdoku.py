@@ -321,7 +321,8 @@ def _kontierung(d: _Doku) -> None:
     ohne_richtung = sum(1 for r in aktiv if r.richtung is None)
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
-        f"Regelwerk: {len(aktiv)} gelernte Regeln (Datenbank, neueste zuerst) vor "
+        f"Regelwerk: {len(aktiv)} gelernte Regeln (Datenbank, neueste zuerst, aus "
+        "der Regeldatei übernommene dahinter) vor "
         f"{len(eigene)} eigenen Regeln ({_zelle(regeln_datei)}) vor "
         f"{len(standard)} Standardregeln im Kontenrahmen {buchhaltung.kontenrahmen} — "
         "ein Regelmodell für alle drei (Richtung, Gegenbuchung, Prüfkennzeichen). "

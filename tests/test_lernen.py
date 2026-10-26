@@ -753,6 +753,119 @@ def test_uebernahme_behaelt_die_reihenfolge_der_datei(make_session, tmp_path):
     assert e is not None and e.regel == "gelernt_erst" and e.soll_konto == "4930"
 
 
+def test_uebernahme_steht_hinter_vorhandenen_gelernten_regeln(make_session, tmp_path):
+    """Gesamttest 10b-1 nach dem Merge M-1 (Probe s8): Ein alter Eintrag der
+    Regeldatei, den eine Korrektur in 10b schon übersteuert hat, bekam bei der
+    Übernahme den neuesten Zeitstempel und damit wieder Vorrang. Übernommene Regeln
+    stehen hinter allen anderen gelernten — wie bisher hinter der Datei —, auch
+    hinter später gelernten; untereinander in der Reihenfolge der Datei."""
+    from datetime import datetime
+
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: gelernt_telekom\n  muster: telekom\n  feld: beide\n"
+        "  soll_konto: '4900'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "- name: gelernt_telekom_alt\n  muster: telekom\n  feld: beide\n"
+        "  soll_konto: '4910'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    telekom = mueller("-119.00", zweck="Rechnung 08/2026", name="Telekom Deutschland")
+    with make_session() as s:
+        lerne(
+            s,
+            entwurf_fuer(telekom, "4920", "1200", 9, BH),
+            "jan",
+            jetzt=datetime(2026, 8, 5, 10, 0),
+        )
+        e = uebernehme_aus_datei(s, datei, "jan", jetzt=datetime(2026, 9, 1, 10, 0))
+        s.commit()
+        werk = lade_regelwerk(s, None, "automatisch")
+        namen = [r.name for r in lade_kontierungsregeln(s)]
+    assert e.uebernommen == ["gelernt_telekom", "gelernt_telekom_alt"]
+    treffer = werk.klassifiziere(telekom.model_copy(update={"datum": HEUTE}))
+    assert treffer is not None and treffer.soll_konto == "4920"
+    assert treffer.regel == "gelernt_telekom_deutschland"
+    assert namen == [
+        "gelernt_telekom_deutschland",
+        "gelernt_telekom",
+        "gelernt_telekom_alt",
+    ]
+    # eine später gelernte Regel steht vor den übernommenen
+    with make_session() as s:
+        lerne(s, entwurf_fuer(mueller(), "4930", "1200", 9, BH), "jan")
+        s.commit()
+        namen = [r.name for r in lade_kontierungsregeln(s)]
+    assert namen[0] == "gelernt_bürobedarf_müller" and namen[-2:] == [
+        "gelernt_telekom",
+        "gelernt_telekom_alt",
+    ]
+
+
+def test_uebernahme_laesst_eintraege_mit_pruefkennzeichen_in_der_datei(
+    make_session, tmp_path
+):
+    """M-2 (Probe s5 c): Eine gelernte Regel kennt weder ``pruefen`` noch
+    ``confidence`` — übernommen buchte „Miete Lager“ (pruefen) und Telekom
+    (confidence 0,8) automatisch. Solche Einträge bleiben in der Regeldatei und
+    greifen dort wie bisher; die Übernahme nennt sie. Ebenso Umbuchungen zwischen
+    Geldkonten (H-1)."""
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: gelernt_miete_lager\n  muster: 'lager nord'\n  feld: beide\n"
+        "  soll_konto: '4210'\n  haben_konto: '1200'\n  pruefen: true\n"
+        "- name: gelernt_telekom\n  muster: telekom\n  feld: beide\n"
+        "  soll_konto: '4920'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "  confidence: 0.8\n"
+        "- name: gelernt_tagesgeld\n  muster: tagesgeld\n"
+        "  soll_konto: '1210'\n  haben_konto: '1200'\n"
+        "- name: gelernt_aral\n  muster: Aral\n  feld: beide\n"
+        "  soll_konto: '4530'\n  haben_konto: '1200'\n  pruefen: false\n"
+        "  confidence: 1\n",
+        encoding="utf-8",
+    )
+    with make_session() as s:
+        e = uebernehme_aus_datei(s, datei, "jan")
+        s.commit()
+        assert [r.name for r in lade_kontierungsregeln(s)] == ["gelernt_aral"]
+        werk = lade_regelwerk(s, datei, "automatisch")
+    assert e.uebernommen == ["gelernt_aral"]
+    assert e.mit_pruefkennzeichen == ["gelernt_miete_lager", "gelernt_telekom"]
+    assert e.umbuchungen == ["gelernt_tagesgeld"]
+    miete = werk.klassifiziere(
+        mueller("-800.00", zweck="Miete Lager Nord", name="Lager Nord GmbH")
+    )
+    assert miete is not None and miete.regel == "gelernt_miete_lager" and miete.pruefen
+    tel = werk.klassifiziere(mueller("-59.50", zweck="x", name="Telekom"))
+    assert tel is not None and tel.confidence == 0.8
+
+
+def test_uebernahme_mit_namen_und_hinweis_auf_eigene_eintraege(make_session, tmp_path):
+    """gw-migration N-2: ``accounti lerne --name telekom`` schrieb auf main
+    ``- name: telekom`` (ohne Präfix) in die Regeldatei. Die Übernahme nennt solche
+    Einträge (sie bleiben in der Datei) und übernimmt sie, wenn ihr Name angegeben
+    ist."""
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: telekom\n  muster: TELEKOM\n  soll_konto: '4920'\n"
+        "  haben_konto: '1200'\n  steuer_schluessel: 9\n"
+        "- name: miete\n  muster: miete\n  soll_konto: '4210'\n  haben_konto: '1200'\n"
+        "- name: gelernt_staples\n  muster: Staples\n  feld: beide\n"
+        "  soll_konto: '4930'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    with make_session() as s:
+        probe = uebernehme_aus_datei(s, datei, "jan", probe=True)
+        assert probe.uebernommen == ["gelernt_staples"]
+        assert probe.eigene == ["telekom", "miete"]
+        e = uebernehme_aus_datei(s, datei, "jan", namen=["telekom", "fehlt"])
+        s.commit()
+        regeln = {r.name: r for r in lade_kontierungsregeln(s)}
+    assert e.uebernommen == ["telekom", "gelernt_staples"]
+    assert e.eigene == ["miete"] and e.unbekannt == ["fehlt"]
+    assert regeln["telekom"].richtung is Richtung.AUSGABE
+    assert regeln["telekom"].herkunft is RegelHerkunft.UEBERNAHME
+
+
 def test_text_regel_aus_der_datenbank_bleibt_woertlich(make_session):
     """Nachbesserung Fach N7 (Mutation N19): Eine im Browser gelernte Text-Regel
     wird beim Laden aus der Datenbank wieder wörtlich und nur als ganzes Wort
