@@ -184,9 +184,9 @@ def _allgemein(d: _Doku) -> None:
 
 
 def _belegeingang(d: _Doku) -> None:
-    from accounti.belege.archiv import AUFBEWAHRUNG_JAHRE
     from accounti.belege.kanaele.einstellungen import lade_belegkanaele
     from accounti.belege.llm import LLMBelegEngine
+    from accounti.betrieb.aufbewahrung import Unterlage, frist
 
     d("### 2.1 Belegeingang und Erkennung", "")
     kanaele = d.lade(lade_belegkanaele, "belegkanaele")
@@ -217,6 +217,9 @@ def _belegeingang(d: _Doku) -> None:
             "",
         )
     llm = inspect.signature(LLMBelegEngine).parameters["model"].default
+    beleg, rechnung, buch = (
+        frist(u) for u in (Unterlage.BUCHUNGSBELEG, Unterlage.RECHNUNG, Unterlage.BUCH)
+    )
     d(
         "Erkennung: strukturierte E-Rechnung (XRechnung, ZUGFeRD) vor Textebene, "
         "Textebene vor OCR. OCR lokal mit Tesseract "
@@ -224,11 +227,15 @@ def _belegeingang(d: _Doku) -> None:
         f"Eine LLM-Stufe ({llm}) läuft nur auf ausdrücklichen Wunsch (--llm) und "
         "erhält den Belegtext maskiert (IBAN, USt-IdNr., Namen, Nummern).",
         "",
-        f"Archiv: Originaldateien unverändert, unter ihrem SHA-256 abgelegt, "
-        f"schreibgeschützt, ohne Löschpfad; Aufbewahrung {AUFBEWAHRUNG_JAHRE} Jahre "
-        "ab Ende des Eingangsjahres (§ 147 Abs. 3, 4 AO). Dubletten werden über "
-        "Datei-Hash, Lieferant und Nummer, Betrag und Datum erkannt und verworfen "
-        "bzw. zur Prüfung vorgelegt.",
+        "Archiv: Originaldateien unverändert, unter ihrem SHA-256 abgelegt, "
+        "schreibgeschützt, ohne Löschpfad; Aufbewahrung der Buchungsbelege "
+        f"{beleg.jahre} Jahre ({beleg.grundlage}), Rechnungen {rechnung.jahre} Jahre "
+        f"({rechnung.grundlage}), jeweils ab Schluss des Kalenderjahres des "
+        "Belegdatums, ohne Belegdatum des Eingangs (§ 147 Abs. 4 AO, § 14b Abs. 1 "
+        f"Satz 3 UStG); Bücher und Aufzeichnungen {buch.jahre} Jahre ({buch.grundlage}"
+        ", accounti betrieb aufbewahrung). Dubletten werden über Datei-Hash, "
+        "Lieferant und Nummer, Betrag und Datum erkannt und verworfen bzw. zur "
+        "Prüfung vorgelegt.",
         "",
     )
 
@@ -287,9 +294,16 @@ def _kontierung(d: _Doku) -> None:
     if eigene:
         d(
             *_tabelle(
-                ["Regel", "Muster", "Soll", "Haben", "Schlüssel"],
+                ["Regel", "Muster", "Feld", "Soll", "Haben", "Schlüssel"],
                 [
-                    [r.name, r.muster, r.soll_konto, r.haben_konto, r.steuer_schluessel]
+                    [
+                        r.name,
+                        r.muster.pattern,
+                        r.feld,
+                        r.soll_konto,
+                        r.haben_konto,
+                        r.steuer_schluessel,
+                    ]
                     for r in eigene[:40]
                 ],
             )

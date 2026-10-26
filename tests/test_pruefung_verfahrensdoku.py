@@ -290,3 +290,28 @@ def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
     engine.dispose()
     assert "| eva | buchhalter (a) |" in text
     assert "bob" not in text
+
+
+def test_regelmuster_feld_und_aufbewahrung(tmp_path, monkeypatch):
+    """Gesamttest Abschluss B10: das Muster stand als ``re.compile(…)`` im Dokument,
+    das Feld fehlte; die Aufbewahrung nannte 10 Jahre ab Ende des Eingangsjahres —
+    im Widerspruch zu ``betrieb aufbewahrung``."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: alpha, muster: "ALPHA", feld: beide, soll_konto: "1200", '
+        'haben_konto: "8400", steuer_schluessel: 3}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    assert "| Regel | Muster | Feld | Soll | Haben | Schlüssel |" in text
+    assert "| alpha | ALPHA | beide | 1200 | 8400 | 3 |" in text
+    assert "re.compile" not in text
+    assert "Ende des Eingangsjahres" not in text
+    assert "Aufbewahrung der Buchungsbelege 8 Jahre" in text
+    assert "Rechnungen 8 Jahre (§ 14b Abs. 1 UStG)" in text
+    assert "ab Schluss des Kalenderjahres des Belegdatums" in text
+    assert "Bücher und Aufzeichnungen 10 Jahre" in text

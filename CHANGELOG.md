@@ -434,6 +434,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Verfahrensdokumentation und Aufbewahrungsfrist** (Gesamttest Abschluss B10): Die
+  Tabelle der Kontierungsregeln zeigte das Muster als `re.compile(…)` und nicht das Feld;
+  jetzt Muster und Feld. Die Aufbewahrung der Belege kommt aus einer Quelle
+  (`betrieb/aufbewahrung.py`) für Archiv, Bericht und Dokument: Buchungsbelege und
+  Rechnungen 8 Jahre (§ 147 Abs. 3 AO i. d. F. des BEG IV, § 14b UStG) ab Schluss des
+  Jahres des Belegdatums, ohne Belegdatum des Eingangs (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz
+  3 UStG) — vorher fest 10 Jahre ab Eingangsjahr. Übermittlungs- und
+  USt-IdNr.-Protokolle bleiben Aufzeichnungen mit 10 Jahren. Institute behalten 10 Jahre
+  (Art. 97 § 19a Abs. 3 EGAO i. d. F. vom 22.12.2025, gegengeprüft)
 - **Anlagegut und Abgang ließen sich nicht korrigieren** (Gesamttest Abschluss B7): Ein
   Tippfehler bei den Anschaffungskosten oder ein falsches Abgangsdatum sperrte den
   Jahresabschluss dauerhaft. Neu `accounti anlagen aendern <Nr>` (Bezeichnung, Datum,

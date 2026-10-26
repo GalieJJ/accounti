@@ -8,7 +8,9 @@ Stand 20.10.2026 (Quellen in ``docs/betrieb.md``):
   **6 Jahre** für Handels- und Geschäftsbriefe und sonstige Unterlagen (Nr. 2, 3, 5).
   Die 8 Jahre gelten für alle Belege, deren Frist nach altem Recht am 31.12.2024 noch
   lief (Art. 97 § 19a Abs. 2 EGAO); **Kreditinstitute, beaufsichtigte Versicherungen
-  und Wertpapierinstitute behalten 10 Jahre** (Abs. 3).
+  und Wertpapierinstitute behalten 10 Jahre** (Abs. 3 i. d. F. des Gesetzes vom
+  22.12.2025, BGBl. 2025 I Nr. 369: dauerhaft die Fassung vom 31.12.2024 — die
+  zunächst ab 2026 vorgesehene Verkürzung wurde zurückgenommen).
 - § 14b Abs. 1 UStG: Rechnungen **8 Jahre**.
 - Beginn: Schluss des Kalenderjahres, in dem die Unterlage entstand bzw. die letzte
   Eintragung gemacht wurde (§ 147 Abs. 4 AO, § 14b Abs. 1 Satz 3 UStG). Bücher und
@@ -73,7 +75,8 @@ FRISTEN: dict[Unterlage, Frist] = {
     Unterlage.SONSTIGE: Frist(Unterlage.SONSTIGE, 6, "§ 147 Abs. 1 Nr. 5, Abs. 3 AO"),
 }
 
-# Art. 97 § 19a Abs. 3 EGAO: für Institute bleibt es bei der alten Fassung
+# Art. 97 § 19a Abs. 3 EGAO (i. d. F. vom 22.12.2025): für Institute bleibt es
+# dauerhaft bei der alten Fassung
 INSTITUT = Frist(
     Unterlage.BUCHUNGSBELEG, 10, "§ 147 Abs. 3 AO a. F. (Art. 97 § 19a Abs. 3 EGAO)"
 )

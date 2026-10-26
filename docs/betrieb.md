@@ -453,7 +453,7 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 | Belege (`belege`, Belegarchiv) als Buchungsbelege | **8 Jahre** | § 147 Abs. 1 Nr. 4, Abs. 3 AO |
 | Rechnungen (Ein- und Ausgang) | **8 Jahre** | § 14b Abs. 1 UStG |
 | Handels- und Geschäftsbriefe, sonstige Unterlagen | **6 Jahre** | § 147 Abs. 1 Nr. 2, 3, 5 AO |
-| Kreditinstitute, Versicherungen, Wertpapierinstitute: Buchungsbelege | **10 Jahre** | Art. 97 § 19a Abs. 3 EGAO |
+| Kreditinstitute, Versicherungen, Wertpapierinstitute: Buchungsbelege | **10 Jahre** (dauerhaft) | Art. 97 § 19a Abs. 3 EGAO i. d. F. vom 22.12.2025 (BGBl. 2025 I Nr. 369) |
 
 - Die Frist beginnt mit dem Schluss des Kalenderjahres, in dem die Unterlage entstand —
   für Bücher und Aufzeichnungen mit dem Schluss des Kalenderjahres, in dem die **letzte
@@ -480,8 +480,12 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   [--institut]` zeigt je Bestand, was frühestens ausgesondert werden **dürfte** (das
   Wirtschaftsjahr aus `--config` bzw. der Gesellschaft). Das
   Belegarchiv hat bewusst keinen Löschpfad; Buchungen und Protokolle sind unveränderbar.
-  `belege.aufbewahren_bis` rechnet noch mit 10 Jahren (vor dem BEG IV angelegt) — länger
-  aufzubewahren ist zulässig.
+  `belege.aufbewahren_bis` kommt aus derselben Quelle (`betrieb/aufbewahrung.py`):
+  Buchungsbelege und Rechnungen 8 Jahre ab Schluss des Jahres des **Belegdatums** (ohne
+  erkanntes Belegdatum des Eingangs), Übermittlungs- und USt-IdNr.-Protokolle als
+  Aufzeichnungen 10 Jahre. Belege, die vor dieser Umstellung angelegt wurden, tragen noch
+  10 Jahre ab Eingang — länger aufzubewahren ist zulässig. Der Bericht zählt Belege
+  vorsichtig ab dem Eingang (nie früher aussonderbar als nach dem Belegdatum).
 - Personenbezogene Daten (Kontakte, Belege, Benutzer) dürfen während der gesetzlichen
   Aufbewahrung nicht gelöscht werden (Art. 17 Abs. 3 lit. b DSGVO); danach entscheidet der
   Verantwortliche über das Aussondern. Ein protokolliertes Aussondern ist noch nicht
