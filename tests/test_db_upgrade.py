@@ -175,6 +175,8 @@ def test_db_upgrade_legt_keine_neue_sqlite_datei_an(tmp_path):
     assert r.exit_code == 1, r.output
     assert "gibt es nicht" in r.output and "db init" in r.output
     assert not db.exists()
+    r = runner.invoke(app, ["db", "upgrade", "--db", "kein-url"])
+    assert r.exit_code == 1 and isinstance(r.exception, SystemExit), r.exception
 
 
 def test_migration_token_je_gesellschaft(tmp_path):

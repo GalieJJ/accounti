@@ -166,7 +166,10 @@ def _pruefe_datei(db: str) -> None:
     """Eine SQLite-Datei, die es nicht gibt, ist meist ein Tippfehler in ``--db`` —
     ``upgrade head`` legte sonst eine neue Datenbank an, die echte bliebe alt
     (Nachprüfung N4). Neu anlegen ist ``db init``."""
-    url = make_url(db)
+    try:
+        url = make_url(db)
+    except SQLAlchemyError as fehler:
+        raise UpgradeError(f"--db: {fehler}") from fehler
     name = url.database
     if not url.drivername.startswith("sqlite") or not name or name == ":memory:":
         return
