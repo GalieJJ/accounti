@@ -308,3 +308,37 @@ def test_cli_aendern_und_abgang_zuruecknehmen(tmp_path):
         "anlagen", "abgang", "1", "--datum", "2026-12-31", "--art", "verschrottung"
     )
     assert r.exit_code == 0, r.output
+
+
+def test_cli_betrachter_darf_nicht_aendern_und_zuruecknehmen(tmp_path, monkeypatch):
+    """Rollenmodell: ändern und zurücknehmen erzeugen bzw. verwerfen Vorschläge —
+    Recht *buchen* mit Einmalcode, wie ``anlegen``/``abgang``."""
+    from datetime import datetime
+
+    from accounti.db import init_db, session_factory
+    from accounti.models.auth import Rolle
+    from tests.auth_hilfe import billige_hashes, lege_person_an, setze_schluessel
+
+    billige_hashes(monkeypatch)
+    setze_schluessel(monkeypatch)
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    url = f"sqlite:///{(tmp_path / 'r.db').as_posix()}"
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    anlegen(fabrik, "600", date(J, 3, 1), nd=13, konto="0420")
+    with fabrik() as s:
+        lege_person_an(s, "jan", Rolle.BETRACHTER, jetzt=datetime.now())
+    engine.dispose()
+    for befehl in (
+        ["aendern", "1", "--kosten", "500", "--grund", "x"],
+        ["abgang", "1", "--zuruecknehmen", "--grund", "x"],
+    ):
+        r = CliRunner().invoke(
+            app,
+            ["anlagen", *befehl, "--von", "jan", "--db", url, "--config", "x.yaml"],
+            env={"COLUMNS": "250"},
+        )
+        assert r.exit_code == 1, (befehl, r.output)
+        assert "jan darf" in r.output, (befehl, r.output)
