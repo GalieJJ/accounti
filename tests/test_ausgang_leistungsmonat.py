@@ -203,9 +203,10 @@ def test_ustva_meldet_die_leistung_im_august(tmp_path):
     r = runner.invoke(
         app,
         [
-            "rechnung", "neu", "--db", url, "--name", "Firma B2B GmbH", "--plz",
-            "20457", "--ort", "Hamburg", "--email", "ap@b2b.example", "--ust-id",
-            "DE129273398", "--leistungsdatum", "2026-08-25",
+            "rechnung", "neu", "--db", url, "--name", "Firma B2B GmbH", "--strasse",
+            "Kehrwieder 1", "--plz", "20457", "--ort", "Hamburg", "--email",
+            "ap@b2b.example", "--ust-id", "DE129273398", "--leistungsdatum",
+            "2026-08-25",
         ],
     )  # fmt: skip
     rid = r.output.split("Entwurf ")[1].split()[0]

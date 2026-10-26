@@ -29,7 +29,7 @@ class Geschaeftsvorfall(str, enum.Enum):
     EU_B2B_REVERSE_CHARGE = "eu_b2b_rc"  # B2B EU → Reverse Charge (steuerfrei)
     EU_INNERGEMEINSCHAFTLICH = "eu_ig_lieferung"  # ig. Lieferung § 4 Nr. 1b UStG
     DRITTLAND_AUSFUHR = "drittland"  # Ausfuhr § 4 Nr. 1a UStG
-    NICHT_STEUERBAR = "nicht_steuerbar"  # Leistungsort im Drittland (§ 3a Abs. 2, 4)
+    NICHT_STEUERBAR = "nicht_steuerbar"  # Leistungsort im Drittland (§ 3a Abs. 2, 5)
     VORSTEUER = "vorsteuer"  # Eingangsrechnung mit VSt
     STEUERFREI_INLAND = "steuerfrei"  # Steuerbefreit § 4 UStG
 
@@ -174,11 +174,15 @@ class UStBerechner:
         Eine sonstige Leistung an Privatkunden wird grundsätzlich am Sitz des
         Leistenden ausgeführt (§ 3a Abs. 1 UStG) bzw. dort, wo gearbeitet wird
         (§ 3a Abs. 3 Nr. 3 Buchst. c UStG, z.B. Rahmung) — also im Inland. Nur die
-        elektronischen Leistungen sind im Wohnsitzland steuerbar: in der EU über OSS
-        (§ 3a Abs. 5, § 18j UStG), im Drittland nicht im Inland (§ 3a Abs. 4 Satz 2
-        Nr. 11 UStG). OSS betrifft sonst nur Fernverkäufe von Waren (§ 3c UStG).
-        Grenze: die übrigen Katalogleistungen des § 3a Abs. 4 an Privatkunden im
-        Drittland (z.B. Überlassung von Urheberrechten) erkennt accounti nicht.
+        elektronischen Leistungen sind im Wohnsitzland steuerbar — weltweit nach § 3a
+        Abs. 5 Satz 1 UStG: in der EU über OSS (§ 18j UStG), im Drittland nicht im
+        Inland. OSS betrifft sonst nur Fernverkäufe von Waren (§ 3c UStG).
+        Grenzen: die übrigen Katalogleistungen des § 3a Abs. 4 an Privatkunden im
+        Drittland (z.B. Überlassung von Urheberrechten) und die Sonderorte des § 3a
+        Abs. 3 (Grundstück Nr. 1, Vermietung von Beförderungsmitteln Nr. 2,
+        Veranstaltungen Nr. 3 Buchst. a, Vermittlung an Privatkunden Nr. 4) sowie
+        Beförderungen (§ 3b) erkennt accounti nicht — eine solche Leistung an einen
+        Privatkunden gilt als im Inland ausgeführt.
 
         Returns:
             Der zutreffende Geschäftsvorfall
@@ -212,7 +216,7 @@ class UStBerechner:
         # Drittland (UK, CH, US, etc.)
         if sonstige_leistung:
             if ist_b2b or ist_elektronisch:
-                return Geschaeftsvorfall.NICHT_STEUERBAR  # § 3a Abs. 2 bzw. Abs. 4
+                return Geschaeftsvorfall.NICHT_STEUERBAR  # § 3a Abs. 2 bzw. Abs. 5
             return Geschaeftsvorfall.INLAND  # § 3a Abs. 1 UStG
         return Geschaeftsvorfall.DRITTLAND_AUSFUHR
 

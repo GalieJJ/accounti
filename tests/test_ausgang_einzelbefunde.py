@@ -163,7 +163,7 @@ OSS = FIRMA.model_copy(update={"oss": True})
         ("AT", False, False, Geschaeftsvorfall.EU_B2C_OSS),  # Fernverkauf § 3c
         ("AT", True, True, Geschaeftsvorfall.EU_B2C_OSS),  # § 3a Abs. 5
         ("CH", True, False, Geschaeftsvorfall.INLAND),  # § 3a Abs. 1
-        ("CH", True, True, Geschaeftsvorfall.NICHT_STEUERBAR),  # § 3a Abs. 4 Nr. 11
+        ("CH", True, True, Geschaeftsvorfall.NICHT_STEUERBAR),  # § 3a Abs. 5 Satz 1
         ("CH", False, False, Geschaeftsvorfall.DRITTLAND_AUSFUHR),
     ],
 )
@@ -178,6 +178,18 @@ def test_leistungsort_privatkunde(land, leistung, elektronisch, erwartet):
         )
         is erwartet
     )
+
+
+def test_elektronische_leistung_in_das_drittland_nennt_paragraf_3a_absatz_5():
+    # Nachprüfung N4: § 3a Abs. 4 Satz 2 Nr. 11 UStG ist weggefallen — der Ort am
+    # Wohnsitz folgt weltweit aus § 3a Abs. 5 Satz 1
+    privat = kunde(land="CH", ust_id=None, privat=True)
+    e = entwurf(
+        privat, pos("Download", "100", sonstige_leistung=True, elektronisch=True)
+    )
+    with pytest.raises(ValueError, match=r"§ 3a Abs\. 5 Satz 1") as fehler:
+        baue_rechnung(e, FIRMA, "1", date(2026, 5, 2))
+    assert "Nr. 11" not in str(fehler.value)
 
 
 def test_rahmung_fuer_wiener_privatkundin_mit_oss_ist_deutsche_steuer():
@@ -210,7 +222,7 @@ def test_rahmung_fuer_zuercher_privatkunden_ist_deutsche_steuer():
         date(2026, 3, 10),
     )
     assert [(s.kategorie, s.satz) for s in r.steuern] == [("S", D("19"))]
-    with pytest.raises(NichtUnterstuetztError, match="§ 3a Abs. 4"):
+    with pytest.raises(NichtUnterstuetztError, match=r"§ 3a Abs\. 5 Satz 1"):
         baue_rechnung(
             entwurf(
                 kunde(land="CH", ust_id=None, privat=True),
@@ -385,6 +397,30 @@ def test_privatkunde_ohne_email_ueber_250_euro_braucht_die_anschrift():
         baue_rechnung(
             entwurf(ohne_plz, pos("Radierung", "500")), FIRMA, "1", date(2026, 5, 2)
         )
+
+
+def test_rechnung_ueber_250_euro_braucht_strasse_oder_postfach():
+    # Nachprüfung N5: vollständige Anschrift (§ 14 Abs. 4 Satz 1 Nr. 1 UStG) — PLZ und
+    # Ort allein genügen nicht, ein Postfach schon (Abschn. 14.5 Abs. 2 UStAE)
+    privat = kunde(ust_id=None, privat=True).model_copy(
+        update={"email": None, "strasse": None}
+    )
+    firma = kunde().model_copy(update={"strasse": " "})
+    for k in (privat, firma):
+        with pytest.raises(ValueError, match="Straße oder Postfach"):
+            baue_rechnung(
+                entwurf(k, pos("Radierung", "300")), FIRMA, "1", date(2026, 5, 2)
+            )
+    postfach = privat.model_copy(update={"strasse": "Postfach 10 20 30"})
+    r = baue_rechnung(
+        entwurf(postfach, pos("Radierung", "300")), FIRMA, "1", date(2026, 5, 2)
+    )
+    assert r.spezifikation == EN16931
+    # bis 250 € genügt die Kleinbetragsrechnung (§ 33 UStDV)
+    r = baue_rechnung(
+        entwurf(privat, pos("Karte", "200")), FIRMA, "1", date(2026, 5, 2)
+    )
+    assert r.summen.brutto == D("238.00")
 
 
 def test_privatkunde_mit_allen_angaben_bleibt_xrechnung_und_firmen_brauchen_email():

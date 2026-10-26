@@ -31,7 +31,12 @@ from accounti.erechnung.modell import (
     Summen,
 )
 from accounti.konfiguration import Firma
-from accounti.models import GUTSCHRIFT, AusgangsPosition, Ausgangsrechnung
+from accounti.models import (
+    GUTSCHRIFT,
+    AusgangsPosition,
+    Ausgangsrechnung,
+    Rechnungsempfaenger,
+)
 from accounti.steuer.umsatzsteuer import Geschaeftsvorfall, UStBerechner, UStPosition
 
 XRECHNUNG_3 = "urn:cen.eu:en16931:2017#compliant#urn:xeinkauf.de:kosit:xrechnung_3.0"
@@ -101,10 +106,35 @@ def _pruefe_entwurf(entwurf: Ausgangsrechnung) -> None:
         raise ValueError(msg)
 
 
+def _pruefe_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> None:
+    """Über 250 € die vollständige Anschrift des Empfängers (§ 14 Abs. 4 Satz 1 Nr. 1
+    UStG) — Straße oder Postfach (Abschn. 14.5 Abs. 2 UStAE), PLZ und Ort; bis 250 €
+    genügt die Kleinbetragsrechnung ohne Empfänger (§ 33 UStDV)."""
+    if abs(brutto) <= KLEINBETRAG:
+        return
+    fehlt = [
+        bezeichnung
+        for wert, bezeichnung in (
+            (k.strasse, "Straße oder Postfach des Kunden"),
+            (k.plz, "PLZ des Kunden"),
+            (k.ort, "Ort des Kunden"),
+        )
+        if not (wert or "").strip()
+    ]
+    if fehlt:
+        msg = (
+            "Für die Rechnung über 250 € fehlt die Anschrift des Empfängers (§ 14 "
+            "Abs. 4 Satz 1 Nr. 1 UStG): " + ", ".join(fehlt) + " — bis 250 € "
+            "genügt eine Kleinbetragsrechnung (§ 33 UStDV)"
+        )
+        raise ValueError(msg)
+
+
 def _spezifikation(entwurf: Ausgangsrechnung, brutto: Decimal) -> str:
     """XRechnung, wenn die Pflichtangaben des Käufers da sind — sonst bei
     Privatkunden EN 16931 (keine E-Rechnungspflicht im B2C)."""
     k = entwurf.kunde
+    _pruefe_anschrift(k, brutto)
     fehlt = [
         bezeichnung
         for wert, bezeichnung in (
@@ -119,22 +149,6 @@ def _spezifikation(entwurf: Ausgangsrechnung, brutto: Decimal) -> str:
     if not k.privat:
         msg = "Für die XRechnung fehlt: " + ", ".join(fehlt)
         raise ValueError(msg)
-    if abs(brutto) > KLEINBETRAG:
-        anschrift = [
-            bezeichnung
-            for wert, bezeichnung in (
-                (k.ort, "Ort des Kunden"),
-                (k.plz, "PLZ des Kunden"),
-            )
-            if not wert
-        ]
-        if anschrift:
-            msg = (
-                "Für die Rechnung über 250 € fehlt die Anschrift des Empfängers (§ 14 "
-                "Abs. 4 Satz 1 Nr. 1 UStG): " + ", ".join(anschrift) + " — bis 250 € "
-                "genügt eine Kleinbetragsrechnung (§ 33 UStDV)"
-            )
-            raise ValueError(msg)
     return EN16931
 
 
@@ -187,7 +201,7 @@ def _nicht_steuerbar(nr: int, p: AusgangsPosition, privat: bool) -> str:
     if privat:
         return (
             f"Position {nr}: elektronische Leistung an einen Privatkunden im "
-            "Drittland (§ 3a Abs. 4 Satz 2 Nr. 11 UStG, nicht im Inland steuerbar, "
+            "Drittland (§ 3a Abs. 5 Satz 1 UStG, nicht im Inland steuerbar, "
             "Kategorie O) wird noch nicht unterstützt"
         )
     return (
