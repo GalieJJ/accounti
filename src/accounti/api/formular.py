@@ -13,6 +13,8 @@ from urllib.parse import parse_qsl
 
 from fastapi import HTTPException, Request
 
+from accounti.i18n import Text
+
 _SCHLUESSEL = "accounti_formular"
 
 
@@ -27,12 +29,12 @@ async def formular(request: Request) -> dict[str, str]:
         grenze = request.app.state.dienste.server.max_formular_bytes
         laenge = request.headers.get("content-length", "")
         if laenge.isdigit() and int(laenge) > grenze:
-            raise HTTPException(413, "Formular zu groß")
+            raise HTTPException(413, Text("Formular zu groß"))
         koerper = b""
         async for stueck in request.stream():
             koerper += stueck
             if len(koerper) > grenze:
-                raise HTTPException(413, "Formular zu groß")
+                raise HTTPException(413, Text("Formular zu groß"))
         try:
             paare = parse_qsl(
                 koerper.decode("utf-8"),
@@ -41,7 +43,7 @@ async def formular(request: Request) -> dict[str, str]:
                 max_num_fields=200,
             )
         except (UnicodeDecodeError, ValueError) as fehler:
-            raise HTTPException(400, "Formular nicht lesbar") from fehler
+            raise HTTPException(400, Text("Formular nicht lesbar")) from fehler
         for name, wert in paare:
             felder.setdefault(name, wert)
     setattr(request.state, _SCHLUESSEL, felder)

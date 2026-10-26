@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from http import HTTPStatus
 from typing import Any
 from urllib.parse import quote
 
@@ -29,11 +30,33 @@ from accounti.api.htmx import aktueller_pfad
 from accounti.api.registry import endpunkte, navigation, routermodule
 from accounti.api.seiten.anmeldung import sicheres_ziel
 from accounti.api.sicherheit import FEHLER, Sicherheit, protokollpfad
-from accounti.api.sitzung import NichtAngemeldetError
+from accounti.api.sitzung import NichtAngemeldetError, merke_benutzersprache
 from accounti.api.vorlagen import seite
 from accounti.i18n import N_, Text
 
 BESCHAEFTIGT = Text("Ein Lauf schreibt gerade — bitte gleich noch einmal")
+# Starlette meldet Routing-Fehler mit der englischen Statusphrase („Not Found“) —
+# in der Oberfläche übersetzt, in der REST-API unverändert
+STATUSTEXTE = {
+    400: N_("Ungültige Anfrage"),
+    404: N_("Seite nicht gefunden"),
+    405: N_("Diese Seite lässt sich so nicht aufrufen (Methode nicht erlaubt)"),
+}
+
+
+def fehlertext(fehler: StarletteHTTPException) -> object:
+    """``detail`` für die Seite: die Statusphrase von Starlette als ``Text``."""
+    try:
+        phrase = HTTPStatus(fehler.status_code).phrase
+    except ValueError:
+        return fehler.detail
+    if fehler.detail != phrase:
+        return fehler.detail
+    if fehler.status_code in STATUSTEXTE:
+        return Text(STATUSTEXTE[fehler.status_code])
+    return Text(
+        "Die Anfrage ist fehlgeschlagen (HTTP %(status)s)", status=fehler.status_code
+    )
 
 
 def datenbank_beschaeftigt(fehler: OperationalError) -> bool:
@@ -109,10 +132,11 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
                 status_code=fehler.status_code,
                 headers=kopf,
             )
+        await merke_benutzersprache(request)
         antwort = seite(
             request,
             "meldung.html",
-            {"titel": N_("Fehler"), "fehler": fehler.detail},
+            {"titel": N_("Fehler"), "fehler": fehlertext(fehler)},
             status=fehler.status_code,
         )
         antwort.headers.update(kopf)

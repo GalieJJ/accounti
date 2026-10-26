@@ -76,10 +76,12 @@ QUELLEN = {
     "korrektur": N_("Korrektur"),
     "storno": N_("Storno"),
 }
+# als ``Text``: die Vorlagen übersetzen nur ``Text``, ein str bleibt eine deutsche
+# Fachmeldung
 ERLEDIGT = {
-    "freigegeben": N_("Buchung freigegeben."),
-    "korrigiert": N_("Buchung korrigiert."),
-    "zurueckgestellt": N_(
+    "freigegeben": Text("Buchung freigegeben."),
+    "korrigiert": Text("Buchung korrigiert."),
+    "zurueckgestellt": Text(
         "Buchung zurückgestellt — die Rückfrage steht in den Aufgaben."
     ),
 }
@@ -339,6 +341,7 @@ async def regeln(
     from accounti.klassifikation.lernen import lade_gelernte_regeln
 
     gelernt = await run_in_threadpool(lade_gelernte_regeln, s)
+    meldung = Text("Regel deaktiviert.") if erledigt == "deaktiviert" else None
     return seite(
         request,
         "pruefen/regeln.html",
@@ -346,7 +349,7 @@ async def regeln(
             "titel": N_("Gelernte Regeln"),
             "regeln": gelernt,
             "darf_lernen": a.darf(Recht.REGELN_LERNEN),
-            "meldung": N_("Regel deaktiviert.") if erledigt == "deaktiviert" else None,
+            "meldung": meldung,
         },
     )
 

@@ -1,0 +1,249 @@
+"""Nachprüfung der Web-Schicht 10b-1 nach dem Zusammenführen mit main (Prüfberichte
+gw-web N1–N7, gw-storno N1–N2): Meldungen und Statuswerte übersetzt, nur ASCII-Ziffern,
+Fehler im richtigen Formular, Sprachwahl nach einem POST, Fachfehler der Konfiguration
+als 409, Doppelklick auf Stornieren ohne verbrauchten Code."""
+
+from __future__ import annotations
+
+import re
+from datetime import date
+
+import pytest
+
+from accounti.models import BuchungStatus
+from tests.api_hilfe import csrf
+from tests.auth_hilfe import billige_hashes
+from tests.pruefen_hilfe import pdf, queuewelt, stand_aus
+
+EN = {"Accept-Language": "en-GB,en;q=0.9"}
+DE = {"Accept-Language": "de-DE,de;q=0.9"}
+HX = {"HX-Request": "true"}
+
+
+@pytest.fixture(autouse=True)
+def _billig(monkeypatch):
+    billige_hashes(monkeypatch)
+
+
+@pytest.fixture
+def qw(tmp_path):
+    return queuewelt(tmp_path)
+
+
+def vorschlaege(qw, anzahl):  # noqa: ANN001, ANN201
+    """``anzahl`` unsichere Buchungen aus einem Kontierungslauf, nach Datum."""
+    for nr in range(anzahl):
+        qw.umsatz(tag=date(2026, 10, 1 + nr), zweck=f"RE {4711 + nr} Büromaterial")
+    return qw.kontiere()
+
+
+def senden(client, pfad, kopf=None, ansicht=None, **felder):  # noqa: ANN001, ANN003, ANN201
+    """Formular der Seite ``ansicht`` (Standard: Pfad ohne Aktion) absenden."""
+    seite = client.get(ansicht or pfad.rsplit("/", 1)[0]).text
+    daten = {"csrf": csrf(client), "ansicht": "offen"}
+    if 'name="stand"' in seite:
+        daten["stand"] = stand_aus(seite)
+    daten.update({k: str(v) for k, v in felder.items()})
+    return client.post(pfad, data=daten, headers=kopf or {}, follow_redirects=False)
+
+
+def eingabe(html, ident):  # noqa: ANN001, ANN201
+    """Das ``<input>``- bzw. ``<select>``-Element mit dieser id."""
+    treffer = re.search(rf'<(?:input|select) id="{ident}"[^>]*>', html)
+    assert treffer, f"Feld {ident} fehlt"
+    return treffer.group(0)
+
+
+# --- gw-web N1: Erfolgsmeldungen der Queue übersetzt ---------------------------------
+
+
+def test_erfolgsmeldungen_der_queue_englisch_mit_und_ohne_htmx(qw):
+    erste, zweite, dritte, vierte = vorschlaege(qw, 4)
+    client = qw.web.angemeldet("jan")
+    # ohne JavaScript: 303 auf den nächsten Eintrag, die Meldung über ?erledigt=
+    r = senden(client, f"/pruefen/{erste.id}/freigeben", EN)
+    assert r.status_code == 303
+    seite = client.get(r.headers["location"], headers=EN).text
+    assert "Booking approved." in seite and "Buchung freigegeben." not in seite
+    # mit htmx: das Fragment des nächsten Eintrags trägt die Meldung
+    r = senden(
+        client,
+        f"/pruefen/{zweite.id}/korrigieren",
+        {**EN, **HX},
+        soll="4930",
+        haben="1200",
+        steuer="9",
+    )
+    assert r.status_code == 200 and "<html" not in r.text
+    assert "Booking corrected." in r.text and "Buchung korrigiert." not in r.text
+    r = senden(client, f"/pruefen/{dritte.id}/zurueckstellen", {**EN, **HX}, text="?")
+    assert "Booking put on hold" in r.text and "zurückgestellt —" not in r.text
+    for pfad in (
+        "/pruefen?erledigt=freigegeben",
+        f"/pruefen/{vierte.id}?erledigt=korrigiert",
+    ):
+        seite = client.get(pfad, headers=EN).text
+        assert "Booking approved." in seite or "Booking corrected." in seite, pfad
+        assert 'class="fachmeldung" lang="de">Buchung' not in seite, pfad
+    seite = client.get("/pruefen/regeln?erledigt=deaktiviert", headers=EN).text
+    assert "Rule deactivated." in seite and "Regel deaktiviert." not in seite
+    # Deutsch unverändert
+    seite = client.get("/pruefen?erledigt=freigegeben", headers=DE).text
+    assert "Buchung freigegeben." in seite
+
+
+# --- gw-web N5: lesbare Statuswerte, „Strg“ -----------------------------------------
+
+
+def test_jeder_statuswert_hat_eine_bezeichnung():
+    from accounti.api.vorlagen import BEZEICHNUNGEN, bezeichnung
+    from accounti.erechnung.modell import Profil
+    from accounti.models import Belegart, BelegStatus
+    from accounti.models.aufgaben import AufgabenStatus
+
+    for art in (BuchungStatus, Belegart, BelegStatus, AufgabenStatus, Profil):
+        assert set(BEZEICHNUNGEN[art.__name__]) == {w.value for w in art}, art
+    assert bezeichnung(BuchungStatus.ZUR_PRUEFUNG, "de") == "zur Prüfung"
+    assert bezeichnung(BuchungStatus.ZUR_PRUEFUNG, "en") == "under review"
+    assert bezeichnung(BelegStatus.ZUR_PRUEFUNG, "en") == "under review"
+    assert bezeichnung(Belegart.EINGANGSRECHNUNG, "en") == "Incoming invoice"
+    assert bezeichnung(AufgabenStatus.IN_ARBEIT, "de") == "in Arbeit"
+    assert bezeichnung(Profil.EN16931, "en") == "EN 16931"
+
+
+def test_statuswerte_und_tasten_lesbar_in_beiden_sprachen(qw):
+    from accounti.aufgaben import melde_aufgabe
+    from accounti.models.aufgaben import Objekt
+
+    beleg = qw.beleg(pdf())
+    vorschlag = qw.buchung(beleg_id=beleg.id)
+    frei = qw.buchung(
+        status=BuchungStatus.GEPRUEFT, beleg_id=beleg.id, datum=date(2026, 10, 3)
+    )
+    ohne = qw.unsicher(betrag="-119.00", zweck="Strom", name="Stadtwerke")
+    with qw.fabrik()() as s:
+        melde_aufgabe(
+            s,
+            "beleg_fehlt",
+            Objekt("transaktion", ohne.transaktion_id),
+            "Beleg fehlt",
+            erzeugt_von="pruefung",
+        )
+        s.commit()
+    client = qw.web.angemeldet("jan")
+    erwartet = {
+        "de": (
+            "Eingangsrechnung",
+            "<dt>Status</dt><dd>erfasst",
+            "(zur Prüfung)",
+            "<dt>Status</dt><dd>geprüft",
+            "· geprüft</li>",
+            "Aufgabe #1, offen)",
+            "<kbd>Strg</kbd>",
+        ),
+        "en": (
+            "Incoming invoice",
+            "<dt>Status</dt><dd>recorded",
+            "(under review)",
+            "<dt>Status</dt><dd>reviewed",
+            "· reviewed</li>",
+            "task #1, open)",
+            "<kbd>Ctrl</kbd>",
+        ),
+    }
+    for sprache, kopf in (("de", DE), ("en", EN)):
+        texte = erwartet[sprache]
+        seite = client.get(f"/belege/{beleg.id}", headers=kopf).text
+        assert texte[0] in seite and texte[1] in seite and texte[2] in seite
+        assert ">eingangsrechnung<" not in seite and "(pruefung)" not in seite
+        seite = client.get(f"/buchungen/{frei.id}", headers=kopf).text
+        assert texte[3] in seite and "<dd>geprueft" not in seite
+        seite = client.get(f"/pruefen/{vorschlag.id}", headers=kopf).text
+        assert texte[4] in seite and "· geprueft<" not in seite
+        assert texte[6] in seite
+        seite = client.get(f"/pruefen/{ohne.id}", headers=kopf).text
+        assert texte[5] in seite and texte[6] in seite
+    seite = client.get(f"/pruefen/{vorschlag.id}", headers=EN).text
+    assert "Strg" not in seite
+
+
+def test_profil_der_e_rechnung_lesbar(qw):
+    from pathlib import Path
+
+    beispiele = Path(__file__).resolve().parents[1] / "examples" / "erechnung"
+    inhalt = (beispiele / "xrechnung_ubl.xml").read_bytes()
+    b = qw.beleg(inhalt, ".xml")
+    seite = qw.web.angemeldet("jan").get(f"/belege/{b.id}", headers=EN).text
+    assert "· XRechnung</dd>" in seite and "· xrechnung<" not in seite
+
+
+# --- gw-web N6: Text der Regelseite --------------------------------------------------
+
+
+def test_regelseite_nennt_die_gegenbuchung_zur_pruefung(qw):
+    client = qw.web.angemeldet("jan")
+    seite = client.get("/pruefen/regeln", headers=DE).text
+    assert "Gegenbuchung zur Prüfung" in seite and "nur in der Richtung" not in seite
+    seite = client.get("/pruefen/regeln", headers=EN).text
+    assert "counter-entry for review" in seite and "apply only in" not in seite
+
+
+# --- gw-web N7: Texte von Starlette und Formular ------------------------------------
+
+
+def test_starlette_und_formulartexte_uebersetzt(qw):
+    (b,) = vorschlaege(qw, 1)
+    client = qw.web.angemeldet("jan")
+    r = client.get("/gibt-es-nicht", headers=DE)
+    assert r.status_code == 404 and "Not Found" not in r.text
+    assert "Seite nicht gefunden" in r.text
+    r = client.get(f"/pruefen/{b.id}/korrigieren", headers=DE)
+    assert r.status_code == 405 and "Method Not Allowed" not in r.text
+    assert "(Methode nicht erlaubt)" in r.text
+    assert "Page not found" in client.get("/gibt-es-nicht", headers=EN).text
+    r = client.get(f"/pruefen/{b.id}/korrigieren", headers=EN)
+    assert "(method not allowed)" in r.text
+    gross = "x" * (qw.web.dienste.server.max_formular_bytes + 10)
+    r = client.post(
+        f"/pruefen/{b.id}/korrigieren", data={"csrf": csrf(client), "a": gross},
+        headers=EN,
+    )  # fmt: skip
+    assert r.status_code == 413 and "Form too large" in r.text
+    assert "Formular zu groß" not in r.text
+    r = client.post(
+        f"/pruefen/{b.id}/korrigieren",
+        content=b"csrf=\xff\xfe",
+        headers={**EN, "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert r.status_code == 400 and "Form cannot be read" in r.text
+    # die REST-API meldet wie bisher
+    assert client.get("/api/v1/gibt-es-nicht").json() == {"fehler": "Not Found"}
+
+
+def test_formular_und_csrf_fehler_in_der_sprache_des_benutzers(qw):
+    """Die Wahl am Benutzer gilt auch für Fehler, die vor der Seite entstehen
+    (Formular zu groß, CSRF) — nicht nur ``Accept-Language``."""
+    (b,) = vorschlaege(qw, 1)
+    client = qw.web.angemeldet("jan")
+    r = client.post(
+        "/einstellungen/sprache",
+        data={"csrf": csrf(client), "sprache": "en", "weiter": "/"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    gross = "x" * (qw.web.dienste.server.max_formular_bytes + 10)
+    r = client.post(
+        f"/pruefen/{b.id}/korrigieren",
+        data={"csrf": csrf(client), "a": gross},
+        headers=DE,
+    )
+    assert r.status_code == 413 and "Form too large" in r.text
+    r = client.post(f"/pruefen/{b.id}/freigeben", data={"csrf": "x"}, headers=DE)
+    assert r.status_code == 403 and "CSRF token missing or invalid" in r.text
+    # auch ohne passende Route (404, 405)
+    r = client.get("/gibt-es-nicht", headers=DE)
+    assert r.status_code == 404 and "Page not found" in r.text
+    r = client.get(f"/pruefen/{b.id}/korrigieren", headers=DE)
+    assert r.status_code == 405 and "(method not allowed)" in r.text
+    # ohne Sitzung: Accept-Language
+    assert "Seite nicht gefunden" in qw.web.client().get("/x", headers=DE).text

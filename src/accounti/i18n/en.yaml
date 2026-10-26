@@ -32,6 +32,12 @@ automatisch: automatic
 Diese Sprache gibt es nicht: This language is not available
 Zurück: Back
 Fehler: Error
+Seite nicht gefunden: Page not found
+Diese Seite lässt sich so nicht aufrufen (Methode nicht erlaubt): This page cannot be opened this way (method not allowed)
+Ungültige Anfrage: Invalid request
+Die Anfrage ist fehlgeschlagen (HTTP %(status)s): The request failed (HTTP %(status)s)
+Formular zu groß: Form too large
+Formular nicht lesbar: Form cannot be read
 Übersicht: Overview
 Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.: The action failed — please reload the page and try again.
 Ein Lauf schreibt gerade — bitte gleich noch einmal: A run is currently writing — please try again in a moment
@@ -215,10 +221,11 @@ Dezember: December
 "Beleg in neuem Tab": "document in a new tab"
 "diese Hilfe": "this help"
 "im Eingabefeld: absenden / Feld verlassen": "in an input field: submit / leave the field"
+"Strg": "Ctrl"
 "Tastenkürzel aus (nur in diesem Browser)": "Keyboard shortcuts off (this browser only)"
 # Gelernte Regeln
 "Zurück zur Prüfung": "Back to review"
-"Gelernte Regeln greifen vor der Regeldatei der Gesellschaft und nur in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply only in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. They are not edited, only deactivated and learned again."
+"Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. A transaction in the opposite direction (such as a refund for a rule on payments out) is at most proposed as a counter-entry for review, never booked automatically. They are not edited, only deactivated and learned again."
 "Name": "Name"
 "Muster": "Pattern"
 "Richtung": "Direction"
@@ -286,6 +293,26 @@ Dezember: December
 "Eingang": "Received"
 "Status": "Status"
 "Buchungen": "Bookings"
+# Statuswerte (vorlagen.BEZEICHNUNGEN)
+"Entwurf": "Draft"
+"automatisch gebucht": "booked automatically"
+"zur Prüfung": "under review"
+"geprüft": "reviewed"
+"korrigiert": "corrected"
+"exportiert": "exported"
+"Eingangsrechnung": "Incoming invoice"
+"Ausgangsrechnung": "Outgoing invoice"
+"Quittung": "Receipt"
+"Kontoauszug": "Bank statement"
+"Vertrag": "Contract"
+"Sonstiges": "Other"
+"unbekannt": "unknown"
+"eingegangen": "received"
+"erfasst": "recorded"
+"in Arbeit": "in progress"
+"wartet": "waiting"
+"erledigt": "done"
+"hinfällig": "obsolete"
 
 # --- Buchung -------------------------------------------------------------------------
 "Buchung": "Booking"

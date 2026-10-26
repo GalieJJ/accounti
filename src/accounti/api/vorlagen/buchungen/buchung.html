@@ -17,7 +17,7 @@
       <div><dt>{{ _("Steuer") }}</dt><dd>{{ b.steuer_betrag | euro }}</dd></div>
       <div><dt>{{ _("Brutto") }}</dt><dd>{{ brutto | euro }}</dd></div>
       <div><dt>{{ _("Buchungstext") }}</dt><dd>{{ b.buchungstext }}</dd></div>
-      <div><dt>{{ _("Status") }}</dt><dd>{{ b.status.value }}{% if b.geprueft_von %} · {{ b.geprueft_von }}{% endif %}</dd></div>
+      <div><dt>{{ _("Status") }}</dt><dd>{{ b.status | bezeichnung }}{% if b.geprueft_von %} · {{ b.geprueft_von }}{% endif %}</dd></div>
       {% if umsatz %}<div><dt>{{ _("Umsatz") }}</dt><dd>{{ umsatz.datum | datum }} · {{ umsatz.betrag | euro }} · {{ umsatz.gegenkonto_name or "—" }} · {{ umsatz.verwendungszweck }}</dd></div>{% endif %}
       {% if beleg %}<div><dt>{{ _("Beleg") }}</dt><dd><a href="/belege/{{ beleg.id }}">{{ beleg.belegnummer or beleg.id }}</a></dd></div>{% endif %}
       <div><dt>{{ _("Herkunft") }}</dt><dd>{% if herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ herkunft.text }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</dd></div>
@@ -28,7 +28,7 @@
     <h2>{{ _("Korrektur") }}</h2>
     <ul class="kette">
       {% for rolle, ident in ((_("Original"), korrektur.original_id), (_("Storno"), korrektur.storno_id), (_("Neubuchung"), korrektur.neubuchung_id)) %}
-      {% if ident %}{% set x = beteiligte.get(ident | string) %}<li>{{ rolle }}: <a href="/buchungen/{{ ident }}">{{ ident | string | truncate(8, True, "") }}</a>{% if x %} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ x.status.value }}{% endif %}</li>{% endif %}
+      {% if ident %}{% set x = beteiligte.get(ident | string) %}<li>{{ rolle }}: <a href="/buchungen/{{ ident }}">{{ ident | string | truncate(8, True, "") }}</a>{% if x %} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ x.status | bezeichnung }}{% endif %}</li>{% endif %}
       {% endfor %}
     </ul>
     <p>{{ korrektur.person }}: <span lang="de">{{ korrektur.grund }}</span></p>
