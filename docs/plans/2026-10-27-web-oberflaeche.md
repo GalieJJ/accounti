@@ -1174,6 +1174,25 @@ TIFF-Verzeichnisse vor `Image.open`, keine Regression) und N-4 (Einmalcode bei Z
 UStVA-Freigabe vor der Fachprüfung, Baustein 10a; das Probe-Muster aus Technik M3 verlangt dort
 erst eine Prüfung der Seiteneffekte von `gib_frei` und der Zahlungsfreigabe) — beides Folgearbeit.
 
+**Nachprüfung nach dem Zusammenführen mit `main` (26.10.2026)** — Prüfberichte gw-web
+(N1–N7) und gw-storno (N1, N2) zu 2de9a1b; Tests in `test_api_web_nachpruefung.py`, je ohne
+die Korrektur rot:
+
+| Befund | Korrektur | Test |
+|--------|-----------|------|
+| gw-web N1 — Erfolgsmeldungen der Queue im Englischen deutsch | `ERLEDIGT` und „Regel deaktiviert.“ als `Text` (übersetzt wird nur `Text`) | `::test_erfolgsmeldungen_der_queue_englisch_mit_und_ohne_htmx` |
+| gw-web N2 — „²“ gibt 500, „٩“ gilt als 9, „４９３０“ als Konto | `pruefen.ascii_zahl` (Seite, Steuerschlüssel) und `formularkonto` (Soll/Haben in Queue, Regelvorschau, `/buchungen/{id}/korrigieren`): nur ASCII-Ziffern, sonst 422 bzw. Seite 1; Content-Length in `formular.py` und `rest/belege.py` ebenso | `::test_seite_mit_unicode_ziffer_ist_seite_eins`, `::test_steuer_mit_unicode_ziffer_422_auf_allen_wegen`, `::test_konto_mit_unicode_ziffern_422`, `::test_formular_und_rest_koerper_mit_unicode_laenge` |
+| gw-web N3 — Storno-Fehler im Korrektur-Formular | `aktion_formular` (korrektur/storno): Markierung und Eingaben nur im abgesendeten Formular | `::test_storno_fehler_im_storno_formular`, `::test_korrektur_fehler_bleibt_im_korrektur_formular` |
+| gw-web N4 — Sprachwahl nach einem POST: 405 | `vorlagen.ansichtspfad`: nach einem POST die nächste Seite darüber, die GET beantwortet (sonst `/`); `sicheres_ziel` bleibt | `::test_sprachwahl_nach_post_fuehrt_auf_eine_get_seite` |
+| gw-web N5 — Rohwerte von Enums, „Strg“ | Filter `bezeichnung` (`vorlagen.BEZEICHNUNGEN` je Enum-Klasse: Buchungs-, Beleg-, Aufgabenstatus, Belegart, Profil der E-Rechnung); „Strg“ übersetzbar („Ctrl“) | `::test_jeder_statuswert_hat_eine_bezeichnung`, `::test_statuswerte_und_tasten_lesbar_in_beiden_sprachen`, `::test_profil_der_e_rechnung_lesbar` |
+| gw-web N6 — Regelseite ohne Gegenrichtung | Text nennt die Gegenbuchung zur Prüfung (DE, EN) | `::test_regelseite_nennt_die_gegenbuchung_zur_pruefung` |
+| gw-web N7 — „Not Found“, „Method Not Allowed“, „Formular zu groß“ | `app.fehlertext`: Statusphrase von Starlette als `Text` (REST-API unverändert); Formularmeldungen als `Text`; die Sprachwahl am Benutzer gilt auch für Fehler vor der Seite (CSRF, Formular: `request.state.benutzersprache`; 404/405 ohne Route: `sitzung.merke_benutzersprache`) | `::test_starlette_und_formulartexte_uebersetzt`, `::test_formular_und_csrf_fehler_in_der_sprache_des_benutzers` |
+| gw-storno N1 — `KontenrahmenError` gibt 500 | `_fehlerbild`: `KonfigurationError` und `KontenrahmenError` → 409 mit Meldung (Queue und `/buchungen/{id}`) | `::test_fehlerhafte_kontenzuordnung_409_statt_500` |
+| gw-storno N2 — Doppelklick: Fehlversuch bzw. zweiter Code verbraucht | Abschlusssperre je Gesellschaft (Server-Prozess): Stand erneut prüfen, dann Code, dann Lauf — der zweite Klick bekommt 409 ohne Fehlversuch und ohne Code (Grenze oben). Die Queue fragt keinen Code ab und vergleicht den Stand unter der Schreibsperre: dort schon 409 | `::test_doppelklick_mit_demselben_code_409_ohne_fehlversuch`, `::test_doppelklick_verbraucht_keinen_zweiten_code`, `::test_doppelklick_in_der_queue_409` |
+
+Hinweis außerhalb der Web-Schicht: `buchung/konten.pruefe_kontonummer` prüft mit `\d` und
+nimmt in der CLI vollbreite Ziffern als Kontonummer an (Folgearbeit Fachkern).
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1469,9 +1488,11 @@ Durchlaufs mit Markern in allen Fremddaten.
 - Kein Vier-Augen-Prinzip für Buchungen (wie in 7); Funktionstrennung über die Rollen.
 - Freigeben prüft nur die Prüfregel `steuerschluessel_konto` (Schwere Fehler sperrt, Warnungen
   stehen als Hinweis da) — die übrigen Prüfregeln laufen weiter über `accounti pruefen`.
-- Storno und Korrektur auf `/buchungen/{id}` laufen erst zur Probe (zurückgerollt), dann mit
-  Einmalcode; ändert jemand die Buchung genau zwischen Probe und Lauf, ist der Code trotzdem
-  verbraucht (Meldung 409).
+- Storno und Korrektur auf `/buchungen/{id}` laufen erst zur Probe (zurückgerollt), dann unter
+  einer Sperre je Gesellschaft im Server-Prozess: Stand erneut prüfen, Einmalcode, Lauf. Ein
+  Doppelklick oder eine zweite Person im Browser bekommt 409 ohne Fehlversuch und ohne
+  verbrauchten Code; ändert ein anderer Prozess (CLI, ein zweiter Server) die Buchung genau
+  zwischen dieser Prüfung und dem Lauf, ist der Code trotzdem verbraucht (Meldung 409).
 - „an“ beim Zurückstellen ist ein freier Name (≤ 100 Zeichen) wie in `aufgaben rueckfrage`
   (auch Rollen und Empfänger aus `aufgaben.zustaendigkeit`); eine Auswahl der Benutzer folgt
   mit 10c.
