@@ -137,7 +137,9 @@ gesellschaften:
   Protokoll vermerkt `einrichtung_gesellschaft`. Sobald die Gesellschaft einen eigenen
   Verwalter mit zweitem Faktor hat, verwalten sie nur noch ihre Verwalter (auch wenn
   dieser später wegfällt — siehe „Letzter Verwalter“ unten).
-- API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`).
+- API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`);
+  sein Name ist unter den aktiven Token **dieser** Gesellschaft eindeutig (ein „erp“ je
+  Gesellschaft, Migration `6d38d11fc348`).
 - Docker: weitere Datenbanken anlegen
   (`docker compose exec db createdb -U accounti tochter`), die URLs in `.env` und unter
   `environment` ergänzen; `lauf` arbeitet alle Gesellschaften der Registry ab.
@@ -286,7 +288,10 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   Datenbank — die Prüfung bindet Freigaben an eine Person und fängt Versehen und
   einfache Umwege ab, sie ersetzt keine Zugriffskontrolle auf den Server.
 - Protokoll: `accounti benutzer protokoll [--anzahl 50]` (die neuesten Anmeldungen,
-  Fehlversuche, Sperren, Rollen, Token; nur anfügen).
+  Fehlversuche, Sperren, Rollen, Token; nur anfügen). Mit mehreren Gesellschaften zeigt
+  es die Ereignisse der Gesellschaften, in denen der Aufrufer Verwalter ist (dazu die
+  gewählte, wenn er sie gerade einrichtet), und die ohne Gesellschaft (z. B. ein neuer
+  Benutzer) — ein Verwalter von b sieht nicht, was in a geschah.
 
 ## REST-API
 

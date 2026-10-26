@@ -492,10 +492,16 @@ def _zu_token(r: ApiTokenRow) -> ApiToken:
 
 
 def speichere_api_token(session: Session, t: ApiToken) -> None:
-    msg = f"Es gibt schon ein aktives Token {t.name!r} — erst widerrufen"
+    """Eindeutig ist der Name unter den aktiven Token einer Gesellschaft."""
+    msg = (
+        f"Es gibt schon ein aktives Token {t.name!r} in {t.gesellschaft} — erst "
+        "widerrufen"
+    )
     if session.scalar(
         select(ApiTokenRow.id).where(
-            ApiTokenRow.name == t.name, ApiTokenRow.widerrufen_am.is_(None)
+            ApiTokenRow.name == t.name,
+            ApiTokenRow.gesellschaft == t.gesellschaft,
+            ApiTokenRow.widerrufen_am.is_(None),
         )
     ):
         raise ValueError(msg)
@@ -536,18 +542,25 @@ def lade_api_tokens(session: Session) -> list[ApiToken]:
     return [_zu_token(z) for z in zeilen]
 
 
-def widerrufe_api_token(session: Session, name: str, jetzt: datetime) -> None:
+def widerrufe_api_token(
+    session: Session, name: str, jetzt: datetime, gesellschaft: str
+) -> None:
+    """Das aktive Token ``name`` der Gesellschaft widerrufen."""
     ergebnis = cast(
         CursorResult[Any],
         session.execute(
             update(ApiTokenRow)
-            .where(ApiTokenRow.name == name, ApiTokenRow.widerrufen_am.is_(None))
+            .where(
+                ApiTokenRow.name == name,
+                ApiTokenRow.gesellschaft == gesellschaft,
+                ApiTokenRow.widerrufen_am.is_(None),
+            )
             .values(widerrufen_am=jetzt)
             .execution_options(synchronize_session=False)
         ),
     )
     if ergebnis.rowcount == 0:
-        msg = f"Es gibt kein aktives Token {name!r}"
+        msg = f"Es gibt kein aktives Token {name!r} in {gesellschaft}"
         raise ValueError(msg)
 
 
@@ -589,12 +602,21 @@ def lade_ereignisse(
     grenze: int = 1000,
     *,
     neueste: bool = False,
+    gesellschaften: set[str] | None = None,
 ) -> list[AuthEreignis]:
     """Ereignisse aufsteigend nach Zeit — die ersten ``grenze`` oder, mit
-    ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``)."""
+    ``neueste``, die letzten ``grenze`` (absteigend gelesen, ``LIMIT``). Mit
+    ``gesellschaften`` nur deren Ereignisse und die ohne Gesellschaft."""
     abfrage = select(AuthEreignisRow)
     if benutzer is not None:
         abfrage = abfrage.where(AuthEreignisRow.benutzer == benutzer)
+    if gesellschaften is not None:
+        abfrage = abfrage.where(
+            or_(
+                AuthEreignisRow.gesellschaft.is_(None),
+                AuthEreignisRow.gesellschaft.in_(sorted(gesellschaften)),
+            )
+        )
     if neueste:
         abfrage = abfrage.order_by(
             AuthEreignisRow.zeitpunkt.desc(), AuthEreignisRow.id.desc()

@@ -434,6 +434,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Token-Namen und Anmeldeprotokoll über Gesellschaftsgrenzen** (Betrieb B9): Der Index
+  `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a
+  eines hatte, und die Meldung riet zu einem Widerruf, der in b nicht ging. Eindeutig ist
+  der Name jetzt unter den aktiven Token einer Gesellschaft (Index, Prüfung, Widerruf;
+  Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index).
+  `benutzer protokoll` zeigt mit mehreren Gesellschaften nur die Ereignisse der
+  Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft
 - **Zweite Gesellschaft bekam keinen Verwalter, der letzte Verwalter öffnete die
   Einrichtungsphase** (Betrieb B7, B8): Nach der Einrichtung verlangte `-g b benutzer
   rolle|anlegen` einen Verwalter **in** b — eine später ergänzte Gesellschaft ließ sich nur

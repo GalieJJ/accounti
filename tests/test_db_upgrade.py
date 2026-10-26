@@ -17,6 +17,7 @@ from typer.testing import CliRunner
 
 from accounti.cli import app
 from accounti.db import SCHEMA_STAND, init_db, session_factory
+from tests.pg_hilfe import mit_postgresql
 
 WURZEL = Path(__file__).resolve().parents[1]
 VOR_BAUSTEIN_7 = "a684d10751de"
@@ -142,3 +143,82 @@ def test_db_upgrade_erkennt_fremde_datenbank(tmp_path):
     r = runner.invoke(app, ["db", "upgrade", "--db", f"sqlite:///{db}"])
     assert r.exit_code == 1
     assert "Keine Tabellen von accounti" in r.output
+
+
+def test_migration_token_je_gesellschaft(tmp_path):
+    """Befund Betrieb B9: Index ``uq_api_token_aktiv`` auf (gesellschaft, name)."""
+    db = tmp_path / "t.db"
+    _alembic(db, "upgrade", "ddc9a184ddb4")
+    zeile = (
+        "INSERT INTO api_tokens (id, name, token_hash, gesellschaft, rechte, "
+        "angelegt_von, angelegt_am) VALUES (?, 'erp', ?, ?, '[]', 'x', "
+        "'2026-10-01 00:00:00')"
+    )
+    with sqlite3.connect(db) as v:
+        v.execute(zeile, ("1", "h1", "a"))
+    _alembic(db, "upgrade", "head")
+    with sqlite3.connect(db) as v:
+        v.execute(zeile, ("2", "h2", "b"))
+        with pytest.raises(sqlite3.IntegrityError):
+            v.execute(zeile, ("3", "h3", "b"))
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+    with sqlite3.connect(db) as v:
+        v.execute("DELETE FROM api_tokens WHERE id = '2'")
+    _alembic(db, "downgrade", "-1")
+    _alembic(db, "upgrade", "head")
+    assert _alembic(db, "heads").count("(head)") == 1
+
+
+def _alembic_url(url: str, cwd: Path, *args: str) -> str:
+    umgebung = {**os.environ, "ACCOUNTI_DB": url, "PYTHONPATH": str(WURZEL / "src")}
+    e = subprocess.run(
+        [sys.executable, "-m", "alembic", "-c", str(WURZEL / "alembic.ini"), *args],
+        cwd=cwd,
+        env=umgebung,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert e.returncode == 0, e.stdout + e.stderr
+    return e.stdout + e.stderr
+
+
+@mit_postgresql
+def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
+    """PostgreSQL: Token-Index je Gesellschaft (B9) und ``db upgrade`` ohne Vermerk
+    (B2) — die Merkmale stammen aus der Wegwerf-SQLite, verglichen wird mit PG."""
+    from sqlalchemy import create_engine, text
+
+    url = pg_datenbank()
+    _alembic_url(url, tmp_path, "upgrade", VOR_BAUSTEIN_7)
+    engine = create_engine(url)
+    with engine.begin() as v:
+        v.execute(text("DROP TABLE alembic_version"))
+    engine.dispose()
+    engine, _ = session_factory(url)
+    init_db(engine)  # neuer Code vor der Migration: kein Vermerk, Spalten fehlen
+    engine.dispose()
+    r = runner.invoke(app, ["db", "upgrade", "--db", url], env={"COLUMNS": "250"})
+    assert r.exit_code == 0, r.output
+    assert f"abgeleitet: {VOR_BAUSTEIN_7}" in r.output
+    assert "No new upgrade operations detected" in _alembic_url(url, tmp_path, "check")
+    zeile = text(
+        "INSERT INTO api_tokens (id, name, token_hash, gesellschaft, rechte, "
+        "angelegt_von, angelegt_am) VALUES (:id, 'erp', :h, :g, '[]', 'x', "
+        "'2026-10-01 00:00:00')"
+    )
+    engine = create_engine(url)
+    with engine.begin() as v:
+        v.execute(zeile, {"id": "1", "h": "h1", "g": "a"})
+        v.execute(zeile, {"id": "2", "h": "h2", "g": "b"})
+    from sqlalchemy.exc import IntegrityError
+
+    with pytest.raises(IntegrityError), engine.begin() as v:
+        v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
+    with engine.begin() as v:
+        v.execute(text("DELETE FROM api_tokens WHERE id = '2'"))
+        stand = v.execute(text("SELECT version_num FROM alembic_version")).all()
+    engine.dispose()
+    assert stand == [(SCHEMA_STAND,)]
+    _alembic_url(url, tmp_path, "downgrade", "-1")
+    _alembic_url(url, tmp_path, "upgrade", "head")
