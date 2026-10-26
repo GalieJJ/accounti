@@ -14,6 +14,7 @@ from accounti.db.repository import (
     gebuchte_beleg_ids,
     gebuchte_transaktion_ids,
     lade_abgleiche,
+    lade_ausgangsrechnungen,
     verbuchte_beleg_ids,
 )
 from accounti.db.tabellen_abschluss import AbschlussRow
@@ -21,6 +22,7 @@ from accounti.db.tabellen_pruefung import PeriodenabschlussRow
 from accounti.models import (
     AbgleichStatus,
     Belegart,
+    Belegrichtung,
     BelegStatus,
     Buchungssatz,
     BuchungStatus,
@@ -82,6 +84,12 @@ class BelegUnbearbeitet:
                 if a.status is not AbgleichStatus.ABGELEHNT
             }
         )
+        # bei Ausgangsrechnungen steht im Beleg die eigene Firma als Aussteller
+        kunden = {
+            r.beleg_id: r.kunde.name
+            for r in lade_ausgangsrechnungen(k.session)
+            if r.beleg_id is not None
+        }
         befunde = []
         for b in k.belege.values():
             eingang = b.eingegangen_am.date()
@@ -101,16 +109,21 @@ class BelegUnbearbeitet:
                 grund = "erfasst, aber nicht gebucht (accounti opos verbuchen)"
             else:
                 continue
+            gegenpartei = (
+                kunden.get(b.id)
+                if b.richtung is Belegrichtung.AUSGANG
+                else b.lieferant_name
+            )
             befunde.append(
                 befund(
                     self,
                     "beleg",
                     b.id,
-                    f"Beleg {b.belegnummer or b.dateiname} ({b.lieferant_name or '—'}) "
+                    f"Beleg {b.belegnummer or b.dateiname} ({gegenpartei or '—'}) "
                     f"seit {datum_de(eingang)} ({alter} Tage) unbearbeitet — {grund}",
                     datum=eingang,
                     betrag=b.brutto,
-                    gegenpartei=b.lieferant_name,
+                    gegenpartei=gegenpartei,
                 )
             )
         return befunde

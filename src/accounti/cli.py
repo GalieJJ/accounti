@@ -1644,10 +1644,14 @@ def opos_verbuchen(
 def opos_liste(
     richtung: str | None = typer.Option(None, help="eingang oder ausgang"),
     faellig: bool = typer.Option(False, "--faellig", help="nur fällige Posten"),
-    stichtag: str | None = typer.Option(None, help="JJJJ-MM-TT (heute)"),
+    stichtag: str | None = typer.Option(
+        None,
+        help="Stand zum Ende dieses Tages, JJJJ-MM-TT (heute): gebuchte Posten, Rest "
+        "nach den Zahlungen und Verrechnungen bis dahin",
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
 ) -> None:
-    """Offene Posten anzeigen."""
+    """Offene Posten anzeigen — Guthaben (negativer Rest) eingeschlossen."""
     from datetime import date
 
     from rich.markup import escape
@@ -1655,8 +1659,12 @@ def opos_liste(
 
     from accounti.anzeige import betrag_de, datum_de
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import lade_kontakte, lade_posten
-    from accounti.opos.auswertung import offene_posten, ueberfaellig_tage
+    from accounti.db.repository import lade_kontakte
+    from accounti.opos.auswertung import (
+        lade_stand_zum,
+        offene_posten,
+        ueberfaellig_tage,
+    )
 
     filter_richtung = _richtung_option(richtung)
     tag = _datum_option(stichtag, "--stichtag") or date.today()
@@ -1664,7 +1672,7 @@ def opos_liste(
     init_db(engine)
     with make_session() as s:
         posten = offene_posten(
-            lade_posten(s),
+            lade_stand_zum(s, tag),
             faellig_bis=tag if faellig else None,
             richtung=filter_richtung,
         )
@@ -1697,7 +1705,8 @@ def opos_liste(
             f"[red]{tage}[/red]" if tage > 0 else str(tage),
             konto or "—",
             escape(k.name if k else "?"),
-            escape(p.belegnummer or "—"),
+            escape(p.belegnummer or "—")
+            + (" [dim](Guthaben)[/dim]" if p.restbetrag < 0 else ""),
             betrag_de(p.restbetrag),
             f"{p.skonto_bis:%d.%m.%y}" if p.skonto_bis else "—",
         )
@@ -1711,22 +1720,21 @@ def opos_staffel(
     stichtag: str | None = typer.Option(None, help="JJJJ-MM-TT (heute)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
 ) -> None:
-    """Fälligkeitsstaffel für Verbindlichkeiten und Forderungen."""
+    """Fälligkeitsstaffel für Verbindlichkeiten und Forderungen zum Stichtag."""
     from datetime import date
 
     from rich.table import Table
 
     from accounti.anzeige import betrag_de, datum_de
     from accounti.db import init_db, session_factory
-    from accounti.db.repository import lade_posten
     from accounti.models import PostenRichtung
-    from accounti.opos.auswertung import STAFFELN, faelligkeitsstaffel
+    from accounti.opos.auswertung import STAFFELN, faelligkeitsstaffel, lade_stand_zum
 
     tag = _datum_option(stichtag, "--stichtag") or date.today()
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
-        posten = lade_posten(s)
+        posten = lade_stand_zum(s, tag)
     verbindlichkeiten = faelligkeitsstaffel(
         [p for p in posten if p.richtung is PostenRichtung.VERBINDLICHKEIT], tag
     )
