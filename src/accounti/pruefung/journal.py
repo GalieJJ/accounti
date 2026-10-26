@@ -38,7 +38,7 @@ from typing import Any
 from sqlalchemy import Column, Connection, Float, Numeric, Table, insert, select, text
 from sqlalchemy.orm import Session
 
-from accounti.db.tabellen import BelegRow, BuchungssatzRow
+from accounti.db.tabellen import BelegRow, BuchungssatzRow, VerrechnungRow
 from accounti.db.tabellen_abschluss import AbschlussRow
 from accounti.db.tabellen_pruefung import JournalRow, PeriodenabschlussRow
 from accounti.models.pruefung import Journaleintrag
@@ -341,6 +341,7 @@ def lade_eintrag(session: Session, nr: int) -> Journaleintrag | None:
 BESTAND: dict[str, Table] = {
     "buchung": BuchungssatzRow.__table__,  # type: ignore[dict-item]
     "beleg": BelegRow.__table__,  # type: ignore[dict-item]
+    "verrechnung": VerrechnungRow.__table__,  # type: ignore[dict-item]
 }
 
 

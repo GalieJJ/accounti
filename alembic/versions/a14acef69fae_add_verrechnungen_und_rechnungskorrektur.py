@@ -8,7 +8,8 @@ Tabelle ``verrechnungen`` (Ausgleich gegenläufiger offener Posten ohne Buchung,
 anfügen); ``ausgangsrechnungen.rechnungstyp``/``korrektur_zu`` (Gutschrift 381,
 Rechnungskorrektur 384 mit Bezug BT-25); ``ausgangspositionen.elektronisch`` (§ 3a Abs. 5
 UStG). Hat ein Befehl des neuen Codes die Tabelle schon angelegt (``init_db`` vor der
-Migration), übernimmt die Migration sie und legt nur an, was fehlt.
+Migration), übernimmt die Migration sie und legt nur an, was fehlt. Auf SQLite sperren
+Trigger ``verrechnungen_kein_update``/``_delete`` auch rohes SQL (nur anfügen).
 """
 from typing import Sequence, Union
 
@@ -23,6 +24,8 @@ branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 INDIZES = ("gegen_posten_id", "kontakt_id", "posten_id")
+# nur anfügen — SQLite sperrt auch rohes SQL (wie after_create in db/tabellen.py)
+TRIGGER_TEXT = "Verrechnungen sind unveränderbar"
 
 
 def _tabellen() -> set[str]:
@@ -70,6 +73,13 @@ def upgrade() -> None:
             batch_op.add_column(
                 sa.Column('korrektur_zu', sa.String(length=40), nullable=True)
             )
+    if op.get_bind().dialect.name == "sqlite":
+        for aktion in ("UPDATE", "DELETE"):
+            op.execute(
+                f"CREATE TRIGGER IF NOT EXISTS verrechnungen_kein_{aktion.lower()} "
+                f"BEFORE {aktion} ON verrechnungen BEGIN "
+                f"SELECT RAISE(ABORT, '{TRIGGER_TEXT}'); END"
+            )
     if 'elektronisch' not in _spalten('ausgangspositionen'):
         with op.batch_alter_table('ausgangspositionen') as batch_op:
             batch_op.add_column(
@@ -89,6 +99,9 @@ def downgrade() -> None:
     with op.batch_alter_table('ausgangsrechnungen') as batch_op:
         batch_op.drop_column('korrektur_zu')
         batch_op.drop_column('rechnungstyp')
+    if op.get_bind().dialect.name == "sqlite":
+        for aktion in ("update", "delete"):
+            op.execute(f"DROP TRIGGER IF EXISTS verrechnungen_kein_{aktion}")
     for spalte in reversed(INDIZES):
         op.drop_index(f'ix_verrechnungen_{spalte}', table_name='verrechnungen')
     op.drop_table('verrechnungen')

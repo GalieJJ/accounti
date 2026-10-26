@@ -11,6 +11,8 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
+from sqlalchemy.exc import DatabaseError
 
 from accounti.db.repository import (
     lade_buchungen,
@@ -38,6 +40,7 @@ from accounti.opos.zahlungslauf import (
     zuordne_zahlungen,
 )
 from accounti.opos.zuordnung import Anteil, Stufe, ordne_zu
+from accounti.pruefung.journal import pruefe_journal
 from tests.pruefung_hilfe import make_session_fixture  # noqa: F401 - Fixture
 from tests.zahlung_hilfe import beleg_zu, debitor, kreditor, neue_db, speichere
 
@@ -457,6 +460,45 @@ def test_verrechnen_gleicht_gutschrift_gegen_rechnung_aus_ohne_buchung(fabrik):
         PostenStatus.AUSGEGLICHEN,
     )
     assert (v.datum, v.person) == (date(2026, 3, 6), "Prüferin")
+
+
+def _verrechnet(fabrik):
+    _kunde_mit_posten(fabrik, op("2026-0001", "595.00"), op("2026-0002", "-119.00"))
+    with fabrik() as s:
+        verrechne(s, ["2026-0002", "2026-0001"], date(2026, 3, 6), person="Prüferin")
+        s.commit()
+
+
+def test_verrechnungen_sind_auch_fuer_rohes_sql_unveraenderbar(fabrik):
+    # Nachprüfung N6: wie Journal und USt-IdNr.-Protokoll ein SQLite-Trigger
+    _verrechnet(fabrik)
+    with fabrik() as s:
+        for sql in ("UPDATE verrechnungen SET betrag = 1", "DELETE FROM verrechnungen"):
+            with pytest.raises(DatabaseError, match="unveränderbar"):
+                s.execute(text(sql))
+            s.rollback()
+
+
+@pytest.mark.parametrize(
+    ("sql", "art"),
+    [
+        ("UPDATE verrechnungen SET betrag = 1", "abweichung"),
+        ("DELETE FROM verrechnungen", "fehlt"),
+    ],
+)
+def test_journal_pruefen_gleicht_verrechnungen_mit_dem_bestand_ab(fabrik, sql, art):
+    # Nachprüfung N6: an accounti vorbei (Trigger entfernt bzw. PostgreSQL)
+    _verrechnet(fabrik)
+    with fabrik() as s:
+        assert pruefe_journal(s).in_ordnung
+    with fabrik() as s:
+        for aktion in ("update", "delete"):
+            s.execute(text(f"DROP TRIGGER IF EXISTS verrechnungen_kein_{aktion}"))
+        s.execute(text(sql))
+        s.commit()
+    with fabrik() as s:
+        p = pruefe_journal(s)
+    assert [(b.art, b.text.split()[0]) for b in p.befunde] == [(art, "verrechnung")]
 
 
 def test_verrechnen_verlangt_gegenlaeufige_posten_desselben_kontakts(fabrik):

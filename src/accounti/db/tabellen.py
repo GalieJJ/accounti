@@ -407,3 +407,19 @@ def _ustid_trigger(_: object, verbindung: Connection, **__: object) -> None:
     if verbindung.dialect.name == "sqlite":
         for sql in USTID_TRIGGER:
             verbindung.execute(text(sql))
+
+
+# Verrechnungen ebenso — PostgreSQL: ORM-Sperre und Bestandsabgleich (journal pruefen)
+VERRECHNUNG_TRIGGER = [
+    f"CREATE TRIGGER verrechnungen_kein_{aktion.lower()} BEFORE {aktion} "
+    "ON verrechnungen BEGIN "
+    "SELECT RAISE(ABORT, 'Verrechnungen sind unveränderbar'); END"
+    for aktion in ("UPDATE", "DELETE")
+]
+
+
+@event.listens_for(VerrechnungRow.__table__, "after_create")
+def _verrechnung_trigger(_: object, verbindung: Connection, **__: object) -> None:
+    if verbindung.dialect.name == "sqlite":
+        for sql in VERRECHNUNG_TRIGGER:
+            verbindung.execute(text(sql))
