@@ -241,6 +241,13 @@ DATEV-Übergabe:
   `--kurs` bei einer Auszahlung in Fremdwährung.
   Shopify: der Auszahlungsbetrag steht nicht in der Transaktionsdatei, er wird aus den Posten
   gebildet (oder mit `--auszahlung` vorgegeben).
+- Gesamttest, Nachprüfung Paket E: Die Voranmeldung ordnet eine schon als Erlös gebuchte
+  Auszahlung (`auszahlung_anderweitig_gebucht`) dem Monat des Bankumsatzes zu. Den Tag liest
+  `auszahlung.bankdatum` aus dem Befundtext — `marktplatz_befunde` hat keine Spalte dafür, eine
+  Migration verlangte dieses Paket nicht. `marktplatz import --buchungsdatum` prüft das
+  Kalenderjahr, nicht ein abweichendes Wirtschaftsjahr (`ziel.year != tag.year`, wie die
+  Jahressperre und `opos verbuchen`); umgestellt wird beim Zusammenführen mit Paket F auf
+  dessen Helfer `wirtschaftsjahr(jahr, config)`, damit nicht ein Befehl allein anders rechnet.
 
 **OSS**
 - Ermäßigte Steuersätze nur über die SKU-Liste `integrationen.ermaessigte_artikel` und je Land
@@ -285,6 +292,13 @@ DATEV-Übergabe:
   Inlandserlöse tragen BU 3 auf dem Automatikkonto 8400 — das ist die Projektkonvention
   (`config/regeln.yaml`), ob DATEV das ohne Hinweis annimmt, ist nicht geprüft.
 - Der Zeitraum eines Belegexports liegt in einem Kalenderjahr (Kopf und Belegdatum `TTMM`).
+- Gesamttest, Nachprüfung Paket E: `export datev` überschreibt keinen Stapel mehr (`…_2.csv`),
+  `datev belege` dagegen schon — sein Stapel und sein Paket sind je Zeitraum vollständig (alle
+  freigegebenen Buchungen, nicht nur neue) und ersetzen den vorigen, die Ausgabedatei nennt der
+  Mensch (`--ausgabe`); der SHA-256 eines früheren Journaleintrags passt dann nicht mehr zur
+  Datei. Ungeprüfte Buchungen aus `export datev --alle` gelten als übergeben (Journal
+  `ungeprueft`): wird eine vor der Freigabe noch geändert (`korrigiere` ändert Vorschläge ohne
+  Storno), kommt sie nur mit `--erneut` noch einmal — der Export warnt.
 
 **Kontoauszüge**
 - Der MT940-Import in DATEV ist nicht echt geprüft, nur gegen die DK-Spezifikation und eine

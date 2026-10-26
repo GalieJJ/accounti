@@ -433,7 +433,7 @@ accounti sicherung pruefen DATEI
 accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
 accounti opos liste --db sqlite:////tmp/probe/x.db         # mit dem Original vergleichen
 accounti journal pruefen --db sqlite:////tmp/probe/x.db --kopf NR:HASH   # Kopf vom Original
-accounti export datev --db sqlite:////tmp/probe/x.db --period JJJJ-MM --erneut --output /tmp/probe/export   # Stichprobe Buchungen
+accounti export datev --db sqlite:////tmp/probe/x.db …     # Stichprobe Buchungen
 rm -rf /tmp/probe
 ```
 

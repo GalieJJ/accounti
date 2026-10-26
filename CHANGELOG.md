@@ -448,7 +448,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   mit Wirtschaftsjahr aus `datev.wirtschaftsjahr_beginn` und dem Zeitraum der Buchungen; ein
   Stapel über die Grenze des Wirtschaftsjahrs wird abgelehnt (DATEV läse das Belegdatum TTMM
   im falschen Jahr). Schon exportierte Buchungen — auch solche in festgeschriebenen Monaten,
-  die den Status nicht mehr wechseln — kommen nur mit `--erneut` noch einmal.
+  die den Status nicht mehr wechseln, und ungeprüfte, die mit `--alle` im Stapel waren (sie
+  stehen als `ungeprueft` im Journal) — kommen nur mit `--erneut` noch einmal. Ein weiterer
+  Export desselben Zeitraums schreibt eine eigene Datei (`…_2.csv`, `…_3.csv`) und überschreibt
+  nie einen früheren Stapel (vorher war der erste weg, der SHA-256 im Journal verwies ins Leere).
   `--berater`/`--mandant` fallen auf `datev.berater_nummer`/`mandanten_nummer` zurück. Der
   Stapel entsteht aus denselben Bausteinen wie `datev belege`: 31 Kopffelder, Herkunft „RE“,
   Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),
@@ -467,17 +470,20 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Ausgang): `storniere`/`korrigiere` warnen, wenn die Voranmeldung des Zeitraums schon
   abgegeben oder freigegeben ist; der Hinweis beim Storno in einen anderen Monat unterscheidet
   § 17 UStG (Berichtigung im Zeitraum der Änderung) von der Fehlbuchung (Monat öffnen, dort
-  stornieren — sonst wirkt die Korrektur doppelt). `ustva` meldet `abgegeben_abweichend`, wenn
-  die Buchungen nicht mehr zur abgegebenen Anmeldung passen (§ 153 Abs. 1 AO), und die
-  Prüfregel `abgegeben_abweichend` (`accounti pruefen`) findet Buchungen, die laut Journal nach
-  der Abgabe in ihren Zeitraum kamen. Die Plausibilisierung bezieht die Prüfregeln aus
-  Baustein 7 über den Zeitraum ein (deren Fehler als Warnung) — der Hinweis „Baustein 7 nicht
-  angeschlossen“ ist weg. Nach der echten Abgabe bietet `ustva uebermitteln` das
-  Festschreiben an (GoBD Rz. 108–110, nicht erzwungen). Eine Saldenvortragsbuchung auf ein
-  Steuerkonto (EB 1576 an 9000) ist kein Umsatz und keine Warnung mehr wert
+  stornieren — sonst wirkt die Korrektur doppelt) und verlangt nicht zugleich eine berichtigte
+  Anmeldung für den Monat des Originals, den das Storno nicht ändert. `ustva` meldet
+  `abgegeben_abweichend`, wenn die Buchungen nicht mehr zur abgegebenen Anmeldung passen
+  (§ 153 Abs. 1 AO), und die Prüfregel `abgegeben_abweichend` (`accounti pruefen`) findet
+  Buchungen, die laut Journal nach der Abgabe in ihren Zeitraum kamen. Die Plausibilisierung
+  bezieht die Prüfregeln aus Baustein 7 über den Zeitraum ein (deren Fehler als Warnung) — der
+  Hinweis „Baustein 7 nicht angeschlossen“ ist weg. Nach der echten Abgabe bietet
+  `ustva uebermitteln` das Festschreiben an (GoBD Rz. 108–110, nicht erzwungen). Eine
+  Saldenvortragsbuchung auf ein Steuerkonto (EB 1576 an 9000) ist kein Umsatz und keine
+  Warnung mehr wert
 - **Voranmeldung für einen laufenden Zeitraum** (Gesamttest Steuer B10): ein noch nicht
   abgelaufener Zeitraum ist ein Fehler — keine Freigabe, keine Abgabe (§ 18 Abs. 1 UStG); im
-  Testmodus eine Warnung
+  Testmodus eine Warnung, und `uebermitteln --test` sagt dann, ab wann freigegeben werden kann,
+  statt „Freigabe möglich“
 - **Marktplatz-Auszahlungen als Erlös gebucht** (Gesamttest Steuer B2, Teil Abgleich): `bank lauf`
   (auch über REST) gleicht Auszahlungen importierter Abrechnungen vor dem Kontieren ab und bucht
   sie „Bank an Verrechnungskonto“; in Fremdwährung gilt ein Bankumsatz mit Stichwort oder
@@ -486,7 +492,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (SKR03 2150/2660, SKR04 6880/4840), mit Hinweis an der Abrechnung (vorher kam ein Treffer bei
   Fremdwährung praktisch nie zustande, und die Regel buchte die Auszahlung als Erlös 19 %).
   Offene Fehler-Befunde einer Abrechnung stehen als Warnung in der Voranmeldung ihres
-  Zeitraums; der Jahresabschluss prüft die Verrechnungskonten der Marktplätze (1361–1363)
+  Zeitraums — eine schon als Erlös gebuchte Auszahlung in der Voranmeldung des Monats der
+  Bankbuchung, wo der Erlös doppelt steht (Abrechnung 16.–31.08., Auszahlung 03.09.: UStVA 09);
+  in Fremdwährung erkennt der Abgleich sie innerhalb derselben Toleranz wie einen Treffer
+  (vorher nur bei exakt gleichem Betrag, Kz 81 blieb still doppelt). `marktplatz import` und
+  `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
+  Auszahlung buchen); der Jahresabschluss prüft die Verrechnungskonten der Marktplätze
+  (1361–1363)
 - **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines
   Tracebacks beim Schreiben (und einer verwaisten Datei im Archiv) prüft der Import die Sperre
   vor dem Ablegen und meldet klar, was zu tun ist; `--buchungsdatum offen|JJJJ-MM-TT` bucht die
