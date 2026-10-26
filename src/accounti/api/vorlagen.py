@@ -8,11 +8,12 @@ Punkte, die die Rolle darf), ``gesellschaften`` (für den Wechsel), ``version`` 
 danach zurückgesetzt. Übersetzt wird mit ``{{ _("…") }}`` (``jinja2.ext.i18n``,
 Newstyle: Platzhalter werden escaped); Filter ``betrag``, ``datum``, ``euro``,
 ``prozent``, ``monat`` formatieren je Sprache, ``uebersetzt`` übersetzt eine
-``i18n.Text``-Meldung.
+``i18n.Text``-Meldung, ``bezeichnung`` zeigt einen Statuswert (Enum) lesbar.
 """
 
 from __future__ import annotations
 
+import enum
 import json
 from typing import Any
 
@@ -21,10 +22,12 @@ from fastapi.responses import HTMLResponse
 from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
 from jinja2.runtime import Context
 from jinja2.utils import pass_context
+from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
 from accounti.api.registry import Navigationspunkt
+from accounti.i18n import N_
 
 UMGEBUNG = Environment(
     loader=PackageLoader("accounti.api", "vorlagen"),
@@ -64,12 +67,66 @@ def _filter(funktion: Any) -> Any:
     return anwenden
 
 
+# Statuswerte lesbar statt als Enum-Wert („pruefung“, „eingangsrechnung“) — je
+# Enum-Klasse, denn str-Enums mit gleichem Wert sind gleich (BuchungStatus und
+# BelegStatus „pruefung“). Profilnamen der E-Rechnung bleiben Eigennamen.
+BEZEICHNUNGEN: dict[str, dict[str, str]] = {
+    "BuchungStatus": {
+        "entwurf": N_("Entwurf"),
+        "auto": N_("automatisch gebucht"),
+        "pruefung": N_("zur Prüfung"),
+        "geprueft": N_("geprüft"),
+        "korrigiert": N_("korrigiert"),
+        "exportiert": N_("exportiert"),
+    },
+    "Belegart": {
+        "eingangsrechnung": N_("Eingangsrechnung"),
+        "ausgangsrechnung": N_("Ausgangsrechnung"),
+        "quittung": N_("Quittung"),
+        "kontoauszug": N_("Kontoauszug"),
+        "vertrag": N_("Vertrag"),
+        "sonstiges": N_("Sonstiges"),
+        "unbekannt": N_("unbekannt"),
+    },
+    "BelegStatus": {
+        "eingegangen": N_("eingegangen"),
+        "pruefung": N_("zur Prüfung"),
+        "erfasst": N_("erfasst"),
+    },
+    "AufgabenStatus": {
+        "offen": N_("offen"),
+        "in_arbeit": N_("in Arbeit"),
+        "wartet": N_("wartet"),
+        "erledigt": N_("erledigt"),
+        "hinfaellig": N_("hinfällig"),
+    },
+    "Profil": {
+        "minimum": "MINIMUM",
+        "basic_wl": "BASIC WL",
+        "basic": "BASIC",
+        "en16931": "EN 16931",
+        "extended": "EXTENDED",
+        "xrechnung": "XRechnung",
+        "unbekannt": N_("unbekannt"),
+    },
+}
+
+
+def bezeichnung(wert: Any, sprache: str | None = None) -> str:
+    """Lesbarer, übersetzter Name eines Statuswerts; Unbekanntes als Wert."""
+    if isinstance(wert, enum.Enum):
+        text = BEZEICHNUNGEN.get(type(wert).__name__, {}).get(str(wert.value))
+        return i18n.gettext(text, sprache) if text else str(wert.value)
+    return "" if wert is None else str(wert)
+
+
 UMGEBUNG.filters["betrag"] = _filter(i18n.betrag)
 UMGEBUNG.filters["euro"] = _filter(i18n.euro)
 UMGEBUNG.filters["datum"] = _filter(i18n.datum)
 UMGEBUNG.filters["prozent"] = _filter(i18n.prozent)
 UMGEBUNG.filters["monat"] = _filter(i18n.monat)
 UMGEBUNG.filters["uebersetzt"] = _filter(i18n.uebersetze)
+UMGEBUNG.filters["bezeichnung"] = _filter(bezeichnung)
 UMGEBUNG.filters["prozent_ganz"] = _filter(
     lambda wert, sprache: i18n.prozent(wert, sprache, 0)
 )
@@ -108,10 +165,37 @@ def sprache_der_anfrage(request: Request) -> str:
     a = getattr(request.state, "angemeldet", None)
     server = getattr(getattr(request.app.state, "dienste", None), "server", None)
     return i18n.waehle_sprache(
-        a.benutzer.sprache if a is not None else None,
+        a.benutzer.sprache
+        if a is not None
+        else getattr(request.state, "benutzersprache", None),
         request.headers.get("accept-language"),
         getattr(server, "sprache", i18n.STANDARD),
     )
+
+
+def _beantwortet_get(request: Request, pfad: str) -> bool:
+    """Gibt es eine Route, die GET auf ``pfad`` annimmt? (Eingehängte Router von
+    FastAPI prüfen ihre Routen selbst.)"""
+    bereich = {"type": "http", "path": pfad, "root_path": "", "method": "GET"}
+    return any(r.matches(bereich)[0] is Match.FULL for r in request.app.router.routes)
+
+
+def ansichtspfad(request: Request) -> str:
+    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst, nach
+    einem POST die nächste Seite darüber, die GET beantwortet
+    (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
+    ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
+    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung."""
+    pfad = request.url.path
+    if request.method in ("GET", "HEAD"):
+        return pfad
+    teile = pfad.rstrip("/").split("/")
+    while len(teile) > 2:
+        teile.pop()
+        kandidat = "/".join(teile)
+        if _beantwortet_get(request, kandidat):
+            return kandidat
+    return "/"
 
 
 def seite(
@@ -135,7 +219,7 @@ def seite(
         "sprache": sprache,
         "sprachen": i18n.NAMEN,
         "benutzersprache": a.benutzer.sprache if a is not None else None,
-        "pfad": request.url.path,
+        "pfad": ansichtspfad(request),
         "htmx_konfig": HTMX_KONFIG,
         "hx_kopf": json.dumps({"X-CSRF-Token": csrf}),
     }

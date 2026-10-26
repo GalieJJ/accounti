@@ -27,7 +27,7 @@
 {% if e.geschwister %}
 <h3>{{ _("Weitere Buchungen zu Umsatz bzw. Beleg") }}</h3>
 <ul class="geschwister">
-  {% for x in e.geschwister %}<li><a href="/buchungen/{{ x.id }}">{{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }}</a> · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }} · {{ x.status.value }}</li>{% endfor %}
+  {% for x in e.geschwister %}<li><a href="/buchungen/{{ x.id }}">{{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }}</a> · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }} · {{ x.status | bezeichnung }}</li>{% endfor %}
 </ul>
 {% endif %}
 {% if e.rueckfragen %}

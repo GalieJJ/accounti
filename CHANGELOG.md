@@ -519,6 +519,18 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   die Geschwister alle Buchungen. E-Rechnungen: DTD- und Entity-Deklarationen werden auch in
   UTF-16 abgelehnt (bisher fand der Byte-Vergleich sie nicht, eine interne Entity wurde in der
   Ansicht expandiert).
+- **Web-Oberfläche Teil 1 nach dem Zusammenführen** (Prüfberichte gw-web, gw-storno):
+  Erfolgsmeldungen der Prüfung, „nicht gefunden“/„Methode nicht erlaubt“ und „Formular zu
+  groß“ erscheinen in der Sprache der Oberfläche, Status, Belegart und Profil der E-Rechnung
+  lesbar statt als Rohwert („zur Prüfung“ statt `pruefung`), „Strg“ englisch „Ctrl“;
+  Unicode-Ziffern („²“, „٩“, „４９３０“) in Seite, Steuerschlüssel, Konten und Zeitraum der
+  USt-VA gaben 500 oder galten als Zahl bzw. Konto (jetzt nur ASCII-Ziffern, sonst 422);
+  Fehler und Eingaben des
+  Storno-Formulars landeten im Korrektur-Formular; die Sprachwahl auf einer Antwort auf ein
+  POST endete mit 405 (jetzt zurück zur Ansicht); eine fehlerhafte `abschluss.kontenzuordnung`
+  gab beim Freigeben, Korrigieren und Stornieren 500 statt 409 mit Meldung; ein Doppelklick
+  auf Stornieren/Korrigieren zählte einen Fehlversuch oder verbrauchte einen zweiten Code
+  (jetzt 409 „inzwischen geändert“). Die Regelseite nennt die Gegenbuchung zur Prüfung.
 - `korrigiere --lernen` und `lerne` hängten die Regel ans Ende der Regeldatei — hatte eine frühere
   Regel falsch kontiert, griff die gelernte nie; dabei gingen die Kommentare der Datei verloren,
   und im Container (schreibgeschütztes `config/`) brachen beide ab.

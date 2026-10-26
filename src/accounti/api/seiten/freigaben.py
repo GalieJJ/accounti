@@ -213,8 +213,15 @@ async def ustva_freigeben(
 ) -> HTMLResponse:
     dienste = dienste_von(request)
     felder = await formular(request)
+    zeitraum = felder.get("zeitraum", "")
+    if not zeitraum.isascii():
+        # nur ASCII-Ziffern wie bei Seite und Steuerschlüssel (``Zeitraum.lies`` läse
+        # „２０２６-09“ als 2026-09) — abgewiesen vor dem Einmalcode
+        raise HTTPException(
+            422, Text("Zeitraum unverständlich — erwartet z.B. 2026-08, 2026-Q3")
+        )
     await run_in_threadpool(
         bestaetige_einmalcode, dienste, a, felder.get("einmalcode", "")
     )
-    werte = await run_in_threadpool(_ustva, a, s, felder.get("zeitraum", ""))
+    werte = await run_in_threadpool(_ustva, a, s, zeitraum)
     return seite(request, "meldung.html", werte)

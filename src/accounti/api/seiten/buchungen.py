@@ -12,6 +12,7 @@ Pflicht und nicht vorbelegt (Baustein 7: keine stille Wahl).
 
 from __future__ import annotations
 
+import threading
 from datetime import date
 from typing import Annotated, Any
 from uuid import UUID
@@ -30,6 +31,7 @@ from accounti.api.seiten.pruefen import (
     _fachfehler,
     _fehlerbild,
     _steuerangabe,
+    formularkonto,
     kontonamen,
     steuernamen,
 )
@@ -48,6 +50,17 @@ from accounti.models import Buchungssatz
 from accounti.models.auth import Recht
 
 router = APIRouter()
+VERALTET = "Die Buchung wurde inzwischen geändert — bitte die aktuelle Fassung prüfen"
+KORREKTUR, STORNO = "korrektur", "storno"
+_SPERREN: dict[str, threading.Lock] = {}
+_SPERREN_ZUGRIFF = threading.Lock()
+
+
+def _abschlusssperre(datenbank: str) -> threading.Lock:
+    """Storno und Korrektur einer Gesellschaft schließen nacheinander ab (Stand
+    prüfen, Einmalcode, Lauf) — im Server-Prozess (``accounti serve`` startet einen)."""
+    with _SPERREN_ZUGRIFF:
+        return _SPERREN.setdefault(datenbank, threading.Lock())
 
 
 def _lade(s: Session, buchung_id: UUID) -> Buchungssatz:
@@ -68,6 +81,7 @@ def buchungswerte(
     fehler: Fehlerbild | None = None,
     meldungen: list[Any] | None = None,
     mit_einmalcode: bool = True,
+    formular: str | None = None,
 ) -> dict[str, Any]:
     from accounti.belege.zuordnung import beleg_zur_buchung
     from accounti.db.repo_pruefung import korrektur_zu
@@ -119,6 +133,7 @@ def buchungswerte(
         "mit_einmalcode": mit_einmalcode,
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,
+        "aktion_formular": formular,  # abgesendetes Formular (Fehler, Eingaben)
         "aktion_meldungen": meldungen or [],
         "brutto": b.betrag_netto + (b.steuer_betrag or 0),
     }
@@ -169,13 +184,16 @@ async def _storno_aktion(
     felder: dict[str, str],
     vorab: Any,
     ausfuehren: Any,
+    formular: str,
 ) -> Response:
     """Stand prüfen (409 ohne verbrauchten Code), Pflichtangaben prüfen (422), die
     Aktion zur Probe ausführen und zurückrollen (409/422 der Fachlogik, ohne
-    verbrauchten Code), dann Einmalcode (403), dann ausführen — im Namen der Person,
-    mit Commit. So verbraucht nur eine Aktion, die gelingt, den Code; die Probe hält
-    keine Schreibsperre der Gesellschaft, während der Code in der Systemdatenbank
-    (ohne Registry: dieselbe Datei) bestätigt wird."""
+    verbrauchten Code), dann unter der Abschlusssperre der Gesellschaft den Stand
+    erneut prüfen (409), Einmalcode (403) und ausführen — im Namen der Person, mit
+    Commit. So verbraucht nur eine Aktion, die gelingt, den Code; ein Doppelklick
+    wartet an der Sperre und bekommt 409, ohne Fehlversuch und ohne Code. Keine
+    Schreib- oder Lesesperre der Gesellschaft ist offen, während der Code in der
+    Systemdatenbank (ohne Registry: dieselbe Datei) bestätigt wird."""
     dienste = dienste_von(request)
     code = dienste.auth.einmalcode_bestaetigung
 
@@ -190,16 +208,14 @@ async def _storno_aktion(
             fehler=fehler,
             meldungen=meldungen,
             mit_einmalcode=code,
+            formular=formular,
         )
 
     def pruefen() -> Fehlerbild | None:
         _lade(s, buchung_id)
         try:
             if stand(s, buchung_id) != felder.get("stand", ""):
-                raise PruefschlangeError(
-                    "Die Buchung wurde inzwischen geändert — bitte die aktuelle "
-                    "Fassung prüfen"
-                )
+                raise PruefschlangeError(VERALTET)
             vorab()
         except PruefschlangeError as fehler:
             return Fehlerbild(
@@ -209,19 +225,12 @@ async def _storno_aktion(
             s.rollback()
         return None
 
-    def fachfehler(f: Exception) -> Fehlerbild:
-        from accounti.konfiguration import KonfigurationError
-
-        if isinstance(f, KonfigurationError):
-            return Fehlerbild(409, str(f))
-        return _fehlerbild(f)
-
     def probe() -> Fehlerbild | None:
         with im_namen(a) as person:
             try:
                 ausfuehren(s, person)
             except _fachfehler() as f:
-                return fachfehler(f)
+                return _fehlerbild(f)
             finally:
                 s.rollback()
         return None
@@ -232,9 +241,6 @@ async def _storno_aktion(
     if fehler is not None:
         werte = await run_in_threadpool(anzeige, fehler)
         return seite(request, "buchungen/buchung.html", werte, status=fehler.status)
-    await run_in_threadpool(
-        bestaetige_einmalcode, dienste, a, felder.get("einmalcode", "")
-    )
 
     def lauf() -> tuple[list[Any], Fehlerbild | None]:
         with im_namen(a) as person:
@@ -243,11 +249,23 @@ async def _storno_aktion(
                 s.commit()
                 return meldungen, None
             except _fachfehler() as f:
-                # nur bei einer gleichzeitigen Änderung zwischen Probe und Lauf
+                # nur, wenn außerhalb des Server-Prozesses (CLI) zwischen Prüfung und
+                # Lauf jemand die Buchung ändert
                 s.rollback()
-                return [], fachfehler(f)
+                return [], _fehlerbild(f)
 
-    meldungen, fehler = await run_in_threadpool(lauf)
+    def abschliessen() -> tuple[list[Any], Fehlerbild | None]:
+        with _abschlusssperre(a.gesellschaft.datenbank):
+            try:
+                veraltet = stand(s, buchung_id) != felder.get("stand", "")
+            finally:
+                s.rollback()  # keine Lesesperre offen, während der Code bestätigt wird
+            if veraltet:  # der erste Klick war schneller: 409 ohne Fehlversuch
+                return [], Fehlerbild(409, VERALTET)
+            bestaetige_einmalcode(dienste, a, felder.get("einmalcode", ""))
+            return lauf()
+
+    meldungen, fehler = await run_in_threadpool(abschliessen)
     werte = await run_in_threadpool(anzeige, fehler, meldungen)
     return seite(
         request,
@@ -270,6 +288,8 @@ async def korrigieren_seite(
     g = a.gesellschaft
 
     def vorab() -> None:
+        formularkonto(felder.get("soll"), "soll")
+        formularkonto(felder.get("haben"), "haben")
         _steuerangabe(felder.get("steuer", ""))
         _datum(felder.get("datum", ""))
 
@@ -279,8 +299,8 @@ async def korrigieren_seite(
             s,
             buchung_id,
             Aenderung(
-                felder.get("soll", ""),
-                felder.get("haben", ""),
+                formularkonto(felder.get("soll"), "soll"),
+                formularkonto(felder.get("haben"), "haben"),
                 steuer,
                 ohne,
                 (felder.get("grund") or "").strip() or None,
@@ -304,7 +324,9 @@ async def korrigieren_seite(
         )
         return [meldung, *k.warnungen]
 
-    return await _storno_aktion(request, a, s, buchung_id, felder, vorab, ausfuehren)
+    return await _storno_aktion(
+        request, a, s, buchung_id, felder, vorab, ausfuehren, KORREKTUR
+    )
 
 
 @router.post("/buchungen/{buchung_id:uuid}/stornieren", response_class=HTMLResponse)
@@ -351,4 +373,6 @@ async def stornieren_seite(
             )
         return [*meldungen, *k.warnungen]
 
-    return await _storno_aktion(request, a, s, buchung_id, felder, vorab, ausfuehren)
+    return await _storno_aktion(
+        request, a, s, buchung_id, felder, vorab, ausfuehren, STORNO
+    )

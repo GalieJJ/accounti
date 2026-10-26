@@ -48,7 +48,7 @@
     {# Korrigieren steht als erster Absendeknopf im Formular: Enter in einem Feld löst
        auch ohne Skript die Korrektur aus, nie die Regelvorschau. #}
     <div class="knopfzeile">
-      <button type="submit" class="hauptknopf">{{ _("Korrigieren") }}</button> <span class="klein"><kbd>Strg</kbd>+<kbd>Enter</kbd></span>
+      <button type="submit" class="hauptknopf">{{ _("Korrigieren") }}</button> <span class="klein"><kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd></span>
       {% if darf_lernen and e.regel_moeglich %}
       <button type="submit" formaction="/pruefen/{{ b.id }}/regelvorschau" hx-post="/pruefen/{{ b.id }}/regelvorschau" hx-target="#regelvorschau" hx-disabled-elt="this" class="nebenknopf">{{ _("Regelvorschau") }}</button>
       {% endif %}

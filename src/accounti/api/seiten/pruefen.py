@@ -76,13 +76,35 @@ QUELLEN = {
     "korrektur": N_("Korrektur"),
     "storno": N_("Storno"),
 }
+# als ``Text``: die Vorlagen übersetzen nur ``Text``, ein str bleibt eine deutsche
+# Fachmeldung
 ERLEDIGT = {
-    "freigegeben": N_("Buchung freigegeben."),
-    "korrigiert": N_("Buchung korrigiert."),
-    "zurueckgestellt": N_(
+    "freigegeben": Text("Buchung freigegeben."),
+    "korrigiert": Text("Buchung korrigiert."),
+    "zurueckgestellt": Text(
         "Buchung zurückgestellt — die Rückfrage steht in den Aufgaben."
     ),
 }
+
+
+def ascii_zahl(wert: str | None) -> int | None:
+    """Ganze Zahl aus Formular oder Abfrage — nur aus ASCII-Ziffern, sonst ``None``.
+    ``str.isdigit()`` ist auch für „²“ wahr (``int`` scheitert: 500) und für „٩“
+    (``int`` liest 9)."""
+    wert = (wert or "").strip()
+    return int(wert) if wert.isascii() and wert.isdigit() else None
+
+
+def formularkonto(wert: str | None, feld: str) -> str:
+    """Kontonummer aus dem Formular: nur ASCII — die Fachprüfung (``\\d``) ließe
+    vollbreite Ziffern wie „４９３０“ als Konto durch."""
+    wert = (wert or "").strip()
+    if not wert.isascii():
+        raise PruefschlangeError(
+            f"{feld.capitalize()}: {wert} ist keine Kontonummer (4–8 Ziffern)",
+            feld=feld,
+        )
+    return wert
 
 
 def confidence_prozent(confidence: float) -> int:
@@ -308,8 +330,7 @@ async def liste(
     ansicht: str = "offen",
     erledigt: str | None = None,
 ) -> HTMLResponse:
-    nummer = request.query_params.get("seite", "1")
-    seite_wert = int(nummer) if nummer.isdigit() else 1
+    seite_wert = ascii_zahl(request.query_params.get("seite")) or 1
     gewaehlt = _ansicht(ansicht)
     daten = await run_in_threadpool(lade_pruefschlange, s, gewaehlt, seite_wert)
     return seite(
@@ -339,6 +360,7 @@ async def regeln(
     from accounti.klassifikation.lernen import lade_gelernte_regeln
 
     gelernt = await run_in_threadpool(lade_gelernte_regeln, s)
+    meldung = Text("Regel deaktiviert.") if erledigt == "deaktiviert" else None
     return seite(
         request,
         "pruefen/regeln.html",
@@ -346,7 +368,7 @@ async def regeln(
             "titel": N_("Gelernte Regeln"),
             "regeln": gelernt,
             "darf_lernen": a.darf(Recht.REGELN_LERNEN),
-            "meldung": N_("Regel deaktiviert.") if erledigt == "deaktiviert" else None,
+            "meldung": meldung,
         },
     )
 
@@ -424,10 +446,12 @@ async def arbeitsflaeche(
 
 
 def _fehlerbild(fehler: Exception) -> Fehlerbild:
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
     from accounti.aufgaben import AufgabenError
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.klassifikation.lernen import RegelError
+    from accounti.konfiguration import KonfigurationError
     from accounti.pruefung.storno import StornoError
 
     if isinstance(fehler, RegelBestaetigenError):
@@ -443,6 +467,10 @@ def _fehlerbild(fehler: Exception) -> Fehlerbild:
     if isinstance(fehler, AufgabenError):
         return Fehlerbild(422, str(fehler), "an")
     if isinstance(fehler, (JahrGesperrtError, UnveraenderbarError)):
+        return Fehlerbild(409, str(fehler))
+    if isinstance(fehler, (KonfigurationError, KontenrahmenError)):
+        # Konfiguration bzw. Kontenzuordnung der Gesellschaft fehlerhaft: 409 mit
+        # Meldung (die CLI endet mit Exit 1), nicht „Interner Fehler“
         return Fehlerbild(409, str(fehler))
     raise fehler
 
@@ -490,10 +518,6 @@ async def _aktion(
                 return ergebnis, None
             except _fachfehler() as fehler:
                 s.rollback()
-                from accounti.konfiguration import KonfigurationError
-
-                if isinstance(fehler, KonfigurationError):
-                    return None, Fehlerbild(409, str(fehler))
                 return None, _fehlerbild(fehler)
 
     ergebnis, fehler = await run_in_threadpool(lauf)
@@ -547,8 +571,9 @@ def _steuerangabe(wert: str) -> tuple[int | None, bool]:
         return None, False
     if wert == "ohne":
         return None, True
-    if wert.isdigit() and int(wert) in STEUERSCHLUESSEL:
-        return int(wert), False
+    nummer = ascii_zahl(wert)
+    if nummer is not None and nummer in STEUERSCHLUESSEL:
+        return nummer, False
     raise PruefschlangeError("Unbekannter Steuerschlüssel", feld="steuer")
 
 
@@ -608,8 +633,8 @@ async def korrigieren_seite(
             s,
             buchung_id,
             Aenderung(
-                felder.get("soll", ""),
-                felder.get("haben", ""),
+                formularkonto(felder.get("soll"), "soll"),
+                formularkonto(felder.get("haben"), "haben"),
                 steuer,
                 ohne,
                 (felder.get("grund") or "").strip() or None,
@@ -704,6 +729,8 @@ async def regelvorschau(
             )
         try:
             steuer, ohne = _steuerangabe(felder.get("steuer", ""))
+            soll = formularkonto(felder.get("soll"), "soll") or e.buchung.soll_konto
+            haben = formularkonto(felder.get("haben"), "haben") or e.buchung.haben_konto
         except PruefschlangeError as f:
             return None, _fehlerbild(f)
         if not steuer and not ohne:
@@ -715,8 +742,8 @@ async def regelvorschau(
         try:
             entwurf = entwurf_fuer(
                 e.umsatz,
-                felder.get("soll") or e.buchung.soll_konto,
-                felder.get("haben") or e.buchung.haben_konto,
+                soll,
+                haben,
                 None if ohne else steuer,
                 bh,
                 muster=felder.get("muster") or None,

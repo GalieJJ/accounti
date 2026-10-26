@@ -5,7 +5,7 @@
 <div class="hinweis" role="note"><p>{{ _("Belegdaten weichen vom strukturierten Teil ab:") }}</p><ul lang="de">{% for x in ansicht_beleg.abweichungen %}<li>{{ x }}</li>{% endfor %}</ul></div>
 {% endif %}
 <dl class="daten erechnung">
-  <div><dt>{{ _("Syntax / Profil") }}</dt><dd>{{ r.syntax }} · {{ r.profil.value }}</dd></div>
+  <div><dt>{{ _("Syntax / Profil") }}</dt><dd>{{ r.syntax }} · {{ r.profil | bezeichnung }}</dd></div>
   <div><dt>{{ _("Rechnungsnummer") }}</dt><dd>{{ r.nummer or "—" }}</dd></div>
   <div><dt>{{ _("Rechnungsdatum") }}</dt><dd>{{ r.datum | datum }}</dd></div>
   <div><dt>{{ _("Rechnungsart") }}</dt><dd>{{ r.typ or "—" }}</dd></div>

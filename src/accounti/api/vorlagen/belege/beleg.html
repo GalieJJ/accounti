@@ -10,18 +10,18 @@
   </section>
   <section class="rechts" aria-label="{{ _('Angaben') }}">
     <dl class="daten">
-      <div><dt>{{ _("Belegart") }}</dt><dd>{{ belegdaten.belegart.value }}</dd></div>
+      <div><dt>{{ _("Belegart") }}</dt><dd>{{ belegdaten.belegart | bezeichnung }}</dd></div>
       <div><dt>{{ _("Belegdatum") }}</dt><dd>{{ belegdaten.belegdatum | datum }}</dd></div>
       <div><dt>{{ _("Lieferant") }}</dt><dd>{{ belegdaten.lieferant_name or "—" }}</dd></div>
       <div><dt>{{ _("Netto") }}</dt><dd>{{ belegdaten.netto | euro }}</dd></div>
       <div><dt>{{ _("Steuer") }}</dt><dd>{{ belegdaten.steuer | euro }}</dd></div>
       <div><dt>{{ _("Brutto") }}</dt><dd>{{ belegdaten.brutto | euro }}</dd></div>
       <div><dt>{{ _("Eingang") }}</dt><dd>{{ belegdaten.eingegangen_am.date() | datum }} · {{ belegdaten.kanal }}</dd></div>
-      <div><dt>{{ _("Status") }}</dt><dd>{{ belegdaten.status.value }}{% if belegdaten.pruef_grund %} — <span lang="de">{{ belegdaten.pruef_grund }}</span>{% endif %}</dd></div>
+      <div><dt>{{ _("Status") }}</dt><dd>{{ belegdaten.status | bezeichnung }}{% if belegdaten.pruef_grund %} — <span lang="de">{{ belegdaten.pruef_grund }}</span>{% endif %}</dd></div>
     </dl>
     {% if buchungen %}
     <h2>{{ _("Buchungen") }}</h2>
-    <ul>{% for x in buchungen %}<li><a href="/buchungen/{{ x.id }}">{{ x.datum | datum }} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }}</a> ({{ x.status.value }})</li>{% endfor %}</ul>
+    <ul>{% for x in buchungen %}<li><a href="/buchungen/{{ x.id }}">{{ x.datum | datum }} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }}</a> ({{ x.status | bezeichnung }})</li>{% endfor %}</ul>
     {% endif %}
     {% if rueckfragen %}
     <h2>{{ _("Rückfragen") }}</h2>

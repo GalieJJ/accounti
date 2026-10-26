@@ -130,6 +130,8 @@ async def angemeldet(request: Request) -> Angemeldet:
     a = await run_in_threadpool(_lade, dienste, token)
     if a is None:
         raise NichtAngemeldetError
+    # die Fehlerseiten der CSRF- und Formularprüfung (403, 413, 400) in seiner Sprache
+    request.state.benutzersprache = a.benutzer.sprache
     if request.method not in SICHERE_METHODEN:
         await pruefe_csrf(request, a.csrf)
     request.state.angemeldet = a
@@ -137,6 +139,23 @@ async def angemeldet(request: Request) -> Angemeldet:
 
 
 AngemeldetDep = Annotated[Angemeldet, Depends(angemeldet)]
+
+
+async def merke_benutzersprache(request: Request) -> None:
+    """Für Fehlerseiten, vor denen keine Abhängigkeit lief (404, 405 ohne passende
+    Route): die Sprache des angemeldeten Benutzers — er wird dabei nicht angemeldet."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    dienste = dienste_von(request)
+    token = request.cookies.get(cookie_name(dienste))
+    if not token or hasattr(request.state, "benutzersprache"):
+        return
+    try:
+        a = await run_in_threadpool(_lade, dienste, token)
+    except SQLAlchemyError:  # die Fehlerseite kommt auch ohne Datenbank
+        return
+    if a is not None:
+        request.state.benutzersprache = a.benutzer.sprache
 
 
 def erfordert(recht: Recht) -> Callable[..., Awaitable[Angemeldet]]:
