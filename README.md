@@ -415,8 +415,9 @@ er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bes
 FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`;
 die Bank darf bis `auszahlung_toleranz_prozent` abweichen (Differenz auf die Kursdifferenzkonten).
 Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
-bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum (mit Hinweis, die
-Voranmeldung des Monats zu berichtigen). `bank lauf` gleicht Auszahlungen vor dem Kontieren ab.
+bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
+Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne
+`--buchungsdatum` importieren). `bank lauf` gleicht Auszahlungen vor dem Kontieren ab.
 `datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel
 mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen festgeschrieben.
 

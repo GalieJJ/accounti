@@ -490,8 +490,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines
   Tracebacks beim Schreiben (und einer verwaisten Datei im Archiv) prüft der Import die Sperre
   vor dem Ablegen und meldet klar, was zu tun ist; `--buchungsdatum offen|JJJJ-MM-TT` bucht die
-  Posten wie bei `opos verbuchen` in einen offenen Zeitraum (Belegdatum bleibt, Befund
-  „Voranmeldung des Monats berichtigen“). Scheitert ein Import nach dem Ablegen, wird die eben
+  Posten wie bei `opos verbuchen` in einen offenen Zeitraum (Belegdatum bleibt), nie in ein
+  anderes Geschäftsjahr (§ 252 Abs. 1 Nr. 5 HGB); der Befund sagt, dass accounti die Umsätze
+  dann im Buchungsmonat zählt, und warnt davor, den Leistungsmonat zusätzlich von Hand zu
+  berichtigen (doppelt gemeldet). Scheitert ein Import nach dem Ablegen, wird die eben
   abgelegte Datei wieder entfernt
 - **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
   8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (S/AM, gewährte Skonti), 3731/3736 (S/AV,

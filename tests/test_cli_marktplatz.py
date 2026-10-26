@@ -226,3 +226,71 @@ def test_import_mit_buchungsdatum_in_den_ersten_offenen_tag(tmp_path):
     assert beleg.belegdatum is not None and beleg.belegdatum.month == 8  # bleibt
     (befund,) = [b for b in abrechnung.befunde if b.code == "buchungsdatum"]
     assert "01.09.2026" in befund.text and "§ 18" in befund.text
+
+
+def test_buchungsdatum_hinweis_warnt_vor_doppelter_berichtigung(tmp_path):
+    """accounti zählt die verschobenen Umsätze im Buchungsmonat — wer zusätzlich den
+    Leistungsmonat von Hand berichtigt, meldet sie doppelt (wie beim Storno, B5)."""
+    from accounti.db.repo_integrationen import lade_abrechnungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 0, r.output
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        (abrechnung,) = lade_abrechnungen(s)
+    (befund,) = [b for b in abrechnung.befunde if b.code == "buchungsdatum"]
+    text = " ".join(befund.text.split())
+    assert "Buchungsmonats" in text and "doppelt" in text
+    assert "accounti periode oeffnen 2026-08" in text
+
+
+def _ohne_import(tmp_path):
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    archiv = tmp_path / "archiv"
+    assert not archiv.exists() or not [p for p in archiv.rglob("*") if p.is_file()]
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        assert lade_belege(s) == [] and lade_buchungen(s) == []
+
+
+def test_buchungsdatum_nicht_ins_naechste_geschaeftsjahr(tmp_path):
+    """Wie ``opos verbuchen``: ein Erlös vom August 2026 gehört ins Geschäftsjahr
+    2026 (§ 252 Abs. 1 Nr. 5 HGB) — ein Buchungsdatum 2027 wird vor dem Ablegen
+    abgelehnt."""
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "2027-01-15")
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    text = _text(r)
+    assert "Geschäftsjahr 2026" in text and "periode oeffnen 2026-08" in text
+    _ohne_import(tmp_path)
+
+
+def test_buchungsdatum_offen_bleibt_im_geschaeftsjahr(tmp_path):
+    """Ist der Rest des Jahres festgeschrieben, läge der erste offene Tag im
+    Folgejahr — auch dann kein Import über die Jahresgrenze."""
+    for monat in range(8, 13):
+        r = runner.invoke(
+            app,
+            [
+                "periode",
+                "schliessen",
+                f"2026-{monat:02d}",
+                "--von",
+                "t",
+                *_basis(tmp_path),
+            ],
+        )
+        assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 1, r.output
+    assert "Geschäftsjahr 2026" in _text(r)
+    _ohne_import(tmp_path)

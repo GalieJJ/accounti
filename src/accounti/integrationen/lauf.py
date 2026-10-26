@@ -7,9 +7,10 @@ damit ``classify`` die Auszahlung nicht vorher per Regel als Erlös bucht.
 
 Liegen zu buchende Posten in einem abgeschlossenen Zeitraum (Jahr oder
 festgeschriebener Monat), wird vor dem Ablegen abgebrochen — oder mit
-``buchungsdatum`` (``offen`` oder ein Tag) in einen offenen Zeitraum gebucht, das
-Belegdatum bleibt. Scheitert der Lauf nach dem Ablegen, wird die eben abgelegte Datei
-wieder entfernt (die Datenbank rollt zurück, kein Beleg verweist auf sie).
+``buchungsdatum`` (``offen`` oder ein Tag) in einen offenen Zeitraum desselben
+Geschäftsjahrs gebucht, das Belegdatum bleibt. Scheitert der Lauf nach dem Ablegen,
+wird die eben abgelegte Datei wieder entfernt (die Datenbank rollt zurück, kein Beleg
+verweist auf sie).
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import Connection
 from sqlalchemy.orm import Session
 
 from accounti.belege.archiv import BelegArchiv
@@ -38,6 +40,7 @@ from accounti.db.repo_integrationen import (
     vorhandene_referenzen,
 )
 from accounti.db.repository import speichere_buchung, speichere_transaktion
+from accounti.db.tabellen_abschluss import jahressperre
 from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.importers.marktplatz import MARKTPLATZ_IMPORTER
 from accounti.importers.paypal import FruehereUmsaetze, PaypalImporter
@@ -565,22 +568,24 @@ def _pruefe_sperre(
     buchungsdatum: Buchungsdatum | None,
 ) -> None:
     """Vor dem Ablegen: Posten in einem abgeschlossenen Zeitraum brechen ab — mit
-    klarer Meldung statt eines Fehlers beim Schreiben (und einer verwaisten Datei)."""
+    klarer Meldung statt eines Fehlers beim Schreiben (und einer verwaisten Datei);
+    mit ``buchungsdatum`` muss jeder dieser Posten ein Ziel im selben Geschäftsjahr
+    haben (``_zieltag``)."""
     verbindung = session.connection()
     if isinstance(buchungsdatum, date):
         fehler = sperrfehler(verbindung, buchungsdatum)
         if fehler is not None:
             msg = f"--buchungsdatum {buchungsdatum:%d.%m.%Y}: {fehler}"
             raise IntegrationError(msg)
-        return
-    if buchungsdatum is not None:
-        return
     gesperrt: dict[str, str] = {}
     for tag in sorted(_zu_buchende_tage(session, markt, abrechnungen, vorhandene)):
         fehler = sperrfehler(verbindung, tag)
-        if fehler is not None:
-            gesperrt.setdefault(f"{tag:%Y-%m}", str(fehler))
-    if not gesperrt:
+        if fehler is None:
+            continue
+        if buchungsdatum is not None:
+            _zieltag(verbindung, tag, buchungsdatum)
+        gesperrt.setdefault(f"{tag:%Y-%m}", str(fehler))
+    if not gesperrt or buchungsdatum is not None:
         return
     monate = ", ".join(gesperrt)
     msg = (
@@ -601,7 +606,8 @@ def _verschiebe(
 ) -> list[Befund]:
     """Buchungen in abgeschlossenen Zeiträumen auf das Buchungsdatum legen (wie
     ``opos verbuchen --buchungsdatum``); das Belegdatum bleibt am Beleg. Ein Befund
-    sagt, für welche Monate die Voranmeldung zu berichtigen ist."""
+    sagt, dass accounti die Umsätze damit im Buchungsmonat zählt, obwohl sie
+    umsatzsteuerlich in den Monat der Leistung gehören."""
     if buchungsdatum is None:
         return []
     verbindung = session.connection()
@@ -610,30 +616,56 @@ def _verschiebe(
     for i, b in enumerate(buchungen):
         if sperrfehler(verbindung, b.datum) is None:
             continue
-        tag = (
-            erster_offener_tag(verbindung, b.datum)
-            if buchungsdatum == "offen"
-            else buchungsdatum
-        )
-        if not isinstance(tag, date) or tag < b.datum:
-            msg = (
-                f"--buchungsdatum {buchungsdatum} liegt vor dem Posten vom "
-                f"{b.datum:%d.%m.%Y}"
-            )
-            raise IntegrationError(msg)
+        tag = _zieltag(verbindung, b.datum, buchungsdatum)
         monate.add(f"{b.datum:%Y-%m}")
         tage.add(tag)
         buchungen[i] = b.model_copy(update={"datum": tag})
     if not monate:
         return []
+    liste = ", ".join(sorted(monate))
     text = (
-        f"Posten aus abgeschlossenem Zeitraum ({', '.join(sorted(monate))}) am "
+        f"Posten aus abgeschlossenem Zeitraum ({liste}) am "
         f"{', '.join(f'{t:%d.%m.%Y}' for t in sorted(tage))} gebucht (Belegdatum "
-        "unverändert) — umsatzsteuerlich gehören die Umsätze in den Monat der "
-        "Leistung: Voranmeldung (und OSS-Meldung) dieses Zeitraums berichtigen "
-        "(§ 18 Abs. 1 UStG, § 153 Abs. 1 AO)"
+        "unverändert) — accounti zählt sie damit in der Voranmeldung (und "
+        "OSS-Meldung) des Buchungsmonats; umsatzsteuerlich gehören sie in den Monat "
+        "der Leistung (§ 13 Abs. 1 Nr. 1 Buchst. a, § 18 Abs. 1 UStG). Wer die "
+        f"abgegebene Voranmeldung für {liste} zusätzlich von Hand berichtigt "
+        "(§ 153 Abs. 1 AO), meldet sie doppelt — richtig ist dann: den Monat öffnen "
+        f"(accounti periode oeffnen {min(monate)} --grund …), ohne --buchungsdatum "
+        "importieren und die berichtigte Voranmeldung aus accounti abgeben"
     )
     return [Befund(code="buchungsdatum", schweregrad=Schweregrad.WARNUNG, text=text)]
+
+
+def _zieltag(verbindung: Connection, tag: date, buchungsdatum: Buchungsdatum) -> date:
+    """Buchungsdatum für einen Posten vom ``tag`` in einem abgeschlossenen Zeitraum —
+    nie davor und, wie bei ``opos verbuchen``, nie in einem anderen Geschäftsjahr:
+    der Erlös gehört ins Geschäftsjahr der Leistung (§ 252 Abs. 1 Nr. 5 HGB, GoBD
+    Rz. 51)."""
+    if buchungsdatum == "offen":
+        ziel = erster_offener_tag(verbindung, tag)
+    else:
+        ziel = buchungsdatum
+    if ziel < tag:
+        msg = (
+            f"--buchungsdatum {ziel:%d.%m.%Y} liegt vor dem Posten vom {tag:%d.%m.%Y}"
+            " — nichts importiert"
+        )
+        raise IntegrationError(msg)
+    if ziel.year != tag.year:
+        oeffnen = (
+            f"das Geschäftsjahr öffnen (accounti abschluss oeffnen --jahr {tag.year})"
+            if jahressperre(verbindung, tag.year) is not None
+            else f"den Monat öffnen (accounti periode oeffnen {tag:%Y-%m} --grund …)"
+        )
+        msg = (
+            f"Der Posten vom {tag:%d.%m.%Y} gehört ins Geschäftsjahr {tag.year}; "
+            f"gebucht am {ziel:%d.%m.%Y} stünde er im Geschäftsjahr {ziel.year} "
+            "(§ 252 Abs. 1 Nr. 5 HGB, GoBD Rz. 51) — nichts importiert. "
+            f"{oeffnen[0].upper()}{oeffnen[1:]} und ohne --buchungsdatum importieren"
+        )
+        raise IntegrationError(msg)
+    return ziel
 
 
 def _verwirf_abgelegte(archiv: BelegArchiv, datei_hash: str) -> None:
