@@ -379,7 +379,9 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   Kreditkartenabrechnungen, AfA-Vorgänge oder Abgrenzungen — eine falsche Zahlungszuordnung
   bleibt bestehen, eine schon vorgeschlagene Abgrenzung des Originals ebenso (neue Läufe für
   Abgrenzung und Anlagen übergehen Storno-Paare). Ein anderer Schlüssel per `--steuer` ist bei
-  Buchungen mit Beleg gesperrt (die Steuer kommt aus dem Beleg bzw. dem Ausgleich);
+  Buchungen mit Beleg gesperrt (die Steuer kommt aus dem Beleg bzw. dem Ausgleich) — außer
+  § 13b und ig. Erwerb (94/91/19/18) und Belegen ohne Steuersatz, jeweils mit Grund
+  (Gesamttest Paket C);
   `--ohne-steuer` entfernt dort Vorsteuer, ig. Erwerb und § 13b (Eingangsrechnung, z.B. ein
   falsch erkannter § 13b-Fall) nur mit Grund. Bei § 13b und ig. Erwerb (18, 19, 91, 94)
   entfernt es Steuerschuld **und** Vorsteuer — richtig nur, wenn gar kein solcher Fall
@@ -435,8 +437,8 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   Zeitraum ihrer Leistung) und nur für Belege, deren Monat gesperrt ist; „Eingang“ ist der
   Zeitpunkt, zu dem accounti den Beleg erfasst hat (`eingegangen_am`, oft der Import), nicht
   ein Eingangsstempel. Bei Bilanzierung lehnt accounti ein Buchungsdatum im nächsten
-  Geschäftsjahr ab und verweist auf „Dezember öffnen, Vorsteuer auf 1548“ — die Buchung auf
-  1548 und ihre Umbuchung im Folgejahr macht accounti nicht selbst; bei
+  Geschäftsjahr ab; die Vorsteuer einer erst im Folgejahr erfassten Rechnung bucht es auf
+  1548 und zum Eingangsmonat um (Gesamttest Paket C, `docs/plans/2026-10-26-gesamttest-belege.md`); bei
   Einnahmenüberschussrechnung bucht es mit Hinweis. Bei `offen` mit Eingang in einem
   festgeschriebenen Monat weist accounti auf die Berichtigung der dortigen Voranmeldung
   hin, korrigiert sie aber nicht; liegt ein fester Tag nach einem offenen Eingangsmonat,

@@ -188,6 +188,9 @@ accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 # Belege aus dem Watch-Ordner holen und lesen (PDF, Scan, XRechnung, ZUGFeRD)
 accounti belege abholen --kanal ordner --ordner ./eingang/belege
 accounti belege liste --status pruefung
+# Original geprüft: freigeben (Rechnung ohne Steuerausweis mit ihrem Steuerfall)
+accounti belege freigeben 3fa2c1 --steuer 13b --grund "Hinweis § 13b UStG auf Seite 2"
+accounti belege erkennen --id 3fa2c1           # erfasst, aber falsch gelesen: neu lesen
 
 # Belege aus dem Postfach holen (Abschnitt belegkanaele.email; Passwort per ${VAR} oder Tresor)
 accounti kanaele zugang email rechnungen         # Passwort verschlüsselt ablegen (ACCOUNTI_SCHLUESSEL)
@@ -226,6 +229,7 @@ accounti opos verbuchen
 accounti kontakte liste --status pruefung     # automatisch angelegte Lieferanten prüfen
 accounti kontakte bestaetigen 70000
 accounti kontakte bearbeiten 70000 --sachkonto 4930 --zahlungsziel 30
+accounti kontakte bearbeiten 70001 --land AT --plz 5020 --ort Salzburg
 accounti opos liste --richtung eingang --faellig
 accounti opos staffel
 
@@ -234,12 +238,23 @@ accounti import bank ./umsaetze.csv
 accounti opos zuordnen                         # Eindeutiges wird sofort ausgeglichen
 accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen ohne Referenz
 accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
+accounti opos bestaetigen <ID> --skonto RW-8890=53,55   # Skonto auf diesen Posten anerkennen
 accounti bank abgleich                         # Quittungen & Co. ↔ Umsätze
 accounti bank vorschlaege                      # mehrdeutig, Rundung, Trinkgeld
 accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <ID>
 accounti classify                              # kontiert aus dem Beleg, sonst Regelwerk/LLM
 accounti bank offen                            # Umsätze ohne Beleg, Belege ohne Umsatz
 ```
+
+Eine Rechnung ohne Umsatzsteuer erkennt accounti am Hinweistext statt am Steuerausweis
+(§ 13b „Steuerschuldnerschaft des Leistungsempfängers“, ig. Lieferung, § 19, § 4 UStG).
+`opos verbuchen` schlägt bei § 13b Schlüssel 94 und bei einer ig. Lieferung an uns
+Schlüssel 19 vor — immer zur Prüfung; die Steuer berechnet accounti aus dem Netto, Kz 46/47
+gilt für Kreditoren aus dem übrigen EU-Gebiet (Land aus USt-IdNr. oder IBAN, sonst
+`kontakte bearbeiten --land`). Gutschriften des Lieferanten mindern Aufwand und Vorsteuer.
+Kommt eine Rechnung bei Bilanzierung erst im Folgejahr an, steht die Vorsteuer zunächst auf
+„Vorsteuer im Folgejahr abziehbar“ (SKR03 1548, SKR04 1434) und wird im Eingangsmonat
+umgebucht (§ 15 Abs. 1 Nr. 1 UStG). Als Eingang gilt die Erfassung in accounti.
 
 ### Zahlungsverkehr
 
@@ -516,7 +531,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen`, `belege freigeben` … |
 | Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |
