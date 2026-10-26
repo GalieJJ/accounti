@@ -276,6 +276,38 @@ def test_db_upgrade_mit_vermerk_vor_dem_steuerkennzeichen(tmp_path):
     assert "No new upgrade operations detected" in _alembic(db, "check")
 
 
+def test_db_upgrade_erkennt_vermerk_ohne_die_migrationen_davor(tmp_path):
+    """Nachprüfung Merge N-2: Auf dem Zweig von Paket C hing 46371a6681c2 an
+    ddc9a184ddb4; eine dort mit ``alembic upgrade head`` migrierte Datenbank trägt den
+    Vermerk des Kopfs, ihr fehlen aber die Migrationen von main dazwischen. ``db
+    upgrade`` meldete „0 Migrationen“ und Erfolg — jetzt Exit 1 mit dem verlustfreien
+    Weg (stamp --purge auf den Stand, den das Schema zeigt, dann db upgrade)."""
+    db = tmp_path / "zweig.db"
+    _alembic(db, "upgrade", VOR_TOKEN)
+    _beleg(db)
+    with sqlite3.connect(db) as v:  # so hinterließ der Zweig die Datenbank
+        v.execute("ALTER TABLE belege ADD COLUMN steuerkennzeichen VARCHAR(10)")
+        v.execute(f"UPDATE alembic_version SET version_num = '{STEUERKENNZEICHEN}'")
+        v.execute("UPDATE belege SET steuerkennzeichen = 'AE'")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "400"}
+    )
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 1, ausgabe
+    assert "verrechnungen" in ausgabe and STEUERKENNZEICHEN in ausgabe, ausgabe
+    assert f"alembic stamp --purge {VOR_TOKEN}" in ausgabe, ausgabe
+    assert "accounti db upgrade" in ausgabe, ausgabe
+    _alembic(db, "stamp", "--purge", VOR_TOKEN)
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"({len(_nach(VOR_TOKEN))} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert _belege(db) == [("b1", "AE")]  # verlustfrei
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
 def test_db_upgrade_mit_vermerk_und_leer(tmp_path):
     mit = tmp_path / "mit.db"
     _alembic(mit, "upgrade", VOR_BAUSTEIN_7)
