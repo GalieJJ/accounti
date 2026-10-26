@@ -4,9 +4,12 @@ Benutzer liegen in der Systemdatenbank, Rollen gelten je Gesellschaft
 (``accounti -g K benutzer rolle …``). Der erste Benutzer muss Verwalter sein.
 Sobald ein Verwalter seinen zweiten Faktor eingerichtet hat, verlangen alle
 Befehle hier einen Verwalter mit Einmalcode (Passwort, 2FA und Codes des eigenen
-Kontos darf jeder selbst ändern). Ein Konto verwaltet nur, wer in **jeder**
-Gesellschaft Verwalter ist, in der es Rollen hat. ``anlegen`` und ``rolle`` binden
-die Gesellschafts-Datenbanken an diese Systemdatenbank (Merker, ``auth.cli``).
+Kontos darf jeder selbst ändern); eine Gesellschaft, die noch nie einen Verwalter
+hatte, richtet ein Verwalter einer anderen ein. Den letzten Verwalter einer
+Gesellschaft sperrt oder entrechtet niemand (``auth.cli.pruefe_verwaltung``). Ein
+Konto verwaltet nur, wer in **jeder** Gesellschaft Verwalter ist, in der es Rollen
+hat. ``anlegen`` und ``rolle`` binden die Gesellschafts-Datenbanken an diese
+Systemdatenbank (Merker, ``auth.cli``).
 """
 
 from __future__ import annotations
@@ -58,6 +61,19 @@ def _gesellschaft() -> str:
 
     try:
         return gesellschaft_fuer_rechte()
+    except AuthError as fehler:
+        raise _ende(str(fehler)) from fehler
+
+
+def _nicht_letzter_verwalter(
+    s: Session, b: Benutzer, gesellschaft: str | None = None
+) -> None:
+    """Den letzten Verwalter weder sperren noch entrechten (Betrieb B8)."""
+    from accounti.auth.cli import pruefe_nicht_letzter_verwalter
+    from accounti.auth.fehler import AuthError
+
+    try:
+        pruefe_nicht_letzter_verwalter(s, b, gesellschaft)
     except AuthError as fehler:
         raise _ende(str(fehler)) from fehler
 
@@ -297,6 +313,7 @@ def rolle(
         verwaltung_oder_ende,
     )
     from accounti.auth.dienst import entferne_rolle, fuege_rolle_hinzu
+    from accounti.models.auth import Rolle
 
     rollen = _rollen(rolle)
     gesellschaft = _gesellschaft()
@@ -305,6 +322,8 @@ def rolle(
         bindung_oder_ende(db)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
+        if entfernen and Rolle.VERWALTER in rollen:
+            _nicht_letzter_verwalter(s, b, gesellschaft)
         for r in rollen:
             if entfernen:
                 entferne_rolle(s, b, gesellschaft, r, None, durch)
@@ -363,6 +382,7 @@ def sperren(
     durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
+        _nicht_letzter_verwalter(s, b)
         setze_aktiv(s, b, False, None, durch)
         s.commit()
     console.print(f"[green]{escape(b.name)} gesperrt.[/green]")

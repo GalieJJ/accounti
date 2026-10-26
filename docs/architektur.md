@@ -467,8 +467,9 @@ Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **System
 - `cli.py` — Rechte in der CLI: ohne Benutzer keine Prüfung; sonst Person mit Recht in der
   Gesellschaft der benutzten Datenbank und Einmalcode (in der CLI immer). Bindung jeder
   Gesellschafts-Datenbank an ihre Systemdatenbank (Merker `auth_merker`, fail-closed).
-  Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
-  Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
+  Verwaltung mit Einrichtungsphase (der Installation und je Gesellschaft, Merker
+  `verwaltet:<Kürzel>`), fremde Konten nur durch Verwalter aller ihrer Gesellschaften, der
+  letzte Verwalter einer Gesellschaft weder sperr- noch entrechtbar. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
   `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben` und — über
   `befehle.handelnde_person`, das zugleich die geprüfte Person im Journal setzt — in die
   Befehle von Baustein 7 (vollständige Liste je Recht: `models.auth.FREIGABEWEGE`).

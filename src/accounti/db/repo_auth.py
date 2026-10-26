@@ -281,14 +281,18 @@ def entferne_rolle(
     return ergebnis.rowcount > 0
 
 
-def benutzer_mit_rolle(session: Session, rolle: Rolle) -> list[Benutzer]:
-    zeilen = session.scalars(
+def benutzer_mit_rolle(
+    session: Session, rolle: Rolle, gesellschaft: str | None = None
+) -> list[Benutzer]:
+    """Benutzer mit der Rolle — in der Gesellschaft, ohne Angabe in irgendeiner."""
+    abfrage = (
         select(BenutzerRow)
         .join(RollenzuordnungRow, RollenzuordnungRow.benutzer_id == BenutzerRow.id)
         .where(RollenzuordnungRow.rolle == rolle.value)
-        .distinct()
     )
-    return [_zu_benutzer(z) for z in zeilen]
+    if gesellschaft is not None:
+        abfrage = abfrage.where(RollenzuordnungRow.gesellschaft == gesellschaft)
+    return [_zu_benutzer(z) for z in session.scalars(abfrage.distinct())]
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +627,17 @@ def lade_ereignisse(
 def lade_merker(session: Session, schluessel: str) -> str | None:
     zeile = session.get(AuthMerkerRow, schluessel, populate_existing=True)
     return zeile.wert if zeile else None
+
+
+def merker_mit_praefix(session: Session, praefix: str) -> list[str]:
+    """Schlüssel der Merker, die mit ``praefix`` beginnen."""
+    return list(
+        session.scalars(
+            select(AuthMerkerRow.schluessel).where(
+                AuthMerkerRow.schluessel.startswith(praefix, autoescape=True)
+            )
+        )
+    )
 
 
 def loesche_merker(session: Session, schluessel: str) -> None:

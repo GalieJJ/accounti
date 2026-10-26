@@ -129,6 +129,14 @@ gesellschaften:
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle
   buchhalter`); der Wechsler oben rechts schaltet alle Seiten um. Wer in einer Gesellschaft
   keine Rolle hat, sieht sie nicht.
+- **Neue Gesellschaft besetzen:** Hatte eine Gesellschaft noch nie einen aktiven Verwalter
+  mit zweitem Faktor (zweite oder später ergänzte Gesellschaft), richtet sie ein Verwalter
+  **irgendeiner** Gesellschaft mit seinem Einmalcode ein — `accounti -g tochter benutzer
+  rolle chef --rolle verwalter`, oder einen eigenen Verwalter mit `accounti -g tochter
+  benutzer anlegen bert --rolle verwalter` und `accounti -g tochter benutzer 2fa bert`. Das
+  Protokoll vermerkt `einrichtung_gesellschaft`. Sobald die Gesellschaft einen eigenen
+  Verwalter mit zweitem Faktor hat, verwalten sie nur noch ihre Verwalter (auch wenn
+  dieser später wegfällt — siehe „Letzter Verwalter“ unten).
 - API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`).
 - Docker: weitere Datenbanken anlegen
   (`docker compose exec db createdb -U accounti tochter`), die URLs in `.env` und unter
@@ -211,7 +219,15 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   entsperren chef`). Andere entsperrt ein Verwalter — damit auch eine Sperre des
   Einmalcodes in der CLI. Ein mit `benutzer sperren` stillgelegtes Konto öffnet nur ein
   Verwalter wieder (wer es selbst versucht, bekommt diese Meldung und Exit 1). Gesperrte Verwalter zählen weiter
-  als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase. Ist auch der
+  als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase.
+- **Letzter Verwalter:** `benutzer sperren` und `benutzer rolle NAME --rolle verwalter
+  --entfernen` lehnen ab, wenn NAME in einer Gesellschaft der letzte aktive Verwalter mit
+  zweitem Faktor ist (Exit 1, nichts geändert) — erst einen weiteren einrichten. Früher
+  öffnete das die Einrichtungsphase: jeder an der Shell legte ohne Code einen Verwalter
+  an. Eine Gesellschaft, die einmal einen Verwalter mit zweitem Faktor hatte (Merker
+  `verwaltet:<Kürzel>` in `auth_merker` der Systemdatenbank), öffnet ihre
+  Einrichtungsphase nie wieder, auch wenn der Verwalter an accounti vorbei wegfällt; dann
+  bleibt nur die Datenbank: `UPDATE auth_benutzer SET aktiv = true WHERE name = 'chef'`. Ist auch der
   Einmalcode in der CLI gesperrt (100 falsche Codes auf der Shell) und kein anderer
   Verwalter da, bleibt nur die Datenbank:
   `UPDATE auth_benutzer SET fehlversuche = 0, gesperrt_bis = NULL, cli_fehlversuche = 0,
