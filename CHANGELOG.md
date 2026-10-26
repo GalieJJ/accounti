@@ -819,6 +819,50 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Hinweis bei einer später gebuchten Gutschrift sagt, dass diese Buchung zu stornieren
   und zum Belegdatum neu zu buchen ist — sonst zählt die Minderung nach der Berichtigung
   der Voranmeldung doppelt
+- **Abstimmung Personenkonto ↔ offene Posten nach einer Verrechnung** (Nachprüfung
+  Merge, M-1): `pruefen --regel personenkonto_op` und die Abschlussprüfung
+  `personenkonten` zählten nur Zahlungen, nicht die Verrechnungen — nach jeder
+  Gutschrift mit Bezug (BT-25) und nach `opos verrechnen` stand ein falscher Befund
+  „Hauptbuch und Offene-Posten-Liste weichen ab“ mit dem Rat, eine richtige Buchung zu
+  korrigieren. Die Abstimmung rechnet jetzt mit der Stichtagsliste (`opos liste
+  --stichtag`) selbst; dort zählt ein Posten ab seiner ersten Buchung — eine
+  Eingangsrechnung aus einem festgeschriebenen Monat, mit `--buchungsdatum` später
+  gebucht, stand vorher zum Monatsende in der Liste, aber nicht auf dem Kreditor
+- **Skonto auf § 13b- und Erwerbsrechnungen ohne Steuerkorrektur** (Nachprüfung Merge,
+  M-2): Das Skonto einer Rechnung mit Schlüssel 94/91 bzw. 19/18 ging ohne Schlüssel auf
+  das Skontokonto — Bemessungsgrundlage, Steuer und Vorsteuer blieben auf dem vollen
+  Betrag (600 € mit 2 % Skonto: Kz 84/85/67 = 600/114/114 statt 588/111,72/111,72), still.
+  Jetzt mit demselben Schlüssel, die Steuer aus dem Netto (§ 17 Abs. 1 S. 1, 2 UStG), auf
+  dem Skontokonto ohne Satz (`skonto_erhalten["0"]`, SKR03 3730). Bei einer gemischten
+  Rechnung verteilt sich das Skonto nach dem Zahlbetrag (vorher zählte die selbst
+  berechnete Steuer mit, Kz 66 war um Cent zu hoch)
+- **Gutschrift mit Bezug an eine neue Anschrift** (Nachprüfung Merge, N-1): Ein
+  umgezogener Privatkunde ohne E-Mail bekam für die Gutschrift einen zweiten Debitor, die
+  Verrechnung mit der Rechnung fiel still aus (die Rechnung blieb voll offen). Eine
+  Gutschrift/Korrektur mit Bezug (BT-25) nimmt jetzt den Debitor der Rechnung, wenn der
+  Käufer dort derselbe ist (Name, keine andere USt-IdNr., kein anderes Land), und meldet
+  die abweichende Anschrift; nennt sie einen anderen Kunden, sagt der Hinweis, warum
+  nicht verrechnet wurde
+- **§ 13b-Gutschrift des Lieferanten im festgeschriebenen Monat** (Nachprüfung Merge,
+  N-3): Eine Gutschrift ohne Steuerausweis (§ 13b, ig. Erwerb) galt nicht als Minderung —
+  die Sperrmeldung bot die Wege einer Rechnung an, `--buchungsdatum offen` begründete die
+  Buchung mit § 15. Jetzt wie jede Lieferanten-Gutschrift: Steuer und Vorsteuer mindern
+  sich im Zeitraum der Änderung (§ 17 Abs. 1 S. 5, 8 UStG), später gebucht zur Prüfung
+- **§ 13b und ig. Erwerb im Eingang zum Zeitpunkt der Steuerentstehung** (Nachprüfung
+  Merge, N-4): `opos verbuchen` buchte sie immer zum Rechnungsdatum. Jetzt bucht der
+  § 13b-/Erwerbsteil einer Eingangsrechnung bei einer sonstigen Leistung eines
+  EU-Unternehmers zum Leistungsdatum, wenn es in einem früheren Monat liegt (§ 13b Abs. 1
+  UStG: Ablauf des Voranmeldungszeitraums der Leistung), sonst zum Rechnungsdatum,
+  spätestens zum Ende des Folgemonats der Leistung (§ 13b Abs. 2, § 13 Abs. 1 Nr. 6 UStG);
+  die Vorsteuer im selben Zeitraum (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG). Ohne Leistungsdatum
+  (bei § 13b Abs. 1), mit Leistung nach dem Rechnungsdatum oder im festgeschriebenen
+  Monat bleibt es beim Buchungstag, mit Hinweis
+- **`db upgrade` meldete Erfolg, obwohl Spalten fehlten** (Nachprüfung Merge, N-2): Eine
+  auf dem Zweig von Paket C mit `alembic upgrade head` migrierte Datenbank (Vermerk
+  `46371a6681c2`, ohne `6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`) galt als
+  aktuell. Jetzt prüft `db upgrade` nach dem Lauf, ob vorhandenen Tabellen Spalten des
+  Codes fehlen, und nennt den verlustfreien Weg (`alembic stamp --purge ddc9a184ddb4`,
+  dann noch einmal `accounti db upgrade`; [Upgrades](docs/betrieb.md#upgrades))
 - **ZUGFeRD MINIMUM: Steuer verloren, Personenkonto ≠ offener Posten** (Eingang B05): Eine
   Belegposition ohne Steuersatz buchte netto an den Kreditor, der offene Posten stand
   brutto. Ohne Schlüssel wird die Steuer jetzt in den Betrag gebucht (brutto, zur

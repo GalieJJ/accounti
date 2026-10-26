@@ -231,7 +231,8 @@ accounti rechnung position <ID> --text "Minderung wegen Mangel" --preis 100
 Ausgangsrechnungen bucht `opos verbuchen` im Monat der Leistung (§ 13 Abs. 1 Nr. 1
 Buchst. a UStG): Lag das Leistungsdatum in einem früheren Monat als die Rechnung, gilt das
 Leistungsdatum — eine ig. Lieferung gehört in den Rechnungsmonat, spätestens den Monat nach
-der Lieferung, eine Gutschrift in ihren eigenen Monat; ist die Voranmeldung dieses
+der Lieferung, eine Gutschrift in ihren eigenen Monat (auf den Debitor der Rechnung, auf
+die sie sich bezieht, und mit ihr verrechnet); ist die Voranmeldung dieses
 Zeitraums schon übermittelt, weist `opos verbuchen` auf die Berichtigung hin (bei einer
 Gutschrift als Möglichkeit, nicht als Pflicht). Über 250 € braucht jede Rechnung Straße
 oder Postfach, PLZ und Ort des Empfängers (§ 14 Abs. 4 Satz 1 Nr. 1 UStG) — `rechnung
@@ -273,8 +274,13 @@ Eine Rechnung ohne Umsatzsteuer erkennt accounti am Hinweistext statt am Steuera
 `opos verbuchen` schlägt bei § 13b Schlüssel 94 und bei einer ig. Lieferung an uns
 Schlüssel 19 vor — immer zur Prüfung; die Steuer berechnet accounti aus dem Netto, Kz 46/47
 gilt für Kreditoren aus dem übrigen EU-Gebiet (Land aus USt-IdNr. oder IBAN, sonst
-`kontakte bearbeiten --land`). Gutschriften des Lieferanten mindern Aufwand und Vorsteuer
-im Zeitraum ihres Belegdatums (§ 17 Abs. 1 S. 8 UStG); einen Korrekturbeleg mit positiven
+`kontakte bearbeiten --land`). Gebucht wird dieser Teil, wenn die Steuer entsteht: bei einer
+sonstigen Leistung eines EU-Unternehmers im Monat der Leistung (§ 13b Abs. 1 UStG), sonst
+mit der Rechnung, spätestens am Ende des Folgemonats der Leistung (§ 13b Abs. 2, § 13
+Abs. 1 Nr. 6 UStG). Ein Skonto darauf mindert mit demselben Schlüssel Bemessungsgrundlage,
+Steuer und Vorsteuer. Gutschriften des Lieferanten mindern Aufwand und Vorsteuer (bei
+§ 13b und ig. Erwerb Steuer und Vorsteuer) im Zeitraum ihres Belegdatums (§ 17 Abs. 1
+S. 8 UStG); einen Korrekturbeleg mit positiven
 Beträgen (Titel „Rechnungskorrektur“, „Gutschrift“, „Stornorechnung“, „Credit Note“)
 negiert accounti und legt ihn zur Prüfung — ist es doch eine Rechnung: `belege freigeben
 … --vorzeichen umkehren`. Steht vor dem Titel eine Zeile wie ein Rechnungstitel (etwa

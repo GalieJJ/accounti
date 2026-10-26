@@ -162,6 +162,39 @@ Ziel 30 — vorher Skontofrist 30 und kein Ziel; Nachprüfung N5). Eine Sammelza
 einer Teilmenge ihrer Posten ziehen; `opos bestaetigen --skonto` erkennt Skonto von Hand
 an — immer mit anteiliger Steuerkorrektur (§ 17 Abs. 1 UStG).
 
+**Eine Stichtagsliste für Abstimmung und OP-Liste (Nachprüfung Merge, M-1).** Die
+Abstimmung Personenkonto ↔ offene Posten nimmt die Posten aus `auswertung.stand_zum`, wie
+`opos liste --stichtag`: Zahlungen samt Skonto und Verrechnungen (Gutschrift mit Bezug,
+`opos verrechnen`) aus einer Funktion (`postenbewegungen`), ein Posten zählt ab seiner
+ersten Belegbuchung. Ein Guthaben aus einer Überzahlung, das ältere Stände als Rest 0
+führen, rechnet die Abstimmung weiter aus Betrag minus Minderungen.
+
+**Skonto bei § 13b und ig. Erwerb (Nachprüfung Merge, M-2).** Das Skonto mindert
+Bemessungsgrundlage, Steuer und Vorsteuer (§ 17 Abs. 1 S. 1, 2 UStG, für § 13b und den
+Erwerb nach S. 5 sinngemäß) — mit dem Schlüssel der Rechnung, die Steuer aus dem Netto. Sein
+Anteil richtet sich nach dem Zahlbetrag, also bei 94/91/19/18 nach dem Netto. Gebucht wird
+auf das Skontokonto ohne Satz (`skonto_erhalten["0"]`), denn die Konten je Satz (3736/3731)
+sind Vorsteuer-Automatikkonten.
+
+**Gutschrift mit Bezug gehört zum Kunden der Rechnung (Nachprüfung Merge, N-1).** Eine
+Gutschrift/Korrektur mit BT-25 nimmt den Debitor der referenzierten Rechnung, wenn der
+Käufer dort derselbe ist (normalisierter Name, keine andere USt-IdNr., kein anderes Land) —
+der Bezug ist ein stärkeres Merkmal als PLZ oder E-Mail. Eine neue Anschrift wird gemeldet,
+nicht in den Kontakt übernommen (vorhandene Angaben überschreibt accounti nie).
+
+**Steuer des Leistungsempfängers entsteht nach § 13b bzw. § 13 Abs. 1 Nr. 6 UStG
+(Nachprüfung Merge, N-4).** Der § 13b-/Erwerbsteil einer Eingangsrechnung bucht zu dem Tag,
+an dem die Steuer entsteht — bei einer sonstigen Leistung eines im übrigen
+Gemeinschaftsgebiet ansässigen Unternehmers mit Ablauf des Voranmeldungszeitraums der
+Leistung (§ 13b Abs. 1), in den Fällen des § 13b Abs. 2 und beim ig. Erwerb mit Ausstellung
+der Rechnung, spätestens mit Ablauf des Folgemonats der Leistung bzw. des Erwerbs; die
+Vorsteuer im selben Zeitraum, ohne dass die Rechnung vorliegen muss (§ 15 Abs. 1 S. 1
+Nr. 3, 4 UStG). Abs. 1 oder 2 entscheidet wie die Voranmeldung das Land des Leistenden.
+Das Leistungsdatum kommt aus dem Beleg (E-Rechnung BT-72, sonst Ende des
+Leistungszeitraums BT-74; PDF „Leistungsdatum/Lieferdatum/Leistungszeitraum“). Der Rest
+der Rechnung bleibt beim Belegdatum, Fälligkeit und Skonto ebenso; eine Gutschrift mindert
+im Zeitraum der Änderung (§ 17 Abs. 1 S. 8).
+
 **Dateiprüfung (B03).** Der Ordner-Kanal prüft wie E-Mail, Webhook und Connector Typ (am
 Inhalt) und Größe; der Handimport `belege import` bleibt ungeprüft (die Datei wählt der
 Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt den Istzustand
@@ -260,3 +293,25 @@ Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt de
   wäre ein eigener Baustein.
 - **Journal vor dieser Korrektur:** ältere Einträge `beleg_freigegeben` aus `belege
   erkennen` bleiben, wie sie sind (das Journal ist unveränderbar).
+- **§ 13b Abs. 1 oder 2 nach dem Land** (Nachprüfung Merge, N-4): Eine Werklieferung eines
+  EU-Unternehmers (§ 13b Abs. 2 Nr. 1) bucht accounti wie eine sonstige Leistung zum
+  Leistungsmonat (Abs. 1) — richtig wäre die Rechnung, spätestens der Folgemonat; der
+  Hinweis nennt das, die Buchung geht ohnehin zur Prüfung. Dauerleistungen über mehr als
+  ein Jahr (§ 13b Abs. 3) und Anzahlungen vor der Leistung (§ 13b Abs. 4 S. 2) bildet
+  accounti nicht ab (Hinweis bei Leistung nach dem Rechnungsdatum). Ohne Leistungsdatum
+  bleibt es beim Rechnungsdatum (bei Abs. 1 mit Hinweis). Liegt der Tag der
+  Steuerentstehung in einem festgeschriebenen Monat, bucht accounti zum Buchungstag des
+  Belegs und nennt die zu berichtigende Voranmeldung. Nur `opos verbuchen` — `classify`
+  mit Beleg (Bankumsatz) bucht § 13b weiter zum Umsatztag.
+- **Skontokonto bei § 13b/Erwerb** (M-2): immer `skonto_erhalten["0"]` mit dem Schlüssel
+  der Rechnung; eigene Konten je Fall (DATEV führt Skonti aus § 13b und ig. Erwerb auf
+  eigenen Automatikkonten) lassen sich nicht einstellen. Eine Rechnung auf dem 1548-Weg
+  (Eingang im Folgejahr) trägt keinen Vorsteuerschlüssel; ein Skonto darauf bucht ohne
+  Vorsteuerkorrektur (vorbestehend, selten: die Skontofrist ist bei so spätem Eingang
+  meist vorbei).
+- **Kunde der Bezugsrechnung** (N-1): Nur bei genau einem Kontakt mit Posten unter der
+  Bezugsnummer; die abweichende Anschrift pflegt der Mensch (`kontakte bearbeiten`).
+- **`db upgrade` prüft nur Spalten vorhandener Tabellen** (N-2): Ein Vermerk, dem nur
+  Tabellen, Indizes oder Trigger fehlen, fällt nicht auf (`init_db` legt Tabellen selbst
+  an); den Weg (`alembic stamp --purge <Stand>`, dann `db upgrade`) führt accounti nicht
+  selbst aus.
