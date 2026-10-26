@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import os
+import re
 import shutil
 from collections.abc import Callable
 from datetime import date
@@ -39,7 +40,17 @@ VORGANG = "verfahrensdoku_erstellt"
 
 
 def _zelle(wert: object) -> str:
-    return str(wert).replace("|", "/").replace("\n", " ") if wert is not None else "—"
+    """Tabellenzelle: ``|`` maskiert (``\\|``) statt ersetzt — ein Regelmuster
+    ``A|B`` muss so dokumentiert sein, wie es gilt (GoBD Rz. 151 ff.)."""
+    if wert is None:
+        return "—"
+    return str(wert).replace("|", "\\|").replace("\n", " ")
+
+
+def _zellen(zeile: str) -> list[str]:
+    """Zellen einer Markdown-Tabellenzeile; ``\\|`` ist ein Zeichen, kein Trenner."""
+    teile = re.split(r"(?<!\\)\|", zeile.strip().removeprefix("|").removesuffix("|"))
+    return [z.strip().replace("\\|", "|") for z in teile]
 
 
 def _tabelle(kopf: list[str], zeilen: list[list[object]]) -> list[str]:
@@ -790,7 +801,7 @@ def als_pdf(markdown: str, ziel: str | Path) -> Path:
             continue
         elif zeile.startswith("|"):
             pdf.set_font("Sans", "", 8)
-            zellen = [z.strip() for z in zeile.strip("|").split("|")]
+            zellen = _zellen(zeile)
             pdf.multi_cell(breite, 4.5, "  ·  ".join(zellen))
         elif zeile.startswith("- "):
             pdf.set_font("Sans", "", 9)

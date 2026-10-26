@@ -315,3 +315,24 @@ def test_regelmuster_feld_und_aufbewahrung(tmp_path, monkeypatch):
     assert "Rechnungen 8 Jahre (§ 14b Abs. 1 UStG)" in text
     assert "ab Schluss des Kalenderjahres des Belegdatums" in text
     assert "Bücher und Aufzeichnungen 10 Jahre" in text
+
+
+def test_regelmuster_mit_senkrechtem_strich(tmp_path, monkeypatch):
+    """Nachprüfung F, N6: ``|`` im Muster wurde in der Tabelle zu ``/`` — die
+    dokumentierte Regel war eine andere als die angewandte (GoBD Rz. 151 ff.)."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        '- {name: porto, muster: "PORTO|BRIEFMARKE", feld: verwendungszweck, '
+        'soll_konto: "4910", haben_konto: "1200"}\n',
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    engine.dispose()
+    assert "| porto | PORTO\\|BRIEFMARKE | verwendungszweck | 4910 | 1200 |" in text
+    assert "PORTO/BRIEFMARKE" not in text
+    pdf = als_pdf(text, tmp_path / "doku.pdf")
+    inhalt = "".join(seite.extract_text() for seite in PdfReader(pdf).pages)
+    assert "PORTO|BRIEFMARKE" in inhalt and "PORTO\\|" not in inhalt
