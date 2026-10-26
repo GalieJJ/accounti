@@ -551,8 +551,8 @@ def rechnung_neu(
                     "— einen Entwurf ändert man direkt[/red]"
                 )
                 raise typer.Exit(1)
-        # Ohne --name der Kunde der Rechnung — angegebene Optionen ergänzen ihn (etwa die
-        # Straße einer Altrechnung, § 14 Abs. 4 Satz 1 Nr. 1 UStG)
+        # Ohne --name der Kunde der Rechnung — angegebene Optionen ergänzen ihn (etwa
+        # die Straße einer Altrechnung, § 14 Abs. 4 Satz 1 Nr. 1 UStG)
         ergaenzt = {
             feld: wert
             for feld, wert in (
@@ -690,6 +690,7 @@ def rechnung_zeigen(
 ) -> None:
     """Vorschau mit Steuer und Summen (für Entwürfe) bzw. Daten der Rechnung."""
     from datetime import date
+    from decimal import Decimal
 
     from rich.markup import escape
     from rich.table import Table
@@ -730,7 +731,7 @@ def rechnung_zeigen(
         f"[bold]{escape(r.nummer or '')}[/bold] an {escape(r.kaeufer.name or '')} "
         f"({entwurf.status.value})"
     )
-    if fehlt := fehlende_anschrift(entwurf.kunde, r.summen.brutto):
+    if fehlt := fehlende_anschrift(entwurf.kunde, r.summen.brutto or Decimal(0)):
         folge = (
             "ausgestellt vor dieser Prüfung"
             if entwurf.nummer
