@@ -430,6 +430,14 @@ def verbuche_beleg(
         land,
         ustid_bestaetigt,
     )
+    if (
+        hinweis_datum
+        and gebucht_am == belegdatum
+        and not any(g.schluessel in (8, 9) and g.steuer for g in gruppen)
+    ):
+        # der § 15-Hinweis zum Belegdatum gilt nur für Vorsteuer aus der Rechnung —
+        # § 13b/ig. Erwerb hängen nicht an ihr (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG)
+        hinweise.remove(hinweis_datum)
     if eingang:
         hinweise += _steuerhinweise(gruppen, anlass, land)
     folgejahr = _vorsteuer_folgejahr(

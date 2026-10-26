@@ -1067,3 +1067,19 @@ def test_paragraf_15_hinweis_auch_beim_belegdatum(umgebung):
         s.commit()
     (v,) = _verbuche(make_session)
     assert any("zählt in 03/2026" in h and "04/2026" in h for h in v.hinweise)
+
+
+def test_kein_paragraf_15_hinweis_bei_13b(umgebung):
+    """§ 13b: Steuer und Vorsteuer entstehen mit der Leistung — der Abzug hängt nicht
+    an der Rechnung (§ 13b Abs. 2, § 15 Abs. 1 S. 1 Nr. 4 UStG). Der Hinweis „gehört
+    in den Eingangsmonat“ wäre dort falsch."""
+    from tests.test_belege_extraktion import REVERSE_CHARGE
+
+    make_session, _ = umgebung
+    beleg = _aus_pdf(REVERSE_CHARGE, eingegangen_am=datetime(2026, 6, 10, 9, 0))
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        s.commit()
+    (v,) = _verbuche(make_session)
+    assert any("§ 13b" in h for h in v.hinweise)
+    assert not any("§ 15 Abs. 1 Nr. 1" in h for h in v.hinweise), v.hinweise

@@ -485,7 +485,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Vorsteuerkonto um; die UStVA zählt die Umbuchung als Kz 66 (§ 15 Abs. 1 S. 1 Nr. 1
   UStG, Abschn. 15.2 Abs. 2 S. 7 UStAE) — vorher stand sie ohne Warnung in der alten
   Voranmeldung. Den § 15-Hinweis gibt es auch beim Buchen zum Belegdatum, wenn der Beleg
-  erst in einem späteren Monat erfasst wurde; neuer UStVA-Befund `beleg_nach_zeitraum`
+  erst in einem späteren Monat erfasst wurde (nicht bei § 13b und ig. Erwerb: dort hängt
+  der Abzug nicht an der Rechnung); neuer UStVA-Befund `beleg_nach_zeitraum`
   (Warnung). „Eingang“ ist die Erfassung in accounti, nicht der tatsächliche Zugang —
   Hinweise und Befund sagen das
 - **Kontakterkennung: Treffer, die dem Beleg widersprechen** (Eingang B14, Ausgang B1):
