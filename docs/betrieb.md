@@ -167,8 +167,8 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   buchen|anfangsbestand|storno`, `abschluss eroeffnung` (die EB-Ausnahme der
   Monatssperre), `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`, `belege
   freigeben` (Beleg aus der Prüfung, mit Belegart, Steuerfall, Belegnummer oder
-  umgekehrtem Vorzeichen; `--grund` Pflicht bei Dublettenverdacht, Rechenprobe und
-  Vorzeichen). Wer erfasst
+  umgekehrtem Vorzeichen; `--grund` Pflicht bei Dublettenverdacht, Rechenprobe,
+  Vorzeichen und mehrdeutigem Titel). Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos

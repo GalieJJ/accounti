@@ -28,8 +28,8 @@ andere Beträge und den Lieferanten ändert es nicht (siehe Grenzen). Ein Steuer
 Steuerausweis (`--steuer 13b|ig-erwerb|steuerfrei`) passt nicht zu Netto ≠ Brutto und
 wird dann abgelehnt. Verbuchte Belege nie — dort gilt Storno statt Änderung (GoBD
 Rz. 58, 107). Recht „buchen“; die Ausgabe nennt den bisherigen Prüfgrund. `--grund` ist
-Pflicht, wenn der Beleg wegen Dublettenverdacht, Rechenprobe oder gedrehtem Vorzeichen in
-der Prüfung lag, bei `--vorzeichen` und wenn eine gelesene Belegnummer ersetzt wird —
+Pflicht, wenn der Beleg wegen Dublettenverdacht, Rechenprobe, gedrehtem Vorzeichen oder
+mehrdeutigem Titel in der Prüfung lag, bei `--vorzeichen` und wenn eine gelesene Belegnummer ersetzt wird —
 ein fehlendes Feld nachzutragen braucht keinen. Journal `beleg_freigegeben` mit Person,
 Grund und Vorher/Nachher, und zwar nur aus diesem Befehl (`pruefung.ereignisse.
 belegfreigabe`); liest `belege erkennen` einen Beleg aus der Prüfung neu und ist er dann
@@ -44,7 +44,7 @@ Minus ist eine Deutung des Titels, nicht gedruckt (Nachprüfung M1). Als Titel z
 eine Zeile aus dem Schlüsselwort (Rechnungskorrektur, Korrekturrechnung, Stornorechnung,
 Rechnungsstorno, Gutschrift, Credit Note), höchstens mit Nummer, Datum oder Bezug („zur
 Rechnung Nr. …“) bzw. einem zweiten Schlüsselwort („Gutschrift (Rechnungskorrektur)“), und
-nur, wenn vorher kein Titel „Rechnung“/„Invoice“ steht — ein Satz wie
+nur, wenn vorher keine Zeile wie der Titel „Rechnung“/„Invoice“ steht — ein Satz wie
 „Rechnungskorrektur nur schriftlich innerhalb von 8 Tagen“ machte vorher aus einer
 Rechnung eine automatisch gebuchte Minderung. „Gutschrift“ allein ist mehrdeutig (§ 14
 Abs. 2 S. 2 UStG: Abrechnung durch den Leistungsempfänger wäre ein Erlös) — der Prüfgrund
@@ -53,6 +53,24 @@ note no.“, „Korrektur-Nr.“, „Storno-Nr.“) sind Belegnummern. Als Numme
 auch eine ohne „Nr.“ („Gutschrift GS-2026-12“, „Rechnungskorrektur zu RE-5“), aber kein
 Betrag („Gutschrift 50,00“), dazu eine Seitenzahl („Seite 1/2“, Spaltenlayout;
 Nachprüfung C, N-1).
+
+**Mehrdeutiger Titel zur Prüfung (Nachprüfung C, Runde 4, Mittel 1).** Steht vor dem
+Korrekturtitel eine Zeile wie ein Rechnungstitel, ist nicht zu lesen, was sie ist: Titel
+einer Rechnung mit der Zwischenüberschrift „Gutschrift“ (verrechnete Gutschrift) — oder
+die Bezugszeile einer Gutschrift im Infoblock („Rechnung: RE-2026-5“, „Rechnung Nr.
+RE-5“, „Rechnung Seite 1“, „Invoice: INV-77“). Seit der bloßen Nummer im Titel (N-1)
+galt die Bezugszeile als Rechnungstitel, die Gutschrift wurde als Rechnung mit Vorsteuer
+gebucht, ohne Prüfung (die Vorsteuer stieg, statt sich nach § 17 Abs. 1 UStG zu mindern).
+Jetzt bleiben die Beträge wie gedruckt (ein Minus wäre geraten), der Beleg geht mit
+„Titel mehrdeutig“ zur Prüfung, und die Freigabe verlangt einen Grund; ist es eine
+Gutschrift: `belege freigeben … --vorzeichen umkehren`. Als eigene Nummer geht dann die
+Gutschrift-/Korrekturnummer vor (sonst Dublette der Rechnung bei gleichem Betrag). Mit
+gedruckten Minusbeträgen ist nichts mehrdeutig. Steht der Korrekturtitel zuerst, ist
+eine Rechnungszeile danach der Bezug — unverändert negiert, zur Prüfung. Die
+Alternative „bloße Nummer nur im Korrekturtitel“ hätte die Infoblock-Fälle mit Nummer
+gelöst, aber „Rechnung Nr. RE-5“ und „Rechnung vom 01.10.2026“ (schon vorher als
+Rechnung gebucht) nicht, und eine Rechnung „Rechnung 2026-1234“ mit der Zeile
+„Gutschrift zur Rechnung Nr. RE-4“ wieder negiert.
 
 **Eigene Nummer statt Bezug (Nachprüfung C, M-2).** Eine Gutschrift trägt ihre eigene
 Nummer (§ 14 Abs. 4 Nr. 4 UStG: einmalig je Aussteller); „zur Rechnung Nr. RE-5“ ist der
@@ -77,6 +95,20 @@ andere Muster an langen Leerraum-Folgen quadratisch wurden (Belegnummer, Belegda
 USt-IdNr., Skonto, Kreditkartenzerlegung), kürzt die Belegerkennung den Text vorher auf
 höchstens 20 Leerzeichen am Stück und eine Leerzeile; Zeilenumbrüche aller Art werden
 `\n`. Tests mit Zeitschranke (SIGALRM unterbricht auch einen laufenden Regex).
+Runde 4 (Mittel 2): Gegen lange Folgen *ohne* Leerzeichen half das nicht — ein Muster,
+das an jeder Stelle einer Folge neu ansetzt und bis zu ihrem Ende liest, ist quadratisch
+(`\w*vertrag`, `BETRAG` auf einer Ziffernfolge, die Belegnummer an „renr“…, `_EMAIL`
+der LLM-Maskierung, `steuerfrei\w*`, je Summen-Label die Suche im Rest der Zeile); ein
+komprimiertes PDF von 1,1 KB mit 300 KB Text hielt `belege import` rund 12 min auf.
+Diese Muster setzen nur noch am Anfang einer Folge an (Lookbehind) bzw. lesen begrenzt
+(Belegnummer höchstens rund 80 Zeichen, `steuerfrei\w{0,8}`, höchstens 20 Summen-Labels
+je Zeile). Dazu ist der Text begrenzt (`begrenze_text`): höchstens 100.000 Zeichen
+(rund 30 Seiten) — von einem längeren bleiben Anfang (Kopf) und Ende (Summen), die Mitte
+fällt weg, der Beleg geht mit „Belegtext gekürzt“ zur Prüfung. Dasselbe gilt im
+Prüflauf, der das Original aus dem Archiv liest (`pruefung/belegangaben.py`, Hinweis
+„Belegtext gekürzt“). Geprüft mit einem Fuzz über alle Muster der Lesepfade (Folgen aus
+Grundzeichen und aus den Wörtern jedes Musters) und über den ganzen Lesepfad bis
+100.000 Zeichen.
 
 **Ohne Schlüssel brutto (B05).** Eine Position ohne Steuersatz bucht die Steuer in den
 Betrag (zur Prüfung), statt sie zu verwerfen — sonst stünde netto auf dem Personenkonto
@@ -172,19 +204,46 @@ Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt de
 - **Zeitpunkt der Änderung bei Gutschriften** ist das Belegdatum der Gutschrift; ein
   davon abweichender Tag der Rücknahme bzw. Vereinbarung steht nicht im Beleg.
 - **Korrekturtitel per Muster:** Ein Korrekturbeleg mit positiven Beträgen und anderem
-  Titel (etwa „Ihre Gutschrift“, „Credit memo“, Titel erst nach „Rechnung“, weitere
-  Angaben in der Titelzeile wie „Kunden-Nr.“, Titelzeile über 120 Zeichen, einstellige
-  Nummer „Gutschrift Nr. 7“) bleibt positiv und bucht wie eine Rechnung; gedruckte
-  Minusbeträge sind davon unabhängig.
+  Titel (etwa „Ihre Gutschrift“, „Credit memo“, weitere Angaben in der Titelzeile wie
+  „Kunden-Nr.“, Titelzeile über 120 Zeichen, einstellige Nummer „Gutschrift Nr. 7“)
+  bleibt positiv und bucht wie eine Rechnung; gedruckte Minusbeträge sind davon
+  unabhängig. Eine Bezugszeile, die nicht wie ein Rechnungstitel aussieht („Rechnung zu
+  Auftrag 4711“), stört den Korrekturtitel danach nicht.
+- **Mehrdeutiger Titel** (Runde 4, Mittel 1): Eine Rechnung mit einer Zeile, die wie
+  ein Korrekturtitel aussieht („Gutschrift“, „Gutschrift zur Rechnung Nr. RE-4“ unter
+  den Positionen), geht jetzt zur Prüfung, statt erfasst zu werden — der Preis dafür,
+  dass eine Gutschrift mit Rechnungsbezug im Infoblock nicht mehr ohne Prüfung als
+  Rechnung gebucht wird. Bei einer echten Gutschrift kehrt der Mensch das Vorzeichen um;
+  die Belegnummer ist dann die Gutschrift-Nr. — eine Rechnung mit eigener
+  Gutschrift-Nr. in der Zwischenüberschrift bekommt deshalb diese Nummer (mit
+  `--belegnummer` berichtigen).
 - **Bezug per Wortliste:** Ein Bezug ist eine Nummer nach „zur/zu/für die/der/zu
   unserer/zu Ihrer (ursprünglichen) … Rechnung“ oder „Bezug/bezüglich/betreff“ in
   derselben Zeile. Steht die Rechnungsnummer ohne solches Wort („Rechnung Nr. RE-5:
   Rücksendung“) und fehlt eine eigene Nummer, trägt die Gutschrift die Nummer der
   Rechnung — dank anderem Betrag dann Dublettenverdacht, nicht Dublette. Eine Kopie
-  derselben Rechnung mit anders gelesenem Betrag ist ebenfalls nur Verdacht.
+  derselben Rechnung mit anders gelesenem Betrag ist ebenfalls nur Verdacht. Umgekehrt
+  trifft die Wortliste auch die eigene Nummer einer Rechnung, wenn sie nur nach
+  „Betreff:“ oder „unter Angabe der Rechnungsnummer“ steht: Die Belegnummer bleibt leer
+  (zur Prüfung, „fehlt: Belegnummer“); eine zweite Kopie fängt dann erst Stufe 3
+  (Lieferant, Betrag, Datum) als Verdacht. Ein Rückgriff auf den Bezug hätte eine
+  Gutschrift mit unbekanntem Titel und gleichem Betrag wieder als Dublette verworfen
+  (Runde 4, Niedrig; nicht geändert).
+- **Storno mit unbekanntem Titel** (Runde 4, Niedrig; vorbestehend): „STORNO“ oder
+  „Stornobeleg“ mit „Rechnung Nr. RE-5“ und demselben positiven Betrag wie die Rechnung
+  ist für Stufe 2 dieselbe Rechnung und wird als Dublette verworfen, ebenso ohne
+  gelesenen Bruttobetrag — „STORNO“ allein und „Stornobeleg“ zählen nicht als
+  Korrekturtitel (nicht geändert, die Titelliste bleibt nach drei Runden stabil).
 - **Leerraum gekürzt:** Muster sehen höchstens 20 Leerzeichen am Stück und eine
   Leerzeile; breitere Spalten zählen wie 20 Leerzeichen. Das Original im Archiv bleibt
   unverändert, und das Maskieren für das LLM arbeitet auf demselben gekürzten Text.
+- **Text gekürzt** (Runde 4, Mittel 2): Von einem Belegtext über 100.000 Zeichen liest
+  accounti nur Anfang und Ende (je die Hälfte, an Zeilengrenzen); was nur in der Mitte
+  steht (Steuerzeilen einer Zwischenseite, eine Seitensumme), fehlt oder ist falsch —
+  der Beleg geht deshalb immer zur Prüfung. Im Prüflauf (Pflichtangaben nach § 14
+  Abs. 4 UStG) kann eine Angabe aus der Mitte als fehlend gemeldet werden; der Befund ist
+  dann zu prüfen. Eine Belegnummer über rund 80 Zeichen wird nicht gelesen, und in einer
+  Zeile zählen nur die ersten 20 Summen-Labels.
 - **Gemischte Vorzeichen in einer Rechnung** (Nachprüfung C, N-3): Eine Rechnung mit
   +500/+35 zu 7 % und −100/−19 zu 19 % (Leergutrücknahme) bucht die Minderung im
   Belegmonat und nennt sie im Hinweis „Gutschrift“; die Vorsteuer aus der Rechnung geht

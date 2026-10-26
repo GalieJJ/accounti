@@ -493,6 +493,25 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   quadratisch). Als Titel gelten auch „Gutschrift GS-2026-12“, „Credit Note CN-77“,
   „Rechnungskorrektur zu RE-5“ (Nummer ohne „Nr.“, kein Betrag) und eine Seitenzahl in
   der Titelzeile (Nachprüfung C, N-1)
+- **Gutschrift mit Rechnungsbezug im Infoblock als Rechnung gebucht** (Nachprüfung C,
+  Runde 4, Mittel 1): Seit eine bloße Nummer im Titel zählte, galt die Bezugszeile
+  „Rechnung: RE-2026-5“ (ebenso „Rechnung RE-2026-5“, „Rechnung Seite 1“, „Invoice:
+  INV-77“) vor dem Titel „Gutschrift“ als Rechnungstitel — die Gutschrift wurde als
+  Rechnung mit Vorsteuer erfasst, ohne Prüfung. Steht vor einem Korrekturtitel eine
+  Zeile wie ein Rechnungstitel, bleiben die Beträge jetzt wie gedruckt, und der Beleg
+  geht mit „Titel mehrdeutig“ zur Prüfung (`belege freigeben` nur mit `--grund`; ist es
+  eine Gutschrift: `--vorzeichen umkehren`); die Gutschrift-Nr. geht als Belegnummer vor.
+  Das gilt auch für „Rechnung Nr. RE-5“ und „Rechnung vom …“ im Infoblock (vorher schon
+  als Rechnung erfasst) und für eine Rechnung mit der Zwischenüberschrift „Gutschrift“
+  (vorher erfasst, jetzt zur Prüfung)
+- **Belegeingang hing an langen Folgen ohne Leerzeichen** (Nachprüfung C, Runde 4,
+  Mittel 2): Die Leerraumgrenze half nicht gegen lange Wörter oder Ziffernfolgen —
+  `\w*vertrag`, Beträge, die Belegnummer, `steuerfrei…`, die E-Mail-Maskierung der
+  LLM-Stufe und die Suche hinter jedem Summen-Label einer Zeile wurden quadratisch; ein
+  komprimiertes PDF von 1,1 KB mit 300 KB Text hielt `belege import` rund 12 min auf,
+  der Prüflauf las das Original sogar ohne Leerraumgrenze. Die Muster sind jetzt linear,
+  und der Belegtext ist auf 100.000 Zeichen begrenzt: Von einem längeren bleiben Anfang
+  und Ende, der Beleg geht mit „Belegtext gekürzt“ zur Prüfung (im Prüflauf als Hinweis)
 - **Gutschrift „zur Rechnung Nr. RE-5“ als Dublette verworfen** (Nachprüfung C, M-2):
   Die erste Nummer im Text war die Belegnummer — die Gutschrift trug die Nummer der
   Rechnung, wurde als deren Dublette nicht gespeichert, und die Minderung der Vorsteuer
@@ -505,7 +524,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **Meldungen zu Gutschriften über den Jahreswechsel** (Nachprüfung C, N-2, N-4): Bei
   Bilanzierung nennt die Meldung für eine Gutschrift aus dem Vorjahr nicht mehr den
   1548-Weg der Rechnung, sondern die Minderung im Zeitraum der Änderung (§ 17 Abs. 1
-  S. 8 UStG); die Sperrmeldung bietet `--buchungsdatum` nur an, wo es zulässig ist. Der
+  S. 8 UStG); die Sperrmeldung bietet `--buchungsdatum` nur an, wo es zulässig ist, und
+  nur die Werte, die gehen (Runde 4: bei Eingang im Folgejahr nicht mehr „eingang“ und
+  „offen“, die beide über den Jahreswechsel geführt hätten). Der
   Hinweis bei einer später gebuchten Gutschrift sagt, dass diese Buchung zu stornieren
   und zum Belegdatum neu zu buchen ist — sonst zählt die Minderung nach der Berichtigung
   der Voranmeldung doppelt
