@@ -181,6 +181,55 @@ def test_fassungen_im_journal_und_historie(tmp_path):
     engine.dispose()
 
 
+def test_kontierung_nennt_richtung_pruefung_und_marktplatz(tmp_path, monkeypatch):
+    """Gesamttest Kontierung (Eingang B07/B15, Betrieb B3, Steuer B2): Die
+    Verfahrensdokumentation beschreibt, was unabhängig von der Confidence zur
+    Prüfung geht, welche Standardregeln im Kontenrahmen gelten und dass classify
+    Marktplatz-Auszahlungen bis zum Abgleich offen lässt."""
+    monkeypatch.chdir(tmp_path)  # config/regeln.yaml der Gesellschaft
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- {name: miete, muster: miete, richtung: ausgabe, soll_konto: '6310',\n"
+        "   haben_konto: '1800', steuer_schluessel: null, pruefen: true}\n",
+        encoding="utf-8",
+    )
+    config = tmp_path / "accounti.yaml"
+    config.write_text(
+        "mandant: {name: X}\nbuchhaltung: {kontenrahmen: SKR04, bank_konto: '1800'}\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, config)
+    for erwartet in (
+        "1 eigene Regeln",
+        "5 Standardregeln im Kontenrahmen SKR04",
+        "| Regel | Muster | Richtung | Soll | Haben | Schlüssel | Prüfen |",
+        "| miete | miete | ausgabe | 6310 | 1800 | — | ja |",
+        "unabhängig von der Confidence",
+        "Gegenbuchung",
+        "Bankkonto auf der falschen oder auf keiner Seite",
+        "Marktplatz-Auszahlungen",
+    ):
+        assert erwartet in text, erwartet
+    engine.dispose()
+
+
+def test_fehlerhafte_regeldatei_steht_im_dokument(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- {name: kaputt, muster: x, soll_konto: '4900', haben_konto: '1200',\n"
+        "   richtung: rueckwaerts}\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"))
+    assert "Regeldatei fehlerhaft" in text and "kaputt" in text
+    engine.dispose()
+
+
 def test_fehlerhafte_konfiguration_steht_im_dokument(tmp_path):
     engine, fabrik = _fabrik(tmp_path)
     config = tmp_path / "accounti.yaml"

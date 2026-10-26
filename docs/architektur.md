@@ -188,7 +188,7 @@ Transaktion
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
 
-`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg. Alle anderen Umsätze gehen wie bisher durch Regelwerk und LLM. *(vorhanden)*
+`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. *(vorhanden)*
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
@@ -686,12 +686,24 @@ Namens. Eigene Objekttypen (`registriere_objekttyp`) und Benachrichtigungskanäl
 ### Neue Kontierungsregel hinzufügen
 
 ```yaml
-# config/regeln.yaml (geplant)
+# config/regeln.yaml (bzw. regeln: der Gesellschaft)
 - name: "mein_lieferant"
   muster: "Firma XY GmbH"
   feld: "gegenkonto_name"
+  richtung: ausgabe          # ausgabe | einnahme | beide
   soll_konto: "3300"
   haben_konto: "1200"
   steuer_schluessel: 9
+  pruefen: false             # true: Treffer immer zur Prüfung
+  confidence: 1.0            # ab 0,95 automatisch gebucht
   buchungstext: "Wareneinkauf Firma XY"
 ```
+
+Eine Regel mit `richtung` gilt nur für Umsätze dieser Richtung; passt sonst keine Regel
+(und kein LLM-Vorschlag), schlägt `KlassifikationsEngine` sie als Gegenbuchung vor — Soll
+und Haben getauscht, immer zur Prüfung (Erstattung mindert Aufwand und Vorsteuer, § 17
+UStG). Unabhängig von der Quelle prüft `buchung/mapper.py` die Bankseite gegen das
+Vorzeichen: Bankkonto auf der falschen Seite → tauschen und zur Prüfung; keine Seite das
+Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung. Die eingebauten Regeln
+liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
+Kontenrahmen keine).

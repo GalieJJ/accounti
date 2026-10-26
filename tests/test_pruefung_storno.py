@@ -45,6 +45,7 @@ from tests.test_buchung_mit_beleg import REGELN, mit_positionen
 from tests.zahlung_hilfe import beleg_zu, kreditor, posten, speichere
 
 KR = lade_kontenrahmen()
+D = Decimal
 
 
 def _salden(make_session, jahr=2026):
@@ -260,6 +261,45 @@ def test_gegenbuchung_nicht_eindeutig_umkehrbar(make_session):
     anlegen(make_session, b)
     with make_session() as s, pytest.raises(StornoError, match="dieselbe Natur"):
         storniere(s, kurz(b.id), grund="x")
+
+
+def test_kreditkarte_1730_korrigierbar_und_stornierbar(make_session):
+    """Gesamttest Eingang B08: Kartenumsätze auf 1730 (README) mit Vorsteuer ließen
+    sich weder korrigieren noch stornieren („beide Seiten dieselbe Natur“)."""
+    tank = buchung(status=BuchungStatus.GEPRUEFT, soll="4500", haben="1730")
+    gut = buchung(
+        status=BuchungStatus.GEPRUEFT,
+        soll="4930",
+        haben="1730",
+        netto="20.16",
+        steuer="3.83",
+    )
+    anlegen(make_session, tank, gut)
+    with make_session() as s:
+        k = korrigiere(s, kurz(tank.id), "4530", "1730", steuer=9, von="jan")
+        storniere(s, kurz(gut.id), grund="Gutschrift falsch herum", von="jan")
+        s.commit()
+    assert k.neu is not None and k.neu.soll_konto == "4530"
+    salden = _salden(make_session)
+    assert salden["1730"] == D("-119.00")  # nur noch die Tankrechnung, brutto
+    assert "4930" not in salden
+
+
+def test_eingerichtetes_kartenkonto_ist_umkehrbar(make_session):
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    with make_session() as s:
+        speichere_bankkonto(
+            s, Bankkonto(iban="VISA1234", bezeichnung="Visa", sachkonto="1738")
+        )
+        s.commit()
+    b = buchung(status=BuchungStatus.GEPRUEFT, soll="4930", haben="1738")
+    anlegen(make_session, b)
+    with make_session() as s:
+        k = storniere(s, kurz(b.id), grund="falsch", von="jan")
+        s.commit()
+    assert k.storno is not None
 
 
 # --- Der behobene Fehler: je Buchungsart -------------------------------------------

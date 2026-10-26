@@ -9,10 +9,11 @@ engste passende Spanne gewinnt. Personenkonten sind fünfstellig; längere Sachk
 from __future__ import annotations
 
 import enum
+from collections.abc import Iterable
 from decimal import Decimal
 from importlib import resources
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -22,6 +23,9 @@ from accounti.steuer.umsatzsteuer import (
     UST_KONTEN_SKR03,
     VST_KONTEN_SKR03,
 )
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 Gewinnermittlung = Literal["euer", "bilanz"]
 
@@ -133,6 +137,18 @@ class Kontenrahmen(BaseModel):
             return True
         return self._engste(self.geldkonten, konto) is not None
 
+    def mit_geldkonten(self, konten: Iterable[str]) -> Kontenrahmen:
+        """Kopie, in der auch diese Konten Geldkonten sind (eingerichtete Bank- und
+        Kartenkonten mit eigenem Sachkonto)."""
+        neu = [
+            _Spanne(von=k, bis=k)
+            for k in sorted(set(konten))
+            if k.isdigit() and not self.ist_geldkonto(k)
+        ]
+        if not neu:
+            return self
+        return self.model_copy(update={"geldkonten": [*self.geldkonten, *neu]})
+
     def ist_bankkonto(self, konto: str) -> bool:
         """Bankkonto laut Kontenrahmen — wird mit dem Kontoauszug abgestimmt."""
         if self.ist_personenkonto(konto):
@@ -187,6 +203,15 @@ class Kontenrahmen(BaseModel):
 
     def bezeichnung(self, konto: str) -> str:
         return self.namen.get(konto, "")
+
+
+def mit_eingerichteten_konten(kr: Kontenrahmen, session: Session) -> Kontenrahmen:
+    """Der Kontenrahmen mit den Sachkonten der eingerichteten Bank- und Kartenkonten
+    als Geldkonten (``bank verbinde``, ``kreditkarte einrichten``) — sie tragen bei
+    Buchungen mit Steuer den Bruttobetrag wie die Bank (Gesamttest Eingang B08)."""
+    from accounti.db.repository import lade_bankkonten
+
+    return kr.mit_geldkonten(k.sachkonto for k in lade_bankkonten(session))
 
 
 def _pruefe(text: str, name: str) -> Kontenrahmen:

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from accounti.bank.lauf import KontoAbruf
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
+    from accounti.buchung.kontierung import Kontierungslauf
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
@@ -1430,7 +1431,7 @@ def opos_verbuchen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.klassifikation.engine import STANDARD_REGELN, RegelwerkEngine
+    from accounti.klassifikation.engine import RegelwerkEngine, standard_regeln
     from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import (
         KonfigurationError,
@@ -1450,19 +1451,22 @@ def opos_verbuchen(
         gewinnermittlung_angegeben,
         lade_abschluss,
     )
+    from accounti.betrieb.kontext import regeln_datei
 
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
         lade_abschluss(config)  # prüft den Abschnitt
         gewinnermittlung = gewinnermittlung_angegeben(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
     from accounti.befehle import laufsperre_oder_ende
-    from accounti.betrieb.kontext import regeln_datei
 
-    regelwerk = RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN)
+    regelwerk = RegelwerkEngine(
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine, make_session = session_factory(db)
     init_db(engine)
     # bucht dieselben Belege, die classify und der Belegabgleich lesen — wie die
@@ -2228,11 +2232,13 @@ def bank_lauf_befehl(
 
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2240,14 +2246,18 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
+        # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
-    # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(regeln_datei()) + STANDARD_REGELN),
+        regelwerk=RegelwerkEngine(
+            eigene
+            + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+        ),
         llm=LLMEngine() if llm else None,
     )
     from accounti.betrieb.laufsperre import LaufLaeuftError, laufsperre
@@ -2257,7 +2267,9 @@ def bank_lauf_befehl(
     try:
         # je Datenbank höchstens ein bank lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "bank"), make_session() as s:
-            ergebnis = bank_lauf(s, engine, einstellungen, sichern=s.commit)
+            ergebnis = bank_lauf(
+                s, engine, einstellungen, sichern=s.commit, integrationen=integrationen
+            )
             s.commit()
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2271,6 +2283,7 @@ def bank_lauf_befehl(
         f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
+    _marktplatz_hinweis(k)
 
 
 # ---------------------------------------------------------------------------
@@ -2285,12 +2298,14 @@ def classify(
     """Transaktionen automatisch kontieren — mit Beleg aus dem Beleg."""
     from rich.markup import escape
 
+    from accounti.betrieb.kontext import regeln_datei
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
     from accounti.klassifikation.engine import (
-        STANDARD_REGELN,
         KlassifikationsEngine,
         RegelwerkEngine,
+        standard_regeln,
     )
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -2298,18 +2313,17 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        integrationen = lade_integrationen(config)
+        eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
-    from accounti.betrieb.kontext import regeln_datei
 
     # Eigene Regeln (der Gesellschaft, sonst config/regeln.yaml) haben Vorrang, dann
-    # das Standard-Regelwerk.
-    regeln = lade_regeln(regeln_datei())
-    if regeln:
-        regelwerk = RegelwerkEngine(regeln + STANDARD_REGELN)
-    else:
-        regelwerk = RegelwerkEngine()
+    # das Standard-Regelwerk im Kontenrahmen der Buchhaltung.
+    regelwerk = RegelwerkEngine(
+        eigene + standard_regeln(einstellungen.kontenrahmen, einstellungen.bank_konto)
+    )
     engine = KlassifikationsEngine(
         regelwerk=regelwerk,
         llm=LLMEngine() if llm else None,
@@ -2323,12 +2337,24 @@ def classify(
     with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        lauf = kontiere_umsaetze(s, engine, einstellungen)
+        lauf = kontiere_umsaetze(s, engine, einstellungen, integrationen)
         s.commit()
     console.print(
         f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "
         f"[yellow]{lauf.offen}[/yellow] offen."
     )
+    _marktplatz_hinweis(lauf)
+
+
+def _marktplatz_hinweis(lauf: "Kontierungslauf") -> None:
+    """Offen gelassene Marktplatz-Auszahlungen: was zu tun ist (Steuer B2)."""
+    from rich.markup import escape
+
+    from accounti.buchung.marktplatz import hinweis
+
+    if lauf.marktplatz:
+        text = hinweis(lauf.marktplaetze, lauf.marktplatz)
+        console.print(f"[yellow]{escape(text)}[/yellow]")
 
 
 # ---------------------------------------------------------------------------
