@@ -159,8 +159,12 @@ async def _storno_aktion(
     vorab: Any,
     ausfuehren: Any,
 ) -> Response:
-    """Stand prüfen (409 ohne verbrauchten Code), Pflichtangaben prüfen (422), dann
-    Einmalcode (403), dann ausführen — im Namen der Person, mit Commit."""
+    """Stand prüfen (409 ohne verbrauchten Code), Pflichtangaben prüfen (422), die
+    Aktion zur Probe ausführen und zurückrollen (409/422 der Fachlogik, ohne
+    verbrauchten Code), dann Einmalcode (403), dann ausführen — im Namen der Person,
+    mit Commit. So verbraucht nur eine Aktion, die gelingt, den Code; die Probe hält
+    keine Schreibsperre der Gesellschaft, während der Code in der Systemdatenbank
+    (ohne Registry: dieselbe Datei) bestätigt wird."""
     dienste = dienste_von(request)
     code = dienste.auth.einmalcode_bestaetigung
 
@@ -194,7 +198,26 @@ async def _storno_aktion(
             s.rollback()
         return None
 
+    def fachfehler(f: Exception) -> Fehlerbild:
+        from accounti.konfiguration import KonfigurationError
+
+        if isinstance(f, KonfigurationError):
+            return Fehlerbild(409, str(f))
+        return _fehlerbild(f)
+
+    def probe() -> Fehlerbild | None:
+        with im_namen(a) as person:
+            try:
+                ausfuehren(s, person)
+            except _fachfehler() as f:
+                return fachfehler(f)
+            finally:
+                s.rollback()
+        return None
+
     fehler = await run_in_threadpool(pruefen)
+    if fehler is None:
+        fehler = await run_in_threadpool(probe)
     if fehler is not None:
         werte = await run_in_threadpool(anzeige, fehler)
         return seite(request, "buchungen/buchung.html", werte, status=fehler.status)
@@ -209,12 +232,9 @@ async def _storno_aktion(
                 s.commit()
                 return meldungen, None
             except _fachfehler() as f:
+                # nur bei einer gleichzeitigen Änderung zwischen Probe und Lauf
                 s.rollback()
-                from accounti.konfiguration import KonfigurationError
-
-                if isinstance(f, KonfigurationError):
-                    return [], Fehlerbild(409, str(f))
-                return [], _fehlerbild(f)
+                return [], fachfehler(f)
 
     meldungen, fehler = await run_in_threadpool(lauf)
     werte = await run_in_threadpool(anzeige, fehler, meldungen)

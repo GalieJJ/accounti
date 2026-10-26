@@ -20,6 +20,7 @@ import re
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import Format, erkenne_format
@@ -136,15 +137,31 @@ def lies(archiv: str | Path, beleg: Beleg, max_bytes: int) -> Belegdatei:
 # --- TIFF ---------------------------------------------------------------------------
 
 
+def _zaehle_seiten(bild: Any, grenze: int) -> int:
+    """Seiten per ``seek`` zählen, höchstens ``grenze`` — ``n_frames`` liefe über die
+    ganze Verzeichniskette, bei einem TIFF aus fremder Hand mit 40 000 Seiten (4 MB)
+    überlinear 12 s je Aufruf."""
+    anzahl = 1
+    while anzahl < grenze:
+        try:
+            bild.seek(anzahl)
+        except EOFError:
+            break
+        anzahl += 1
+    bild.seek(0)
+    return anzahl
+
+
 def tiff_seiten(inhalt: bytes) -> int:
-    """Seitenzahl (höchstens ``MAX_SEITEN``) — ohne zu dekodieren."""
+    """Seitenzahl (höchstens ``MAX_SEITEN``) — ohne zu dekodieren und ohne mehr als
+    ``MAX_SEITEN`` Verzeichnisse zu lesen."""
     from PIL import Image, UnidentifiedImageError
 
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(inhalt), formats=["TIFF"]) as bild:
-                return min(int(getattr(bild, "n_frames", 1)), MAX_SEITEN)
+                return _zaehle_seiten(bild, MAX_SEITEN)
     except (
         UnidentifiedImageError,
         Image.DecompressionBombError,
@@ -164,10 +181,12 @@ def tiff_seite_als_png(inhalt: bytes, nummer: int, max_megapixel: float) -> byte
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
             with Image.open(io.BytesIO(inhalt), formats=["TIFF"]) as bild:
-                seiten = min(int(getattr(bild, "n_frames", 1)), MAX_SEITEN)
-                if not 1 <= nummer <= seiten:
+                if not 1 <= nummer <= MAX_SEITEN:
                     raise BelegdateiFehltError
-                bild.seek(nummer - 1)
+                try:  # liest nur die Verzeichnisse bis zu dieser Seite
+                    bild.seek(nummer - 1)
+                except EOFError as fehler:
+                    raise BelegdateiFehltError from fehler
                 breite, hoehe = bild.size
                 if breite * hoehe > grenze:
                     raise KeineVorschauError

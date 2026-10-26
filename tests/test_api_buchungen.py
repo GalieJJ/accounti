@@ -115,6 +115,40 @@ def test_korrigieren_und_stornieren_verlangen_einmalcode(qw):
     assert client.post(f"/buchungen/{b2.id}/stornieren", data=daten).status_code == 403
 
 
+def test_fachlich_abgelehnte_aktion_verbraucht_keinen_einmalcode(qw):
+    """Nachbesserung Technik M3 (Probe c): Scheitert die Aktion erst in der
+    Fachlogik (Konto ungültig, Sachkontowechsel ohne Steuerangabe), bleibt der
+    Einmalcode — auch ein Wiederherstellungscode — gültig; erst die erfolgreiche
+    Aktion verbraucht ihn."""
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT)
+    client = qw.web.angemeldet("jan")
+    code = qw.web.personen["jan"].codes.pop()
+    for felder in (
+        {"soll": "12", "haben": "1200", "steuer": "9"},
+        {"soll": "4360", "haben": "1200"},  # neues Sachkonto ohne Steuerangabe
+    ):
+        seite = client.get(f"/buchungen/{b.id}").text
+        daten = {"csrf": csrf(client), "stand": formularwert(seite, "stand")}
+        r = client.post(
+            f"/buchungen/{b.id}/korrigieren",
+            data={**daten, "einmalcode": code, **felder},
+        )
+        assert r.status_code == 422, (felder, r.status_code)
+        assert len(buchungen(qw)) == 1
+    seite = client.get(f"/buchungen/{b.id}").text
+    daten = {"csrf": csrf(client), "stand": formularwert(seite, "stand")}
+    gut = {"soll": "4930", "haben": "1200", "steuer": "9", "einmalcode": code}
+    r = client.post(f"/buchungen/{b.id}/korrigieren", data={**daten, **gut})
+    assert r.status_code == 200, r.text
+    assert len(buchungen(qw)) == 3  # Original, Storno, Neubuchung
+    b2 = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 2))
+    seite = client.get(f"/buchungen/{b2.id}").text
+    daten = {"csrf": csrf(client), "stand": formularwert(seite, "stand")}
+    r = client.post(f"/buchungen/{b2.id}/stornieren", data={**daten, "grund": "x",
+                    "einmalcode": code})  # fmt: skip
+    assert r.status_code == 403  # nach dem Erfolg verbraucht
+
+
 def test_ohne_einmalcode_bestaetigung_kein_code(tmp_path):
     qw = queuewelt(tmp_path, einmalcode_bestaetigung=False)
     b = qw.buchung(status=BuchungStatus.GEPRUEFT)

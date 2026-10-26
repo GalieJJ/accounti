@@ -104,6 +104,64 @@ def test_bildbombe_auf_seite_zwei(qw, jan):
     assert jan.get(f"/belege/{b.id}/seite/2.png").status_code == 415
 
 
+def _viele_seiten(n: int) -> bytes:
+    """TIFF mit ``n`` Seiten zu je einem Pixel (alle auf denselben Bildstreifen) —
+    so klein wie ein Angreifer es per Postfach einliefern könnte."""
+    import struct
+
+    eintraege = [
+        (256, 3, 1), (257, 3, 1), (258, 3, 8), (259, 3, 1), (262, 3, 1),
+        (273, 4, 8), (277, 3, 1), (278, 3, 1), (279, 4, 1),
+    ]  # fmt: skip
+    groesse = 2 + 12 * len(eintraege) + 4
+    daten = bytearray(b"II*\x00" + struct.pack("<I", 10) + b"\x80\x00")
+    for i in range(n):
+        daten += struct.pack("<H", len(eintraege))
+        for tag, typ, wert in eintraege:
+            daten += (
+                struct.pack("<HHIHH", tag, typ, 1, wert, 0)
+                if typ == 3
+                else struct.pack("<HHII", tag, typ, 1, wert)
+            )
+        daten += struct.pack("<I", 10 + (i + 1) * groesse if i + 1 < n else 0)
+    return bytes(daten)
+
+
+def test_tiff_mit_sehr_vielen_seiten_liest_nur_die_ersten(qw, jan, monkeypatch):
+    """Nachbesserung Technik M2: Seiten werden per ``seek`` bis ``MAX_SEITEN``
+    gezählt — ``n_frames`` läse alle Verzeichnisse (40 000 Seiten: 12 s je Aufruf,
+    je Ansicht bis zu 21 Aufrufe im Threadpool)."""
+    from PIL import TiffImagePlugin
+
+    from accounti.api.belegantwort import MAX_SEITEN, tiff_seite_als_png, tiff_seiten
+
+    inhalt = _viele_seiten(3000)
+    gelesen: list[int] = []
+    original = TiffImagePlugin.ImageFileDirectory_v2.load
+    monkeypatch.setattr(
+        TiffImagePlugin.ImageFileDirectory_v2,
+        "load",
+        lambda self, fp: gelesen.append(1) or original(self, fp),
+    )
+    # je seek ein neues Verzeichnis und das der Zielseite — begrenzt durch
+    # MAX_SEITEN, nicht durch die Seitenzahl der Datei (vorher: 2 × 3000)
+    grenze = 2 * MAX_SEITEN + 2
+    assert tiff_seiten(inhalt) == MAX_SEITEN
+    assert len(gelesen) <= grenze, len(gelesen)
+    gelesen.clear()
+    assert tiff_seite_als_png(inhalt, MAX_SEITEN, 5).startswith(b"\x89PNG")
+    assert len(gelesen) <= grenze, len(gelesen)
+    b = qw.beleg(inhalt, ".tif")
+    assert (
+        f'src="/belege/{b.id}/seite/{MAX_SEITEN}.png"'
+        in jan.get(f"/belege/{b.id}").text
+    )
+    assert jan.get(f"/belege/{b.id}/seite/{MAX_SEITEN + 1}.png").status_code == 404
+    kurz = qw.beleg(_viele_seiten(3), ".tif")
+    assert jan.get(f"/belege/{kurz.id}/seite/3.png").status_code == 200
+    assert jan.get(f"/belege/{kurz.id}/seite/4.png").status_code == 404
+
+
 @pytest.mark.filterwarnings("ignore:Corrupt EXIF data")
 def test_tiff_nur_mit_tiff_decoder(qw, jan, monkeypatch):
     """EPS-Inhalt mit TIFF-Signatur: abgelehnt, nie durch einen anderen Decoder
