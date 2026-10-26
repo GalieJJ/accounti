@@ -559,3 +559,68 @@ def test_export_ohne_bu_auf_anlagenverkauf_und_skonto(umgebung):
         tmp_path / "aus" / "EXTF_Buchungsstapel_20260801_20260831_Beleglink.csv"
     )
     assert bu[("1360", "8820")] == "" and bu[("70001", "3736")] == ""
+
+
+# --- Nachprüfung Paket E: N1 (Stapel nie überschreiben), N3 (--alle nicht doppelt) ---
+
+
+def test_export_datev_zweiter_stapel_ueberschreibt_den_ersten_nicht(umgebung):
+    """N1: Der zweite Export desselben Monats bringt nur die neue Buchung — früher
+    unter demselben Dateinamen, der erste Stapel war weg und der SHA-256 im Journal
+    verwies ins Leere. Jetzt eine eigene Datei; jeder Journaleintrag passt zu seiner."""
+    import hashlib
+    import json
+
+    from accounti.pruefung.journal import lade_journal
+
+    tmp_path, basis, _ = umgebung
+    ex = tmp_path / "ex"
+    assert _export(basis, ex, "--period", "2026-08").exit_code == 0
+    (erste,) = ex.glob("EXTF_*.csv")
+    vorher = erste.read_bytes()
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-2", tag=20)
+        s.commit()
+    r = _export(basis, ex, "--period", "2026-08")
+    assert r.exit_code == 0 and "1 Buchungen" in _text(r), r.output
+    assert erste.read_bytes() == vorher
+    (zweite,) = [d for d in ex.glob("EXTF_*.csv") if d != erste]
+    assert zweite.name == "EXTF_Buchungsstapel_20260801_20260831_2.csv"
+    assert "R-2" in zweite.read_bytes().decode("cp1252")
+    assert "R-1" not in zweite.read_bytes().decode("cp1252")
+    with make() as s:
+        exporte = [json.loads(e.nachher) for e in lade_journal(s, vorgang="export")]
+    assert [e["datei"] for e in exporte] == [erste.name, zweite.name]
+    for e in exporte:
+        inhalt = (ex / e["datei"]).read_bytes()
+        assert hashlib.sha256(inhalt).hexdigest() == e["sha256"]
+
+
+def test_export_datev_alle_ungepruefte_nach_der_freigabe_nicht_noch_einmal(umgebung):
+    """N3: ``--alle`` nimmt ungeprüfte Buchungen in den Stapel. Sie wechseln den
+    Status nicht (exportiert hieße freigegeben), standen aber auch nicht im Journal —
+    nach der Freigabe kamen sie ein zweites Mal nach DATEV."""
+    import json
+
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.journal import lade_journal
+    from accounti.pruefung.storno import freigeben
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        offen = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "a", "--alle")
+    assert r.exit_code == 0 and "2 Buchungen" in _text(r), r.output
+    assert "ungeprüft" in _text(r)
+    with make() as s:
+        (eintrag,) = lade_journal(s, vorgang="export")
+        assert json.loads(eintrag.nachher)["ungeprueft"] == [str(offen.id)]
+        assert freigeben(s, str(offen.id), von="Erika")[1]
+        s.commit()
+    r = _export(basis, tmp_path / "b")
+    assert r.exit_code == 0, r.output
+    assert "Keine Buchungen zu exportieren" in _text(r)
+    assert not (tmp_path / "b").exists()

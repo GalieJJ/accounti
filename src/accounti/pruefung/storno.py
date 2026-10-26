@@ -531,17 +531,23 @@ def markiere_exportiert(
     """Freigegebene, exportierte Buchungen → ``exportiert``; Journal ``export``.
 
     Buchungen in abgeschlossenen Zeiträumen bleiben, wie sie sind (die Sperre nimmt
-    keinen Statuswechsel an); sie stehen im Journaleintrag. Ergebnis: (markiert,
-    gesperrt). Die Zeilen werden blockweise geladen und in einem Flush geschrieben —
-    nicht je Buchung (jeder Zwischen-Flush kostete Sperrabfragen und Journal).
+    keinen Statuswechsel an); sie stehen im Journaleintrag. Ungeprüfte Buchungen
+    (``--alle``) behalten ihren Status — ``exportiert`` hieße freigegeben — und
+    stehen als ``ungeprueft`` im Journaleintrag: auch sie sind übergeben, nach der
+    Freigabe kämen sie sonst ein zweites Mal nach DATEV (``schon_exportiert``).
+    Ergebnis: (markiert, gesperrt). Die Zeilen werden blockweise geladen und in
+    einem Flush geschrieben — nicht je Buchung (jeder Zwischen-Flush kostete
+    Sperrabfragen und Journal).
     """
     verbindung = session.connection()
     sperren: dict[str, Any] = {}  # gesperrte Jahre/Monate, einmal gelesen
-    offen, gesperrt_ids = [], []
+    offen, gesperrt_ids, ungeprueft = [], [], []
     for b in buchungen:
-        if b.status not in FREIGEGEBEN - {BuchungStatus.EXPORTIERT}:
+        if b.status is BuchungStatus.EXPORTIERT:
             continue
-        if gesperrt(verbindung, b.datum, sperren):
+        if b.status not in FREIGEGEBEN:
+            ungeprueft.append(str(b.id))
+        elif gesperrt(verbindung, b.datum, sperren):
             gesperrt_ids.append(str(b.id))
         else:
             offen.append(str(b.id))
@@ -567,6 +573,7 @@ def markiere_exportiert(
             "anzahl": len(buchungen),
             "markiert": sorted(markiert),
             "gesperrt": sorted(gesperrt_ids),
+            "ungeprueft": sorted(ungeprueft),
         },
     )
     return len(markiert), len(gesperrt_ids)

@@ -98,16 +98,13 @@ def buchungsstapel(
         )
     except (KonfigurationError, ValueError) as fehler:
         raise _fehler(fehler) from fehler
-    status = (
-        None
-        if alle
-        else {
-            BuchungStatus.AUTO_GEBUCHT,
-            BuchungStatus.GEPRUEFT,
-            BuchungStatus.KORRIGIERT,
-            BuchungStatus.EXPORTIERT,
-        }
-    )
+    status_freigegeben = {
+        BuchungStatus.AUTO_GEBUCHT,
+        BuchungStatus.GEPRUEFT,
+        BuchungStatus.KORRIGIERT,
+        BuchungStatus.EXPORTIERT,
+    }
+    status = None if alle else status_freigegeben
     _, make_session = session_factory(db)
     # Übergabe an den Steuerberater, vermerkt die Buchungen als exportiert: Buchungen
     # freigeben (buchhalter, freigeber) und Einmalcode
@@ -172,6 +169,14 @@ def buchungsstapel(
         )
     for warnung in exporter.warnungen:
         console.print(f"[yellow]{escape(warnung)}[/yellow]")
+    ungeprueft = sum(1 for b in buchungen if b.status not in status_freigegeben)
+    if ungeprueft:
+        console.print(
+            f"[yellow]{ungeprueft} ungeprüfte Buchungen im Stapel (--alle): sie "
+            "bleiben ungeprüft, gelten aber als übergeben und kommen nach der Freigabe "
+            "nicht noch einmal — ändert sich eine davon noch, nur mit --erneut (den "
+            "früheren Stapel in DATEV dann ersetzen)[/yellow]"
+        )
     if markiert or gesperrt:
         console.print(
             f"[dim]{markiert} als exportiert vermerkt"

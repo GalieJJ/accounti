@@ -186,7 +186,13 @@ class DATEVExporter:
             ausgabe_pfad: Verzeichnis für die Ausgabedatei
 
         Returns:
-            Pfad zur erzeugten Datei
+            Pfad zur erzeugten Datei — eine vorhandene wird nie überschrieben: der
+            nächste Stapel desselben Zeitraums heißt ``…_2.csv``, ``…_3.csv`` usw.
+            Ein zweiter Export bringt nur die noch nicht exportierten Buchungen; mit
+            demselben Namen wäre der erste Stapel verloren, und der SHA-256 im
+            Journal (``markiere_exportiert``) verwiese auf eine Datei, die es so nicht
+            mehr gibt — die Übergabe bliebe nicht nachvollziehbar (§ 145 Abs. 1 AO,
+            GoBD Rz. 30 ff.).
 
         Raises:
             DatevFormatError: Zeitraum, Wirtschaftsjahr oder ein Wert passt nicht ins
@@ -195,17 +201,28 @@ class DATEVExporter:
         inhalt, von, bis = self.inhalt(buchungen)
         ordner = Path(ausgabe_pfad)
         ordner.mkdir(parents=True, exist_ok=True)
-        datei = ordner / f"EXTF_Buchungsstapel_{von:%Y%m%d}_{bis:%Y%m%d}.csv"
-        datei.write_bytes(inhalt)
-        return datei
+        stamm = f"EXTF_Buchungsstapel_{von:%Y%m%d}_{bis:%Y%m%d}"
+        nr = 1
+        while True:
+            datei = ordner / (f"{stamm}.csv" if nr == 1 else f"{stamm}_{nr}.csv")
+            try:
+                # "x": anlegen oder scheitern — auch zwei gleichzeitige Exporte
+                # überschreiben einander nicht
+                with datei.open("xb") as ziel:
+                    ziel.write(inhalt)
+            except FileExistsError:
+                nr += 1
+                continue
+            return datei
 
 
 def schon_exportiert(session: Session) -> set[UUID]:
     """Buchungen, die ein früherer Export laut Journal übergeben hat.
 
     Der Status ``exportiert`` reicht nicht: in einem festgeschriebenen Monat nimmt
-    die Buchung keinen Statuswechsel mehr an — der Export vermerkt sie dann nur im
-    Journal (``markiere_exportiert``, Liste ``gesperrt``).
+    die Buchung keinen Statuswechsel mehr an, und eine ungeprüfte (``--alle``) wird
+    nicht ``exportiert`` — der Export vermerkt beide nur im Journal
+    (``markiere_exportiert``, Listen ``gesperrt`` und ``ungeprueft``).
     """
     from accounti.pruefung.journal import journal_vorhanden, lade_journal
 
@@ -219,7 +236,7 @@ def schon_exportiert(session: Session) -> set[UUID]:
             nachher = json.loads(e.nachher)
         except ValueError:
             continue
-        for schluessel in ("markiert", "gesperrt"):
+        for schluessel in ("markiert", "gesperrt", "ungeprueft"):
             for wert in nachher.get(schluessel) or []:
                 try:
                     ids.add(UUID(str(wert)))
