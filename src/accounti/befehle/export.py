@@ -237,7 +237,10 @@ def datev_kontoauszuege(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Kontoauszüge: lückenlos nummeriert, MT940 und Saldenverlauf (CSV)."""
+    """Kontoauszüge: lückenlos nummeriert, MT940 und Saldenverlauf (CSV).
+
+    Schreibt die Auszüge fest — mit Benutzern Buchungen freigeben und Einmalcode
+    (wie ``export datev``; Gesamttest Abschluss B8)."""
     from accounti.db import init_db, session_factory
     from accounti.db.repo_export import lade_kontoauszuege
     from accounti.export.kontoauszuege import (
@@ -252,6 +255,7 @@ def datev_kontoauszuege(
     from accounti.export.kontoauszuege import kontobezeichnung as bezeichnung_fuer
     from accounti.integrationen.einstellungen import lade_kontext
     from accounti.konfiguration import KonfigurationError
+    from accounti.models.auth import Recht
 
     von, bis = zeitraum(period)
     ab_monat = zeitraum(ab)[0] if ab else None
@@ -266,7 +270,10 @@ def datev_kontoauszuege(
     paypal = kontext.einstellungen.marktplaetze.get("paypal")
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
+        make_session() as s,
+    ):
         try:
             bezeichnung = pruefe_kontobezeichnung(
                 kontobezeichnung

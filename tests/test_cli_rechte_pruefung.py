@@ -117,6 +117,13 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
         ["bank", "bestaetigen", "abc"],
         ["bank", "ablehnen", "abc"],
         ["nachfordern", "anfrage", "abc", "--senden"],
+        # Gesamttest Abschluss B8: Anlagen und Saldo laut Kontoauszug sind Buchen
+        ["anlagen", "anlegen", "--bezeichnung", "Pkw", "--datum", "2026-01-15"]
+        + ["--kosten", "30000", "--typ", "pkw"],
+        ["anlagen", "afa", "--jahr", "2026"],
+        ["anlagen", "abgang", "1", "--datum", "2026-06-30", "--art", "verschrottung"],
+        ["abschluss", "saldo", "--konto", "DE12500105170648489890"]
+        + ["--stichtag", "2026-12-31", "--saldo", "100"],
     ]
     for befehl in befehle:
         r = _run(url, config, *befehl, "--von", "jan")
@@ -128,6 +135,8 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
         ["export", "datev", "--berater", "1", "--mandant", "2"],
         ["datev", "belege", "--period", "2026-08", "--ausgabe", "b.zip"]
         + ["--berater", "1", "--mandant", "2"],
+        # Abschluss B8: Kontoauszüge schreiben fest — Buchungen freigeben
+        ["datev", "kontoauszuege", "--period", "2026-08", "--anfangssaldo", "0"],
     ):
         r = _run(url, config, *befehl)
         assert r.exit_code == 1, (befehl, r.output)
@@ -529,3 +538,35 @@ def test_eigene_person_eines_vorgangs_wird_auch_gekennzeichnet(welt):
     eintraege = _journal(url, "objekt_id", "person")
     assert ("frei", "chef (ungeprüft)") in eintraege
     assert ("geprueft", "chef") in eintraege
+
+
+def test_anlagen_mit_benutzer_im_journal(welt, monkeypatch):
+    """Gesamttest Abschluss B8: Der Betrachter schied einen Pkw unwiderruflich aus;
+    jetzt bucht nur, wer buchen darf — und im Journal steht der Benutzer."""
+    from accounti.db.repo_auth import lade_ereignisse
+
+    url, config, _, p = welt
+    anlegen = ["anlagen", "anlegen", "--bezeichnung", "Notebook"]
+    anlegen += ["--datum", "2026-02-10", "--kosten", "1500", "--typ", "notebook"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, *anlegen, "--von", "eva")
+    assert r.exit_code == 0, r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, "anlagen", "afa", "--jahr", "2026", "--von", "eva")
+    assert r.exit_code == 0, r.output
+    assert ("buchung_angelegt", "eva") in _journal(url, "vorgang", "person")
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        genutzt = [
+            (e.benutzer, e.hinweis)
+            for e in lade_ereignisse(s)
+            if e.art == "recht_genutzt"
+        ]
+    engine.dispose()
+    assert genutzt.count(("eva", Recht.BUCHEN.value)) == 2
+    vorher = _journal(url, "nr", "hash")
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "jan")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["jan"].codes.pop())
+    r = _run(url, config, "anlagen", "abgang", "1", "--datum", "2026-06-30")
+    assert r.exit_code == 1 and "jan darf" in r.output, r.output
+    assert _journal(url, "nr", "hash") == vorher

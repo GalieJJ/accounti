@@ -434,6 +434,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Betrachter schrieb Anlagen, Saldo und Kontoauszüge** (Abschluss B8): `anlagen
+  anlegen|afa|abgang` und `abschluss saldo` liefen mit eingerichteten Benutzern ohne
+  Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, im Journal „…
+  (ungeprüft)“), `datev kontoauszuege` schrieb Auszüge fest. Jetzt buchen (`buchhalter`)
+  bzw. Buchungen freigeben für die Kontoauszüge, jeweils mit Einmalcode; `anlagen
+  anlegen|afa|abgang` haben `--von`, `abschluss saldo` vermerkt den geprüften Benutzer.
+  `FREIGABEWEGE`, README und Verfahrensdokumentation nennen die Befehle
 - **Token-Namen und Anmeldeprotokoll über Gesellschaftsgrenzen** (Betrieb B9): Der Index
   `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a
   eines hatte, und die Meldung riet zu einem Widerruf, der in b nicht ging. Eindeutig ist

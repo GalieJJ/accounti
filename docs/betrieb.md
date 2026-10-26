@@ -177,13 +177,15 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
 
 - **buchen** (`buchhalter`): `korrigiere`, `buchung storniere`, `kasse
   buchen|anfangsbestand|storno`, `abschluss eroeffnung` (die EB-Ausnahme der
-  Monatssperre), `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
+  Monatssperre), `abschluss saldo` (Saldo laut Kontoauszug für die Bank-Abstimmung),
+  `anlagen anlegen|afa|abgang` (ein Abgang scheidet das Anlagegut unwiderruflich aus),
+  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
   bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`,
   `abschluss vortrag`, `export datev` und `datev belege` (Übergabe an den Steuerberater,
-  Vermerk „exportiert“).
+  Vermerk „exportiert“), `datev kontoauszuege` (schreibt die Auszüge fest).
 - **Steuermeldungen freigeben** (`freigeber`): `periode oeffnen`, `abschluss oeffnen` —
   die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102), meist folgt eine
   berichtigte Voranmeldung; accounti nennt beim Öffnen schon freigegebene oder

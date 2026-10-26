@@ -22,6 +22,10 @@ befehl = typer.Typer(
 )
 
 CSV_OPTION = typer.Option("--csv", help="zusätzlich als CSV")
+_ERFASST = (
+    "Wer erfasst (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
+    "Benutzern: Rolle und Einmalcode)"
+)
 _ENTSCHEIDET = (
     "Wer entscheidet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
     "Benutzern: Rolle und Einmalcode)"
@@ -39,19 +43,26 @@ def saldo(
     konto: str = typer.Option(..., "--konto", help="IBAN des eingerichteten Kontos"),
     stichtag: str = typer.Option(..., "--stichtag", help="z.B. 2026-12-31"),
     saldo_text: str = typer.Option(..., "--saldo", help="Saldo laut Kontoauszug"),
-    von: str | None = typer.Option(None, help="Wer erfasst"),
+    von: str | None = typer.Option(None, help=_ERFASST),
     db: str = DB_OPTION,
-    config: str = KONFIG_OPTION,  # noqa: ARG001
+    config: str = KONFIG_OPTION,
 ) -> None:
-    """Saldo laut Kontoauszug zum Stichtag erfassen (für die Bank-Abstimmung)."""
+    """Saldo laut Kontoauszug zum Stichtag erfassen (für die Bank-Abstimmung).
+
+    Buchen (Gesamttest Abschluss B8): der Saldo entscheidet die Bank-Abstimmung
+    des Abschlusses — mit Benutzern Rolle buchhalter und Einmalcode."""
     from accounti.abschluss.pruefungen import erfasse_kontoauszugssaldo
     from accounti.anzeige import betrag_de
+    from accounti.models.auth import Recht
 
     tag = datum(stichtag, "--stichtag")
     wert = betrag(saldo_text, "--saldo")
-    with sitzung(db)() as s:
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        sitzung(db)() as s,
+    ):
         try:
-            erfasse_kontoauszugssaldo(s, konto, tag, wert, von)
+            erfasse_kontoauszugssaldo(s, konto, tag, wert, person)
         except ValueError as fehler:
             ende(str(fehler))
         s.commit()
