@@ -135,9 +135,12 @@ gesellschaften:
   **irgendeiner** Gesellschaft mit seinem Einmalcode ein — `accounti -g tochter benutzer
   rolle chef --rolle verwalter`, oder einen eigenen Verwalter mit `accounti -g tochter
   benutzer anlegen bert --rolle verwalter` und `accounti -g tochter benutzer 2fa bert`. Das
-  Protokoll vermerkt `einrichtung_gesellschaft`. Sobald die Gesellschaft einen eigenen
-  Verwalter mit zweitem Faktor hat, verwalten sie nur noch ihre Verwalter (auch wenn
-  dieser später wegfällt — siehe „Letzter Verwalter“ unten).
+  Protokoll vermerkt `einrichtung_gesellschaft`. Die Einrichtung bestimmt nur den ersten
+  Verwalter: Benutzer, die in der Gesellschaft schon eine andere Rolle haben (etwa ein
+  Freigeber), verwaltet der fremde Verwalter nicht — Passwort, Codes oder Rollen eines
+  solchen Kontos gäben ihm dessen Namen. Sobald die Gesellschaft einen eigenen Verwalter
+  mit zweitem Faktor hat, verwalten sie nur noch ihre Verwalter (auch wenn dieser später
+  wegfällt — siehe „Letzter Verwalter“ unten).
 - API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`);
   sein Name ist unter den aktiven Token **dieser** Gesellschaft eindeutig (ein „erp“ je
   Gesellschaft, Migration `6d38d11fc348`).

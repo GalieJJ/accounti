@@ -255,3 +255,46 @@ def test_b8_eingerichtete_gesellschaft_nicht_durch_fremden_verwalter(zwei):
     r = run("-g", "b", "benutzer", "rolle", "chef", "--rolle", "verwalter")
     assert r.exit_code == 1, r.output
     assert ("b", "verwalter") not in w.rollen("chef")
+
+
+def test_einrichtung_uebernimmt_keine_konten_der_gesellschaft(zwei):
+    """Nachprüfung N2: Die Einrichtung von b bestimmt den ersten Verwalter — sie gibt
+    chef (Verwalter nur in a) nicht Passwort, Codes und Rollen eines Benutzers, der in
+    b schon arbeitet (tom, Freigeber in b): sonst handelte chef unter toms Namen."""
+    u, w = zwei
+    engine, fabrik = session_factory(u.system)
+    with fabrik() as s:
+        lege_person_an(s, "tom", Rolle.FREIGEBER, gesellschaft="b")
+    engine.dispose()
+    neu = "ein anderes langes Passwort"
+    for befehl, eingabe in (
+        (["benutzer", "passwort", "tom"], f"{neu}\n{neu}\n"),
+        (["benutzer", "codes", "tom"], None),
+        (["benutzer", "rolle", "tom", "--rolle", "verwalter"], None),
+        (["benutzer", "sperren", "tom"], None),
+    ):
+        w.als("chef")
+        r = run("-g", "b", *befehl, input=eingabe)
+        assert r.exit_code == 1, (befehl, r.output)
+        assert "Einrichtung" in r.output, (befehl, r.output)
+    assert w.rollen("tom") == {("b", "freigeber")}
+    assert w.lade(lade_benutzer, "tom").aktiv
+    arten = {(e.art, e.benutzer) for e in w.lade(lade_ereignisse)}
+    assert ("passwort_geaendert", "tom") not in arten
+    assert ("wiederherstellungscodes_neu", "tom") not in arten
+    # einen neuen Benutzer zum Verwalter machen geht weiter (test_b7_ersten_…)
+
+
+def test_protokoll_nennt_wer_codes_erneuert(zwei):
+    """Nachprüfung N2: ``wiederherstellungscodes_neu`` stand ohne „durch …“ im
+    Protokoll, wenn ein Verwalter die Codes eines anderen erneuerte."""
+    u, w = zwei
+    w.als("chef")
+    r = run("-g", "a", "benutzer", "codes", "eva")
+    assert r.exit_code == 0, r.output
+    eintraege = [
+        (e.benutzer, e.hinweis)
+        for e in w.lade(lade_ereignisse)
+        if e.art == "wiederherstellungscodes_neu"
+    ]
+    assert ("eva", "durch chef") in eintraege, eintraege

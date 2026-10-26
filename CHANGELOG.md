@@ -468,7 +468,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   sperren` still oder nahm sich die Rolle, und jeder an der Shell legte ohne Code einen
   neuen an. `sperren` und `rolle verwalter --entfernen` lehnen das für den letzten aktiven
   Verwalter mit zweitem Faktor einer Gesellschaft ab; der Merker `verwaltet:<Kürzel>`
-  hält die Einrichtungsphase einer einmal verwalteten Gesellschaft geschlossen (fail-closed)
+  hält die Einrichtungsphase einer einmal verwalteten Gesellschaft geschlossen (fail-closed).
+  Die Einrichtung erstreckt sich nicht auf Benutzer, die in der Gesellschaft schon eine
+  andere Rolle als `verwalter` haben (sonst setzte der Verwalter von a Passwort und Codes
+  eines Freigebers von b); `wiederherstellungscodes_neu` nennt im Protokoll, wer die Codes
+  eines anderen erneuert hat
 - **`mandant.kontenrahmen` aus der Vorlage wurde ignoriert** (Betrieb B4 = Steuer B3 =
   Abschluss B6): Die Vorlage führte den Kontenrahmen unter `mandant`, gelesen wurde für USt,
   Abschluss, Anlagen und Prüfregeln nur `buchhaltung.kontenrahmen` — eine SKR04-Gesellschaft

@@ -405,14 +405,32 @@ def _pruefe_zustaendig(
     """Wer einen Benutzer verwaltet, ist Verwalter in **jeder** Gesellschaft, in
     der dieser Rollen hat — sonst übernähme ein Verwalter von b das Konto eines
     Freigebers von a (Passwort und zweiter Faktor gelten global). Wer die
-    Gesellschaft ``einrichtung`` einrichtet, gilt dort als ihr Verwalter."""
+    Gesellschaft ``einrichtung`` einrichtet, gilt dort als ihr Verwalter — aber nur
+    für Benutzer, die dort keine andere Rolle als ``verwalter`` haben (Nachprüfung
+    N2): Die Einrichtung bestimmt den ersten Verwalter; Passwort, Codes und Rollen
+    eines Freigebers von b gäben dem Verwalter von a dessen Konto."""
     z = lade_benutzer(s, ziel)
     h = lade_benutzer(s, handelnder)
     if z is None or h is None:
         return
-    noetig = {r.gesellschaft for r in rollen_von(s, z.id)}
+    zuordnungen = rollen_von(s, z.id)
+    noetig = {r.gesellschaft for r in zuordnungen}
     darf = {r.gesellschaft for r in rollen_von(s, h.id) if r.rolle is Rolle.VERWALTER}
     if einrichtung is not None:
+        andere = sorted(
+            r.rolle.value
+            for r in zuordnungen
+            if r.gesellschaft == einrichtung and r.rolle is not Rolle.VERWALTER
+        )
+        if andere:
+            _verweigert(s, "recht_verweigert", h.name, Recht.VERWALTEN, einrichtung)
+            msg = (
+                f"{ziel} hat in {einrichtung} schon die Rolle {', '.join(andere)} — "
+                f"die Einrichtung von {einrichtung} bestimmt nur den ersten Verwalter "
+                "(neuer Benutzer oder einer, der dort nur Verwalter ist); "
+                f"{ziel} verwaltet danach der Verwalter von {einrichtung}"
+            )
+            raise RechteError(msg)
         darf.add(einrichtung)
     fehlend = sorted(noetig - darf)
     if fehlend:

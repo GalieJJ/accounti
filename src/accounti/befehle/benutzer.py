@@ -238,7 +238,7 @@ def codes(
     from accounti.bank.tresor import TresorError, lade_schluessel
 
     ziel = name.strip().lower()
-    verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
+    durch = verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     try:
         schluessel = lade_schluessel()
     except TresorError as fehler:
@@ -250,7 +250,7 @@ def codes(
                 f"Erst den zweiten Faktor einrichten: accounti benutzer 2fa {name}"
             )
         neu = neue_wiederherstellungscodes(
-            s, b, auth_einstellungen(config), schluessel=schluessel
+            s, b, auth_einstellungen(config), schluessel=schluessel, durch=durch
         )
         s.commit()
     console.print("Neue Wiederherstellungscodes — jeder gilt genau einmal:")

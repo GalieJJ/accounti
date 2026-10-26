@@ -317,9 +317,10 @@ def neue_wiederherstellungscodes(
     *,
     schluessel: str,
     protokoll: bool = True,
+    durch: str | None = None,
 ) -> list[str]:
     """Zehn neue Codes (die alten werden ungültig), gespeichert als HMAC mit dem
-    Tresor-Schlüssel ``schluessel``."""
+    Tresor-Schlüssel ``schluessel``; ``durch``: wer sie für einen anderen erneuert."""
     jetzt = _jetzt(jetzt)
     codes = wiederherstellung.neue_codes()
     repo.ersetze_wiederherstellungscodes(
@@ -329,7 +330,8 @@ def neue_wiederherstellungscodes(
         jetzt,
     )
     if protokoll:
-        ereignis(s, "wiederherstellungscodes_neu", jetzt, b.name)
+        hinweis = f"durch {durch}" if durch and durch != b.name else None
+        ereignis(s, "wiederherstellungscodes_neu", jetzt, b.name, hinweis=hinweis)
     return codes
 
 
