@@ -315,6 +315,9 @@ def test_verbuchen_in_festgeschriebenen_monat_mit_buchungsdatum(tmp_path):
     basis = ["--db", url, "--archiv", archiv, "--config", str(tmp_path / "k.yaml")]
     r = _run("opos", "verbuchen", *basis)
     assert "Nicht verbucht" in r.output and "--buchungsdatum" in r.output
+    # Gesamttest Eingang: nicht verbuchte Rechnungen sind kein Erfolg (Exit 1)
+    assert r.exit_code == 1, r.output
+    assert "1 Rechnung nicht verbucht" in r.output
     r = _run("opos", "verbuchen", *basis, "--buchungsdatum", "eingang")
     assert r.exit_code == 0, r.output
     assert "§ 15 Abs. 1 Nr. 1 UStG" in r.output

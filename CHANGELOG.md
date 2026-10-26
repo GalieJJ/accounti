@@ -434,6 +434,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **`opos verbuchen` endete mit Exit 0, auch wenn Rechnungen nicht verbucht wurden**
+  (Gesamttest Eingang): Die übrigen Rechnungen werden weiter verbucht, am Ende steht „N
+  Rechnung(en) nicht verbucht“ und Exit 1 — Skripte und Cron sehen den Fehler
 - **Betrachter schrieb Anlagen, Saldo und Kontoauszüge** (Abschluss B8): `anlagen
   anlegen|afa|abgang` und `abschluss saldo` liefen mit eingerichteten Benutzern ohne
   Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, im Journal „…

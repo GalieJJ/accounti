@@ -1511,6 +1511,10 @@ def opos_verbuchen(
             "[dim]Nächster Schritt: Bankumsätze importieren und 'accounti opos "
             "zuordnen' vor 'accounti classify' ausführen.[/dim]"
         )
+    if lauf.fehler:  # kein Erfolg für Skripte und Cron (Gesamttest Eingang)
+        n = len(lauf.fehler)
+        console.print(f"[red]{n} Rechnung{'en' if n > 1 else ''} nicht verbucht[/red]")
+        raise typer.Exit(1)
 
 
 @opos_app.command("liste")
