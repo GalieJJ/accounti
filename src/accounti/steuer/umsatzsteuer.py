@@ -29,6 +29,7 @@ class Geschaeftsvorfall(str, enum.Enum):
     EU_B2B_REVERSE_CHARGE = "eu_b2b_rc"  # B2B EU → Reverse Charge (steuerfrei)
     EU_INNERGEMEINSCHAFTLICH = "eu_ig_lieferung"  # ig. Lieferung § 4 Nr. 1b UStG
     DRITTLAND_AUSFUHR = "drittland"  # Ausfuhr § 4 Nr. 1a UStG
+    NICHT_STEUERBAR = "nicht_steuerbar"  # Leistungsort im Drittland (§ 3a Abs. 2, 4)
     VORSTEUER = "vorsteuer"  # Eingangsrechnung mit VSt
     STEUERFREI_INLAND = "steuerfrei"  # Steuerbefreit § 4 UStG
 
@@ -157,6 +158,7 @@ class UStBerechner:
         ist_b2b: bool = False,
         kaeufer_hat_ust_id: bool = False,
         ist_sonstige_leistung: bool = False,
+        ist_elektronisch: bool = False,
     ) -> Geschaeftsvorfall:
         """Bestimmt den umsatzsteuerlichen Geschäftsvorfall.
 
@@ -166,11 +168,23 @@ class UStBerechner:
             kaeufer_hat_ust_id: Hat der Käufer eine gültige USt-ID?
             ist_sonstige_leistung: Dienstleistung statt Lieferung? Bei EU-B2B
                 schuldet dann der Empfänger die Steuer (§ 3a Abs. 2, Reverse Charge).
+            ist_elektronisch: Telekommunikations-, Rundfunk- oder elektronisch
+                erbrachte Leistung (§ 3a Abs. 5 Satz 2 UStG).
+
+        Eine sonstige Leistung an Privatkunden wird grundsätzlich am Sitz des
+        Leistenden ausgeführt (§ 3a Abs. 1 UStG) bzw. dort, wo gearbeitet wird
+        (§ 3a Abs. 3 Nr. 3 Buchst. c UStG, z.B. Rahmung) — also im Inland. Nur die
+        elektronischen Leistungen sind im Wohnsitzland steuerbar: in der EU über OSS
+        (§ 3a Abs. 5, § 18j UStG), im Drittland nicht im Inland (§ 3a Abs. 4 Satz 2
+        Nr. 11 UStG). OSS betrifft sonst nur Fernverkäufe von Waren (§ 3c UStG).
+        Grenze: die übrigen Katalogleistungen des § 3a Abs. 4 an Privatkunden im
+        Drittland (z.B. Überlassung von Urheberrechten) erkennt accounti nicht.
 
         Returns:
             Der zutreffende Geschäftsvorfall
         """
         land = bestimmungsland.upper().strip()
+        sonstige_leistung = ist_sonstige_leistung or ist_elektronisch
 
         # Inland
         if land == self.firmen_land:
@@ -180,11 +194,15 @@ class UStBerechner:
         if ist_eu_land(land):
             # B2B mit USt-ID → Reverse Charge (Leistung) / ig. Lieferung (Ware)
             if ist_b2b and kaeufer_hat_ust_id:
-                if ist_sonstige_leistung:
+                if sonstige_leistung:
                     return Geschaeftsvorfall.EU_B2B_REVERSE_CHARGE
                 return Geschaeftsvorfall.EU_INNERGEMEINSCHAFTLICH
 
-            # B2C → OSS (wenn registriert und Schwelle überschritten)
+            # B2C-Dienstleistung: Sitz des Leistenden (§ 3a Abs. 1 UStG)
+            if sonstige_leistung and not ist_elektronisch:
+                return Geschaeftsvorfall.INLAND
+
+            # B2C Fernverkauf bzw. elektronische Leistung → OSS (wenn registriert)
             if self.oss_registriert and self.oss_schwelle_ueberschritten:
                 return Geschaeftsvorfall.EU_B2C_OSS
 
@@ -192,6 +210,10 @@ class UStBerechner:
             return Geschaeftsvorfall.INLAND
 
         # Drittland (UK, CH, US, etc.)
+        if sonstige_leistung:
+            if ist_b2b or ist_elektronisch:
+                return Geschaeftsvorfall.NICHT_STEUERBAR  # § 3a Abs. 2 bzw. Abs. 4
+            return Geschaeftsvorfall.INLAND  # § 3a Abs. 1 UStG
         return Geschaeftsvorfall.DRITTLAND_AUSFUHR
 
     def berechne_ust(
@@ -202,6 +224,7 @@ class UStBerechner:
         kaeufer_hat_ust_id: bool = False,
         ermaessigt: bool = False,
         ist_sonstige_leistung: bool = False,
+        ist_elektronisch: bool = False,
     ) -> UStPosition:
         """Berechnet Umsatzsteuer für einen Verkauf.
 
@@ -217,7 +240,11 @@ class UStBerechner:
             Vollständige UStPosition mit allen Buchungsinfos
         """
         vorfall = self.bestimme_vorfall(
-            bestimmungsland, ist_b2b, kaeufer_hat_ust_id, ist_sonstige_leistung
+            bestimmungsland,
+            ist_b2b,
+            kaeufer_hat_ust_id,
+            ist_sonstige_leistung,
+            ist_elektronisch,
         )
         land = bestimmungsland.upper().strip()
 

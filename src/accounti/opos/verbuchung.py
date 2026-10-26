@@ -5,17 +5,28 @@ Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
 
 Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nichts neu.
 
-Gebucht wird auf das Belegdatum. Eine Eingangsrechnung, die erst nach der
-Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das Eingangsdatum
-(``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und Eingangsdatum
-(``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt ist; die
-Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem die
-Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel. Offener
-Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
+Eingangsrechnungen werden auf das Belegdatum gebucht. Eine Eingangsrechnung, die erst
+nach der Festschreibung ihres Monats eintrifft, bucht ``buchungsdatum`` auf das
+Eingangsdatum (``eingang``), den ersten offenen Tag ab dem späteren von Beleg- und
+Eingangsdatum (``offen``) oder einen festen Tag — nur Belege, deren Zeitraum gesperrt
+ist; die Vorsteuer gehört nach § 15 Abs. 1 Nr. 1 UStG ohnehin in den Zeitraum, in dem
+die Rechnung vorliegt. Bei Bilanzierung nie über den Geschäftsjahreswechsel.
+
+Ausgangsrechnungen werden zum umsatzsteuerlichen Zeitpunkt gebucht
+(``steuer/leistungszeitpunkt.py``): zum Leistungsdatum, wenn die Leistung in einem
+früheren Monat lag (§ 13 Abs. 1 Nr. 1 Buchst. a UStG), eine innergemeinschaftliche
+Lieferung im Rechnungsmonat, spätestens am Ende des Folgemonats (§ 13 Abs. 1 Nr. 6
+UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Ist dieser
+Monat festgeschrieben, wird nicht still später gebucht: Der Monat ist zu öffnen und die
+Voranmeldung zu berichtigen. Eine Gutschrift mit Bezug (BT-25) wird mit der noch
+offenen Rechnung desselben Kunden verrechnet.
+
+Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -30,6 +41,7 @@ from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
 from accounti.db.repo_abschluss import ist_gesperrt
 from accounti.db.repository import (
     lade_belege,
+    lade_posten,
     speichere_buchung,
     speichere_posten,
     verbuchte_beleg_ids,
@@ -37,6 +49,7 @@ from accounti.db.repository import (
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.erechnung import ERechnungError, lies
+from accounti.erechnung.abbildung import GUTSCHRIFT_TYPEN
 from accounti.erechnung.modell import Rechnung
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
@@ -52,7 +65,10 @@ from accounti.models import (
     Kontakt,
     OffenerPosten,
     PostenRichtung,
+    PostenStatus,
 )
+from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
+from accounti.steuer.leistungszeitpunkt import steuertag
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
 
 NULL = Decimal("0")
@@ -70,6 +86,8 @@ _ERLOES_STEUERFREI = {
     "E": "8100",  # steuerfreie Umsätze § 4 Nr. 8 ff.
 }
 _ERLOES_UNBEKANNT = "8200"
+# Belegtypen, die eine Rechnung mindern oder berichtigen (§ 17 UStG: Monat der Änderung)
+_KORREKTUR_TYPEN = GUTSCHRIFT_TYPEN | {"384"}
 
 
 class VerbuchungError(RuntimeError):
@@ -102,6 +120,7 @@ class _Gruppe:
     konto: str
     schluessel: int | None
     pruefen: bool
+    tag: date
     netto: Decimal = NULL
     steuer: Decimal = NULL
 
@@ -159,15 +178,18 @@ def _gruppen(
     sachkonto_pruefen: bool,
     rechnung: Rechnung | None,
     land: str,
+    tag_fuer: Callable[[str | None], date],
     ustid_bestaetigt: bool = True,
 ) -> list[_Gruppe]:
-    gruppen: dict[tuple[str, int | None], _Gruppe] = {}
+    """Buchungen je Konto, Steuerschlüssel und Buchungstag (``tag_fuer`` je
+    Steuerkategorie)."""
+    gruppen: dict[tuple[str, int | None, date], _Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
     if not positionen:
         # ohne Positionen: eine Gruppe über die Belegsummen
         konto = sachkonto if eingang else _ERLOES_UNBEKANNT
-        g = _Gruppe(konto, None, True)
+        g = _Gruppe(konto, None, True, tag_fuer(None))
         g.netto = beleg.netto if beleg.netto is not None else (beleg.brutto or NULL)
         g.steuer = beleg.steuer or NULL
         return [g]
@@ -191,7 +213,10 @@ def _gruppen(
             schluessel, pruefen = None, True
         else:
             konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
-        g = gruppen.setdefault((konto, schluessel), _Gruppe(konto, schluessel, pruefen))
+        tag = tag_fuer(kategorie)
+        g = gruppen.setdefault(
+            (konto, schluessel, tag), _Gruppe(konto, schluessel, pruefen, tag)
+        )
         g.pruefen = g.pruefen or pruefen
         g.netto += p.netto
         g.steuer += p.steuer_betrag or NULL
@@ -236,38 +261,27 @@ def verbuche_beleg(
     rechnung = _rechnung_aus_archiv(beleg, archiv)
     anlass = f"Beleg {beleg.belegnummer or beleg.dateiname}"
     belegdatum = beleg.belegdatum or beleg.eingegangen_am.date()
-    gebucht_am, hinweis_datum = _buchungstag(
-        session,
-        beleg,
-        belegdatum,
-        buchungsdatum if eingang else "beleg",
-        anlass,
-        gewinnermittlung,
-    )
-    if ist_gesperrt(session, gebucht_am.year) and gebucht_am == belegdatum:
-        jahr = belegdatum.year
-        msg = (
-            f"{anlass}: Belegdatum {belegdatum:%d.%m.%Y} liegt im abgeschlossenen "
-            f"Geschäftsjahr {jahr} — verbuchen erst nach accounti abschluss oeffnen "
-            f"--jahr {jahr}"
-            + (
-                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
-                "--buchungsdatum offen)"
-                if eingang
-                else ""
+    hinweise: list[str] = []
+    if eingang:
+        gebucht_am, hinweis_datum = _buchungstag(
+            session, beleg, belegdatum, buchungsdatum, anlass, gewinnermittlung
+        )
+        hinweise += [hinweis_datum] if hinweis_datum else []
+        _pruefe_sperre(session, anlass, gebucht_am, belegdatum, eingang=True)
+        tag_fuer = _fester_tag(gebucht_am)
+    else:
+        korrektur = (rechnung is not None and rechnung.typ in _KORREKTUR_TYPEN) or (
+            beleg.brutto is not None and beleg.brutto < 0
+        )
+        tag_fuer = _steuertag_fuer(belegdatum, beleg.leistungsdatum, korrektur)
+        kategorien = set(_kategorien(beleg, rechnung)) or {None}
+        for kategorie in sorted(kategorien, key=str):
+            tag, hinweis = steuertag(
+                belegdatum, beleg.leistungsdatum, kategorie, korrektur
             )
-        )
-        raise JahrGesperrtError(msg)
-    if (fehler := sperrfehler(session.connection(), gebucht_am)) is not None:
-        ausweg = (
-            " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
-            "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
-            if eingang
-            else " — eine Ausgangsrechnung gehört in den Zeitraum ihrer Leistung"
-        )
-        raise type(fehler)(
-            f"{anlass}: gebucht am {gebucht_am:%d.%m.%Y}: {fehler}{ausweg}"
-        )
+            if hinweis and hinweis not in hinweise:
+                hinweise.append(hinweis)
+            _pruefe_sperre(session, anlass, tag, belegdatum, eingang=False)
 
     if eingang:
         if not beleg.lieferant_name:
@@ -325,7 +339,6 @@ def verbuche_beleg(
     )
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
-    hinweise = [hinweis_datum] if hinweis_datum else []
     ustid_bestaetigt = True
     if rechnung is not None and any(
         kategorie in USTID_KATEGORIEN for kategorie in _kategorien(beleg, rechnung)
@@ -348,6 +361,7 @@ def verbuche_beleg(
         sachkonto_pruefen,
         rechnung,
         treffer.kontakt.land,
+        tag_fuer,
         ustid_bestaetigt,
     ):
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
@@ -355,7 +369,7 @@ def verbuche_beleg(
             soll, haben = haben, soll
         buchung = Buchungssatz(
             beleg_id=beleg.id,
-            datum=gebucht_am,
+            datum=g.tag,
             soll_konto=soll,
             haben_konto=haben,
             betrag_netto=abs(g.netto),
@@ -395,7 +409,106 @@ def verbuche_beleg(
         skonto_betrag=skonto_betrag,
     )
     speichere_posten(session, posten)
+    if not eingang and rechnung is not None and rechnung.vorgaenger_nummer:
+        posten = _mit_rechnung_verrechnen(
+            session, posten, rechnung.vorgaenger_nummer, belegdatum, hinweise
+        )
     return Verbuchung(beleg, treffer, posten, buchungen, hinweise)
+
+
+def _mit_rechnung_verrechnen(
+    session: Session,
+    gutschrift: OffenerPosten,
+    nummer: str,
+    tag: date,
+    hinweise: list[str],
+) -> OffenerPosten:
+    """Gutschrift/Korrektur mit Bezug (BT-25) gegen die noch offene Rechnung desselben
+    Kunden verrechnen — beide stehen auf demselben Debitor (keine Buchung)."""
+    if gutschrift.restbetrag >= 0:
+        return gutschrift
+    offen = [
+        p
+        for p in lade_posten(
+            session,
+            richtung=PostenRichtung.FORDERUNG,
+            status={PostenStatus.OFFEN, PostenStatus.TEILBEZAHLT},
+        )
+        if p.belegnummer == nummer
+        and p.kontakt_id == gutschrift.kontakt_id
+        and p.restbetrag > 0
+    ]
+    if len(offen) != 1:
+        return gutschrift
+    (rechnung,) = offen
+    try:
+        (v, *_) = verrechne_posten(
+            session,
+            [gutschrift, rechnung],
+            tag,
+            grund=f"{gutschrift.belegnummer} bezieht sich auf {nummer} (BT-25)",
+        )
+    except VerrechnungError as fehler:
+        hinweise.append(f"nicht mit Rechnung {nummer} verrechnet: {fehler}")
+        return gutschrift
+    rest = rechnung.restbetrag - v.betrag
+    hinweise.append(
+        f"mit Rechnung {nummer} verrechnet: {v.betrag:.2f} € (Rest {nummer} "
+        f"{rest:.2f} €) — accounti opos liste"
+    )
+    neuer_rest = gutschrift.restbetrag + v.betrag
+    return gutschrift.model_copy(
+        update={
+            "restbetrag": neuer_rest,
+            "status": PostenStatus.AUSGEGLICHEN
+            if neuer_rest == 0
+            else PostenStatus.TEILBEZAHLT,
+        }
+    )
+
+
+def _fester_tag(tag: date) -> Callable[[str | None], date]:
+    return lambda _: tag
+
+
+def _steuertag_fuer(
+    belegdatum: date, leistungsdatum: date | None, korrektur: bool
+) -> Callable[[str | None], date]:
+    """Buchungstag je Steuerkategorie einer Ausgangsrechnung (leistungszeitpunkt)."""
+    return lambda kategorie: steuertag(
+        belegdatum, leistungsdatum, kategorie, korrektur
+    )[0]
+
+
+def _pruefe_sperre(
+    session: Session, anlass: str, tag: date, belegdatum: date, *, eingang: bool
+) -> None:
+    """Abgeschlossenes Jahr oder festgeschriebener Monat am Buchungstag → Fehler."""
+    if ist_gesperrt(session, tag.year) and (tag == belegdatum or not eingang):
+        art = "Belegdatum" if tag == belegdatum else "Leistungsdatum"
+        msg = (
+            f"{anlass}: {art} {tag:%d.%m.%Y} liegt im abgeschlossenen "
+            f"Geschäftsjahr {tag.year} — verbuchen erst nach accounti abschluss "
+            f"oeffnen --jahr {tag.year}"
+            + (
+                " (bei Einnahmenüberschussrechnung auch auf einen offenen Tag: "
+                "--buchungsdatum offen)"
+                if eingang
+                else ""
+            )
+        )
+        raise JahrGesperrtError(msg)
+    if (fehler := sperrfehler(session.connection(), tag)) is not None:
+        ausweg = (
+            " — eine Eingangsrechnung mit --buchungsdatum eingang, offen oder "
+            "JJJJ-MM-TT in einen offenen Zeitraum desselben Geschäftsjahres buchen"
+            if eingang
+            else f" — die Umsatzsteuer gehört in den Voranmeldungszeitraum {tag:%m/%Y} "
+            "(§ 13 Abs. 1 UStG), nicht still in einen späteren: Monat mit Grund öffnen "
+            f"(accounti periode oeffnen {tag:%Y-%m} --grund …), verbuchen und die "
+            f"Voranmeldung {tag:%m/%Y} berichtigen"
+        )
+        raise type(fehler)(f"{anlass}: gebucht am {tag:%d.%m.%Y}: {fehler}{ausweg}")
 
 
 def _buchungstag(

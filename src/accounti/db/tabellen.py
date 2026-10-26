@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     event,
+    false,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -143,6 +144,9 @@ class AusgangsrechnungRow(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     status: Mapped[str] = mapped_column(String(20))
     nummer: Mapped[str | None] = mapped_column(String(40), nullable=True, unique=True)
+    # BT-3 und BT-25: Gutschrift/Rechnungskorrektur mit Bezug (ohne Angabe: 380)
+    rechnungstyp: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    korrektur_zu: Mapped[str | None] = mapped_column(String(40), nullable=True)
     kunde_name: Mapped[str] = mapped_column(String(200))
     kunde_strasse: Mapped[str | None] = mapped_column(String(200), nullable=True)
     kunde_plz: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -197,6 +201,9 @@ class AusgangspositionRow(Base):
     einzelpreis: Mapped[Decimal] = mapped_column(Numeric(14, 4))
     ermaessigt: Mapped[bool] = mapped_column(Boolean, default=False)
     sonstige_leistung: Mapped[bool] = mapped_column(Boolean, default=False)
+    elektronisch: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
 
 
 class NummernkreisRow(Base):

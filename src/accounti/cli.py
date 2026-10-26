@@ -467,9 +467,28 @@ def _kosit_ausgabe(ergebnis: "KositErgebnis") -> None:
         console.print(f"  [{farbe}]{m.stufe}[/{farbe}] {escape(str(m))}")
 
 
+_KORREKTUR_ARTEN = {"gutschrift": "381", "korrektur": "384"}
+
+
+def _skonto_oder_ende(prozent: float | None, tage: int | None) -> None:
+    """Skonto nur mit Satz und Frist, 0 < Satz < 100 (Gesamttest B13)."""
+    fehler = None
+    if (prozent is None) != (tage is None):
+        fehler = "Skonto: --skonto-prozent und --skonto-tage nur zusammen angeben"
+    elif prozent is not None and not 0 < prozent < 100:
+        fehler = "Skonto: --skonto-prozent muss größer als 0 und kleiner als 100 sein"
+    elif tage is not None and tage < 0:
+        fehler = "Skonto: --skonto-tage darf nicht negativ sein"
+    if fehler:
+        console.print(f"[red]{fehler}[/red]")
+        raise typer.Exit(1)
+
+
 @rechnung_app.command("neu")
 def rechnung_neu(
-    name: str = typer.Option(..., help="Name des Kunden"),
+    name: str | None = typer.Option(
+        None, help="Name des Kunden (Pflicht, außer mit --korrektur-zu)"
+    ),
     strasse: str | None = typer.Option(None, help="Straße und Hausnummer"),
     plz: str | None = typer.Option(None, help="Postleitzahl"),
     ort: str | None = typer.Option(None, help="Ort"),
@@ -483,39 +502,94 @@ def rechnung_neu(
     notiz: str | None = typer.Option(None, help="Freitext auf der Rechnung"),
     skonto_prozent: float | None = typer.Option(None, help="Skonto in Prozent"),
     skonto_tage: int | None = typer.Option(None, help="Skontofrist in Tagen"),
+    korrektur_zu: str | None = typer.Option(
+        None,
+        help="Gutschrift/Rechnungskorrektur zu dieser ausgestellten Rechnung (BT-25); "
+        "ohne --name übernimmt sie den Kunden der Rechnung",
+    ),
+    korrektur_art: str = typer.Option(
+        "gutschrift",
+        help="mit --korrektur-zu: gutschrift (381, Minderung positiv ausgewiesen) "
+        "oder korrektur (384, Differenz mit Vorzeichen)",
+    ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
 ) -> None:
-    """Rechnungsentwurf anlegen."""
+    """Rechnungsentwurf anlegen — auch Gutschrift/Korrektur zu einer Rechnung."""
     from decimal import Decimal
 
-    from accounti.db import init_db, session_factory
-    from accounti.db.repository import speichere_ausgangsrechnung
-    from accounti.models import Ausgangsrechnung, Rechnungsempfaenger
+    from rich.markup import escape
 
-    entwurf = Ausgangsrechnung(
-        kunde=Rechnungsempfaenger(
-            name=name,
-            strasse=strasse,
-            plz=plz,
-            ort=ort,
-            land=land.upper(),
-            ust_id=ust_id,
-            email=email,
-            leitweg_id=leitweg_id,
-            privat=privat,
-        ),
-        leistungsdatum=_datum_option(leistungsdatum, "--leistungsdatum"),
-        bestellnummer=bestellnummer,
-        notiz=notiz,
-        skonto_prozent=Decimal(str(skonto_prozent)) if skonto_prozent else None,
-        skonto_tage=skonto_tage,
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import lade_ausgangsrechnung, speichere_ausgangsrechnung
+    from accounti.models import (
+        Ausgangsrechnung,
+        AusgangsrechnungStatus,
+        Rechnungsempfaenger,
     )
+
+    _skonto_oder_ende(skonto_prozent, skonto_tage)
+    if korrektur_art not in _KORREKTUR_ARTEN:
+        console.print("[red]--korrektur-art: gutschrift oder korrektur[/red]")
+        raise typer.Exit(1)
+    if name is None and korrektur_zu is None:
+        console.print("[red]--name fehlt (Pflicht, außer mit --korrektur-zu)[/red]")
+        raise typer.Exit(1)
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
+        ursprung = None
+        if korrektur_zu is not None:
+            try:
+                ursprung = lade_ausgangsrechnung(s, korrektur_zu)
+            except ValueError as fehler:
+                console.print(f"[red]{escape(str(fehler))}[/red]")
+                raise typer.Exit(1) from fehler
+            if ursprung.status is not AusgangsrechnungStatus.AUSGESTELLT:
+                console.print(
+                    f"[red]Rechnung {escape(korrektur_zu)} ist noch nicht ausgestellt "
+                    "— einen Entwurf ändert man direkt[/red]"
+                )
+                raise typer.Exit(1)
+        kunde = (
+            ursprung.kunde
+            if ursprung is not None and name is None
+            else Rechnungsempfaenger(
+                name=name or "",
+                strasse=strasse,
+                plz=plz,
+                ort=ort,
+                land=land.upper(),
+                ust_id=ust_id,
+                email=email,
+                leitweg_id=leitweg_id,
+                privat=privat,
+            )
+        )
+        entwurf = Ausgangsrechnung(
+            kunde=kunde,
+            rechnungstyp=_KORREKTUR_ARTEN[korrektur_art] if ursprung else "380",
+            korrektur_zu=ursprung.nummer if ursprung else None,
+            leistungsdatum=_datum_option(leistungsdatum, "--leistungsdatum")
+            or (ursprung.leistungsdatum if ursprung else None),
+            bestellnummer=bestellnummer,
+            notiz=notiz,
+            skonto_prozent=Decimal(str(skonto_prozent))
+            if skonto_prozent is not None
+            else None,
+            skonto_tage=skonto_tage,
+        )
         speichere_ausgangsrechnung(s, entwurf)
         s.commit()
-    console.print(f"[green]Entwurf {str(entwurf.id)[:8]} angelegt[/green] für {name}")
+    console.print(
+        f"[green]Entwurf {str(entwurf.id)[:8]} angelegt[/green] für "
+        f"{escape(entwurf.kunde.name)}"
+    )
+    if ursprung is not None:
+        art = "Gutschrift" if entwurf.rechnungstyp == "381" else "Rechnungskorrektur"
+        console.print(
+            f"[dim]{art} zu Rechnung {escape(ursprung.nummer or '')} — Positionen mit "
+            "dem geminderten bzw. geänderten Betrag[/dim]"
+        )
     console.print(
         f"[dim]Positionen: accounti rechnung position {str(entwurf.id)[:8]} "
         "--text .. --preis ..[/dim]"
@@ -532,6 +606,12 @@ def rechnung_position(
     ermaessigt: bool = typer.Option(False, "--ermaessigt", help="Ermäßigter Satz"),
     leistung: bool = typer.Option(
         False, "--leistung", help="Dienstleistung (Reverse Charge bei EU-Unternehmen)"
+    ),
+    elektronisch: bool = typer.Option(
+        False,
+        "--elektronisch",
+        help="Telekommunikations-, Rundfunk- oder elektronische Leistung (§ 3a Abs. 5 "
+        "UStG): an EU-Privatkunden mit OSS im Wohnsitzland steuerbar",
     ),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
 ) -> None:
@@ -550,7 +630,8 @@ def rechnung_position(
         menge=Decimal(str(menge)),
         einheit=einheit,
         ermaessigt=ermaessigt,
-        sonstige_leistung=leistung,
+        sonstige_leistung=leistung or elektronisch,
+        elektronisch=elektronisch,
     )
     _, make_session = session_factory(db)
     with make_session() as s:
@@ -563,6 +644,25 @@ def rechnung_position(
     console.print(
         f"Position {len(r.positionen)}: {escape(text)} — {position.netto:.2f} EUR netto"
     )
+
+
+def _prozent(satz: "Decimal | None") -> str:
+    """Steuersatz ohne Exponentialschreibweise (``Decimal("2E+1")`` → ``20``)."""
+    return f"{satz.normalize():f}" if satz is not None else "—"
+
+
+def _hinweis_30_tage(config: str) -> bool:
+    """``mahnwesen.hinweis_30_tage``: Verbraucherrechnungen tragen § 286 Abs. 3 BGB."""
+    from rich.markup import escape
+
+    from accounti.konfiguration import KonfigurationError
+    from accounti.mahnwesen.konfiguration import lade_mahnwesen
+
+    try:
+        return lade_mahnwesen(config).hinweis_30_tage
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
 
 
 @rechnung_app.command("zeigen")
@@ -584,9 +684,14 @@ def rechnung_zeigen(
 
     firma = _lade_firma_oder_ende(config)
     _, make_session = session_factory(db)
+    vorgaenger_datum = None
     with make_session() as s:
         try:
             entwurf = lade_ausgangsrechnung(s, schluessel)
+            if entwurf.korrektur_zu:
+                vorgaenger_datum = lade_ausgangsrechnung(
+                    s, entwurf.korrektur_zu
+                ).rechnungsdatum
         except ValueError as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
@@ -596,6 +701,8 @@ def rechnung_zeigen(
             firma,
             entwurf.nummer or "ENTWURF",
             entwurf.rechnungsdatum or date.today(),
+            vorgaenger_datum=vorgaenger_datum,
+            hinweis_verzug=_hinweis_30_tage(config),
         )
     except ValueError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -605,6 +712,9 @@ def rechnung_zeigen(
         f"[bold]{escape(r.nummer or '')}[/bold] an {escape(r.kaeufer.name or '')} "
         f"({entwurf.status.value})"
     )
+    if r.vorgaenger_nummer:
+        art = {"381": "Gutschrift", "384": "Rechnungskorrektur"}.get(r.typ or "", "")
+        console.print(f"  {art} zu Rechnung {escape(r.vorgaenger_nummer)}")
     tabelle = Table()
     tabelle.add_column("Pos")
     tabelle.add_column("Bezeichnung", overflow="fold")
@@ -617,12 +727,12 @@ def rechnung_zeigen(
             escape(z.bezeichnung or ""),
             f"{z.menge} {z.einheit}",
             f"{z.netto:.2f}",
-            f"{z.steuerkategorie} {z.steuersatz} %",
+            f"{z.steuerkategorie} {_prozent(z.steuersatz)} %",
         )
     console.print(tabelle)
     for st in r.steuern:
         console.print(
-            f"  {st.kategorie} {st.satz} %: "
+            f"  {st.kategorie} {_prozent(st.satz)} %: "
             f"Basis {st.basis:.2f}, Steuer {st.betrag:.2f}"
         )
     for notiz in r.notizen:
@@ -785,15 +895,18 @@ def rechnung_ausstellen(
     from pathlib import Path
 
     from rich.markup import escape
+    from sqlalchemy.exc import IntegrityError
 
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
-    from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
+    from accounti.erechnung import ausstellung
+    from accounti.erechnung.ausstellung import AusstellungError
     from accounti.erechnung.kosit import KositPruefer
     from accounti.erechnung.mustang import MustangPruefer
     from accounti.konfiguration import KonfigurationError, lade_ustid_pruefung
 
     firma = _lade_firma_oder_ende(config)
+    hinweis_30_tage = _hinweis_30_tage(config)
     try:
         ustid_einstellungen = lade_ustid_pruefung(config)
     except KonfigurationError as fehler:
@@ -824,7 +937,7 @@ def rechnung_ausstellen(
     )
     with make_session() as s:
         try:
-            ergebnis = stelle_aus(
+            ergebnis = ausstellung.stelle_aus(
                 s,
                 BelegArchiv(archiv),
                 schluessel,
@@ -833,7 +946,16 @@ def rechnung_ausstellen(
                 kosit=kosit,
                 pdf_pruefer=pdf_pruefer,
                 ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
+                hinweis_30_tage=hinweis_30_tage,
             )
+        except IntegrityError as fehler:
+            s.rollback()  # z.B. eine Rechnungsnummer, die es schon gibt
+            console.print(
+                "[red]Nicht ausgestellt: die Datenbank lehnt die Rechnung ab "
+                f"({escape(str(fehler.orig))}) — Nummernformat und Nummernkreis "
+                "prüfen[/red]"
+            )
+            raise typer.Exit(1) from fehler
         except (AusstellungError, ValueError) as fehler:
             s.rollback()  # Nummer bleibt frei, der Kreis lückenlos
             console.print(f"[red]Nicht ausgestellt: {escape(str(fehler))}[/red]")
@@ -850,19 +972,27 @@ def rechnung_ausstellen(
     nummer = ergebnis.rechnung.nummer or ""
     (ziel / f"{nummer}.xml").write_bytes(ergebnis.xml)
     (ziel / f"{nummer}.pdf").write_bytes(ergebnis.pdf)
+    xrechnung = b"kosit:xrechnung" in ergebnis.xml
     console.print(
         f"[green]Rechnung {nummer} ausgestellt[/green] — "
         f"{ergebnis.beleg.brutto:.2f} EUR brutto → {ziel / nummer}.pdf (ZUGFeRD), "
-        f".xml (XRechnung)"
+        + (".xml (XRechnung)" if xrechnung else ".xml (EN 16931)")
     )
     if ergebnis.kosit is not None:
         _kosit_ausgabe(ergebnis.kosit)
+    elif kosit is not None:
+        console.print(
+            "[dim]KoSIT-Prüftool: nicht anwendbar — Rechnung nach EN 16931 an einen "
+            "Privatkunden (keine XRechnung), formal geprüft mit Mustang[/dim]"
+        )
     if ergebnis.mustang is not None:
         _mustang_ausgabe(ergebnis.mustang)
     if ohne_pruefung:
         console.print("[yellow]Ohne formale Prüfung ausgestellt.[/yellow]")
     for b in ergebnis.befunde:
         console.print(f"  [yellow]Hinweis {escape(str(b))}[/yellow]")
+    for hinweis in ergebnis.hinweise:
+        console.print(f"  [yellow]Hinweis: {escape(hinweis)}[/yellow]")
     if ergebnis.ustid is not None and ergebnis.ustid.pruefung is not None:
         p = ergebnis.ustid.pruefung
         console.print(
