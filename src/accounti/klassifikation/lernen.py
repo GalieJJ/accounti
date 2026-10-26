@@ -487,6 +487,8 @@ class Vorschau:
     # Regel und kein LLM-Vorschlag greift — RegelwerkEngine.gegenrichtung)
     gegenrichtung: int = 0
     anders_kontiert: int = 0  # Treffer, die heute anders gebucht sind
+    # Treffer der Gegenrichtung, die heute anders gebucht sind als die Gegenbuchung
+    gegenrichtung_anders: int = 0
     beispiele: list[Beispiel] = field(default_factory=list)
     greift_fuer_umsatz: bool = False
     verdraengt: str | None = None  # Regel, die bisher für diesen Umsatz griff
@@ -595,6 +597,7 @@ def pruefe_entwurf(
     umsaetze = [t for t in lade_transaktionen(session) if von <= t.datum <= bis]
     kontierung = _kontierung_je_umsatz(session)
     ziel = f"{entwurf.soll_konto} an {entwurf.haben_konto}"
+    gegenziel = f"{entwurf.haben_konto} an {entwurf.soll_konto}"
     treffer = []
     for t in umsaetze:
         if not regel.passt_muster(t):
@@ -603,6 +606,8 @@ def pruefe_entwurf(
             treffer.append(t)
         else:
             v.gegenrichtung += 1
+            if kontierung.get(t.id) not in (None, gegenziel):
+                v.gegenrichtung_anders += 1
     v.gesamt = len(umsaetze)
     v.treffer = len(treffer)
     v.anders_kontiert = sum(

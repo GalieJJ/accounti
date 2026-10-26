@@ -313,3 +313,20 @@ def test_vorschau_mit_finanzkonto_ausserhalb_422(qw):
     b = qw.unsicher()
     r = vorschau(qw.web.angemeldet("jan"), b, HX, haben="4980")
     assert r.status_code == 422 and "Finanzkonto 1200" in r.text
+
+
+def test_vorschau_gegenrichtung_zaehlt_ihre_eigenen_anders_gebuchten(qw):
+    """gw-regeln N-1 (Probe test_s4_web::test_c): drei Ausgaben derselben
+    Gegenpartei sind heute anders gebucht (LLM 4980), eine Gegenrichtung gibt es
+    nicht — die Zeile der Gegenrichtung nannte trotzdem „davon … anders gebucht: 3“."""
+    for i in range(3):
+        qw.umsatz(betrag="-10.00", tag=date(2026, 9, 1 + i), zweck=f"RE {i}")
+    qw.kontiere()
+    b = qw.unsicher(tag=date(2026, 10, 2))
+    r = vorschau(qw.web.angemeldet("jan"), b, HX, muster="Bürobedarf Müller")
+    assert r.status_code == 200, r.text
+    assert (
+        "Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): 0, davon heute "
+        "anders gebucht: 0" in r.text
+    )
+    assert "3 weitere Treffer sind heute anders gebucht" in r.text

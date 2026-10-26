@@ -422,6 +422,32 @@ def test_vorschau_zaehlt_gegenrichtung_getrennt(make_session):
     assert v.treffer == 1 and v.gegenrichtung == 1
 
 
+def test_vorschau_zaehlt_anders_gebuchte_je_richtung(make_session):
+    """gw-regeln N-1: „Gegenrichtung …: N, davon heute anders gebucht: M“ — M zählt
+    die Treffer der Gegenrichtung, die heute anders gebucht sind als die
+    Gegenbuchung; bisher stand dort die Zahl der Regelrichtung."""
+    tx = mueller()
+    frueher = [mueller(tag=date(2026, 9, 1 + i)) for i in range(3)]
+    erstattung = mueller("15.00", tag=date(2026, 9, 20), zweck="Gutschrift")
+    gegen_richtig = mueller("5.00", tag=date(2026, 9, 21), zweck="Gutschrift")
+    anlegen(
+        make_session,
+        tx,
+        *frueher,
+        erstattung,
+        gegen_richtig,
+        *(buchung(f, soll="4980", haben="1200") for f in frueher),
+        buchung(erstattung, soll="1200", haben="4980"),
+        buchung(gegen_richtig, soll="1200", haben="4930"),
+    )
+    with make_session() as s:
+        v = pruefe_entwurf(
+            s, entwurf_fuer(tx, "4930", "1200", 9, BH), tx, None, heute=HEUTE
+        )
+    assert (v.treffer, v.anders_kontiert) == (4, 3)
+    assert (v.gegenrichtung, v.gegenrichtung_anders) == (2, 1)
+
+
 def test_vorschau_nur_24_monate(make_session):
     tx = mueller()
     alt = mueller(tag=HEUTE - timedelta(days=800))
