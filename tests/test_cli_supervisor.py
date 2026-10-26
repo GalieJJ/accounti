@@ -216,6 +216,40 @@ def test_korrigiere_lernt_den_schluessel_der_neubuchung(tmp_path, monkeypatch):
     assert not (tmp_path / "config" / "regeln.yaml").exists()
 
 
+def test_korrigiere_falsch_zugeordnetes_bankkonto(tmp_path, monkeypatch):
+    """Nachbesserung M-1 (Probe q9): Der Umsatz kam ohne ``--konto`` herein (über
+    1200 gebucht), gehört aber zu Giro 2 (1210, eingerichtet) — die Korrektur auf
+    1210 geht, mit Warnung; ein Aufwandskonto statt der Bank bleibt abgewiesen."""
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    monkeypatch.chdir(tmp_path)
+    url = _url(tmp_path)
+    (b,) = _seed(url, [BuchungStatus.GEPRUEFT])
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        giro2 = Bankkonto(
+            iban="DE02120300000000202051", bezeichnung="Giro 2", sachkonto="1210"
+        )
+        speichere_bankkonto(s, giro2)
+        s.commit()
+    engine.dispose()
+    pid = str(b.id)[:8]
+    aufwand = ["korrigiere", pid, "--soll", "4900", "--haben", "4980", "--db", url]
+    res = runner.invoke(app, aufwand, env={"COLUMNS": "250"})
+    assert res.exit_code == 1 and "Finanzkonto 1200" in res.output
+    giro = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--db", url]
+    res = runner.invoke(app, giro, env={"COLUMNS": "250"})
+    assert res.exit_code == 0, res.output
+    assert "Storniert" in res.output and "Bankkonto gewechselt" in res.output
+    _, make_session = session_factory(url)
+    with make_session() as s:
+        from accounti.db.repository import lade_buchungen
+
+        offen = [x for x in lade_buchungen(s) if x.status is BuchungStatus.KORRIGIERT]
+    assert [(x.soll_konto, x.haben_konto) for x in offen] == [("4900", "1210")]
+
+
 def test_korrigiere_nutzt_die_kontenzuordnung_der_gesellschaft(tmp_path):
     """``abschluss.kontenzuordnung`` gilt auch für die Korrektur (wie für die SuSa):
     Hier ist 1800 ein Geldkonto — das Storno von 4900 an 1800 mit Vorsteuer ist

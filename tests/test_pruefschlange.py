@@ -685,6 +685,81 @@ def test_erstattung_auf_der_falschen_seite_laesst_sich_richtigstellen(make_sessi
     assert k.korrektur.neu is not None and k.korrektur.neu.soll_konto == "1200"
 
 
+def _giro2(make_session):  # noqa: ANN001, ANN202
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    with make_session() as s:
+        speichere_bankkonto(
+            s,
+            Bankkonto(
+                iban="DE02120300000000202051", bezeichnung="Giro 2", sachkonto="1210"
+            ),
+        )
+        s.commit()
+
+
+def test_falsch_zugeordnetes_bankkonto_laesst_sich_richtigstellen(make_session):
+    """Nachbesserung M-1 (Probe q9): Der Umsatz kam ohne Kontozuordnung herein
+    (``import bank`` ohne ``--konto``, über 1200 gebucht), gehört aber zu Giro 2
+    (1210, eingerichtet). Der Wechsel auf ein anderes eingerichtetes Bankkonto geht —
+    mit Warnung, ohne Regel. Das Verlassen der Bankkonten (Aufwand, Kasse, nicht
+    eingerichtetes Konto) bleibt abgewiesen, auch nach dem Wechsel."""
+    tx = umsatz()  # Ausgabe, tx.sachkonto leer
+    b = buchung(tx, soll="4240", status=BuchungStatus.GEPRUEFT)
+    rein = umsatz("250.00", zweck="Zahlung RE 17", name="Kunde AG")
+    rb = buchung(rein, soll="1200", haben="8400", schluessel=3)
+    anlegen(make_session, tx, b, rein, rb)
+    _giro2(make_session)
+    with make_session() as s:
+        speichere_kontierungsgrund(s, b.id, quelle="llm", begruendung="x")
+        s.commit()
+        for haben in ("4980", "1000", "1220"):
+            with pytest.raises(PruefschlangeError, match="Finanzkonto 1200") as info:
+                korrigieren(
+                    s, b.id, Aenderung("4240", haben, steuer=9), "jan", None,
+                    umgebung(), nur_vorschlaege=False,
+                )  # fmt: skip
+            assert info.value.feld == "haben"
+            s.rollback()
+        with pytest.raises(PruefschlangeError, match="keine Regel") as info:
+            korrigieren(
+                s, b.id, Aenderung("4240", "1210", steuer=9), "jan", None,
+                umgebung(), lernen=LernWunsch(), nur_vorschlaege=False,
+            )  # fmt: skip
+        assert info.value.feld == "regel"
+        s.rollback()
+        assert lade_kontierungsregeln(s) == []
+        e = korrigieren(
+            s, b.id, Aenderung("4240", "1210", steuer=9), "jan", None, umgebung(),
+            nur_vorschlaege=False,
+        )  # fmt: skip
+        einnahme = korrigieren(
+            s, rb.id, Aenderung("1210", "8400", steuer=3), "jan", None, umgebung()
+        )
+        s.commit()
+    neu = e.korrektur.neu
+    assert neu is not None and neu.haben_konto == "1210"
+    assert any("1210" in w and "1200" in w for w in e.korrektur.warnungen)
+    assert einnahme.korrektur.neu is not None
+    assert einnahme.korrektur.neu.soll_konto == "1210"
+    with make_session() as s:
+        # nach dem Wechsel ist 1210 das Finanzkonto der Buchung
+        with pytest.raises(PruefschlangeError, match="Finanzkonto 1210"):
+            korrigieren(
+                s, neu.id, Aenderung("4240", "4980", steuer=9), "jan", None,
+                umgebung(), nur_vorschlaege=False,
+            )  # fmt: skip
+        s.rollback()
+        zurueck = korrigieren(
+            s, neu.id, Aenderung("4240", "1200", steuer=9), "jan", None, umgebung(),
+            nur_vorschlaege=False,
+        )  # fmt: skip
+        s.commit()
+    assert zurueck.korrektur.neu is not None
+    assert zurueck.korrektur.neu.haben_konto == "1200"
+
+
 def test_lernen_nur_aus_kontierungsvorschlaegen_auch_ausserhalb_der_queue(
     make_session,
 ):

@@ -224,3 +224,35 @@ def test_korrigiere_lernen_ohne_namen_nur_mit_trotz_warnung(url):
     assert r.exit_code == 0, r.output
     assert [x.muster for x in regeln(url)] == ["Fachverband"]
 
+
+def test_korrigiere_lernen_nicht_aus_dem_kassenbuch(url):
+    """Nachprüfung N-2 (Probe q8): Kassenbuchungen speichern keine Herkunft — die CLI
+    lernt aus Altbuchungen ohne Herkunft, aber nicht aus einem Kassenvorgang (sonst
+    würde aus „Porto“ in der Kasse eine Bankregel „4930 an 1200“). Die Korrektur
+    selbst bleibt möglich."""
+    from decimal import Decimal
+
+    from accounti.abschluss.kassenbuch import buche_kasse
+    from accounti.abschluss.konfiguration import KassenEinstellungen
+    from tests.pruefung_hilfe import kurz
+
+    engine, fabrik = session_factory(url)
+    ke = KassenEinstellungen(konto="1000")
+    with fabrik() as s:
+        buche_kasse(
+            s, Decimal("500.00"), "Einlage", ke, datum=date(2026, 10, 1),
+            gegenkonto="1890",
+        )  # fmt: skip
+        v = buche_kasse(
+            s, Decimal("-23.80"), "Porto Briefmarken", ke, datum=date(2026, 10, 2),
+            gegenkonto="4910", steuersatz=Decimal("19"),
+        )  # fmt: skip
+        s.commit()
+    engine.dispose()
+    befehl = ["korrigiere", kurz(v.buchung_id), "--soll", "4930", "--haben", "1000"]
+    befehl += ["--steuer", "9", "--db", url]
+    r = run(*befehl, "--lernen", "--trotz-warnung")
+    assert r.exit_code == 1 and "keine Regel" in r.output, r.output
+    assert regeln(url) == []
+    r = run(*befehl)
+    assert r.exit_code == 0, r.output

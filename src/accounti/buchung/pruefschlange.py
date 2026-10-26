@@ -42,6 +42,7 @@ from accounti.db.repo_aufgaben import lade_aufgaben
 from accounti.db.repo_kontierung import lade_kontierungsgruende, lade_kontierungsgrund
 from accounti.db.repository import (
     finde_buchung,
+    lade_bankkonten,
     lade_buchungen,
     lade_buchungen_zu,
     lade_kontakte,
@@ -55,6 +56,7 @@ from accounti.models import (
     BuchungStatus,
     Kontakt,
     Transaktion,
+    TransaktionQuelle,
 )
 from accounti.models.aufgaben import AKTIVE_STATUS, Aufgabe, Kommentar, Objekt
 from accounti.pruefung.journal import kanonisch, schnappschuss, schreibsperre
@@ -133,7 +135,8 @@ class PruefregelError(PruefschlangeError):
 
 class RegelBestaetigenError(PruefschlangeError):
     """Die Regel träfe andere Gegenparteien bzw. jeden Kauf über einen
-    Zahlungsdienst — gespeichert wird sie nur mit Bestätigung (``LernWunsch``).
+    Zahlungsdienst, oder der Umsatz hat keinen Namen der Gegenpartei — gespeichert
+    wird sie nur mit Bestätigung (``LernWunsch``).
     ``vorschau`` zeigt, was sie träfe."""
 
     status = 422
@@ -570,8 +573,8 @@ class LernWunsch:
     """Regel aus der Korrektur — Muster und Feld wie im Formular (sonst Vorschlag).
 
     ``bestaetigt``: die Warnungen der Regelvorschau (andere Gegenparteien,
-    Zahlungsdienst) sind gesehen und bestätigt — ohne sie wird so eine Regel nicht
-    gespeichert (``RegelBestaetigenError``)."""
+    Zahlungsdienst, Umsatz ohne Namen der Gegenpartei) sind gesehen und bestätigt —
+    ohne sie wird so eine Regel nicht gespeichert (``RegelBestaetigenError``)."""
 
     muster: str | None = None
     feld: Feld | None = None
@@ -601,22 +604,79 @@ def _konten(a: Aenderung) -> Aenderung:
     return Aenderung(soll, haben, a.steuer, a.ohne_steuer, a.grund, a.datum)
 
 
+def eingerichtete_bankkonten(session: Session, buchhaltung: Buchhaltung) -> set[str]:
+    """Das Standard-Bankkonto der Konfiguration und die Sachkonten der eingerichteten
+    Bankkonten (``accounti bank verbinde``, auch Kartenkonten von Kreditkarten)."""
+    return {buchhaltung.bank_konto} | {k.sachkonto for k in lade_bankkonten(session)}
+
+
+@dataclass(frozen=True)
+class Bankkontowechsel:
+    """Die Korrektur bucht den Umsatz über ein anderes eingerichtetes Bankkonto."""
+
+    von: str
+    nach: str
+    warnung: str
+
+
 def _pruefe_finanzkonto(
-    b: Buchungssatz, tx: Transaktion | None, a: Aenderung, buchhaltung: Buchhaltung
-) -> None:
-    """Eine Buchung zu einem Umsatz behält das Finanzkonto des Umsatzes
-    (``tx.sachkonto``, sonst ``buchhaltung.bank_konto``) auf der Seite seiner
-    Zahlungsrichtung — sonst stimmt der Kontostand nicht mehr mit dem Auszug. Geprüft
-    nur, wenn die Buchung das Finanzkonto heute berührt (Skonto- und Restbuchungen am
-    selben Umsatz tun das nicht)."""
-    if tx is None:
-        return
-    finanz = tx.sachkonto or buchhaltung.bank_konto
+    session: Session,
+    b: Buchungssatz,
+    tx: Transaktion | None,
+    a: Aenderung,
+    umgebung: Korrekturumgebung,
+) -> Bankkontowechsel | None:
+    """Eine Buchung zu einem Umsatz behält dessen Finanzkonto (``tx.sachkonto``, sonst
+    ``buchhaltung.bank_konto``) auf der Seite seiner Zahlungsrichtung — sonst stimmt
+    der Kontostand nicht mehr mit dem Auszug (§ 146 Abs. 1 AO, § 239 Abs. 2 HGB).
+    Geprüft nur, wenn die Buchung das Finanzkonto heute berührt (Skonto- und
+    Restbuchungen am selben Umsatz tun das nicht) — oder, nach einem Wechsel, ein
+    anderes eingerichtetes Bankkonto auf der Seite der Zahlung.
+
+    Ausnahme: der Wechsel auf ein **anderes eingerichtetes Bankkonto** (Umsatz ohne
+    oder mit falscher Kontozuordnung, z. B. ``import bank`` ohne ``--konto``) — das
+    gibt einen ``Bankkontowechsel`` mit Warnung zurück; daraus wird keine Regel
+    gelernt. Aufwand, Kasse oder ein nicht eingerichtetes Konto bleiben abgewiesen."""
+    if tx is None or tx.betrag == 0:
+        return None
+    buchhaltung = umgebung.buchhaltung
+    banken = eingerichtete_bankkonten(session, buchhaltung)
+    zuordnung = tx.sachkonto or buchhaltung.bank_konto
+    ausgabe = tx.betrag < 0
+    finanz = zuordnung
     if finanz not in (b.soll_konto, b.haben_konto):
-        return
+        seite = b.haben_konto if ausgabe else b.soll_konto
+        if seite not in banken:
+            return None
+        finanz = seite  # nach einem Wechsel: das Bankkonto der Buchung
     fehler = finanzkonto_fehler(a.soll, a.haben, tx.betrag, finanz)
-    if fehler is not None:
-        raise PruefschlangeError(fehler[1], feld=fehler[0])
+    if fehler is None:
+        return None
+    neu = a.haben if ausgabe else a.soll
+    if finanz in banken and neu in banken:
+        if neu == zuordnung:
+            return None  # zurück auf das Konto, dem der Umsatz zugeordnet ist
+        rest = (
+            f"die Kontozuordnung des Umsatzes ({tx.sachkonto}) bleibt"
+            if tx.sachkonto
+            else "der Umsatz selbst hat keine Kontozuordnung"
+        )
+        return Bankkontowechsel(
+            finanz,
+            neu,
+            f"Bankkonto gewechselt: Der Umsatz läuft jetzt über {neu} statt über "
+            f"{finanz} — richtig nur, wenn er auf dem Kontoauszug von {neu} steht "
+            f"(der Abschluss stimmt beide Konten mit dem Auszug ab). {rest[0].upper()}"
+            f"{rest[1:]}; nach einem Storno bucht classify ihn wieder über "
+            f"{zuordnung}.",
+        )
+    meldung = fehler[1]
+    if finanz in banken and umgebung.kontenrahmen.ist_bankkonto(neu):
+        meldung += (
+            f" — {neu} ist nicht als Bankkonto eingerichtet (accounti bank verbinde "
+            f"… --sachkonto {neu}); erst dann lässt sich der Umsatz dorthin umbuchen"
+        )
+    raise PruefschlangeError(meldung, feld=fehler[0])
 
 
 def regel_lernbar(h: Herkunft, mit_umsatz: bool, *, unbekannt: bool = False) -> bool:
@@ -645,9 +705,12 @@ def korrigieren(
 
     Gelernt wird nur aus Kontierungsvorschlägen (``regel_lernbar``) — in der Queue wie
     in der CLI, unabhängig von ``nur_vorschlaege``; ``unbekannte_herkunft_lernbar``
-    lässt die CLI auch aus Altbuchungen ohne gespeicherte Herkunft lernen. Trifft die
-    Regel andere Gegenparteien oder einen Zahlungsdienst, nur mit
-    ``lernen.bestaetigt`` (sonst ``RegelBestaetigenError`` samt Vorschau)."""
+    lässt die CLI auch aus Altbuchungen ohne gespeicherte Herkunft lernen (nicht aus
+    Kassenvorgängen). Trifft die Regel andere Gegenparteien oder einen Zahlungsdienst
+    oder hat der Umsatz keinen Namen der Gegenpartei, nur mit ``lernen.bestaetigt``
+    (sonst ``RegelBestaetigenError`` samt Vorschau). Wechselt die Korrektur auf ein
+    anderes eingerichtetes Bankkonto, steht das als Warnung in
+    ``korrektur.warnungen``; eine Regel gibt es dann nicht."""
     from accounti.klassifikation.lernen import (
         RegelError,
         entwurf_aus_korrektur,
@@ -659,11 +722,23 @@ def korrigieren(
     b = _sperren_und_pruefen(session, str(buchung_id), stand, nur_vorschlaege)
     a = _konten(aenderung)
     tx = lade_transaktion(session, b.transaktion_id) if b.transaktion_id else None
-    _pruefe_finanzkonto(b, tx, a, umgebung.buchhaltung)
+    wechsel = _pruefe_finanzkonto(session, b, tx, a, umgebung)
+    if lernen is not None and wechsel is not None:
+        raise PruefschlangeError(
+            f"Die Korrektur wechselt das Bankkonto ({wechsel.von} → {wechsel.nach}) — "
+            "daraus wird keine Regel gelernt (sie buchte künftige Umsätze am Konto "
+            "vorbei); ohne Regel korrigieren",
+            feld="regel",
+        )
     if lernen is not None:
         h = herkunft(session, b)
+        # Kassenvorgänge (quelle manuell, Kassenbuch) speichern keine Herkunft — aus
+        # ihnen entstünde eine Bankregel; sie zählen nicht als Altbuchung
+        kasse = tx is not None and tx.quelle is TransaktionQuelle.MANUELL
         regel_ok = regel_lernbar(
-            h, b.transaktion_id is not None, unbekannt=unbekannte_herkunft_lernbar
+            h,
+            b.transaktion_id is not None,
+            unbekannt=unbekannte_herkunft_lernbar and not kasse,
         )
         sachkonto_ok = b.transaktion_id is None and b.beleg_id is not None
         if not (regel_ok or sachkonto_ok):
@@ -687,6 +762,8 @@ def korrigieren(
         buchhaltung=umgebung.buchhaltung,
         einstellungen=umgebung.pruefung,
     )
+    if wechsel is not None:
+        k.warnungen.append(wechsel.warnung)
     ergebnis = Korrekturergebnis(k)
     if lernen is not None:
         if k.original.transaktion_id is not None:
