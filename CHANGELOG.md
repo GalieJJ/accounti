@@ -498,8 +498,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   leeren `accounti.db` im Arbeitsverzeichnis, `pruefen` „keine Befunde“, `nachfordern`
   schrieb dorthin. Der Kontext setzt die Standardwerte jetzt auch an der Gruppe selbst
 - **`--help` brauchte bei mehreren Gesellschaften `-g`** (Betrieb B11): `accounti abschluss
-  --help` brach mit Exit 2 ab. Die Hilfe kommt jetzt ohne Gesellschaft; ob es eine Hilfe
-  ist, entscheidet Clicks Parser (`--text --help` bleibt ein Wert und bricht ab)
+  --help` brach mit Exit 2 ab. Die Hilfe kommt jetzt ohne Gesellschaft, auch hinter
+  Optionen einer Gruppe (`ustva --period 2025-08 pruefen --help`); ob es eine Hilfe ist,
+  entscheidet Clicks Parser (`--text --help` bleibt ein Wert und bricht ab)
 - **`--ohne-steuer` bei § 13b und ig. Erwerb** (Schlüssel 18, 19, 91, 94): eigene Meldung und
   Warnung — es entfernt Steuerschuld und Vorsteuer und ist nur richtig, wenn gar kein
   solcher Fall vorliegt; die Abhilfe der Prüfregel schlägt dort nicht mehr „Vorsteuer

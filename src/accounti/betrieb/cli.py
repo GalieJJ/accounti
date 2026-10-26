@@ -32,11 +32,17 @@ class Wurzelgruppe(TyperGroup):
     Betrieb B11)."""
 
     def invoke(self, ctx: Any) -> Any:
-        geschuetzt = getattr(ctx, "_protected_args", None)  # Click ≥ 8.2
-        if geschuetzt is None:
-            geschuetzt = ctx.protected_args
-        ctx.meta[ARGUMENTE] = [*geschuetzt, *ctx.args]
+        ctx.meta[ARGUMENTE] = _rest(ctx)
         return super().invoke(ctx)
+
+
+def _rest(ctx: Any) -> list[str]:
+    """Argumente, die Click nach den Optionen einer Gruppe übrig lässt (Unterbefehl
+    und dessen Argumente)."""
+    geschuetzt = getattr(ctx, "_protected_args", None)  # Click ≥ 8.2
+    if geschuetzt is None:
+        geschuetzt = ctx.protected_args
+    return [*geschuetzt, *ctx.args]
 
 
 def _zeige_hilfe_falls_verlangt(ctx: Any) -> None:
@@ -67,8 +73,12 @@ def _zeige_hilfe_falls_verlangt(ctx: Any) -> None:
                 gruppe = befehl
                 eltern = befehl.context_class(befehl, parent=eltern, info_name=name)
                 continue
-            befehl.make_context(name, list(argumente), parent=eltern)
-            return
+            kontext = befehl.make_context(name, list(argumente), parent=eltern)
+            if not hasattr(befehl, "resolve_command"):
+                return
+            # Gruppe mit eigenen Optionen (``ustva --period … pruefen --help``,
+            # Nachprüfung N1): mit dem Rest weiter absteigen
+            gruppe, eltern, argumente = befehl, kontext, _rest(kontext)
     except typer.Exit:
         raise  # die Hilfe wurde gezeigt
     except Exception:  # Fehler beim Parsen: keine Hilfe — Abbruch wie sonst

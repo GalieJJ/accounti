@@ -122,6 +122,8 @@ def test_hilfe_zeigt_die_datenbank_der_gesellschaft(umgebung):
         ["ustva", "--help"],
         ["ustva", "pruefen", "--help"],
         ["kontakte", "liste", "--help"],
+        # Nachprüfung N1: Optionen der Gruppe vor dem Unterbefehl
+        ["ustva", "--period", "2025-08", "pruefen", "--help"],
     ],
 )
 def test_hilfe_ohne_gesellschaft(umgebung, befehl):
