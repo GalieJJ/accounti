@@ -198,7 +198,7 @@ def test_eroeffnung_am_wirtschaftsjahresbeginn_und_kein_vortrag(make_session, tm
         b = erfasse_eroeffnung(s, 2026, "1200", D("5000"), "chef", einst)
         erfasse_eroeffnung(s, 2026, "0880", D("-5000"), "chef", einst)
         s.commit()
-    assert (b.datum, b.beleg_nummer) == (JULI, "EB-2025")
+    assert (b.datum, b.beleg_nummer) == (JULI, "EB-2026")  # EB-<WJ>, N3
     with make_session() as s:
         k = kontext(s, 2026, config)
         assert k.susa.zeile("1200").eb == D("5000")
@@ -403,3 +403,40 @@ def test_euer_vordruck_des_jahres_des_wirtschaftsjahresbeginns(make_session, tmp
     assert erstelle_euer(wj27, kr).vordruck_jahr == 2026
     # Kalenderjahr unverändert
     assert erstelle_euer(kj26, kr).vordruck_jahr == 2026
+
+
+def test_eroeffnung_in_einen_festgeschriebenen_ersten_monat(make_session, tmp_path):
+    """Nachprüfung F, N3: Die EB-Ausnahme der Monatssperre kannte nur den 01.01. —
+    beim WJ-Beginn 01.07. lehnte ``abschluss eroeffnung`` ab, sobald der Juli
+    festgeschrieben war; die Belegnummer hieß nach dem Kalenderjahr (EB-2025)."""
+    from accounti.db.repository import speichere_buchung
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models import Buchungssatz
+    from accounti.pruefung.perioden import schliesse
+    from tests.test_pruefung_regeln import pruefe
+
+    einst = lade_abschluss(_config(tmp_path, gewinnermittlung="bilanz"))
+    with make_session() as s:
+        schliesse(s, "2025-07", "erika", trotzdem=True)
+        s.commit()
+    with make_session() as s:
+        b = erfasse_eroeffnung(s, 2026, "1000", D("1000"), "chef", einst)
+        s.commit()
+    assert (b.datum, b.beleg_nummer) == (JULI, "EB-2026")
+    befunde = pruefe(make_session, "buchung_in_gesperrter_periode", period="2025-07")
+    assert befunde == []
+    # eine gewöhnliche Buchung am WJ-Beginn bleibt gesperrt
+    with make_session() as s:
+        speichere_buchung(
+            s,
+            Buchungssatz(
+                datum=JULI,
+                soll_konto="4930",
+                haben_konto="1200",
+                betrag_netto=D("10"),
+                buchungstext="nachgereicht",
+                status=BuchungStatus.GEPRUEFT,
+            ),
+        )
+        with pytest.raises(JahrGesperrtError, match="2025-07"):
+            s.flush()

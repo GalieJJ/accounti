@@ -22,7 +22,7 @@ EÜR rechnen das Wirtschaftsjahr schon richtig.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -115,21 +115,23 @@ def schlusssalden(
 def _eb_buchung(
     konto: str,
     differenz: Decimal,
-    datum: date,
+    wj: Wirtschaftsjahr,
     einst: AbschlussEinstellungen,
     kr: Kontenrahmen,
     text: str,
     von: str,
 ) -> Buchungssatz:
+    """EB-Buchung am Beginn des Wirtschaftsjahres ``wj``, Belegnummer nach dem
+    Wirtschaftsjahr (``EB-2026`` auch für den Beginn 01.07.2025)."""
     gegen = kr.vortragskonto(konto, einst.debitoren, einst.kreditoren)
     soll, haben = (konto, gegen) if differenz > 0 else (gegen, konto)
     return Buchungssatz(
-        datum=datum,
+        datum=wj.von,
         soll_konto=soll,
         haben_konto=haben,
         betrag_netto=abs(differenz),
         buchungstext=f"{text} {konto}"[:60],
-        beleg_nummer=f"EB-{datum.year}",
+        beleg_nummer=f"EB-{wj.jahr}",
         status=BuchungStatus.GEPRUEFT,
         confidence=1.0,
         geprueft_von=von,
@@ -161,9 +163,9 @@ def erfasse_eroeffnung(
     differenz = saldo - eroeffnungssalden(session, jahr, kr, wj).get(konto, NULL)
     if differenz == 0:
         return None
-    b = _eb_buchung(konto, differenz, wj.von, einst, kr, "Eröffnungssaldo", von)
-    # auch in einen festgeschriebenen Januar (Baustein 7)
-    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
+    b = _eb_buchung(konto, differenz, wj, einst, kr, "Eröffnungssaldo", von)
+    # auch in einen festgeschriebenen ersten Monat des WJ (Baustein 7)
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung, wj) as eb:
         eb.add(str(b.id))
         speichere_buchung(session, b)
         session.flush()
@@ -198,7 +200,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     ergebnis = k.susa.ergebnis
     vortrag = Vortrag(jahr, ziel, ergebnis, befunde=befunde)
     # EB-Buchungen am 01.01. auch in einen schon festgeschriebenen Januar (Baustein 7)
-    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung) as eb:
+    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung, folgejahr) as eb:
         for konto in sorted(set(ziel) | set(vorhanden), key=lambda x: (len(x), x)):
             differenz = ziel.get(konto, NULL) - vorhanden.get(konto, NULL)
             if differenz == 0:
@@ -206,7 +208,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
             b = _eb_buchung(
                 konto,
                 differenz,
-                folgejahr.von,
+                folgejahr,
                 einst,
                 kr,
                 f"Saldovortrag {jahr}",
