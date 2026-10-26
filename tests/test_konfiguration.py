@@ -173,6 +173,28 @@ def test_unbekannter_kontenrahmen_ist_ein_fehler(tmp_path):
         lade_buchhaltung(pfad)
 
 
+def test_fehlermeldung_nennt_den_richtigen_abschnitt(tmp_path):
+    """Nachprüfung N5: Die Meldung setzte immer „mandant.“ vor das Feld — auch für
+    Fehler unter ``buchhaltung`` und ``ustid_pruefung``."""
+    from accounti.konfiguration import lade_buchhaltung, lade_ustid_pruefung
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text("buchhaltung:\n  kontenrahmen: SKR4\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_buchhaltung(pfad)
+    assert "buchhaltung.kontenrahmen" in str(fehler.value)
+    assert "mandant." not in str(fehler.value)
+    # aus mandant.kontenrahmen übernommen: der Tippfehler steht dort
+    pfad.write_text("mandant:\n  kontenrahmen: SKR4\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError, match=r"mandant\.kontenrahmen"):
+        lade_buchhaltung(pfad)
+    pfad.write_text("ustid_pruefung:\n  timeout_sekunden: -1\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_ustid_pruefung(pfad)
+    assert "ustid_pruefung.timeout_sekunden" in str(fehler.value)
+    assert "mandant." not in str(fehler.value)
+
+
 def test_vorlage_fuehrt_den_kontenrahmen_unter_buchhaltung():
     from pathlib import Path
 

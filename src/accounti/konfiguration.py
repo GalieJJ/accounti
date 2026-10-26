@@ -101,16 +101,24 @@ class Firma(BaseModel):
         return self.rechnung.nummernformat.format(jahr=jahr, nummer=laufend)
 
 
-def _fehlertext(fehler: ValidationError) -> str:
+def _fehlertext(
+    fehler: ValidationError,
+    abschnitt: str = "mandant",
+    herkunft: dict[str, str] | None = None,
+) -> str:
+    """Fehler je Feld mit dem Abschnitt davor (``buchhaltung.kontenrahmen: …``);
+    ``herkunft`` nennt für einzelne Felder einen anderen Abschnitt (der Kontenrahmen
+    aus ``mandant``) — Nachprüfung N5: bisher stand immer „mandant.“ davor."""
     teile = []
     for f in fehler.errors():
-        pfad = ".".join(str(x) for x in f["loc"]) or "mandant"
+        pfad = ".".join(str(x) for x in f["loc"])
         grund = (
             "fehlt"
             if f["type"] == "missing"
             else str(f["msg"]).removeprefix("Value error, ")
         )
-        teile.append(f"mandant.{pfad}: {grund}" if pfad != "mandant" else grund)
+        wo = (herkunft or {}).get(str(f["loc"][0]), abschnitt) if pfad else ""
+        teile.append(f"{wo}.{pfad}: {grund}" if pfad else grund)
     return "; ".join(teile)
 
 
@@ -189,11 +197,13 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
     mandant = daten.get("mandant") if isinstance(daten, dict) else None
     werte: Any = abschnitt or {}
+    herkunft: dict[str, str] = {}
     alt = mandant.get("kontenrahmen") if isinstance(mandant, dict) else None
     if alt is not None and isinstance(werte, dict):
         eigen = werte.get("kontenrahmen")
         if eigen is None:
             werte = {**werte, "kontenrahmen": alt}
+            herkunft["kontenrahmen"] = "mandant"
         elif str(eigen).strip().upper() != str(alt).strip().upper():
             msg = (
                 f"{pfad}: buchhaltung.kontenrahmen ({eigen}) und mandant.kontenrahmen "
@@ -203,7 +213,8 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     try:
         return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
-        msg = f"{pfad}: Abschnitt 'buchhaltung': {_fehlertext(fehler)}"
+        text = _fehlertext(fehler, "buchhaltung", herkunft)
+        msg = f"{pfad}: Abschnitt 'buchhaltung': {text}"
         raise KonfigurationError(msg) from fehler
 
 
@@ -232,7 +243,8 @@ def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
     try:
         return UstIdEinstellungen.model_validate(werte)
     except ValidationError as fehler:
-        msg = f"{pfad}: Abschnitt 'ustid_pruefung': {_fehlertext(fehler)}"
+        msg = f"{pfad}: Abschnitt 'ustid_pruefung': "
+        msg += _fehlertext(fehler, "ustid_pruefung")
         raise KonfigurationError(msg) from fehler
 
 

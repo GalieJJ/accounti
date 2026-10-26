@@ -107,8 +107,11 @@ bank:
 # Buchhaltung (optional — ohne diesen Abschnitt gelten die Standards)
 buchhaltung:
   kontenrahmen: SKR03          # SKR03 oder SKR04 — gilt für USt, Abschluss, Anlagen,
-                               # Prüfregeln und DATEV. Bei SKR04 auch die Konten unten
-                               # anpassen (z. B. bank_konto "1800", Skontokonten)
+                               # Prüfregeln und DATEV. Die Standards der Konten unten
+                               # sind SKR03 — bei SKR04 setzen: bank_konto "1800",
+                               # standard_aufwand "6300", skonto_erhalten
+                               # {"19": "5736", "7": "5731", "0": "5730"},
+                               # skonto_gewaehrt {"19": "4736", "7": "4731", "0": "4730"}
   debitoren_von: 10000         # Personenkontenkreise (SKR03 und SKR04)
   debitoren_bis: 69999
   kreditoren_von: 70000

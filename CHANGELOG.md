@@ -482,7 +482,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   übernimmt `mandant.kontenrahmen`, wenn `buchhaltung.kontenrahmen` fehlt; widersprechen
   sich beide, bricht accounti mit einer Meldung ab; ein unbekannter Wert (`SKR4`) ist ein
   Fehler statt still SKR03. Die DATEV-Stammdaten lesen über denselben Lader; die Vorlage
-  führt den Schlüssel unter `buchhaltung`
+  führt den Schlüssel unter `buchhaltung`. Fehlermeldungen zu `buchhaltung` und
+  `ustid_pruefung` nennen ihren Abschnitt (bisher stand immer „mandant.“ vor dem Feld)
 - **Upgrade-Weg für Datenbanken aus `db init`** (Betrieb B2): `init_db` legte nur Tabellen
   an, ohne Versionsvermerk — der dokumentierte `alembic upgrade head` begann bei der ersten
   Migration und brach an „table … already exists“ ab, der neue Code ohne Migration an
