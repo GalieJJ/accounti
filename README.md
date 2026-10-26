@@ -154,7 +154,7 @@ pip install -e ".[dev]"
 cp config/accounti.example.yaml config/accounti.yaml
 # → API-Keys und Datenbankverbindung eintragen
 
-# Datenbank initialisieren
+# Datenbank initialisieren (nach einem Update: accounti db upgrade)
 accounti db init
 
 # Ersten Benutzer (Verwalter) anlegen und zweiten Faktor einrichten
@@ -529,8 +529,9 @@ Zeitraums. `opos verbuchen` und `periode schliessen` laufen nie neben `bank lauf
 oder einem anderen Buchungslauf derselben Datenbank (Laufsperre, sonst Exit 1),
 `nachfordern` nicht neben `aufgaben lauf`.
 
-Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `alembic upgrade head`
-(Migration `ddc9a184ddb4`); gleich danach — bevor accounti selbst schreibt — einmal
+Eine bestehende Datenbank bekommt Journal und Storno-Spalten mit `accounti db upgrade`
+(= `alembic upgrade head`, Migration `ddc9a184ddb4`; ohne Versionsvermerk — Datenbanken aus
+`db init` älterer Fassungen — leitet `db upgrade` den Stand aus dem Schema ab); gleich danach — bevor accounti selbst schreibt — einmal
 `accounti journal uebernehmen`, sonst meldet `journal pruefen` den älteren Bestand als
 „ohne Eintrag“. Später lehnt `journal uebernehmen` ab: Was dann ohne Eintrag ist, entstand an
 accounti vorbei ([Upgrades](docs/betrieb.md#upgrades)).

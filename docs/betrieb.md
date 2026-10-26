@@ -31,7 +31,9 @@ Sicherungen und einem Löschkonzept, das die Aufbewahrungsfristen kennt.
 3. Starten: `docker compose up -d --build`. Es laufen `db` (ohne veröffentlichten Port),
    `app` (nur auf `127.0.0.1:${ACCOUNTI_PORT:-8400}`) und `lauf` (alle
    `${ACCOUNTI_LAUF_MINUTEN:-60}` Minuten `bank lauf` und `aufgaben lauf`). Die Tabellen
-   legt accounti beim ersten Befehl selbst an. `app` und `lauf` haben eine
+   legt accounti beim ersten Befehl selbst an und vermerkt in einer neuen Datenbank den
+   Stand der Migrationen (`alembic_version`) — spätere Updates laufen dann mit
+   `accounti db upgrade` (unten, Upgrades). `app` und `lauf` haben eine
    Speichergrenze (`${ACCOUNTI_SPEICHER:-1g}`): jede Passwort-Prüfung (scrypt) braucht
    128 MiB, die App prüft höchstens `server.anmeldungen_gleichzeitig` (2) zugleich und
    antwortet sonst nach `server.anmeldung_warten_sekunden` (5) mit 503 und `Retry-After`
@@ -514,17 +516,37 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 docker compose build
 docker compose stop app lauf     # bis zum Ende des Updates schreibt nichts mehr
 docker compose run --rm app sicherung erstellen --ziel /arbeit/daten/sicherungen/   # Einstiegspunkt ist accounti
-docker compose run --rm --entrypoint alembic app -c /app/alembic.ini upgrade head
+docker compose run --rm app db upgrade      # = alembic upgrade head, auch ohne Versionsvermerk
 docker compose up -d
 ```
 
-Alembic liest die Datenbank aus `ACCOUNTI_DB`. Tabellen, für die es noch keine Migration
-gibt, legt accounti beim ersten Befehl selbst an (`init_db`).
+`accounti db upgrade` nimmt die Datenbank aus `--db`, `-g` bzw. `ACCOUNTI_DB` und die
+Migrationen aus `/app/alembic.ini` (im Quellbaum aus dessen `alembic.ini`; sonst
+`--alembic-ini`). Mehrere Gesellschaften: je Gesellschaft `accounti -g K db upgrade`,
+die Systemdatenbank mit `accounti -g K db upgrade --db <URL der Systemdatenbank>`.
+`docker compose run --rm --entrypoint alembic app -c /app/alembic.ini upgrade head`
+bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
+
+- **Versionsvermerk:** Eine Datenbank, die `accounti db init` oder der erste Befehl neu
+  anlegt (`init_db`), bekommt den Vermerk des Codes, der sie anlegt (Tabelle
+  `alembic_version`). Datenbanken aus älteren Fassungen haben keinen — dort begann
+  `alembic upgrade head` bei der ersten Migration und brach an „table … already exists“
+  ab. `accounti db upgrade` leitet den Stand dann aus dem Schema ab (die Migrationen
+  laufen dazu Schritt für Schritt in einer Wegwerf-Datenbank; maßgeblich sind neue
+  Tabellen und Spalten), stempelt ihn und migriert weiter; die Ausgabe nennt den
+  abgeleiteten Stand. Von Hand ginge das mit `alembic stamp <Revision>` und `alembic
+  upgrade head` — für eine Datenbank aus der Zeit vor Baustein 7 ist die Revision
+  `a684d10751de`.
+- Tabellen, für die es noch keine Migration gibt, legt accounti beim ersten Befehl selbst
+  an (`init_db`); spätere Migrationen übernehmen sie.
+- Eine Sicherung bringt ihren Versionsvermerk nicht mit, wenn das Ziel schon einen hat:
+  `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
+  dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
 
 **Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
 Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher
-liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `alembic
-upgrade head` und **vor** `docker compose up -d` einmal
+liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `db
+upgrade` (bzw. `alembic upgrade head`) und **vor** `docker compose up -d` einmal
 
 ```bash
 docker compose run --rm app journal uebernehmen    # Bestand von vor dem Journal eintragen

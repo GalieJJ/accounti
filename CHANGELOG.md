@@ -434,6 +434,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Upgrade-Weg für Datenbanken aus `db init`** (Betrieb B2): `init_db` legte nur Tabellen
+  an, ohne Versionsvermerk — der dokumentierte `alembic upgrade head` begann bei der ersten
+  Migration und brach an „table … already exists“ ab, der neue Code ohne Migration an
+  „no such column storniert_durch“. Eine neue Datenbank bekommt jetzt den Vermerk des
+  Codes, der sie anlegt (`alembic_version`); der neue Befehl `accounti db upgrade` leitet
+  bei Datenbanken ohne Vermerk den Stand aus dem Schema ab, stempelt ihn und migriert
+  (`--alembic-ini`, sonst die des Quellbaums bzw. `/app/alembic.ini`). `alembic/env.py`
+  nimmt dafür eine übergebene Verbindung. `sicherung wiederherstellen` behält den Vermerk
+  des Ziels statt einer älteren Revision aus der Sicherung
 - **`-g`/`ACCOUNTI_DB` wirkten nicht bei `ustva`, `pruefen`, `journal` und `nachfordern`**
   (Gesamttest Betrieb B1): Befehlsgruppen mit eigenem Callback bekamen `--db` und
   `--config` der Gesellschaft nicht — `accounti -g sued ustva` zeigte die Kennziffern einer

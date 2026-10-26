@@ -9,17 +9,21 @@ from alembic import context
 # access to the values within the .ini file in use.
 config = context.config
 
+# ``accounti db upgrade`` übergibt seine Verbindung (config.attributes) — dann gelten
+# weder ACCOUNTI_DB noch die Logging-Einstellungen der ini (sie gehören der Anwendung)
+VERBINDUNG = config.attributes.get("connection")
+
 # Wie die Anwendung: ACCOUNTI_DB ersetzt sqlalchemy.url aus alembic.ini (Docker)
 import os  # noqa: E402
 
-if os.environ.get("ACCOUNTI_DB"):
+if os.environ.get("ACCOUNTI_DB") and VERBINDUNG is None:
     config.set_main_option(
         "sqlalchemy.url", os.environ["ACCOUNTI_DB"].replace("%", "%%")
     )
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
-if config.config_file_name is not None:
+if config.config_file_name is not None and VERBINDUNG is None:
     fileConfig(config.config_file_name)
 
 # accounti-Modelle für autogenerate registrieren
@@ -67,6 +71,12 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    if VERBINDUNG is not None:
+        context.configure(connection=VERBINDUNG, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
+        return
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",

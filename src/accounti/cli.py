@@ -2748,12 +2748,45 @@ app.add_typer(db_app, name="db")
 
 @db_app.command("init")
 def db_init(db: str = typer.Option("sqlite:///accounti.db", help="DB-URL")) -> None:
-    """Datenbank initialisieren."""
+    """Datenbank initialisieren (eine neue bekommt den Versionsvermerk)."""
     from accounti.db import init_db, session_factory
 
     engine, _ = session_factory(db)
     init_db(engine)
     console.print(f"[green]Datenbank initialisiert:[/green] {db}")
+
+
+@db_app.command("upgrade")
+def db_upgrade(
+    db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    alembic_ini: str | None = typer.Option(
+        None, "--alembic-ini", help="sonst die des Quellbaums bzw. /app/alembic.ini"
+    ),
+) -> None:
+    """Migrationen bis zum Stand dieses Codes — auch ohne Versionsvermerk."""
+    from rich.markup import escape
+
+    from accounti.betrieb.kontext import ohne_passwort
+    from accounti.db.upgrade import UpgradeError, aktualisiere, finde_alembic_ini
+
+    try:
+        e = aktualisiere(db, finde_alembic_ini(alembic_ini))
+    except UpgradeError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    if e.abgeleitet:
+        console.print(
+            f"Ohne Versionsvermerk — Stand aus dem Schema abgeleitet: {e.vorher}"
+        )
+    console.print(
+        f"[green]{escape(ohne_passwort(db))}: Stand {e.nachher}[/green] "
+        f"({len(e.revisionen)} Migration(en))"
+    )
+    if "ddc9a184ddb4" in e.revisionen:
+        console.print(
+            "Jetzt einmal 'accounti journal uebernehmen' — bevor accounti selbst "
+            "schreibt (docs/betrieb.md, Upgrades)."
+        )
 
 
 # ---------------------------------------------------------------------------
