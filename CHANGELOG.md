@@ -485,8 +485,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Beleg. Neu `anlagen anlegen --buchung <ID>` (übernimmt fehlende Angaben, Hinweis bei
   abweichenden Kosten oder Konto) und `anlagen aendern <Nr> --buchung <ID>`; verknüpfte
   Zugänge sind kein Vorschlag mehr, ein Gut mit gleichem Konto, Datum und Kosten erscheint
-  als „vermutlich erfasst“. Alembic-Migration `2f7c7043043e` (Spalte
-  `anlagegueter.buchung_id`; schon per `init_db` angelegt, übernimmt sie sie)
+  als „vermutlich erfasst“. Alembic-Migration `2f7c7043043e` nach `6d38d11fc348` (Spalte
+  `anlagegueter.buchung_id`; schon per `init_db` angelegt, übernimmt sie sie; ohne
+  Versionsvermerk erkennt `db upgrade` den Stand davor an der fehlenden Spalte)
 - **Kassen-Storno nach `classify` kehrte nichts um** (Gesamttest Abschluss B5): Ein
   Kassenvorgang ohne `--konto` wird von `classify` am Umsatz kontiert; das nur anfügbare
   Kassenbuch kennt diese Buchung nicht. `kasse storno` findet die gültige Buchung jetzt

@@ -1,7 +1,7 @@
 """add anlagegut buchung_id (Zugangsbuchung eines Anlageguts, Gesamttest Abschluss B11)
 
 Revision ID: 2f7c7043043e
-Revises: ddc9a184ddb4
+Revises: 6d38d11fc348
 Create Date: 2026-10-23 10:54:52.168879
 
 ``anlagen anlegen --buchung`` verknüpft das Anlagegut mit seiner Zugangsbuchung (ein
@@ -17,7 +17,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = '2f7c7043043e'
-down_revision: Union[str, Sequence[str], None] = 'ddc9a184ddb4'
+down_revision: Union[str, Sequence[str], None] = '6d38d11fc348'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

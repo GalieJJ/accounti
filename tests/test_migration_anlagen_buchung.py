@@ -10,7 +10,7 @@ from tests.test_migration_belegvollstaendigkeit import (  # noqa: F401
     _umgebung,
 )
 
-VOR = "ddc9a184ddb4"
+VOR = "6d38d11fc348"  # Token je Gesellschaft, der Stand davor
 
 
 def _spalten(db) -> set[str]:
