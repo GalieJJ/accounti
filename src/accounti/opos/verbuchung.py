@@ -19,9 +19,10 @@ Lieferung im Rechnungsmonat, spätestens am Ende des Folgemonats (§ 13 Abs. 1 N
 UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Ist dieser
 Monat festgeschrieben, wird nicht still später gebucht: Der Monat ist zu öffnen und die
 Voranmeldung zu berichtigen. Ist die Voranmeldung des Zeitraums schon übermittelt, der
-Monat aber offen, weist die Verbuchung auf die Berichtigung hin (§ 153 Abs. 1 AO). Eine
-Gutschrift mit Bezug (BT-25) wird mit der noch offenen Rechnung desselben Kunden
-verrechnet.
+Monat aber offen, weist die Verbuchung auf die Berichtigung hin (§ 153 Abs. 1 AO) — bei
+einer Minderung (Gutschrift, Korrektur nach unten) als Möglichkeit, nicht als Pflicht,
+denn sie verkürzt keine Steuer. Eine Gutschrift mit Bezug (BT-25) wird mit der noch
+offenen Rechnung desselben Kunden verrechnet.
 
 Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
@@ -287,7 +288,9 @@ def verbuche_beleg(
             if hinweis and hinweis not in hinweise:
                 hinweise.append(hinweis)
             _pruefe_sperre(session, anlass, tag, belegdatum, eingang=False)
-            berichtigung = _abgegebene_voranmeldung(session, tag)
+            berichtigung = _abgegebene_voranmeldung(
+                session, tag, minderung=beleg.brutto is not None and beleg.brutto < 0
+            )
             if berichtigung and berichtigung not in hinweise:
                 hinweise.append(berichtigung)
 
@@ -519,22 +522,36 @@ def _pruefe_sperre(
         raise type(fehler)(f"{anlass}: gebucht am {tag:%d.%m.%Y}: {fehler}{ausweg}")
 
 
-def _abgegebene_voranmeldung(session: Session, tag: date) -> str | None:
+def _abgegebene_voranmeldung(
+    session: Session, tag: date, *, minderung: bool = False
+) -> str | None:
     """Ist die Voranmeldung des Zeitraums schon übermittelt (Monat oder Quartal), fehlt
     die Umsatzsteuer dieser Buchung darin — sie ist zu berichtigen (§ 153 Abs. 1 AO,
-    berichtigte Anmeldung mit Kz 10). Festgeschriebene Monate lehnt ``_pruefe_sperre``
-    vorher ab."""
+    berichtigte Anmeldung mit Kz 10). Eine ``minderung`` (Gutschrift, Korrektur nach
+    unten) verkürzt keine Steuer: keine Pflicht nach § 153 Abs. 1 AO, die berichtigte
+    Anmeldung ist nur möglich (§ 164 Abs. 2, § 168 AO) — sonst erfasst sie die
+    Jahreserklärung. Festgeschriebene Monate lehnt ``_pruefe_sperre`` vorher ab."""
     for zeitraum in (
         Zeitraum.monat_von(tag),
         Zeitraum(tag.year, quartal=(tag.month - 1) // 3 + 1),
     ):
-        if abgegeben(session, Meldeart.USTVA, str(zeitraum)):
+        if not abgegeben(session, Meldeart.USTVA, str(zeitraum)):
+            continue
+        if minderung:
             return (
-                f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Umsatzsteuer "
-                f"dieser Rechnung (gebucht am {tag:%d.%m.%Y}) fehlt darin: berichtigte "
-                f"Voranmeldung abgeben (accounti ustva freigeben --period {zeitraum}, "
-                "dann uebermitteln; § 153 Abs. 1 AO)"
+                f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Minderung "
+                f"dieser Gutschrift/Korrektur (gebucht am {tag:%d.%m.%Y}) fehlt darin: "
+                "eine berichtigte Voranmeldung kann sie geltend machen (accounti ustva "
+                f"freigeben --period {zeitraum}, dann uebermitteln), sonst erfasst sie "
+                "die Jahreserklärung — keine Pflicht nach § 153 Abs. 1 AO, die Steuer "
+                "sinkt"
             )
+        return (
+            f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Umsatzsteuer "
+            f"dieser Rechnung (gebucht am {tag:%d.%m.%Y}) fehlt darin: berichtigte "
+            f"Voranmeldung abgeben (accounti ustva freigeben --period {zeitraum}, "
+            "dann uebermitteln; § 153 Abs. 1 AO)"
+        )
     return None
 
 

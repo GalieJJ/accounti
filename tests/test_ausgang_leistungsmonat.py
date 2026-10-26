@@ -114,6 +114,34 @@ def test_uebermittelte_voranmeldung_verlangt_eine_berichtigung(umgebung, zeitrau
     assert f"accounti ustva freigeben --period {zeitraum}" in hinweis
 
 
+def test_gutschrift_in_uebermitteltem_zeitraum_ohne_berichtigungspflicht(umgebung):
+    # Gegenprüfung N8: die Gutschrift mindert die Steuer — keine Pflicht nach § 153
+    # Abs. 1 AO (keine Steuerverkürzung); eine berichtigte Voranmeldung ist möglich
+    make_session, archiv = umgebung
+    e = entwurf(kunde(), pos("Ware", "500")).model_copy(
+        update={"leistungsdatum": date(2026, 8, 3)}
+    )
+    _stelle_aus(make_session, archiv, e, date(2026, 8, 3))
+    _uebermittelt(make_session, "2026-09")
+    g = entwurf(
+        kunde(), pos("Minderung", "100"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _stelle_aus(make_session, archiv, g, date(2026, 9, 3))
+    lauf = _verbuche(make_session, archiv)
+    (gutschrift,) = [v for v in lauf.verbucht if v.beleg.belegnummer == "2026-0002"]
+    (hinweis,) = [h for h in gutschrift.hinweise if "übermittelt" in h]
+    assert "2026-09" in hinweis and "keine Pflicht" in hinweis, hinweis
+    assert "§ 153 Abs. 1 AO" in hinweis and "kann" in hinweis, hinweis
+    # eine Rechnungskorrektur, die die Steuer erhöht, bleibt berichtigungspflichtig
+    k = entwurf(
+        kunde(), pos("Fracht", "20"), rechnungstyp="384", korrektur_zu="2026-0001"
+    )
+    _stelle_aus(make_session, archiv, k, date(2026, 9, 4))
+    (korrektur,) = _verbuche(make_session, archiv).verbucht
+    (hinweis,) = [h for h in korrektur.hinweise if "übermittelt" in h]
+    assert "berichtigte Voranmeldung abgeben" in hinweis, hinweis
+
+
 def test_ohne_echte_abgabe_kein_berichtigungshinweis(umgebung):
     make_session, archiv = umgebung
     _uebermittelt(make_session, "2026-08", modus=Modus.TESTFALL)
