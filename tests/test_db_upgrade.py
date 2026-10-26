@@ -504,3 +504,37 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
     assert stand == [(SCHEMA_STAND,)]
     _alembic_url(url, tmp_path, "downgrade", VOR_TOKEN)
     _alembic_url(url, tmp_path, "upgrade", "head")
+
+
+@mit_postgresql
+def test_postgresql_vorabstand_aus_schema_und_cli_hinweis(pg_datenbank, tmp_path):
+    """PostgreSQL: Vorabstand von 10b-1 erkannt und mit --aus-schema verlustfrei
+    nachgeholt; ein Befehl auf einer Datenbank von main (ohne auth_benutzer.sprache)
+    nennt accounti db upgrade (SQLSTATE 42703) statt eines Tracebacks."""
+    from sqlalchemy import create_engine, text
+
+    from accounti.db import Base, registriere_tabellen
+
+    url = pg_datenbank()
+    _alembic_url(url, tmp_path, "upgrade", VOR_TOKEN)
+    registriere_tabellen()
+    engine = create_engine(url)
+    with engine.begin() as v:
+        for name in ("kontierungsgruende", "kontierungsregeln"):
+            Base.metadata.tables[name].create(v)
+        v.execute(text("ALTER TABLE auth_benutzer ADD COLUMN sprache VARCHAR(5)"))
+        v.execute(text("UPDATE alembic_version SET version_num = :r"), {"r": SPRACHE})
+    engine.dispose()
+    r = runner.invoke(app, ["db", "upgrade", "--db", url], env={"COLUMNS": "250"})
+    assert r.exit_code == 1 and "verrechnungen" in r.output, r.output
+    r = runner.invoke(
+        app, ["db", "upgrade", "--aus-schema", "--db", url], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0 and "(5 Migration(en))" in r.output, r.output
+    assert "No new upgrade operations detected" in _alembic_url(url, tmp_path, "check")
+
+    main = pg_datenbank()
+    _alembic_url(main, tmp_path, "upgrade", VERRECHNUNGEN)
+    r = runner.invoke(app, ["benutzer", "liste", "--db", main], env={"COLUMNS": "250"})
+    assert r.exit_code == 1, r.output
+    assert "sprache" in r.output and "accounti db upgrade" in r.output

@@ -42,6 +42,7 @@ from accounti.models.kontierung import RegelHerkunft, Richtung
 from accounti.pruefung.journal import lade_journal, pruefe_journal
 from accounti.pruefung.person import journal_kontext
 from accounti.pruefung.storno import korrigiere
+from tests.pg_hilfe import mit_postgresql
 from tests.pruefung_hilfe import (  # noqa: F401
     anlegen,
     beleg,
@@ -944,3 +945,29 @@ def test_gelernte_regel_in_derselben_sitzung_buchbar(make_session):
 
 def _unbenutzt() -> None:  # pragma: no cover — hält Importe für Hilfen stabil
     speichere_buchung  # noqa: B018
+
+
+@mit_postgresql
+def test_postgresql_uebernahme_hinter_gelernten(pg_datenbank, tmp_path):
+    """M-1 unter PostgreSQL (Ordnung nach Herkunft per CASE)."""
+    from datetime import datetime
+
+    from accounti.db import init_db, session_factory
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    datei = tmp_path / "regeln.yaml"
+    datei.write_text(
+        "- name: gelernt_telekom\n  muster: telekom\n  feld: beide\n"
+        "  soll_konto: '4900'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    telekom = mueller("-119.00", zweck="Rechnung", name="Telekom Deutschland")
+    with fabrik() as s:
+        lerne(s, entwurf_fuer(telekom, "4920", "1200", 9, BH), "jan",
+              jetzt=datetime(2026, 8, 5, 10, 0))  # fmt: skip
+        uebernehme_aus_datei(s, datei, "jan", jetzt=datetime(2026, 9, 1, 10, 0))
+        s.commit()
+        namen = [r.name for r in lade_kontierungsregeln(s)]
+    engine.dispose()
+    assert namen == ["gelernt_telekom_deutschland", "gelernt_telekom"]
