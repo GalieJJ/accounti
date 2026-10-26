@@ -247,9 +247,11 @@ def _anlagen(k: Abschlusskontext) -> list[Befund]:
 
     Der AfA-Lauf rechnet im Kalenderjahr, monatsgenau; ein abweichendes
     Wirtschaftsjahr berührt zwei Kalenderjahre (``--jahr`` je Kalenderjahr,
-    ``--bis-monat`` im zweiten). Für lineare AfA und GWG ist das dasselbe; degressive
-    AfA, Sammelposten (§ 6 Abs. 2a EStG: je Wirtschaftsjahr ein Fünftel) und die
-    E-Fahrzeug-Staffel gelten je Wirtschaftsjahr — dort eine Warnung."""
+    ``--bis-monat`` im zweiten), je mit dem Abschnitt, der zum Wirtschaftsjahr gehört
+    (``AnlagenEinstellungen.afa_abschnitt``). Für lineare AfA und GWG ist das
+    dasselbe; degressive AfA, Sammelposten (§ 6 Abs. 2a EStG: je Wirtschaftsjahr ein
+    Fünftel) und die E-Fahrzeug-Staffel gelten je Wirtschaftsjahr — dort eine
+    Warnung."""
     befunde: list[Befund] = []
     rs = k.anlagen.rechtsstand()
     for jahr, monat in k.wirtschaftsjahr.kalenderjahre:

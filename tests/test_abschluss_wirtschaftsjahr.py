@@ -232,7 +232,7 @@ def test_abschluss_buchen_und_pruefen_mit_anlage(make_session, tmp_path):
     r, text = run("buchen", "--jahr", "2026")
     assert r.exit_code == 0, r.output
     # Sep–Dez 2025 und Jan–Jun 2026: 4 + 6 Monate × 1.000 €
-    assert "AfA 2025 (zur Prüfung)" in text and "4.000,00" in text
+    assert "AfA 2025 ab 07 (zur Prüfung)" in text and "4.000,00" in text
     assert "AfA 2026 bis 06 (zur Prüfung)" in text and "6.000,00" in text
     with make_session() as s:
         for b in lade_buchungen(s, status={BuchungStatus.ZUR_PRUEFUNG}):
@@ -269,3 +269,118 @@ def test_warnung_fuer_afa_je_wirtschaftsjahr(make_session, tmp_path):
     assert (
         len(warnungen) == 1 and "Anlagegut Nr. 2 mit dem Steuerberater" in warnungen[0]
     )
+
+
+# --- Nachprüfung F: AfA je Abschnitt des Kalenderjahres -------------------------------
+
+
+def _alles_freigeben(make_session):
+    from accounti.db.repository import setze_status
+
+    with make_session() as s:
+        for b in lade_buchungen(s, status={BuchungStatus.ZUR_PRUEFUNG}):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT, geprueft_von="chef")
+        s.commit()
+
+
+def test_afa_im_ersten_wirtschaftsjahr_mit_altbestand(make_session, tmp_path):
+    """Nachprüfung F, N1: Im ersten abweichenden WJ rechnete ``afa_lauf(2025, 12)``
+    Januar bis Dezember 2025 — Januar bis Juni gehören zum Vor-WJ, dessen AfA im
+    Eröffnungssaldo steckt; vorgeschlagen wurden 18 Monate (§ 7 Abs. 1 EStG: AfA je
+    Wirtschaftsjahr). Maschine 01.01.2020, 12.000 €, 10 Jahre: 100 €/Monat,
+    Restbuchwert 30.06.2025 = 5.400 €."""
+    config = _config(tmp_path, gewinnermittlung="bilanz")
+    einst = lade_abschluss(config)
+    url = f"sqlite:///{(tmp_path / 'test.db').as_posix()}"
+    anlegen(make_session, "12000", date(2020, 1, 1), nd=10, konto="0420")
+    with make_session() as s:
+        erfasse_eroeffnung(s, 2026, "0420", D("5400"), "chef", einst)
+        erfasse_eroeffnung(s, 2026, "0880", D("-5400"), "chef", einst)
+        s.commit()
+    runner = CliRunner()
+
+    def run(*args):
+        r = runner.invoke(
+            app,
+            [*args, "--db", url, "--config", str(config)],
+            env={"COLUMNS": "200"},
+        )
+        assert r.exit_code == 0, r.output
+        return " ".join(r.output.split())
+
+    text = run("abschluss", "buchen", "--jahr", "2026")
+    assert "AfA 2025 ab 07 (zur Prüfung)" in text and "AfA 2026 bis 06" in text
+    assert "1.200,00" not in text and text.count("600,00") >= 2
+    _alles_freigeben(make_session)
+
+    def anlagenbefunde(jahr):
+        with make_session() as s:
+            return [
+                b.text for b in pruefe_abschluss(kontext(s, jahr, config), ["anlagen"])
+            ]
+
+    assert anlagenbefunde(2026) == []  # 0420: 5.400 − 1.200 = 4.200 zum 30.06.2026
+    # der AfA-Lauf von Hand kennt den Abschnitt ebenso — nichts nachzubuchen
+    assert "nichts zu buchen" in run("anlagen", "afa", "--jahr", "2025")
+    assert "nichts zu buchen" in run(
+        "anlagen", "afa", "--jahr", "2026", "--bis-monat", "6"
+    )
+    # das Folge-WJ bucht Juli–Dezember 2026; das WJ 2026 bleibt dabei stimmig
+    text = run("abschluss", "buchen", "--jahr", "2027")
+    assert "AfA 2026 ab 07 (zur Prüfung)" in text and "AfA 2027 bis 06" in text
+    assert "1.200,00" not in text and "Korrektur" not in text
+    _alles_freigeben(make_session)
+    assert anlagenbefunde(2026) == []
+    assert not [t for t in anlagenbefunde(2027) if "AfA" in t]
+    # erneut gebucht: idempotent in beiden Wirtschaftsjahren
+    assert "nichts zu buchen" in run("abschluss", "buchen", "--jahr", "2026")
+    with make_session() as s:
+        assert not lade_buchungen(s, status={BuchungStatus.ZUR_PRUEFUNG})
+
+
+def test_abgang_im_ersten_wirtschaftsjahr_ohne_vorjahres_afa(make_session, tmp_path):
+    """N1 auch beim Abgang: AfA nur ab Beginn des Wirtschaftsjahres (Juli–September
+    statt Januar–September 2025)."""
+    from accounti.anlagen.abgang import buche_abgang
+    from accounti.anlagen.konfiguration import lade_anlagen
+
+    config = _config(tmp_path, gewinnermittlung="bilanz")
+    g = anlegen(make_session, "12000", date(2020, 1, 1), nd=10, konto="0420")
+    anlagen = lade_anlagen(config)
+    with make_session() as s:
+        e = buche_abgang(s, str(g.nr), date(2025, 9, 30), anlagen)
+        s.commit()
+    assert e.afa.summe == D("300")
+    assert e.restbuchwert == D("5100")
+
+
+def test_aenderung_rechnet_jeden_abschnitt_neu(make_session, tmp_path):
+    """N1 bei ``anlagen aendern``: Je Kalenderjahr gibt es bei abweichendem WJ zwei
+    Abschnitte — beide werden neu gerechnet, nicht nur der mit dem spätesten Monat."""
+    from accounti.anlagen.aenderung import aendere_anlage
+    from accounti.anlagen.konfiguration import lade_anlagen
+    from accounti.anlagen.lauf import afa_lauf
+
+    config = _config(tmp_path, gewinnermittlung="bilanz")
+    anlagen = lade_anlagen(config)
+    g = anlegen(make_session, "12000", date(2020, 1, 1), nd=10, konto="0420")
+    with make_session() as s:
+        for jahr, monat in [(2025, 12), (2026, 6), (2026, 12), (2027, 6)]:
+            assert afa_lauf(s, jahr, anlagen, monat).summe == D("600")
+        s.commit()
+    _alles_freigeben(make_session)
+    with make_session() as s:
+        a = aendere_anlage(
+            s, str(g.nr), anlagen, kosten=D("13200"), grund="Tippfehler AK"
+        )
+        s.commit()
+    # 110 statt 100 €/Monat: je Abschnitt 6 × 10 € AfA nachzubuchen
+    assert sorted(
+        (lauf.jahr, lauf.ab_monat, lauf.bis_monat, lauf.summe)
+        for lauf in a.neuberechnung.afa
+    ) == [
+        (2025, 7, 12, D("60")),
+        (2026, 1, 6, D("60")),
+        (2026, 7, 12, D("60")),
+        (2027, 1, 6, D("60")),
+    ]

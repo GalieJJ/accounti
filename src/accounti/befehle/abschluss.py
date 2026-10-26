@@ -239,7 +239,8 @@ def buchen(
     with sitzung(db)() as s:
         try:
             # der AfA-Lauf rechnet im Kalenderjahr: ein abweichendes Wirtschaftsjahr
-            # berührt zwei — das erste bis Dezember, das zweite bis zum WJ-Ende
+            # berührt zwei — das erste ab WJ-Beginn bis Dezember, das zweite bis zum
+            # WJ-Ende (der Abschnitt folgt aus datev.wirtschaftsjahr_beginn)
             laeufe = [afa_lauf(s, kj, anlagen, monat) for kj, monat in wj.kalenderjahre]
             lauf = schlage_abgrenzungen_vor(s, jahr, einst, anlagen.rechtsstand())
         except (ValueError, JahrGesperrtError) as fehler:
@@ -247,6 +248,8 @@ def buchen(
         s.commit()
     for afa in laeufe:
         bis = "" if afa.bis_monat == 12 else f" bis {afa.bis_monat:02d}"
+        if afa.ab_monat > 1:
+            bis = f" ab {afa.ab_monat:02d}{bis}"
         if not afa.buchungen:
             console.print(f"AfA {afa.jahr}{bis}: nichts zu buchen")
             continue

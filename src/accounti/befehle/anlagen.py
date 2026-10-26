@@ -28,18 +28,21 @@ def _einstellungen(config: str):  # type: ignore[no-untyped-def]
 
 def _hinweis_wirtschaftsjahr(config: str, was: str) -> None:
     """Abweichendes Wirtschaftsjahr: AfA-Lauf und Anlagenspiegel rechnen im
-    Kalenderjahr (``abschluss buchen``/``pruefen`` rechnen das Wirtschaftsjahr)."""
+    Kalenderjahr (``abschluss buchen``/``pruefen`` rechnen das Wirtschaftsjahr).
+    ``was`` darf ``{ende}`` enthalten (letzter Monat des WJ)."""
     from accounti.abschluss.konfiguration import (
         lade_wirtschaftsjahr_beginn,
         wirtschaftsjahr,
     )
 
     beginn = lade(lade_wirtschaftsjahr_beginn, config)
-    if beginn is None or not wirtschaftsjahr(2000, beginn).abweichend:
+    wj = wirtschaftsjahr(2001, beginn)
+    if beginn is None or not wj.abweichend:
         return
     console.print(
-        f"[yellow]Abweichendes Wirtschaftsjahr (Beginn {beginn:%d.%m.}): {was} im "
-        "Kalenderjahr — zum Wirtschaftsjahresende accounti abschluss buchen --jahr "
+        f"[yellow]Abweichendes Wirtschaftsjahr (Beginn {beginn:%d.%m.}): "
+        f"{was.format(ende=wj.bis.month)} — zum Wirtschaftsjahresende accounti "
+        "abschluss buchen --jahr "
         "<Jahr des WJ-Endes> (beide Kalenderjahre); degressive AfA, Sammelposten und "
         "E-Fahrzeug-Staffel gelten je Wirtschaftsjahr, mit dem Steuerberater "
         "abstimmen[/yellow]"
@@ -331,7 +334,12 @@ def afa(
     if not 1 <= bis_monat <= 12:
         ende(f"--bis-monat {bis_monat}: erlaubt sind 1 bis 12")
     einst = _einstellungen(config)
-    _hinweis_wirtschaftsjahr(config, "--jahr ist hier das Kalenderjahr")
+    _hinweis_wirtschaftsjahr(
+        config,
+        "--jahr ist hier das Kalenderjahr; der Lauf rechnet je Abschnitt — bis "
+        "--bis-monat {ende} für das Wirtschaftsjahr, das im Jahr endet, darüber ab "
+        "Beginn des folgenden",
+    )
     with sitzung(db)() as s:
         try:
             e = afa_lauf(s, jahr, einst, bis_monat)
@@ -505,7 +513,7 @@ def spiegel(
     from accounti.db.repo_anlagen import lade_anlagen
 
     rs = _einstellungen(config).rechtsstand()
-    _hinweis_wirtschaftsjahr(config, "der Anlagenspiegel rechnet")
+    _hinweis_wirtschaftsjahr(config, "der Anlagenspiegel rechnet im Kalenderjahr")
     with sitzung(db)() as s:
         anlagen = lade_anlagen(s)
     try:

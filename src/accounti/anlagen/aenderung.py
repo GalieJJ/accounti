@@ -131,24 +131,29 @@ def _verwirf_eigene_vorschlaege(
     return verworfen
 
 
-def _bis_monat(session: Session, objekte: set[str]) -> dict[int, int]:
-    """Je Jahr der späteste Monat, bis zu dem für die Objekte AfA gebucht ist."""
-    bis: dict[int, int] = {}
+def _bis_monat(
+    session: Session, objekte: set[str], einstellungen: AnlagenEinstellungen
+) -> dict[tuple[int, int], int]:
+    """Je Jahr und Abschnitt (erster Monat; bei abweichendem Wirtschaftsjahr zwei je
+    Kalenderjahr, ``afa_abschnitt``) der späteste Monat, bis zu dem für die Objekte
+    AfA gebucht ist."""
+    bis: dict[tuple[int, int], int] = {}
     for v in lade_afa_vorgaenge(session):
         if v.objekt in objekte:
-            bis[v.jahr] = max(bis.get(v.jahr, 0), v.bis_monat)
+            schluessel = (v.jahr, einstellungen.afa_abschnitt(v.bis_monat)[0])
+            bis[schluessel] = max(bis.get(schluessel, 0), v.bis_monat)
     return bis
 
 
 def _neu_rechnen(
     session: Session,
     objekte: set[str],
-    bis: dict[int, int],
+    bis: dict[tuple[int, int], int],
     einstellungen: AnlagenEinstellungen,
     rs: Rechtsstand,
 ) -> list[AfaLaufErgebnis]:
     ergebnisse = []
-    for jahr, monat in sorted(bis.items()):
+    for (jahr, _), monat in sorted(bis.items()):
         lauf = afa_lauf(session, jahr, einstellungen, monat, objekte, rs)
         if lauf.buchungen:
             ergebnisse.append(lauf)
@@ -241,10 +246,11 @@ def aendere_anlage(
     with journal_kontext(grund=(grund or "").strip() or None):
         if afa_relevant:
             objekte = _objekte(alt, neu)
-            bis = _bis_monat(session, objekte)
+            bis = _bis_monat(session, objekte, einstellungen)
             _pruefe_jahre_offen(
                 session,
-                set(bis) | {alt.anschaffungsdatum.year, neu.anschaffungsdatum.year},
+                {j for j, _ in bis}
+                | {alt.anschaffungsdatum.year, neu.anschaffungsdatum.year},
             )
             nb = ergebnis.neuberechnung
             nb.verworfen = _verwirf_eigene_vorschlaege(session, objekte)
@@ -319,8 +325,8 @@ def nimm_abgang_zurueck(
             nb.verworfen.append(b)
         aktualisiere_anlage(session, neu)
         bis = {
-            j: m
-            for j, m in _bis_monat(session, objekte).items()
+            (j, ab): m
+            for (j, ab), m in _bis_monat(session, objekte, einstellungen).items()
             if j == alt.abgang_datum.year
         }
         nb.afa = _neu_rechnen(session, objekte, bis, einstellungen, rs)
