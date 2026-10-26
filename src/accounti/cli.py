@@ -3197,6 +3197,13 @@ def db_upgrade(
     alembic_ini: str | None = typer.Option(
         None, "--alembic-ini", help="sonst die des Quellbaums bzw. /app/alembic.ini"
     ),
+    aus_schema: bool = typer.Option(
+        False,
+        "--aus-schema",
+        help="Stand auch bei vorhandenem Versionsvermerk aus dem Schema ableiten "
+        "(fehlende Migrationen nachholen, z. B. nach dem Vorabstand von 10b-1; vorher "
+        "sichern)",
+    ),
 ) -> None:
     """Migrationen bis zum Stand dieses Codes — auch ohne Versionsvermerk."""
     from rich.markup import escape
@@ -3205,11 +3212,16 @@ def db_upgrade(
     from accounti.db.upgrade import UpgradeError, aktualisiere, finde_alembic_ini
 
     try:
-        e = aktualisiere(db, finde_alembic_ini(alembic_ini))
+        e = aktualisiere(db, finde_alembic_ini(alembic_ini), aus_schema=aus_schema)
     except UpgradeError as fehler:
-        console.print(f"[red]{escape(str(fehler))}[/red]")
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
         raise typer.Exit(1) from fehler
-    if e.abgeleitet:
+    if e.vermerk is not None:
+        console.print(
+            f"Versionsvermerk {e.vermerk} passte nicht zum Schema — Stand aus dem "
+            f"Schema abgeleitet: {e.vorher}"
+        )
+    elif e.abgeleitet:
         console.print(
             f"Ohne Versionsvermerk — Stand aus dem Schema abgeleitet: {e.vorher}"
         )

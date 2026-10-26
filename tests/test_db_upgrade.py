@@ -312,6 +312,87 @@ def test_db_upgrade_legt_keine_neue_sqlite_datei_an(tmp_path):
     assert r.exit_code == 1 and isinstance(r.exception, SystemExit), r.exception
 
 
+def _vorabstand_10b_1(db: Path) -> None:
+    """Wie eine Datenbank, die der Vorabstand von 10b-1 (43031a7) per ``alembic
+    upgrade head`` migriert hat: Stand ddc9a184ddb4, dazu die Tabellen der Kontierung
+    und ``auth_benutzer.sprache`` — Vermerk e7153706b43a, aber die Migrationen von
+    main (6d38d11fc348, 2f7c7043043e, a14acef69fae) fehlen (gw-migration N-1)."""
+    from accounti.db import Base, registriere_tabellen
+
+    _alembic(db, "upgrade", VOR_TOKEN)
+    registriere_tabellen()
+    engine, _ = session_factory(f"sqlite:///{db}")
+    with engine.begin() as v:
+        for name in ("kontierungsgruende", "kontierungsregeln"):
+            Base.metadata.tables[name].create(v)
+    engine.dispose()
+    with sqlite3.connect(db) as v:
+        v.execute("ALTER TABLE auth_benutzer ADD COLUMN sprache VARCHAR(5)")
+        v.execute("UPDATE alembic_version SET version_num = ?", (SPRACHE,))
+        v.execute(
+            "INSERT INTO kontierungsregeln (id, name, muster, ist_text, feld, "
+            "soll_konto, haben_konto, herkunft, angelegt_von, angelegt_am, aktiv) "
+            "VALUES ('r1', 'gelernt_probe', 'Probe', 1, 'beide', '4930', '1200', "
+            "'korrektur', 'jan', '2026-10-01 00:00:00', 1)"
+        )
+    assert "verrechnungen" not in _tabellen(db)
+
+
+def test_db_upgrade_erkennt_den_vorabstand_und_bricht_mit_weg_ab(tmp_path):
+    """gw-migration N-1 / gw-regress N1: Bisher meldete ``db upgrade`` „Stand
+    e7153706b43a (0 Migration(en))“, der erste Befehl endete mit OperationalError.
+    Jetzt Abbruch mit den fehlenden Tabellen/Spalten, dem aus dem Schema abgeleiteten
+    Stand und dem verlustfreien Weg; nichts geändert."""
+    db = tmp_path / "vorab.db"
+    _vorabstand_10b_1(db)
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 1, r.output
+    assert "verrechnungen" in r.output and "anlagegueter.buchung_id" in r.output
+    assert VOR_TOKEN in r.output and "--aus-schema" in r.output
+    assert _version(db) == [SPRACHE] and "verrechnungen" not in _tabellen(db)
+
+
+def test_db_upgrade_aus_schema_holt_die_migrationen_verlustfrei_nach(tmp_path):
+    db = tmp_path / "vorab.db"
+    _vorabstand_10b_1(db)
+    r = runner.invoke(
+        app,
+        ["db", "upgrade", "--aus-schema", "--db", f"sqlite:///{db}"],
+        env={"COLUMNS": "250"},
+    )
+    assert r.exit_code == 0, r.output
+    assert VOR_TOKEN in r.output and "(5 Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert "verrechnungen" in _tabellen(db)
+    assert "buchung_id" in _spalten(db, "anlagegueter")
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+    with sqlite3.connect(db) as v:
+        assert v.execute("SELECT name FROM kontierungsregeln").fetchall() == [
+            ("gelernt_probe",)
+        ]
+    # ein zweites Mal ändert nichts
+    r = runner.invoke(app, ["db", "upgrade", "--aus-schema", "--db", f"sqlite:///{db}"])
+    assert r.exit_code == 0 and "(0 Migration(en))" in r.output, r.output
+
+
+def test_cli_auf_nicht_migrierter_datenbank_hinweis_statt_traceback(tmp_path):
+    """gw-migration N-3: Eine Datenbank von main (a14acef69fae) ohne
+    ``auth_benutzer.sprache`` — ``benutzer liste`` endete mit Traceback
+    „no such column“. Jetzt Meldung mit ``accounti db upgrade`` und Exit 1."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    db = tmp_path / "main.db"
+    _alembic(db, "upgrade", VERRECHNUNGEN)
+    r = runner.invoke(
+        app, ["benutzer", "liste", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 1, r.output
+    assert not isinstance(r.exception, SQLAlchemyError), r.exception
+    assert "auth_benutzer.sprache" in r.output and "accounti db upgrade" in r.output
+
+
 def test_migration_token_je_gesellschaft(tmp_path):
     """Befund Betrieb B9: Index ``uq_api_token_aktiv`` auf (gesellschaft, name)."""
     db = tmp_path / "t.db"
