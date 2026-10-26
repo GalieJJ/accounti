@@ -1,7 +1,7 @@
 """accounti CLI — Kommandozeilenschnittstelle."""
 
 from decimal import Decimal
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, NoReturn
 
 import typer
 from rich.console import Console
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from accounti.belege.kanaele import BelegKanal
     from accounti.belege.pipeline import Erkenner
     from accounti.buchung.kontierung import Kontierungslauf
+    from accounti.buchung.pruefschlange import Korrekturergebnis
     from accounti.erechnung.kosit import KositErgebnis
     from accounti.erechnung.mustang import MustangErgebnis
     from accounti.erechnung.validierung import Befund
@@ -25,11 +26,13 @@ if TYPE_CHECKING:
     from accounti.kontakte.ustid import Bewertung
     from accounti.models import (
         Beleg,
+        Buchungssatz,
         Kontakt,
         PostenRichtung,
         Transaktion,
         UstIdPruefung,
     )
+    from accounti.models.kontierung import Kontierungsregel
     from accounti.opos.zuordnung import Zuordnungsvorschlag
 
 app = typer.Typer(
@@ -2811,7 +2814,7 @@ def lerne(
         KontenrahmenError,
         mit_eingerichteten_konten,
     )
-    from accounti.befehle import handelnde_person
+    from accounti.befehle import fachprobe, handelnde_person
     from accounti.db import init_db, session_factory
     from accounti.klassifikation.lernen import FELDER, RegelError, lerne_regex
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
@@ -2835,32 +2838,46 @@ def lerne(
         raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
+
+    def ausfuehren(s: "Session", wer: str) -> "Kontierungsregel":
+        return lerne_regex(
+            s,
+            name,
+            muster,
+            soll,
+            haben,
+            steuer,
+            wer,
+            feld=feld,
+            richtung=r_richtung,
+            buchhaltung=buchhaltung,
+            kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
+        )
+
+    def melde(fehler: Exception) -> NoReturn:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
     # eine Regel bucht künftige Umsätze automatisch — buchen und Regeln lernen (wie
-    # korrigiere --lernen), mit einem Einmalcode; der verwalter allein darf es nicht
+    # korrigiere --lernen), mit einem Einmalcode; der verwalter allein darf es nicht.
+    # Erst die Fachprobe, dann der Code (gw-storno N3)
+    probe = fachprobe(
+        make_session,
+        lambda s: ausfuehren(s, aktuelle_person(von)),
+        (RegelError,),
+        melde,
+    )
     with (
         handelnde_person(
-            db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,)
+            db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,), probe
         ) as person,
         make_session() as s,
     ):
         try:
-            regel = lerne_regex(
-                s,
-                name,
-                muster,
-                soll,
-                haben,
-                steuer,
-                aktuelle_person(person),
-                feld=feld,
-                richtung=r_richtung,
-                buchhaltung=buchhaltung,
-                kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
-            )
+            regel = ausfuehren(s, aktuelle_person(person))
             s.commit()
         except RegelError as fehler:
-            console.print(f"[red]{escape(str(fehler))}[/red]")
-            raise typer.Exit(1) from fehler
+            melde(fehler)
     console.print(
         f"[green]Regel '{escape(regel.name)}' gespeichert[/green] (Datenbank, Vorrang "
         "vor der Regeldatei; accounti regeln liste)."
@@ -2966,7 +2983,7 @@ def bestaetige(
     from rich.markup import escape
 
     from accounti.abschluss.kontenrahmen import KontenrahmenError
-    from accounti.befehle import handelnde_person
+    from accounti.befehle import fachprobe, handelnde_person
     from accounti.buchung.pruefschlange import PruefschlangeError, freigeben
     from accounti.db import session_factory
     from accounti.db.tabellen import UnveraenderbarError
@@ -2977,33 +2994,50 @@ def bestaetige(
     from accounti.pruefung.storno import StornoError, lade_korrekturumgebung
 
     _, make_session = session_factory(db)
+    fachfehler = (
+        PruefschlangeError,
+        StornoError,
+        JahrGesperrtError,
+        UnveraenderbarError,
+        KonfigurationError,
+        KontenrahmenError,
+    )
+
+    def ausfuehren(s: "Session", wer: str) -> "tuple[Buchungssatz, bool]":
+        # Prüfregel steuerschluessel_konto wie in der Queue (Fehler: nicht frei)
+        return freigeben(
+            s,
+            buchung_id,
+            wer,
+            nur_vorschlaege=False,
+            umgebung=lade_korrekturumgebung(config),
+        )
+
+    def melde(fehler: Exception) -> NoReturn:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
     # mit Benutzern: Buchungen freigeben (buchhalter, freigeber) und Einmalcode;
     # dieselbe Funktion wie die Prüfseite (schließt Rückfrage und Aufgabe), aber auch
-    # für automatisch gebuchte Buchungen und ohne Stand
+    # für automatisch gebuchte Buchungen und ohne Stand. Erst die Fachprobe, dann
+    # der Code (gw-storno N3)
+    probe = fachprobe(
+        make_session,
+        lambda s: ausfuehren(s, aktuelle_person(von)),
+        fachfehler,
+        melde,
+    )
     with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        handelnde_person(
+            db, config, Recht.BUCHUNG_FREIGEBEN, von, vorab=probe
+        ) as person,
         make_session() as s,
     ):
         try:
-            # Prüfregel steuerschluessel_konto wie in der Queue (Fehler: nicht frei)
-            b, geaendert = freigeben(
-                s,
-                buchung_id,
-                aktuelle_person(person),
-                nur_vorschlaege=False,
-                umgebung=lade_korrekturumgebung(config),
-            )
+            b, geaendert = ausfuehren(s, aktuelle_person(person))
             s.commit()
-        except (
-            PruefschlangeError,
-            StornoError,
-            JahrGesperrtError,
-            UnveraenderbarError,
-            KonfigurationError,
-            KontenrahmenError,
-        ) as fehler:
-            console.print(f"[red]{escape(str(fehler))}[/red]")
-            raise typer.Exit(1) from fehler
+        except fachfehler as fehler:
+            melde(fehler)
     if geaendert:
         console.print(f"[green]Freigegeben:[/green] {str(b.id)[:8]} → geprüft")
     else:
@@ -3062,7 +3096,7 @@ def korrigiere(
     from rich.markup import escape
 
     from accounti.abschluss.kontenrahmen import KontenrahmenError
-    from accounti.befehle import handelnde_person
+    from accounti.befehle import fachprobe, handelnde_person
     from accounti.buchung.pruefschlange import (
         Aenderung,
         LernWunsch,
@@ -3093,40 +3127,55 @@ def korrigiere(
     # (Neubuchung „korrigiert“, Storno „geprueft“) — wer buchen darf, darf laut
     # Rollenmatrix auch Buchungen freigeben
     weitere = (Recht.REGELN_LERNEN,) if lernen else ()
+    fachfehler = (
+        PruefschlangeError,
+        StornoError,
+        JahrGesperrtError,
+        UnveraenderbarError,
+    )
+
+    def ausfuehren(s: "Session", wer: str) -> "Korrekturergebnis":
+        return korrigieren(
+            s,
+            buchung_id,
+            Aenderung(soll, haben, steuer, ohne_steuer, grund, tag),
+            wer,
+            None,
+            umgebung,
+            lernen=LernWunsch(muster=muster, bestaetigt=trotz_warnung)
+            if lernen
+            else None,
+            nur_vorschlaege=False,
+            # Altbuchungen ohne gespeicherte Herkunft (vor 10b) bleiben lernbar
+            unbekannte_herkunft_lernbar=True,
+        )
+
+    def melde(fehler: Exception) -> NoReturn:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        if isinstance(fehler, RegelBestaetigenError):
+            console.print(
+                "[dim]Genaueres Muster mit --muster angeben oder bewusst mit "
+                "--trotz-warnung speichern; ohne --lernen wird nur korrigiert.[/dim]"
+            )
+        raise typer.Exit(1) from fehler
+
+    # erst die Fachprobe (zurückgerollt), dann der Einmalcode — ein Fachfehler
+    # verbraucht ihn nicht (gw-storno N3)
+    probe = fachprobe(
+        make_session,
+        lambda s: ausfuehren(s, aktuelle_person(von)),
+        fachfehler,
+        melde,
+    )
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von, weitere) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, weitere, probe) as person,
         make_session() as s,
     ):
         try:
-            e = korrigieren(
-                s,
-                buchung_id,
-                Aenderung(soll, haben, steuer, ohne_steuer, grund, tag),
-                aktuelle_person(person),
-                None,
-                umgebung,
-                lernen=LernWunsch(muster=muster, bestaetigt=trotz_warnung)
-                if lernen
-                else None,
-                nur_vorschlaege=False,
-                # Altbuchungen ohne gespeicherte Herkunft (vor 10b) bleiben lernbar
-                unbekannte_herkunft_lernbar=True,
-            )
+            e = ausfuehren(s, aktuelle_person(person))
             s.commit()
-        except (
-            PruefschlangeError,
-            StornoError,
-            JahrGesperrtError,
-            UnveraenderbarError,
-        ) as fehler:
-            console.print(f"[red]{escape(str(fehler))}[/red]")
-            if isinstance(fehler, RegelBestaetigenError):
-                console.print(
-                    "[dim]Genaueres Muster mit --muster angeben oder bewusst mit "
-                    "--trotz-warnung speichern; ohne --lernen wird nur korrigiert."
-                    "[/dim]"
-                )
-            raise typer.Exit(1) from fehler
+        except fachfehler as fehler:
+            melde(fehler)
     k = e.korrektur
     kurz = str(k.original.id)[:8]
     if k.storno is None:

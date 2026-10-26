@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -34,6 +34,7 @@ def handelnde_person(
     recht: Recht,
     von: str | None,
     weitere: tuple[Recht, ...] = (),
+    vorab: Callable[[], None] | None = None,
 ) -> Iterator[str | None]:
     """Wer handelt — mit eingerichteten Benutzern (Baustein 10) geprüft.
 
@@ -43,17 +44,45 @@ def handelnde_person(
     Protokoll und als Person im Journal (``journal_kontext``), nicht ein frei
     gewählter Text. Ohne Benutzer bleibt alles wie bisher: zurück kommt ``von``
     (auch ``None``). Fehlt das Recht: Meldung und Exit 1. ``weitere``: zusätzlich
-    nötige Rechte, geprüft mit demselben Einmalcode (``korrigiere --lernen``)."""
+    nötige Rechte, geprüft mit demselben Einmalcode (``korrigiere --lernen``).
+    ``vorab``: Fachprobe nach der Rechteprüfung, vor dem Einmalcode — sie führt die
+    Aktion zur Probe aus, rollt zurück und endet bei einem Fachfehler mit Meldung und
+    Exit 1, ohne den Code zu verbrauchen (gw-storno N3; ``fachprobe``)."""
     from accounti.auth.cli import befehlsrecht_oder_ende
     from accounti.pruefung.person import aktuelle_person, journal_kontext
 
-    benutzer = befehlsrecht_oder_ende(db, config, recht, aktuelle_person(von), weitere)
+    benutzer = befehlsrecht_oder_ende(
+        db, config, recht, aktuelle_person(von), weitere, vorab
+    )
     if benutzer is not None:
         with journal_kontext(person=benutzer.name, geprueft=True):
             yield benutzer.name
         return
     with journal_kontext(person=von.strip() if von and von.strip() else None):
         yield von
+
+
+def fachprobe(
+    sitzung: Callable[[], Any],
+    aktion: Callable[[Any], object],
+    fehler: tuple[type[Exception], ...],
+    melde: Callable[[Exception], None],
+) -> Callable[[], None]:
+    """Fachprobe für ``handelnde_person(vorab=…)``: ``aktion`` in einer eigenen
+    Sitzung ausführen und zurückrollen; ein Fehler aus ``fehler`` geht an ``melde``
+    (Meldung und ``typer.Exit``)."""
+
+    def probe() -> None:
+        with sitzung() as s:
+            try:
+                aktion(s)
+            except fehler as f:
+                s.rollback()
+                melde(f)
+            finally:
+                s.rollback()
+
+    return probe
 
 
 @contextmanager
