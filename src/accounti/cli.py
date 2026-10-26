@@ -505,7 +505,8 @@ def rechnung_neu(
     korrektur_zu: str | None = typer.Option(
         None,
         help="Gutschrift/Rechnungskorrektur zu dieser ausgestellten Rechnung (BT-25); "
-        "ohne --name übernimmt sie den Kunden der Rechnung",
+        "ohne --name übernimmt sie den Kunden der Rechnung (--strasse, --plz, --ort, "
+        "--email, --ust-id, --leitweg-id ergänzen oder ändern ihn)",
     ),
     korrektur_art: str = typer.Option(
         "gutschrift",
@@ -550,8 +551,24 @@ def rechnung_neu(
                     "— einen Entwurf ändert man direkt[/red]"
                 )
                 raise typer.Exit(1)
+        # Ohne --name der Kunde der Rechnung — angegebene Optionen ergänzen ihn (etwa die
+        # Straße einer Altrechnung, § 14 Abs. 4 Satz 1 Nr. 1 UStG)
+        ergaenzt = {
+            feld: wert
+            for feld, wert in (
+                ("strasse", strasse),
+                ("plz", plz),
+                ("ort", ort),
+                ("ust_id", ust_id),
+                ("email", email),
+                ("leitweg_id", leitweg_id),
+            )
+            if wert is not None
+        }
         kunde = (
-            ursprung.kunde
+            Rechnungsempfaenger.model_validate(
+                {**ursprung.kunde.model_dump(), **ergaenzt}
+            )
             if ursprung is not None and name is None
             else Rechnungsempfaenger(
                 name=name or "",
@@ -679,7 +696,7 @@ def rechnung_zeigen(
 
     from accounti.db import session_factory
     from accounti.db.repository import lade_ausgangsrechnung
-    from accounti.erechnung.erzeuger.aufbau import baue_rechnung
+    from accounti.erechnung.erzeuger.aufbau import baue_rechnung, fehlende_anschrift
     from accounti.erechnung.validierung import pruefe
 
     firma = _lade_firma_oder_ende(config)
@@ -703,6 +720,7 @@ def rechnung_zeigen(
             entwurf.rechnungsdatum or date.today(),
             vorgaenger_datum=vorgaenger_datum,
             hinweis_verzug=_hinweis_30_tage(config),
+            anschrift_pruefen=False,  # geprüft beim Ausstellen, hier nur Hinweis
         )
     except ValueError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -712,6 +730,16 @@ def rechnung_zeigen(
         f"[bold]{escape(r.nummer or '')}[/bold] an {escape(r.kaeufer.name or '')} "
         f"({entwurf.status.value})"
     )
+    if fehlt := fehlende_anschrift(entwurf.kunde, r.summen.brutto):
+        folge = (
+            "ausgestellt vor dieser Prüfung"
+            if entwurf.nummer
+            else "rechnung ausstellen lehnt so ab"
+        )
+        console.print(
+            "[yellow]Anschrift über 250 € unvollständig (§ 14 Abs. 4 Satz 1 Nr. 1 "
+            f"UStG): {', '.join(fehlt)} — {folge}[/yellow]"
+        )
     if r.vorgaenger_nummer:
         art = {"381": "Gutschrift", "384": "Rechnungskorrektur"}.get(r.typ or "", "")
         console.print(f"  {art} zu Rechnung {escape(r.vorgaenger_nummer)}")

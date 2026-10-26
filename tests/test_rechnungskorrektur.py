@@ -9,6 +9,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import text
 from typer.testing import CliRunner
 
 from accounti.belege.archiv import BelegArchiv
@@ -313,3 +314,101 @@ def test_korrektur_zu_einer_unbekannten_rechnung(tmp_path):
     assert r.exit_code == 1 and "2026-0099" in r.output
     r = _cli("rechnung", "neu", "--db", _url(tmp_path))
     assert r.exit_code == 1 and "--name" in r.output
+
+
+# --- Gegenprüfung: Altrechnung ohne Straße (Regression aus N5) ----------------------
+
+
+def _rechnung_ohne_strasse(tmp_path):
+    """Ausgestellte Rechnung 2026-0001 über 595 €, deren Kunde keine Straße hat — so
+    stellte accounti vor N5 aus (es verlangte nur PLZ und Ort)."""
+    (tmp_path / "accounti.yaml").write_text(FIRMA_YAML, encoding="utf-8")
+    url = _url(tmp_path)
+    r = _cli(
+        "rechnung", "neu", "--db", url, "--name", "Kunde AG", "--strasse", "Weg 1",
+        "--plz", "20457", "--ort", "Hamburg", "--email", "ap@kunde.example",
+        "--ust-id", "DE129273398",
+    )  # fmt: skip
+    rid = r.output.split("Entwurf ")[1].split()[0]
+    _cli("rechnung", "position", rid, "--db", url, "--text", "Ware", "--preis", "500")
+    _ausstellen_cli(tmp_path, rid, "2026-03-02")
+    engine, _ = session_factory(url)
+    with engine.begin() as c:
+        c.execute(text("UPDATE ausgangsrechnungen SET kunde_strasse = NULL"))
+    engine.dispose()
+    return url
+
+
+def _zeigen(tmp_path, url, schluessel):
+    return _cli(
+        "rechnung", "zeigen", schluessel, "--db", url, "--config",
+        str(tmp_path / "accounti.yaml"),
+    )  # fmt: skip
+
+
+def test_ausgestellte_rechnung_ohne_strasse_laesst_sich_weiter_zeigen(tmp_path):
+    # Gegenprüfung: die Anschriftprüfung (§ 14 Abs. 4 Satz 1 Nr. 1 UStG) gilt beim
+    # Ausstellen — die Anzeige einer schon ausgestellten Rechnung bricht nicht ab
+    url = _rechnung_ohne_strasse(tmp_path)
+    r = _zeigen(tmp_path, url, "2026-0001")
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 0, r.output
+    assert "Brutto 595.00" in ausgabe and "(ausgestellt)" in ausgabe
+    assert "Straße oder Postfach" in ausgabe  # als Hinweis, nicht als Abbruch
+
+
+def test_entwurf_ueber_250_euro_ohne_strasse_zeigt_die_vorschau_mit_warnung(tmp_path):
+    (tmp_path / "accounti.yaml").write_text(FIRMA_YAML, encoding="utf-8")
+    url = _url(tmp_path)
+    r = _cli(
+        "rechnung", "neu", "--db", url, "--name", "Kunde AG", "--plz", "20457",
+        "--ort", "Hamburg", "--email", "ap@kunde.example",
+    )  # fmt: skip
+    rid = r.output.split("Entwurf ")[1].split()[0]
+    _cli("rechnung", "position", rid, "--db", url, "--text", "Ware", "--preis", "500")
+    r = _zeigen(tmp_path, url, rid)
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 0, r.output
+    assert "Brutto 595.00" in ausgabe
+    assert "Straße oder Postfach" in ausgabe and "ausstellen" in ausgabe
+    # das Ausstellen lehnt weiter ab — die Nummer bleibt frei
+    argumente = [
+        "rechnung", "ausstellen", rid, "--db", url, "--config",
+        str(tmp_path / "accounti.yaml"), "--archiv", str(tmp_path / "archiv"),
+        "--ausgabe", str(tmp_path / "out"), "--datum", "2026-03-02",
+        "--ohne-formale-pruefung",
+    ]  # fmt: skip
+    r = _cli(*argumente)
+    assert r.exit_code == 1 and "Straße oder Postfach" in " ".join(r.output.split())
+
+
+def test_korrektur_zu_altrechnung_ergaenzt_die_anschrift(tmp_path):
+    # Gegenprüfung: ohne --name übernimmt die Korrektur den Kunden der Rechnung —
+    # --strasse (wie --plz, --ort, --email …) ergänzt oder ändert einzelne Angaben,
+    # sonst ließe sich zu einer Altrechnung über 250 € keine Korrektur ausstellen
+    url = _rechnung_ohne_strasse(tmp_path)
+    r = _cli(
+        "rechnung", "neu", "--db", url, "--korrektur-zu", "2026-0001",
+        "--korrektur-art", "korrektur", "--strasse", "Hafenweg 2",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    kid = r.output.split("Entwurf ")[1].split()[0]
+    r = _cli(
+        "rechnung", "position", kid, "--db", url, "--text", "Nachberechnung",
+        "--preis", "300",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    _ausstellen_cli(tmp_path, kid, "2026-03-05")
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        from accounti.db.repository import lade_ausgangsrechnung
+
+        k = lade_ausgangsrechnung(s, "2026-0002")
+    engine.dispose()
+    assert (k.kunde.name, k.kunde.strasse, k.kunde.plz, k.kunde.ort) == (
+        "Kunde AG",
+        "Hafenweg 2",
+        "20457",
+        "Hamburg",
+    )
+    assert (k.rechnungstyp, k.korrektur_zu) == ("384", "2026-0001")

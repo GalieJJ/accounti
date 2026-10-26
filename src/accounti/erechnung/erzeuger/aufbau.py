@@ -106,13 +106,13 @@ def _pruefe_entwurf(entwurf: Ausgangsrechnung) -> None:
         raise ValueError(msg)
 
 
-def _pruefe_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> None:
-    """Über 250 € die vollständige Anschrift des Empfängers (§ 14 Abs. 4 Satz 1 Nr. 1
+def fehlende_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> list[str]:
+    """Was über 250 € an der Anschrift des Empfängers fehlt (§ 14 Abs. 4 Satz 1 Nr. 1
     UStG) — Straße oder Postfach (Abschn. 14.5 Abs. 2 UStAE), PLZ und Ort; bis 250 €
     genügt die Kleinbetragsrechnung ohne Empfänger (§ 33 UStDV)."""
     if abs(brutto) <= KLEINBETRAG:
-        return
-    fehlt = [
+        return []
+    return [
         bezeichnung
         for wert, bezeichnung in (
             (k.strasse, "Straße oder Postfach des Kunden"),
@@ -121,7 +121,10 @@ def _pruefe_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> None:
         )
         if not (wert or "").strip()
     ]
-    if fehlt:
+
+
+def _pruefe_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> None:
+    if fehlt := fehlende_anschrift(k, brutto):
         msg = (
             "Für die Rechnung über 250 € fehlt die Anschrift des Empfängers (§ 14 "
             "Abs. 4 Satz 1 Nr. 1 UStG): " + ", ".join(fehlt) + " — bis 250 € "
@@ -130,11 +133,10 @@ def _pruefe_anschrift(k: Rechnungsempfaenger, brutto: Decimal) -> None:
         raise ValueError(msg)
 
 
-def _spezifikation(entwurf: Ausgangsrechnung, brutto: Decimal) -> str:
+def _spezifikation(entwurf: Ausgangsrechnung) -> str:
     """XRechnung, wenn die Pflichtangaben des Käufers da sind — sonst bei
     Privatkunden EN 16931 (keine E-Rechnungspflicht im B2C)."""
     k = entwurf.kunde
-    _pruefe_anschrift(k, brutto)
     fehlt = [
         bezeichnung
         for wert, bezeichnung in (
@@ -218,12 +220,17 @@ def baue_rechnung(
     *,
     vorgaenger_datum: date | None = None,
     hinweis_verzug: bool = False,
+    anschrift_pruefen: bool = True,
 ) -> Rechnung:
     """Erzeugt das Zwischenmodell einer E-Rechnung aus Entwurf und Firmendaten.
 
     ``vorgaenger_datum``: Datum der Rechnung, auf die sich eine Gutschrift oder
     Korrektur bezieht (BT-26). ``hinweis_verzug``: bei Privatkunden den Hinweis nach
     § 286 Abs. 3 BGB aufdrucken (``mahnwesen.hinweis_30_tage``).
+    ``anschrift_pruefen``: über 250 € die vollständige Anschrift verlangen — beim
+    Ausstellen; die Anzeige (``rechnung zeigen``) schaltet das ab, denn vor dieser
+    Prüfung ausgestellte Rechnungen ohne Straße müssen sich weiter zeigen lassen
+    (``fehlende_anschrift`` liefert dann den Hinweis).
     """
     _pruefe_entwurf(entwurf)
     k = entwurf.kunde
@@ -309,7 +316,9 @@ def baue_rechnung(
     netto = sum((z.netto or NULL for z in zeilen), NULL)
     steuer = sum((s.betrag or NULL for s in steuern), NULL)
     brutto = netto + steuer
-    spezifikation = _spezifikation(entwurf, brutto)
+    if anschrift_pruefen:
+        _pruefe_anschrift(k, brutto)
+    spezifikation = _spezifikation(entwurf)
     faellig = rechnungsdatum + timedelta(days=firma.zahlungsziel_tage)
     if entwurf.rechnungstyp == GUTSCHRIFT or brutto < 0:
         bedingungen = VERRECHNUNG
