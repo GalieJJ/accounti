@@ -67,6 +67,15 @@ geldkonten:
 bankkonten:
   - {von: "1100", bis: "1289"}
 
+# Zahlungsmittel (Kasse, Bank, Geldtransit, Kreditkarte) — ohne Forderungen und
+# Verbindlichkeiten der Geldkonten oben: Zwischen zwei von ihnen gibt es nur
+# Umbuchungen. Daraus lernt accounti keine Kontierungsregel (eingerichtete Bank- und
+# Kartenkonten zählen dazu, ``bank verbinde``, ``kreditkarte einrichten``)
+zahlungsmittel:
+  - {von: "1000", bis: "1289"}   # Kasse, Bank (ohne Finanzmittelanlagen 1290, 1295)
+  - {von: "1360", bis: "1360"}   # Geldtransit
+  - {von: "1730", bis: "1730"}   # Kreditkartenabrechnung
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # leer: SKR03-Steuerkonten kommen aus accounti.steuer

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from accounti.anzeige import betrag_de
+from accounti.buchung.konten import kein_sachkonto
 from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
@@ -66,9 +67,20 @@ def sachkonto_fuer_beleg(
     verlangt die Regel die Prüfung (``pruefen``, z.B. Miete; gelernte Regeln mit
     ``buchhaltung.gelernte_regeln: pruefen``), geht auch die Belegbuchung zur
     Prüfung — der Schalter gilt für jede Buchung, die die Regel kontiert, nicht nur
-    für reine Umsätze."""
+    für reine Umsätze.
+
+    Ein Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto ist kein Sachkonto
+    eines Belegs (``konten.kein_sachkonto``): Eine Regel „1210 an 1200“ (Umbuchung)
+    oder „70001 an 1200“ (Zahlung an den Kreditor) und ein solches Konto am Kontakt
+    werden übergangen — sonst buchte die Belegbuchung „1210 an 1210“, OPOS „70001 an
+    70001“ (Gesamttest 10b-1, H-1)."""
     ungeprueft = kontakt is not None and kontakt.status is not KontaktStatus.GEPRUEFT
-    if kontakt is not None and kontakt.sachkonto:
+    weitere = (umsatz.sachkonto,) if umsatz is not None else ()
+
+    def taugt(konto: str) -> bool:
+        return not kein_sachkonto(konto, einstellungen, weitere)
+
+    if kontakt is not None and kontakt.sachkonto and taugt(kontakt.sachkonto):
         return Sachkonto(kontakt.sachkonto, ungeprueft, f"Kontakt {kontakt.name}")
     if regelwerk is not None:
         name = beleg.lieferant_name or (kontakt.name if kontakt else None)
@@ -101,6 +113,7 @@ def sachkonto_fuer_beleg(
             if (
                 ergebnis is not None
                 and ergebnis.haben_konto == einstellungen.bank_konto
+                and taugt(ergebnis.soll_konto)
             ):
                 unsicher = ergebnis.pruefen or ergebnis.confidence < AUTO_SCHWELLE
                 regel = next(

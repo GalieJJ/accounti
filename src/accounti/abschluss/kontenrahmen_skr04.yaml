@@ -54,6 +54,15 @@ geldkonten:
 bankkonten:
   - {von: "1700", bis: "1889"}
 
+# Zahlungsmittel (Kasse, Bank, Geldtransit, Kreditkarte) — ohne Forderungen und
+# Verbindlichkeiten der Geldkonten oben: Zwischen zwei von ihnen gibt es nur
+# Umbuchungen. Daraus lernt accounti keine Kontierungsregel (eingerichtete Bank- und
+# Kartenkonten zählen dazu, ``bank verbinde``, ``kreditkarte einrichten``)
+zahlungsmittel:
+  - {von: "1460", bis: "1460"}   # Geldtransit
+  - {von: "1600", bis: "1889"}   # Kasse, Bank (ohne Finanzmittelanlagen 1890, 1895)
+  - {von: "3610", bis: "3610"}   # Kreditkartenabrechnung
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # DATEV-BU-Schlüssel → Steuerkonto

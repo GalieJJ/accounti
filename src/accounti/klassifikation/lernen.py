@@ -45,6 +45,8 @@ from accounti.buchung.konten import (
     finanzkonto_fehler,
     kontobezeichnung,
     pruefe_kontonummer,
+    umbuchung_fehler,
+    zahlungsmittel,
 )
 from accounti.db.repo_kontierung import (
     deaktiviere_regel,
@@ -288,12 +290,26 @@ def entwurf_fuer(
     muster: str | None = None,
     feld: Feld | None = None,
     quelle_buchung_id: UUID | None = None,
+    kontenrahmen: Kontenrahmen | None = None,
 ) -> RegelEntwurf:
     """Entwurf aus Umsatz und (künftiger) Kontierung. Steht dort das Finanzkonto des
     Umsatzes (zweites Giro, Kreditkarte), speichert die Regel das Standard-Bankkonto —
     ``kontiere_umsaetze`` setzt beim Anwenden das Finanzkonto wieder ein. Das
     Finanzkonto muss auf der Seite seiner Zahlungsrichtung stehen (Ausgabe: Haben),
-    sonst ``RegelError`` — die Regel buchte künftige Umsätze am Konto vorbei."""
+    sonst ``RegelError`` — die Regel buchte künftige Umsätze am Konto vorbei.
+
+    Sind Soll und Haben beide Zahlungsmittel (Umbuchung Giro ↔ Tagesgeld, Bank ↔
+    Kasse oder Kreditkarte, Geldtransit; ``kontenrahmen`` mit den eingerichteten
+    Konten, ohne Angabe der mitgelieferte), ebenfalls ``RegelError`` (Feld
+    ``regel``): Aus „1200 an 1210“ auf dem Tagesgeld würde sonst „1200 an 1200“
+    (Gesamttest 10b-1, H-1)."""
+    umbuchung = umbuchung_fehler(
+        soll,
+        haben,
+        zahlungsmittel(buchhaltung, kontenrahmen, (umsatz.sachkonto,)),
+    )
+    if umbuchung is not None:
+        raise RegelError(umbuchung, "regel")
     finanz = umsatz.sachkonto
     if finanz and finanz != buchhaltung.bank_konto:
         soll = buchhaltung.bank_konto if soll == finanz else soll
@@ -321,6 +337,7 @@ def entwurf_aus_korrektur(
     *,
     muster: str | None = None,
     feld: Feld | None = None,
+    kontenrahmen: Kontenrahmen | None = None,
 ) -> RegelEntwurf:
     """Konten und Schlüssel **der Neubuchung** (bei neuem Sachkonto ausdrücklich
     angegeben, sonst der des unveränderten Sachkontos — wie Baustein 7)."""
@@ -334,6 +351,7 @@ def entwurf_aus_korrektur(
         muster=muster,
         feld=feld,
         quelle_buchung_id=korrektur.original.id,
+        kontenrahmen=kontenrahmen,
     )
 
 
@@ -356,6 +374,8 @@ def _pruefe_entwurf_werte(e: RegelEntwurf) -> RegelEntwurf:
         haben = pruefe_kontonummer(e.haben_konto, "Haben")
     except KontoError as fehler:
         raise RegelError(str(fehler), "konto") from fehler
+    if soll == haben:
+        raise RegelError(f"Soll und Haben sind dasselbe Konto ({soll})", "regel")
     return RegelEntwurf(
         pruefe_text(e.muster),
         e.feld,
@@ -721,8 +741,12 @@ def lerne_regex(
     feld: Feld = "beide",
     richtung: Richtung | None = None,
     jetzt: datetime | None = None,
+    buchhaltung: Buchhaltung | None = None,
+    kontenrahmen: Kontenrahmen | None = None,
 ) -> Kontierungsregel:
-    """Regel mit regulärem Ausdruck vom Betreiber (``accounti lerne``)."""
+    """Regel mit regulärem Ausdruck vom Betreiber (``accounti lerne``). Sind Soll
+    und Haben beide Zahlungsmittel (``buchhaltung``, ``kontenrahmen`` mit den
+    eingerichteten Konten), ``RegelError`` — wie ``entwurf_fuer``."""
     name = name.strip()
     if not name or len(name) > 100:
         raise RegelError("Regelname fehlt oder ist länger als 100 Zeichen", "name")
@@ -743,6 +767,11 @@ def lerne_regex(
         )
     except KontoError as fehler:
         raise RegelError(str(fehler), "konto") from fehler
+    umbuchung = umbuchung_fehler(
+        soll, haben, zahlungsmittel(buchhaltung or Buchhaltung(), kontenrahmen)
+    )
+    if umbuchung is not None:
+        raise RegelError(umbuchung, "regel")
     regel = Kontierungsregel(
         name=name,
         muster=muster,

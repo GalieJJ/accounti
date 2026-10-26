@@ -79,6 +79,8 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
             "mit_beleg": k.mit_beleg,
             "offen": k.offen,
             "marktplatz": k.marktplatz,  # davon offen bis zum Marktplatz-Abgleich
+            # davon offen, weil die Kontierung Soll = Haben ergäbe (Umbuchung)
+            "umbuchung": len(k.umbuchungen),
         },
     }
 

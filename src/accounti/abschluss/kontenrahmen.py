@@ -100,6 +100,9 @@ class Kontenrahmen(BaseModel):
     arten: list[_Art] = Field(default_factory=list)
     geldkonten: list[_Spanne] = Field(default_factory=list)
     bankkonten: list[_Spanne] = Field(default_factory=list)
+    # Kasse, Bank, Geldtransit, Kreditkarte; fehlt der Abschnitt (eigene Zuordnung
+    # älterer Fassung), gelten die Bankkonten
+    zahlungsmittel: list[_Spanne] | None = None
     vortragskonten: Vortragskonten = Field(default_factory=Vortragskonten)
     steuerkonten: dict[int, str] = Field(default_factory=dict)
     euer: list[_EuerRegel] = Field(default_factory=list)
@@ -137,17 +140,33 @@ class Kontenrahmen(BaseModel):
             return True
         return self._engste(self.geldkonten, konto) is not None
 
+    def ist_zahlungsmittel(self, konto: str) -> bool:
+        """Kasse, Bank, Geldtransit, Kreditkarte (``zahlungsmittel``) — anders als
+        ``ist_geldkonto`` ohne Forderungen, Verbindlichkeiten und Personenkonten.
+        Zwischen zwei solchen Konten gibt es nur Umbuchungen: Sie stehen auf beiden
+        Kontoauszügen, daraus wird keine Kontierungsregel (Gesamttest 10b-1, H-1)."""
+        if self.ist_personenkonto(konto):
+            return False
+        spannen = (
+            self.bankkonten if self.zahlungsmittel is None else self.zahlungsmittel
+        )
+        return self._engste(spannen, konto) is not None
+
     def mit_geldkonten(self, konten: Iterable[str]) -> Kontenrahmen:
-        """Kopie, in der auch diese Konten Geldkonten sind (eingerichtete Bank- und
-        Kartenkonten mit eigenem Sachkonto)."""
-        neu = [
-            _Spanne(von=k, bis=k)
-            for k in sorted(set(konten))
-            if k.isdigit() and not self.ist_geldkonto(k)
-        ]
-        if not neu:
+        """Kopie, in der auch diese Konten Geldkonten und Zahlungsmittel sind
+        (eingerichtete Bank- und Kartenkonten mit eigenem Sachkonto)."""
+        alle = sorted({k for k in konten if k.isdigit()})
+        geld = [_Spanne(von=k, bis=k) for k in alle if not self.ist_geldkonto(k)]
+        mittel = [_Spanne(von=k, bis=k) for k in alle if not self.ist_zahlungsmittel(k)]
+        if not geld and not mittel:
             return self
-        return self.model_copy(update={"geldkonten": [*self.geldkonten, *neu]})
+        bisher = self.bankkonten if self.zahlungsmittel is None else self.zahlungsmittel
+        return self.model_copy(
+            update={
+                "geldkonten": [*self.geldkonten, *geld],
+                "zahlungsmittel": [*bisher, *mittel],
+            }
+        )
 
     def ist_bankkonto(self, konto: str) -> bool:
         """Bankkonto laut Kontenrahmen — wird mit dem Kontoauszug abgestimmt."""

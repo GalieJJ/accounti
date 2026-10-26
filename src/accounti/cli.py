@@ -2672,14 +2672,18 @@ def classify(
 
 
 def _marktplatz_hinweis(lauf: "Kontierungslauf") -> None:
-    """Offen gelassene Marktplatz-Auszahlungen: was zu tun ist (Steuer B2)."""
+    """Offen gelassene Marktplatz-Auszahlungen: was zu tun ist (Steuer B2) — und
+    Umsätze, deren Kontierung Soll = Haben ergäbe (Umbuchung, 10b-1 H-1)."""
     from rich.markup import escape
 
+    from accounti.buchung.kontierung import umbuchung_hinweise
     from accounti.buchung.marktplatz import hinweis
 
     if lauf.marktplatz:
         text = hinweis(lauf.marktplaetze, lauf.marktplatz)
         console.print(f"[yellow]{escape(text)}[/yellow]")
+    for zeile in umbuchung_hinweise(lauf):
+        console.print(f"[yellow]{escape(zeile)}[/yellow]", soft_wrap=True)
 
 
 # ---------------------------------------------------------------------------
@@ -2802,13 +2806,25 @@ def lerne(
     Regeldatei (Lernschleife; die Regeldatei bleibt unverändert)."""
     from rich.markup import escape
 
+    from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.abschluss.kontenrahmen import (
+        KontenrahmenError,
+        mit_eingerichteten_konten,
+    )
     from accounti.befehle import handelnde_person
     from accounti.db import init_db, session_factory
     from accounti.klassifikation.lernen import FELDER, RegelError, lerne_regex
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.models.kontierung import Richtung
     from accounti.pruefung.person import aktuelle_person
 
+    try:  # Umbuchung zwischen Geldkonten erkennen: Bankkonto und Kontenrahmen
+        buchhaltung = lade_buchhaltung(config)
+        kontenrahmen = lade_abschluss(config).lade_kontenrahmen()
+    except (KonfigurationError, KontenrahmenError) as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     if feld not in FELDER:
         console.print(f"[red]--feld: eines von {', '.join(FELDER)}[/red]")
         raise typer.Exit(1)
@@ -2838,6 +2854,8 @@ def lerne(
                 aktuelle_person(person),
                 feld=feld,
                 richtung=r_richtung,
+                buchhaltung=buchhaltung,
+                kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
             )
             s.commit()
         except RegelError as fehler:

@@ -261,6 +261,7 @@ def test_laeufe_anstossen(welt):
         "mit_beleg",
         "offen",
         "marktplatz",
+        "umbuchung",  # 10b-1 H-1: offen, weil Soll = Haben
     }
     r = client.post("/api/v1/laeufe/aufgaben", headers=bearer(token))
     assert r.status_code == 200, r.text

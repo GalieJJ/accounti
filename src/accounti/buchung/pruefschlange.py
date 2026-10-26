@@ -769,12 +769,17 @@ def korrigieren(
         if k.original.transaktion_id is not None:
             if tx is not None:
                 try:
+                    # Umbuchung zwischen eigenen Geldkonten: keine Regel — auch
+                    # eingerichtete Bank- und Kartenkonten zählen (H-1)
                     entwurf = entwurf_aus_korrektur(
                         k,
                         tx,
                         umgebung.buchhaltung,
                         muster=lernen.muster,
                         feld=lernen.feld,
+                        kontenrahmen=umgebung.kontenrahmen.mit_geldkonten(
+                            eingerichtete_bankkonten(session, umgebung.buchhaltung)
+                        ),
                     )
                     if not lernen.bestaetigt:
                         v = pruefe_entwurf(session, entwurf, tx, None)

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Iterable
 from decimal import Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from accounti.abschluss.kontenrahmen import Kontenrahmen
+    from accounti.konfiguration import Buchhaltung
     from accounti.pruefung.einstellungen import PruefEinstellungen
 
 _KONTO = re.compile(r"^\d{4,8}$")
@@ -49,6 +51,78 @@ def finanzkonto_fehler(
         f"muss im {seite} stehen (sonst stimmt der Kontostand in den Büchern nicht "
         "mehr mit dem Kontoauszug)"
     )
+
+
+@lru_cache(maxsize=4)
+def mitgelieferter_kontenrahmen(name: str) -> Kontenrahmen | None:
+    """Die mitgelieferte Abschlusszuordnung des Kontenrahmens (``None``, wenn es keine
+    gibt) — für Prüfungen ohne die Konfiguration der Gesellschaft."""
+    from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+
+    try:
+        return lade_kontenrahmen(name)
+    except KontenrahmenError:
+        return None
+
+
+def zahlungsmittel(
+    buchhaltung: Buchhaltung,
+    kontenrahmen: Kontenrahmen | None = None,
+    weitere: Iterable[str | None] = (),
+) -> Callable[[str], bool]:
+    """Ist das Konto ein Zahlungsmittel der Gesellschaft? Kasse, Bank, Geldtransit und
+    Kreditkarte laut Kontenrahmen (``Kontenrahmen.ist_zahlungsmittel``; ohne Angabe
+    der mitgelieferte der Buchhaltung), dazu ``buchhaltung.bank_konto`` und
+    ``weitere`` (Finanzkonto des Umsatzes, eingerichtete Bank- und Kartenkonten)."""
+    kr = kontenrahmen or mitgelieferter_kontenrahmen(buchhaltung.kontenrahmen)
+    eigene = {buchhaltung.bank_konto, *(k for k in weitere if k)}
+
+    def pruefe(konto: str) -> bool:
+        nummer = (konto or "").strip()
+        return nummer in eigene or (kr is not None and kr.ist_zahlungsmittel(nummer))
+
+    return pruefe
+
+
+def umbuchung_fehler(
+    soll: str, haben: str, ist_zahlungsmittel: Callable[[str], bool]
+) -> str | None:
+    """Meldung, wenn Soll und Haben beide Zahlungsmittel sind (Umbuchung Giro ↔
+    Tagesgeld, Bank ↔ Kasse, Bank ↔ Kreditkarte, Geldtransit) — daraus wird keine
+    Regel: Die Umbuchung steht auf beiden Kontoauszügen; eine Regel buchte die
+    Gegenseite auf dem anderen Konto mit demselben Konto im Soll und im Haben (die
+    Bewegung fiele aus den Büchern, der Bestand wiche vom Auszug ab — § 239 Abs. 2 HGB,
+    § 146 Abs. 1 AO). Sonst ``None``."""
+    soll, haben = (soll or "").strip(), (haben or "").strip()
+    if soll == haben and not ist_zahlungsmittel(soll):
+        return (
+            f"Soll und Haben sind dasselbe Konto ({soll}) — die Buchung bewegte nichts"
+        )
+    if not (ist_zahlungsmittel(soll) and ist_zahlungsmittel(haben)):
+        return None
+    return (
+        f"Soll {soll} und Haben {haben} sind beide Geldkonten (Bank, Kasse, "
+        "Kreditkarte, Geldtransit) — aus einer Umbuchung zwischen eigenen Konten wird "
+        "keine Regel: Sie steht auf beiden Kontoauszügen, und die Regel buchte "
+        "künftige Umsätze mit demselben Konto im Soll und im Haben (§ 146 Abs. 1 AO, "
+        "§ 239 Abs. 2 HGB). Ohne Regel korrigieren."
+    )
+
+
+def kein_sachkonto(
+    konto: str, buchhaltung: Buchhaltung, weitere: Iterable[str | None] = ()
+) -> bool:
+    """Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto (``ist_geldkonto``
+    des Kontenrahmens), Zahlungsmittel oder Finanzkonto des Umsatzes — kein Sachkonto
+    eines Belegs. Eine Regel „1210 an 1200“ oder „70001 an 1200“ liefert so kein
+    Aufwandskonto (sonst „1210 an 1210“ bzw. „70001 an 70001“)."""
+    nummer = (konto or "").strip()
+    kr = mitgelieferter_kontenrahmen(buchhaltung.kontenrahmen)
+    if zahlungsmittel(buchhaltung, kr, weitere)(nummer):
+        return True
+    if kr is None:
+        return nummer.isdigit() and len(nummer) == 5  # Personenkonto
+    return kr.ist_geldkonto(nummer)
 
 
 @lru_cache(maxsize=8)
