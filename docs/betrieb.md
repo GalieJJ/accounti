@@ -169,7 +169,8 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
-  bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`,
+  bestaetigen|ablehnen|verrechnen`, `opos zuordnen --transaktion` (Handzuordnung),
+  `abschluss bestaetigen|ablehnen`, `periode schliessen`,
   `abschluss vortrag`, `export datev` und `datev belege` (Übergabe an den Steuerberater,
   Vermerk „exportiert“).
 - **Steuermeldungen freigeben** (`freigeber`): `periode oeffnen`, `abschluss oeffnen` —
@@ -520,6 +521,11 @@ docker compose up -d
 
 Alembic liest die Datenbank aus `ACCOUNTI_DB`. Tabellen, für die es noch keine Migration
 gibt, legt accounti beim ersten Befehl selbst an (`init_db`).
+
+**Update Gesamttest Debitoren** (Migration `a14acef69fae`: Tabelle `verrechnungen`,
+Spalten `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`,
+`ausgangspositionen.elektronisch`): ohne die Migration scheitern Befehle an den neuen
+Spalten — also wie oben `alembic upgrade head` vor dem ersten Befehl des neuen Abbilds.
 
 **Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
 Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher

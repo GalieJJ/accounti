@@ -30,7 +30,7 @@ mandant:
     bic: "COBADEFFXXX"
   oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz
   rechnung:
-    nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr
+    nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr; ohne {jahr} jahresübergreifend
     zahlungsziel_tage: 14
 
 # DATEV-Export
@@ -254,7 +254,7 @@ mahnwesen:
   entwurf_gueltig_tage: 3      # so lange nach dem Mahndatum darf ein Entwurf noch raus
   zahlungsziel_vereinbart: false  # true: Zahlungsziele vertraglich vereinbart → Verzug ab Fälligkeit
   zugang_tage: 3               # Versand → Zugang einer Mahnung (Verzug durch Mahnung)
-  hinweis_30_tage: false       # true: Rechnungen an Verbraucher weisen auf § 286 Abs. 3 BGB hin
+  hinweis_30_tage: false       # true: Rechnungen an Verbraucher tragen den Hinweis nach § 286 Abs. 3 BGB (rechnung ausstellen)
   unbekannt_als: verbraucher   # oder unternehmer — wenn weder Kontakt noch Rechnung es sagen
   pauschale_b2b: 40.00         # § 288 Abs. 5 BGB
   pauschale_anrechnen: true    # Mahngebühren nur, soweit sie die Pauschale übersteigen

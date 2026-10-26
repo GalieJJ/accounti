@@ -216,7 +216,19 @@ accounti rechnung position <ID> --text "Beratung" --preis 120 --menge 8 --einhei
 accounti rechnung zeigen <ID>
 accounti rechnung ausstellen <ID>     # Nummer, XRechnung + ZUGFeRD-PDF, Prüfung → rechnungen/
 accounti rechnung senden RE-2026-0001 # per E-Mail (Abschnitt 'versand'), mit Versandprotokoll
+
+# Gutschrift (381) bzw. Rechnungskorrektur (384, --korrektur-art korrektur) mit Bezug
+accounti rechnung neu --korrektur-zu RE-2026-0001     # Kunde aus der Rechnung
+accounti rechnung position <ID> --text "Minderung wegen Mangel" --preis 100
 ```
+
+Ausgangsrechnungen bucht `opos verbuchen` im Monat der Leistung (§ 13 Abs. 1 Nr. 1
+Buchst. a UStG): Lag das Leistungsdatum in einem früheren Monat als die Rechnung, gilt das
+Leistungsdatum — eine ig. Lieferung gehört in den Rechnungsmonat, spätestens den Monat nach
+der Lieferung, eine Gutschrift in ihren eigenen Monat. Rechnungen an Privatkunden ohne
+E-Mail, PLZ oder Ort entstehen nach EN 16931 statt als XRechnung (bis 250 € genügt der
+Name, § 33 UStDV). Dienstleistungen an Privatkunden sind im Inland steuerbar; OSS gilt für
+Fernverkäufe und `rechnung position --elektronisch` (§ 3a Abs. 5 UStG).
 
 ### Offene Posten
 
@@ -234,6 +246,9 @@ accounti import bank ./umsaetze.csv
 accounti opos zuordnen                         # Eindeutiges wird sofort ausgeglichen
 accounti opos vorschlaege                      # Sammel-, Teil-, Skontozahlungen ohne Referenz
 accounti opos bestaetigen <ID>                 # oder: accounti opos ablehnen <ID>
+accounti opos zuordnen --transaktion <ID> --posten 2026-0001   # von Hand (IDs: bank offen)
+accounti opos verrechnen 2026-0002 2026-0001   # Gutschrift/Guthaben gegen Rechnung, ohne Buchung
+accounti opos liste --stichtag 2026-12-31      # Stand zum Stichtag, passend zur Saldenliste
 accounti bank abgleich                         # Quittungen & Co. ↔ Umsätze
 accounti bank vorschlaege                      # mehrdeutig, Rundung, Trinkgeld
 accounti bank bestaetigen <ID>                 # oder: accounti bank ablehnen <ID>
@@ -517,7 +532,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 | Recht (Rollen) | Befehle |
 |----------------|---------|
 | buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
-| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
+| Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen\|verrechnen`, `opos zuordnen --transaktion`, `abschluss bestaetigen\|ablehnen`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |
 | verwalten (`verwalter`) | `journal uebernehmen` |
