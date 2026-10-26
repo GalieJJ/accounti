@@ -478,3 +478,59 @@ def test_cli_marktplatz_zuordnen_mit_recht_buchen(tmp_path, monkeypatch):
         (eintrag,) = lade_journal(s, objekt_id=str(p.id))
         assert "eva" in eintrag.person
     engine.dispose()
+
+
+def test_ein_bericht_mit_zwei_abrechnungen_raet_auch_nicht(umgebung):
+    """Wie oben, aber beide Auszahlungen in einem Bericht und der Umsatz schon auf
+    der Bank: der Abgleich lief je Abrechnung beim Speichern — die erste nahm ihn,
+    bevor die zweite gespeichert war. Jetzt gleicht der Import erst ab, wenn alle
+    Abrechnungen des Berichts gespeichert sind."""
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 10, 1), "100.00", f"{EBAY} AUSZAHLUNG", "eBay")
+    bericht = ebay_bericht(
+        *(
+            zeile
+            for nummer, tag in (
+                ("6009990001", "30.09.2026"),
+                ("6009990002", "01.10.2026"),
+            )
+            for zeile in (
+                (
+                    "24.09.2026",
+                    "Bestellung",
+                    f"12-{nummer[-1]}",
+                    "Deutschland",
+                    "100,00",
+                    nummer,
+                    "",
+                ),
+                (tag, "Auszahlung", "", "", "-100,00", nummer, tag),
+            )
+        )
+    )
+    ergebnisse = importiere(s, archiv, kontext, "ebay", bericht, "xy.csv")
+    assert len(ergebnisse) == 2
+    assert not _zugeordnet(s)
+    for e in ergebnisse:
+        (m,) = e.abgleich
+        assert m.befund is not None and m.befund.code == "auszahlung_mehrdeutig"
+        assert str(tx.id)[:8] in m.befund.text
+
+
+def test_import_ohne_bank_stichworte_warnt(umgebung):
+    """Grenze aus der Simulation: ohne ``bank_stichworte`` erkennt der Abgleich eine
+    Auszahlung in Fremdwährung ohne Nummer im Verwendungszweck nicht, und die
+    Kontierung bucht sie nach den Regeln — der Import sagt das, statt still zu
+    bleiben (``bank_stichworte: []`` ist für Gesellschaften ohne Marktplatz-Import)."""
+    s, archiv, kontext = umgebung
+    ergebnis = _ebay_import(s, archiv, _ohne_stichwort(kontext))
+    (warnung,) = [
+        b for b in ergebnis.abrechnung.befunde if b.code == "bank_stichworte_leer"
+    ]
+    assert warnung.schweregrad is Schweregrad.WARNUNG
+    assert "integrationen.marktplaetze.ebay.bank_stichworte" in warnung.text
+    mit = _ebay_import(s, archiv, kontext, zweite=True)
+    assert not [b for b in mit.abrechnung.befunde if b.code == "bank_stichworte_leer"]

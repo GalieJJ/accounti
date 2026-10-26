@@ -521,23 +521,51 @@ def _importiere(
         ergaenze_auszahlung(a)
         gebucht = buche_abrechnung(a, _buchungskontext(session, kontext), umsaetze)
         a.befunde.extend(gebucht.befunde)
+        if not any(w.strip() for w in konten.bank_stichworte):
+            a.befunde.append(_ohne_stichworte(markt))
         a.befunde.extend(_verschiebe(session, gebucht.buchungen, buchungsdatum))
         a.status = status_von(a)
         speichere_abrechnung(session, a)
         for b in gebucht.buchungen:
             speichere_buchung(session, b)
         session.flush()
-        abgleich = gleiche_auszahlungen_ab(session, kontext, [a], berichtsnummern)
         ergebnisse.append(
             Importergebnis(
                 a,
                 neu=True,
                 buchungen=len(gebucht.buchungen),
                 umsaetze=neue_umsaetze,
-                abgleich=abgleich,
             )
         )
+    # erst abgleichen, wenn alle Abrechnungen des Berichts gespeichert sind: sonst
+    # nähme die erste einen Umsatz, der genauso der einzige Kandidat der zweiten ist
+    # (Regel 5, Nachprüfung 5 E)
+    neue = [e for e in ergebnisse if e.neu]
+    if neue:
+        abgleich = gleiche_auszahlungen_ab(
+            session, kontext, [e.abrechnung for e in neue], berichtsnummern
+        )
+        for e in neue:
+            e.abgleich = [x for x in abgleich if x.abrechnung.id == e.abrechnung.id]
     return ergebnisse
+
+
+def _ohne_stichworte(markt: str) -> Befund:
+    """WARNUNG: ohne ``bank_stichworte`` erkennt der Abgleich eine Auszahlung, deren
+    Verwendungszweck die Nummer nicht nennt, in Fremdwährung gar nicht (in Euro nur
+    am exakten Betrag) — und die Kontierung lässt sie nicht offen, sondern bucht sie
+    nach den Regeln, der Erlös stünde doppelt (Nachprüfung 5 E, Grenze)."""
+    return Befund(
+        code="bank_stichworte_leer",
+        schweregrad=Schweregrad.WARNUNG,
+        text=(
+            f"integrationen.marktplaetze.{markt}.bank_stichworte ist leer — eine "
+            "Auszahlung ohne die Nummer im Verwendungszweck erkennt der Abgleich in "
+            "Fremdwährung nicht, und die Kontierung bucht sie nach den Regeln (Erlös "
+            "doppelt). Ein Stichwort des Bankeingangs eintragen; leer nur ohne "
+            "Marktplatz-Import"
+        ),
+    )
 
 
 def _zu_buchende_tage(
