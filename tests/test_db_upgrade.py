@@ -23,6 +23,8 @@ WURZEL = Path(__file__).resolve().parents[1]
 VOR_BAUSTEIN_7 = "a684d10751de"
 VOR_TOKEN = "ddc9a184ddb4"  # Journal und Storno (Baustein 7)
 TOKEN_JE_GESELLSCHAFT = "6d38d11fc348"  # der Stand vor 2f7c7043043e (Anlagen-Buchung)
+ANLAGEN_BUCHUNG = "2f7c7043043e"  # der Stand vor a14acef69fae (Verrechnungen)
+VERRECHNUNGEN = "a14acef69fae"  # Gesamttest Debitoren
 runner = CliRunner()
 
 
@@ -59,6 +61,13 @@ def _version(db: Path) -> list[str]:
 def _spalten(db: Path, tabelle: str) -> set[str]:
     with sqlite3.connect(db) as v:
         return {z[1] for z in v.execute(f"PRAGMA table_info('{tabelle}')")}
+
+
+def _tabellen(db: Path) -> set[str]:
+    with sqlite3.connect(db) as v:
+        return {
+            n for (n,) in v.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
 
 
 def test_schema_stand_ist_der_kopf_der_migrationen():
@@ -142,8 +151,50 @@ def test_db_upgrade_ohne_vermerk_vor_der_anlagen_buchung(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert f"abgeleitet: {TOKEN_JE_GESELLSCHAFT}" in r.output
-    assert _version(db) == [SCHEMA_STAND] == ["2f7c7043043e"]
+    assert _version(db) == [SCHEMA_STAND]
     assert "buchung_id" in _spalten(db, "anlagegueter")
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def _trigger(db: Path, tabelle: str) -> set[str]:
+    with sqlite3.connect(db) as v:
+        return {
+            n
+            for (n,) in v.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger' AND tbl_name=?",
+                (tabelle,),
+            )
+        }
+
+
+def test_db_upgrade_ohne_vermerk_vor_den_verrechnungen(tmp_path):
+    """Stand 2f7c7043043e ohne Vermerk, danach ``init_db`` des neuen Codes: die Tabelle
+    ``verrechnungen`` (samt Triggern) gibt es schon, die Spalten an
+    ``ausgangsrechnungen``/``ausgangspositionen`` nicht — ``db upgrade`` erkennt den
+    Stand an den fehlenden Spalten und holt a14acef69fae nach."""
+    db = tmp_path / "alt.db"
+    _alembic(db, "upgrade", ANLAGEN_BUCHUNG)
+    with sqlite3.connect(db) as v:
+        v.execute("DROP TABLE alembic_version")
+    engine, _ = session_factory(f"sqlite:///{db}")
+    init_db(engine)
+    engine.dispose()
+    assert "verrechnungen" in _tabellen(db)
+    assert not {"rechnungstyp", "korrektur_zu"} & _spalten(db, "ausgangsrechnungen")
+    assert "elektronisch" not in _spalten(db, "ausgangspositionen")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"abgeleitet: {ANLAGEN_BUCHUNG}" in r.output
+    assert "(1 Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND] == [VERRECHNUNGEN]
+    assert {"rechnungstyp", "korrektur_zu"} <= _spalten(db, "ausgangsrechnungen")
+    assert "elektronisch" in _spalten(db, "ausgangspositionen")
+    assert _trigger(db, "verrechnungen") == {
+        "verrechnungen_kein_update",
+        "verrechnungen_kein_delete",
+    }
     assert "No new upgrade operations detected" in _alembic(db, "check")
 
 
@@ -249,7 +300,7 @@ def test_downgrade_token_index_bricht_vor_dem_loeschen_ab(tmp_path):
     with sqlite3.connect(db) as v:
         v.execute(zeile, ("1", "h1", "a"))
         v.execute(zeile, ("2", "h2", "b"))
-    ausgabe = _alembic(db, "downgrade", "-1", ok=False)
+    ausgabe = _alembic(db, "downgrade", VOR_TOKEN, ok=False)
     assert "Downgrade abgebrochen" in ausgabe and "erp" in ausgabe, ausgabe
     assert _token_index(db) == ["gesellschaft", "name"]
     assert _version(db) == [TOKEN_JE_GESELLSCHAFT]
@@ -302,7 +353,8 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
     with pytest.raises(IntegrityError), engine.begin() as v:
         v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
     # Nachprüfung N3: das Downgrade bricht vorher ab, der Index bleibt (PostgreSQL:
-    # eine Transaktion, auch der Schritt 2f7c7043043e davor wird zurückgerollt)
+    # eine Transaktion, auch die Schritte a14acef69fae und 2f7c7043043e davor werden
+    # zurückgerollt)
     ausgabe = _alembic_url(url, tmp_path, "downgrade", VOR_TOKEN, ok=False)
     assert "Downgrade abgebrochen" in ausgabe, ausgabe
     with pytest.raises(IntegrityError), engine.begin() as v:

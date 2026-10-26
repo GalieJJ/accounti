@@ -188,6 +188,8 @@ def test_reverse_charge_vorschau(tmp_path):
             url,
             "--name",
             "Rahmenwerk Wien GmbH",
+            "--strasse",
+            "Graben 1",
             "--plz",
             "1010",
             "--ort",

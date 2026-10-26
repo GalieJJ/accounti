@@ -7,6 +7,7 @@ elektronische Adresse und Zahlungsdaten des Verkäufers.
 from __future__ import annotations
 
 import os
+import string
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,9 +54,37 @@ class Bank(BaseModel):
         return iban
 
 
+def _felder(format_: str) -> set[str]:
+    return {
+        name.split(".")[0].split("[")[0]
+        for _, name, _, _ in string.Formatter().parse(format_)
+        if name is not None
+    }
+
+
 class Rechnungseinstellungen(BaseModel):
     nummernformat: str = "{jahr}-{nummer:04d}"
     zahlungsziel_tage: int = Field(default=14, ge=0)
+
+    @field_validator("nummernformat")
+    @classmethod
+    def _format(cls, wert: str) -> str:
+        try:
+            felder = _felder(wert)
+            wert.format(jahr=2026, nummer=1)
+        except (ValueError, KeyError, IndexError) as fehler:
+            msg = f"Format {wert!r} ist ungültig ({fehler})"
+            raise ValueError(msg) from fehler
+        if "nummer" not in felder:
+            msg = (
+                f"{wert!r} braucht {{nummer}} — sonst bekäme jede Rechnung dieselbe "
+                "Nummer (§ 14 Abs. 4 Satz 1 Nr. 4 UStG)"
+            )
+            raise ValueError(msg)
+        if unbekannt := felder - {"jahr", "nummer"}:
+            msg = f"{wert!r}: nur {{jahr}} und {{nummer}}, nicht {sorted(unbekannt)}"
+            raise ValueError(msg)
+        return wert
 
 
 class Firma(BaseModel):
@@ -95,6 +124,11 @@ class Firma(BaseModel):
     @property
     def nummernkreis(self) -> str:
         return self.kuerzel or self.name
+
+    @property
+    def nummer_je_jahr(self) -> bool:
+        """Beginnt der Kreis jedes Jahr neu? Nur mit ``{jahr}`` im Format."""
+        return "jahr" in _felder(self.rechnung.nummernformat)
 
     def nummer(self, jahr: int, laufend: int) -> str:
         """Rechnungsnummer aus Jahr und laufender Nummer, z.B. ``2026-0042``."""

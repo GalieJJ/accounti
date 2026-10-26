@@ -202,7 +202,7 @@ Debitoren- und Kreditorenstammdaten mit Personenkontonummern aus den Nummernkrei
 
 Offene Posten mit Fälligkeit, Skontofrist und Restbetrag. `verbuchung.py` macht aus einem erfassten Beleg die Buchungen je Steuersatz (Eingang: Sachkonto aus Kontakt-Vorschlag, Regelwerk oder Standard zur Prüfung; Ausgang: Erlöskonto nach Steuerkategorie der E-Rechnung) und den Posten; jeder Beleg genau einmal, jeder in eigenem Savepoint. `auswertung.py` liefert OPOS-Liste, Fälligkeitsstaffel und Summen je Kontakt. *(vorhanden)*
 
-`zuordnung.py` ordnet Banktransaktionen dreistufig zu — Referenz (Belegnummer im Verwendungszweck), exakt (einziger Posten des Kontakts über den Betrag), unscharf (Skonto ohne Referenz, Sammelzahlung als Teilmengensumme, Teilbetrag, Betrag ohne Kontakt). Automatisch gebucht wird nur Eindeutiges; der Rest wird Vorschlag. `ausgleich.py` bucht Zahlung und Skonto — das Skonto anteilig nach den Bruttoanteilen der Rechnung auf ihre Steuersätze verteilt, Netto und Steuer je Anteil aus `steuer/`, also immer mit Vorsteuer- bzw. Umsatzsteuerkorrektur. `zahlungslauf.py` verbindet beides, reserviert vorgeschlagene Posten und speichert jede Zuordnung in `zahlungszuordnungen`; `classify` kontiert nur noch Transaktionen ohne Buchung und ohne Zuordnung. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
+`zuordnung.py` ordnet Banktransaktionen dreistufig zu — Referenz (Belegnummer im Verwendungszweck), exakt (einziger Posten des Kontakts über den Betrag), unscharf (Skonto ohne Referenz, Sammelzahlung als Teilmengensumme, Teilbetrag, Betrag ohne Kontakt). Automatisch gebucht wird nur Eindeutiges; der Rest wird Vorschlag. Belegnummern zählen nur an Wortgrenzen und nicht, wenn ihre Ziffern nur als Datum im Zweck stehen („EREF+20260315…“, „vom 2026-03-15“ für 2026-0315, „RE 2026-03-15“ für RE-2026-0315 — ohne erkannten Zahler dann nur ein Vorschlag, neben einer echten Referenz gar nicht); nennt der Zweck nur Posten eines anderen Kontakts als des erkannten Zahlers, wird nichts automatisch gebucht. Als Guthaben zählen nur Posten der Zahlungsrichtung mit negativem Rest — keine Aufrechnung über zwei Personenkonten; in der Handzuordnung tilgt eine Gutschrift nur Posten desselben Kontakts. Posten mit negativem Rest (Gutschrift, Guthaben aus Überzahlung) nehmen teil: Erstattungen tilgen sie, Saldozahlungen verrechnen sie; `verrechnung.py` gleicht gegenläufige Posten desselben Kontakts ohne Buchung aus (Tabelle `verrechnungen`, Journal), `zahlungslauf.ordne_von_hand` ist die Handzuordnung. `ausgleich.py` bucht Zahlung und Skonto — das Skonto anteilig nach den Bruttoanteilen der Rechnung auf ihre Steuersätze verteilt, Netto und Steuer je Anteil aus `steuer/`, also immer mit Vorsteuer- bzw. Umsatzsteuerkorrektur. `zahlungslauf.py` verbindet beides, reserviert vorgeschlagene Posten und speichert jede Zuordnung in `zahlungszuordnungen`; `classify` kontiert nur noch Transaktionen ohne Buchung und ohne Zuordnung. *(vorhanden)* `zuordnung.py` ordnet Zahlungen dreistufig zu (Referenz, exakt, unscharf), `ausgleich.py` bucht den Ausgleich — bei gezogenem Skonto immer **mit** anteiliger Steuerkorrektur, nie als reine Betragsdifferenz.
 
 ### `zahlung/` und `mahnwesen/` *(vorhanden — [Baustein 6](specs/2026-08-10-zahlungsverkehr-mahnwesen.md))*
 
@@ -259,7 +259,7 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   `do_orm_execute` sperrt Massenänderungen; jede schreibende Transaktion hält ab dem ersten
   Flush mit Journal- oder Sperrbezug die Schreibsperre (`schreibsperre`). `pruefe_journal`
   prüft Kette, Anker, Übernahmen, Verlauf je Objekt und den Bestand (Buchungen, Belege,
-  Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
+  Verrechnungen, Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
   Person und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung
   der CLI (`befehle.handelnde_person`, geprüft), für API-Token die REST-API; jede andere
   Person kennzeichnet `fuege_an` als „(ungeprüft)“, sobald die Datenbank zu einer
@@ -344,7 +344,8 @@ Transaktion
 │ Geschäftsvorfall?    │
 │                      │
 │ Käufer DE? ─────────▶ Inland (19%/7%)
-│ Käufer EU + B2C? ───▶ OSS (Steuersatz Bestimmungsland)
+│ B2C-Dienstleistung? ▶ Inland (§ 3a Abs. 1), elektronisch: OSS (EU)
+│ Käufer EU + B2C? ───▶ OSS (Steuersatz Bestimmungsland, Fernverkauf)
 │ Käufer EU + B2B? ───▶ ig. Lieferung (0%, Reverse Charge)
 │ Käufer Drittland? ──▶ Ausfuhr (0%)
 └──────────────────────┘

@@ -124,14 +124,19 @@ class BelegOhneZahlung:
             kontakt = k.kontakte.get(op.kontakt_id)
             eingang = op.richtung is PostenRichtung.VERBINDLICHKEIT
             art = "Eingangsrechnung" if eingang else "Ausgangsrechnung"
+            zahlung = (
+                f"Teilzahlung, Rest {betrag_de(op.restbetrag)} € offen"
+                if op.restbetrag < op.betrag
+                else "keine Zahlung zugeordnet"
+            )
             befunde.append(
                 befund(
                     self,
                     "posten",
                     op.id,
                     f"{art} {op.belegnummer or '—'} vom {datum_de(op.belegdatum)} "
-                    f"über {betrag_de(op.restbetrag)} € seit {ueber} Tagen fällig — "
-                    "keine Zahlung zugeordnet",
+                    f"über {betrag_de(op.betrag)} € seit {ueber} Tagen fällig — "
+                    f"{zahlung}",
                     schwere=Schwere.WARNUNG if eingang else Schwere.HINWEIS,
                     datum=op.faellig_am,
                     betrag=op.restbetrag,
@@ -139,7 +144,7 @@ class BelegOhneZahlung:
                     abhilfe=(
                         "Zahlung zuordnen (accounti opos zuordnen) oder klären"
                         if eingang
-                        else "Mahnwesen (accounti mahnwesen vorschlag)"
+                        else "Mahnwesen (accounti mahnwesen lauf)"
                     ),
                 )
             )

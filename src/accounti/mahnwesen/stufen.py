@@ -5,13 +5,19 @@ nächste Stufe ist die nach der aktuellen Mahnstufe am Posten — keine wird
 übersprungen. Sie greift, wenn die Tage seit Fälligkeit ihr ``ab_tagen`` erreichen,
 seit dem Versand der letzten Mahnung mindestens ``stufenabstand_tage`` vergangen sind
 und die Zahlungsfrist, die diese Mahnung gesetzt hat, abgelaufen ist.
+
+Hat der Kunde ein Guthaben (Gutschrift, Rechnungskorrektur, Überzahlung: ein Posten mit
+negativem Rest), schuldet er weniger, als die einzelne Forderung ausweist — dann wird
+nicht gemahnt, sondern erst verrechnet (``accounti opos verrechnen``).
 """
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from accounti.anzeige import betrag_de
@@ -79,6 +85,15 @@ def ermittle(
 ) -> tuple[list[FaelligeStufe], list[Ausnahme]]:
     faellig: list[FaelligeStufe] = []
     ausnahmen: list[Ausnahme] = []
+    posten = list(posten)
+    guthaben: dict[UUID, list[OffenerPosten]] = defaultdict(list)
+    for p in posten:
+        if (
+            p.richtung is PostenRichtung.FORDERUNG
+            and p.status is not PostenStatus.AUSGEGLICHEN
+            and p.restbetrag < 0
+        ):
+            guthaben[p.kontakt_id].append(p)
     for p in posten:
         if (
             p.richtung is not PostenRichtung.FORDERUNG
@@ -97,6 +112,15 @@ def ermittle(
             (offene_entwuerfe or {}).get(p.id),
             p.id in (zahlung_vorgeschlagen or set()),
         )
+        if grund is None and guthaben.get(p.kontakt_id):
+            gegen = guthaben[p.kontakt_id]
+            summe = sum((g.restbetrag for g in gegen), Decimal("0"))
+            nummern = " ".join(g.belegnummer or str(g.id)[:8] for g in gegen)
+            grund = (
+                f"Guthaben des Kunden {betrag_de(-summe)} € (Gutschrift/Überzahlung "
+                f"{nummern}) — erst verrechnen: accounti opos verrechnen "
+                f"{p.belegnummer or str(p.id)[:8]} {nummern}"
+            )
         if grund is not None or k is None:
             ausnahmen.append(Ausnahme(p, k, grund or "Kontakt fehlt"))
             continue

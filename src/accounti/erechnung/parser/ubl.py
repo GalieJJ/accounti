@@ -104,6 +104,12 @@ def lies_ubl(wurzel: ET.Element) -> Rechnung:
         or doc.datum("cac:PaymentMeans/cbc:PaymentDueDate"),
         kaeufer_referenz=doc.text("cbc:BuyerReference"),
         bestellnummer=doc.text("cac:OrderReference/cbc:ID"),
+        vorgaenger_nummer=doc.text(
+            "cac:BillingReference/cac:InvoiceDocumentReference/cbc:ID"
+        ),
+        vorgaenger_datum=doc.datum(
+            "cac:BillingReference/cac:InvoiceDocumentReference/cbc:IssueDate"
+        ),
         notizen=[t for n in doc.alle("cbc:Note") if (t := n.text())],
         leistungsdatum=doc.datum("cac:Delivery/cbc:ActualDeliveryDate"),
         lieferanschrift=_anschrift(

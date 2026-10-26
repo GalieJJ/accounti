@@ -204,7 +204,8 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
-  bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`,
+  bestaetigen|ablehnen|verrechnen`, `opos zuordnen --transaktion` (Handzuordnung),
+  `abschluss bestaetigen|ablehnen`, `periode schliessen`,
   `abschluss vortrag`, `export datev` und `datev belege` (Übergabe an den Steuerberater,
   Vermerk „exportiert“), `datev kontoauszuege` (schreibt die Auszüge fest).
 - **Steuermeldungen freigeben** (`freigeber`): `periode oeffnen`, `abschluss oeffnen` —
@@ -620,6 +621,16 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
 - Eine Sicherung bringt ihren Versionsvermerk nicht mit, wenn das Ziel schon einen hat:
   `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
   dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
+
+**Update Gesamttest Debitoren** (Migration `a14acef69fae` nach `2f7c7043043e`: Tabelle
+`verrechnungen` mit SQLite-Triggern, Spalten `ausgangsrechnungen.rechnungstyp`/
+`korrektur_zu`, `ausgangspositionen.elektronisch`): ohne die Migration scheitern Befehle
+an den neuen Spalten (Datenbankfehler statt Meldung) — also die Datenbank wie oben mit
+`accounti db upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Hat
+ein Befehl des neuen Abbilds die Tabelle `verrechnungen` schon angelegt (`init_db`),
+übernimmt die Migration sie; ohne Versionsvermerk erkennt `db upgrade` den Stand
+`2f7c7043043e` an den fehlenden Spalten. Neue Verrechnungen gleicht `accounti journal
+pruefen` mit dem Bestand ab; eine Übernahme ist nicht nötig (die Tabelle ist neu).
 
 **Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
 Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher

@@ -114,6 +114,9 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
         ["abschluss", "ablehnen", "1"],
         ["opos", "bestaetigen", "abc"],
         ["opos", "ablehnen", "abc"],
+        # Gesamttest Ausgang B3/B6: Verrechnung und Handzuordnung sind Freigaben
+        ["opos", "verrechnen", "abc", "def"],
+        ["opos", "zuordnen", "--transaktion", "abc", "--posten", "def"],
         ["bank", "bestaetigen", "abc"],
         ["bank", "ablehnen", "abc"],
         ["nachfordern", "anfrage", "abc", "--senden"],

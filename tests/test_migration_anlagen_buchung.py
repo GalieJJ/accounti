@@ -32,7 +32,9 @@ def test_upgrade_downgrade_mit_bestand(tmp_path):
     _ok(_alembic(db, "upgrade", "head"))
     assert "buchung_id" in _spalten(db)
     assert "No new upgrade operations detected" in _ok(_alembic(db, "check"))
-    _ok(_alembic(db, "downgrade", "-1"))
+    # spätere Migrationen (a14acef69fae) liegen darüber, „-1“ nähme nur die
+    # jüngste zurück
+    _ok(_alembic(db, "downgrade", VOR))
     assert "buchung_id" not in _spalten(db)
     _ok(_alembic(db, "upgrade", "head"))
     with sqlite3.connect(db) as v:
