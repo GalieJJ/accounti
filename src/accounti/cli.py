@@ -421,7 +421,19 @@ def belege_freigeben(
         help="Steuerfall einer Rechnung ohne Steuerausweis: 13b (Steuerschuldnerschaft "
         "des Leistungsempfängers), ig-erwerb, steuerfrei (§ 4, § 19 UStG) oder ohne",
     ),
-    grund: str | None = typer.Option(None, help="Begründung (steht im Journal)"),
+    vorzeichen: str | None = typer.Option(
+        None,
+        help="umkehren: Beträge mit umgekehrtem Vorzeichen (Rechnung ↔ Gutschrift/"
+        "Korrektur) — nur mit --grund",
+    ),
+    belegnummer: str | None = typer.Option(
+        None, help="Belegnummer nachtragen bzw. berichtigen"
+    ),
+    grund: str | None = typer.Option(
+        None,
+        help="Begründung (steht im Journal) — Pflicht bei Dublettenverdacht, "
+        "Rechenprobe, gedrehtem Vorzeichen und --vorzeichen",
+    ),
     von: str | None = typer.Option(
         None,
         help="Wer prüft (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit eingerichteten "
@@ -437,7 +449,7 @@ def belege_freigeben(
     from rich.markup import escape
 
     from accounti.befehle import handelnde_person
-    from accounti.belege.freigabe import FreigabeError, gib_frei
+    from accounti.belege.freigabe import FreigabeError, finde_beleg, gib_frei
     from accounti.db import init_db, session_factory
     from accounti.models import Belegart
     from accounti.models.auth import Recht
@@ -456,12 +468,23 @@ def belege_freigeben(
         make_session() as s,
     ):
         try:
+            vorher = finde_beleg(s, beleg_id).pruef_grund
             with journal_kontext(grund=grund):
-                b = gib_frei(s, beleg_id, belegart=art, steuer=steuer)
+                b = gib_frei(
+                    s,
+                    beleg_id,
+                    belegart=art,
+                    steuer=steuer,
+                    vorzeichen=vorzeichen,
+                    belegnummer=belegnummer,
+                    grund=grund,
+                )
             s.commit()
         except FreigabeError as fehler:
             console.print(f"[red]{escape(str(fehler))}[/red]")
             raise typer.Exit(1) from fehler
+    if vorher:
+        console.print(f"[dim]War zur Prüfung: {escape(vorher)}[/dim]")
     console.print(
         f"[green]Freigegeben:[/green] {str(b.id)[:8]} {escape(b.dateiname)} — "
         f"{_beleg_zeile(b)}"

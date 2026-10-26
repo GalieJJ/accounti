@@ -39,6 +39,20 @@ def _gleicher_lieferant(a: Beleg, b: Beleg) -> bool:
     return False
 
 
+def gleiche_belegnummer(kandidat: Beleg, bestand: Iterable[Beleg]) -> Beleg | None:
+    """Ein anderer Beleg desselben Lieferanten mit derselben Belegnummer (Stufe 2)."""
+    if not kandidat.belegnummer:
+        return None
+    for b in bestand:
+        if (
+            b.id != kandidat.id
+            and _norm(b.belegnummer) == _norm(kandidat.belegnummer)
+            and _gleicher_lieferant(b, kandidat)
+        ):
+            return b
+    return None
+
+
 def pruefe_dublette(kandidat: Beleg, bestand: Iterable[Beleg]) -> DublettenBefund:
     """Prüft einen neuen Beleg gegen den Bestand; die sicherste Stufe gewinnt."""
     bestand = [b for b in bestand if b.id != kandidat.id]
@@ -49,16 +63,12 @@ def pruefe_dublette(kandidat: Beleg, bestand: Iterable[Beleg]) -> DublettenBefun
                 Eingangsergebnis.DUBLETTE, b.id, "identische Datei (Hash)"
             )
 
-    if kandidat.belegnummer:
-        for b in bestand:
-            if _norm(b.belegnummer) == _norm(
-                kandidat.belegnummer
-            ) and _gleicher_lieferant(b, kandidat):
-                return DublettenBefund(
-                    Eingangsergebnis.DUBLETTE,
-                    b.id,
-                    f"Lieferant und Belegnummer {kandidat.belegnummer} bekannt",
-                )
+    if (gleich := gleiche_belegnummer(kandidat, bestand)) is not None:
+        return DublettenBefund(
+            Eingangsergebnis.DUBLETTE,
+            gleich.id,
+            f"Lieferant und Belegnummer {kandidat.belegnummer} bekannt",
+        )
 
     if kandidat.brutto is not None and kandidat.belegdatum is not None:
         for b in bestand:
