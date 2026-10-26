@@ -40,7 +40,7 @@ class SteuersatzInfo:
     eu_mitglied: bool = True
     oss_faehig: bool = True  # Am OSS-Verfahren teilnehmend
     parksatz: Decimal | None = None  # Zwischensatz (Art. 118 MwStSystRL), z.B. LU 14
-    weitere: tuple[Decimal, ...] = ()  # weitere ermäßigte Sätze
+    weitere: tuple[Decimal, ...] = ()  # weitere ermäßigte Sätze, z.B. MT 12
     gueltig_ab: date | None = None  # None: bis zur ersten hinterlegten Änderung
     quelle: str = ""
 
@@ -186,7 +186,9 @@ EU_STEUERSAETZE_VERLAUF: dict[str, tuple[SteuersatzInfo, ...]] = {
         {"normal": D("18"), "ermaessigt": D("7"), "ermaessigt_2": D("5")},
         {
             "gueltig_ab": date(2024, 1, 1),
-            "parksatz": D("12"),
+            # weiterer ermäßigter Satz, kein Parksatz (Art. 118 MwStSystRL gilt nur
+            # für Sätze, die am 01.01.1991 schon bestanden)
+            "weitere": (D("12"),),
             "quelle": "Legal Notice 231/2023 (12 % ab 01.01.2024); " + _YOUR_EUROPE,
         },
     ),

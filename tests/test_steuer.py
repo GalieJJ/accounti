@@ -408,6 +408,18 @@ class TestSteuersaetzeVerlauf:
             (Decimal("21"), Decimal("200.00"), Decimal("42.00")),
         ]
 
+    def test_malta_zwoelf_prozent_ermaessigt_kein_parksatz(self) -> None:
+        """Malta führte 12 % 2024 als weiteren ermäßigten Satz ein (Legal Notice
+        231/2023) — ein Parksatz (Art. 118 MwStSystRL) ist er nicht: den gibt es nur
+        für Sätze, die schon am 01.01.1991 galten."""
+        from datetime import date
+
+        mt = steuersatz_fuer_land("MT", date(2026, 10, 22))
+        assert mt.parksatz is None
+        assert Decimal("12") in mt.weitere
+        alt = steuersatz_fuer_land("MT", date(2023, 12, 31))
+        assert alt.saetze == {Decimal("18"), Decimal("7"), Decimal("5")}
+
     def test_keine_versprochene_yaml_datei(self) -> None:
         """Die Doku versprach config/eu_steuersaetze.yaml — die gibt es nicht."""
         import accounti.steuer.eu_steuersaetze as modul
