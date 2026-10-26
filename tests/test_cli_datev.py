@@ -690,8 +690,26 @@ def test_korrigiere_warnt_wenn_der_vorschlag_schon_bei_datev_ist(umgebung):
     assert r.exit_code == 0, r.output
     text = _text(r)
     assert "schon an DATEV" in text and "4930 an 70001" in text, r.output
-    assert "export datev --period 2026-08 --erneut" in text, r.output
+    # Nachprüfung 3 E, L-c: der Stapel kam aus --alle — ohne --alle fehlten im
+    # neuen Stapel die übrigen ungeprüften Vorschläge, wer ihn in DATEV ersetzt,
+    # verlöre sie; der Stapel reichte nicht über den ganzen Monat (ohne --period)
+    assert "export datev --period 2026-08 --erneut --alle" in text, r.output
+    (stapel,) = (tmp_path / "a").glob("EXTF_*.csv")
+    assert stapel.name in text, r.output
+    assert "nur die Buchungen von 2026-08 ersetzen" in text, r.output
     with make() as s:
         neu = _buchung(s, "R-9", tag=9, status=BuchungStatus.ZUR_PRUEFUNG)
         k = korrigiere(s, str(neu.id), "4940", "70001", steuer=9, von="Erika")
         assert not [w for w in k.warnungen if "DATEV" in w]
+        s.commit()
+    # ein Monatsstapel (--period) ist durch den neuen ganz ersetzbar: kein Zusatz
+    with make() as s:
+        monat = _buchung(s, "R-10", tag=10, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "m", "--alle", "--period", "2026-08")
+    assert r.exit_code == 0, r.output
+    with make() as s:
+        k = korrigiere(s, str(monat.id), "4940", "70002", steuer=9, von="Erika")
+        (warnung,) = [w for w in k.warnungen if "DATEV" in w]
+        assert "EXTF_Buchungsstapel_20260801_20260831" in warnung, warnung
+        assert "--erneut --alle" in warnung and "nur die Buchungen" not in warnung

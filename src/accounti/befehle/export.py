@@ -181,8 +181,8 @@ def buchungsstapel(
         console.print(
             f"[yellow]{ungeprueft} ungeprüfte Buchungen im Stapel (--alle): sie "
             "bleiben ungeprüft, gelten aber als übergeben und kommen nach der Freigabe "
-            "nicht noch einmal — ändert sich eine davon noch, nur mit --erneut (den "
-            "früheren Stapel in DATEV dann ersetzen)[/yellow]"
+            "nicht noch einmal — ändert sich eine davon noch, nur mit --erneut --alle "
+            "(den früheren Stapel in DATEV dann ersetzen)[/yellow]"
         )
     if markiert or gesperrt:
         console.print(

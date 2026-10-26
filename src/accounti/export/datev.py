@@ -250,6 +250,18 @@ def exportierte_dateien(session: Session) -> set[str]:
     return {str(d["datei"]) for d in _exporte(session) if d.get("datei")}
 
 
+def stapel_der_buchung(session: Session, buchung_id: UUID) -> str | None:
+    """Dateiname des letzten Stapels, der die Buchung laut Journal übergab."""
+    gesucht = str(buchung_id)
+    datei = None
+    for nachher in _exporte(session):
+        for schluessel in ("markiert", "gesperrt", "ungeprueft"):
+            werte = nachher.get(schluessel)
+            if isinstance(werte, list) and gesucht in werte and nachher.get("datei"):
+                datei = str(nachher["datei"])
+    return datei
+
+
 def schon_exportiert(session: Session) -> set[UUID]:
     """Buchungen, die ein früherer Export laut Journal übergeben hat.
 

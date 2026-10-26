@@ -14,8 +14,9 @@ Sperre in ``ereignisse`` lässt andere Wege gar nicht erst zu.
 from __future__ import annotations
 
 import hashlib
+import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -457,20 +458,43 @@ def korrigiere(
     return k
 
 
+_STAPEL_ZEITRAUM = re.compile(r"_(\d{8})_(\d{8})(?:_\d+)?\.csv$")
+
+
 def _warnung_uebergeben(session: Session, b: Buchungssatz) -> list[str]:
     """Ein Vorschlag, der ungeprüft mit ``export datev --alle`` übergeben wurde, gilt
     als exportiert (Journal ``ungeprueft``) — die direkte Korrektur kommt mit dem
-    nächsten Export nicht nach DATEV, dort steht weiter das alte Konto."""
-    from accounti.export.datev import schon_exportiert
+    nächsten Export nicht nach DATEV, dort steht weiter das alte Konto.
+
+    Der Ersatzstapel braucht ``--alle`` wie der alte, sonst fehlen ihm dessen übrige
+    ungeprüfte Vorschläge (wer ihn in DATEV ersetzt, verlöre sie); reichte der alte
+    Stapel (ohne ``--period``) über den Monat hinaus oder deckte ihn nicht ganz, sagt
+    die Warnung, dass nur die Buchungen des Monats zu ersetzen sind."""
+    from accounti.export.datev import schon_exportiert, stapel_der_buchung
 
     if b.id not in schon_exportiert(session):
         return []
-    return [
+    monat = f"{b.datum:%Y-%m}"
+    datei = stapel_der_buchung(session, b.id)
+    stapel = f"den Stapel {datei}" if datei else "den Stapel"
+    text = (
         f"Buchung {_kurz(b)} ging schon an DATEV (export datev --alle) — dort steht "
         f"weiter {b.soll_konto} an {b.haben_konto}, der nächste Export bringt die "
-        "Korrektur nicht. In DATEV von Hand korrigieren oder den Stapel dort ersetzen: "
-        f"accounti export datev --period {b.datum:%Y-%m} --erneut"
-    ]
+        f"Korrektur nicht. In DATEV von Hand korrigieren oder {stapel} dort ersetzen: "
+        f"accounti export datev --period {monat} --erneut --alle"
+    )
+    zeitraum = _STAPEL_ZEITRAUM.search(datei or "")
+    erster = b.datum.replace(day=1)
+    letzter = (erster + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    if zeitraum is None or zeitraum.groups() != (
+        f"{erster:%Y%m%d}",
+        f"{letzter:%Y%m%d}",
+    ):
+        text += (
+            f" — der neue Stapel umfasst den ganzen Monat {monat}, der alte nicht: in "
+            f"DATEV nur die Buchungen von {monat} ersetzen"
+        )
+    return [text]
 
 
 def _warnung_selbst(b: Buchungssatz, ohne_steuer: bool) -> list[str]:
