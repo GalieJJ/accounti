@@ -11,8 +11,10 @@ Automatisch gebucht wird nur, was eindeutig ist: Stufe A mit genau einem Posten
 (voll, Skonto in der Frist, Teilzahlung) und Stufe B. Alles andere legt accounti
 dem Menschen vor — auch jeder Treffer, bei dem der erkannte Zahler nicht der Kontakt
 des Postens ist, und eine Belegnummer, die nur als Datum im Zweck steht („2026-0315“ in
-„EREF+20260315-0042“ oder „Lieferung vom 2026-03-15“): bei unbekanntem Zahler höchstens
-ein Vorschlag, beim erkannten Zahler entscheidet der eindeutige Betrag (Stufe B).
+„EREF+20260315-0042“ oder „Lieferung vom 2026-03-15“, auch mit Präfix „RE 2026-03-15“
+für RE-2026-0315): bei unbekanntem Zahler höchstens ein Vorschlag, beim erkannten Zahler
+entscheidet der eindeutige Betrag (Stufe B). Neben einer echten Referenz zählt eine
+Nummer, die nur als Datum dasteht, gar nicht.
 
 Gutschriften und Guthaben: Ein Posten mit negativem Rest (Gutschrift,
 Rechnungskorrektur, Überzahlung) wird durch eine Zahlung in Gegenrichtung getilgt
@@ -136,15 +138,24 @@ def _ist_datum(wort: str) -> bool:
     return True
 
 
+def _ziffern(woerter_: list[str]) -> list[str]:
+    return [w for w in woerter_ if w.isdigit()]
+
+
 def _datumsfolge(folge: list[str], nummer: str | None) -> bool:
-    """Ergibt die getroffene Wortfolge ein Datum JJJJMMTT, das anders gegliedert ist
-    als die Nummer („20260315“, „2026-03-15“, „2026/03/15“ für 2026-0315)? Eine Nummer
-    ohne Trennzeichen („20260315“ beim Format ``{jahr}{nummer:04d}``) ist als Datum
-    gleich geschrieben — dann zählt jeder Treffer, der ein Datum ist."""
+    """Ergeben die Ziffernwörter der getroffenen Wortfolge ein Datum JJJJMMTT, das
+    anders gegliedert ist als die Ziffern der Nummer („20260315“, „2026-03-15“,
+    „2026/03/15“ für 2026-0315, „RE 2026-03-15“ für RE-2026-0315)? Buchstaben davor
+    ändern daran nichts. Eine Nummer nur aus Ziffern ohne Trennzeichen („20260315“
+    beim Format ``{jahr}{nummer:04d}``) ist als Datum gleich geschrieben — dann zählt
+    jeder Treffer, der ein Datum ist; mit Präfix („RE20260315“) nur ein anders
+    gegliederter."""
     teile = woerter(nummer)
-    return _ist_datum("".join(folge)) and (
-        len(teile) == 1 or [len(w) for w in folge] != [len(w) for w in teile]
-    )
+    ziffern = _ziffern(folge)
+    if not _ist_datum("".join(ziffern)):
+        return False
+    gleich = [len(w) for w in ziffern] == [len(w) for w in _ziffern(teile)]
+    return len(teile) == 1 or not gleich
 
 
 def nur_als_datum(zweck: list[str], nummer: str | None) -> bool:
@@ -489,6 +500,10 @@ def _ordne(
     # Stufe A: Referenz — Belegnummer an Wortgrenzen im Verwendungszweck
     zweck = woerter(tx.verwendungszweck)
     referenziert = [p for p in kandidaten if nennt(zweck, p.belegnummer)]
+    # Neben einer echten Referenz zählt eine Nummer, die nur als Datum dasteht, nicht
+    # („RE 2026-0001 vom 2026-03-15“ nennt 2026-0001, nicht 2026-0315)
+    echt = [p for p in referenziert if not nur_als_datum(zweck, p.belegnummer)]
+    referenziert = echt or referenziert
     if (
         kontakt is None
         and referenziert
@@ -509,7 +524,9 @@ def _ordne(
         gegen = [
             g
             for g in gegenlaeufig
-            if g.kontakt_id in kontakte and nennt(zweck, g.belegnummer)
+            if g.kontakt_id in kontakte
+            and nennt(zweck, g.belegnummer)
+            and not nur_als_datum(zweck, g.belegnummer)
         ]
         return _referenz(tx, referenziert, gegen, gegenlaeufig, betrag, karenz, kontakt)
 
@@ -662,9 +679,11 @@ def ordne_zu(
 
 
 def verteile(tx: Transaktion, posten: list[OffenerPosten]) -> tuple[Anteil, ...]:
-    """Handzuordnung: Gutschriften und Guthaben unter den Posten ganz, dann der
-    Betrag in der angegebenen Reihenfolge; ein Überschuss bleibt als Guthaben auf dem
-    letzten Posten."""
+    """Handzuordnung: Gutschriften und Guthaben unter den Posten tilgen die Posten
+    desselben Kontakts (in der angegebenen Reihenfolge, höchstens bis zu deren Rest —
+    ein Guthaben bezahlt nie den Posten eines anderen Kontakts, §§ 387, 389 BGB
+    verlangen Gegenseitigkeit), dann verteilt sich der Betrag in der angegebenen
+    Reihenfolge; ein Überschuss bleibt als Guthaben auf dem letzten Posten."""
     faktoren = {p.id: faktor(p, tx.betrag) for p in posten}
     sicht = [in_zahlungsrichtung(p, faktoren[p.id]) for p in posten]
     offen = [p for p in sicht if p.restbetrag > 0]
@@ -685,6 +704,25 @@ def verteile(tx: Transaktion, posten: list[OffenerPosten]) -> tuple[Anteil, ...]
             "— eine Aufrechnung über zwei Personenkonten bucht accounti nicht"
         )
         raise ValueError(msg)
-    gutschriften = tuple(Anteil(g, g.restbetrag) for g in gegen)
-    verteilt = auffuellen(offen, abs(tx.betrag) - sum(a.betrag for a in gutschriften))
-    return zurueck(gutschriften + verteilt, {p.id: p for p in posten}, faktoren)
+    rest = {p.id: p.restbetrag for p in offen}
+    anteil = dict.fromkeys(rest, NULL)
+    gutschriften = []
+    for g in gegen:
+        frei = -g.restbetrag
+        for p in offen:
+            if p.kontakt_id == g.kontakt_id and frei > 0:
+                teil = min(frei, rest[p.id])
+                rest[p.id] -= teil
+                anteil[p.id] += teil
+                frei -= teil
+        if frei != -g.restbetrag:
+            gutschriften.append(Anteil(g, g.restbetrag + frei))
+    zahlung = abs(tx.betrag)
+    for p in offen:
+        teil = min(zahlung, rest[p.id])
+        anteil[p.id] += teil
+        zahlung -= teil
+    if zahlung > 0:  # Überschuss bleibt auf dem letzten Posten (Guthaben)
+        anteil[offen[-1].id] += zahlung
+    verteilt = tuple(Anteil(p, anteil[p.id]) for p in offen if anteil[p.id])
+    return zurueck((*gutschriften, *verteilt), {p.id: p for p in posten}, faktoren)

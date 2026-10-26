@@ -40,7 +40,7 @@ from accounti.opos.zahlungslauf import (
     ordne_von_hand,
     zuordne_zahlungen,
 )
-from accounti.opos.zuordnung import Anteil, Stufe, ordne_zu
+from accounti.opos.zuordnung import Anteil, Stufe, ordne_zu, verteile
 from accounti.pruefung.journal import pruefe_journal
 from tests.pg_hilfe import mit_postgresql
 from tests.pruefung_hilfe import make_session_fixture  # noqa: F401 - Fixture
@@ -291,6 +291,57 @@ def test_nummer_ohne_trennzeichen_ist_ohne_erkannten_zahler_mehrdeutig():
     re = op("RE20260315", "1190.00", kontakt=Y)
     v = ordne_zu(tx("400.00", "RE20260315", "Unbekannt"), [re], KONTAKTE)
     assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+
+
+def test_datum_bei_nummer_mit_praefix_ist_ohne_erkannten_zahler_keine_referenz():
+    # Gegenprüfung: Format RE-{jahr}-{nummer:04d} — „RE 2026-03-15“ ergibt
+    # zusammengesetzt RE-2026-0315; geprüft werden nur die Ziffernwörter (4-2-2 statt
+    # 4-4 = ein Datum), das Präfix allein macht es nicht zur Referenz
+    x = op("RE-2026-0001", "476.00", kontakt=X)
+    y = op("RE-2026-0315", "1190.00", kontakt=Y)
+    for zweck in (
+        "RE 2026-03-15",
+        "Re. 2026-03-15",
+        "RE-2026-03-15",
+        "Rechnung RE 2026/03/15",
+    ):
+        v = ordne_zu(tx("476.00", zweck, "Hans Meier"), [x, y], KONTAKTE)
+        assert v is not None and not v.automatisch, zweck
+        assert v.confidence <= 0.6 and "Datum" in v.begruendung, zweck
+        assert _anteile(v) == [("RE-2026-0001", D("476.00"), D("0"))], zweck
+    # gleich gegliedert wie die Nummer: weiter eine Referenz
+    for zweck in ("RE 2026 0315", "RE-2026-0315", "Rechnung RE2026-0315"):
+        v = ordne_zu(tx("400.00", zweck, "Hans Meier"), [x, y], KONTAKTE)
+        assert (v.stufe, v.automatisch) == (Stufe.TEIL, True), zweck
+
+
+def test_echte_referenz_geht_einer_nummer_nur_als_datum_vor():
+    # Gegenprüfung: neben einer echten Referenz zählt ein nur als Datum genannter
+    # Posten nicht mit — weder als zweite Rechnung noch als Gutschrift
+    x = op("2026-0001", "476.00", kontakt=X)
+    y = op("2026-0315", "1190.00", kontakt=Y)
+    zweck = "RE 2026-0001 vom 2026-03-15"
+    for zahler in ("Hans Meier", "Kunde X GmbH"):
+        v = ordne_zu(tx("476.00", zweck, zahler), [x, y], KONTAKTE)
+        assert (v.stufe, v.automatisch) == (Stufe.REFERENZ, True), zahler
+        assert _anteile(v) == [("2026-0001", D("476.00"), D("0"))], zahler
+    rechnung = op("2026-0001", "595.00")
+    gutschrift = op("2026-0315", "-119.00")
+    for zahler in ("Hans Meier", "Kunde AG"):
+        v = ordne_zu(tx("595.00", zweck, zahler), [rechnung, gutschrift], KONTAKTE)
+        assert (v.stufe, v.automatisch) == (Stufe.REFERENZ, True), zahler
+        assert _anteile(v) == [("2026-0001", D("595.00"), D("0"))], zahler
+
+
+def test_eigener_posten_nur_als_datum_hebt_den_widerspruch_nicht_auf():
+    # Gegenprüfung: Zahler X, der Zweck nennt 2026-0500 von Kunde Y und X' eigene
+    # 2026-0315 nur als Datum — wie ohne das Datum höchstens ein Vorschlag (0,7)
+    eigen = op("2026-0315", "476.00", kontakt=X)
+    fremd = op("2026-0500", "800.00", kontakt=Y)
+    for zweck in ("RE 2026-0500 vom 2026-03-15", "RE 2026-0500"):
+        v = ordne_zu(tx("476.00", zweck, "Kunde X GmbH"), [eigen, fremd], KONTAKTE)
+        assert v is not None and not v.automatisch, zweck
+        assert v.confidence <= 0.7 and "anderen Kontakts" in v.begruendung, zweck
 
 
 def test_datum_im_zweck_trifft_beim_zahler_nicht_den_falschen_eigenen_posten():
@@ -625,6 +676,30 @@ def test_handzuordnung_verrechnet_nicht_ueber_zwei_personenkonten(fabrik):
             )
     with fabrik() as s:
         assert lade_zuordnungen(s) == []
+
+
+def test_handzuordnung_rechnet_ein_guthaben_nur_gegen_posten_desselben_kontakts():
+    # Gegenprüfung (Rest N1): Rechnung von Y, Rechnung und Gutschrift von X — das
+    # Guthaben von X tilgt nur die Rechnung von X, nie die von Y (keine Aufrechnung
+    # über zwei Personenkonten); die Zahlung verteilt sich dann wie angegeben
+    rechnung_y = op("2026-0001", "595.00", kontakt=Y)
+    rechnung_x = op("2026-0002", "595.00", kontakt=X)
+    gutschrift_x = op("2026-0003", "-119.00", kontakt=X)
+    anteile = verteile(tx("476.00", "Zahlung"), [rechnung_y, rechnung_x, gutschrift_x])
+    assert sorted((a.posten.belegnummer, a.betrag) for a in anteile) == [
+        ("2026-0001", D("476.00")),
+        ("2026-0002", D("119.00")),
+        ("2026-0003", D("-119.00")),
+    ]
+    assert sum(a.betrag for a in anteile) == D("476.00")
+    # übersteigt das Guthaben die eigenen Rechnungen, bleibt der Rest stehen
+    klein_x = op("2026-0004", "100.00", kontakt=X)
+    anteile = verteile(tx("495.00", "Zahlung"), [klein_x, gutschrift_x, rechnung_y])
+    assert sorted((a.posten.belegnummer, a.betrag) for a in anteile) == [
+        ("2026-0001", D("495.00")),
+        ("2026-0003", D("-100.00")),
+        ("2026-0004", D("100.00")),
+    ]
 
 
 def test_handzuordnung_richtung_muss_passen(fabrik):
