@@ -329,7 +329,10 @@ def test_token_nur_in_der_eigenen_gesellschaft(verwalter):
     als("tina")
     r = run("-g", "b", "token", "widerrufen", "erp-a")
     assert r.exit_code == 1, r.output
-    assert "Gesellschaft a" in r.output
+    # Namen gelten je Gesellschaft (Gesamttest Betrieb B9): in b gibt es kein
+    # „erp-a“ — die Meldung verrät nicht mehr, dass a eines hat
+    assert "kein aktives Token 'erp-a' in b" in r.output
+    assert "Gesellschaft a" not in r.output
     als("tina")
     r = run("-g", "b", "token", "widerrufen", "erp-b")
     assert r.exit_code == 0, r.output

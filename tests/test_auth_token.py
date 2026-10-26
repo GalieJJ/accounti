@@ -57,7 +57,7 @@ def test_falsch_abgelaufen_widerrufen(system):
         pruefe_api_token(system, klartext, datetime(2026, 10, 31, 23, 59)) is not None
     )
     assert pruefe_api_token(system, klartext, datetime(2026, 11, 1)) is None
-    widerrufe_api_token(system, "erp", JETZT)
+    widerrufe_api_token(system, "erp", JETZT, "standard")
     assert pruefe_api_token(system, klartext, JETZT) is None
 
 

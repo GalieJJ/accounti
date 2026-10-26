@@ -29,7 +29,7 @@ from sqlalchemy import (
     inspect,
     select,
 )
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError, ProgrammingError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 # Tabellen, die nur einzeln über die Sitzung geändert werden (Journal, Storno-Regel,
@@ -147,7 +147,9 @@ def stemple(engine: Engine, revision: str = SCHEMA_STAND) -> None:
             tabelle.create(v, checkfirst=True)
             if not v.execute(select(func.count()).select_from(tabelle)).scalar():
                 v.execute(insert(tabelle).values(version_num=revision))
-    except IntegrityError:  # gleichzeitig gestempelt — der Vermerk steht
+    except (IntegrityError, OperationalError, ProgrammingError):
+        # gleichzeitig angelegt: der andere Prozess stempelt; schlimmstenfalls bleibt
+        # die Datenbank ohne Vermerk — dann leitet ``accounti db upgrade`` ihn ab
         pass
 
 
