@@ -80,6 +80,7 @@ def kontenplan(
         geldkonten=frozenset({buchhaltung.bank_konto, *(bank_sachkonten or set())}),
         steuerrelevant=bereiche(einstellungen.steuerrelevante_konten),
         kennziffern_konten=dict(einstellungen.kennziffern_konten),
+        ohne_kennziffer=frozenset(einstellungen.konten_ohne_kennziffer),
     )
 
 

@@ -42,7 +42,10 @@ from uuid import UUID
 
 from accounti.models import Buchungssatz, BuchungStatus, Kontakt
 from accounti.steuer.eu_steuersaetze import ist_eu_land
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.umsatzsteuer import (
+    OSS_ERLOES_KONTEN_SKR03,
+    OSS_ERLOES_KONTEN_SKR04,
+)
 from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art, UStVoranmeldung
 from accounti.steuer.zeitraum import Zeitraum
 
@@ -126,6 +129,9 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
         "4337": 60,
         "4338": 45,
         "4339": 45,
+        # OSS-Fernverkäufe (eigene Konten: integrationen.oss_erloes_konten, die
+        # lade_elster als Kz 45 ergänzt)
+        **dict.fromkeys(OSS_ERLOES_KONTEN_SKR04.values(), 45),
     },
 }
 
@@ -181,9 +187,11 @@ _GEGENKONTEN: dict[str, Bereiche] = {
 }
 # Vorsteuer- und Umsatzsteuerkonten, deren Buchung ohne Kennziffer auffallen soll —
 # ohne Vorauszahlungen, Sondervorauszahlung und USt laufendes Jahr/Vorjahr
+# — ohne die Umsatzsteuer des anderen EU-Lands (OSS, § 18j UStG: SKR03 1767/1768,
+# SKR04 3817/3818), die nicht in die deutsche Voranmeldung gehört
 STEUERKONTEN: dict[str, Bereiche] = {
     "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
-    "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
+    "SKR04": ((1400, 1433), (3800, 3816), (3819, 3819), (3832, 3837)),
 }
 # Nicht steuerbare Umsätze, die bei einem EU-Unternehmer meist eine EU-Leistung sind
 _NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
@@ -234,6 +242,8 @@ class Kontenplan:
     )  # zusätzlich, z. B. eingerichtete Bankkonten
     steuerrelevant: tuple[tuple[int, int], ...] | None = None  # None: je Kontenrahmen
     kennziffern_konten: Mapping[str, int] = field(default_factory=dict)  # Ergänzungen
+    # Steuerkonten außerhalb der deutschen Voranmeldung (z.B. eigene OSS-Konten)
+    ohne_kennziffer: frozenset[str] = frozenset()
 
     @property
     def funktionskonten(self) -> dict[str, int]:
@@ -272,6 +282,8 @@ class Kontenplan:
         return self.ist_steuerrelevant(konto) or self.ist_erloesschmaelerung(konto)
 
     def ist_steuerkonto(self, konto: str) -> bool:
+        if konto in self.ohne_kennziffer:
+            return False
         return _im_bereich(konto, STEUERKONTEN.get(self.kontenrahmen, ()))
 
 

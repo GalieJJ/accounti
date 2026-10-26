@@ -454,6 +454,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),
   Belegfeld 1 im DATEV-Zeichenvorrat, Kostenstelle in KOST1 (Feld 37 statt Beleginfo);
   Konten, die nicht zur Sachkontenlänge passen (z. B. 177721 bei Länge 4), meldet er
+- **OSS-Konten fest verdrahtet, sechsstellige Steuerkonten** (Gesamttest Steuer B6/B7):
+  `integrationen.oss_erloes_konten` ordnet jedem EU-Land ein Erlöskonto zu (Vorgabe wie bisher
+  acht Länder, SKR04 4320–4327; `LAND: null` nimmt eines heraus; ein Konto für zwei Länder ist
+  ein Konfigurationsfehler); ein Dänemark-Verkauf landete ohne Ausweg auf 8200/1779. Eigene
+  OSS-Erlöskonten (auch `oss_erloes_ermaessigt`, z. B. 8328) zählen in der Voranmeldung zu Kz 45
+  statt die Freigabe zu sperren. Die OSS-Umsatzsteuer geht auf das DATEV-Sammelkonto 1767 (SKR04
+  3817, `oss_ust_konto`, je Land `oss_ust_konten`) statt auf 177720–177725, die der Stapel mit
+  Sachkontenlänge 4 nicht annahm; sie erscheint nicht als „Steuerkonto ohne Kennziffer“ in der
+  Voranmeldung. Wer schon auf 1777xx gebucht hat, stellt diese Konten in `oss_ust_konten` ein
 - **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
   8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (S/AM, gewährte Skonti), 3731/3736 (S/AV,
   erhaltene Skonti) und 3730/8730 (ohne Satz) — beide DATEV-Exporte lassen dort das BU-Feld

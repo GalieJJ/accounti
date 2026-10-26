@@ -70,22 +70,13 @@ VST_KONTEN_SKR03: dict[str, str] = {
     "7": "1571",  # Vorsteuer 7%
 }
 
-# OSS-Umsatzsteuerkonten (für EU-B2C)
-# Im SKR03 gibt es keine Standard-OSS-Konten — die müssen angelegt werden.
-# Empfohlene Konvention: 1777xx pro Land
-OSS_UST_KONTEN_SKR03: dict[str, str] = {
-    "FR": "177720",  # USt OSS Frankreich 20%
-    "IT": "177722",  # USt OSS Italien 22%
-    "ES": "177721",  # USt OSS Spanien 21%
-    "NL": "177721",  # USt OSS Niederlande 21%
-    "SE": "177725",  # USt OSS Schweden 25%
-    "PL": "177723",  # USt OSS Polen 23%
-    "AT": "177720",  # USt OSS Österreich 20%
-    "BE": "177721",  # USt OSS Belgien 21%
-    # Weitere Länder → config/oss_konten.yaml
-}
+# OSS-Umsatzsteuer (für EU-B2C): DATEV-Sammelkonto „Umsatzsteuer aus im anderen
+# EU-Land steuerpflichtigen Lieferungen“ (SKR03 1767, SKR04 3817; Kontenrahmen 2026) —
+# vierstellig, passt zur Sachkontenlänge 4 des DATEV-Stapels; das Land steht im
+# Buchungstext. Eigene Konten je Land: integrationen.oss_ust_konten.
+OSS_UST_KONTO_SKR03 = "1767"
 
-# Erlöskonten für OSS (SKR03)
+# Erlöskonten für OSS (SKR03) — Vorgabe; weitere: integrationen.oss_erloes_konten
 OSS_ERLOES_KONTEN_SKR03: dict[str, str] = {
     "FR": "8320",  # Erlöse OSS Frankreich
     "IT": "8321",  # Erlöse OSS Italien
@@ -98,6 +89,12 @@ OSS_ERLOES_KONTEN_SKR03: dict[str, str] = {
     # Alternativ: Ein Sammelkonto 8320 "Erlöse OSS EU"
     # mit Aufschlüsselung per Kostenstelle/Dimension
 }
+
+# dieselben Länder im SKR04 (4320–4329)
+OSS_ERLOES_KONTEN_SKR04: dict[str, str] = {
+    land: str(int(konto) - 4000) for land, konto in OSS_ERLOES_KONTEN_SKR03.items()
+}
+OSS_UST_KONTO_SKR04 = "3817"
 
 # DATEV BU-Schlüssel für besondere Vorgänge
 DATEV_BU_SCHLUESSEL = {
@@ -250,7 +247,7 @@ class UStBerechner:
                 raise ValueError(msg)
             info = info_opt
             steuersatz = info.ermaessigt if ermaessigt else info.normal
-            steuer_konto = OSS_UST_KONTEN_SKR03.get(land, "1779")
+            steuer_konto = OSS_UST_KONTO_SKR03
             datev_schluessel = DATEV_BU_SCHLUESSEL.get("oss")
             kennziffer = ELSTER_KENNZIFFERN["oss_nicht_de"]  # nur der Nettoumsatz
 

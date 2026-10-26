@@ -105,6 +105,13 @@ class ElsterEinstellungen(BaseModel):
     abweichung_mindestens: Decimal = Decimal("1000")
     steuerrelevante_konten: list[str] | None = None
     kennziffern_konten: dict[str, int] = Field(default_factory=dict)
+    konten_ohne_kennziffer: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Steuerkonten außerhalb der deutschen Voranmeldung (ohne Warnung) — "
+            "die OSS-Umsatzsteuerkonten aus integrationen ergänzt lade_elster"
+        ),
+    )
     konto_vorauszahlung: str | None = Field(
         default=None, description="Standard 1780 (SKR03) bzw. 3820 (SKR04)"
     )
@@ -180,10 +187,43 @@ def lade_elster(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
     abschnitt = daten.get("elster") if isinstance(daten, dict) else None
     try:
-        return ElsterEinstellungen.model_validate(abschnitt or {})
+        einstellungen = ElsterEinstellungen.model_validate(abschnitt or {})
     except ValidationError as fehler:
         msg = f"{pfad}: {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler
+    return _mit_oss_konten(einstellungen, pfad)
+
+
+def _mit_oss_konten(
+    einstellungen: ElsterEinstellungen, pfad: Path
+) -> ElsterEinstellungen:
+    """OSS-Erlöskonten aus ``integrationen`` sind Konten mit fester Funktion: der
+    Nettoumsatz eines Fernverkaufs gehört in Kz 45 (Anleitung USt 1 E 2026 zu Zeile
+    36); die OSS-Umsatzsteuer meldet die OSS-Erklärung (§ 18j UStG), nicht die
+    Voranmeldung. Eigene Angaben in ``elster.kennziffern_konten`` gehen vor."""
+    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.konfiguration import lade_buchhaltung
+    from accounti.steuer.kennziffern import KENNZIFFERN_KONTEN
+
+    i = lade_integrationen(pfad)
+    fest = KENNZIFFERN_KONTEN.get(lade_buchhaltung(pfad).kontenrahmen.upper(), {})
+    oss = {
+        konto
+        for konto in (*i.oss_erloes_konten.values(), *i.oss_erloes_ermaessigt.values())
+        if fest.get(konto) != 45
+    }
+    steuer = {i.oss_ust_konto, *i.oss_ust_konten.values()}
+    return einstellungen.model_copy(
+        update={
+            "kennziffern_konten": {
+                **dict.fromkeys(sorted(oss), 45),
+                **einstellungen.kennziffern_konten,
+            },
+            "konten_ohne_kennziffer": sorted(
+                {*einstellungen.konten_ohne_kennziffer, *steuer}
+            ),
+        }
+    )
 
 
 def lade_oss(pfad: str | Path = STANDARD_PFAD) -> bool:

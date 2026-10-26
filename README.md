@@ -729,7 +729,11 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 
 - Trackt die **€10.000-Schwelle** über alle EU-B2C-Verkäufe
 - Berechnet den **korrekten Steuersatz** je Bestimmungsland
-- Bucht auf **separate OSS-Erlöskonten** (SKR03: 8320-8339)
+- Bucht auf **ein OSS-Erlöskonto je Bestimmungsland** (Vorgabe acht Länder im DATEV-Bereich
+  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`), die
+  Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem Land im Buchungstext — vierstellig,
+  passend zur Sachkontenlänge des DATEV-Stapels
+- Nimmt den **Steuersatz am Tag der Lieferung** (`steuer/eu_steuersaetze.py` mit `gueltig_ab`)
 - Erstellt die **Quartalsmeldung** mit Aufschlüsselung nach Land und Steuersatz
 - Kennt die **Abgabefristen** (letzter Tag des Folgemonats)
 - Meldet OSS-Umsätze in der USt-Voranmeldung **nur als Nettoumsatz in Kz 45** (Anleitung 2026, Zeile 36) — die Steuer läuft über die OSS-Meldung

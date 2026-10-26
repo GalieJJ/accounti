@@ -35,7 +35,6 @@ from accounti.steuer.eu_steuersaetze import ist_eu_land, steuersatz_fuer_land
 from accounti.steuer.oss import OSS_SCHWELLE_EUR
 from accounti.steuer.umsatzsteuer import (
     DATEV_BU_SCHLUESSEL,
-    OSS_ERLOES_KONTEN_SKR03,
     Geschaeftsvorfall,
     UStBerechner,
 )
@@ -326,9 +325,8 @@ def _erloes(
         info = steuersatz_fuer_land(land, p.datum)
         satz = info.ermaessigt if ermaessigt else info.normal
         netto = berechner.brutto_zu_netto(abs(brutto), satz)
-        steuer_konto = berechner.berechne_ust(
-            netto, land, ermaessigt=ermaessigt, stichtag=p.datum
-        ).steuer_konto
+        # DATEV-Sammelkonto (SKR03 1767) oder das eingestellte Konto des Lands
+        steuer_konto = e.oss_ust_konto_fuer(land)
         if ermaessigt:
             # die OSS-Meldung kennt den Satz nur über das Erlöskonto
             erloeskonto = e.oss_erloes_ermaessigt.get(land)
@@ -337,7 +335,7 @@ def _erloes(
                 erloeskonto = e.erloes_unbekannt
                 lauf.sammle("oss_ermaessigt", f"{bestellung} ({land} {satz:f} %)")
         else:
-            erloeskonto = OSS_ERLOES_KONTEN_SKR03.get(land)
+            erloeskonto = e.oss_erloes_konten.get(land)
             if erloeskonto is None:
                 pruefen = True
                 erloeskonto = e.erloes_unbekannt
@@ -467,8 +465,9 @@ _BEFUNDTEXTE: dict[str, tuple[Schweregrad, str]] = {
     ),
     "oss_konto_fehlt": (
         Schweregrad.WARNUNG,
-        "ohne OSS-Erlöskonto in accounti.steuer — nicht in der OSS-Meldung; "
-        "Konto anlegen und zuordnen",
+        "ohne OSS-Erlöskonto für das Bestimmungsland (integrationen."
+        'oss_erloes_konten, z.B. { DK: "8328" }) — Erlös auf dem Klärungskonto, '
+        "nicht in der OSS-Meldung; Konto anlegen, einstellen und umbuchen",
     ),
     "ig_lieferung": (
         Schweregrad.WARNUNG,

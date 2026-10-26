@@ -143,6 +143,8 @@ def baue_rechnung(
             kaeufer_hat_ust_id=hat_ust_id,
             ermaessigt=ermaessigt,
             ist_sonstige_leistung=leistung,
+            # Satz am Tag der Leistung (OSS: Satz des Bestimmungslands an diesem Tag)
+            stichtag=entwurf.leistungsdatum or rechnungsdatum,
         )
 
     zeilen: list[Rechnungszeile] = []

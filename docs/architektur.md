@@ -156,7 +156,10 @@ eigenes Konto mit Guthaben).
   Befunde), sonst Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
-- `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03).
+- `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je
+  Land, OSS-Umsatzsteuerkonto und Kursdifferenzkonten folgen `buchhaltung.kontenrahmen`
+  (SKR04: 4320–4327, 3817, 6880/4840); `elster.lade_elster` ergänzt eigene OSS-Erlöskonten als
+  Kz 45 und nimmt die OSS-Umsatzsteuerkonten aus den Steuerkonten der Voranmeldung.
 - Tabellen `marktplatz_abrechnungen`, `marktplatz_posten`, `marktplatz_befunde`.
 
 ### `klassifikation/`
@@ -320,9 +323,9 @@ Vollständiges Umsatzsteuer-Modul mit vier Komponenten:
 - **`umsatzsteuer.py`** — Kern-Engine für USt/VSt-Berechnung:
   - Geschäftsvorfall-Bestimmung (Inland / EU-OSS / EU-B2B-RC / Drittland)
   - Netto ↔ Brutto-Umrechnung mit korrektem Steuersatz
-  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS 1777xx)
+  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS-Sammelkonto 1767)
   - DATEV BU-Schlüssel und ELSTER-Kennziffern
-  - SKR03 OSS-Erlöskonten (8320-8339 pro Land)
+  - Vorgabe der OSS-Erlöskonten (SKR03 8320–8327, SKR04 4320–4327 für acht Länder)
 
 - **`oss.py`** — One-Stop-Shop-Engine:
   - €10.000-Schwellenwertprüfung

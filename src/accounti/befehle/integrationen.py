@@ -295,7 +295,7 @@ def marktplatz_oss(
     with make_session() as s:
         meldung = oss_meldung(s, jahr, nr, kontext.firmen_land, e)
         offen = ungepruefte(oss_buchungen(s, jahr, nr, e))
-        differenzen = steuerabgleich(s, meldung, kontext.firmen_land)
+        differenzen = steuerabgleich(s, meldung, kontext.firmen_land, e)
     tabelle = Table(title=f"OSS-Meldung {meldung.quartal}")
     for spalte in ("Land", "Satz", "Bemessungsgrundlage", "Steuer", "Anzahl"):
         tabelle.add_column(spalte)
