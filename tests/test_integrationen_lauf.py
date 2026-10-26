@@ -489,6 +489,99 @@ def test_fremdwaehrung_ohne_stichwort_kein_toleranztreffer(umgebung):
     assert all(a.transaktion is None for a in ergebnis.abgleich)
 
 
+def _als_erloes_gebucht(session, tx, netto, steuer):
+    """Wie eine Regel vor dem Import: Auszahlung als Erlös 19 % (1200 an 8400)."""
+    speichere_buchung(
+        session,
+        Buchungssatz(
+            transaktion_id=tx.id,
+            datum=tx.datum,
+            soll_konto="1200",
+            haben_konto="8400",
+            betrag_netto=D(netto),
+            steuer_schluessel=3,
+            steuer_betrag=D(steuer),
+            buchungstext="Auszahlung per Regel",
+            status=BuchungStatus.AUTO_GEBUCHT,
+        ),
+    )
+
+
+def test_fremdwaehrung_schon_per_regel_gebucht_ist_befund(umgebung):
+    """Nachprüfung N2 (a): eBay in GBP, die Bank (59,75 €) kam vor dem Import und
+    ist per Regel als Erlös gebucht; die Abrechnung ergibt 59,73 €. „Schon gebucht“
+    verlangte den exakten Betrag — kein Befund, Kz 81 still doppelt. Bei
+    Fremdwährung gilt dieselbe Toleranz wie beim Treffer."""
+    s, archiv, kontext = umgebung
+    tx = bank(
+        s,
+        date(2026, 9, 11),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    _als_erloes_gebucht(s, tx, "50.21", "9.54")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert befund.schweregrad is Schweregrad.FEHLER
+    assert "11.09.2026" in befund.text
+    assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABWEICHUNG
+
+
+def test_schon_gebucht_in_euro_nur_mit_exaktem_betrag(umgebung):
+    """Gegenprobe zu N2 (a): in Euro ist ein Bankumsatz mit 1 Cent Abweichung keine
+    gebuchte Auszahlung — die Toleranz gilt nur, wo der Kurs der Bank abweicht."""
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 8, 18), "209.86", "AMAZON PAYMENTS EUROPE 11223344556")
+    _als_erloes_gebucht(s, tx, "176.35", "33.51")
+    (ergebnis,) = amazon(s, archiv, kontext)
+    assert not [a.befund for a in ergebnis.abgleich if a.befund]
+
+
+def _amazon_ende_august(inhalt: bytes) -> bytes:
+    """Amazon-Abrechnung 16.–31.08., Auszahlung am 02.09. (Kopfzeile der Fixture)."""
+    alt = b"01.08.2026 00:00:00 UTC\t15.08.2026 00:00:00 UTC\t17.08.2026 00:00:00 UTC"
+    neu = b"16.08.2026 00:00:00 UTC\t31.08.2026 00:00:00 UTC\t02.09.2026 00:00:00 UTC"
+    assert inhalt.count(alt) == 1
+    return inhalt.replace(alt, neu)
+
+
+def test_schon_gebuchte_auszahlung_warnt_im_monat_der_bankbuchung(umgebung):
+    """Nachprüfung N2 (b): Abrechnung 16.–31.08., die Auszahlung kam am 03.09. auf
+    die Bank und steht per Regel als Erlös im September. Die Warnung stand in der
+    UStVA 08 (dort ist nichts falsch) und fehlte in der UStVA 09 (Kz 81 doppelt)."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import bereite_vor
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    roh = _amazon_ende_august((FIXTURES / "amazon_abrechnung_v2.txt").read_bytes())
+    (ergebnis,) = amazon(s, archiv, kontext, roh)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+
+    def marktplatz(monat):
+        v = bereite_vor(
+            s,
+            Zeitraum.lies(monat),
+            buchhaltung=Buchhaltung(),
+            einstellungen=ElsterEinstellungen(),
+        )
+        return [b for b in v.befunde if b.regel == "marktplatz"]
+
+    (september,) = marktplatz("2026-09")
+    assert september.schweregrad.value == "warnung"
+    assert "auszahlung_anderweitig_gebucht" in september.text
+    assert "03.09.2026" in september.text
+    assert not marktplatz("2026-08")
+
+
 def test_offener_marktplatzbefund_ist_ustva_warnung(umgebung):
     """Gesamttest Steuer B2: die per Regel als Erlös gebuchte Auszahlung (Erlös
     doppelt in Kz 81) stand nur in ``marktplatz liste`` — die Voranmeldung des

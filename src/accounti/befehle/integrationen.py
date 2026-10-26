@@ -14,7 +14,7 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, laufsperre_oder_ende
 
 if TYPE_CHECKING:
     from accounti.integrationen.auszahlung import Abgleich
@@ -129,7 +129,9 @@ def marktplatz_import(
         angaben = lies_laenderdatei(Path(laender).read_bytes()) if laender else None
         engine, make_session = session_factory(db)
         init_db(engine)
-        with make_session() as s:
+        # die Laufsperre wie bank lauf, der dieselben Auszahlungen abgleicht — sonst
+        # buchen zwei Läufe dieselbe Auszahlung zweimal
+        with laufsperre_oder_ende(db), make_session() as s:
             ergebnisse = importiere(
                 s,
                 BelegArchiv(archiv),
@@ -269,7 +271,7 @@ def marktplatz_abgleichen(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> N
         raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:  # wie marktplatz import
         ergebnisse = gleiche_auszahlungen_ab(s, kontext)
         s.commit()
     gefunden = [e for e in ergebnisse if e.transaktion is not None]

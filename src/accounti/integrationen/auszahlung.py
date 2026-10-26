@@ -4,7 +4,8 @@ Gesucht wird ein noch nicht gebuchter, keinem offenen Posten zugeordneter Bankum
 mit **exakt** dem erwarteten Betrag im Zeitfenster um das Auszahlungsdatum. Gibt es
 mehrere, entscheidet das Stichwort im Verwendungszweck — bleibt es mehrdeutig, wird
 nicht geraten. Ein Umsatz in anderer Höhe mit Stichwort oder Abrechnungsnummer ist
-ein Befund, ebenso ein Umsatz, den schon eine Regel als Erlös gebucht hat.
+ein Befund, ebenso ein Umsatz, den schon eine Regel als Erlös gebucht hat (in
+Fremdwährung auch innerhalb der Toleranz).
 
 Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
 Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das
@@ -20,6 +21,7 @@ Gebucht wird „Bank an Verrechnungskonto“ (PayPal: Bank an Geldtransit) mit d
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from decimal import Decimal
@@ -69,6 +71,31 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_mehrdeutig",
     "auszahlung_anderweitig_gebucht",
 }
+# Text des Befunds „auszahlung_anderweitig_gebucht“ — ``bankdatum`` liest den Tag
+# daraus zurück; beides nur hier ändern
+_SCHON_GEBUCHT = "Der Bankumsatz vom {tag:%d.%m.%Y} ist schon gebucht"
+_SCHON_GEBUCHT_TAG = re.compile(
+    r"Der Bankumsatz vom (\d{2})\.(\d{2})\.(\d{4}) ist schon gebucht"
+)
+
+
+def bankdatum(befund: Befund) -> date | None:
+    """Tag des schon gebuchten Bankumsatzes eines Befunds
+    ``auszahlung_anderweitig_gebucht`` — dort steht die Fehlbuchung und damit der
+    doppelte Erlös in der Voranmeldung, nicht im Zeitraum der Abrechnung (z. B.
+    Abrechnung 16.–31.08., Auszahlung am 03.09.). Die Tabelle ``marktplatz_befunde``
+    hat keine Spalte dafür, der Tag steht im Befundtext; ``None`` bei anderen
+    Befunden oder einem Text ohne Tag."""
+    if befund.code != "auszahlung_anderweitig_gebucht":
+        return None
+    treffer = _SCHON_GEBUCHT_TAG.search(befund.text)
+    if treffer is None:
+        return None
+    tag, monat, jahr = (int(x) for x in treffer.groups())
+    try:
+        return date(jahr, monat, tag)
+    except ValueError:
+        return None
 
 
 def status_von(abrechnung: Abrechnung) -> AbrechnungStatus:
@@ -312,7 +339,18 @@ def _befund(
                 posten_nr=p.nr,
             ),
         )
-    schon = [t for t in frei if t.id in lauf.gebucht and t.betrag == erwartet]
+    # Fremdwährung: dieselbe Toleranz wie beim Treffer — die Bank rechnet mit ihrem
+    # eigenen Kurs, exakt gleich ist der gebuchte Umsatz fast nie (sonst stünde der
+    # Erlös still doppelt in der Voranmeldung)
+    schon = [
+        t
+        for t in frei
+        if t.id in lauf.gebucht
+        and (
+            t.betrag == erwartet
+            or (a.waehrung != "EUR" and _in_toleranz(lauf, t.betrag, erwartet))
+        )
+    ]
     if schon:
         t = schon[0]
         ids = [
@@ -328,8 +366,8 @@ def _befund(
                 code="auszahlung_anderweitig_gebucht",
                 schweregrad=Schweregrad.FEHLER,
                 text=(
-                    f"{markt} {a.nummer}: Der Bankumsatz vom {t.datum:%d.%m.%Y} ist "
-                    f"schon gebucht ({', '.join(ids)}) — Erlöse wären doppelt. "
+                    f"{markt} {a.nummer}: {_SCHON_GEBUCHT.format(tag=t.datum)} "
+                    f"({', '.join(ids)}) — Erlöse wären doppelt. "
                     f"Korrigieren mit accounti korrigiere {ids[0] if ids else '<ID>'} "
                     f"--soll {bank} --haben {konten.verrechnungskonto} --ohne-steuer "
                     "(die Auszahlung ist eine Geldbewegung ohne Umsatzsteuer)"

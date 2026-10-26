@@ -294,3 +294,23 @@ def test_buchungsdatum_offen_bleibt_im_geschaeftsjahr(tmp_path):
     assert r.exit_code == 1, r.output
     assert "Geschäftsjahr 2026" in _text(r)
     _ohne_import(tmp_path)
+
+
+def test_import_und_abgleichen_halten_die_laufsperre(tmp_path):
+    """Nachprüfung N6: ``bank lauf`` gleicht Auszahlungen unter der Laufsperre ab;
+    ``marktplatz import`` und ``abgleichen`` taten es ohne — beide zugleich konnten
+    dieselbe Auszahlung zweimal buchen (``transaktion_id`` ist nicht eindeutig)."""
+    from accounti.betrieb.laufsperre import laufsperre
+
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    _bankumsatz(tmp_path, "209.85")
+    with laufsperre(url, "bank"):
+        r = _import(tmp_path)
+        assert r.exit_code == 1 and "läuft schon" in _text(r), r.output
+        r = runner.invoke(app, ["marktplatz", "abgleichen", *_basis(tmp_path)])
+        assert r.exit_code == 1 and "läuft schon" in _text(r), r.output
+    assert not (tmp_path / "archiv").exists() or not any(
+        p.is_file() for p in (tmp_path / "archiv").rglob("*")
+    )
+    r = _import(tmp_path)
+    assert r.exit_code == 0 and "abgeglichen" in _text(r), r.output

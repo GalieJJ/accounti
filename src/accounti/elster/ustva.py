@@ -178,17 +178,26 @@ def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
 
 def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
     """Offene Fehler-Befunde von Marktplatz-Abrechnungen des Zeitraums — z.B. eine
-    Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt)."""
+    Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt).
+
+    Maßgeblich ist der Zeitraum der Abrechnung; eine schon gebuchte Auszahlung
+    (``auszahlung_anderweitig_gebucht``) zählt dagegen im Zeitraum der Bankbuchung —
+    nur dort steht der doppelte Erlös (``auszahlung.bankdatum``)."""
     from accounti.db.repo_integrationen import lade_abrechnungen
+    from accounti.integrationen.auszahlung import bankdatum
     from accounti.integrationen.buchung import ANZEIGE
     from accounti.models.integrationen import Schweregrad as MarktSchwere
 
     befunde = []
     for a in lade_abrechnungen(session):
-        if a.bis < zeitraum.von or a.von > zeitraum.bis:
-            continue
+        im_zeitraum = not (a.bis < zeitraum.von or a.von > zeitraum.bis)
         for b in a.offene_befunde:
             if b.schweregrad is not MarktSchwere.FEHLER:
+                continue
+            tag = bankdatum(b)
+            if not (
+                zeitraum.von <= tag <= zeitraum.bis if tag is not None else im_zeitraum
+            ):
                 continue
             markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
             text = (
