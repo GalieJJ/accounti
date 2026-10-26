@@ -224,3 +224,26 @@ def test_13b_gutschrift_bleibt_im_zeitraum_der_aenderung(make_session):
     v = _verbuche(make_session, beleg)
     assert _tage(v) == [(date(2026, 3, 5), 94)]
     assert not any("§ 13b Abs. 1" in h and "gebucht zum" in h for h in v.hinweise)
+
+
+@pytest.mark.parametrize(
+    ("fall", "eu", "leistung", "tag", "teil"),
+    [
+        # Vorausrechnung: die Steuer entsteht nicht vor der Leistung, bei Zahlung
+        # vorher mit der Zahlung (§ 13b Abs. 4 S. 2) — beim Rechnungsdatum, Hinweis
+        ("AE", True, date(2026, 4, 10), date(2026, 3, 5), "§ 13b Abs. 4 Satz 2"),
+        ("AE", False, date(2026, 4, 10), date(2026, 3, 5), "§ 13b Abs. 4 Satz 2"),
+        # gleicher Monat: Rechnungsdatum ohne Hinweis
+        ("AE", True, date(2026, 3, 1), date(2026, 3, 5), None),
+        # ig. Erwerb: Rechnung vor der Lieferung — mit Ausstellung der Rechnung
+        ("K", True, date(2026, 4, 10), date(2026, 3, 5), None),
+        # § 13b Abs. 2 Rechnung im Folgemonat: Rechnungsdatum ohne Hinweis
+        ("AE", False, date(2026, 2, 27), date(2026, 3, 5), None),
+    ],
+)
+def test_steuertag_empfaenger(fall, eu, leistung, tag, teil):
+    from accounti.steuer.leistungszeitpunkt import steuertag_empfaenger
+
+    ergebnis, hinweis = steuertag_empfaenger(date(2026, 3, 5), leistung, fall, eu)
+    assert ergebnis == tag
+    assert (hinweis is None) if teil is None else (teil in (hinweis or "")), hinweis
