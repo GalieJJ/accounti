@@ -132,6 +132,8 @@ class Rechnung:
     faellig: date | None = None  # BT-9
     kaeufer_referenz: str | None = None  # BT-10 (Leitweg-ID)
     bestellnummer: str | None = None  # BT-13
+    vorgaenger_nummer: str | None = None  # BT-25 (Bezug einer Gutschrift/Korrektur)
+    vorgaenger_datum: date | None = None  # BT-26
     notizen: list[str] = field(default_factory=list)  # BT-22
     leistungsdatum: date | None = None  # BT-72
     leistungszeitraum_von: date | None = None  # BT-73

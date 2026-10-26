@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from accounti.anzeige import datum_de
 from accounti.belege.archiv import aufbewahrungsende
+from accounti.betrieb.aufbewahrung import Unterlage
 from accounti.db.repository import (
     lade_ustid_pruefungen,
     letzte_ustid_pruefung,
@@ -304,7 +305,8 @@ def werte_aus(
         fehler=fehler,
         anfrage=anfrage.als_json(),
         antwort=text,
-        aufbewahren_bis=aufbewahrungsende(zeitpunkt.date()),
+        # Protokoll = Aufzeichnung (§ 147 Abs. 1 Nr. 1 AO): 10 Jahre
+        aufbewahren_bis=aufbewahrungsende(zeitpunkt.date(), Unterlage.BUCH),
     )
 
 

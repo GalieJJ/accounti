@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import inspect
 import os
+import re
 import shutil
 from collections.abc import Callable
 from datetime import date
@@ -39,7 +40,17 @@ VORGANG = "verfahrensdoku_erstellt"
 
 
 def _zelle(wert: object) -> str:
-    return str(wert).replace("|", "/").replace("\n", " ") if wert is not None else "—"
+    """Tabellenzelle: ``|`` maskiert (``\\|``) statt ersetzt — ein Regelmuster
+    ``A|B`` muss so dokumentiert sein, wie es gilt (GoBD Rz. 151 ff.)."""
+    if wert is None:
+        return "—"
+    return str(wert).replace("|", "\\|").replace("\n", " ")
+
+
+def _zellen(zeile: str) -> list[str]:
+    """Zellen einer Markdown-Tabellenzeile; ``\\|`` ist ein Zeichen, kein Trenner."""
+    teile = re.split(r"(?<!\\)\|", zeile.strip().removeprefix("|").removesuffix("|"))
+    return [z.strip().replace("\\|", "|") for z in teile]
 
 
 def _tabelle(kopf: list[str], zeilen: list[list[object]]) -> list[str]:
@@ -184,9 +195,9 @@ def _allgemein(d: _Doku) -> None:
 
 
 def _belegeingang(d: _Doku) -> None:
-    from accounti.belege.archiv import AUFBEWAHRUNG_JAHRE
     from accounti.belege.kanaele.einstellungen import lade_belegkanaele
     from accounti.belege.llm import LLMBelegEngine
+    from accounti.betrieb.aufbewahrung import Unterlage, frist
 
     d("### 2.1 Belegeingang und Erkennung", "")
     kanaele = d.lade(lade_belegkanaele, "belegkanaele")
@@ -217,6 +228,9 @@ def _belegeingang(d: _Doku) -> None:
             "",
         )
     llm = inspect.signature(LLMBelegEngine).parameters["model"].default
+    beleg, rechnung, buch = (
+        frist(u) for u in (Unterlage.BUCHUNGSBELEG, Unterlage.RECHNUNG, Unterlage.BUCH)
+    )
     d(
         "Erkennung: strukturierte E-Rechnung (XRechnung, ZUGFeRD) vor Textebene, "
         "Textebene vor OCR. OCR lokal mit Tesseract "
@@ -224,11 +238,15 @@ def _belegeingang(d: _Doku) -> None:
         f"Eine LLM-Stufe ({llm}) läuft nur auf ausdrücklichen Wunsch (--llm) und "
         "erhält den Belegtext maskiert (IBAN, USt-IdNr., Namen, Nummern).",
         "",
-        f"Archiv: Originaldateien unverändert, unter ihrem SHA-256 abgelegt, "
-        f"schreibgeschützt, ohne Löschpfad; Aufbewahrung {AUFBEWAHRUNG_JAHRE} Jahre "
-        "ab Ende des Eingangsjahres (§ 147 Abs. 3, 4 AO). Dubletten werden über "
-        "Datei-Hash, Lieferant und Nummer, Betrag und Datum erkannt und verworfen "
-        "bzw. zur Prüfung vorgelegt.",
+        "Archiv: Originaldateien unverändert, unter ihrem SHA-256 abgelegt, "
+        "schreibgeschützt, ohne Löschpfad; Aufbewahrung der Buchungsbelege "
+        f"{beleg.jahre} Jahre ({beleg.grundlage}), Rechnungen {rechnung.jahre} Jahre "
+        f"({rechnung.grundlage}), jeweils ab Schluss des Kalenderjahres des "
+        "Belegdatums, ohne Belegdatum des Eingangs (§ 147 Abs. 4 AO, § 14b Abs. 1 "
+        f"Satz 3 UStG); Bücher und Aufzeichnungen {buch.jahre} Jahre ({buch.grundlage}"
+        ", accounti betrieb aufbewahrung). Dubletten werden über Datei-Hash, "
+        "Lieferant und Nummer, Betrag und Datum erkannt und verworfen bzw. zur "
+        "Prüfung vorgelegt.",
         "",
     )
 
@@ -269,27 +287,55 @@ def _bank(d: _Doku) -> None:
 
 def _kontierung(d: _Doku) -> None:
     from accounti.buchung.mapper import zu_buchungssatz
-    from accounti.klassifikation.engine import STANDARD_REGELN
+    from accounti.klassifikation.engine import standard_regeln
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.konfiguration import Buchhaltung, lade_buchhaltung
 
     d("### 2.3 Kontierung", "")
     regeln_datei = Path("config/regeln.yaml")  # wie classify: im Arbeitsverzeichnis
-    eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
+    try:
+        eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
+    except KonfigurationError as fehler:
+        d(f"> **Regeldatei fehlerhaft:** {_zelle(fehler)}", "")
+        eigene = []
+    try:
+        buchhaltung = lade_buchhaltung(d.config)
+    except (KonfigurationError, ValueError):
+        buchhaltung = Buchhaltung()  # der Fehler steht schon in Abschnitt 1
+    standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
     schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
     llm = inspect.signature(LLMEngine).parameters
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
         f"Regelwerk: {len(eigene)} eigene Regeln ({_zelle(regeln_datei)}) vor "
-        f"{len(STANDARD_REGELN)} Standardregeln.",
+        f"{len(standard)} Standardregeln im Kontenrahmen {buchhaltung.kontenrahmen}.",
         "",
     )
     if eigene:
         d(
             *_tabelle(
-                ["Regel", "Muster", "Soll", "Haben", "Schlüssel"],
                 [
-                    [r.name, r.muster, r.soll_konto, r.haben_konto, r.steuer_schluessel]
+                    "Regel",
+                    "Muster",
+                    "Feld",
+                    "Richtung",
+                    "Soll",
+                    "Haben",
+                    "Schlüssel",
+                    "Prüfen",
+                ],
+                [
+                    [
+                        r.name,
+                        r.muster.pattern,
+                        r.feld,
+                        r.richtung or "beide",
+                        r.soll_konto,
+                        r.haben_konto,
+                        r.steuer_schluessel,
+                        _ja(r.pruefen or r.confidence < schwelle),
+                    ]
                     for r in eigene[:40]
                 ],
             )
@@ -299,6 +345,16 @@ def _kontierung(d: _Doku) -> None:
         f"{llm['confidence_schwelle'].default}; Verwendungszweck und Name gehen "
         f"maskiert hinaus. **Automatisch gebucht** (Status auto) wird ab Confidence "
         f"{schwelle}; darunter geht die Buchung zur Prüfung.",
+        "",
+        "Immer zur Prüfung, unabhängig von der Confidence: Treffer einer Regel mit "
+        "`pruefen` (z. B. Miete, § 4 Nr. 12/§ 9 UStG; § 13b-Leistungen); ein Umsatz "
+        "gegen die Richtung einer Regel (Erstattung auf eine Ausgaberegel) als "
+        "Gegenbuchung mit getauschtem Soll/Haben (§ 17 Abs. 1 UStG); jeder Vorschlag "
+        "— auch aus gelernten Regeln und dem LLM — mit dem Bankkonto auf der falschen "
+        "oder auf keiner Seite. Marktplatz-Auszahlungen (Stichworte "
+        "`integrationen.marktplaetze.<name>.bank_stichworte`, offene Auszahlungen "
+        "importierter Abrechnungen) bucht die Kontierung nicht: Sie bleiben offen, "
+        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht.",
         "",
     )
     d(
@@ -776,7 +832,7 @@ def als_pdf(markdown: str, ziel: str | Path) -> Path:
             continue
         elif zeile.startswith("|"):
             pdf.set_font("Sans", "", 8)
-            zellen = [z.strip() for z in zeile.strip("|").split("|")]
+            zellen = _zellen(zeile)
             pdf.multi_cell(breite, 4.5, "  ·  ".join(zellen))
         elif zeile.startswith("- "):
             pdf.set_font("Sans", "", 9)

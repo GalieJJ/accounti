@@ -175,7 +175,7 @@ def test_widerrufen_und_abgelaufen(tmp_path):
     client = welt.client()
     assert client.get("/api/v1/ich", headers=bearer(token)).status_code == 200
     with welt.system() as s:
-        widerrufe_api_token(s, "erp", uhr())
+        widerrufe_api_token(s, "erp", uhr(), "a")
         s.commit()
     assert client.get("/api/v1/ich", headers=bearer(token)).status_code == 401
     from accounti.auth.token import lege_api_token_an
@@ -256,7 +256,12 @@ def test_laeufe_anstossen(welt):
     r = client.post("/api/v1/laeufe/bank", headers=bearer(token))
     assert r.status_code == 200, r.text
     assert r.json()["lauf"] == "bank"
-    assert set(r.json()["kontierung"]) == {"kontiert", "mit_beleg", "offen"}
+    assert set(r.json()["kontierung"]) == {
+        "kontiert",
+        "mit_beleg",
+        "offen",
+        "marktplatz",
+    }
     r = client.post("/api/v1/laeufe/aufgaben", headers=bearer(token))
     assert r.status_code == 200, r.text
     assert r.json()["lauf"] == "aufgaben"

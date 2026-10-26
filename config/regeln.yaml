@@ -5,23 +5,37 @@
 #   muster            Regex (case-insensitive)
 #   feld              verwendungszweck | gegenkonto_name | beide
 #   soll_konto/haben_konto, steuer_schluessel (3=USt19, 2=USt7, 9=VSt19,
-#                     8=VSt8, null=ohne Steuerautomatik)
+#                     8=VSt7, null=ohne Steuerautomatik)
+#   richtung          ausgabe (Betrag < 0) | einnahme (Betrag > 0) | beide.
+#                     Eine Regel gilt nur für Umsätze ihrer Richtung; passt sonst
+#                     keine Regel, schlägt accounti sie als Gegenbuchung vor
+#                     (Erstattung mindert Aufwand und Vorsteuer, § 17 UStG) —
+#                     immer zur Prüfung. Ohne richtung prüft accounti die Bankseite
+#                     gegen das Vorzeichen (ebenso bei gelernten Regeln und LLM).
+#   pruefen           true: Treffer immer zur Prüfung, nie automatisch gebucht
+#   confidence        0–1 (Standard 1 = automatisch, ab 0,95 gebucht)
 #
 # Konvention:
-#   Ausgabe  -> Soll = Aufwandskonto, Haben = 1200 (Bank)
-#   Einnahme -> Soll = 1200 (Bank),   Haben = Erlöskonto
+#   Ausgabe  -> Soll = Aufwandskonto, Haben = 1200 (Bank), richtung: ausgabe
+#   Einnahme -> Soll = 1200 (Bank),   Haben = Erlöskonto,  richtung: einnahme
 #
 # HINWEISE (bewusst konservativ — im Zweifel prüfen):
-#   * Miete: Vorsteuer nur, wenn der Vermieter zur USt optiert hat.
+#   * Miete: steuerfrei (§ 4 Nr. 12 UStG); Vorsteuer nur, wenn der Vermieter zur
+#     USt optiert hat (§ 9 UStG) und Rechnung/Mietvertrag die Steuer ausweisen —
+#     deshalb ohne Schlüssel und zur Prüfung.
 #   * EU-Digitalleistungen (AWS, Google, Meta ...): Reverse-Charge §13b —
-#     bewusst OHNE Steuerautomatik, separat prüfen.
-#   * Marktplatz-Auszahlungen sind Netto-Beträge nach Gebühren; für saubere
-#     Buchung ggf. über ein Verrechnungskonto statt direkt auf Erlöse.
+#     bewusst OHNE Steuerautomatik und zur Prüfung (Schlüssel 94 setzt der Mensch).
+#   * Marktplatz-/Zahlungsdienst-Auszahlungen sind Netto-Beträge nach Gebühren und
+#     kein Entgelt: Bank an Verrechnungskonto ohne Umsatzsteuer. Die Erlöse bucht
+#     die Abrechnung (accounti marktplatz import). Auszahlungen mit den
+#     bank_stichworten der Marktplätze lässt classify ohnehin offen, bis die
+#     Abrechnung sie abgleicht; diese Regeln greifen nur ohne Marktplatz-Import.
 
 # --- Personal -----------------------------------------------------------
 - name: gehalt
   muster: '\b(lohn|gehalt|entgeltabrechnung|nettolohn)\b'
   feld: verwendungszweck
+  richtung: ausgabe
   soll_konto: '4120'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -30,6 +44,7 @@
 - name: sozialversicherung
   muster: '(krankenkasse|\bAOK\b|barmer|\bDAK\b|\bTK\b|techniker krankenkasse|\bIKK\b|knappschaft|minijob-zentrale|rentenversicherung|sozialversicherung)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4130'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -39,15 +54,18 @@
 - name: reverse_charge_eu_digital
   muster: '(amazon web services|\bAWS\b|google|\bmeta\b|facebook|microsoft|adobe|atlassian|\bslack\b|zoom|dropbox|openai|anthropic|github|linkedin|notion|figma|cloudflare)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4900'
   haben_konto: '1200'
   steuer_schluessel: null
+  pruefen: true
   buchungstext: 'EU-Digitalleistung (Reverse-Charge §13b prüfen)'
 
 # --- IT / Software / Hosting (inländisch, mit USt) ----------------------
 - name: software_hosting
   muster: '(ionos|1und1|1&1|strato|hetzner|\bovh\b|jimdo|shopify|lexware|sevdesk|lexoffice|\bjtl\b|wix|mailchimp|sendinblue|brevo)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4900'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -57,6 +75,7 @@
 - name: telekommunikation
   muster: '(telekom|t-mobile|vodafone|\bo2\b|telefonica|telefónica|congstar|sipgate|easybell|drillisch|freenet)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4920'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -66,6 +85,7 @@
 - name: paketdienst
   muster: '(\bDHL\b|\bDPD\b|\bGLS\b|\bUPS\b|hermes|fedex|\bTNT\b|paketdienst|go ?express)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4910'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -74,6 +94,7 @@
 - name: briefporto
   muster: '(deutsche post|briefporto|\bporto\b|frankier)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4910'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -83,6 +104,7 @@
 - name: bueromaterial
   muster: '(buero ?material|büro ?material|burom|bürobedarf|schreibwaren|staples|viking|\bsoennecken\b|office ?discount|printus)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4930'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -92,6 +114,7 @@
 - name: fachliteratur
   muster: '(fachzeitschrift|fachverlag|\bverlag\b|fachbuch|zeitschriften-?abo)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4940'
   haben_konto: '1200'
   steuer_schluessel: 8
@@ -101,16 +124,19 @@
 - name: tankstelle
   muster: '(\baral\b|\bshell\b|\besso\b|\bjet\b|\btotal\b|\bagip\b|\bhem\b|star tankstelle|tankstelle|\btanken\b|\bwestfalen\b)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4500'
   haben_konto: '1200'
   steuer_schluessel: 9
   buchungstext: 'Kfz/Tankstelle'
 
-# --- Reisekosten --------------------------------------------------------
+# --- Reisekosten (4670 Unternehmer; Reisen von Arbeitnehmern: 4660) ------
+# Ohne Beleg ohne Vorsteuer (Bahn 7 % nach § 12 Abs. 2 Nr. 10 UStG nur mit Fahrkarte)
 - name: reisekosten
   muster: '(deutsche bahn|\bDB\b vertrieb|bahn\.de|flixbus|lufthansa|eurowings|ryanair|booking\.com|sixt|europcar|hertz|\bavis\b)'
   feld: beide
-  soll_konto: '4600'
+  richtung: ausgabe
+  soll_konto: '4670'
   haben_konto: '1200'
   steuer_schluessel: null
   buchungstext: 'Reisekosten'
@@ -119,6 +145,7 @@
 - name: versicherung
   muster: '(versicherung|haftpflicht|\ballianz\b|\baxa\b|\bhuk\b|\bergo\b|gothaer|provinzial|signal iduna|\bvhv\b|\bgvv\b|berufsgenossenschaft)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4360'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -128,24 +155,30 @@
 - name: energie
   muster: '(stadtwerke|\be\.?on\b|vattenfall|\benbw\b|\brwe\b|lichtblick|naturstrom|\bgasag\b|yello|eprimo|\bewe\b)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4900'
   haben_konto: '1200'
   steuer_schluessel: 9
   buchungstext: 'Energie/Strom/Gas'
 
 # --- Miete (Vorsteuer nur bei Option zur USt) ---------------------------
+# § 4 Nr. 12 UStG steuerfrei; hat der Vermieter optiert (§ 9 UStG) und weist
+# Rechnung/Mietvertrag die Steuer aus: in der Prüfung Schlüssel 9 setzen
 - name: miete
   muster: '(miete|mietvertrag|pacht|gewerbemiete|nebenkostenvorauszahlung)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4210'
   haben_konto: '1200'
-  steuer_schluessel: 9
+  steuer_schluessel: null
+  pruefen: true
   buchungstext: 'Miete Geschäftsräume'
 
 # --- Recht / Beratung ---------------------------------------------------
 - name: rechtsberatung
   muster: '(rechtsanwalt|rechtsanwälte|kanzlei|\bnotar\b|\banwalt\b)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4950'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -154,6 +187,7 @@
 - name: buchfuehrung_steuerberatung
   muster: '(steuerberat|\bStB\b|buchführung|buchhaltungsservice|wirtschaftsprüf)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4955'
   haben_konto: '1200'
   steuer_schluessel: 9
@@ -163,6 +197,7 @@
 - name: bankgebuehren
   muster: '(kontoführ|kontofuehr|kontogebühr|buchungsposten|entgeltabschluss|entgeltabrechnung|bankgebühr|grundpreis konto|kartengebühr|rechnungsabschluss)'
   feld: verwendungszweck
+  richtung: ausgabe
   soll_konto: '4970'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -172,6 +207,7 @@
 - name: rundfunkbeitrag
   muster: '(rundfunk|rundfunkbeitrag|beitragsservice|\bARD\b ?ZDF|\bGEZ\b)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4900'
   haben_konto: '1200'
   steuer_schluessel: null
@@ -180,40 +216,51 @@
 - name: kammer_verband
   muster: '(\bIHK\b|industrie- und handelskammer|handwerkskammer|\bHWK\b|berufsverband|mitgliedsbeitrag|innung)'
   feld: beide
+  richtung: ausgabe
   soll_konto: '4900'
   haben_konto: '1200'
   steuer_schluessel: null
   buchungstext: 'Beiträge'
 
 # --- Einnahmen: Marktplatz-/Zahlungsdienstleister-Auszahlungen ----------
+# Geldbewegung, kein Entgelt (§ 10 Abs. 1 UStG): Bank an Verrechnungskonto des
+# Marktplatzes (integrationen.marktplaetze) bzw. Geldtransit, ohne Umsatzsteuer
 - name: amazon_auszahlung
   muster: '(amazon payments|amazon\.?de marketplace|amazon eu)'
   feld: beide
+  richtung: einnahme
   soll_konto: '1200'
-  haben_konto: '8400'
-  steuer_schluessel: 3
+  haben_konto: '1361'
+  steuer_schluessel: null
+  pruefen: true
   buchungstext: 'Amazon-Auszahlung'
 
 - name: paypal_eingang
   muster: 'paypal'
   feld: beide
+  richtung: einnahme
   soll_konto: '1200'
-  haben_konto: '8400'
-  steuer_schluessel: 3
-  buchungstext: 'PayPal-Eingang'
+  haben_konto: '1360'
+  steuer_schluessel: null
+  pruefen: true
+  buchungstext: 'PayPal-Auszahlung (Geldtransit)'
 
 - name: ebay_auszahlung
   muster: '(\bebay\b|ebay managed payments|ebay commerce)'
   feld: beide
+  richtung: einnahme
   soll_konto: '1200'
-  haben_konto: '8400'
-  steuer_schluessel: 3
+  haben_konto: '1362'
+  steuer_schluessel: null
+  pruefen: true
   buchungstext: 'eBay-Auszahlung'
 
 - name: zahlungsdienstleister_eingang
   muster: '(\bstripe\b|klarna|\bmollie\b|\bsumup\b|\bizettle\b|\bwallee\b|\bnexi\b|\bunzer\b|\bvr ?pay\b)'
   feld: beide
+  richtung: einnahme
   soll_konto: '1200'
-  haben_konto: '8400'
-  steuer_schluessel: 3
-  buchungstext: 'Zahlungsdienstleister-Auszahlung'
+  haben_konto: '1360'
+  steuer_schluessel: null
+  pruefen: true
+  buchungstext: 'Zahlungsdienstleister-Auszahlung (Geldtransit)'

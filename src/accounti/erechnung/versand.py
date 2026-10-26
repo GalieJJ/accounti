@@ -169,6 +169,9 @@ def baue_nachricht(
     jetzt: datetime | None = None,
 ) -> EmailMessage:
     """Baut die E-Mail mit der archivierten Rechnung als Anhang."""
+    if rechnung.status is not AusgangsrechnungStatus.AUSGESTELLT:
+        msg = "Nur ausgestellte Rechnungen können versendet werden (erst ausstellen)."
+        raise VersandError(msg)
     if format not in _FORMATE:
         msg = f"Unbekanntes Format {format!r} (zugferd oder xrechnung)"
         raise VersandError(msg)

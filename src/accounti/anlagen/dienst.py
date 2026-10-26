@@ -20,6 +20,7 @@ from accounti.anzeige import betrag_de
 from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_anlagen import lade_anlagen, speichere_anlage
 from accounti.db.repository import (
+    finde_buchung,
     lade_belegbuchungen,
     lade_belege,
     lade_buchungen,
@@ -55,6 +56,48 @@ def finde_beleg(session: Session, schluessel: str) -> Beleg:
     return treffer[0]
 
 
+def finde_zugangsbuchung(session: Session, schluessel: str) -> Buchungssatz:
+    """Die Buchung, mit der das Anlagegut zugegangen ist (Anfang der ID genügt) —
+    gültig, also weder Storno noch storniert."""
+    try:
+        b = finde_buchung(session, schluessel)
+    except ValueError as fehler:
+        raise AnlageError(str(fehler)) from fehler
+    if b.storno_von is not None or b.storniert_durch is not None:
+        raise AnlageError(
+            f"Buchung {str(b.id)[:8]} ist ein Storno bzw. storniert — die gültige "
+            "(Neu-)Buchung angeben"
+        )
+    return b
+
+
+def _hinweise_zur_buchung(
+    session: Session, anlage: Anlagegut, b: Buchungssatz
+) -> list[str]:
+    hinweise = []
+    if b.soll_konto != anlage.konto:
+        hinweise.append(
+            f"Buchung {str(b.id)[:8]} steht auf {b.soll_konto}, nicht auf dem "
+            f"Anlagekonto {anlage.konto} — Umbuchung nötig"
+        )
+    if b.betrag_netto != anlage.anschaffungskosten:
+        hinweise.append(
+            f"Anschaffungskosten {betrag_de(anlage.anschaffungskosten)} ≠ Buchung "
+            f"{str(b.id)[:8]} über {betrag_de(b.betrag_netto)} — bitte prüfen"
+        )
+    andere = [
+        a.nr
+        for a in lade_anlagen(session)
+        if a.buchung_id == b.id and a.id != anlage.id
+    ]
+    if andere:
+        hinweise.append(
+            f"Buchung {str(b.id)[:8]} gehört auch zu Anlagegut Nr. "
+            + ", ".join(str(n) for n in andere)
+        )
+    return hinweise
+
+
 def lege_an(
     session: Session,
     einstellungen: AnlagenEinstellungen,
@@ -71,10 +114,15 @@ def lege_an(
     wechsel_linear: bool = True,
     afa_konto: str | None = None,
     rechtsstand: Rechtsstand | None = None,
+    buchung: str | None = None,
 ) -> Anlageergebnis:
+    """Legt ein Anlagegut an. ``beleg`` bzw. ``buchung`` (die Zugangsbuchung, z.B. ein
+    Bankumsatz ohne Beleg direkt auf das Anlagekonto) liefern fehlende Angaben und
+    verknüpfen das Gut — ``vorschlaege`` nennt den Zugang dann nicht mehr."""
     rs = rechtsstand or einstellungen.rechtsstand()
     hinweise: list[str] = []
     beleg_obj = finde_beleg(session, beleg) if beleg else None
+    buchung_obj = finde_zugangsbuchung(session, buchung) if buchung else None
     if beleg_obj is not None:
         if kosten is None:
             kosten = beleg_obj.netto
@@ -88,6 +136,16 @@ def lege_an(
                 if beleg_obj.positionen
                 else beleg_obj.lieferant_name
             )
+    if buchung_obj is not None:
+        kosten = kosten if kosten is not None else buchung_obj.betrag_netto
+        datum = datum or buchung_obj.datum
+        bezeichnung = bezeichnung or buchung_obj.buchungstext
+        if (
+            konto is None
+            and typ is None
+            and einstellungen.ist_anlagekonto(buchung_obj.soll_konto)
+        ):
+            konto = buchung_obj.soll_konto
     if not bezeichnung or datum is None or kosten is None or kosten <= 0:
         raise AnlageError("Bezeichnung, Anschaffungsdatum und Kosten (netto) fehlen")
     # ein Zugang im abgeschlossenen Jahr änderte dessen AfA und Anlagenspiegel
@@ -155,13 +213,18 @@ def lege_an(
         afa_art=art,
         wechsel_linear=wechsel_linear,
         immateriell=immateriell,
-        beleg_id=beleg_obj.id if beleg_obj else None,
+        beleg_id=beleg_obj.id
+        if beleg_obj
+        else (buchung_obj.beleg_id if buchung_obj else None),
+        buchung_id=buchung_obj.id if buchung_obj else None,
         typ=typ,
     )
     pruefe_anlage(anlage, rs, bestand)
     anlage = speichere_anlage(session, anlage)
     ergebnis = Anlageergebnis(anlage, hinweise)
-    if beleg_obj is not None:
+    if buchung_obj is not None:
+        ergebnis.hinweise += _hinweise_zur_buchung(session, anlage, buchung_obj)
+    elif beleg_obj is not None:
         _pruefe_zugang(session, ergebnis, beleg_obj, umbuchen)
     session.flush()
     return ergebnis
@@ -210,14 +273,21 @@ def _pruefe_zugang(
     )
 
 
-def vorschlaege(
+def _zugaenge_ohne_anlagegut(
     session: Session, einstellungen: AnlagenEinstellungen, jahr: int
-) -> list[Buchungssatz]:
-    """Zugänge auf Anlagekonten im Jahr, zu denen es (noch) kein Anlagegut gibt."""
-    belege = {a.beleg_id for a in lade_anlagen(session) if a.beleg_id}
-    return [
+) -> tuple[list[Buchungssatz], list[tuple[Buchungssatz, Anlagegut]]]:
+    """(Zugänge ohne Anlagegut, vermutlich erfasste Zugänge mit ihrem Anlagegut).
+
+    Verknüpft ist ein Zugang über den Beleg oder die Buchung (``anlegen --beleg``
+    bzw. ``--buchung``). Ohne Verknüpfung gilt ein Zugang als vermutlich erfasst,
+    wenn ein noch nicht verknüpftes Anlagegut auf demselben Konto mit demselben
+    Datum und denselben Anschaffungskosten (netto) existiert — je Gut ein Zugang."""
+    anlagen = lade_anlagen(session)
+    belege = {a.beleg_id for a in anlagen if a.beleg_id}
+    buchungen = {a.buchung_id for a in anlagen if a.buchung_id}
+    zugaenge = [
         b
-        for b in lade_buchungen(session)
+        for b in sorted(lade_buchungen(session), key=lambda b: (b.datum, str(b.id)))
         if b.datum.year == jahr
         and b.storniert_durch is None  # Storno-Paar: kein Zugang (Baustein 7)
         and b.storno_von is None
@@ -225,4 +295,40 @@ def vorschlaege(
         and not einstellungen.ist_anlagekonto(b.haben_konto)
         and not (b.beleg_nummer or "").startswith(("AfA-", "ANL-", "EB-"))
         and (b.beleg_id is None or b.beleg_id not in belege)
+        and b.id not in buchungen
     ]
+    frei = [a for a in anlagen if a.buchung_id is None and a.beleg_id is None]
+    offen: list[Buchungssatz] = []
+    vermutlich: list[tuple[Buchungssatz, Anlagegut]] = []
+    for b in zugaenge:
+        gut = next(
+            (
+                a
+                for a in frei
+                if a.konto == b.soll_konto
+                and a.anschaffungsdatum == b.datum
+                and a.anschaffungskosten == b.betrag_netto
+            ),
+            None,
+        )
+        if gut is None:
+            offen.append(b)
+        else:
+            frei.remove(gut)
+            vermutlich.append((b, gut))
+    return offen, vermutlich
+
+
+def vorschlaege(
+    session: Session, einstellungen: AnlagenEinstellungen, jahr: int
+) -> list[Buchungssatz]:
+    """Zugänge auf Anlagekonten im Jahr, zu denen es (noch) kein Anlagegut gibt."""
+    return _zugaenge_ohne_anlagegut(session, einstellungen, jahr)[0]
+
+
+def vermutlich_erfasst(
+    session: Session, einstellungen: AnlagenEinstellungen, jahr: int
+) -> list[tuple[Buchungssatz, Anlagegut]]:
+    """Zugänge ohne Verknüpfung, zu denen ein passendes Anlagegut existiert (Konto,
+    Datum, Anschaffungskosten) — ein Hinweis, kein Vorschlag."""
+    return _zugaenge_ohne_anlagegut(session, einstellungen, jahr)[1]

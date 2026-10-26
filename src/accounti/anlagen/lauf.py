@@ -5,6 +5,13 @@ ist der Lauf idempotent, monatlich wie jährlich nutzbar, und ein nachträglich 
 Abgang erzeugt eine Korrektur statt einer falschen Jahres-AfA. Frühere Jahre werden
 bewusst nicht nachgeholt.
 
+Bei abweichendem Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``) rechnet der Lauf je
+Abschnitt des Kalenderjahres (``AnlagenEinstellungen.afa_abschnitt``): ``--jahr 2025``
+bis Dezember ist bei Beginn 1. Juli Juli–Dezember 2025 (WJ 2025/2026), bis Juni
+Januar–Juni (WJ 2024/2025) — Soll und Gebuchtes je Abschnitt. So bucht das erste
+Wirtschaftsjahr in accounti nicht die AfA des Vor-WJ mit (sie steckt im
+Eröffnungssaldo), und ein späteres Wirtschaftsjahr ändert nichts am früheren.
+
 Abschlussbuchungen sind Vorschläge (Spec 5): Status „zur Prüfung“, die Begründung je
 Anlagegut steht im Vorgang. Gebucht wird eine Buchung je AfA- und Anlagekonto.
 """
@@ -58,7 +65,7 @@ class AfaPosition:
     anlage: Anlagegut | None
     konto: str
     afa_konto: str
-    soll: Decimal  # AfA des Jahres bis zum Monat laut Plan
+    soll: Decimal  # AfA des Jahres (bzw. WJ-Abschnitts) bis zum Monat laut Plan
     gebucht: Decimal
     rechenweg: str
 
@@ -71,6 +78,7 @@ class AfaPosition:
 class AfaLaufErgebnis:
     jahr: int
     bis_monat: int
+    ab_monat: int = 1  # abweichendes Wirtschaftsjahr: erster Monat des Abschnitts
     positionen: list[AfaPosition] = field(default_factory=list)
     buchungen: list[Buchungssatz] = field(default_factory=list)
 
@@ -91,7 +99,8 @@ def afa_positionen(
     bis_monat: int = 12,
     rechtsstand: Rechtsstand | None = None,
 ) -> list[AfaPosition]:
-    """Alle Anlagegüter und Sammelposten mit Soll und Gebuchtem für das Jahr.
+    """Alle Anlagegüter und Sammelposten mit Soll und Gebuchtem für das Jahr — bei
+    abweichendem Wirtschaftsjahr für den Abschnitt, in dem ``bis_monat`` liegt.
 
     Auch ein Sammelposten ohne Mitglied gehört dazu, wenn für ihn im Jahr schon AfA
     gebucht ist — sein einziges Gut schied noch im Anschaffungsjahr aus (BMF
@@ -99,9 +108,11 @@ def afa_positionen(
     """
     rs = rechtsstand or einstellungen.rechtsstand()
     anlagen = lade_anlagen(session)
+    ab_monat, ende = einstellungen.afa_abschnitt(bis_monat)
     gebucht: dict[str, Decimal] = defaultdict(lambda: NULL)
     for v in lade_afa_vorgaenge(session, jahr):
-        gebucht[v.objekt] += v.betrag
+        if ab_monat <= v.bis_monat <= ende:  # nur Vorgänge dieses Abschnitts
+            gebucht[v.objekt] += v.betrag
 
     positionen: list[AfaPosition] = []
     gruppen: set[tuple[str, int]] = set()
@@ -112,7 +123,7 @@ def afa_positionen(
             gruppen.add((a.konto, a.anschaffungsdatum.year))
             continue
         plan = plane(a, rs)
-        soll = plan.afa_im_jahr(jahr, bis_monat)
+        soll = plan.afa_monate(jahr, ab_monat, bis_monat)
         if soll == 0 and gebucht[a.objekt] == 0:
             continue
         positionen.append(
@@ -135,7 +146,7 @@ def afa_positionen(
     for konto, anschaffungsjahr in sorted(gruppen):
         objekt = sammelposten_objekt(konto, anschaffungsjahr)
         plan = plane_sammelposten(konto, anschaffungsjahr, anlagen, rs)
-        soll = plan.afa_im_jahr(jahr, bis_monat)
+        soll = plan.afa_monate(jahr, ab_monat, bis_monat)
         if soll == 0 and gebucht[objekt] == 0:
             continue
         # das AfA-Konto eines (auch ausgeschiedenen) Guts des Jahrgangs
@@ -173,14 +184,16 @@ def afa_lauf(
     nur: set[str] | None = None,
     rechtsstand: Rechtsstand | None = None,
 ) -> AfaLaufErgebnis:
-    """Bucht die noch fehlende AfA des Jahres bis einschließlich ``bis_monat``.
+    """Bucht die noch fehlende AfA des Jahres bis einschließlich ``bis_monat`` — bei
+    abweichendem Wirtschaftsjahr ab Beginn des Abschnitts (siehe Modul).
 
     ``nur``: Objektschlüssel (``Anlagegut.objekt``, ``sammelposten_objekt``).
     """
     if not 1 <= bis_monat <= 12:
         raise ValueError(f"Monat {bis_monat} gibt es nicht")
     pruefe_jahr_offen(session, jahr)
-    ergebnis = AfaLaufErgebnis(jahr, bis_monat)
+    ab_monat = einstellungen.afa_abschnitt(bis_monat)[0]
+    ergebnis = AfaLaufErgebnis(jahr, bis_monat, ab_monat)
     for p in afa_positionen(session, jahr, einstellungen, bis_monat, rechtsstand):
         if p.differenz == 0:
             continue
@@ -210,7 +223,9 @@ def afa_lauf(
         ergebnis.buchungen.append(buchung)
         for p in teile:
             begruendung = f"{p.bezeichnung}: {p.rechenweg}"
-            if bis_monat < 12:
+            if ab_monat > 1:
+                begruendung += f"; {ab_monat:02d}–{bis_monat:02d}/{jahr}"
+            elif bis_monat < 12:
                 begruendung += f"; bis {bis_monat:02d}/{jahr}"
             if p.gebucht:
                 begruendung += (

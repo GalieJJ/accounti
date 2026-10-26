@@ -20,6 +20,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from accounti.belege.archiv import BelegArchiv, aufbewahrungsende
+from accounti.betrieb.aufbewahrung import Unterlage
 from accounti.db.repo_elster import letzte_uebermittlung, speichere_uebermittlung
 from accounti.models.elster import Meldeart, Modus, Uebermittlung
 
@@ -79,7 +80,8 @@ def neuer_eintrag(
         server_antwort=server_antwort,
         protokoll_pdf_hash=pdf_hash,
         betrag=betrag,
-        aufbewahren_bis=aufbewahrungsende(zeitpunkt.date()),
+        # Protokoll = Aufzeichnung (§ 147 Abs. 1 Nr. 1 AO): 10 Jahre
+        aufbewahren_bis=aufbewahrungsende(zeitpunkt.date(), Unterlage.BUCH),
     )
 
 

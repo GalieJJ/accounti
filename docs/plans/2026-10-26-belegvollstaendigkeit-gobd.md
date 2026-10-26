@@ -351,7 +351,8 @@ offene Posten, USt-IdNr.-Protokoll), 5 (`bank/abgleichslauf.offen_in_der_bank`, 
   Bestandsübernahme) Rolle und Einmalcode, und im Journal steht der Benutzer. Nicht
   gebunden sind Lesebefehle und maschinelle Läufe und Importe (`classify`, `opos
   verbuchen`, `opos zuordnen`, `bank abgleich`, `bank lauf`, `aufgaben lauf`, `import`,
-  `belege import`, `verfahrensdoku`, `abschluss buchen` und `anlagen afa` mit Vorschlägen):
+  `belege import`, `verfahrensdoku`; nicht mehr `abschluss buchen` und `anlagen afa`
+  — seit dem Gesamttest buchen, Abschluss B8 und Nachprüfung M1):
   dort steht die Person als „… (ungeprüft)“ im Journal, sobald die Datenbank zu einer
   Benutzerverwaltung gehört (Merker der Bindung oder eigene Benutzer; je Verbindung eine
   Minute gemerkt). Eine nicht gebundene Gesellschafts-Datenbank (noch keine Rechteprüfung,

@@ -4,9 +4,12 @@ Benutzer liegen in der Systemdatenbank, Rollen gelten je Gesellschaft
 (``accounti -g K benutzer rolle …``). Der erste Benutzer muss Verwalter sein.
 Sobald ein Verwalter seinen zweiten Faktor eingerichtet hat, verlangen alle
 Befehle hier einen Verwalter mit Einmalcode (Passwort, 2FA und Codes des eigenen
-Kontos darf jeder selbst ändern). Ein Konto verwaltet nur, wer in **jeder**
-Gesellschaft Verwalter ist, in der es Rollen hat. ``anlegen`` und ``rolle`` binden
-die Gesellschafts-Datenbanken an diese Systemdatenbank (Merker, ``auth.cli``).
+Kontos darf jeder selbst ändern); eine Gesellschaft, die noch nie einen Verwalter
+hatte, richtet ein Verwalter einer anderen ein. Den letzten Verwalter einer
+Gesellschaft sperrt oder entrechtet niemand (``auth.cli.pruefe_verwaltung``). Ein
+Konto verwaltet nur, wer in **jeder** Gesellschaft Verwalter ist, in der es Rollen
+hat. ``anlegen`` und ``rolle`` binden die Gesellschafts-Datenbanken an diese
+Systemdatenbank (Merker, ``auth.cli``).
 """
 
 from __future__ import annotations
@@ -58,6 +61,19 @@ def _gesellschaft() -> str:
 
     try:
         return gesellschaft_fuer_rechte()
+    except AuthError as fehler:
+        raise _ende(str(fehler)) from fehler
+
+
+def _nicht_letzter_verwalter(
+    s: Session, b: Benutzer, gesellschaft: str | None = None
+) -> None:
+    """Den letzten Verwalter weder sperren noch entrechten (Betrieb B8)."""
+    from accounti.auth.cli import pruefe_nicht_letzter_verwalter
+    from accounti.auth.fehler import AuthError
+
+    try:
+        pruefe_nicht_letzter_verwalter(s, b, gesellschaft)
     except AuthError as fehler:
         raise _ende(str(fehler)) from fehler
 
@@ -222,7 +238,7 @@ def codes(
     from accounti.bank.tresor import TresorError, lade_schluessel
 
     ziel = name.strip().lower()
-    verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
+    durch = verwaltung_oder_ende(db, config, selbst=ziel, ziel=ziel)
     try:
         schluessel = lade_schluessel()
     except TresorError as fehler:
@@ -234,7 +250,7 @@ def codes(
                 f"Erst den zweiten Faktor einrichten: accounti benutzer 2fa {name}"
             )
         neu = neue_wiederherstellungscodes(
-            s, b, auth_einstellungen(config), schluessel=schluessel
+            s, b, auth_einstellungen(config), schluessel=schluessel, durch=durch
         )
         s.commit()
     console.print("Neue Wiederherstellungscodes — jeder gilt genau einmal:")
@@ -297,6 +313,7 @@ def rolle(
         verwaltung_oder_ende,
     )
     from accounti.auth.dienst import entferne_rolle, fuege_rolle_hinzu
+    from accounti.models.auth import Rolle
 
     rollen = _rollen(rolle)
     gesellschaft = _gesellschaft()
@@ -305,6 +322,8 @@ def rolle(
         bindung_oder_ende(db)
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
+        if entfernen and Rolle.VERWALTER in rollen:
+            _nicht_letzter_verwalter(s, b, gesellschaft)
         for r in rollen:
             if entfernen:
                 entferne_rolle(s, b, gesellschaft, r, None, durch)
@@ -363,6 +382,7 @@ def sperren(
     durch = verwaltung_oder_ende(db, config, ziel=name.strip().lower())
     with systemsitzung(db) as s:
         b = _benutzer(s, name)
+        _nicht_letzter_verwalter(s, b)
         setze_aktiv(s, b, False, None, durch)
         s.commit()
     console.print(f"[green]{escape(b.name)} gesperrt.[/green]")
@@ -406,14 +426,50 @@ def protokoll(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Anmeldungen, Fehlversuche, Sperren, Rollen- und Tokenänderungen."""
-    from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
-    from accounti.db.repo_auth import lade_ereignisse
+    """Anmeldungen, Fehlversuche, Sperren, Rollen- und Tokenänderungen.
 
-    verwaltung_oder_ende(db, config)
+    Mit mehreren Gesellschaften nur die der Gesellschaften, in denen der Aufrufer
+    Verwalter ist, und die ohne Gesellschaft — außer über Benutzer, die nur in
+    anderen Gesellschaften Rollen haben."""
+    # Befund Betrieb B9, Nachprüfung N6: ein Verwalter von b sieht nicht, was in a
+    # geschah — auch nicht Sperren, Passwörter und Codes eines Benutzers nur von a
+    from accounti.auth.cli import systemsitzung, verwaltung_oder_ende
+    from accounti.betrieb.kontext import aktueller_kontext
+    from accounti.db.repo_auth import (
+        lade_alle_benutzer,
+        lade_benutzer,
+        lade_ereignisse,
+        rollen_von,
+    )
+    from accounti.models.auth import Rolle
+
+    durch = verwaltung_oder_ende(db, config)
+    kontext = aktueller_kontext()
     with systemsitzung(db) as s:
+        sicht: set[str] | None = None
+        fremde: set[str] = set()
+        b = lade_benutzer(s, durch)
+        if kontext.registry.eintraege and b is not None:
+            sicht = {
+                z.gesellschaft
+                for z in rollen_von(s, b.id)
+                if z.rolle is Rolle.VERWALTER
+            }
+            if kontext.gesellschaft is not None:  # dort Verwalter oder Einrichtung
+                sicht.add(kontext.gesellschaft.kuerzel)
+            for anderer in lade_alle_benutzer(s):
+                orte = {z.gesellschaft for z in rollen_von(s, anderer.id)}
+                if orte and not orte & sicht:
+                    fremde.add(anderer.name)
         # die neuesten — absteigend mit LIMIT gelesen (Befund A-M5)
-        ereignisse = lade_ereignisse(s, name, grenze=max(anzahl, 1), neueste=True)
+        ereignisse = lade_ereignisse(
+            s,
+            name,
+            grenze=max(anzahl, 1),
+            neueste=True,
+            gesellschaften=sicht,
+            fremde=fremde,
+        )
     tabelle = Table(title="Anmeldeprotokoll")
     for spalte in ("Zeitpunkt", "Ereignis", "Benutzer", "Ges.", "Quelle", "Hinweis"):
         tabelle.add_column(spalte, overflow="fold")

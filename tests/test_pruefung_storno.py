@@ -45,6 +45,7 @@ from tests.test_buchung_mit_beleg import REGELN, mit_positionen
 from tests.zahlung_hilfe import beleg_zu, kreditor, posten, speichere
 
 KR = lade_kontenrahmen()
+D = Decimal
 
 
 def _salden(make_session, jahr=2026):
@@ -260,6 +261,45 @@ def test_gegenbuchung_nicht_eindeutig_umkehrbar(make_session):
     anlegen(make_session, b)
     with make_session() as s, pytest.raises(StornoError, match="dieselbe Natur"):
         storniere(s, kurz(b.id), grund="x")
+
+
+def test_kreditkarte_1730_korrigierbar_und_stornierbar(make_session):
+    """Gesamttest Eingang B08: Kartenumsätze auf 1730 (README) mit Vorsteuer ließen
+    sich weder korrigieren noch stornieren („beide Seiten dieselbe Natur“)."""
+    tank = buchung(status=BuchungStatus.GEPRUEFT, soll="4500", haben="1730")
+    gut = buchung(
+        status=BuchungStatus.GEPRUEFT,
+        soll="4930",
+        haben="1730",
+        netto="20.16",
+        steuer="3.83",
+    )
+    anlegen(make_session, tank, gut)
+    with make_session() as s:
+        k = korrigiere(s, kurz(tank.id), "4530", "1730", steuer=9, von="jan")
+        storniere(s, kurz(gut.id), grund="Gutschrift falsch herum", von="jan")
+        s.commit()
+    assert k.neu is not None and k.neu.soll_konto == "4530"
+    salden = _salden(make_session)
+    assert salden["1730"] == D("-119.00")  # nur noch die Tankrechnung, brutto
+    assert "4930" not in salden
+
+
+def test_eingerichtetes_kartenkonto_ist_umkehrbar(make_session):
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    with make_session() as s:
+        speichere_bankkonto(
+            s, Bankkonto(iban="VISA1234", bezeichnung="Visa", sachkonto="1738")
+        )
+        s.commit()
+    b = buchung(status=BuchungStatus.GEPRUEFT, soll="4930", haben="1738")
+    anlegen(make_session, b)
+    with make_session() as s:
+        k = storniere(s, kurz(b.id), grund="falsch", von="jan")
+        s.commit()
+    assert k.storno is not None
 
 
 # --- Der behobene Fehler: je Buchungsart -------------------------------------------
@@ -738,3 +778,18 @@ def test_gleichzeitiges_storno_meldet_klar(make_session, monkeypatch):
     monkeypatch.setattr(storno_modul, "_lade", lambda _s, _id: alt)
     with make_session() as s, pytest.raises(StornoError, match="inzwischen"):
         storniere(s, str(b.id), grund="doppelt", von="jan")
+
+
+def test_storno_und_korrektur_nie_vor_dem_original(make_session):
+    """Gesamttest Abschluss B9: § 17 Abs. 1 Satz 7 UStG berichtigt im Zeitraum der
+    Änderung, ein Buchungsirrtum im Zeitraum des Originals — nie davor."""
+    b = buchung(status=BuchungStatus.GEPRUEFT, tag=date(2026, 3, 15))
+    anlegen(make_session, b)
+    with make_session() as s:
+        with pytest.raises(StornoError, match="vor der Buchung"):
+            storniere(s, kurz(b.id), grund="x", von="erika", datum=date(2026, 1, 10))
+        with pytest.raises(StornoError, match="vor der Buchung"):
+            korrigiere(s, kurz(b.id), "4930", "1200", steuer=9, datum=date(2026, 3, 14))
+        k = storniere(s, kurz(b.id), grund="x", von="erika", datum=date(2026, 3, 15))
+        s.commit()
+    assert k.storno.datum == date(2026, 3, 15)

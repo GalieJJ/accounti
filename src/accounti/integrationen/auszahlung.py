@@ -43,6 +43,14 @@ Die Regel, welcher Bankumsatz zu welcher Auszahlung gehört, in einem Stück
    ist das ``auszahlung_anderweitig_gebucht`` an dieser Abrechnung — die
    Voranmeldung seines Monats warnt. Die Zuordnung bleibt.
 
+Zusammenspiel mit der Kontierung (``buchung.marktplatz``): ``classify`` und ``bank
+lauf`` lassen einen Eingang mit Stichwort offen, solange keine Abrechnung ihn
+abgeglichen hat, und ebenso jeden Umsatz, den eine importierte Abrechnung noch
+erwartet — auch mit einem Befund dieses Abgleichs. Als Erlös gebucht („schon
+gebucht“, Regeln 6 und 8) ist eine Auszahlung deshalb nur von Hand, ohne Stichwort
+(``bank_stichworte: []`` oder ein Verwendungszweck ohne) oder aus der Zeit vor dieser
+Regel.
+
 Grenzen: Ohne Nummer im Verwendungszweck entscheiden Stichwort und Betrag. In
 Fremdwährung ist dann geraten, welcher von zwei Umsätzen in der Toleranz zu welcher
 Auszahlung gehört (die Kursdifferenzen sind vertauscht, ihre Summe stimmt), und ein

@@ -41,5 +41,10 @@ def test_endung_ohne_punkt_und_leer(tmp_path):
 
 
 def test_aufbewahrungsende_schluss_des_kalenderjahres():
-    assert aufbewahrungsende(date(2026, 3, 5)) == date(2036, 12, 31)
-    assert aufbewahrungsende(date(2026, 12, 31)) == date(2036, 12, 31)
+    """Eine Quelle (``betrieb.aufbewahrung``): Buchungsbelege 8 Jahre seit dem BEG IV
+    (Gesamttest Abschluss B10 — vorher fest 10 Jahre), Aufzeichnungen 10 Jahre."""
+    from accounti.betrieb.aufbewahrung import Unterlage
+
+    assert aufbewahrungsende(date(2026, 3, 5)) == date(2034, 12, 31)
+    assert aufbewahrungsende(date(2026, 12, 31)) == date(2034, 12, 31)
+    assert aufbewahrungsende(date(2026, 3, 5), Unterlage.BUCH) == date(2036, 12, 31)

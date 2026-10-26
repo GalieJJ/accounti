@@ -78,6 +78,12 @@ class AfaPlan:
     def afa_im_jahr(self, jahr: int, bis_monat: int = 12) -> Decimal:
         return self.kumuliert_bis(jahr, bis_monat) - self.kumuliert_bis(jahr - 1, 12)
 
+    def afa_monate(self, jahr: int, ab_monat: int, bis_monat: int) -> Decimal:
+        """AfA der Monate ``ab_monat`` bis ``bis_monat`` in ``jahr``."""
+        return self.kumuliert_bis(jahr, bis_monat) - self.kumuliert_bis(
+            jahr, ab_monat - 1
+        )
+
     def restbuchwert(self, jahr: int, monat: int = 12) -> Decimal:
         if (jahr, monat) < (self.anschaffungsjahr, 1):
             return NULL

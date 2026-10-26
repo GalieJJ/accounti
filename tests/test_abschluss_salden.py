@@ -151,3 +151,37 @@ def test_summen_und_saldenliste(make_session):
     with make_session() as s:
         bilanz = summen_und_salden(s, 2026, SKR03, "bilanz")
     assert bilanz.ergebnis == D("900")
+
+
+def test_erstattung_auf_der_kreditkarte_brutto_auf_dem_kartenkonto():
+    """Gesamttest Eingang B08: 1730 an 4930 mit Vorsteuer — die Karte bekommt den
+    Bruttobetrag, die Vorsteuer wird gemindert (bisher Netto auf 1730)."""
+    assert paare(b("1730", "4930", "20.16", 9, "3.83")) == [
+        ("1576", D("0"), D("3.83")),
+        ("1730", D("23.99"), D("0")),
+        ("4930", D("0"), D("20.16")),
+    ]
+
+
+def test_eingerichtetes_bankkonto_ist_geldkonto_in_der_susa(make_session):
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    with make_session() as s:
+        speichere_bankkonto(
+            s, Bankkonto(iban="VISA1234", bezeichnung="Visa Firma", sachkonto="1738")
+        )
+        s.commit()
+    buche(
+        make_session,
+        date(2026, 3, 1),
+        "1738",
+        "4930",
+        "20.16",
+        steuer_schluessel=9,
+        steuer_betrag=D("3.83"),
+    )
+    with make_session() as s:
+        z = {x.konto: x for x in summen_und_salden(s, 2026, SKR03, "euer").zeilen}
+    assert z["1738"].soll == D("23.99")
+    assert z["1576"].haben == D("3.83")

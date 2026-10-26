@@ -51,4 +51,7 @@ def test_zweiter_classify_lauf_bucht_nichts_doppelt(tmp_path):
         "group by transaktion_id having count(*) > 1)"
     ).fetchone()[0]
     assert doppelt == 0
-    assert "8 kontiert" in erst.output
+    # Amazon-, PayPal- und eBay-Auszahlung bleiben für den Marktplatz-Abgleich offen
+    # (Gesamttest Steuer B2) — vorher als Erlös 8400 mit Umsatzsteuer gebucht
+    assert "5 kontiert" in erst.output and "3 offen" in erst.output
+    assert "Marktplatz" in erst.output and "marktplatz import" in erst.output

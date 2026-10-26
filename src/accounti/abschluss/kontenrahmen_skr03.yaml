@@ -58,6 +58,8 @@ geldkonten:
   - {von: "1000", bis: "1399"}   # Kasse, Bank, Geldtransit
   - {von: "1400", bis: "1499"}   # Forderungen aus Lieferungen und Leistungen
   - {von: "1600", bis: "1699"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+  - {von: "1730", bis: "1730"}   # Kreditkartenabrechnung (1731 ff. sind keine Geldkonten:
+                                 # Agenturwaren, Kautionen, Steuerverbindlichkeiten)
 
 # Bankkonten (Postbank, LZB, Bank 1200–1250): mit Bestand oder Verkehr müssen sie als
 # Bankkonto eingerichtet und mit dem Kontoauszug abgestimmt sein (ohne Kasse 1000–1099,

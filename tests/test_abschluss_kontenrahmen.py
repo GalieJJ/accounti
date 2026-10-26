@@ -870,3 +870,18 @@ def test_unbekannter_schluessel_wird_abgelehnt(tmp_path, inhalt, schluessel):
     datei.write_text("name: eigen\n" + inhalt, encoding="utf-8")
     with pytest.raises(KontenrahmenError, match=schluessel):
         lade_kontenrahmen("SKR03", datei)
+
+
+def test_kreditkartenabrechnung_ist_geldkonto():
+    """Gesamttest Eingang B08: SKR03 1730 / SKR04 3610 „Kreditkartenabrechnung“ trägt
+    wie die Bank den Bruttobetrag. 1731 (Agenturwarenabrechnung), 1732–1735
+    (Kautionen) und 1736–1739 (Verbindlichkeiten aus Steuern) bleiben Sachkonten."""
+    assert SKR03.ist_geldkonto("1730") and SKR04.ist_geldkonto("3610")
+    for konto in ("1731", "1732", "1736", "1739"):
+        assert not SKR03.ist_geldkonto(konto), konto
+
+
+def test_eingerichtete_konten_sind_geldkonten():
+    kr = SKR03.mit_geldkonten({"1738", "Visa"})
+    assert kr.ist_geldkonto("1738") and not SKR03.ist_geldkonto("1738")
+    assert kr.ist_geldkonto("1200") and not kr.ist_geldkonto("4930")

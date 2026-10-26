@@ -122,13 +122,21 @@ class TestUStBerechner:
         assert pos.steuerbetrag == Decimal("0.00")
         assert pos.kennziffer_ust_va == 21
 
-    def test_dienstleistung_inland_und_b2c_unveraendert(self) -> None:
+    def test_dienstleistung_inland_und_b2c(self) -> None:
+        """B2C-Dienstleistung: Sitz des Leistenden (§ 3a Abs. 1 UStG) — OSS nur für
+        elektronische Leistungen (§ 3a Abs. 5 UStG), Gesamttest Ausgang B9."""
         assert (
             self.berechner.bestimme_vorfall("DE", ist_sonstige_leistung=True)
             == Geschaeftsvorfall.INLAND
         )
         assert (
             self.berechner.bestimme_vorfall("FR", ist_sonstige_leistung=True)
+            == Geschaeftsvorfall.INLAND
+        )
+        assert (
+            self.berechner.bestimme_vorfall(
+                "FR", ist_sonstige_leistung=True, ist_elektronisch=True
+            )
             == Geschaeftsvorfall.EU_B2C_OSS
         )
 

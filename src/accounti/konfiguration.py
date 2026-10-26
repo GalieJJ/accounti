@@ -7,6 +7,7 @@ elektronische Adresse und Zahlungsdaten des Verkäufers.
 from __future__ import annotations
 
 import os
+import string
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -53,9 +54,37 @@ class Bank(BaseModel):
         return iban
 
 
+def _felder(format_: str) -> set[str]:
+    return {
+        name.split(".")[0].split("[")[0]
+        for _, name, _, _ in string.Formatter().parse(format_)
+        if name is not None
+    }
+
+
 class Rechnungseinstellungen(BaseModel):
     nummernformat: str = "{jahr}-{nummer:04d}"
     zahlungsziel_tage: int = Field(default=14, ge=0)
+
+    @field_validator("nummernformat")
+    @classmethod
+    def _format(cls, wert: str) -> str:
+        try:
+            felder = _felder(wert)
+            wert.format(jahr=2026, nummer=1)
+        except (ValueError, KeyError, IndexError) as fehler:
+            msg = f"Format {wert!r} ist ungültig ({fehler})"
+            raise ValueError(msg) from fehler
+        if "nummer" not in felder:
+            msg = (
+                f"{wert!r} braucht {{nummer}} — sonst bekäme jede Rechnung dieselbe "
+                "Nummer (§ 14 Abs. 4 Satz 1 Nr. 4 UStG)"
+            )
+            raise ValueError(msg)
+        if unbekannt := felder - {"jahr", "nummer"}:
+            msg = f"{wert!r}: nur {{jahr}} und {{nummer}}, nicht {sorted(unbekannt)}"
+            raise ValueError(msg)
+        return wert
 
 
 class Firma(BaseModel):
@@ -96,21 +125,34 @@ class Firma(BaseModel):
     def nummernkreis(self) -> str:
         return self.kuerzel or self.name
 
+    @property
+    def nummer_je_jahr(self) -> bool:
+        """Beginnt der Kreis jedes Jahr neu? Nur mit ``{jahr}`` im Format."""
+        return "jahr" in _felder(self.rechnung.nummernformat)
+
     def nummer(self, jahr: int, laufend: int) -> str:
         """Rechnungsnummer aus Jahr und laufender Nummer, z.B. ``2026-0042``."""
         return self.rechnung.nummernformat.format(jahr=jahr, nummer=laufend)
 
 
-def _fehlertext(fehler: ValidationError) -> str:
+def _fehlertext(
+    fehler: ValidationError,
+    abschnitt: str = "mandant",
+    herkunft: dict[str, str] | None = None,
+) -> str:
+    """Fehler je Feld mit dem Abschnitt davor (``buchhaltung.kontenrahmen: …``);
+    ``herkunft`` nennt für einzelne Felder einen anderen Abschnitt (der Kontenrahmen
+    aus ``mandant``) — Nachprüfung N5: bisher stand immer „mandant.“ davor."""
     teile = []
     for f in fehler.errors():
-        pfad = ".".join(str(x) for x in f["loc"]) or "mandant"
+        pfad = ".".join(str(x) for x in f["loc"])
         grund = (
             "fehlt"
             if f["type"] == "missing"
             else str(f["msg"]).removeprefix("Value error, ")
         )
-        teile.append(f"mandant.{pfad}: {grund}" if pfad != "mandant" else grund)
+        wo = (herkunft or {}).get(str(f["loc"][0]), abschnitt) if pfad else ""
+        teile.append(f"{wo}.{pfad}: {grund}" if pfad else grund)
     return "; ".join(teile)
 
 
@@ -134,8 +176,15 @@ def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
         raise KonfigurationError(msg) from fehler
 
 
+KONTENRAHMEN = ("SKR03", "SKR04")
+
+
 class Buchhaltung(BaseModel):
-    """Abschnitt ``buchhaltung`` — optional, ohne ihn gelten die Standards."""
+    """Abschnitt ``buchhaltung`` — optional, ohne ihn gelten die Standards.
+
+    ``kontenrahmen`` ist die eine Quelle für USt, Abschluss, Anlagen, Prüfregeln und
+    DATEV (``lade_buchhaltung`` übernimmt ``mandant.kontenrahmen`` älterer
+    Konfigurationen)."""
 
     kontenrahmen: str = "SKR03"
     debitoren_von: int = 10000
@@ -159,17 +208,47 @@ class Buchhaltung(BaseModel):
         default_factory=lambda: {"19": "8736", "7": "8731", "0": "8730"}
     )
 
+    @field_validator("kontenrahmen", mode="before")
+    @classmethod
+    def _kontenrahmen(cls, wert: object) -> str:
+        text = str(wert).strip().upper()
+        if text not in KONTENRAHMEN:
+            # bisher fiel ein Tippfehler still auf SKR03 zurück
+            msg = f"kontenrahmen {wert!r}: SKR03 oder SKR04"
+            raise ValueError(msg)
+        return text
+
 
 def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
+    """Abschnitt ``buchhaltung``. Fehlt dort ``kontenrahmen``, gilt
+    ``mandant.kontenrahmen`` (so stand es früher in der Vorlage); widersprechen sich
+    beide, ist das ein Fehler — sonst rechneten USt und Abschluss mit dem einen, der
+    DATEV-Kopf mit dem anderen Kontenrahmen (Gesamttest Betrieb B4)."""
     pfad = Path(pfad)
     if not pfad.is_file():
         return Buchhaltung()
     daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
     abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
+    mandant = daten.get("mandant") if isinstance(daten, dict) else None
+    werte: Any = abschnitt or {}
+    herkunft: dict[str, str] = {}
+    alt = mandant.get("kontenrahmen") if isinstance(mandant, dict) else None
+    if alt is not None and isinstance(werte, dict):
+        eigen = werte.get("kontenrahmen")
+        if eigen is None:
+            werte = {**werte, "kontenrahmen": alt}
+            herkunft["kontenrahmen"] = "mandant"
+        elif str(eigen).strip().upper() != str(alt).strip().upper():
+            msg = (
+                f"{pfad}: buchhaltung.kontenrahmen ({eigen}) und mandant.kontenrahmen "
+                f"({alt}) widersprechen sich — nur buchhaltung.kontenrahmen angeben"
+            )
+            raise KonfigurationError(msg)
     try:
-        return Buchhaltung.model_validate(abschnitt or {})
+        return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
-        msg = f"{pfad}: Abschnitt 'buchhaltung': {_fehlertext(fehler)}"
+        text = _fehlertext(fehler, "buchhaltung", herkunft)
+        msg = f"{pfad}: Abschnitt 'buchhaltung': {text}"
         raise KonfigurationError(msg) from fehler
 
 
@@ -198,7 +277,8 @@ def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
     try:
         return UstIdEinstellungen.model_validate(werte)
     except ValidationError as fehler:
-        msg = f"{pfad}: Abschnitt 'ustid_pruefung': {_fehlertext(fehler)}"
+        msg = f"{pfad}: Abschnitt 'ustid_pruefung': "
+        msg += _fehlertext(fehler, "ustid_pruefung")
         raise KonfigurationError(msg) from fehler
 
 

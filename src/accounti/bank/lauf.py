@@ -44,6 +44,7 @@ from accounti.db.repository import (
     speichere_transaktion,
     vorhandene_dublettenschluessel,
 )
+from accounti.integrationen.einstellungen import Integrationen
 from accounti.klassifikation.engine import KlassifikationsEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.models import Bankkonto, KontoZustand, Transaktion
@@ -199,6 +200,7 @@ def bank_lauf(
     bank_einstellungen: BankEinstellungen | None = None,
     sichern: Callable[[], None] | None = None,
     marktplatz: Kontext | None = None,
+    integrationen: Integrationen | None = None,
 ) -> Banklauf:
     """Der geplante Lauf: abrufen → Kreditkarten → Marktplatz-Auszahlungen →
     offene Posten zuordnen → abgleichen → kontieren. Die Sammelbelastung einer Karte
@@ -206,9 +208,13 @@ def bank_lauf(
     Abschnitt ``integrationen``) sind damit gebucht — „Bank an Verrechnungskonto“
     ohne Umsatzsteuer —, bevor offene Posten oder das Regelwerk sie sehen; sonst
     bucht eine Regel die Auszahlung als Erlös und der Umsatz zählt doppelt.
+    Was noch keine Abrechnung abgleichen konnte, lässt die Kontierung offen
+    (``integrationen``, ohne Angabe die aus ``marktplatz``; ``buchung.marktplatz``).
     ``sichern`` schreibt den Abruf je Konto fest — die Buchungen danach beginnen
     eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst)."""
     bank = bank_einstellungen or lade_bank_einstellungen()
+    if integrationen is None and marktplatz is not None:
+        integrationen = marktplatz.einstellungen
     lauf = Banklauf(abrufe=rufe_ab(session, schluessel, sichern=sichern))
     lauf.kreditkarten = gleiche_sammelbelastungen_ab(
         session, einstellungen, bank.kreditkarte
@@ -219,5 +225,5 @@ def bank_lauf(
         lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
     lauf.zuordnung = zuordne_zahlungen(session, einstellungen)
     lauf.abgleich = gleiche_belege_ab(session)
-    lauf.kontierung = kontiere_umsaetze(session, engine, einstellungen)
+    lauf.kontierung = kontiere_umsaetze(session, engine, einstellungen, integrationen)
     return lauf

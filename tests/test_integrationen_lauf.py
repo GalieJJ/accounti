@@ -1015,9 +1015,24 @@ def test_eigener_gebuchter_umsatz_geht_vor_dem_toleranztreffer(umgebung, b_mit_n
     assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
 
 
-def test_eigener_gebuchter_umsatz_mit_bank_lauf(umgebung):
-    """M3, Fall t10: wie t1, aber ``bank lauf`` statt ``marktplatz abgleichen`` —
-    erst bucht der Lauf A per Regel als Erlös, zum Schluss gleicht er ab."""
+def _ohne_stichwort(kontext, markt="ebay"):
+    """Kontext, in dem ``bank_stichworte`` des Marktplatzes leer ist — dann lässt die
+    Kontierung einen Eingang ohne importierte Abrechnung nicht offen."""
+    e = kontext.einstellungen
+    konten = e.marktplaetze[markt].model_copy(update={"bank_stichworte": []})
+    einstellungen = e.model_copy(
+        update={"marktplaetze": {**e.marktplaetze, markt: konten}}
+    )
+    return Kontext(
+        einstellungen=einstellungen,
+        buchhaltung=kontext.buchhaltung,
+        oss_registriert=kontext.oss_registriert,
+        firmen_land=kontext.firmen_land,
+    )
+
+
+def _bank_lauf_mit_regel(s, kontext, muster=r"EBAY"):
+    """``bank lauf`` mit einer Regel, die den Eingang als Erlös 8400 (19 %) bucht."""
     from accounti.bank.einstellungen import BankEinstellungen
     from accounti.bank.lauf import bank_lauf
     from accounti.klassifikation.engine import (
@@ -1026,21 +1041,55 @@ def test_eigener_gebuchter_umsatz_mit_bank_lauf(umgebung):
         RegelwerkEngine,
     )
 
-    s, archiv, kontext = umgebung
     engine = KlassifikationsEngine(
         regelwerk=RegelwerkEngine(
-            [Regel("ebay", r"EBAY", "1200", "8400", steuer_schluessel=3)]
+            [Regel("markt", muster, "1200", "8400", steuer_schluessel=3)]
         )
     )
+    return bank_lauf(
+        s,
+        engine,
+        kontext.buchhaltung,
+        bank_einstellungen=BankEinstellungen(),
+        marktplatz=kontext,
+    )
+
+
+def test_bank_lauf_laesst_marktplatz_eingang_vor_dem_import_offen(umgebung):
+    """Fall t10 nach dem Zusammenführen mit Kontierung B2 (#31): ``bank lauf`` vor
+    dem Import lässt A (Stichwort EBAY) offen, statt ihn per Regel als Erlös zu
+    buchen — die Importe ordnen danach A und B richtig zu, ohne Befund."""
+    s, archiv, kontext = umgebung
+    tag, betrag, nummer, _, _ = _UMSATZ_A
+    a = bank(s, tag, betrag, f"EBAY MANAGED PAYMENTS AUSZAHLUNG {nummer}", "eBay")
+    erster = _bank_lauf_mit_regel(s, kontext)
+    assert erster.kontierung.kontiert == 0 and erster.kontierung.marktplatz == 1
+    b = _umsatz_b(s)
+    _ebay_import(s, archiv, kontext)
+    _ebay_import(s, archiv, kontext, zweite=True)
+    ergebnis = _bank_lauf_mit_regel(s, kontext)
+    assert ergebnis.kontierung.kontiert == 0
+    assert not [m.befund for m in ergebnis.marktplatz if m.befund]
+    eins, zwei = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert [p.bank_transaktion_id for p in eins.posten if p.bank_transaktion_id] == [
+        a.id
+    ]
+    assert [p.bank_transaktion_id for p in zwei.posten if p.bank_transaktion_id] == [
+        b.id
+    ]
+    assert saldo(lade_buchungen(s), "1362") == 0
+    assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def test_eigener_gebuchter_umsatz_mit_bank_lauf(umgebung):
+    """M3, Fall t10: wie t1, aber ``bank lauf`` statt ``marktplatz abgleichen`` —
+    erst bucht der Lauf A per Regel als Erlös (ohne ``bank_stichworte``, sonst
+    bliebe A offen), zum Schluss gleicht er ab."""
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext)
 
     def lauf():
-        return bank_lauf(
-            s,
-            engine,
-            kontext.buchhaltung,
-            bank_einstellungen=BankEinstellungen(),
-            marktplatz=kontext,
-        )
+        return _bank_lauf_mit_regel(s, kontext)
 
     tag, betrag, nummer, _, _ = _UMSATZ_A
     a = bank(s, tag, betrag, f"EBAY MANAGED PAYMENTS AUSZAHLUNG {nummer}", "eBay")

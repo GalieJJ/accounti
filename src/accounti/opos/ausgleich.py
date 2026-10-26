@@ -5,6 +5,15 @@ hier ausdrücklich: die Skontobuchung auf das Erlösschmälerungs- bzw.
 Aufwandsminderungskonto **und** die anteilige Korrektur der Vorsteuer bzw.
 Umsatzsteuer. Das Skonto verteilt sich nach den Bruttoanteilen der Rechnung auf ihre
 Steuersätze; Netto und Steuer je Anteil rechnet `steuer/umsatzsteuer.py`.
+
+Ein Anteil mindert den Rest des Postens um seinen Betrag (Vorzeichen des Postens). Ist
+er negativ — die Erstattung einer Gutschrift oder eines Guthabens, oder die Gutschrift
+in einer Saldozahlung —, fließt das Geld in die Gegenrichtung und die Buchung dreht
+sich um. Der Gutschriftanteil einer Saldozahlung heißt „Verrechnung“: Er steht als
+eigene Bankbuchung gegen die Zahlung (595 € herein, 119 € hinaus = 476 € auf dem
+Auszug), es fließt aber nichts zurück. Eine Überzahlung schließt den Posten nicht: Sein
+Rest wird negativ und steht als Guthaben des Kontakts in der Postenliste, so wie auf dem
+Personenkonto.
 """
 
 from __future__ import annotations
@@ -148,22 +157,32 @@ def gleiche_aus(
             raise ValueError(msg)
         text = f"{posten.belegnummer or ''} {kontakt.name}".strip()
         bank = tx.sachkonto or einstellungen.bank_konto  # Konto des Umsatzes
-        soll, haben = (personenkonto, bank) if eingang else (bank, personenkonto)
-        zahlung = Buchungssatz(
-            transaktion_id=tx.id,
-            beleg_id=posten.beleg_id,
-            datum=tx.datum,
-            soll_konto=soll,
-            haben_konto=haben,
-            betrag_netto=anteil.betrag,
-            buchungstext=f"Zahlung {text}"[:60],
-            beleg_nummer=posten.belegnummer,
-            status=status,
-            confidence=1.0,
-            geprueft_von=geprueft_von,
-        )
-        speichere_buchung(session, zahlung)
-        buchungen.append(zahlung)
+        # Geld kommt herein: Forderung wird kleiner oder ein Guthaben beim Kreditor
+        # wird erstattet — sonst geht es hinaus
+        herein = (anteil.betrag > 0) != eingang
+        soll, haben = (bank, personenkonto) if herein else (personenkonto, bank)
+        if anteil.betrag != 0:
+            # gegen die Zahlung: der Gutschrift- oder Guthabenanteil einer
+            # Saldozahlung — verrechnet, nicht erstattet (es fließt kein Geld zurück)
+            if herein != (tx.betrag > 0):
+                art = "Verrechnung"
+            else:
+                art = "Zahlung" if anteil.betrag > 0 else "Erstattung"
+            zahlung = Buchungssatz(
+                transaktion_id=tx.id,
+                beleg_id=posten.beleg_id,
+                datum=tx.datum,
+                soll_konto=soll,
+                haben_konto=haben,
+                betrag_netto=abs(anteil.betrag),
+                buchungstext=f"{art} {text}"[:60],
+                beleg_nummer=posten.belegnummer,
+                status=status,
+                confidence=1.0,
+                geprueft_von=geprueft_von,
+            )
+            speichere_buchung(session, zahlung)
+            buchungen.append(zahlung)
         if anteil.skonto > 0:
             buchungen += _skonto_buchungen(
                 session,
@@ -176,9 +195,9 @@ def gleiche_aus(
                 status,
                 geprueft_von,
             )
-        # Überzahlung: der Posten schließt, der Überschuss bleibt als Guthaben auf
-        # dem Personenkonto stehen.
-        rest = max(posten.restbetrag - anteil.betrag - anteil.skonto, NULL)
+        # Überzahlung: der Rest wird negativ — das Guthaben bleibt ein offener Posten
+        # und stimmt so mit dem Personenkonto überein
+        rest = posten.restbetrag - anteil.betrag - anteil.skonto
         aktualisiere_posten(
             session,
             posten.id,

@@ -43,6 +43,7 @@ from sqlalchemy.orm import Mapped, Mapper, Session, mapped_column, object_sessio
 from accounti.db import Base
 
 if TYPE_CHECKING:
+    from accounti.abschluss.konfiguration import Wirtschaftsjahr
     from accounti.abschluss.kontenrahmen import Kontenrahmen
 from accounti.db.tabellen import BuchungssatzRow, UnveraenderbarError
 from accounti.db.tabellen_abschluss import (
@@ -234,13 +235,19 @@ class _Eroeffnung:
     ids: set[str]
     kontenrahmen: Kontenrahmen
     gewinnermittlung: str
+    wirtschaftsjahr: Wirtschaftsjahr | None = None
 
 
 @contextmanager
 def eroeffnungsbuchungen(
-    session: Session, kontenrahmen: Kontenrahmen, gewinnermittlung: str
+    session: Session,
+    kontenrahmen: Kontenrahmen,
+    gewinnermittlung: str,
+    wirtschaftsjahr: Wirtschaftsjahr | None = None,
 ) -> Iterator[set[str]]:
-    """EB-Buchungen am 01.01. anlegen, auch wenn der Januar festgeschrieben ist.
+    """EB-Buchungen am 01.01. anlegen, auch wenn der Januar festgeschrieben ist —
+    mit ``wirtschaftsjahr`` an dessen Beginn (abweichendes WJ: z. B. 01.07.,
+    Belegnummer ``EB-<Jahr des WJ-Endes>``).
 
     Der Saldovortrag (und der erste Eröffnungssaldo) trägt die Schlussbilanz des
     Vorjahres vor: Er ändert weder die Verkehrszahlen noch die UStVA des Januars, und
@@ -251,7 +258,7 @@ def eroeffnungsbuchungen(
     Kontenrahmens, die andere ein Bestandskonto. Die Jahressperre gilt weiter;
     Rahmen lassen sich schachteln.
     """
-    rahmen = _Eroeffnung(set(), kontenrahmen, gewinnermittlung)
+    rahmen = _Eroeffnung(set(), kontenrahmen, gewinnermittlung, wirtschaftsjahr)
     stapel = session.info.get(_EROEFFNUNG)
     if not isinstance(stapel, list):
         stapel = session.info[_EROEFFNUNG] = []
@@ -272,11 +279,16 @@ def _eb_form(ziel: BuchungssatzRow, rahmen: _Eroeffnung) -> bool:
     if len(seiten) != 1:  # genau eine Seite ein Saldenvortragskonto
         return False
     art = kr.art(seiten[0], rahmen.gewinnermittlung)  # type: ignore[arg-type]
+    wj = rahmen.wirtschaftsjahr
+    if wj is None:
+        am_beginn, nummer = (tag.month, tag.day) == (1, 1), f"EB-{tag.year}"
+    else:
+        am_beginn, nummer = tag == wj.von, f"EB-{wj.jahr}"
     return (
-        (tag.month, tag.day) == (1, 1)
+        am_beginn
         and ziel.steuer_schluessel is None
         and not ziel.steuer_betrag
-        and ziel.beleg_nummer == f"EB-{tag.year}"
+        and ziel.beleg_nummer == nummer
         and ziel.storno_von is None
         and ziel.storniert_durch is None
         and str(getattr(art, "value", art)) not in ("erfolg", "vortrag")
