@@ -24,9 +24,11 @@ from accounti.db.repository import (
     lade_posten,
     speichere_ausgangsrechnung,
 )
+from accounti.elster.protokoll import neuer_eintrag, protokolliere
 from accounti.erechnung.ausstellung import AusstellungError, stelle_aus
 from accounti.konfiguration import Buchhaltung
 from accounti.models import AusgangsrechnungStatus
+from accounti.models.elster import Meldeart, Modus
 from accounti.opos.verbuchung import verbuche_belege
 from accounti.pruefung.perioden import schliesse
 from tests.test_cli_ustva import KONFIG
@@ -75,6 +77,52 @@ def test_inland_bucht_zum_leistungsdatum(umgebung):
     assert any("§ 13 Abs. 1 Nr. 1" in h for h in v.hinweise), v.hinweise
     # Fälligkeit und Mahnwesen bleiben beim Rechnungsdatum
     assert v.posten.belegdatum == date(2026, 9, 3)
+
+
+def _uebermittelt(make_session, zeitraum, modus=Modus.ECHT):
+    with make_session() as s:
+        protokolliere(
+            s,
+            neuer_eintrag(
+                None,
+                art=Meldeart.USTVA,
+                zeitraum=zeitraum,
+                modus=modus,
+                weg="eric",
+                datensatz="<Elster/>",
+                erfolgreich=True,
+                ergebnis="ok",
+                pruefbericht="",
+            ),
+        )
+        s.commit()
+
+
+@pytest.mark.parametrize("zeitraum", ["2026-08", "2026-Q3"])
+def test_uebermittelte_voranmeldung_verlangt_eine_berichtigung(umgebung, zeitraum):
+    # Nachprüfung N8: Die Voranmeldung August (bzw. III. Quartal) ist schon abgegeben,
+    # der Monat aber nicht festgeschrieben — die Umsatzsteuer der Rechnung fehlt darin
+    # (§ 153 Abs. 1 AO, berichtigte Anmeldung)
+    make_session, archiv = umgebung
+    _uebermittelt(make_session, zeitraum)
+    e = entwurf(kunde(), pos("Montage", "1000", sonstige_leistung=True))
+    e = e.model_copy(update={"leistungsdatum": date(2026, 8, 25)})
+    _stelle_aus(make_session, archiv, e, date(2026, 9, 3))
+    (v,) = _verbuche(make_session, archiv).verbucht
+    (hinweis,) = [h for h in v.hinweise if "berichtig" in h]
+    assert zeitraum in hinweis and "§ 153" in hinweis, hinweis
+    assert f"accounti ustva freigeben --period {zeitraum}" in hinweis
+
+
+def test_ohne_echte_abgabe_kein_berichtigungshinweis(umgebung):
+    make_session, archiv = umgebung
+    _uebermittelt(make_session, "2026-08", modus=Modus.TESTFALL)
+    _uebermittelt(make_session, "2026-09")  # Rechnungsmonat, Leistung im August
+    e = entwurf(kunde(), pos("Montage", "1000", sonstige_leistung=True))
+    e = e.model_copy(update={"leistungsdatum": date(2026, 8, 25)})
+    _stelle_aus(make_session, archiv, e, date(2026, 9, 3))
+    (v,) = _verbuche(make_session, archiv).verbucht
+    assert not [h for h in v.hinweise if "berichtig" in h], v.hinweise
 
 
 def test_leistung_im_rechnungsmonat_bleibt_beim_rechnungsdatum(umgebung):

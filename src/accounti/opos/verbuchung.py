@@ -18,8 +18,10 @@ früheren Monat lag (§ 13 Abs. 1 Nr. 1 Buchst. a UStG), eine innergemeinschaftl
 Lieferung im Rechnungsmonat, spätestens am Ende des Folgemonats (§ 13 Abs. 1 Nr. 6
 UStG), eine Gutschrift/Korrektur zu ihrem Datum (§ 17 Abs. 1 Satz 7 UStG). Ist dieser
 Monat festgeschrieben, wird nicht still später gebucht: Der Monat ist zu öffnen und die
-Voranmeldung zu berichtigen. Eine Gutschrift mit Bezug (BT-25) wird mit der noch
-offenen Rechnung desselben Kunden verrechnet.
+Voranmeldung zu berichtigen. Ist die Voranmeldung des Zeitraums schon übermittelt, der
+Monat aber offen, weist die Verbuchung auf die Berichtigung hin (§ 153 Abs. 1 AO). Eine
+Gutschrift mit Bezug (BT-25) wird mit der noch offenen Rechnung desselben Kunden
+verrechnet.
 
 Offener Posten, Fälligkeit und Skonto bleiben beim Belegdatum.
 """
@@ -48,6 +50,7 @@ from accounti.db.repository import (
 )
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
+from accounti.elster.ustva import abgegeben
 from accounti.erechnung import ERechnungError, lies
 from accounti.erechnung.abbildung import GUTSCHRIFT_TYPEN
 from accounti.erechnung.modell import Rechnung
@@ -67,9 +70,11 @@ from accounti.models import (
     PostenRichtung,
     PostenStatus,
 )
+from accounti.models.elster import Meldeart
 from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.leistungszeitpunkt import steuertag
 from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0")
 CENT = Decimal("0.01")
@@ -282,6 +287,9 @@ def verbuche_beleg(
             if hinweis and hinweis not in hinweise:
                 hinweise.append(hinweis)
             _pruefe_sperre(session, anlass, tag, belegdatum, eingang=False)
+            berichtigung = _abgegebene_voranmeldung(session, tag)
+            if berichtigung and berichtigung not in hinweise:
+                hinweise.append(berichtigung)
 
     if eingang:
         if not beleg.lieferant_name:
@@ -509,6 +517,25 @@ def _pruefe_sperre(
             f"Voranmeldung {tag:%m/%Y} berichtigen"
         )
         raise type(fehler)(f"{anlass}: gebucht am {tag:%d.%m.%Y}: {fehler}{ausweg}")
+
+
+def _abgegebene_voranmeldung(session: Session, tag: date) -> str | None:
+    """Ist die Voranmeldung des Zeitraums schon übermittelt (Monat oder Quartal), fehlt
+    die Umsatzsteuer dieser Buchung darin — sie ist zu berichtigen (§ 153 Abs. 1 AO,
+    berichtigte Anmeldung mit Kz 10). Festgeschriebene Monate lehnt ``_pruefe_sperre``
+    vorher ab."""
+    for zeitraum in (
+        Zeitraum.monat_von(tag),
+        Zeitraum(tag.year, quartal=(tag.month - 1) // 3 + 1),
+    ):
+        if abgegeben(session, Meldeart.USTVA, str(zeitraum)):
+            return (
+                f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Umsatzsteuer "
+                f"dieser Rechnung (gebucht am {tag:%d.%m.%Y}) fehlt darin: berichtigte "
+                f"Voranmeldung abgeben (accounti ustva freigeben --period {zeitraum}, "
+                "dann uebermitteln; § 153 Abs. 1 AO)"
+            )
+    return None
 
 
 def _buchungstag(
