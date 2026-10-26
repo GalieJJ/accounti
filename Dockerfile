@@ -19,7 +19,8 @@ RUN if [ "$OCR" = "ja" ]; then \
     && mkdir -p /arbeit/daten/belege /arbeit/config \
     && chown -R accounti:accounti /arbeit
 COPY --from=bau /install /usr/local
-# Migrationen für bestehende Datenbanken: alembic -c /app/alembic.ini upgrade head
+# Migrationen für bestehende Datenbanken: accounti db upgrade (liest /app/alembic.ini;
+# gleichwertig mit Versionsvermerk: alembic -c /app/alembic.ini upgrade head)
 COPY alembic.ini /app/alembic.ini
 COPY alembic /app/alembic
 

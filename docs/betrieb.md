@@ -123,7 +123,8 @@ gesellschaften:
   Konfiguration (liegen zwei Konfigurationen im selben Ordner, `regeln:` angeben).
 - CLI: `accounti --gesellschaft tochter opos liste` — die Option setzt `--db`, `--archiv` und
   `--config` **aller** Befehle. Ohne Option gilt `standard`; gibt es keinen und mehrere
-  Gesellschaften, bricht ein Datenbefehl ab. `accounti gesellschaft liste|zeigen`.
+  Gesellschaften, bricht ein Datenbefehl ab (die Hilfe, z. B. `accounti abschluss --help`,
+  kommt ohne). `accounti gesellschaft liste|zeigen`.
   `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
   Regeldatei der Gesellschaft (ohne Registry wie bisher `config/regeln.yaml`).
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle

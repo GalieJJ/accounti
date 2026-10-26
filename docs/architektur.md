@@ -601,7 +601,11 @@ können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen 
 | HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
 | REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
 
-Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`.
+Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`. Danach
+`SCHEMA_STAND` in `db/__init__.py` auf die neue Revision setzen: `init_db` vermerkt ihn in
+jeder neu angelegten Datenbank (`alembic_version`), `tests/test_db_upgrade.py` hält ihn gleich
+dem Kopf der Migrationen; `accounti db upgrade` leitet bei Datenbanken ohne Vermerk den Stand
+aus dem Schema ab (`db/upgrade.py`).
 
 ### Neues Bankformat hinzufügen
 
