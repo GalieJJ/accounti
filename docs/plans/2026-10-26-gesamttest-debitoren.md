@@ -40,13 +40,24 @@ geht der Referenz vor); beim erkannten Zahler mit eigenem so genannten Posten ke
 Referenz — Stufe B (eindeutiger Betrag) bucht automatisch, sonst der genannte Posten als
 Vorschlag (höchstens 0,6). Ein nur als Datum genannter Posten *eines anderen Kontakts*
 bleibt wie jede fremde Referenz ein Widerspruch (höchstens 0,7, nicht automatisch).
+Gegenprüfung: Geprüft werden nur die Ziffernwörter — „RE 2026-03-15“ ist bei
+RE-2026-0315 ein Datum (zuerst machte das Präfix die Folge zur Referenz); eine Nummer mit
+Präfix und ohne Trennzeichen („RE20260315“) bleibt gleich geschrieben eine Referenz. Neben
+einer echten Referenz zählt eine nur als Datum genannte Nummer gar nicht: „RE 2026-0001
+vom 2026-03-15“ ist eine Referenz auf 2026-0001 (automatisch wie ohne Datum), eine
+Gutschrift 2026-0315 wird dabei nicht saldiert, und ein echt genannter fremder Posten
+bleibt ein Widerspruch, auch wenn ein eigener Posten als Datum dasteht.
 
 **Guthaben nur derselben Richtung (Nachprüfung N1).** Als Guthaben zählt bei der
 Zuordnung nur ein Posten der Zahlungsrichtung mit negativem eigenem Rest (beim Eingang
 eine Gutschrift oder Überzahlung des Kunden). Die Verbindlichkeit desselben Kontakts
 steht auf seinem Kreditorenkonto — sie gegen die Forderung zu rechnen wäre eine
 Aufrechnung über zwei Personenkonten; die Handzuordnung lehnt sie ab, ebenso eine
-Gutschrift eines anderen Kontakts.
+Gutschrift eines anderen Kontakts. Gegenprüfung: Auch wenn der Kontakt der Gutschrift
+selbst einen Posten in der Handzuordnung hat, tilgt die Gutschrift nur dessen Posten
+(in der angegebenen Reihenfolge, höchstens bis zu ihrem Rest); was übrig bleibt, bleibt
+Guthaben — es bezahlt nie die Rechnung eines anderen Kontakts (Gegenseitigkeit, §§ 387,
+389 BGB).
 
 **Saldozahlung (Nachprüfung N3).** Rechnung 595 € und Gutschrift 119 € mit einer Zahlung
 über 476 € buchen weiter zwei Bankbuchungen (1200 an 10000 595 €, 10000 an 1200 119 €,
@@ -61,7 +72,11 @@ die Stichtagsliste nicht zum Personenkonto.
 **Berichtigungshinweis (Nachprüfung N8).** Bucht `opos verbuchen` eine Ausgangsrechnung
 in einen Zeitraum, dessen Voranmeldung schon echt übermittelt ist (Monat oder Quartal,
 `elster.ustva.abgegeben`), nennt es die berichtigte Voranmeldung (§ 153 Abs. 1 AO); die
-neue Anmeldung trägt dann Kz 10. Ein festgeschriebener Monat bricht wie bisher ab.
+neue Anmeldung trägt dann Kz 10. Ein festgeschriebener Monat bricht wie bisher ab. Eine
+Minderung (Gutschrift, Korrektur mit negativem Brutto) verkürzt keine Steuer — keine
+Pflicht nach § 153 Abs. 1 AO; der Hinweis nennt die berichtigte Anmeldung als Möglichkeit
+(Anmeldung unter Vorbehalt, § 168, § 164 Abs. 2 AO), sonst erfasst sie die
+Jahreserklärung (Gegenprüfung).
 
 **Gutschrift 381 / Rechnungskorrektur 384 mit BT-25/26 (B3).** Bezug auf die
 ursprüngliche Rechnung für die Berichtigung beim Kunden (§ 17 Abs. 1 Satz 2 UStG) und zur
@@ -93,7 +108,11 @@ Abs. 2 Satz 2 Nr. 1 UStG): Fehlen E-Mail, PLZ oder Ort, entsteht eine Rechnung n
 EN 16931 (ZUGFeRD-Profil EN 16931). Über 250 € braucht jede Rechnung die vollständige
 Anschrift — Straße oder Postfach (Abschn. 14.5 Abs. 2 UStAE), PLZ und Ort (§ 14 Abs. 4
 Satz 1 Nr. 1 UStG; Nachprüfung N5: zuerst fehlte die Straße, und nur beim Privatkunden
-wurde geprüft) —, bis 250 € genügt die Kleinbetragsrechnung (§ 33 UStDV). Das
+wurde geprüft) —, bis 250 € genügt die Kleinbetragsrechnung (§ 33 UStDV). Geprüft wird
+beim Ausstellen (Gegenprüfung: zuerst auch in `rechnung zeigen`, das bei schon ohne Straße
+ausgestellten Rechnungen dann abbrach); die Anzeige nennt das Fehlende nur. Eine Korrektur
+ohne `--name` übernimmt den Kunden der Rechnung, `--strasse`, `--plz`, `--ort`, `--email`,
+`--ust-id`, `--leitweg-id` ergänzen ihn. Das
 KoSIT-Prüftool hat nur XRechnung-Szenarien — die EN-16931-Rechnung prüft Mustang.
 
 ## Grenzen
@@ -113,7 +132,14 @@ KoSIT-Prüftool hat nur XRechnung-Szenarien — die EN-16931-Rechnung prüft Mus
   eine eigene Positionsart wäre nötig, wie `--elektronisch`.
 - **Nummernformat ohne Trennzeichen** (`{jahr}{nummer:04d}`): Nummern, die wie ein Datum
   aussehen, bucht die Zuordnung ohne erkannten Zahler nie automatisch — Format mit
-  Trennzeichen (Standard `{jahr}-{nummer:04d}`) oder Präfix (`RE{jahr}…`) wählen.
+  Trennzeichen (Standard `{jahr}-{nummer:04d}`) oder Präfix (`RE{jahr}…`) wählen. Bei
+  beiden bucht nur die gleich gegliederte Schreibweise automatisch („2026-0315“ bzw.
+  „RE20260315“); ein anders gegliedertes Datum („RE 2026-03-15“) bleibt ohne Zahler ein
+  Vorschlag, auch mit Präfix.
+- **Altrechnungen ohne Straße:** Rechnungen über 250 €, die vor dieser Version ohne
+  Straße ausgestellt wurden, zeigt `rechnung zeigen` mit Hinweis; einen Berichtigungsbeleg
+  nur für die Anschrift (§ 31 Abs. 5 UStDV, ohne Betragsänderung) bildet accounti nicht
+  eigens ab — eine Korrektur mit Betrag kann die Straße mit `--strasse` ergänzen.
 - **Korrektur nur zu Rechnungen aus accounti:** `--korrektur-zu` verlangt eine in accounti
   ausgestellte Rechnung (für BT-26 und den Kunden).
 - **Verrechnung über zwei Personenkonten** (Forderung gegen Verbindlichkeit desselben
@@ -131,7 +157,10 @@ KoSIT-Prüftool hat nur XRechnung-Szenarien — die EN-16931-Rechnung prüft Mus
   Hinweis nach § 286 Abs. 3 BGB nicht; `mahnwesen.hinweis_30_tage` gilt für sie trotzdem.
 - **Berichtigungshinweis nur für Ausgangsrechnungen:** Eine Eingangsrechnung in einem
   schon gemeldeten Zeitraum erhöht nur die Vorsteuer — keine Berichtigungspflicht nach
-  § 153 AO; den Zeitraum der Vorsteuer regeln `--buchungsdatum` und Paket C/E.
+  § 153 AO; den Zeitraum der Vorsteuer regeln `--buchungsdatum` und Paket C/E. Aus
+  demselben Grund nennt der Hinweis bei einer Gutschrift die Berichtigung nur als
+  Möglichkeit. Unterschieden wird am Vorzeichen des Bruttos: Eine Korrektur, die eine
+  Steuerart erhöht und eine andere stärker mindert, gilt als Minderung.
 - **Ohne Migration** (N7): Der neue Code setzt Migration `a14acef69fae` voraus; ohne sie
   enden Befehle an den neuen Spalten mit einem Datenbankfehler statt einer Meldung. Die
   Doku verlangt die Migration vor dem ersten Befehl (`accounti db upgrade` aus Paket A, mit
