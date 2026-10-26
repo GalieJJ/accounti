@@ -180,6 +180,9 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   buchen|anfangsbestand|storno`, `abschluss eroeffnung` (die EB-Ausnahme der
   Monatssperre), `abschluss saldo` (Saldo laut Kontoauszug für die Bank-Abstimmung),
   `anlagen anlegen|afa|abgang` (ein Abgang scheidet das Anlagegut unwiderruflich aus),
+  `abschluss buchen` (derselbe AfA-Lauf wie `anlagen afa`, dazu die
+  Abgrenzungsvorschläge) und `abschluss abgrenzen` (Person aus `ACCOUNTI_BENUTZER` bzw.
+  dem Anmeldenamen — `--von` ist dort der Leistungszeitraum),
   `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).

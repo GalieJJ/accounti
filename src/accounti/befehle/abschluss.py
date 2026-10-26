@@ -213,19 +213,24 @@ def eroeffnung(
 @befehl.command("buchen")
 def buchen(
     jahr: int = typer.Option(..., help="Geschäftsjahr"),
+    von: str | None = typer.Option(None, help=_ERFASST),
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Abschlussbuchungen als Vorschläge: AfA des Jahres und Abgrenzungen."""
+    """Abschlussbuchungen als Vorschläge: AfA des Jahres und Abgrenzungen.
+
+    Buchen wie ``anlagen afa`` (Nachprüfung M1: derselbe AfA-Lauf) — mit Benutzern
+    Rolle buchhalter und Einmalcode."""
     from accounti.abschluss.abgrenzung import schlage_abgrenzungen_vor
     from accounti.anlagen.konfiguration import lade_anlagen
     from accounti.anlagen.lauf import afa_lauf
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
     einst = _einstellungen(config)
     anlagen = lade(lade_anlagen, config)
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, von), sitzung(db)() as s:
         try:
             afa = afa_lauf(s, jahr, anlagen, 12)
             lauf = schlage_abgrenzungen_vor(s, jahr, einst, anlagen.rechtsstand())
@@ -293,13 +298,18 @@ def abgrenzen(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Abgrenzung für eine Buchung vorschlagen, deren Zeitraum nicht im Text steht."""
+    """Abgrenzung für eine Buchung vorschlagen, deren Zeitraum nicht im Text steht.
+
+    Buchen (Nachprüfung M1) — mit Benutzern Rolle buchhalter und Einmalcode; die
+    Person kommt aus ACCOUNTI_BENUTZER bzw. dem Anmeldenamen (``--von`` ist hier der
+    Leistungszeitraum)."""
     from accounti.abschluss.abgrenzung import AbgrenzungError, grenze_ab
     from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.models.auth import Recht
 
     einst = _einstellungen(config)
     von, bis = datum(von_text, "--von"), datum(bis_text, "--bis")
-    with sitzung(db)() as s:
+    with handelnde_person(db, config, Recht.BUCHEN, None), sitzung(db)() as s:
         try:
             a = grenze_ab(s, buchung, von, bis, einst)
         except (AbgrenzungError, JahrGesperrtError) as fehler:

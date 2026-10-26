@@ -443,11 +443,14 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (Gesamttest Eingang): Die übrigen Rechnungen werden weiter verbucht, am Ende steht „N
   Rechnung(en) nicht verbucht“ und Exit 1 — Skripte und Cron sehen den Fehler
 - **Betrachter schrieb Anlagen, Saldo und Kontoauszüge** (Abschluss B8): `anlagen
-  anlegen|afa|abgang` und `abschluss saldo` liefen mit eingerichteten Benutzern ohne
-  Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, im Journal „…
-  (ungeprüft)“), `datev kontoauszuege` schrieb Auszüge fest. Jetzt buchen (`buchhalter`)
-  bzw. Buchungen freigeben für die Kontoauszüge, jeweils mit Einmalcode; `anlagen
-  anlegen|afa|abgang` haben `--von`, `abschluss saldo` vermerkt den geprüften Benutzer.
+  anlegen|afa|abgang`, `abschluss saldo|buchen|abgrenzen` liefen mit eingerichteten
+  Benutzern ohne Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, legte
+  über `abschluss buchen` — derselbe AfA-Lauf wie `anlagen afa` — AfA-Buchungen an, im
+  Journal „… (ungeprüft)“), `datev kontoauszuege` schrieb Auszüge fest. Jetzt buchen
+  (`buchhalter`) bzw. Buchungen freigeben für die Kontoauszüge, jeweils mit Einmalcode;
+  `anlagen anlegen|afa|abgang` und `abschluss buchen` haben `--von` (bei `abschluss
+  abgrenzen` ist `--von` der Leistungszeitraum, die Person kommt aus
+  `ACCOUNTI_BENUTZER`), `abschluss saldo` vermerkt den geprüften Benutzer.
   `FREIGABEWEGE`, README und Verfahrensdokumentation nennen die Befehle
 - **Token-Namen und Anmeldeprotokoll über Gesellschaftsgrenzen** (Betrieb B9): Der Index
   `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a

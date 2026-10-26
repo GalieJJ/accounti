@@ -440,7 +440,7 @@ accounti kasse bestand --gezaehlt 275.10       # Kassensturz
 # Jahresabschluss
 accounti abschluss eroeffnung --jahr 2026 --konto 1200 --saldo 5000   # nur im ersten Jahr
 accounti abschluss saldo --konto DE12… --stichtag 2026-12-31 --saldo 12345,67
-accounti abschluss buchen --jahr 2026          # AfA + Abgrenzungsvorschläge
+accounti abschluss buchen --jahr 2026 --von eva   # AfA + Abgrenzungsvorschläge (buchen)
 accounti abschluss abgrenzungen --jahr 2026    # bestaetigen <Nr> | ablehnen <Nr>
 accounti abschluss abgrenzen 3f2a9c1e --von 2026-11-01 --bis 2027-10-31   # Zeitraum nicht im Text
 accounti abschluss pruefen --jahr 2026         # Fehler blockieren den Vortrag
@@ -517,7 +517,7 @@ Mit eingerichteten Benutzern gilt jeweils mit Einmalcode:
 
 | Recht (Rollen) | Befehle |
 |----------------|---------|
-| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo`, `anlagen anlegen\|afa\|abgang`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
+| buchen (`buchhalter`) | `korrigiere`, `buchung storniere`, `kasse buchen\|anfangsbestand\|storno`, `abschluss eroeffnung\|saldo\|buchen\|abgrenzen`, `anlagen anlegen\|afa\|abgang`, `bank bestaetigen\|ablehnen`, `nachfordern anfrage --senden`, `zahlung anlegen\|abgleichen` … |
 | Buchungen freigeben (`buchhalter`, `freigeber`) | `bestaetige`, `opos bestaetigen\|ablehnen`, `abschluss bestaetigen\|ablehnen`, `anlagen freigeben`, `periode schliessen`, `abschluss vortrag`, `export datev`, `datev belege\|kontoauszuege` |
 | Zahlungsläufe freigeben (`freigeber`) | `zahlung freigeben\|stornieren\|sepa` |
 | Steuermeldungen freigeben (`freigeber`) | `ustva freigeben`, `periode oeffnen`, `abschluss oeffnen` — wer bucht, hebt keine Festschreibung auf |

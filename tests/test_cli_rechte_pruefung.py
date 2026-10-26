@@ -124,6 +124,8 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
         ["anlagen", "abgang", "1", "--datum", "2026-06-30", "--art", "verschrottung"],
         ["abschluss", "saldo", "--konto", "DE12500105170648489890"]
         + ["--stichtag", "2026-12-31", "--saldo", "100"],
+        # Nachprüfung M1: derselbe AfA-Lauf und die Abgrenzungen über abschluss buchen
+        ["abschluss", "buchen", "--jahr", "2026"],
     ]
     for befehl in befehle:
         r = _run(url, config, *befehl, "--von", "jan")
@@ -137,6 +139,9 @@ def test_betrachter_darf_nicht_freigeben_korrigieren_stornieren_festschreiben(
         + ["--berater", "1", "--mandant", "2"],
         # Abschluss B8: Kontoauszüge schreiben fest — Buchungen freigeben
         ["datev", "kontoauszuege", "--period", "2026-08", "--anfangssaldo", "0"],
+        # Nachprüfung M1: --von ist dort der Leistungszeitraum
+        ["abschluss", "abgrenzen", kurz(b.id), "--von", "2026-11-01"]
+        + ["--bis", "2027-10-31"],
     ):
         r = _run(url, config, *befehl)
         assert r.exit_code == 1, (befehl, r.output)
@@ -570,3 +575,31 @@ def test_anlagen_mit_benutzer_im_journal(welt, monkeypatch):
     r = _run(url, config, "anlagen", "abgang", "1", "--datum", "2026-06-30")
     assert r.exit_code == 1 and "jan darf" in r.output, r.output
     assert _journal(url, "nr", "hash") == vorher
+
+
+def test_abschluss_buchen_und_abgrenzen_mit_benutzer(welt, monkeypatch):
+    """Nachprüfung M1: ``abschluss buchen`` ruft denselben AfA-Lauf wie ``anlagen
+    afa`` — ein Betrachter legte so eine AfA-Buchung an („… (ungeprüft)“ im Journal).
+    Jetzt buchen mit Einmalcode, im Journal steht der geprüfte Benutzer."""
+    url, config, b, p = welt
+    anlegen = ["anlagen", "anlegen", "--bezeichnung", "Notebook"]
+    anlegen += ["--datum", "2026-02-10", "--kosten", "1500", "--typ", "notebook"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert _run(url, config, *anlegen, "--von", "eva").exit_code == 0
+    vorher = _journal(url, "nr", "hash")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["jan"].codes.pop())
+    r = _run(url, config, "abschluss", "buchen", "--jahr", "2026", "--von", "jan")
+    assert r.exit_code == 1 and "jan darf" in r.output, r.output
+    assert _journal(url, "nr", "hash") == vorher
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, "abschluss", "buchen", "--jahr", "2026", "--von", "eva")
+    assert r.exit_code == 0, r.output
+    assert "AfA 2026" in r.output
+    neu = _journal(url, "vorgang", "person")[len(vorher) :]
+    assert ("buchung_angelegt", "eva") in neu, neu  # nicht „eva (ungeprüft)“
+    # abgrenzen: die Person aus ACCOUNTI_BENUTZER (--von ist der Zeitraum)
+    monkeypatch.setenv("ACCOUNTI_BENUTZER", "jan")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["jan"].codes.pop())
+    abgrenzen = ["abschluss", "abgrenzen", kurz(b.id), "--von", "2026-11-01"]
+    r = _run(url, config, *abgrenzen, "--bis", "2027-10-31")
+    assert r.exit_code == 1 and "jan darf" in r.output, r.output

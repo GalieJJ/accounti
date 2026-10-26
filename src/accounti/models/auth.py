@@ -88,7 +88,7 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "nachfordern anfrage --senden",
         "zahlung anlegen|entfernen|sperre|iban-klaeren|abgleichen",
         "anlagen anlegen|afa|abgang",
-        "abschluss saldo",
+        "abschluss saldo|buchen|abgrenzen",
     ),
     Recht.BUCHUNG_FREIGEBEN: (
         "bestaetige",
