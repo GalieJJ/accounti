@@ -467,8 +467,9 @@ Benutzer, Rollen, Sitzungen, zweiter Faktor, API-Token — alles in der **System
 - `cli.py` — Rechte in der CLI: ohne Benutzer keine Prüfung; sonst Person mit Recht in der
   Gesellschaft der benutzten Datenbank und Einmalcode (in der CLI immer). Bindung jeder
   Gesellschafts-Datenbank an ihre Systemdatenbank (Merker `auth_merker`, fail-closed).
-  Verwaltung mit Einrichtungsphase, fremde Konten nur durch Verwalter aller ihrer
-  Gesellschaften. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
+  Verwaltung mit Einrichtungsphase (der Installation und je Gesellschaft, Merker
+  `verwaltet:<Kürzel>`), fremde Konten nur durch Verwalter aller ihrer Gesellschaften, der
+  letzte Verwalter einer Gesellschaft weder sperr- noch entrechtbar. Eingebunden in `zahlung anlegen|freigeben|iban-klaeren|entfernen|sperre|stornieren`,
   `ustva freigeben`, `ustva dauerfrist`, `anlagen freigeben` und — über
   `befehle.handelnde_person`, das zugleich die geprüfte Person im Journal setzt — in die
   Befehle von Baustein 7 (vollständige Liste je Recht: `models.auth.FREIGABEWEGE`).
@@ -600,7 +601,11 @@ können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen 
 | HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
 | REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
 
-Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`.
+Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`. Danach
+`SCHEMA_STAND` in `db/__init__.py` auf die neue Revision setzen: `init_db` vermerkt ihn in
+jeder neu angelegten Datenbank (`alembic_version`), `tests/test_db_upgrade.py` hält ihn gleich
+dem Kopf der Migrationen; `accounti db upgrade` leitet bei Datenbanken ohne Vermerk den Stand
+aus dem Schema ab (`db/upgrade.py`).
 
 ### Neues Bankformat hinzufügen
 

@@ -717,6 +717,17 @@ def stelle_wieder_her(
                 return metadaten.tables[name]
 
             def schreibe_zeilen(tabelle: Table, zeilen: list[dict[str, Any]]) -> None:
+                if (
+                    tabelle is alembic
+                    and verbindung.execute(
+                        select(func.count()).select_from(alembic)
+                    ).scalar()
+                ):
+                    # Der Vermerk beschreibt das Schema des Ziels (init_db legt es
+                    # nach diesem Code an und stempelt es), nicht die Daten: eine
+                    # ältere Revision aus der Sicherung ließe alembic Tabellen ein
+                    # zweites Mal anlegen (Befund Betrieb B2)
+                    return
                 verbindung.execute(insert(tabelle), zeilen)
 
             def schreibe_datei(rel: str, inhalt: bytes) -> None:

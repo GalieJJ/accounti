@@ -434,6 +434,79 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **Wiederherstellungstest passte nicht zu mehreren Gesellschaften** (Betrieb B10):
+  `docs/betrieb.md` zeigt den Test jetzt mit `-g K` und als Stichprobe nur lesende Befehle
+  (`abschluss susa`, `journal`) statt `export datev` (das eine abweichende `--db`
+  ablehnt und sonst in die Probe schriebe); Dateinamensbeispiel mit Sekunden. Der Hinweis
+  nach `sicherung erstellen` nennt `-g K` bzw. `--system`
+- **`opos verbuchen` endete mit Exit 0, auch wenn Rechnungen nicht verbucht wurden**
+  (Gesamttest Eingang): Die übrigen Rechnungen werden weiter verbucht, am Ende steht „N
+  Rechnung(en) nicht verbucht“ und Exit 1 — Skripte und Cron sehen den Fehler
+- **Betrachter schrieb Anlagen, Saldo und Kontoauszüge** (Abschluss B8): `anlagen
+  anlegen|afa|abgang`, `abschluss saldo|buchen|abgrenzen` liefen mit eingerichteten
+  Benutzern ohne Rechteprüfung (ein Betrachter schied einen Pkw unwiderruflich aus, legte
+  über `abschluss buchen` — derselbe AfA-Lauf wie `anlagen afa` — AfA-Buchungen an, im
+  Journal „… (ungeprüft)“), `datev kontoauszuege` schrieb Auszüge fest. Jetzt buchen
+  (`buchhalter`) bzw. Buchungen freigeben für die Kontoauszüge, jeweils mit Einmalcode;
+  `anlagen anlegen|afa|abgang` und `abschluss buchen` haben `--von` (bei `abschluss
+  abgrenzen` ist `--von` der Leistungszeitraum, die Person kommt aus
+  `ACCOUNTI_BENUTZER`), `abschluss saldo` vermerkt den geprüften Benutzer.
+  `FREIGABEWEGE`, README und Verfahrensdokumentation nennen die Befehle
+- **Token-Namen und Anmeldeprotokoll über Gesellschaftsgrenzen** (Betrieb B9): Der Index
+  `uq_api_token_aktiv` lag nur auf `name` — b konnte kein Token „erp“ anlegen, solange a
+  eines hatte, und die Meldung riet zu einem Widerruf, der in b nicht ging. Eindeutig ist
+  der Name jetzt unter den aktiven Token einer Gesellschaft (Index, Prüfung, Widerruf;
+  Alembic-Migration `6d38d11fc348`, verträgt einen schon von `init_db` angelegten Index;
+  ihr Downgrade bricht bei gleichen aktiven Namen in mehreren Gesellschaften ab, bevor es
+  den Index löscht).
+  `benutzer protokoll` zeigt mit mehreren Gesellschaften nur die Ereignisse der
+  Gesellschaften, in denen der Aufrufer Verwalter ist, und die ohne Gesellschaft — diese
+  nur über Benutzer mit einer Rolle dort oder ohne Rolle (der Verwalter von b sah sonst
+  Sperren und Codes eines Benutzers nur von a)
+- **Zweite Gesellschaft bekam keinen Verwalter, der letzte Verwalter öffnete die
+  Einrichtungsphase** (Betrieb B7, B8): Nach der Einrichtung verlangte `-g b benutzer
+  rolle|anlegen` einen Verwalter **in** b — eine später ergänzte Gesellschaft ließ sich nur
+  per SQL besetzen. Jetzt richtet ein Verwalter irgendeiner Gesellschaft mit Einmalcode
+  eine Gesellschaft ein, die noch nie einen Verwalter mit zweitem Faktor hatte (Ereignis
+  `einrichtung_gesellschaft`). Umgekehrt legte sich der letzte Verwalter mit `benutzer
+  sperren` still oder nahm sich die Rolle, und jeder an der Shell legte ohne Code einen
+  neuen an. `sperren` und `rolle verwalter --entfernen` lehnen das für den letzten aktiven
+  Verwalter mit zweitem Faktor einer Gesellschaft ab; der Merker `verwaltet:<Kürzel>`
+  hält die Einrichtungsphase einer einmal verwalteten Gesellschaft geschlossen (fail-closed).
+  Die Einrichtung erstreckt sich nicht auf Benutzer, die in der Gesellschaft schon eine
+  andere Rolle als `verwalter` haben (sonst setzte der Verwalter von a Passwort und Codes
+  eines Freigebers von b); `wiederherstellungscodes_neu` nennt im Protokoll, wer die Codes
+  eines anderen erneuert hat
+- **`mandant.kontenrahmen` aus der Vorlage wurde ignoriert** (Betrieb B4 = Steuer B3 =
+  Abschluss B6): Die Vorlage führte den Kontenrahmen unter `mandant`, gelesen wurde für USt,
+  Abschluss, Anlagen und Prüfregeln nur `buchhaltung.kontenrahmen` — eine SKR04-Gesellschaft
+  rechnete mit SKR03, nur der DATEV-Kopf sagte „04“. Eine Quelle: `lade_buchhaltung`
+  übernimmt `mandant.kontenrahmen`, wenn `buchhaltung.kontenrahmen` fehlt; widersprechen
+  sich beide, bricht accounti mit einer Meldung ab; ein unbekannter Wert (`SKR4`) ist ein
+  Fehler statt still SKR03. Die DATEV-Stammdaten lesen über denselben Lader; die Vorlage
+  führt den Schlüssel unter `buchhaltung`. Fehlermeldungen zu `buchhaltung` und
+  `ustid_pruefung` nennen ihren Abschnitt (bisher stand immer „mandant.“ vor dem Feld)
+- **Upgrade-Weg für Datenbanken aus `db init`** (Betrieb B2): `init_db` legte nur Tabellen
+  an, ohne Versionsvermerk — der dokumentierte `alembic upgrade head` begann bei der ersten
+  Migration und brach an „table … already exists“ ab, der neue Code ohne Migration an
+  „no such column storniert_durch“. Eine neue Datenbank bekommt jetzt den Vermerk des
+  Codes, der sie anlegt (`alembic_version`); der neue Befehl `accounti db upgrade` leitet
+  bei Datenbanken ohne Vermerk den Stand aus dem Schema ab, stempelt ihn und migriert
+  (`--alembic-ini`, sonst die des Quellbaums bzw. `/app/alembic.ini`). `alembic/env.py`
+  nimmt dafür eine übergebene Verbindung. `sicherung wiederherstellen` behält den Vermerk
+  des Ziels statt einer älteren Revision aus der Sicherung. Scheitert eine Migration,
+  meldet `db upgrade` den Grund und den erreichten Stand (Exit 1) statt eines Tracebacks;
+  eine SQLite-Datei, die es nicht gibt (Tippfehler in `--db`), legt es nicht neu an —
+  das ist `db init`
+- **`-g`/`ACCOUNTI_DB` wirkten nicht bei `ustva`, `pruefen`, `journal` und `nachfordern`**
+  (Gesamttest Betrieb B1): Befehlsgruppen mit eigenem Callback bekamen `--db` und
+  `--config` der Gesellschaft nicht — `accounti -g sued ustva` zeigte die Kennziffern einer
+  leeren `accounti.db` im Arbeitsverzeichnis, `pruefen` „keine Befunde“, `nachfordern`
+  schrieb dorthin. Der Kontext setzt die Standardwerte jetzt auch an der Gruppe selbst
+- **`--help` brauchte bei mehreren Gesellschaften `-g`** (Betrieb B11): `accounti abschluss
+  --help` brach mit Exit 2 ab. Die Hilfe kommt jetzt ohne Gesellschaft, auch hinter
+  Optionen einer Gruppe (`ustva --period 2025-08 pruefen --help`); ob es eine Hilfe ist,
+  entscheidet Clicks Parser (`--text --help` bleibt ein Wert und bricht ab)
 - **Gutschriften wie Ausgaben kontiert** (Gesamttest Eingang B07, Abschluss B4, Steuer B1):
   `classify` buchte eine Erstattung (+119 € Telekom) auf eine Ausgaberegel als zweite Ausgabe
   mit zusätzlicher Vorsteuer (Kz 66 doppelt statt null) und eine „Untermiete“ als Mietaufwand.

@@ -98,12 +98,14 @@ class SitzungRow(Base):
 
 class ApiTokenRow(Base):
     """Widerrufene Token bleiben stehen; eindeutig ist der Name nur unter den
-    aktiven (wie bei den Webhook-Token)."""
+    aktiven einer Gesellschaft (wie bei den Webhook-Token; Befund Betrieb B9 —
+    vorher über alle Gesellschaften, Migration ``6d38d11fc348``)."""
 
     __tablename__ = "api_tokens"
     __table_args__ = (
         Index(
             "uq_api_token_aktiv",
+            "gesellschaft",
             "name",
             unique=True,
             sqlite_where=text("widerrufen_am IS NULL"),

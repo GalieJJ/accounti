@@ -31,7 +31,9 @@ Sicherungen und einem Löschkonzept, das die Aufbewahrungsfristen kennt.
 3. Starten: `docker compose up -d --build`. Es laufen `db` (ohne veröffentlichten Port),
    `app` (nur auf `127.0.0.1:${ACCOUNTI_PORT:-8400}`) und `lauf` (alle
    `${ACCOUNTI_LAUF_MINUTEN:-60}` Minuten `bank lauf` und `aufgaben lauf`). Die Tabellen
-   legt accounti beim ersten Befehl selbst an. `app` und `lauf` haben eine
+   legt accounti beim ersten Befehl selbst an und vermerkt in einer neuen Datenbank den
+   Stand der Migrationen (`alembic_version`) — spätere Updates laufen dann mit
+   `accounti db upgrade` (unten, Upgrades). `app` und `lauf` haben eine
    Speichergrenze (`${ACCOUNTI_SPEICHER:-1g}`): jede Passwort-Prüfung (scrypt) braucht
    128 MiB, die App prüft höchstens `server.anmeldungen_gleichzeitig` (2) zugleich und
    antwortet sonst nach `server.anmeldung_warten_sekunden` (5) mit 503 und `Retry-After`
@@ -121,19 +123,42 @@ gesellschaften:
   Konfiguration (liegen zwei Konfigurationen im selben Ordner, `regeln:` angeben).
 - CLI: `accounti --gesellschaft tochter opos liste` — die Option setzt `--db`, `--archiv` und
   `--config` **aller** Befehle. Ohne Option gilt `standard`; gibt es keinen und mehrere
-  Gesellschaften, bricht ein Datenbefehl ab. `accounti gesellschaft liste|zeigen`.
+  Gesellschaften, bricht ein Datenbefehl ab (die Hilfe, z. B. `accounti abschluss --help`,
+  kommt ohne). `accounti gesellschaft liste|zeigen`.
   `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
   Regeldatei der Gesellschaft (ohne Registry wie bisher `config/regeln.yaml`).
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle
   buchhalter`); der Wechsler oben rechts schaltet alle Seiten um. Wer in einer Gesellschaft
   keine Rolle hat, sieht sie nicht.
-- API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`).
+- **Neue Gesellschaft besetzen:** Hatte eine Gesellschaft noch nie einen aktiven Verwalter
+  mit zweitem Faktor (zweite oder später ergänzte Gesellschaft), richtet sie ein Verwalter
+  **irgendeiner** Gesellschaft mit seinem Einmalcode ein — `accounti -g tochter benutzer
+  rolle chef --rolle verwalter`, oder einen eigenen Verwalter mit `accounti -g tochter
+  benutzer anlegen bert --rolle verwalter` und `accounti -g tochter benutzer 2fa bert`. Das
+  Protokoll vermerkt `einrichtung_gesellschaft`. Die Einrichtung bestimmt nur den ersten
+  Verwalter: Benutzer, die in der Gesellschaft schon eine andere Rolle haben (etwa ein
+  Freigeber), verwaltet der fremde Verwalter nicht — Passwort, Codes oder Rollen eines
+  solchen Kontos gäben ihm dessen Namen. Sobald die Gesellschaft einen eigenen Verwalter
+  mit zweitem Faktor hat, verwalten sie nur noch ihre Verwalter (auch wenn dieser später
+  wegfällt — siehe „Letzter Verwalter“ unten).
+- API: jedes Token gehört zu einer Gesellschaft (`accounti -g tochter token anlegen …`);
+  sein Name ist unter den aktiven Token **dieser** Gesellschaft eindeutig (ein „erp“ je
+  Gesellschaft, Migration `6d38d11fc348`).
 - Docker: weitere Datenbanken anlegen
   (`docker compose exec db createdb -U accounti tochter`), die URLs in `.env` und unter
   `environment` ergänzen; `lauf` arbeitet alle Gesellschaften der Registry ab.
 - Grenze: Die Abschnitte `bank` (FinTS-Produkt-ID, Kreditkarten-Muster) gelten für die
   Installation; `import banken` liest `config/banken.yaml` relativ zum
   Arbeitsverzeichnis.
+- Grenze — Kontenrahmen: `buchhaltung.kontenrahmen` gilt je Gesellschaft für USt,
+  Abschluss, Anlagen, Prüfregeln und DATEV; die Standardkonten daneben (`bank_konto`
+  1200, `standard_aufwand` 4900, Skonto 3736/3731/3730 und 8736/8731/8730) sind aber
+  SKR03 und wechseln nicht mit. Bei SKR04 in der Konfiguration setzen: 1800, 6300,
+  5736/5731/5730 und 4736/4731/4730 (Vorlage `config/accounti.example.yaml`). Bewusst kein
+  automatischer Wechsel: Eine SKR04-Gesellschaft, die bisher mit den Standards buchte, hat
+  ihre Bankbuchungen auf 1200 — ein stiller Wechsel auf 1800 teilte Bestand und
+  Bank-Abstimmung mitten im Jahr. Die Verfahrensdokumentation zeigt die verwendeten
+  Konten.
 
 ## Benutzer, Rollen, Anmeldung
 
@@ -165,13 +190,18 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
 
 - **buchen** (`buchhalter`): `korrigiere`, `buchung storniere`, `kasse
   buchen|anfangsbestand|storno`, `abschluss eroeffnung` (die EB-Ausnahme der
-  Monatssperre), `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
+  Monatssperre), `abschluss saldo` (Saldo laut Kontoauszug für die Bank-Abstimmung),
+  `anlagen anlegen|afa|abgang` (ein Abgang scheidet das Anlagegut unwiderruflich aus),
+  `abschluss buchen` (derselbe AfA-Lauf wie `anlagen afa`, dazu die
+  Abgrenzungsvorschläge) und `abschluss abgrenzen` (Person aus `ACCOUNTI_BENUTZER` bzw.
+  dem Anmeldenamen — `--von` ist dort der Leistungszeitraum),
+  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
   bestaetigen|ablehnen`, `abschluss bestaetigen|ablehnen`, `periode schliessen`,
   `abschluss vortrag`, `export datev` und `datev belege` (Übergabe an den Steuerberater,
-  Vermerk „exportiert“).
+  Vermerk „exportiert“), `datev kontoauszuege` (schreibt die Auszüge fest).
 - **Steuermeldungen freigeben** (`freigeber`): `periode oeffnen`, `abschluss oeffnen` —
   die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102), meist folgt eine
   berichtigte Voranmeldung; accounti nennt beim Öffnen schon freigegebene oder
@@ -209,7 +239,15 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   entsperren chef`). Andere entsperrt ein Verwalter — damit auch eine Sperre des
   Einmalcodes in der CLI. Ein mit `benutzer sperren` stillgelegtes Konto öffnet nur ein
   Verwalter wieder (wer es selbst versucht, bekommt diese Meldung und Exit 1). Gesperrte Verwalter zählen weiter
-  als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase. Ist auch der
+  als Verwalter — eine Flut aus dem Netz öffnet keine Einrichtungsphase.
+- **Letzter Verwalter:** `benutzer sperren` und `benutzer rolle NAME --rolle verwalter
+  --entfernen` lehnen ab, wenn NAME in einer Gesellschaft der letzte aktive Verwalter mit
+  zweitem Faktor ist (Exit 1, nichts geändert) — erst einen weiteren einrichten. Früher
+  öffnete das die Einrichtungsphase: jeder an der Shell legte ohne Code einen Verwalter
+  an. Eine Gesellschaft, die einmal einen Verwalter mit zweitem Faktor hatte (Merker
+  `verwaltet:<Kürzel>` in `auth_merker` der Systemdatenbank), öffnet ihre
+  Einrichtungsphase nie wieder, auch wenn der Verwalter an accounti vorbei wegfällt; dann
+  bleibt nur die Datenbank: `UPDATE auth_benutzer SET aktiv = true WHERE name = 'chef'`. Ist auch der
   Einmalcode in der CLI gesperrt (100 falsche Codes auf der Shell) und kein anderer
   Verwalter da, bleibt nur die Datenbank:
   `UPDATE auth_benutzer SET fehlversuche = 0, gesperrt_bis = NULL, cli_fehlversuche = 0,
@@ -268,7 +306,14 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   Datenbank — die Prüfung bindet Freigaben an eine Person und fängt Versehen und
   einfache Umwege ab, sie ersetzt keine Zugriffskontrolle auf den Server.
 - Protokoll: `accounti benutzer protokoll [--anzahl 50]` (die neuesten Anmeldungen,
-  Fehlversuche, Sperren, Rollen, Token; nur anfügen).
+  Fehlversuche, Sperren, Rollen, Token; nur anfügen). Mit mehreren Gesellschaften zeigt
+  es die Ereignisse der Gesellschaften, in denen der Aufrufer Verwalter ist (dazu die
+  gewählte, wenn er sie gerade einrichtet), und die ohne Gesellschaft (z. B. ein neuer
+  Benutzer, Sperren, Passwort, Codes) — diese nur über Benutzer, die in einer dieser
+  Gesellschaften eine Rolle haben (oder gar keine). Ein Verwalter von b sieht so nicht,
+  was in a geschah; über Benutzer mit Rollen in a **und** b sieht er auch, was sie in a
+  betrifft, soweit es keiner Gesellschaft zugeordnet ist (Passwort und zweiter Faktor
+  gelten global).
 
 ## REST-API
 
@@ -363,7 +408,7 @@ Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in d
 accounti sicherung schluessel                                 # einmal: Schlüssel erzeugen
 accounti sicherung erstellen --ziel /sicherungen/             # Datenbank + Belegarchiv
 accounti sicherung erstellen --system --ziel /sicherungen/    # Systemdatenbank (mehrere Gesellschaften)
-accounti sicherung pruefen /sicherungen/accounti-standard-20261020-0300.sicherung
+accounti sicherung pruefen /sicherungen/accounti-standard-20261020-030000.sicherung
 accounti sicherung wiederherstellen DATEI --db postgresql+psycopg://…/leer --archiv /leer/belege
 ```
 
@@ -429,13 +474,22 @@ Eine Sicherung zählt erst, wenn sie sich zurückspielen lässt:
 
 ```bash
 mkdir -p /tmp/probe
+P=sqlite:////tmp/probe/x.db
 accounti sicherung pruefen DATEI
-accounti sicherung wiederherstellen DATEI --db sqlite:////tmp/probe/x.db --archiv /tmp/probe/belege
-accounti opos liste --db sqlite:////tmp/probe/x.db         # mit dem Original vergleichen
-accounti journal pruefen --db sqlite:////tmp/probe/x.db --kopf NR:HASH   # Kopf vom Original
-accounti export datev --db sqlite:////tmp/probe/x.db …     # Stichprobe Buchungen
+accounti -g K sicherung wiederherstellen DATEI --db $P --archiv /tmp/probe/belege
+accounti -g K opos liste --db $P                       # mit dem Original vergleichen
+accounti -g K journal pruefen --db $P --kopf NR:HASH   # Kopf vom Original
+accounti -g K abschluss susa --jahr 2026 --db $P       # Stichprobe Buchungen (Salden)
+accounti -g K journal --db $P --von 2026-10-01         # Stichprobe Journal
 rm -rf /tmp/probe
 ```
+
+`-g K` ist die Gesellschaft der Sicherung (Dateiname `accounti-K-<Datum>-<Uhrzeit>.sicherung`;
+ohne Registry entfällt `-g`). Als Stichprobe nur Befehle, die lesen: `export datev` lehnt
+mit eingerichteten Benutzern eine abweichende `--db` ab (Bindung an die Gesellschaft) und
+schriebe sonst den Vermerk „exportiert“ und einen Journaleintrag in die Probe. Die
+Systemdatenbank übt man mit `accounti sicherung wiederherstellen DATEI --system --db
+sqlite:////tmp/probe/system.db`.
 
 Ergebnis (Datum, Datei, Zahlen aus `pruefen`) im Betriebsprotokoll festhalten. Der Test
 `tests/test_betrieb_sicherung.py::test_akzeptanz_7_wiederherstellung_in_leere_umgebung`
@@ -514,17 +568,52 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 docker compose build
 docker compose stop app lauf     # bis zum Ende des Updates schreibt nichts mehr
 docker compose run --rm app sicherung erstellen --ziel /arbeit/daten/sicherungen/   # Einstiegspunkt ist accounti
-docker compose run --rm --entrypoint alembic app -c /app/alembic.ini upgrade head
+docker compose run --rm app db upgrade      # = alembic upgrade head, auch ohne Versionsvermerk
 docker compose up -d
 ```
 
-Alembic liest die Datenbank aus `ACCOUNTI_DB`. Tabellen, für die es noch keine Migration
-gibt, legt accounti beim ersten Befehl selbst an (`init_db`).
+`accounti db upgrade` nimmt die Datenbank aus `--db`, `-g` bzw. `ACCOUNTI_DB` und die
+Migrationen aus `/app/alembic.ini` (im Quellbaum aus dessen `alembic.ini`; sonst
+`--alembic-ini`). Mehrere Gesellschaften: je Gesellschaft `accounti -g K db upgrade`,
+die Systemdatenbank mit `accounti -g K db upgrade --db <URL der Systemdatenbank>`.
+`docker compose run --rm --entrypoint alembic app -c /app/alembic.ini upgrade head`
+bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
+
+- **Versionsvermerk:** Eine Datenbank, die `accounti db init` oder der erste Befehl neu
+  anlegt (`init_db`), bekommt den Vermerk des Codes, der sie anlegt (Tabelle
+  `alembic_version`). Datenbanken aus älteren Fassungen haben keinen — dort begann
+  `alembic upgrade head` bei der ersten Migration und brach an „table … already exists“
+  ab. `accounti db upgrade` leitet den Stand dann aus dem Schema ab (die Migrationen
+  laufen dazu Schritt für Schritt in einer Wegwerf-Datenbank; maßgeblich sind neue
+  Tabellen und Spalten), stempelt ihn und migriert weiter; die Ausgabe nennt den
+  abgeleiteten Stand. Von Hand ginge das mit `alembic stamp <Revision>` und `alembic
+  upgrade head` — für eine Datenbank aus der Zeit vor Baustein 7 ist die Revision
+  `a684d10751de`.
+- Tabellen, für die es noch keine Migration gibt, legt accounti beim ersten Befehl selbst
+  an (`init_db`); spätere Migrationen übernehmen sie.
+- `db upgrade` legt keine SQLite-Datei neu an (ein Tippfehler in `--db` ergäbe sonst eine
+  frisch migrierte leere Datenbank, die echte bliebe alt) — neu anlegen ist `db init`.
+  Scheitert eine Migration, nennt es Grund und erreichten Stand (Exit 1). Unter SQLite
+  laufen manche Schritte ohne Transaktion: dann die Sicherung von vor dem Update
+  zurückspielen und `db upgrade` erneut, **bevor** ein anderer Befehl läuft.
+- **Grenze — sehr alte Datenbanken:** Hat nach dem Update schon ein Befehl des neuen Codes
+  eine Datenbank ohne Versionsvermerk angefasst (`init_db` legt fehlende Tabellen an), und
+  stammt sie aus der Zeit vor den Bankkonten (Migration `6a51b56d7c30`) bzw. vor den
+  Benutzern (`a684d10751de`), scheitert `db upgrade` an „table … already exists“: Nur die
+  Migrationen ab Baustein 7 vertragen schon vorhandene Tabellen, die älteren nicht.
+  Abhilfe: die Sicherung von vor dem Update zurückspielen und `db upgrade` als ersten
+  Befehl ausführen. Bewusst nicht nachgerüstet — dafür müsste jede ältere Migration
+  vorhandene Tabellen erkennen und nur Fehlendes ergänzen.
+- Das Downgrade von `6d38d11fc348` bricht ab, solange zwei Gesellschaften aktive Token
+  gleichen Namens haben (erst eines widerrufen); es prüft das vor dem Löschen des Index.
+- Eine Sicherung bringt ihren Versionsvermerk nicht mit, wenn das Ziel schon einen hat:
+  `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
+  dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
 
 **Update auf Baustein 7** (Migration `ddc9a184ddb4`: Journal, Buchungskorrekturen,
 Monatsabschlüsse, `storniert_durch`/`storno_von`, SQLite-Trigger): Die Sicherung vorher
-liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `alembic
-upgrade head` und **vor** `docker compose up -d` einmal
+liest die alte Datenbank auch mit dem neuen Abbild (nur vorhandene Spalten). Nach `db
+upgrade` (bzw. `alembic upgrade head`) und **vor** `docker compose up -d` einmal
 
 ```bash
 docker compose run --rm app journal uebernehmen    # Bestand von vor dem Journal eintragen
