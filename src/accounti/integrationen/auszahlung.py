@@ -52,9 +52,11 @@ Nachprüfungen 1–5 E):
    Bank, ohne Befund.
 7. Befunde über einen Umsatz (``_UMSATZBEFUNDE``) gelten, solange ein Lauf sie so
    wiederfindet — nennt ein späterer einen anderen oder keinen Umsatz mehr (etwa weil
-   die fremde Nummer inzwischen bekannt ist), ist der alte erledigt; „mehrdeutig“
-   und „abweichung“ ersetzt ein neuer Text, und findet ein Lauf gar nichts mehr,
-   sind alle erledigt. Ein Treffer erledigt alle Abgleichsbefunde des Postens.
+   die fremde Nummer inzwischen bekannt ist), ist der alte erledigt — „schon
+   gebucht“ neben „mehrdeutig“ nur, wenn im Fenster kein Erlös mehr gebucht ist;
+   „mehrdeutig“ und „abweichung“ ersetzt ein neuer Text, und findet ein Lauf gar
+   nichts mehr, sind alle erledigt. Ein Treffer erledigt alle Abgleichsbefunde des
+   Postens.
 8. Eine Zuordnung zu einem Umsatz ohne die eigene Nummer (als noch keiner sie
    nannte) bezweifelt der Abgleich, sobald im Fenster einer mit der Nummer steht —
    als Erlös gebucht ist das ``auszahlung_anderweitig_gebucht`` (die Voranmeldung

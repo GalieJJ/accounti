@@ -569,7 +569,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   mit mehreren Abrechnungen gleicht erst ab, wenn alle gespeichert sind. „Schon gebucht“ gilt
   mit exakt dem erwarteten Betrag auch ohne Stichwort (wie der Treffer); ohne `bank_stichworte`
   warnt der Import (`bank_stichworte_leer`) — in Fremdwährung erkennt der Abgleich eine
-  Auszahlung ohne Stichwort und Nummer nicht, die Kontierung buchte sie als Erlös
+  Auszahlung ohne Stichwort und Nummer nicht, die Kontierung buchte sie als Erlös. Die Warnung
+  `auszahlung_andere_nummer` kommt auch ohne Stichwort, wo der exakte Betrag Treffer wäre
+  (sonst blieb die Auszahlung still offen); „schon gebucht“ erledigt sich nach der Korrektur
+  auch, wenn danach mehrere Umsätze passen (vorher blieb der Fehler und schlug die Korrektur
+  einer stornierten Buchung vor)
 - **Marktplatz: bezweifelte Zuordnung ohne Ausweg** (Nachprüfung 5 E, N1): Kam der Umsatz mit
   der eigenen Nummer nach einer Zuordnung ohne sie, blieb die Zuordnung, auch nach der
   vorgeschlagenen Korrektur — das Verrechnungskonto behielt einen Rest, die andere Abrechnung
