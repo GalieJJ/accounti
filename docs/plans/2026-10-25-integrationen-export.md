@@ -275,6 +275,15 @@ DATEV-Übergabe:
   Fremdwährung findet der Abgleich eine Auszahlung ohne Stichwort und ohne Nummer nicht — mit
   leeren `bank_stichworte` bucht die Kontierung sie dann als Erlös, still doppelt; der Import
   warnt deshalb (`bank_stichworte_leer`). In Euro erkennt ihn „schon gebucht“ am exakten Betrag.
+  Weitere Grenzen aus der Simulation (19 584 Läufe, Prüfung nach jedem Schritt; Skripte unter
+  `.claude/arbeit/s/gesamttest/r6-e/`): Ein Teilbetrag oder ein Betrag zu einer Abrechnung mit
+  falschem Kurs, der statt der Nummer eine Referenz mit dem Anfang der Auszahlungsnummern nennt,
+  bleibt ohne Befund offen (Regel 4 hält ihn zurück, eine Abweichung wäre bei einer echten
+  fremden Auszahlung ein falscher Fehler) — kontiert wird er nicht. Ohne Stichwort, ohne Nummer
+  und bei gleichen Beträgen kann ein als Erlös gebuchter Umsatz still bleiben, bis die zweite
+  Abrechnung importiert ist (die erste nimmt den offenen Umsatz gleichen Betrags). Eine
+  Zuordnung von Hand prüft Betrag und Richtung: bei falschem Kurs lehnt `marktplatz zuordnen`
+  ab, bis die Abrechnung mit dem richtigen Kurs vorliegt.
   Mehrere schon gebuchte Umsätze ohne Nummer: der Befund nennt alle, der Mensch
   entscheidet (kein „nächster Betrag“ — der wäre geraten). Der exakte Betrag entscheidet bei
   „schon gebucht“ erst nach der eigenen Nummer (in Fremdwährung ist er Zufall); beim Treffer
