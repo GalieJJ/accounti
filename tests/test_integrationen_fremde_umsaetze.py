@@ -1278,3 +1278,65 @@ def test_datum_als_shopify_nummer_nennt_keine_abrechnung(umgebung):
     _bank_lauf_mit_regel(s, kontext)
     assert e.id in _zugeordnet(s, "6001234567")
     assert not _befunde(s, "2026-08-21", hinweise=True)
+
+
+# --- Nachprüfung 7 E, N2: „vielleicht gebucht“ in der UStVA, nicht verdeckt --------
+
+
+def _ustva_hinweise(s, monat):
+    from accounti.elster.ustva import marktplatz_befunde
+    from accounti.steuer.zeitraum import Zeitraum
+
+    return [
+        b.text
+        for b in marktplatz_befunde(s, Zeitraum.lies(monat))
+        if b.schweregrad.value == "hinweis"
+    ]
+
+
+def _auszahlung_ohne_stichwort_als_erloes(s, kontext):
+    """Fall c1: die echte Amazon-Auszahlung trägt weder Stichwort noch Nummer und
+    ist vor dem Import per Regel als Erlös gebucht."""
+    k = bank(s, date(2026, 9, 3), "209.85", "SEPA GUTSCHRIFT AUSZAHLUNG")
+    _bank_lauf_mit_regel(s, kontext, r"GUTSCHRIFT")
+    assert buchungen_zur_transaktion(s, k.id)
+    return k
+
+
+def test_vielleicht_gebucht_steht_als_hinweis_in_der_ustva(umgebung):
+    """N2, Fall c1: mit ``bank_stichworten`` ist „vielleicht gebucht“ ein Hinweis —
+    die UStVA des Bankmonats (8400 doppelt) schwieg. Sie zeigt ihn jetzt als Hinweis
+    (nicht sperrend, keine Warnung)."""
+    s, archiv, kontext = umgebung
+    _auszahlung_ohne_stichwort_als_erloes(s, kontext)
+    _amazon_september(s, archiv, kontext)
+    (b,) = _befunde(s, "11223344556", hinweise=True)
+    assert b.code == "auszahlung_vielleicht_gebucht"
+    assert b.schweregrad is Schweregrad.HINWEIS
+    assert not _ustva_warnungen(s, "2026-09")
+    (hinweis,) = _ustva_hinweise(s, "2026-09")
+    assert "auszahlung_vielleicht_gebucht" in hinweis
+    assert not _ustva_hinweise(s, "2026-08")
+
+
+def test_vielleicht_gebucht_geht_hinter_einem_anderen_befund_nicht_unter(umgebung):
+    """N2, Fall c3: wie c1, dazu ein offener Umsatz mit Stichwort in anderer Höhe —
+    der FEHLER ``auszahlung_abweichung`` verdeckte den Hinweis, die UStVA warnte nur im
+    August (Abrechnungszeitraum), nicht im September, wo der doppelte Erlös steht."""
+    s, archiv, kontext = umgebung
+    _auszahlung_ohne_stichwort_als_erloes(s, kontext)
+    bank(
+        s,
+        date(2026, 9, 5),
+        "100.00",
+        "AMAZON PAYMENTS EUROPE",
+        "Amazon Payments Europe S.C.A.",
+    )
+    _amazon_september(s, archiv, kontext)
+    codes = sorted(b.code for b in _befunde(s, "11223344556", hinweise=True))
+    assert codes == ["auszahlung_abweichung", "auszahlung_vielleicht_gebucht"]
+    assert _ustva_hinweise(s, "2026-09")
+    # ein zweiter Abgleich findet beide wieder — nichts doppelt, nichts erledigt
+    gleiche_auszahlungen_ab(s, kontext)
+    codes = sorted(b.code for b in _befunde(s, "11223344556", hinweise=True))
+    assert codes == ["auszahlung_abweichung", "auszahlung_vielleicht_gebucht"]

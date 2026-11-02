@@ -801,10 +801,16 @@ def _anderweitig(ergebnis):
 
 
 def _ustva_warnungen(s, monat):
+    """Warnungen der UStVA-Prüfung aus Marktplatz-Befunden — ohne die Hinweise
+    („vielleicht gebucht“ mit Stichworten, Nachprüfung 7 E, N2)."""
     from accounti.elster.ustva import marktplatz_befunde
     from accounti.steuer.zeitraum import Zeitraum
 
-    return [b.text for b in marktplatz_befunde(s, Zeitraum.lies(monat))]
+    return [
+        b.text
+        for b in marktplatz_befunde(s, Zeitraum.lies(monat))
+        if b.schweregrad.value != "hinweis"
+    ]
 
 
 @pytest.mark.parametrize("neu_zuerst", [False, True], ids=["alt_zuerst", "neu_zuerst"])

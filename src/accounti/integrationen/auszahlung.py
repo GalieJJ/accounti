@@ -371,6 +371,15 @@ def warnt_voranmeldung(befund: Befund) -> bool:
     )
 
 
+def hinweis_voranmeldung(befund: Befund) -> bool:
+    """Gehört der offene Befund als Hinweis in die Prüfung der Voranmeldung (nicht
+    sperrend, keine Warnung)? „Vielleicht gebucht“ als Hinweis (mit
+    ``bank_stichworte``): vielleicht steht der Erlös doppelt im Bankmonat —
+    vielleicht ist es eine Kundenzahlung; die Voranmeldung schwieg dazu (Nachprüfung
+    7 E, N2)."""
+    return befund.code == VIELLEICHT and befund.schweregrad is Schweregrad.HINWEIS
+
+
 def bankdatum(befund: Befund) -> date | None:
     """Erster Tag aus ``bankdaten`` (``None``, wenn der Befund keinen nennt)."""
     tage = bankdaten(befund)

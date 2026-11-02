@@ -195,7 +195,9 @@ def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
 def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
     """Offene Fehler-Befunde von Marktplatz-Abrechnungen des Zeitraums — z.B. eine
     Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt) — und die
-    Warnung „vielleicht gebucht“ (``auszahlung.warnt_voranmeldung``).
+    Warnung „vielleicht gebucht“ (``auszahlung.warnt_voranmeldung``) als Warnung; den
+    Hinweis „vielleicht gebucht“ (mit ``bank_stichworte``) als Hinweis, nicht
+    sperrend (``auszahlung.hinweis_voranmeldung``, Nachprüfung 7 E, N2).
 
     Maßgeblich ist der Zeitraum der Abrechnung; eine schon gebuchte Auszahlung
     (``auszahlung_anderweitig_gebucht``) zählt dagegen im Zeitraum der Bankbuchung —
@@ -203,14 +205,22 @@ def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
     mehrere Umsätze, weil nicht zu entscheiden ist, welcher die Auszahlung ist, in
     jedem ihrer Zeiträume)."""
     from accounti.db.repo_integrationen import lade_abrechnungen
-    from accounti.integrationen.auszahlung import bankdaten, warnt_voranmeldung
+    from accounti.integrationen.auszahlung import (
+        bankdaten,
+        hinweis_voranmeldung,
+        warnt_voranmeldung,
+    )
     from accounti.integrationen.buchung import ANZEIGE
 
     befunde = []
     for a in lade_abrechnungen(session):
         im_zeitraum = not (a.bis < zeitraum.von or a.von > zeitraum.bis)
         for b in a.offene_befunde:
-            if not warnt_voranmeldung(b):
+            if warnt_voranmeldung(b):
+                schwere, was, tun = Schweregrad.WARNUNG, "Befund", "klären"
+            elif hinweis_voranmeldung(b):
+                schwere, was, tun = Schweregrad.HINWEIS, "Hinweis", "prüfen"
+            else:
                 continue
             tage = bankdaten(b)
             if not (
@@ -222,10 +232,10 @@ def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
             markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
             text = (
                 f"Marktplatz {markt} {a.nummer} ({a.von:%d.%m.}–{a.bis:%d.%m.%Y}) hat "
-                f"einen offenen Befund {b.code}: {b.text} — vor der Abgabe klären "
+                f"einen offenen {was} {b.code}: {b.text} — vor der Abgabe {tun} "
                 "(accounti marktplatz zeigen …)"
             )
-            befunde.append(Befund("marktplatz", Schweregrad.WARNUNG, text))
+            befunde.append(Befund("marktplatz", schwere, text))
     return befunde
 
 
