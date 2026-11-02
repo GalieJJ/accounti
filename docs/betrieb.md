@@ -587,8 +587,11 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
   Passwörter in URLs und Parameter wie `passwort=`, `token=`, `code=` — auch in Stacktraces.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
-  geplante Lauf protokolliert nur Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle
-  geschwärzt auf Stufe DEBUG).
+  geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle
+  geschwärzt auf Stufe DEBUG); schlägt ein Schritt fehl, steht in der Warnung auch der Grund
+  — die letzten Zeilen seiner Ausgabe, geschwärzt, höchstens 600 Zeichen (z. B. „bank lauf →
+  1 (5 s): config/regeln.yaml: Regel telekom: unbekannter Schlüssel kommentar …“). Diese
+  Meldung kann einen Namen enthalten, etwa den einer Regel oder Gegenpartei.
 - `ACCOUNTI_PROTOKOLL_FORMAT=json` für einen Log-Sammler; in Docker landet alles in
   `docker compose logs`.
 
@@ -761,3 +764,17 @@ vor früher übernommene Regeln (`regeln liste` zeigt den Vorrang; bei Bedarf de
 neu lernen). Ein Lauf, der nichts übernähme (keine Datei, nur ungültige Einträge, nur
 unbekannte Namen), verbraucht keinen Einmalcode. Hat ein Befehl des neuen Abbilds die neuen
 Tabellen vor der Migration schon angelegt, übernimmt die Migration sie.
+
+**Verhaltensänderung: Die Regeldatei wird streng geprüft** (10b-1). Jeder Eintrag der
+Regeldatei (`config/regeln.yaml` bzw. die der Gesellschaft) muss gültig sein — sonst hält
+die **ganze Datei** an: `classify`, `bank lauf` (samt Bankabruf), `opos verbuchen` und der
+REST-Lauf (409) brechen mit einer Meldung ab (Datei, Regel, Schlüssel), bis der Eintrag
+berichtigt ist. Ein Fehler ist ein Feld, das der Lader nicht kennt (auch ein Zusatzfeld wie
+`kommentar:` oder `aktiv:`, ein Tippfehler wie `prüfen:` — es wirkte bisher still nicht),
+ein Steuerschlüssel, den accounti nicht kennt (0, 4, 40, 99 …; bekannt sind 1, 2, 3, 8, 9,
+18, 19, 91, 94), eine Kontonummer außerhalb von 4–9 ASCII-Ziffern und YAML-Zahlformen wie
+`0x1340`, `1:20:00` oder `4_920`. Gebucht wird dadurch nichts falsch; der erste Lauf nach
+der Korrektur holt alles nach. Eigene Bestandsdateien haben den neuen Kopfkommentar der
+mitgelieferten `config/regeln.yaml` nicht — vor dem Update auf Zusatzfelder durchsehen
+(Kommentare gehören hinter `#`). Im geplanten Lauf steht die Meldung im Protokoll
+(`docker compose logs lauf`).

@@ -322,6 +322,14 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - CI-Pipeline (GitHub Actions)
 
 ### Geändert
+- **Die Regeldatei wird streng geprüft** (Baustein 10b, Teil 1): Ein Eintrag mit einem Feld,
+  das der Lader nicht kennt (auch ein Zusatzfeld wie `kommentar:` oder `aktiv:`), einem
+  unbekannten Steuerschlüssel, einer Kontonummer außerhalb von 4–9 Ziffern oder einer
+  YAML-Zahlform wie `0x1340` hält die **ganze Regeldatei** an — `classify`, `bank lauf`
+  (samt Bankabruf), `opos verbuchen` und der REST-Lauf (409) melden den Fehler mit Datei,
+  Regel und Schlüssel, bis er berichtigt ist; bisher wurde ein solches Feld still ignoriert.
+  Bestandsdateien vor dem Update durchsehen (Kommentare hinter `#`), siehe
+  [docs/betrieb.md](docs/betrieb.md), „Upgrades“.
 - `accounti korrigiere --lernen` **und `accounti lerne`** speichern die Regel in der Datenbank
   der Gesellschaft (Tabelle `kontierungsregeln`, mit Journal) statt sie an die Regeldatei
   anzuhängen; accounti schreibt die Regeldatei nicht mehr. Gelernte Regeln haben Vorrang vor der
@@ -622,6 +630,28 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   zulässig; gesperrt bleiben die Forderungen aus Lieferungen und Leistungen. Hilfe und
   betrieb.md: übernommene Einträge erst nach allen Läufen mit `--name` aus der Regeldatei
   löschen.
+- **Nachbesserung 10b-1, Runde 5** (Nachprüfung g4w): **§ 14c/§ 17 UStG beim Tausch von
+  Soll und Haben:** `korrigiere <id> --soll 8400 --haben 10001` auf „10001 an 8400, Schlüssel
+  3“ lief ohne Grund durch (auch im Browser über das normale Formular und in der Queue) — die
+  Voranmeldung zeigte danach Kz 81 −500 und Kz 83 −95 („Erstattung“) und ließ die Freigabe zu
+  (schon auf main). Bei einer Belegbuchung bestimmt jetzt der Beleg die Richtung: Eine
+  Korrektur, die die Sachseite umdreht, wird abgelehnt — bei jeder Belegbuchung, auch mit
+  Vorsteuer oder ohne Steuer; die Berichtigung ist ein eigener Beleg
+  (Gutschrift/Rechnungskorrektur). Konten derselben Seite bleiben korrigierbar.
+  **Storno ohne Neubuchung:** Hat ein Beleg mit ausgewiesener Umsatzsteuer danach keine
+  wirksame Buchung mehr, warnt das Storno (§ 14c Abs. 1 UStG), und die neue Prüfregel
+  `beleg_ust_ohne_buchung` meldet ihn. **Kontenrahmen-Datei:** Eine fehlende oder kaputte
+  `pruefung.kontenrahmen_datei` ergibt bei `kasse buchen --konto …` und `korrigiere` eine
+  Meldung (Exit 1) statt eines Tracebacks. **`regeln uebernehmen`:** Ein langer Name, der in
+  den ersten 100 Zeichen einer übernommenen Regel mit anderem Inhalt gleicht, ist ungültig
+  („Regelname … ist schon vergeben“) statt still „schon vorhanden“. **Neunstellige
+  Personenkonten** (DATEV-Sachkontenlänge 8): `korrigiere`, Queue, `lerne`, Regeldatei und
+  `kasse buchen --konto` nehmen Konten mit 4–9 Ziffern, der Kontenrahmen erkennt 9 Stellen
+  als Personenkonto, und `export datev` trägt die Sachkontenlänge aus
+  `mandant.sachkonten_laenge` in den Kopf (bisher immer 4) und warnt bei Konten, die nicht
+  dazu passen. **Regeldatei:** Steuerschlüssel 1 (umsatzsteuerfrei, Kennziffer aus dem Konto)
+  ist wieder zulässig. **Geplanter Lauf:** Schlägt ein Schritt fehl, steht der Grund (die
+  letzten Zeilen der Ausgabe, geschwärzt) mit im Protokoll statt nur „bank lauf → 1“.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

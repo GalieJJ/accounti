@@ -577,7 +577,11 @@ accounti journal uebernehmen                   # einmal nach dem Update einer ä
 
 Ab der Freigabe (auch automatisch gebuchte Buchungen) ist eine Korrektur eine Stornobuchung
 mit Neubuchung; beide bleiben sichtbar und verweisen aufeinander. Ändert sich das Sachkonto,
-gehört `--steuer` oder `--ohne-steuer` dazu. Einen festgeschriebenen Monat öffnet nur, wer
+gehört `--steuer` oder `--ohne-steuer` dazu. Bei einer Buchung mit Beleg bestimmt der Beleg
+die Richtung: Soll und Haben tauschen lehnt `korrigiere` ab (§ 14c, § 17 UStG) — eine
+Gutschrift bzw. Rechnungskorrektur ist ein eigener Beleg (`rechnung neu --korrektur-zu`).
+Nimmt ein Storno einem Beleg mit ausgewiesener Umsatzsteuer die letzte Buchung, warnt es
+(Prüfregel `beleg_ust_ohne_buchung`). Einen festgeschriebenen Monat öffnet nur, wer
 einen Grund angibt — protokolliert wie der Jahresabschluss. Nur die EB-Werte des
 Saldovortrags am 01.01. nimmt ein festgeschriebener Januar noch an; eine Eingangsrechnung zu
 einem festgeschriebenen Monat bucht `opos verbuchen --buchungsdatum` in einen offenen Monat —

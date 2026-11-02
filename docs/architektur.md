@@ -284,7 +284,11 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   (`kontierungsregeln`, mit Bestandsabgleich). *(vorhanden)*
 - `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
   Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
-  sitzt in `ereignisse.py`. *(vorhanden)*
+  sitzt in `ereignisse.py`. Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine
+  Korrektur, die die Sachseite umdreht (wie die Voranmeldung sie liest,
+  `kennziffern.sachseite`), lehnt `korrigiere` ab (§ 14c, § 17 UStG — Berichtigung als
+  eigener Beleg); ein Storno ohne Neubuchung, nach dem ein Beleg mit ausgewiesener USt keine
+  wirksame Buchung mehr hat, warnt (Prüfregel `beleg_ust_ohne_buchung`). *(vorhanden)*
 - `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
   Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
   gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
@@ -435,7 +439,7 @@ Wirtschaftsjahr ab.
   EB-Werte, Summen- und Saldenliste. *(vorhanden)*
 - `kassenbuch.py` — Kassenbuch (Tabelle `kassenbuch`, nur anfügen): laufende Nummer, Bestand nie
   negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos, nie in einem
-  abgeschlossenen Jahr oder festgeschriebenen Monat. Mit Gegenkonto (4–8 ASCII-Ziffern) und
+  abgeschlossenen Jahr oder festgeschriebenen Monat. Mit Gegenkonto (4–9 ASCII-Ziffern) und
   Steuersatz (nur 19 oder 7 %) entsteht sofort eine geprüfte Buchung — nicht, wenn die Prüfregel
   `steuerschluessel_konto` sie als Fehler einstuft (Vorsteuer auf Erlös, USt auf Aufwand, Steuer
   auf einem Personenkonto). *(vorhanden)*
@@ -798,10 +802,10 @@ Vorzeichen: Bankkonto auf der falschen Seite → tauschen und zur Prüfung; kein
 Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung; ergäbe die Kontierung Soll =
 Haben, bleibt der Umsatz offen (`buchung/kontierung.py`). Aus einer Umbuchung zwischen eigenen
 Geldkonten mit Kontoauszug (`Kontenrahmen.ist_zahlungsmittel`, ohne Geldtransit) wird keine
-gelernte Regel. Der Lader (`klassifikation/regeln_loader.py`) prüft jeden Wert — Konten 4–8
-ASCII-Ziffern (nur schlichte Dezimalzahlen liest er als Zahl: `0x1340`, `1:20:00`, `4_920`
+gelernte Regel. Der Lader (`klassifikation/regeln_loader.py`) prüft jeden Wert — Konten 4–9
+ASCII-Ziffern (Personenkonten bei DATEV-Sachkontenlänge 8 haben 9 Stellen) (nur schlichte Dezimalzahlen liest er als Zahl: `0x1340`, `1:20:00`, `4_920`
 bleiben Text und sind keine Kontonummer), Muster nicht leer, ein Steuerschlüssel, den accounti
-kennt (2, 3, 8, 9, 18, 19, 91, 94), keine unbekannten Schlüssel (`prüfen`, `steuerschluessel`)
+kennt (1, 2, 3, 8, 9, 18, 19, 91, 94), keine unbekannten Schlüssel (`prüfen`, `steuerschluessel`)
 — und meldet einen Fehler mit Regelname. Die eingebauten Regeln
 liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
 Kontenrahmen keine).

@@ -1671,9 +1671,33 @@ Durchlaufs mit Markern in allen Fremddaten.
   (`steuer_optionen`); § 13b bzw. ig. Erwerb auf einer Belegbuchung (Paket C) setzt die CLI
   (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung mit ausgewiesener
   Umsatzsteuer (2/3, § 14c Abs. 1 UStG: Berichtigung als neuer Beleg; Runde 4).
-- Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–8 ASCII-Ziffern,
-  Muster nicht leer, bekannter Steuerschlüssel, keine unbekannten Schlüssel); ob es das Konto im
-  Kontenrahmen gibt, prüft er nicht, `confidence` hat keinen Bereich (über 1 wirkt wie 1). Ein
+- Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1): `korrigiere`
+  lehnt jede Korrektur ab, die die Sachseite umdreht — für jede Belegbuchung, nicht nur bei
+  ausgewiesener USt. Die Sachseite liest dieselbe Logik wie die Voranmeldung
+  (`kennziffern.sachseite`: Gegenkonto sind Geld- und Personenkonten nach den Bereichen der
+  Buchhaltung und die Gegenkontenbereiche des Kontenrahmens; zwischen zwei Sachkonten
+  entscheidet das Erlöskonto). Eine Belegbuchung zwischen zwei Gegenkonten (Zahlung an ein
+  Personenkonto) hat keine Sachseite und bleibt tauschbar; ihre Bankseite prüft die
+  Finanzkonto-Regel. Ist die Belegbuchung selbst falsch herum gebucht, bleibt das Storno mit
+  Grund; eine Neubuchung mit demselben Beleg von Hand gibt es nicht (Folgearbeit).
+- Ein Storno ohne Neubuchung bleibt erlaubt (Runde 5, g4w N2); hat ein Beleg mit
+  ausgewiesener USt danach keine wirksame Buchung, warnt es, und `beleg_ust_ohne_buchung`
+  meldet ihn im Zeitraum des Stornos, bis wieder gebucht ist — eine Begründung, die den
+  Befund schließt, gibt es nicht (wie bei den anderen Prüfregeln: Befund mit Begründung
+  stehen lassen). Vorsteuer warnt nicht.
+- Steuerschlüssel 1 (umsatzsteuerfrei) nimmt nur die Regeldatei (und `regeln uebernehmen`)
+  wieder an (Runde 5, g4w N6); `korrigiere --steuer`, `lerne --steuer` und der Browser bieten
+  ihn wie in Runde 4 entschieden nicht an.
+- Personenkonten erkennt der Kontenrahmen an der Länge: 5 Stellen (Sachkontenlänge 4) oder 9
+  (Sachkontenlänge 8, Runde 5, g4w N5); bei Sachkontenlänge 5–7 (Personenkonten 6–8 Stellen)
+  nicht — accounti rechnet mit 4-stelligen Sachkonten, 6-stellige sind Unterkonten. Die
+  Voranmeldung und die Prüfregeln nehmen Personenkonten aus den Bereichen der Buchhaltung
+  (`debitoren_von` …), die zu den 9 Stellen passen müssen. `export datev` nimmt die
+  Sachkontenlänge aus `mandant.sachkonten_laenge`, prüft die Konten aber nur der Länge nach
+  (Warnung), wie `datev belege`.
+- Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–9 ASCII-Ziffern,
+  Muster nicht leer, bekannter Steuerschlüssel samt 1, keine unbekannten Schlüssel,
+  `confidence` von 0 bis 1); ob es das Konto im Kontenrahmen gibt, prüft er nicht. Ein
   Fehler in einem Eintrag hält die ganze Regeldatei an (Meldung mit Regelname), wie bisher bei
   Regex und `feld` — auch ein Zusatzfeld (z. B. `kommentar:`) ist jetzt ein Fehler; Kommentare
   gehören hinter `#`. Ebenso prüft das Kassenbuch das Gegenkonto der Form und der Prüfregel
