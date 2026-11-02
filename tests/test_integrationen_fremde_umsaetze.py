@@ -889,3 +889,70 @@ def test_regel4_auszahlungsnummern_bleiben(zweck):
         rohtext=zweck,
     )
     assert _andere_nummern(a, t) == ["6009990077"]
+
+
+def test_classify_kontiert_keinen_umsatz_mit_abgleichsbefund(tmp_path, monkeypatch):
+    """N-g, Fall s8: Regel 4 hält den Umsatz zurück (EREF mit dem Anfang der Amazon-
+    Nummern), der Beleg-Abgleich hat ihm einen Beleg bestätigt. ``bank lauf`` ließ
+    ihn offen, ``accounti classify`` buchte ihn aus dem Beleg (4900/1200 mit
+    Vorsteuer) — der Docstring sagte das Gegenteil. classify lässt jetzt offen,
+    worüber der Abgleich einen Befund hätte (ohne selbst abzugleichen)."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.db.repository import speichere_abgleich, speichere_beleg
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.models import AbgleichStatus, Belegabgleich
+    from tests.test_bank_abgleich import quittung
+
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    url = f"sqlite:///{tmp_path / 'c.db'}"
+    config = str(tmp_path / "fehlt.yaml")
+    engine, make = session_factory(url)
+    init_db(engine)
+    kontext = lade_kontext(config)
+    with make() as s:
+        _amazon_september(s, BelegArchiv(tmp_path / "archiv"), kontext)
+        tx = bank(
+            s,
+            date(2026, 9, 3),
+            "209.85",
+            "AMAZON PAYMENTS EUROPE EREF 11223399999",
+            "Amazon Payments Europe S.C.A.",
+        )
+        beleg = quittung(
+            brutto="209.85",
+            netto=Decimal("176.34"),
+            steuer=Decimal("33.51"),
+            lieferant_name="Amazon Payments Europe S.C.A.",
+            belegdatum=date(2026, 9, 3),
+        )
+        speichere_beleg(s, beleg)
+        speichere_abgleich(
+            s,
+            Belegabgleich(
+                transaktion_id=tx.id,
+                beleg_id=beleg.id,
+                stufe="exakt",
+                status=AbgleichStatus.BESTAETIGT,
+                confidence=1.0,
+                begruendung="Test",
+            ),
+        )
+        s.commit()
+        vorher = len(lade_buchungen(s))
+    engine.dispose()
+    r = CliRunner().invoke(
+        app, ["classify", "--db", url, "--no-llm", "--config", config]
+    )
+    assert r.exit_code == 0, r.output
+    assert "Marktplatz" in r.output, r.output
+    engine, make = session_factory(url)
+    with make() as s:
+        assert not buchungen_zur_transaktion(s, tx.id)
+        assert len(lade_buchungen(s)) == vorher  # classify gleicht nicht ab
+        (a,) = lade_abrechnungen(s)
+        assert all(p.bank_transaktion_id is None for p in a.posten)
+    engine.dispose()

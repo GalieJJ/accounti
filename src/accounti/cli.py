@@ -2816,7 +2816,8 @@ def classify(
     from accounti.betrieb.kontext import regeln_datei
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
-    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
     from accounti.klassifikation.engine import (
         KlassifikationsEngine,
         RegelwerkEngine,
@@ -2828,7 +2829,7 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
-        integrationen = lade_integrationen(config)
+        kontext = lade_kontext(config)
         eigene = lade_regeln(regeln_datei())
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2851,8 +2852,16 @@ def classify(
     # derselbe Schritt wie in bank lauf — nie zwei gleichzeitig (Doppelbuchung)
     with laufsperre_oder_ende(db), make_session() as s:
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
-        # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        lauf = kontiere_umsaetze(s, engine, einstellungen, integrationen)
+        # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand) — und wie in bank
+        # lauf, was der Marktplatz-Abgleich als Auszahlung mit Befund sähe
+        # (Nachprüfung 6 E, N-g; classify selbst gleicht nicht ab)
+        lauf = kontiere_umsaetze(
+            s,
+            engine,
+            einstellungen,
+            kontext.einstellungen,
+            auslassen=umsaetze_ohne_abgleich(s, kontext),
+        )
         s.commit()
     console.print(
         f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "

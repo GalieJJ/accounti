@@ -90,9 +90,11 @@ lauf`` lassen einen Eingang mit Stichwort offen, solange keine Abrechnung ihn
 abgeglichen hat, und ebenso jeden Umsatz, den eine importierte Abrechnung noch
 erwartet — auch mit einem Befund dieses Abgleichs. ``bank lauf`` kontiert keinen
 Umsatz, über den der Abgleich desselben Laufs einen Befund hat, auch nicht aus einem
-Beleg (``Abgleich.umsaetze``). Als Erlös gebucht („schon gebucht“, Regeln 6 und 8)
-ist eine Auszahlung deshalb nur von Hand, ohne Stichwort (``bank_stichworte: []``
-oder ein Verwendungszweck ohne) oder aus der Zeit vor dieser Regel.
+Beleg (``Abgleich.umsaetze``), und gibt ihn auch opos nicht als Zahlung (Nachprüfung
+6 E, Mb); ``classify`` ebenso, ohne selbst abzugleichen (``umsaetze_ohne_abgleich``,
+N-g). Als Erlös gebucht („schon gebucht“, Regeln 6 und 8) ist eine Auszahlung
+deshalb nur von Hand, ohne Stichwort (``bank_stichworte: []`` oder ein
+Verwendungszweck ohne) oder aus der Zeit vor dieser Regel.
 
 Grenzen: Ohne Nummer im Verwendungszweck entscheiden Stichwort und Betrag — die
 Zuordnung ist geraten (Hinweis, Regel 5): welcher von zwei Umsätzen in der Toleranz
@@ -193,6 +195,21 @@ def umsaetze_mit_befund(abgleiche: Iterable[Abgleich]) -> dict[UUID, str]:
 # ein als Erlös gebuchter Umsatz mit genau dem Betrag, aber ohne Stichwort und Nummer
 # (Regel 6, Nachprüfung 6 E, Mc) — Warnung ohne ``bank_stichworte``, sonst Hinweis
 VIELLEICHT = "auszahlung_vielleicht_gebucht"
+
+
+def umsaetze_ohne_abgleich(session: Session, kontext: Kontext) -> dict[UUID, str]:
+    """Wie ``umsaetze_mit_befund`` nach einem Abgleich — aber ohne abzugleichen: der
+    Abgleich läuft in einem Sicherungspunkt, der danach zurückgerollt wird (nichts
+    gebucht, kein Befund gespeichert). Für ``classify``, das nur kontiert und
+    trotzdem nichts buchen darf, worüber der Abgleich einen Befund hätte, auch nicht
+    aus einem Beleg (Nachprüfung 6 E, N-g)."""
+    punkt = session.begin_nested()
+    try:
+        return umsaetze_mit_befund(gleiche_auszahlungen_ab(session, kontext))
+    finally:
+        punkt.rollback()
+
+
 ABGLEICHSBEFUNDE = {
     "auszahlung_abweichung",
     "auszahlung_mehrdeutig",
