@@ -372,3 +372,176 @@ def test_kartengutschrift_nicht_im_befund_mehrdeutig(umgebung):
     ergebnis = _amazon_september(s, archiv, kontext)
     (m,) = ergebnis.abgleich
     assert m.transaktion is not None and m.transaktion.id == k.id
+
+
+# --- Md: Umsätze eines anderen Vorgangs sind keine Kandidaten ----------------------
+
+
+def _paypal(s, archiv, kontext):
+    """PayPal importiert: Auszahlung +150 € (12.08.), Einzahlung −50 € (20.08.)."""
+    from tests.test_integrationen_lauf import paypal
+
+    (ergebnis,) = paypal(s, archiv, kontext)
+    return ergebnis.abrechnung.nummer
+
+
+def _paypal_zugeordnet(s):
+    (a,) = [x for x in lade_abrechnungen(s) if x.marktplatz == "paypal"]
+    return {
+        x.bank_transaktion_id for x in a.posten if x.bank_transaktion_id is not None
+    }
+
+
+def test_paypal_nimmt_keine_kundenzahlung_mit_rechnungsnummer(umgebung):
+    """Md, Fall s22: PayPal importiert, bevor sein Bankumsatz kommt; ein Kunde zahlt
+    RE-2026-12 über genau 150,00 €. Der Abgleich läuft in ``bank lauf`` vor opos
+    (29d4801) und nahm die Kundenzahlung als PayPal-Auszahlung (1200/1360), ohne
+    Befund — RE-2026-12 blieb offen (Mahnung droht), PayPals Umsatz für immer offen.
+    Ein Umsatz mit der Nummer einer Rechnung (opos) ist keine Auszahlung."""
+    s, archiv, kontext = umgebung
+    _forderung(s, "RE-2026-12", "150.00")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    nummer = _paypal(s, archiv, kontext)
+    kunde = bank(s, date(2026, 8, 14), "150.00", "RE-2026-12", "Galerie Nord GmbH")
+    lauf = _bank_lauf_mit_regel(s, kontext, r"PAYPAL")
+    assert kunde.id not in _paypal_zugeordnet(s)
+    assert [b.haben_konto for b in buchungen_zur_transaktion(s, kunde.id)] == ["10001"]
+    assert lauf.zuordnung.gebucht  # opos gleicht RE-2026-12 aus
+    assert not _befunde(s, nummer, hinweise=True)
+    p = bank(s, date(2026, 8, 16), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    _bank_lauf_mit_regel(s, kontext, r"PAYPAL")
+    assert p.id in _paypal_zugeordnet(s)
+    assert not _befunde(s, nummer, hinweise=True)
+
+
+def test_paypal_nimmt_keinen_umsatz_mit_fremdem_stichwort(umgebung):
+    """Md, Fall s5: PayPal nahm „EBAY MANAGED PAYMENTS AUSZAHLUNG 6001234567“ als
+    seine Auszahlung; der Import von eBay 6001234567 fand danach nichts (1362 =
+    150 €), ohne Befund. Ein Umsatz mit dem Stichwort eines anderen Marktplatzes
+    (und ohne das eigene) gehört nicht zu dieser Auszahlung."""
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    s, archiv, kontext = umgebung
+    e = bank(s, date(2026, 8, 13), "150.00", f"{EBAY} AUSZAHLUNG 6001234567", "eBay")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    nummer = _paypal(s, archiv, kontext)
+    assert e.id not in _paypal_zugeordnet(s)
+    assert not _befunde(s, nummer)
+    importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        ebay_bericht(
+            (
+                "10.08.2026",
+                "Bestellung",
+                "12-567",
+                "Deutschland",
+                "150,00",
+                "6001234567",
+                "",
+            ),
+            ("13.08.2026", "Auszahlung", "", "", "-150,00", "6001234567", "13.08.2026"),
+        ),
+        "e.csv",
+    )
+    assert e.id in {
+        p.bank_transaktion_id
+        for a in lade_abrechnungen(s)
+        if a.nummer == "6001234567"
+        for p in a.posten
+    }
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def test_umsatz_mit_nummer_eines_anderen_marktplatzes_ist_kein_kandidat(umgebung):
+    """Md: nennt der Umsatz die bekannte Nummer der Abrechnung eines anderen
+    Marktplatzes (hier eBay, ohne Stichwort), ist er nicht PayPals Auszahlung —
+    auch wenn eBay ihn selbst nicht nimmt (außerhalb ihres Fensters)."""
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    s, archiv, kontext = umgebung
+    importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        ebay_bericht(
+            (
+                "01.07.2026",
+                "Bestellung",
+                "12-567",
+                "Deutschland",
+                "150,00",
+                "6001234567",
+                "",
+            ),
+            ("02.07.2026", "Auszahlung", "", "", "-150,00", "6001234567", "02.07.2026"),
+        ),
+        "e.csv",
+    )
+    x = bank(s, date(2026, 8, 13), "150.00", "GUTSCHRIFT 6001234567")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    _paypal(s, archiv, kontext)
+    assert x.id not in _paypal_zugeordnet(s)
+
+
+def test_paypal_nimmt_keine_lastschrift_einer_offenen_eingangsrechnung(umgebung):
+    """Md (Gegenprüfung v7): PayPal erwartet die Einzahlung −50 € (20.08.), deren
+    Lastschrift noch fehlt; die Telekom bucht 50,00 € für eine offene
+    Eingangsrechnung ab. PayPal nahm sie (1360/1200) — Aufwand und Vorsteuer fehlten
+    in der UStVA. Die Belegnummer eines offenen Postens schließt aus."""
+    s, archiv, kontext = umgebung
+    k = Kontakt(name="Telekom Deutschland GmbH", kreditor_konto="70001")
+    speichere_kontakt(s, k)
+    speichere_posten(
+        s,
+        OffenerPosten(
+            kontakt_id=k.id,
+            beleg_id=uuid4(),
+            richtung=PostenRichtung.VERBINDLICHKEIT,
+            belegnummer="RG 2026 0815 4711",
+            belegdatum=date(2026, 8, 1),
+            betrag=Decimal("50.00"),
+            faellig_am=date(2026, 8, 20),
+        ),
+    )
+    bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    t = bank(
+        s,
+        date(2026, 8, 19),
+        "-50.00",
+        "RG 2026 0815 4711 Mobilfunk",
+        "Telekom Deutschland GmbH",
+    )
+    _paypal(s, archiv, kontext)
+    assert t.id not in _paypal_zugeordnet(s)
+    assert not buchungen_zur_transaktion(s, t.id)
+
+
+def test_paypal_zuordnung_ohne_stichwort_ist_ein_hinweis(umgebung):
+    """Md: bleibt ein Treffer ohne Stichwort (und ohne Nummer), ist die Zuordnung
+    geraten — auch bei PayPal, dessen Abrechnung keine Nummer im Verwendungszweck
+    hat, der Hinweis ``zuordnung_ohne_nummer`` (er fehlte dort immer)."""
+    s, archiv, kontext = umgebung
+    t = bank(s, date(2026, 8, 13), "150.00", "BAREINZAHLUNG")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    nummer = _paypal(s, archiv, kontext)
+    assert t.id in _paypal_zugeordnet(s)
+    (hinweis,) = _befunde(s, nummer, hinweise=True)
+    assert hinweis.code == "zuordnung_ohne_nummer"
+    assert "Stichwort" in hinweis.text and str(t.id)[:8] in hinweis.text
+    assert "nach Betrag und Stichwort" not in hinweis.text
+
+
+def test_paypal_mit_stichwort_ohne_hinweis(umgebung):
+    """Gegenprobe: PayPals eigener Umsatz mit Stichwort bekommt keinen Hinweis — die
+    PayPal-Abrechnung kann keine Nummer im Verwendungszweck haben."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    nummer = _paypal(s, archiv, kontext)
+    assert not _befunde(s, nummer, hinweise=True)

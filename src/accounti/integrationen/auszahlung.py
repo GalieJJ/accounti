@@ -9,7 +9,11 @@ Nachprüfungen 1–5 E):
    sind — nur von der Bank: nie PayPal-Umsätze, Kassenbuch-Vorgänge, Kartenumsätze
    (eine Auszahlung geht aufs Bankkonto, Nachprüfung 6 E, Mc, N-d), Umsätze auf
    einem Verrechnungskonto oder einer, dessen Zuordnung zu dieser Auszahlung von
-   Hand gelöst ist (Regel 9).
+   Hand gelöst ist (Regel 9). Ohne die eigene Nummer auch keiner, der erkennbar zu
+   etwas anderem gehört: mit dem Stichwort eines anderen Marktplatzes (und nicht dem
+   eigenen), der bekannten Nummer der Abrechnung eines anderen Marktplatzes oder der
+   Belegnummer einer Rechnung (opos) — eine Auszahlung nennt nie die Rechnung eines
+   Kunden (Nachprüfung 6 E, Md; ``bank lauf`` gleicht vor opos ab, 29d4801).
 2. Nummer vor Betrag: Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung
    desselben Marktplatzes (gespeichert oder aus demselben Bericht; als eigenes Wort,
    mindestens 6 Zeichen) und nicht die eigene, gehört er zu ihr — hier weder Treffer
@@ -39,9 +43,9 @@ Nachprüfungen 1–5 E):
    derselbe Umsatz der einzige Kandidat der Auszahlungen mehrerer Abrechnungen ist:
    keine bekommt ihn, jede warnt. Deshalb gleicht auch der Import einer einzelnen
    Abrechnung alle ab, ein Bericht mit mehreren erst, wenn alle gespeichert sind.
-   Nennt der Treffer die eigene Nummer nicht, ist die Zuordnung
-   geraten — das sagt ein Hinweis (``zuordnung_ohne_nummer``) mit dem Befehl aus
-   Regel 9.
+   Nennt der Treffer die eigene Nummer nicht (PayPal: trägt er kein Stichwort, die
+   Abrechnung hat keine Nummer im Verwendungszweck), ist die Zuordnung geraten — das
+   sagt ein Hinweis (``zuordnung_ohne_nummer``) mit dem Befehl aus Regel 9.
 6. Ohne Treffer gilt der erste dieser Befunde: ein als Erlös gebuchter mit Stichwort
    oder Nummer und passendem Betrag (``auszahlung_anderweitig_gebucht``, Fehler mit
    dem korrigiere-Befehl — die Voranmeldung des Bankmonats warnt, ``bankdaten``;
@@ -116,6 +120,7 @@ Bankumsatzes gebucht — damit lässt ``classify`` ihn in Ruhe.
 from __future__ import annotations
 
 import re
+import shlex
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -355,6 +360,13 @@ class _Lauf:
     # Posten → die anderen Abrechnungen, deren Auszahlung denselben einzigen
     # Kandidaten hat (Regel 5: nicht raten)
     umstritten: dict[UUID, list[Abrechnung]] = field(default_factory=dict)
+    # Regel 1: (Umsatz, Marktplatz) → gehört erkennbar zu etwas anderem
+    anderes: dict[tuple[UUID, str], bool] = field(default_factory=dict)
+    # Belegnummern der Posten (opos), ohne Trennzeichen → Belegnummer; erst bei
+    # Bedarf geladen
+    rechnungen: dict[str, str] | None = None
+    # Umsätze, die opos als Zahlung eines Postens gebucht hat — kein Erlös
+    zahlungen: set[UUID] | None = None
 
 
 def _neuer_lauf(
@@ -705,8 +717,93 @@ def _umsaetze(
         and (t.betrag > 0) == (erwartet > 0)
         and t.id not in lauf.ausgeschlossen.get(p.id, ())
         and not _fremd(lauf, a, t)
+        and not _anderer_vorgang(lauf, a, t)
     ]
     return [t for t in umsaetze if _eigene_nummer(a, t)] or umsaetze
+
+
+def _stichwort(lauf: _Lauf, markt: str, text: str) -> bool:
+    konten = lauf.kontext.einstellungen.marktplaetze.get(markt)
+    return konten is not None and any(
+        w.strip() and w.upper() in text for w in konten.bank_stichworte
+    )
+
+
+def _anderer_vorgang(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
+    """Regel 1 (Nachprüfung 6 E, Md): Der Umsatz gehört erkennbar zu etwas anderem —
+    er trägt das Stichwort eines anderen Marktplatzes (und nicht das eigene), nennt
+    die bekannte Nummer einer Abrechnung eines anderen Marktplatzes oder die
+    Belegnummer eines Postens (Ausgangs- oder Eingangsrechnung, opos). Nennt
+    er die eigene Nummer, gilt die (Regel 3). Eine Auszahlung nennt nie die Rechnung
+    eines Kunden — so nimmt der Abgleich, der in ``bank lauf`` vor opos läuft
+    (29d4801), keine Kundenzahlung und keine Lastschrift einer Rechnung."""
+    schluessel = (t.id, a.marktplatz)
+    if schluessel in lauf.anderes:
+        return lauf.anderes[schluessel]
+    text = _text(t)
+    if _eigene_nummer(a, t):
+        anderes = False
+    elif not _stichwort(lauf, a.marktplatz, text) and any(
+        _stichwort(lauf, m, text)
+        for m in lauf.kontext.einstellungen.marktplaetze
+        if m != a.marktplatz
+    ):
+        anderes = True
+    else:
+        anderes = any(
+            len(n) >= _MINDESTLAENGE and n.upper() in text and _nennt(text, n)
+            for m, nummern in lauf.nummern.items()
+            if m != a.marktplatz
+            for n in nummern
+        ) or _nennt_rechnung(lauf, t)
+    lauf.anderes[schluessel] = anderes
+    return anderes
+
+
+def _opos_zahlung(lauf: _Lauf, t: Transaktion) -> bool:
+    """Hat opos den Umsatz als Zahlung eines Postens gebucht (Forderung oder
+    Verbindlichkeit ausgeglichen)? Dann ist er kein Erlös, der doppelt stehen
+    könnte."""
+    from accounti.db.repository import lade_zuordnungen
+    from accounti.models import ZuordnungStatus
+
+    if lauf.zahlungen is None:
+        lauf.zahlungen = {
+            z.transaktion_id
+            for z in lade_zuordnungen(lauf.session, status={ZuordnungStatus.GEBUCHT})
+        }
+    return t.id in lauf.zahlungen
+
+
+def _nennt_rechnung(lauf: _Lauf, t: Transaktion) -> bool:
+    """Nennt der Verwendungszweck die Belegnummer eines Postens (opos) — als ganze
+    Wörter, Trennzeichen dürfen fehlen oder anders sein, nicht nur als Datum (wie
+    opos, ``opos.zuordnung.nennt``)?"""
+    from accounti.db.repository import lade_posten
+    from accounti.opos.zuordnung import MIN_REFERENZ, nur_als_datum, woerter
+
+    if lauf.rechnungen is None:
+        lauf.rechnungen = {}
+        # auch ausgeglichene: nach opos ist die Kundenzahlung keine „vielleicht
+        # gebuchte“ Auszahlung
+        for posten in lade_posten(lauf.session):
+            ziel = "".join(woerter(posten.belegnummer))
+            if posten.belegnummer and len(ziel) >= MIN_REFERENZ:
+                lauf.rechnungen[ziel] = posten.belegnummer
+    if not lauf.rechnungen:
+        return False
+    laengste = max(len(z) for z in lauf.rechnungen)
+    zweck = woerter(t.verwendungszweck)
+    for i in range(len(zweck)):
+        folge = ""
+        for wort in zweck[i:]:
+            folge += wort
+            if len(folge) > laengste:
+                break
+            nummer = lauf.rechnungen.get(folge)
+            if nummer is not None and not nur_als_datum(zweck, nummer):
+                return True
+    return False
 
 
 def _eingrenzen(
@@ -880,17 +977,29 @@ def _zuordnen(
         )
         ergaenze_befunde(lauf.session, a.id, [befund])
         a.befunde.append(befund)
-    if not von_hand and _nummer_wort(a) and not _eigene_nummer(a, t):
+    stichwort = _erkennbar(lauf, a, t)
+    # geraten: ohne die Nummer — bei PayPal (die Abrechnung hat keine Nummer im
+    # Verwendungszweck) ohne Stichwort (Nachprüfung 6 E, Md)
+    if not von_hand and (
+        (_nummer_wort(a) and not _eigene_nummer(a, t)) or not stichwort
+    ):
         markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
         ident = str(t.id)[:8]
+        nach = "Betrag und Stichwort" if stichwort else "Betrag, ohne Stichwort"
+        nennt = (
+            f"nennt {a.nummer} nicht"
+            if _nummer_wort(a)
+            else f"nennt kein Stichwort von {markt}"
+        )
         hinweis = Befund(
             code=OHNE_NUMMER,
             schweregrad=Schweregrad.HINWEIS,
             text=(
-                f"{markt} {a.nummer}: zugeordnet nach Betrag und Stichwort — der "
-                f"Bankumsatz vom {t.datum:%d.%m.%Y} ({ident}) nennt {a.nummer} nicht. "
-                "Gehört er zu einer anderen Abrechnung: accounti marktplatz zuordnen "
-                f"<Nummer> {ident}"
+                f"{markt} {a.nummer}: zugeordnet nach {nach} — der Bankumsatz vom "
+                f"{t.datum:%d.%m.%Y} ({ident}) {nennt}. Gehört er zu einer anderen "
+                "Abrechnung oder ist er keine Auszahlung: accounti marktplatz "
+                f"zuordnen {shlex.quote(a.nummer)} --loesen bzw. accounti marktplatz "
+                f"zuordnen <Nummer> {ident}"
             ),
             posten_nr=p.nr,
         )
@@ -901,7 +1010,8 @@ def _zuordnen(
 
 def _nummer_wort(a: Abrechnung) -> bool:
     """Kann ein Verwendungszweck die Nummer als Wort nennen (Regel 3)? Nicht der
-    Zeitraum einer PayPal-Datei, keine zu kurze Nummer."""
+    Zeitraum einer PayPal-Datei, keine zu kurze Nummer — dort ist ein Treffer nur
+    ohne Stichwort geraten (Regel 5)."""
     return (
         len(a.nummer) >= _MINDESTLAENGE
         and _WORT.fullmatch(a.nummer.upper()) is not None
@@ -1050,6 +1160,7 @@ def _befund(
         and t.betrag == erwartet
         and not _erkennbar(lauf, a, t)
         and not _nur_geldbewegung(lauf, t)
+        and not _opos_zahlung(lauf, t)
     ]
     if vielleicht:
         return Abgleich(
