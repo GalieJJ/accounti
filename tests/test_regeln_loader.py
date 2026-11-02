@@ -110,3 +110,31 @@ def test_rest_lauf_mit_kaputter_regeldatei_409_statt_500(tmp_path, monkeypatch):
     )
     assert r.status_code == 409, r.text
     assert "Regel kaputt" in r.text
+
+
+@pytest.mark.parametrize("art", ["latin1", "verzeichnis", "konto_leer"])
+def test_rest_lauf_mit_unlesbarer_regeldatei_409_statt_500(tmp_path, monkeypatch, art):
+    """Runde 3 (gw2-web B3, gegen:regeln:3): Latin-1, Verzeichnis und ein leeres
+    Konto gaben 500 bzw. buchten auf „None“ — jetzt 409 mit Datei und Grund."""
+    from accounti.models.auth import TokenRecht
+    from tests.api_hilfe import webwelt
+    from tests.auth_hilfe import billige_hashes
+
+    billige_hashes(monkeypatch)
+    welt = webwelt(tmp_path)
+    datei = welt.umgebung.wurzel.joinpath("a-regeln.yaml")
+    eintrag = "- name: buero\n  muster: Bürobedarf\n  haben_konto: '1200'\n"
+    if art == "latin1":
+        datei.write_bytes((eintrag + "  soll_konto: '4930'\n").encode("latin-1"))
+    elif art == "verzeichnis":
+        datei.mkdir()
+    else:
+        datei.write_text(eintrag + "  soll_konto:\n", encoding="utf-8")
+    token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
+    r = welt.client().post(
+        "/api/v1/laeufe/bank", headers={"Authorization": f"Bearer {token}"}
+    )
+    assert r.status_code == 409, r.text
+    assert {"latin1": "UTF-8", "verzeichnis": "nicht lesbar"}.get(
+        art, "Regel buero"
+    ) in r.text

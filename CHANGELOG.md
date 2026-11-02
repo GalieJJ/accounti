@@ -562,6 +562,38 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (auch einen Wiederherstellungscode) bei `buchung storniere`, `korrigiere`, `lerne` und
   `bestaetige` erst nach einer Fachprobe — ein fachlicher Fehler kostet ihn nicht mehr
   (besteht auf main).
+- **Nachbesserung 10b-1, Runde 3** (Prüfberichte gw2-regeln, gw2-umbuchung, gw2-web,
+  gw2-betrieb, gw2-merge): **SKR04: OSS-Fernverkäufe** aus eigenen Rechnungen fehlten in der
+  OSS-Meldung (Sammelkonto 4320, die Meldung kannte nur 8320–8327) — jetzt Länderkonten
+  4320–4327 wie im SKR03; Meldung, Lieferschwelle, Kz 45 und Prüfregel lesen die Konten des
+  Kontenrahmens; ein Land ohne Länderkonto bucht auf „Erlöse“ zur Prüfung mit Hinweis (bisher
+  meldete die OSS-Meldung es als Frankreich). **Regeldatei:** ein leeres Konto (gebucht als
+  „None“), `soll_konto: 0420` ohne Anführungszeichen (YAML-Oktalzahl, gebucht auf 272), ein
+  leeres Muster (traf jeden Umsatz), ein Steuerschlüssel als Text, eine Datei, die nicht UTF-8
+  ist, oder ein Verzeichnis ergeben eine Meldung mit Regelname statt einer Fehlbuchung,
+  eines Tracebacks bzw. 500 (REST-Lauf 409); `0420` bleibt das Konto 0420; `feld:
+  gegenkonto_iban` ist wieder zulässig. `regeln uebernehmen` prüft die Einträge ebenso, meldet
+  eine kaputte Datei statt eines Tracebacks und hält die Reihenfolge der Datei auch über
+  mehrere Läufe (ein zweiter Lauf mit `--name` stellte seinen Eintrag vor die früher
+  übernommenen). **Belegbuchung und OPOS** übergingen Wertpapiere (1348), Festgeld (1290,
+  SKR04 1890), Rückdeckungsversicherung und Verrechnungskonten als Sachkonto — jetzt nur noch
+  Zahlungsmittel, Personenkonten und die Sammelkonten der Forderungen und Verbindlichkeiten aus
+  Lieferungen und Leistungen (Abschnitt `lul_konten`); die Begründung nennt ein übergangenes
+  Konto, und ein solches Konto wird nicht mehr als Sachkonto am Kontakt „gelernt“. Eine Regel
+  gegen Geldtransit (1360/1460, Abschnitt `geldtransit`) ist wieder lernbar; eine eigene
+  Kontenzuordnung ohne `zahlungsmittel` nimmt die mitgelieferten Zahlungsmittel (Kasse und
+  Karte galten sonst nicht als Geldkonto), und Regelvorschau und Speichern urteilen gleich.
+  `korrigiere --lernen` (bzw. der Haken „Regel“) aus einer Umbuchung korrigiert jetzt ohne
+  Regel mit Hinweis, statt auch die Korrektur zu verwerfen. **Soll = Haben von Hand** lehnt
+  accounti ab: Korrektur in Queue, `/buchungen/{id}`, CLI und REST, `kasse buchen --konto`
+  mit dem Kassenkonto; ein Altvorschlag „1210 an 1210“ lässt sich nicht freigeben. **Einmalcode:**
+  `regeln deaktivieren` (Tippfehler im Namen, schon deaktiviert), `regeln uebernehmen`
+  (kaputte Datei), `kasse …` und `periode schliessen/oeffnen` verbrauchen ihn erst nach einer
+  Fachprobe; im Browser prüft die Freigabe von USt-VA und Zahlungslauf erst Zeitraum und
+  Fachlogik (bisher war der Code bei „2026-13“ oder einem gesperrten Monat verbraucht), und ein
+  Doppelklick auf Freigeben bekommt 409 statt „Einmalcode falsch“ samt Fehlversuch. Zahlen
+  mit mehr als 4300 Ziffern bzw. ab 2^63 (Seite, Steuerschlüssel, Seitennummer der
+  Belegvorschau, Nummer des Zahlungslaufs) geben Seite 1, 422 bzw. 404 statt 500.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

@@ -278,10 +278,14 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
   `sperre`, `iban-klaeren`, `abgleichen`, `sepa` und `stornieren` sowie die Befehle aus
-  Baustein 7 (siehe oben). `buchung storniere`, `korrigiere`, `lerne` und `bestaetige`
-  führen die Aktion nach der Rechteprüfung zuerst zur Probe aus (zurückgerollt) und
-  bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum vor der Buchung,
-  Umbuchung als Regel, ungültiges Muster, Prüfregel) verbraucht ihn nicht, wie im Browser.
+  Baustein 7 (siehe oben). `buchung storniere`, `korrigiere`, `lerne`, `bestaetige`,
+  `regeln deaktivieren`, `regeln uebernehmen`, `kasse anfangsbestand/buchen/storno` und
+  `periode schliessen/oeffnen` führen die Aktion nach der Rechteprüfung zuerst zur Probe aus
+  (zurückgerollt) und bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum
+  vor der Buchung, Soll = Haben, ungültiges Muster, Prüfregel, unbekannte Regel, kaputte
+  Regeldatei, Kasse im Minus, Monat schon festgeschrieben) verbraucht ihn nicht, wie im
+  Browser (dort auch bei der Freigabe von Zahlungslauf und USt-VA). Die übrigen Befehle prüfen
+  nach dem Code.
   Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
@@ -709,8 +713,11 @@ Datenbank, mit der Richtung ihrer Bankseite (mit eingerichteten Benutzern mit de
 `-e ACCOUNTI_BENUTZER=eva -e ACCOUNTI_EINMALCODE=…`); Einträge ohne erkennbare Bankseite meldet
 der Befehl, sie gelten für Ein- und Ausgänge. Übernommene Regeln stehen hinter den schon in der
 Datenbank gelernten (eine Korrektur seit dem Update behält Vorrang), untereinander in der
-Reihenfolge der Datei. **Andere Einträge bleiben in der Regeldatei** und greifen dort wie
-bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
+Reihenfolge der Datei — auch wenn ein zweiter Lauf (`--name`) weitere übernimmt. Die Einträge
+prüft derselbe Lader wie für die Regeldatei (Kontonummern, Muster, Steuerschlüssel; ungültige
+nennt die Ausgabe mit Grund); eine Datei, die kein YAML, nicht UTF-8 oder keine Liste ist,
+meldet der Befehl vor dem Einmalcode. **Andere Einträge bleiben in der Regeldatei** und greifen
+dort wie bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
 --name X` gelernt wurden (ohne Präfix `gelernt_`; mit `regeln uebernehmen --name X`
 übernehmen), Einträge mit `pruefen: true` oder `confidence` unter 1 (eine gelernte Regel hat
 kein eigenes Prüfkennzeichen — übernommen buchte sie automatisch; dauerhaft prüfen lässt

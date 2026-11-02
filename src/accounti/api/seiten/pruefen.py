@@ -47,6 +47,7 @@ from accounti.buchung.pruefschlange import (
     LernWunsch,
     PruefschlangeError,
     RegelBestaetigenError,
+    eingerichtete_bankkonten,
     freigeben,
     korrigieren,
     lade_eintrag,
@@ -87,12 +88,18 @@ ERLEDIGT = {
 }
 
 
+ZIFFERN_MAX = 18  # < 2^63: passt in jede Datenbank-Ganzzahl
+
+
 def ascii_zahl(wert: str | None) -> int | None:
-    """Ganze Zahl aus Formular oder Abfrage — nur aus ASCII-Ziffern, sonst ``None``.
-    ``str.isdigit()`` ist auch für „²“ wahr (``int`` scheitert: 500) und für „٩“
-    (``int`` liest 9)."""
+    """Ganze Zahl aus Formular, Abfrage oder Pfad — nur aus ASCII-Ziffern und höchstens
+    ``ZIFFERN_MAX`` Stellen, sonst ``None``. ``str.isdigit()`` ist auch für „²“ wahr
+    (``int`` scheitert: 500) und für „٩“ (``int`` liest 9); mehr als 4300 Ziffern
+    lehnt ``int`` ab, ab 2^63 die Datenbank (Runde 3: beides 500)."""
     wert = (wert or "").strip()
-    return int(wert) if wert.isascii() and wert.isdigit() else None
+    if not (wert.isascii() and wert.isdigit()) or len(wert) > ZIFFERN_MAX:
+        return None
+    return int(wert)
 
 
 def formularkonto(wert: str | None, feld: str) -> str:
@@ -740,6 +747,12 @@ async def regelvorschau(
             feld = None
         bh = lade_buchhaltung(g.konfiguration)
         try:
+            kr = lade_abschluss(g.konfiguration).lade_kontenrahmen()
+        except Exception:  # noqa: BLE001 — Hinweis „Konto unbekannt“, Zahlungsmittel
+            kr = None
+        try:
+            # dieselben Zahlungsmittel wie beim Speichern (``korrigieren``): eigene
+            # Kontenzuordnung und eingerichtete Bank- und Kartenkonten (Runde 3)
             entwurf = entwurf_fuer(
                 e.umsatz,
                 soll,
@@ -748,13 +761,12 @@ async def regelvorschau(
                 bh,
                 muster=felder.get("muster") or None,
                 feld=feld,
+                kontenrahmen=kr.mit_geldkonten(eingerichtete_bankkonten(s, bh))
+                if kr is not None
+                else None,
             )
         except RegelError as f:
             return None, _fehlerbild(f)
-        try:
-            kr = lade_abschluss(g.konfiguration).lade_kontenrahmen()
-        except Exception:  # noqa: BLE001 — nur für den Hinweis „Konto unbekannt“
-            kr = None
         try:
             # dasselbe Regelwerk wie classify: gelernt → Regeldatei → Standardregeln
             # im Kontenrahmen der Gesellschaft

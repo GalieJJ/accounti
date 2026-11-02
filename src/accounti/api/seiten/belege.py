@@ -133,14 +133,21 @@ async def datei(
     )
 
 
-@router.get("/belege/{beleg_id:uuid}/seite/{n:int}.png")
+@router.get("/belege/{beleg_id:uuid}/seite/{n}.png")
 async def tiff_seite(
     beleg_id: UUID,
-    n: int,
+    n: str,
     request: Request,
     a: Annotated[Angemeldet, Depends(erfordert(Recht.LESEN))],
     s: Annotated[Session, Depends(gesellschaft_db)],
 ) -> Response:
+    from accounti.api.seiten.pruefen import ascii_zahl
+
+    # Seitennummer nur aus ASCII-Ziffern, höchstens 18 Stellen — der Konverter
+    # ``{n:int}`` gab mit mehr als 4300 Ziffern 500, vor der Anmeldung (Runde 3)
+    seite_nr = ascii_zahl(n)
+    if seite_nr is None:
+        raise HTTPException(404, Text("Seite nicht gefunden"))
     grenze = dienste_von(request).server.max_vorschau_megapixel
 
     def umwandeln() -> bytes:
@@ -149,7 +156,7 @@ async def tiff_seite(
         if d.art is not Art.TIFF:
             raise HTTPException(415, Text(FEHLERTEXT[415]))
         try:
-            return tiff_seite_als_png(d.inhalt, n, grenze)
+            return tiff_seite_als_png(d.inhalt, seite_nr, grenze)
         except BelegdateiError as fehler:
             raise HTTPException(
                 fehler.status, Text(FEHLERTEXT[fehler.status])

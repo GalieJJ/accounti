@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from accounti.api.einmalcode import bestaetige_einmalcode
+from accounti.api.einmalcode import bestaetige_einmalcode, freigabesperre
 from accounti.api.formular import formular
 from accounti.api.handeln import im_namen
 from accounti.api.seiten.pruefen import (
@@ -52,15 +52,13 @@ from accounti.models.auth import Recht
 router = APIRouter()
 VERALTET = "Die Buchung wurde inzwischen geändert — bitte die aktuelle Fassung prüfen"
 KORREKTUR, STORNO = "korrektur", "storno"
-_SPERREN: dict[str, threading.Lock] = {}
-_SPERREN_ZUGRIFF = threading.Lock()
 
 
 def _abschlusssperre(datenbank: str) -> threading.Lock:
     """Storno und Korrektur einer Gesellschaft schließen nacheinander ab (Stand
-    prüfen, Einmalcode, Lauf) — im Server-Prozess (``accounti serve`` startet einen)."""
-    with _SPERREN_ZUGRIFF:
-        return _SPERREN.setdefault(datenbank, threading.Lock())
+    prüfen, Einmalcode, Lauf) — dieselbe Sperre wie Zahlungslauf und USt-VA
+    (``einmalcode.freigabesperre``)."""
+    return freigabesperre(datenbank)
 
 
 def _lade(s: Session, buchung_id: UUID) -> Buchungssatz:

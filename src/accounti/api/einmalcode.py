@@ -9,6 +9,8 @@ der Anmeldung.
 
 from __future__ import annotations
 
+import threading
+
 from fastapi import HTTPException
 
 from accounti.api.dienste import Dienste
@@ -18,6 +20,18 @@ from accounti.auth.fehler import AnmeldungError, AuthError
 from accounti.bank.tresor import TresorError
 from accounti.db.repo_auth import lade_benutzer_id
 from accounti.i18n import Text
+
+_SPERREN: dict[str, threading.Lock] = {}
+_SPERREN_ZUGRIFF = threading.Lock()
+
+
+def freigabesperre(datenbank: str) -> threading.Lock:
+    """Aktionen mit Einmalcode einer Gesellschaft schließen nacheinander ab (Stand
+    prüfen, Einmalcode, Lauf) — im Server-Prozess (``accounti serve`` startet einen).
+    Ein Doppelklick wartet hier und bekommt 409 ohne Fehlversuch (gw-storno N2; für
+    Zahlungslauf und USt-VA Gesamttest 10b-1, Runde 3)."""
+    with _SPERREN_ZUGRIFF:
+        return _SPERREN.setdefault(datenbank, threading.Lock())
 
 
 def bestaetige_einmalcode(dienste: Dienste, a: Angemeldet, einmalcode: str) -> None:

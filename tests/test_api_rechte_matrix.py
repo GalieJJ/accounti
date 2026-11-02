@@ -52,7 +52,7 @@ SEITEN: dict[tuple[str, str], object] = {
     ("POST", "/buchungen/{buchung_id:uuid}/stornieren"): Recht.BUCHEN,
     ("GET", "/belege/{beleg_id:uuid}"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/datei"): Recht.LESEN,
-    ("GET", "/belege/{beleg_id:uuid}/seite/{n:int}.png"): Recht.LESEN,
+    ("GET", "/belege/{beleg_id:uuid}/seite/{n}.png"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/download"): Recht.LESEN,
 }
 # Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn

@@ -68,7 +68,11 @@ def test_storno_mit_falschem_datum_verbraucht_den_code_nicht(welt, monkeypatch):
     assert r.exit_code == 1  # jetzt verbraucht (bzw. schon storniert)
 
 
-def test_korrigiere_lernen_aus_umbuchung_verbraucht_den_code_nicht(welt, monkeypatch):
+def test_korrigiere_lernen_soll_gleich_haben_verbraucht_den_code_nicht(
+    welt, monkeypatch
+):
+    """Runde 3: Aus einer Umbuchung wird mit ``--lernen`` eine Korrektur ohne Regel
+    (gw2-merge B2) — der Fachfehler der Probe ist jetzt „Soll = Haben“."""
     url, jan = welt
     engine, fabrik = session_factory(url)
     tx = umsatz(
@@ -77,12 +81,14 @@ def test_korrigiere_lernen_aus_umbuchung_verbraucht_den_code_nicht(welt, monkeyp
     b = buchung(tx, soll="4900", haben="1210", schluessel=None, steuer=None)
     anlegen(fabrik, tx, b)
     code = jan.codes[1]
-    befehl = ["korrigiere", kurz(b.id), "--soll", "1200", "--haben", "1210"]
-    befehl += ["--grund", "Umbuchung", "--db", url]
-    r = _run(monkeypatch, code, *befehl, "--lernen")
-    assert r.exit_code == 1 and "Geldkonten" in r.output, r.output
-    r = _run(monkeypatch, code, *befehl)
+    befehl = ["korrigiere", kurz(b.id), "--grund", "Umbuchung", "--db", url]
+    r = _run(monkeypatch, code, *befehl, "--soll", "1210", "--haben", "1210")
+    assert r.exit_code == 1 and "dasselbe Konto" in r.output, r.output
+    r = _run(
+        monkeypatch, code, *befehl, "--soll", "1200", "--haben", "1210", "--lernen"
+    )
     assert r.exit_code == 0 and "Korrigiert" in r.output, r.output
+    assert "Keine Regel gelernt" in r.output
     with fabrik() as s:
         assert lade_kontierungsregeln(s) == []
     engine.dispose()
@@ -182,3 +188,23 @@ def test_regeln_uebernehmen_mit_kaputter_datei_meldung_und_code_bleibt(
     )
     r = _run(monkeypatch, code, "regeln", "uebernehmen", "--db", url)
     assert r.exit_code == 0 and "1 Regeln übernommen" in r.output, r.output
+
+
+def test_kasse_und_periode_fachfehler_verbrauchen_den_code_nicht(welt, monkeypatch):
+    """Runde 3: Gegenkonto = Kassenkonto (Soll = Haben) und ein Monat mit offenen
+    Vorschlägen kosteten den Code."""
+    url, jan = welt
+    engine, fabrik = session_factory(url)
+    tx = umsatz("-119.00", date(2026, 9, 5))
+    anlegen(fabrik, tx, buchung(tx))  # Vorschlag im September
+    engine.dispose()
+    code = jan.codes[8]
+    kasse = ["kasse", "buchen", "--text", "Porto", "--datum", "2026-10-02"]
+    r = _run(monkeypatch, code, *kasse, "--betrag", "-5", "--konto", "1000",
+             "--db", url)  # fmt: skip
+    assert r.exit_code == 1 and "Kassenkonto" in r.output, r.output
+    r = _run(monkeypatch, code, "periode", "schliessen", "2026-09", "--db", url)
+    assert r.exit_code == 1 and "noch nicht freigegeben" in r.output, r.output
+    r = _run(monkeypatch, code, *kasse, "--betrag", "50", "--konto", "1200",
+             "--db", url)  # fmt: skip
+    assert r.exit_code == 0 and "Bestand" in r.output, r.output

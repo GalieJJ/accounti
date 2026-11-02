@@ -614,7 +614,8 @@ accounti regeln uebernehmen --name telekom   # dazu einen Eintrag ohne Präfix (
 Aus einer Korrektur gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie
 entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, `lerne` ohne
 `--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Übernommene Regeln
-stehen hinter den schon gelernten; Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
+stehen hinter den schon gelernten, untereinander in der Reihenfolge der Datei — auch wenn sie in
+mehreren Läufen übernommen werden; Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
 ohne Präfix `gelernt_` (ohne `--name`) bleiben in der Regeldatei — die Ausgabe nennt sie. Gelernte
 Regeln haben Vorrang vor der Regeldatei und den Standardregeln des Kontenrahmens und folgen demselben
 Regelmodell: ein Umsatz gegen ihre Richtung wird höchstens als Gegenbuchung zur Prüfung
@@ -630,10 +631,13 @@ verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen n
 Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
 Umsatzes — nur der Wechsel auf ein anderes eingerichtetes Bankkonto (falsch zugeordneter Umsatz)
 geht, mit Warnung und ohne Regel —, und Freigeben prüft die Prüfregel `steuerschluessel_konto`
-wie eine Korrektur. Aus einer Umbuchung zwischen eigenen Geldkonten (Giro ↔ Tagesgeld, Bank ↔
-Kasse oder Kreditkarte, Geldtransit) wird keine Regel, und eine Buchung mit demselben Konto im
-Soll und im Haben legt accounti nie automatisch an — der Umsatz bleibt offen und der Lauf nennt
-ihn; `accounti pruefen` meldet ältere Fälle (Prüfregel `soll_gleich_haben`). Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
+wie eine Korrektur. Aus einer Umbuchung zwischen eigenen Konten mit Kontoauszug (Giro ↔ Tagesgeld,
+Bank ↔ Kasse oder Kreditkarte) wird keine Regel — `korrigiere --lernen` bzw. der Haken „Regel“
+korrigiert dann ohne Regel und sagt es; eine Regel gegen Geldtransit (1360/1460) bleibt lernbar.
+Eine Buchung mit demselben Konto im Soll und im Haben legt accounti nie an: automatisch bleibt
+der Umsatz offen und der Lauf nennt ihn, von Hand (Korrektur, `kasse buchen --konto`) lehnt
+accounti sie ab, und ein älterer Vorschlag dieser Art lässt sich nicht freigeben; `accounti
+pruefen` meldet ältere Fälle (Prüfregel `soll_gleich_haben`). Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
 `b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
 accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als
@@ -814,7 +818,7 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 
 - Trackt die **€10.000-Schwelle** über alle EU-B2C-Verkäufe
 - Berechnet den **korrekten Steuersatz** je Bestimmungsland
-- Bucht auf **separate OSS-Erlöskonten** (SKR03: 8320-8339)
+- Bucht auf **separate OSS-Erlöskonten** je Bestimmungsland (SKR03: 8320–8327, SKR04: 4320–4327; ein Land ohne eigenes Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die Meldung erfasst es nicht)
 - Erstellt die **Quartalsmeldung** mit Aufschlüsselung nach Land und Steuersatz
 - Kennt die **Abgabefristen** (letzter Tag des Folgemonats)
 - Meldet OSS-Umsätze in der USt-Voranmeldung **nur als Nettoumsatz in Kz 45** (Anleitung 2026, Zeile 36) — die Steuer läuft über die OSS-Meldung

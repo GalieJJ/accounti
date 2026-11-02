@@ -2,18 +2,38 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    fachprobe,
+    handelnde_person,
+)
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 
 NAME = "kasse"
 befehl = typer.Typer(help="Kassenbuch: laufende Nummer, Bestand nie negativ, Storno.")
+
+
+def _probe(db: str, aktion: Callable[[Any], object]) -> Callable[[], None]:
+    """Fachprobe vor dem Einmalcode: ein Fachfehler des Kassenbuchs verbraucht ihn
+    nicht (wie ``buchung storniere``, gw-storno N3)."""
+    from accounti.abschluss.kassenbuch import KassenbuchError
+
+    return fachprobe(sitzung(db), aktion, (KassenbuchError, JahrGesperrtError), _melde)
+
+
+def _melde(fehler: Exception) -> None:
+    ende(str(fehler))
 
 
 def _kasse(config: str):  # type: ignore[no-untyped-def]
@@ -42,9 +62,11 @@ def anfangsbestand_befehl(
     kasse = _kasse(config)
     wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
     # mit Benutzern: buchen (buchhalter) und Einmalcode — das Kassenbuch ist eine
-    # Grundaufzeichnung, erfasst hat der Benutzer, nicht ein Freitext
+    # Grundaufzeichnung, erfasst hat der Benutzer, nicht ein Freitext. Erst die
+    # Fachprobe, dann der Code (gw-storno N3)
+    probe = _probe(db, lambda s: anfangsbestand(s, wert, tag, kasse, von))
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
@@ -93,9 +115,13 @@ def buchen(
     wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
     # mit Benutzern: buchen (buchhalter) und Einmalcode. Mit --konto entsteht sofort
     # eine freigegebene Buchung (geprueft_von = Benutzer) — buchen schließt laut
-    # Rollenmatrix das Freigeben ein
+    # Rollenmatrix das Freigeben ein. Erst die Fachprobe (Bestand, Gegenkonto = Kasse,
+    # Jahr gesperrt), dann der Code
+    probe = _probe(
+        db, lambda s: buche_kasse(s, wert, text, kasse, tag, beleg, konto, satz, von)
+    )
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
@@ -136,9 +162,10 @@ def storno(
     kasse = _kasse(config)
     tag = datum(datum_text, "--datum") if datum_text else None
     # mit Benutzern: buchen (buchhalter) und Einmalcode; die Umkehrbuchung einer
-    # freigegebenen Buchung ist ein Storno (Baustein 7)
+    # freigegebenen Buchung ist ein Storno (Baustein 7). Erst die Fachprobe
+    probe = _probe(db, lambda s: storniere(s, nr, grund, kasse, tag, von))
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:

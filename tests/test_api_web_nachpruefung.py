@@ -648,3 +648,100 @@ def test_doppelklick_in_der_queue_409(qw, was):
     assert sorted((a.status_code, b2.status_code)) == [303, 409]
     assert len(qw.sql("SELECT id FROM buchungssaetze")) == 1
     assert qw.sql("SELECT count(*) FROM buchungskorrekturen")[0][0] == 0
+
+
+# --- Runde 3: Freigaben mit Einmalcode, große Zahlen ----------------------------------
+
+
+def _verbrauchte_codes(qw) -> int:  # noqa: ANN001
+    return zaehle(
+        qw.web.umgebung.system,
+        "SELECT count(*) FROM auth_wiederherstellungscodes "
+        "WHERE verbraucht_am IS NOT NULL",
+    )
+
+
+def _fehlversuche(qw, name: str) -> int:  # noqa: ANN001
+    return zaehle(
+        qw.web.umgebung.system,
+        f"SELECT fehlversuche FROM auth_benutzer WHERE name = '{name}'",
+    )
+
+
+def test_ustva_fachfehler_verbraucht_den_code_nicht(qw):
+    """gw2-web: „2026-13“ (422) und ein gesperrter Monat (409) verbrauchten den Code —
+    auch einen Wiederherstellungscode — vor Zeitraum- und Fachprüfung."""
+    vorschlaege(qw, 1)  # offener Vorschlag im Oktober: Freigabe gesperrt
+    client = qw.web.angemeldet("fritz")
+    code = qw.web.personen["fritz"].codes[-1]
+    for zeitraum, status in (("2026-13", 422), ("13/2026", 422), ("2026-10", 409)):
+        daten = {"csrf": csrf(client), "zeitraum": zeitraum, "einmalcode": code}
+        r = client.post("/freigaben/ustva", data=daten)
+        assert r.status_code == status, (zeitraum, r.status_code, r.text)
+    assert _verbrauchte_codes(qw) == 0
+    daten = {"csrf": csrf(client), "zeitraum": "2026-11", "einmalcode": code}
+    r = client.post("/freigaben/ustva", data=daten)
+    assert r.status_code == 200 and "freigegeben von fritz" in r.text, r.text
+    assert _verbrauchte_codes(qw) == 1 and _fehlversuche(qw, "fritz") == 0
+
+
+def test_ustva_doppelklick_409_ohne_fehlversuch(qw):
+    client = qw.web.angemeldet("fritz")
+    daten = {
+        "csrf": csrf(client),
+        "zeitraum": "2026-12",
+        "einmalcode": qw.web.code("fritz"),
+    }
+    a, b = zwei_gleichzeitig(client, "/freigaben/ustva", daten, daten)
+    assert sorted((a.status_code, b.status_code)) == [200, 409], (a.text, b.text)
+    zweite = a if a.status_code == 409 else b
+    assert "schon freigegeben" in zweite.text
+    assert _einmalcode_ereignisse(qw, "einmalcode_falsch") == 0
+    assert _fehlversuche(qw, "fritz") == 0
+
+
+def test_zahlungslauf_doppelklick_409_ohne_fehlversuch(qw):
+    from tests.api_hilfe import freigabe_hash
+    from tests.gesellschaft_hilfe import zahlungslauf
+
+    zahlungslauf(qw.web.umgebung, "a")
+    client = qw.web.angemeldet("fritz")
+    daten = {
+        "csrf": csrf(client),
+        "einmalcode": qw.web.code("fritz"),
+        "freigabe_hash": freigabe_hash(client, 1),
+    }
+    a, b = zwei_gleichzeitig(client, "/freigaben/zahlungslauf/1", daten, daten)
+    assert sorted((a.status_code, b.status_code)) == [200, 409], (a.text, b.text)
+    assert _einmalcode_ereignisse(qw, "einmalcode_falsch") == 0
+    assert _fehlversuche(qw, "fritz") == 0
+
+
+def test_grosse_zahlen_ohne_500(qw):
+    """gw2-web: mehr als 4300 Ziffern (Pythons Grenze für ``int``) bzw. ab 2^63
+    (Datenbank) gaben 500 — teils vor der Anmeldung."""
+    (b,) = vorschlaege(qw, 1)
+    riesig = "9" * 4301
+    leser = qw.web.angemeldet("leo")
+    r = leser.get(f"/pruefen?seite={riesig}")
+    assert r.status_code == 200 and 'aria-current="page"' in r.text
+    jan = qw.web.angemeldet("jan")
+    felder = {"soll": "4930", "haben": "1200", "steuer": riesig}
+    for kopf in ({}, HX):
+        r = senden(jan, f"/pruefen/{b.id}/korrigieren", kopf, **felder)
+        assert r.status_code == 422 and "Unbekannter Steuerschlüssel" in r.text
+        r = senden(jan, f"/pruefen/{b.id}/regelvorschau", kopf, regel="1", **felder)
+        assert r.status_code == 422, r.status_code
+    unbekannt = "00000000-0000-0000-0000-000000000000"
+    r = qw.web.client().get(f"/belege/{unbekannt}/seite/{'1' * 4301}.png")
+    assert r.status_code != 500
+    r = leser.get(f"/belege/{unbekannt}/seite/{'1' * 4301}.png")
+    assert r.status_code == 404
+    fritz = qw.web.angemeldet("fritz")
+    for nr in ("9223372036854775808", riesig):
+        r = fritz.post(
+            f"/freigaben/zahlungslauf/{nr}",
+            data={"csrf": csrf(fritz), "einmalcode": "000000", "freigabe_hash": "x"},
+        )
+        assert r.status_code == 404, (nr[:20], r.status_code)
+    assert _fehlversuche(qw, "fritz") == 0

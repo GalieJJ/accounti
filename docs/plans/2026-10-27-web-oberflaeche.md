@@ -1216,6 +1216,29 @@ die Korrektur rot:
 Hinweis außerhalb der Web-Schicht: `buchung/konten.pruefe_kontonummer` prüft mit `\d` und
 nimmt in der CLI vollbreite Ziffern als Kontonummer an (Folgearbeit Fachkern).
 
+**Nachprüfung nach dem Merge, Runde 3 (02.11.2026)** — Prüfberichte gw2-regeln, gw2-umbuchung,
+gw2-web, gw2-betrieb, gw2-merge mit den Gegenprüfungen (`gw2b-ergebnis.json`); je Befund ein
+Test, der ohne die Korrektur scheitert:
+
+| Befund | Korrektur | Test |
+|--------|-----------|------|
+| gegen:regeln:0 (Mittel) — SKR04: OSS-Fernverkäufe auf 4320 fehlen in der OSS-Meldung | Länderkonten im SKR04 wie im SKR03 (4320–4327 zu 8320–8327; `umsatzsteuer.oss_erloeskonten`, `oss_konto_land`); OSS-Meldung, Lieferschwelle, Kz 45 und Prüfregel `pflichtangaben` lesen die Konten des Kontenrahmens (im SKR04 auch die Marktplatzkonten 8320–8327 — Klasse 8 ist dort frei). Ein Land ohne eigenes Konto geht nicht mehr auf das Sammelkonto (die Meldung zählte es als FR), sondern auf „Erlöse“ zur Prüfung, mit Hinweis | `test_oss_kontenrahmen.py` |
+| gegen:regeln:1 (Mittel) — zweiter Lauf von `regeln uebernehmen` stellt seinen Eintrag vor früher übernommene | `kontierungsregeln.rang`: Stelle des Eintrags in der Datei (in `d5a849692843`, die Migration ergänzt die Spalte an einer schon angelegten Tabelle); `lade_kontierungsregeln` ordnet übernommene nach `rang`, bei gleicher Stelle den früher übernommenen zuerst | `test_regeldatei_werte.py::test_zweiter_lauf_behaelt_die_reihenfolge_der_datei` |
+| gegen:regeln:3 (Mittel) und gw2-regeln N-1, gw2-web B3 — Werte der Regeldatei ungeprüft, Latin-1/Verzeichnis 500 | `regeln_loader.pruefe_eintrag`: Konten 4–8 Ziffern (eine Zahl mit führender Null bleibt Text — eigener YAML-Lader ohne Oktalzahlen), Muster nicht leer, Steuerschlüssel und `confidence` Zahlen; `lies_regeldatei`: nicht UTF-8, Verzeichnis, kein YAML, keine Liste → `KonfigurationError`. `regeln uebernehmen` prüft mit demselben Lader (Grund je ungültigem Eintrag) | `test_regeldatei_werte.py`, `test_regeln_loader.py::test_rest_lauf_mit_unlesbarer_regeldatei_409_statt_500` |
+| gw2-merge B1 — `feld: gegenkonto_iban` abgelehnt | wieder zulässig (Lader und `Feld` der gelernten Regeln) | `test_regeldatei_werte.py::test_feld_gegenkonto_iban_bleibt_wirksam` |
+| gegen:umbuchung:0 (Mittel) — Belegbuchung und OPOS verwerfen legitime Sachkonten | `kein_sachkonto` nur noch für Zahlungsmittel, Personenkonten und Forderungen/Verbindlichkeiten aus LuL (neuer Abschnitt `lul_konten`: SKR03 1400–1499, 1600–1699; SKR04 1200–1299, 3300–3399) — Wertpapiere (1348, § 266 Abs. 2 B III HGB), Festgeld 1290/1890, Rückdeckung 1355, Verrechnungskonten bleiben Sachkonto; die Begründung nennt ein übergangenes Konto; `lerne_sachkonto` lernt ein solches Konto nicht (Hinweis, die Korrektur gilt) | `test_umbuchung_geldkonten.py::test_bestandskonten_bleiben_sachkonto_eines_belegs`, `::test_uebergangenes_sachkonto_steht_in_der_begruendung`, `::test_lerne_sachkonto_lehnt_geldkonto_ab_korrektur_bleibt` |
+| gw2-umbuchung N-2 — Regel gegen Geldtransit abgelehnt | Abschnitt `geldtransit` (1360/1460): ein Zahlungsmittel ohne Kontoauszug, `umbuchung_fehler` lässt Regeln dagegen zu | `::test_regel_gegen_geldtransit_bleibt_lernbar` (angepasst: `test_aus_einer_umbuchung_wird_keine_regel` ohne den Geldtransit-Fall) |
+| gw2-umbuchung N-1 — alte Kontenzuordnung ohne `zahlungsmittel`; Vorschau ≠ Speichern | fehlende Abschnitte (`zahlungsmittel`, `geldtransit`, `lul_konten`) kommen aus dem mitgelieferten Kontenrahmen gleichen Namens; die Regelvorschau nimmt denselben Kontenrahmen samt eingerichteter Konten wie das Speichern | `::test_alte_kontenzuordnung_ohne_zahlungsmittel_nimmt_die_mitgelieferten` |
+| gw2-merge B2 — mit `--lernen` ging bei einer Umbuchung auch die Korrektur verloren | `UmbuchungError`: die Korrektur gilt, nur ohne Regel, mit Hinweis „Keine Regel gelernt …“ (CLI und Queue) | `::test_cli_korrigiere_lernen_aus_umbuchung_ohne_regel`, `::test_web_korrektur_mit_regel_aus_umbuchung_ohne_regel` (angepasst: vorher Exit 1 bzw. 422) |
+| gegen:web:0 (Mittel), gw2-umbuchung N-3 — Soll = Haben von Hand | `konten.soll_gleich_haben` in der Fachfunktion `storno.korrigiere` (CLI, `/buchungen`, REST), früh in `pruefschlange._konten` (Queue, Feld `haben`) und in `buche_kasse` (Gegenkonto = Kassenkonto) | `test_soll_gleich_haben_manuell.py` |
+| gw2-merge B3 — Altvorschlag „1210 an 1210“ freigebbar | `freigeben` lehnt Soll = Haben ab (`PruefregelError`, auch ohne Umgebung); `steuer_befunde` zeigt den Fehler, der Knopf „Freigeben“ fehlt | `test_soll_gleich_haben_manuell.py::test_altvorschlag_soll_gleich_haben_nicht_freigeben` |
+| gw-storno N3 Rest (gw2-betrieb B-1, B-2) — Code vor der Fachprüfung | Fachprobe vor dem Code auch für `regeln deaktivieren`, `regeln uebernehmen`, `kasse anfangsbestand/buchen/storno`, `periode schliessen/oeffnen` | `test_cli_einmalcode_fachprobe.py` (neue Fälle; `test_korrigiere_lernen_…` prüft jetzt Soll = Haben) |
+| gw2-web — USt-VA-Freigabe verbraucht den Code vor Zeitraum- und Fachprüfung; Doppelklick auf Freigeben (USt-VA, Zahlungslauf) zählt einen Fehlversuch | wie Storno: die Freigabe zur Probe (zurückgerollt; 422/409/404 ohne Code), dann unter der Freigabesperre der Gesellschaft (`einmalcode.freigabesperre`, dieselbe wie für `/buchungen`) Probe, Code, Freigabe; die USt-VA-Probe meldet 409, wenn genau diese Werte schon offen freigegeben sind | `test_api_web_nachpruefung.py::test_ustva_fachfehler_verbraucht_den_code_nicht`, `::test_ustva_doppelklick_409_ohne_fehlversuch`, `::test_zahlungslauf_doppelklick_409_ohne_fehlversuch` |
+| gw2-web — mehr als 4300 Ziffern bzw. ab 2^63: 500 | `ascii_zahl` höchstens 18 Stellen; `/belege/{id}/seite/{n}.png` und `/freigaben/zahlungslauf/{nr}` lesen die Zahl selbst (404) | `::test_grosse_zahlen_ohne_500` |
+
+Kein Fehler (gegen:regeln:2): ein Eintrag mit `pruefen` bleibt in der Datei und greift hinter
+den gelernten Regeln — dokumentiert (Grenze unten, CLI-Ausgabe).
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1595,12 +1618,36 @@ Durchlaufs mit Markern in allen Fremddaten.
   Ein unbekannter Name bei `--name` wird gemeldet, die übrigen Einträge werden trotzdem
   übernommen.
 - Die Einmalcode-Probe der CLI läuft vor dem Code; ändert jemand die Buchung genau zwischen
-  Probe und Lauf, ist der Code verbraucht (wie im Browser). `regeln uebernehmen` hat nach dem
-  Code keine Fachprüfung mehr; Zahlungs- und UStVA-Freigabe (10a, N-4) bleiben, wie sie sind.
-- SKR04: Erlöse eines OSS-Fernverkaufs gehen auf das Sammelkonto 4320 (zur Prüfung, ohne
-  Länderkonten); die DATEV-Automatik von 4400/4300 kennt accounti im SKR04 nur mit einer
-  eigenen `pruefung.kontenrahmen_datei` (sonst trägt der Export den BU-Schlüssel mit).
-  Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten.
+  Probe und Lauf, ist der Code verbraucht (wie im Browser). Eine Fachprobe haben `buchung
+  storniere`, `korrigiere`, `lerne`, `bestaetige`, `regeln deaktivieren`/`uebernehmen`, `kasse`
+  und `periode`; die übrigen Befehle mit Einmalcode (`anlagen`, `abschluss`, `opos`
+  zuordnen/verrechnen/bestätigen, Belegabgleich, `export datev`, `nachfordern`, `journal
+  uebernehmen`) prüfen nach dem Code — ein Fachfehler kostet dort den Code. Die Probe bräuchte
+  je Befehl eine Prüfung der Seiteneffekte (Dateien, E-Mail, Export); Folgearbeit.
+- Im Browser prüfen Zahlungslauf und USt-VA wie Storno erst zur Probe, dann unter der
+  Freigabesperre den Code — die Sperre gilt nur im Server-Prozess; wer zugleich in der CLI
+  freigibt, kann einen Code verbrauchen, ohne dass der Browser freigibt (wie bei Storno).
+- SKR04: Erlöse eines OSS-Fernverkaufs gehen auf die Länderkonten 4320–4327 (zur Prüfung; eine
+  Konvention von accounti wie 8320–8327 im SKR03 — DATEV führt dort ein Konto 4320 mit
+  Bestimmungsland und Steuersatz in der Buchung, ein solches Feld hat der Buchungssatz nicht);
+  ein Land ohne Länderkonto (nur FR, IT, ES, NL, SE, PL, AT, BE haben eines) bucht auf „Erlöse“
+  zur Prüfung, und die OSS-Meldung erfasst es nicht (Hinweis bei der Verbuchung, selbst
+  melden). Der ermäßigte Satz des Bestimmungslands hat in OPOS kein eigenes Konto (die Meldung
+  rechnet mit dem Normalsatz; nur die Marktplatz-Abrechnung kennt `oss_erloes_ermaessigt`). Die
+  DATEV-Automatik von 4400/4300 kennt accounti im SKR04 nur mit einer eigenen
+  `pruefung.kontenrahmen_datei` (sonst trägt der Export den BU-Schlüssel mit).
+  Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten (im SKR04
+  8320–8327; Meldung und Kz 45 zählen sie mit).
+- Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–8 Ziffern, Muster
+  nicht leer); ob es das Konto im Kontenrahmen gibt, prüft er nicht. Ein Fehler in einem Eintrag
+  hält die ganze Regeldatei an (Meldung mit Regelname), wie bisher bei Regex und `feld`.
+- Übernommene Regeln stehen untereinander in der Reihenfolge ihrer Stelle in der Datei beim
+  Übernehmen (`rang`); ändert der Betreiber die Datei zwischen zwei Läufen, gilt die Stelle zur
+  Zeit des jeweiligen Laufs (bei gleicher Stelle der früher übernommene zuerst). Vor Runde 3
+  übernommene Regeln (ohne `rang`) behalten ihre alte Ordnung, vor den neuen.
+- Als Sachkonto eines Belegs übergeht accounti Zahlungsmittel, Personenkonten und die
+  LuL-Sammelkonten (`lul_konten`); andere Bestands- und Verrechnungskonten nimmt es, wenn Kontakt
+  oder Regel sie liefern — ob das fachlich passt, entscheidet der Mensch in der Prüfung.
 - `db upgrade` erkennt einen unpassenden Vermerk an fehlenden Tabellen und Spalten, nicht an
   fehlenden Indizes oder Triggern; `--aus-schema` stempelt nur zurück, nie vor.
 

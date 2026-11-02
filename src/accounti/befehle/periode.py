@@ -10,6 +10,7 @@ from accounti.befehle import (
     DB_OPTION,
     KONFIG_OPTION,
     console,
+    fachprobe,
     handelnde_person,
     laufsperre_oder_ende,
 )
@@ -44,10 +45,19 @@ def schliessen(
     # Festschreiben ist eine Freigabe des Monats: Buchungen freigeben (buchhalter,
     # freigeber) und Einmalcode. Nicht während eines Buchungslaufs (classify, bank
     # lauf, opos verbuchen …): dessen Schreiben scheiterte sonst am gesperrten Monat.
-    # Die Laufsperre zuerst — läuft ein Lauf, ist kein Einmalcode verbraucht
+    # Die Laufsperre zuerst — läuft ein Lauf, ist kein Einmalcode verbraucht; dann
+    # die Fachprobe (schon festgeschrieben, ungebuchte Umsätze …), dann der Code
+    probe = fachprobe(
+        sitzung(db),
+        lambda s: schliesse(s, monat, aktuelle_person(von), trotzdem=trotzdem),
+        (PeriodeError,),
+        lambda f: ende(str(f)),
+    )
     with (
         laufsperre_oder_ende(db),
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, von) as person,
+        handelnde_person(
+            db, config, Recht.BUCHUNG_FREIGEBEN, von, vorab=probe
+        ) as person,
         sitzung(db)() as s,
     ):
         try:
@@ -89,9 +99,18 @@ def oeffnen(
     # die Festschreibung aufheben ist Funktionstrennung (GoBD Rz. 100–102): nicht,
     # wer bucht, sondern wer Steuermeldungen freigibt (Rolle freigeber) — ein
     # geöffneter Monat zieht meist eine berichtigte Voranmeldung nach sich; mit
-    # Einmalcode und Grund (Abschlussprotokoll und Journal nennen beides)
+    # Einmalcode und Grund (Abschlussprotokoll und Journal nennen beides); erst die
+    # Fachprobe (Monat nicht festgeschrieben …), dann der Code
+    probe = fachprobe(
+        sitzung(db),
+        lambda s: oeffne(s, monat, aktuelle_person(von), grund),
+        (PeriodeError,),
+        lambda f: ende(str(f)),
+    )
     with (
-        handelnde_person(db, config, Recht.STEUER_FREIGEBEN, von) as person,
+        handelnde_person(
+            db, config, Recht.STEUER_FREIGEBEN, von, vorab=probe
+        ) as person,
         sitzung(db)() as s,
     ):
         try:

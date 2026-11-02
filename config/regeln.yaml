@@ -2,10 +2,13 @@
 #
 # Reihenfolge = Priorität: die ERSTE passende Regel gewinnt.
 # Felder:
-#   muster            Regex (case-insensitive)
-#   feld              verwendungszweck | gegenkonto_name | beide
-#   soll_konto/haben_konto, steuer_schluessel (3=USt19, 2=USt7, 9=VSt19,
-#                     8=VSt7, null=ohne Steuerautomatik)
+#   muster            Regex (case-insensitive), nicht leer
+#   feld              verwendungszweck | gegenkonto_name | gegenkonto_iban | beide
+#   soll_konto/haben_konto (4–8 Ziffern, in Anführungszeichen: '0420' — ohne sie
+#                     liest YAML eine führende Null als Oktalzahl), steuer_schluessel
+#                     (3=USt19, 2=USt7, 9=VSt19, 8=VSt7, null=ohne Steuerautomatik)
+#   Ein ungültiger Wert ist ein Fehler der Datei (Meldung mit Regelname) — die
+#   Kontierung läuft erst nach der Korrektur.
 #   richtung          ausgabe (Betrag < 0) | einnahme (Betrag > 0) | beide.
 #                     Eine Regel gilt nur für Umsätze ihrer Richtung; passt sonst
 #                     keine Regel, schlägt accounti sie als Gegenbuchung vor

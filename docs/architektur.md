@@ -203,7 +203,7 @@ lernt der Kontakt sein Sachkonto. Jede Kontierung speichert Quelle, Regel und Be
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
 
-`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. Eine Buchung mit demselben Konto im Soll und im Haben legt der Lauf nie an — gleich aus welcher Quelle (Beleg, Regel, Gegenbuchung, LLM): Der Umsatz bleibt offen, `Kontierungslauf.umbuchungen` nennt ihn (meist eine Umbuchung zwischen eigenen Geldkonten). Belegbuchung und OPOS nehmen kein Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto als Sachkonto; Ausgangsbelege buchen auf die Erlöskonten des Kontenrahmens (`konten.erloeskonten`). *(vorhanden)*
+`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. Eine Buchung mit demselben Konto im Soll und im Haben legt der Lauf nie an — gleich aus welcher Quelle (Beleg, Regel, Gegenbuchung, LLM): Der Umsatz bleibt offen, `Kontierungslauf.umbuchungen` nennt ihn (meist eine Umbuchung zwischen eigenen Geldkonten). Belegbuchung und OPOS nehmen kein Zahlungsmittel, Personenkonto und kein Sammelkonto der Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen (`lul_konten`) als Sachkonto — andere Bestandskonten (Wertpapiere, Festgeld) schon; Ausgangsbelege buchen auf die Erlöskonten des Kontenrahmens (`konten.erloeskonten`, OSS je Bestimmungsland SKR03 8320–8327, SKR04 4320–4327). Eine Buchung mit Soll = Haben lehnen auch Korrektur, Kassenbuch und Freigabe ab. *(vorhanden)*
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
@@ -772,9 +772,9 @@ die erste passende gewinnt, `richtung` ist optional:
 # config/regeln.yaml (bzw. regeln: der Gesellschaft)
 - name: "mein_lieferant"
   muster: "Firma XY GmbH"
-  feld: "gegenkonto_name"
+  feld: "gegenkonto_name"    # verwendungszweck | gegenkonto_name | gegenkonto_iban | beide
   richtung: ausgabe          # ausgabe | einnahme | beide (ohne Angabe: beide)
-  soll_konto: "3300"
+  soll_konto: "3300"         # in Anführungszeichen: '0420' liest YAML sonst als Oktalzahl
   haben_konto: "1200"
   steuer_schluessel: 9
   pruefen: false             # true: Treffer immer zur Prüfung
@@ -789,6 +789,8 @@ UStG). Unabhängig von der Quelle prüft `buchung/mapper.py` die Bankseite gegen
 Vorzeichen: Bankkonto auf der falschen Seite → tauschen und zur Prüfung; keine Seite das
 Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung; ergäbe die Kontierung Soll =
 Haben, bleibt der Umsatz offen (`buchung/kontierung.py`). Aus einer Umbuchung zwischen eigenen
-Geldkonten (`Kontenrahmen.ist_zahlungsmittel`) wird keine gelernte Regel. Die eingebauten Regeln
+Geldkonten mit Kontoauszug (`Kontenrahmen.ist_zahlungsmittel`, ohne Geldtransit) wird keine
+gelernte Regel. Der Lader (`klassifikation/regeln_loader.py`) prüft jeden Wert — Konten 4–8
+Ziffern, Muster nicht leer, Steuerschlüssel als Zahl — und meldet einen Fehler mit Regelname. Die eingebauten Regeln
 liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
 Kontenrahmen keine).
