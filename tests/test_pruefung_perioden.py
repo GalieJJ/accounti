@@ -1,6 +1,6 @@
 """Periodenabschluss (Spec 4.5): Monatssperre neben der Jahressperre aus Baustein 12."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 import pytest
@@ -226,6 +226,45 @@ def test_spaet_gebuchte_rechnung_zaehlt_zum_stichtag_ab_ihrer_buchung(make_sessi
             Decimal("119.00")
         ]
     for stichtag in (date(2026, 8, 31), date(2026, 9, 30)):
+        assert pruefe(make_session, "personenkonto_op", stichtag=stichtag) == []
+
+
+def test_verrechnung_nicht_vor_der_buchung_des_postens(make_session):
+    """Nachprüfung Runde 2 (OPOS, Neu-6): Die Rechnung vom 10.08. ist wegen der
+    Festschreibung erst am 05.09. gebucht, die Gutschrift des Lieferanten vom 02.09.
+    sofort. Eine Verrechnung am 03.09. läge vor der Buchung der Rechnung — die
+    Stichtagsliste zählt sie erst ab dem 05.09., zum 04.09. stünde die Gutschrift auf
+    dem Kreditor, in der Liste nicht. Verrechnet wird frühestens am Buchungstag."""
+    from accounti.konfiguration import Buchhaltung
+    from accounti.opos.verbuchung import verbuche_beleg
+    from accounti.opos.verrechnung import VerrechnungError, verrechne
+    from tests.pruefung_hilfe import beleg
+    from tests.test_pruefung_regeln import pruefe
+
+    rechnung = beleg(tag=date(2026, 8, 10), nummer="RE-0050").model_copy(
+        update={"eingegangen_am": datetime(2026, 9, 5, 9, 0)}
+    )
+    gutschrift = beleg(
+        tag=date(2026, 9, 2),
+        nummer="GS-0051",
+        netto="-50.00",
+        steuer="-9.50",
+        brutto="-59.50",
+        datei_hash="b" * 64,
+    ).model_copy(update={"eingegangen_am": datetime(2026, 9, 2, 9, 0)})
+    anlegen(make_session, rechnung, gutschrift)
+    _geschlossen(make_session)  # 2026-08
+    with make_session() as s:
+        verbuche_beleg(s, rechnung, Buchhaltung(), buchungsdatum="eingang")
+        verbuche_beleg(s, gutschrift, Buchhaltung())
+        s.commit()
+    with make_session() as s, pytest.raises(VerrechnungError, match="05.09.2026"):
+        verrechne(s, ["GS-0051", "RE-0050"], date(2026, 9, 3))
+    with make_session() as s:
+        (v,) = verrechne(s, ["GS-0051", "RE-0050"], date(2026, 9, 5))
+        s.commit()
+    assert v.datum == date(2026, 9, 5)
+    for stichtag in (date(2026, 9, 4), date(2026, 9, 5), date(2026, 9, 30)):
         assert pruefe(make_session, "personenkonto_op", stichtag=stichtag) == []
 
 
