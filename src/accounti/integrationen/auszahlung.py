@@ -83,7 +83,10 @@ Nachprüfungen 1–5 E):
    Umsatzes oder der Auszahlung wird dabei gelöst (accountis Bankbuchung storniert),
    danach gleicht accounti alles neu ab. ``--loesen`` löst nur: der Umsatz gehört
    nicht zu dieser Auszahlung, der Abgleich nimmt ihn hier nicht wieder (Regel 1).
-   Ein als Erlös gebuchter Umsatz wird erst korrigiert (``accounti korrigiere``).
+   Ein als Erlös gebuchter Umsatz wird erst korrigiert (``accounti korrigiere``), ein
+   Umsatz mit offenem opos- oder Beleg-Vorschlag erst nach dessen Ablehnung
+   zugeordnet; vor dem Abrechnungszeitraum nie, nach dem Zeitfenster nur mit
+   ``--trotzdem`` (Nachprüfung 6 E, Mb, N-c).
 
 Zusammenspiel mit der Kontierung (``buchung.marktplatz``): ``classify`` und ``bank
 lauf`` lassen einen Eingang mit Stichwort offen, solange keine Abrechnung ihn
@@ -105,7 +108,12 @@ Eine Bankreferenz mit denselben zwei ersten Ziffern hält Regel 4 zurück (Warnu
 Regel 9). In Fremdwährung findet der Abgleich eine Auszahlung ohne Stichwort und
 ohne Nummer gar nicht — ohne Befund, die Kontierung bucht sie dann nach den Regeln;
 ``bank_stichworte`` deshalb nur leeren, wer keine Abrechnungen importiert (sonst warnt
-der Import: ``bank_stichworte_leer``).
+der Import: ``bank_stichworte_leer``). Eine schon als Erlös gebuchte Auszahlung ohne
+Stichwort und Nummer ist nur „vielleicht gebucht“ (Regel 6): accounti schlägt keinen
+Befehl vor — der Mensch prüft und bucht selbst um, denn derselbe Befund trifft eine
+Kundenzahlung gleicher Höhe (Nachprüfung 6 E, Mc). Ein Umsatz, den opos als Zahlung
+gebucht hat, aber mit Stichwort die Auszahlung ist, bekommt „schon gebucht“ mit dem
+korrigiere-Befehl; der lässt den Posten in opos ausgeglichen (dort von Hand klären).
 
 Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
 Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das
@@ -2034,10 +2042,10 @@ def _umsatz_mit_id(lauf: _Lauf, ident: UUID) -> Transaktion:
     for t in lauf.bankumsaetze:
         if t.id == ident:
             return t
-    t = lade_transaktion(lauf.session, ident)
-    if t is None:
+    gefunden = lade_transaktion(lauf.session, ident)
+    if gefunden is None:
         raise ZuordnungError(f"Bankumsatz {str(ident)[:8]} nicht gefunden")
-    return t
+    return gefunden
 
 
 def _finde_umsatz(lauf: _Lauf, anfang: str) -> Transaktion:
