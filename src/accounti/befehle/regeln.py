@@ -8,6 +8,8 @@ bearbeitet, sondern deaktiviert und neu gelernt (``accounti lerne`` bzw. ``korri
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import typer
 from rich.markup import escape
 from rich.table import Table
@@ -20,6 +22,9 @@ from accounti.befehle import (
     handelnde_person,
 )
 from accounti.befehle._anlagen_abschluss import ende, sitzung
+
+if TYPE_CHECKING:
+    from accounti.klassifikation.lernen import Uebernahme
 
 NAME = "regeln"
 befehl = typer.Typer(
@@ -142,8 +147,12 @@ def uebernehmen(
     """``gelernt_*``-Einträge der Regeldatei (und mit ``--name`` gewählte) in die
     Datenbank holen — vor 10b gelernte Regeln standen am Dateiende und griffen nach
     falsch treffenden eigenen Regeln. Übernommene Regeln stehen hinter den schon
-    gelernten. Die Datei bleibt unverändert; die Einträge danach von Hand löschen.
-    Einträge mit pruefen/confidence und Umbuchungen bleiben in der Datei."""
+    gelernten, untereinander in der Reihenfolge der Datei zur Zeit des jeweiligen
+    Laufs. Die Datei bleibt unverändert; die übernommenen Einträge erst nach allen
+    Läufen (auch mit --name) von Hand löschen — sonst rückt ein später übernommener
+    Eintrag womöglich vor früher übernommene. Einträge mit pruefen/confidence und
+    Umbuchungen bleiben in der Datei. Ein Lauf, der nichts übernähme, verbraucht keinen
+    Einmalcode."""
     from sqlalchemy.orm import Session
 
     from accounti.abschluss.konfiguration import lade_abschluss
@@ -152,11 +161,7 @@ def uebernehmen(
         mit_eingerichteten_konten,
     )
     from accounti.betrieb.kontext import regeln_datei
-    from accounti.klassifikation.lernen import (
-        RegelError,
-        Uebernahme,
-        uebernehme_aus_datei,
-    )
+    from accounti.klassifikation.lernen import RegelError, uebernehme_aus_datei
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.pruefung.person import aktuelle_person
@@ -178,24 +183,33 @@ def uebernehmen(
         )  # fmt: skip
 
     fachfehler = (RegelError, KonfigurationError)
-    if probe:
+
+    def probelauf(wer: str) -> Uebernahme:
+        """Der echte Lauf, zurückgerollt — so fällt auch ein Fehler beim Speichern
+        (Regelname schon vergeben) in der Probe auf, nicht erst nach dem Einmalcode
+        (Runde 4, g3w-web N3)."""
         with sitzung(db)() as s:
             try:
-                ergebnis = ausfuehren(s, "probe", True)
+                return ausfuehren(s, wer, False)
             except fachfehler as fehler:
+                s.rollback()
                 ende(str(fehler))
             finally:
                 s.rollback()
+
+    if probe:
+        ergebnis = probelauf("probe")
     else:
         # Übernommene Regeln buchen künftig automatisch wie gelernte: buchen und
         # Regeln lernen (wie korrigiere --lernen) — der verwalter allein nicht. Erst
-        # die Fachprobe (Datei lesbar, Namen frei), dann der Einmalcode
-        vorab = fachprobe(
-            sitzung(db),
-            lambda s: ausfuehren(s, aktuelle_person(von), True),
-            fachfehler,
-            lambda f: ende(str(f)),
-        )
+        # die Fachprobe (Datei lesbar, Einträge gültig, Namen frei), dann der
+        # Einmalcode; ein Lauf, der nichts übernähme, endet vor dem Code
+        def vorab() -> None:
+            vorschau = probelauf(aktuelle_person(von))
+            if not vorschau.uebernommen:
+                _zeige_uebernahme(vorschau, str(datei), probe=False)
+                raise typer.Exit(0)
+
         with (
             handelnde_person(
                 db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,), vorab
@@ -207,9 +221,13 @@ def uebernehmen(
                 s.commit()
             except fachfehler as fehler:
                 ende(str(fehler))
+    _zeige_uebernahme(ergebnis, str(datei), probe=probe)
+
+
+def _zeige_uebernahme(ergebnis: Uebernahme, datei: str, *, probe: bool) -> None:
     verb = "würde übernehmen" if probe else "übernommen"
     console.print(
-        f"{len(ergebnis.uebernommen)} Regeln {verb} aus {escape(str(datei))}"
+        f"{len(ergebnis.uebernommen)} Regeln {verb} aus {escape(datei)}"
         + (
             f": {escape(', '.join(ergebnis.uebernommen))}"
             if ergebnis.uebernommen
@@ -261,6 +279,11 @@ def uebernehmen(
         )
     if ergebnis.uebernommen and not probe:
         console.print(
-            "[dim]Die Einträge stehen weiter in der Regeldatei — dort von Hand löschen "
-            "(accounti schreibt die Datei nicht).[/dim]"
+            "[dim]Die Einträge stehen weiter in der Regeldatei — dort von Hand "
+            "löschen, erst nach allen Läufen mit --name (accounti schreibt die Datei "
+            "nicht): Ein späterer Lauf ordnet nach der Stelle zur Zeit des Laufs; "
+            "nach dem Löschen rückt sein Eintrag womöglich vor früher übernommene "
+            "Regeln.[/dim]"
         )
+    if not ergebnis.uebernommen and not probe:
+        console.print("[dim]Nichts zu übernehmen.[/dim]")

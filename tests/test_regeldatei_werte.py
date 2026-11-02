@@ -261,3 +261,53 @@ def test_uebernahme_mit_riesigem_schluessel_ungueltig_statt_traceback(
     assert sorted(e.ungueltig) == ["gelernt_riesig", "gelernt_tippfehler"]
     assert e.uebernommen == []
     assert "unbekannter Schlüssel steuerschluessel" in e.gruende["gelernt_tippfehler"]
+
+
+# --- Runde 4 (g3w-web N3): Probe und Lauf urteilen gleich -----------------------------
+
+
+def test_namen_gleich_nach_100_zeichen_ungueltig_statt_speicherfehler(
+    make_session, tmp_path
+):
+    """Zwei ``gelernt_``-Namen, die sich erst nach 100 Zeichen unterscheiden: Die
+    Probe meldete „2 würde übernehmen“, der Lauf endete nach dem Code mit „Regelname …
+    ist schon vergeben“. Jetzt ist der zweite schon in der Probe ungültig."""
+    lang = "gelernt_" + "x" * 95
+    datei = _datei(
+        tmp_path,
+        _regel(name=lang + "_eins") + _regel(name=lang + "_zwei", muster="vodafone"),
+    )
+    for probe in (True, False):
+        with make_session() as s:
+            e = uebernehme_aus_datei(s, datei, "jan", probe=probe)
+            s.rollback()
+        assert e.uebernommen == [lang + "_eins"], probe
+        assert e.ungueltig == [lang + "_zwei"]
+        assert "100 Zeichen" in e.gruende[lang + "_zwei"]
+
+
+def test_langer_name_zweiter_lauf_uebersprungen(make_session, tmp_path):
+    lang = "gelernt_" + "y" * 120
+    datei = _datei(tmp_path, _regel(name=lang))
+    with make_session() as s:
+        assert uebernehme_aus_datei(s, datei, "jan").uebernommen == [lang]
+        s.commit()
+        e = uebernehme_aus_datei(s, datei, "jan")
+    assert (e.uebernommen, e.uebersprungen) == ([], [lang])
+
+
+def test_zu_langes_muster_ungueltig_buchungstext_gekuerzt(make_session, tmp_path):
+    """Spalten muster (200) und buchungstext (60): PostgreSQL lehnte zu lange Werte
+    erst beim Speichern ab, nach dem Code."""
+    datei = _datei(
+        tmp_path,
+        _regel(name="gelernt_lang", muster="'" + "a" * 201 + "'")
+        + _regel(name="gelernt_text", buchungstext="'" + "T" * 80 + "'"),
+    )
+    with make_session() as s:
+        e = uebernehme_aus_datei(s, datei, "jan")
+        s.commit()
+        regeln = {r.name: r for r in lade_kontierungsregeln(s)}
+    assert e.ungueltig == ["gelernt_lang"]
+    assert "200 Zeichen" in e.gruende["gelernt_lang"]
+    assert regeln["gelernt_text"].buchungstext == "T" * 60

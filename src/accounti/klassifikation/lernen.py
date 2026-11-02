@@ -966,6 +966,8 @@ def uebernehme_aus_datei(
     geld = zahlungsmittel(
         buchhaltung or Buchhaltung(bank_konto=bank_konto), kontenrahmen
     )
+    # Name in der Datenbank (höchstens 100 Zeichen) → Name in der Datei, in diesem Lauf
+    diesmal: dict[str, str] = {}
     for nr, eintrag in enumerate(daten):
         if not isinstance(eintrag, dict):
             continue
@@ -974,12 +976,27 @@ def uebernehme_aus_datei(
         if not name.startswith("gelernt_") and name not in gewaehlt:
             ergebnis.eigene.append(name or "(ohne Namen)")
             continue
-        if name in vorhanden:
+        kurz = name[:100]  # Spalte name (100 Zeichen)
+        if diesmal.get(kurz, name) != name:
+            # erst beim Speichern fiel das auf: „schon vergeben“ nach dem Einmalcode
+            # (Runde 4, g3w-web N3)
+            ergebnis.ungueltig.append(name)
+            ergebnis.gruende[name] = (
+                f"Regelname gleicht in den ersten 100 Zeichen dem von "
+                f"{diesmal[kurz][:40]}… — in der Datei umbenennen"
+            )
+            continue
+        if kurz in vorhanden:  # schon übernommen (ein langer Name gekürzt)
             ergebnis.uebersprungen.append(name)
             continue
         try:
             geprueft = pruefe_eintrag(eintrag, pfad)
             soll, haben = geprueft.soll_konto, geprueft.haben_konto
+            if len(geprueft.muster.pattern) > REGEX_MAX:
+                raise ValueError(
+                    f"Muster zu lang — höchstens {REGEX_MAX} Zeichen (Spalte der "
+                    "Datenbank)"
+                )
             if geprueft.pruefen or geprueft.confidence < 1.0:
                 ergebnis.mit_pruefkennzeichen.append(name)
                 continue
@@ -994,7 +1011,7 @@ def uebernehme_aus_datei(
             else:
                 richtung = richtung_der_bankseite(soll, haben, bank_konto, kontenrahmen)
             regel = Kontierungsregel(
-                name=name[:100],
+                name=kurz,
                 muster=geprueft.muster.pattern,
                 ist_text=False,
                 feld=geprueft.feld,  # type: ignore[arg-type]  # FELDER der Datei
@@ -1002,7 +1019,7 @@ def uebernehme_aus_datei(
                 soll_konto=soll,
                 haben_konto=haben,
                 steuer_schluessel=geprueft.steuer_schluessel,
-                buchungstext=geprueft.buchungstext,
+                buchungstext=(geprueft.buchungstext or "")[:60] or None,
                 herkunft=RegelHerkunft.UEBERNAHME,
                 angelegt_von=person,
                 angelegt_am=zeit,
@@ -1019,7 +1036,8 @@ def uebernehme_aus_datei(
             ergebnis.ungueltig.append(name)
             ergebnis.gruende[name] = str(fehler)
             continue
-        vorhanden.add(name)
+        vorhanden.add(kurz)
+        diesmal[kurz] = name
         ergebnis.uebernommen.append(name)
         if richtung is None:
             ergebnis.ohne_richtung.append(name)

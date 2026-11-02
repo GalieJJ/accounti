@@ -318,3 +318,66 @@ def test_kasse_buchen_ohne_kontonummer_oder_mit_fremdem_satz(welt, monkeypatch):
     r = _als(monkeypatch, "jan", code, *kasse, "--betrag", "-15", "--konto", "4910",
              "--steuer", "19")  # fmt: skip
     assert r.exit_code == 0, r.output
+
+
+@pytest.mark.parametrize(
+    ("inhalt", "zusatz"),
+    [
+        (None, []),  # keine Regeldatei
+        ("- name: gelernt_x\n  muster: x\n  soll_konto: '12'\n  haben_konto: '1200'\n",
+         []),  # nur ungültige Einträge
+        ("- name: eigene\n  muster: x\n  soll_konto: '4920'\n  haben_konto: '1200'\n",
+         ["--name", "gibtsnicht"]),  # nur ein unbekannter Name
+    ],
+    ids=["ohne_datei", "nur_ungueltig", "unbekannter_name"],
+)  # fmt: skip
+def test_regeln_uebernehmen_ohne_wirkung_verbraucht_den_code_nicht(
+    welt, monkeypatch, tmp_path, inhalt, zusatz
+):
+    """g3w-web N3 (c): Ein Lauf, der nichts übernimmt, kostete den Code."""
+    url, jan = welt
+    datei = tmp_path / "config" / "regeln.yaml"
+    datei.parent.mkdir(exist_ok=True)
+    if inhalt is not None:
+        datei.write_text(inhalt, encoding="utf-8")
+    code = jan.codes[9]
+    r = _als(monkeypatch, "jan", code, "regeln", "uebernehmen", *zusatz, "--db", url)
+    assert r.exit_code == 0 and "0 Regeln übernommen" in r.output, r.output
+    assert _verbraucht(url) == 0
+    datei.write_text(_GUELTIG, encoding="utf-8")
+    r = _als(monkeypatch, "jan", code, "regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 0 and "1 Regeln übernommen" in r.output, r.output
+    assert _verbraucht(url) == 1
+
+
+_GUELTIG = (
+    "- name: gelernt_telekom\n  muster: telekom\n  soll_konto: '4920'\n"
+    "  haben_konto: '1200'\n"
+)
+
+
+def test_regeln_uebernehmen_speicherfehler_in_der_probe(welt, monkeypatch, tmp_path):
+    """g3w-web N3 (a/b): Die Probe war ein Trockenlauf (nichts gespeichert) — ein
+    Fehler beim Speichern kam erst nach dem Code. Jetzt speichert die Probe und rollt
+    zurück; ein Regelname, den es schon gibt, fällt dort auf."""
+    from accounti.klassifikation import lernen
+
+    url, jan = welt
+    datei = tmp_path / "config" / "regeln.yaml"
+    datei.parent.mkdir(exist_ok=True)
+    datei.write_text(_GUELTIG, encoding="utf-8")
+    original = lernen.speichere_regel
+
+    def kaputt(session, regel):  # noqa: ANN001, ANN202
+        from sqlalchemy.exc import IntegrityError
+
+        raise IntegrityError("INSERT", {}, Exception("UNIQUE constraint failed"))
+
+    monkeypatch.setattr(lernen, "speichere_regel", kaputt)
+    code = jan.codes[9]
+    r = _als(monkeypatch, "jan", code, "regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 1 and "schon vergeben" in r.output, r.output
+    assert _verbraucht(url) == 0
+    monkeypatch.setattr(lernen, "speichere_regel", original)
+    r = _als(monkeypatch, "jan", code, "regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 0 and "1 Regeln übernommen" in r.output, r.output
