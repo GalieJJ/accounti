@@ -826,7 +826,13 @@ def _kunde_der_bezugsrechnung(
     wenn der Käufer dort derselbe ist (Name, keine andere USt-IdNr., kein anderes
     Land). Sonst teilte eine neue Anschrift — ein umgezogener Privatkunde ohne E-Mail —
     den Kunden in zwei Debitoren, und die Verrechnung fiele still aus (Nachprüfung
-    Merge N-1). Eine abweichende Anschrift wird gemeldet, nicht übernommen."""
+    Merge N-1). Eine abweichende Anschrift wird gemeldet, nicht übernommen.
+
+    Trifft der Käufer einen anderen Kontakt genauer — dessen USt-IdNr. oder bei
+    gleichem Namen dessen PLZ bzw. E-Mail, die der Kontakt der Rechnung nicht hat —,
+    ist der Bezug falsch (Bedienfehler): kein Treffer, die Gutschrift bleibt bei ihrem
+    Kunden und wird nicht verrechnet (Nachprüfung Runde 2, Neu-2; vorher minderte sie
+    die Forderung des gleichnamigen anderen Kunden)."""
     kunden = {
         p.kontakt_id
         for p in lade_posten(session, richtung=PostenRichtung.FORDERUNG)
@@ -834,13 +840,26 @@ def _kunde_der_bezugsrechnung(
     }
     if len(kunden) != 1:
         return None
-    kontakt = {k.id: k for k in lade_kontakte(session)}.get(kunden.pop())
+    alle = lade_kontakte(session)
+    kontakt = {k.id: k for k in alle}.get(kunden.pop())
     if kontakt is None or kontakt.debitor_konto is None:
         return None
     gefunden = suche_kontakt(
         [kontakt], ust_id=partner.ust_id, name=partner.name, land=partner.land
     )
     if gefunden.kontakt is None:
+        return None
+    # der Kontakt der Rechnung zuerst: bei gleich guten Treffern gilt der Bezug
+    genauer = suche_kontakt(
+        [kontakt, *(k for k in alle if k.id != kontakt.id)],
+        ust_id=partner.ust_id,
+        name=partner.name,
+        land=partner.land,
+        plz=partner.plz,
+        email=partner.email,
+        mit_anschrift=True,
+    )
+    if genauer.kontakt is not None and genauer.kontakt.id != kontakt.id:
         return None
     if partner.plz and kontakt.plz and partner.plz.strip() != kontakt.plz.strip():
         hinweise.append(

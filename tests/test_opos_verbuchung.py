@@ -1055,6 +1055,66 @@ def test_gutschrift_mit_bezug_auf_die_rechnung_eines_anderen_kunden(umgebung):
     assert "10000" in nicht and "10001" in nicht, nicht
 
 
+@pytest.mark.parametrize("merkmal", ["anschrift", "ust_id"])
+def test_gutschrift_mit_falschem_bezug_bleibt_beim_eindeutig_erkannten_kunden(
+    umgebung, merkmal
+):
+    """Nachprüfung Runde 2 (OPOS, Neu-2): Zwei gleichnamige Kunden, die Gutschrift
+    nennt den zweiten (PLZ und E-Mail bzw. USt-IdNr. eindeutig), der Bezug (BT-25)
+    aber die Rechnung des ersten — ein Bedienfehler. Die Käuferdaten gehen vor: Die
+    Gutschrift bleibt beim Debitor des zweiten Kunden und wird nicht verrechnet, der
+    Hinweis sagt warum. Vorher minderte sie die Forderung des falschen Kunden, und der
+    Hinweis riet, dessen Anschrift zu überschreiben."""
+    from accounti.models import Rechnungsempfaenger
+
+    make_session, archiv = umgebung
+
+    def empfaenger(plz, ort, email, ust_id=None):
+        return Rechnungsempfaenger(
+            name="Max Müller" if merkmal == "anschrift" else "Atelier Nord GmbH",
+            strasse="Weg 1",
+            plz=plz,
+            ort=ort,
+            email=email,
+            ust_id=ust_id,
+            privat=merkmal == "anschrift",
+        )
+
+    muenchen = empfaenger("80331", "München", "max@muc.example")
+    berlin = empfaenger(
+        "10115",
+        "Berlin",
+        "max@ber.example",
+        ust_id="DE129273398" if merkmal == "ust_id" else None,
+    )
+    _ausstellen_am(
+        make_session, archiv, entwurf(muenchen, pos("Druck", "50")), date(2026, 3, 2)
+    )
+    _ausstellen_am(
+        make_session, archiv, entwurf(berlin, pos("Druck", "300")), date(2026, 3, 3)
+    )
+    _verbuche(make_session, archiv=archiv)
+    if merkmal == "ust_id":
+        # die Gutschrift nennt nur die USt-IdNr. — Anschrift wie beim ersten Kunden
+        berlin = muenchen.model_copy(update={"ust_id": "DE129273398"})
+    gutschrift = entwurf(
+        berlin, pos("Minderung", "50"), rechnungstyp="381", korrektur_zu="2026-0001"
+    )
+    _ausstellen_am(make_session, archiv, gutschrift, date(2026, 3, 9))
+    (v,) = _verbuche(make_session, archiv=archiv)
+    assert (v.kontakt_neu, v.treffer.kontakt.debitor_konto) == (False, "10001")
+    (nicht,) = [h for h in v.hinweise if "nicht mit Rechnung 2026-0001" in h]
+    assert "10000" in nicht and "10001" in nicht, nicht
+    assert not any("Anschrift im Kontakt prüfen" in h for h in v.hinweise), v.hinweise
+    with make_session() as s:
+        reste = {p.belegnummer: p.restbetrag for p in lade_posten(s)}
+    assert reste == {
+        "2026-0001": Decimal("59.50"),
+        "2026-0002": Decimal("357.00"),
+        "2026-0003": Decimal("-59.50"),
+    }
+
+
 # --- Gesamttest Paket C, Eingang B16: Rechnung erst im Folgejahr --------------------
 
 
