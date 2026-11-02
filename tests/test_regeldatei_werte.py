@@ -296,6 +296,35 @@ def test_langer_name_zweiter_lauf_uebersprungen(make_session, tmp_path):
     assert (e.uebernommen, e.uebersprungen) == ([], [lang])
 
 
+def test_langer_name_gleich_einem_frueher_uebernommenen_ist_vergeben(
+    make_session, tmp_path
+):
+    """g4w N4 (Runde 5): Gleicht ein langer Name in den ersten 100 Zeichen einer
+    früher übernommenen Regel mit anderem Inhalt, galt er still als „schon
+    vorhanden“ — wer den Eintrag dann löschte, verlor die Regel. Jetzt ungültig mit
+    „Regelname … ist schon vergeben“ (wie vor Runde 4, aber vor dem Code)."""
+    basis = "gelernt_" + "a" * 100
+    with make_session() as s:
+        erst = _datei(tmp_path, _regel(name=basis + "x", muster="TELEKOM"))
+        assert uebernehme_aus_datei(s, erst, "jan").uebernommen == [basis + "x"]
+        s.commit()
+        zweit = _datei(
+            tmp_path,
+            _regel(name=basis + "y", muster="STADTWERKE", soll_konto="'4240'")
+            + _regel(name=basis + "x", muster="TELEKOM"),
+        )
+        e = uebernehme_aus_datei(s, zweit, "jan")
+        s.rollback()
+        regeln = [(r.muster, r.soll_konto) for r in lade_kontierungsregeln(s)]
+    assert e.ungueltig == [basis + "y"]
+    assert e.gruende[basis + "y"].startswith(
+        f"Regelname {basis + 'y'} ist schon vergeben"
+    )
+    assert "in der Datei umbenennen" in e.gruende[basis + "y"]
+    assert e.uebersprungen == [basis + "x"]  # derselbe Eintrag: wie bisher
+    assert regeln == [("TELEKOM", "4920")]
+
+
 def test_zu_langes_muster_ungueltig_buchungstext_gekuerzt(make_session, tmp_path):
     """Spalten muster (200) und buchungstext (60): PostgreSQL lehnte zu lange Werte
     erst beim Speichern ab, nach dem Code."""

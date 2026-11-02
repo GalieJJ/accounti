@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -51,6 +51,7 @@ from accounti.buchung.konten import (
 )
 from accounti.db.repo_kontierung import (
     deaktiviere_regel,
+    finde_kontierungsregel,
     lade_kontierungsregeln,
     regelnamen,
     speichere_regel,
@@ -986,8 +987,23 @@ def uebernehme_aus_datei(
                 f"{diesmal[kurz][:40]}… — in der Datei umbenennen"
             )
             continue
-        if kurz in vorhanden:  # schon übernommen (ein langer Name gekürzt)
-            ergebnis.uebersprungen.append(name)
+        if kurz in vorhanden:
+            if (
+                name == kurz
+                or diesmal.get(kurz) == name
+                or _schon_uebernommen(session, kurz, eintrag, pfad)
+            ):
+                ergebnis.uebersprungen.append(name)
+                continue
+            # ein langer Name, gekürzt gleich dem einer anderen Regel: still
+            # „übersprungen“ verlor die Regel, wer den Eintrag dann löschte (Runde 5,
+            # g4w N4)
+            ergebnis.ungueltig.append(name)
+            ergebnis.gruende[name] = (
+                f"Regelname {name} ist schon vergeben — die ersten 100 Zeichen "
+                "gleichen einer Regel in der Datenbank mit anderem Inhalt; in der "
+                "Datei umbenennen"
+            )
             continue
         try:
             geprueft = pruefe_eintrag(eintrag, pfad)
@@ -1048,6 +1064,34 @@ def uebernehme_aus_datei(
                 raise RegelError(f"Regelname {name} ist schon vergeben") from fehler
     ergebnis.unbekannt = sorted(gewaehlt - gefunden)
     return ergebnis
+
+
+def _schon_uebernommen(
+    session: Session, kurz: str, eintrag: dict[str, Any], pfad: Path
+) -> bool:
+    """Ist die Regel ``kurz`` der Datenbank dieser Eintrag (Muster, Konten,
+    Steuerschlüssel, Feld) — ein zweiter Lauf über dieselbe Datei?"""
+    from accounti.klassifikation.regeln_loader import pruefe_eintrag
+    from accounti.konfiguration import KonfigurationError
+
+    try:
+        geprueft = pruefe_eintrag(eintrag, pfad)
+        regel = finde_kontierungsregel(session, kurz)
+    except (KonfigurationError, ValueError):
+        return False
+    return (
+        regel.muster,
+        regel.soll_konto,
+        regel.haben_konto,
+        regel.steuer_schluessel,
+        regel.feld,
+    ) == (
+        geprueft.muster.pattern,
+        geprueft.soll_konto,
+        geprueft.haben_konto,
+        geprueft.steuer_schluessel,
+        geprueft.feld,
+    )
 
 
 # --- Liste ----------------------------------------------------------------------------
