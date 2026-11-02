@@ -24,12 +24,20 @@ NAME = "kasse"
 befehl = typer.Typer(help="Kassenbuch: laufende Nummer, Bestand nie negativ, Storno.")
 
 
+def _fehler() -> tuple[type[Exception], ...]:
+    """Fachfehler des Kassenbuchs — dazu eine fehlende oder kaputte Kontenrahmen-Datei
+    der Prüfregeln (``pruefung.kontenrahmen_datei``, Gegenkonto mit ``--konto``): eine
+    Meldung mit Exit 1 statt Traceback (Runde 5, g4w N3)."""
+    from accounti.abschluss.kassenbuch import KassenbuchError
+    from accounti.konfiguration import KonfigurationError
+
+    return (KassenbuchError, JahrGesperrtError, KonfigurationError)
+
+
 def _probe(db: str, aktion: Callable[[Any], object]) -> Callable[[], None]:
     """Fachprobe vor dem Einmalcode: ein Fachfehler des Kassenbuchs verbraucht ihn
     nicht (wie ``buchung storniere``, gw-storno N3)."""
-    from accounti.abschluss.kassenbuch import KassenbuchError
-
-    return fachprobe(sitzung(db), aktion, (KassenbuchError, JahrGesperrtError), _melde)
+    return fachprobe(sitzung(db), aktion, _fehler(), _melde)
 
 
 def _melde(fehler: Exception) -> None:
@@ -55,7 +63,7 @@ def anfangsbestand_befehl(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Ersten Bestand eines leeren Kassenbuchs erfassen (ohne Buchung)."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, anfangsbestand
+    from accounti.abschluss.kassenbuch import anfangsbestand
     from accounti.anzeige import betrag_de
     from accounti.models.auth import Recht
 
@@ -71,7 +79,7 @@ def anfangsbestand_befehl(
     ):
         try:
             v = anfangsbestand(s, wert, tag, kasse, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+        except _fehler() as fehler:
             ende(str(fehler))
         s.commit()
     console.print(
@@ -105,7 +113,7 @@ def buchen(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Bargeschäft erfassen — abgelehnt, wenn die Kasse ins Minus fiele."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, bestand, buche_kasse
+    from accounti.abschluss.kassenbuch import bestand, buche_kasse
     from accounti.anzeige import betrag_de
     from accounti.db.repo_kasse import lade_kassenbuch
     from accounti.konfiguration import lade_buchhaltung
@@ -136,7 +144,7 @@ def buchen(
     ):
         try:
             v = ausfuehren(s, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+        except _fehler() as fehler:
             ende(str(fehler))
         stand = bestand(lade_kassenbuch(s))
         s.commit()
@@ -165,7 +173,7 @@ def storno(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Kassenvorgang stornieren (Gegeneintrag; das Original bleibt stehen)."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, storniere
+    from accounti.abschluss.kassenbuch import storniere
     from accounti.anzeige import betrag_de
     from accounti.models.auth import Recht
 
@@ -180,7 +188,7 @@ def storno(
     ):
         try:
             v = storniere(s, nr, grund, kasse, tag, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+        except _fehler() as fehler:
             ende(str(fehler))
         s.commit()
     console.print(

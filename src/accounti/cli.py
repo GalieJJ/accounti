@@ -3321,6 +3321,9 @@ def korrigiere(
         StornoError,
         JahrGesperrtError,
         UnveraenderbarError,
+        # fehlende oder kaputte pruefung.kontenrahmen_datei (Prüfregel des
+        # Steuerschlüssels): Meldung statt Traceback (Runde 5, g4w N3)
+        KonfigurationError,
     )
 
     def ausfuehren(s: "Session", wer: str) -> "Korrekturergebnis":
