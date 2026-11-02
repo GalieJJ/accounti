@@ -956,3 +956,44 @@ def test_classify_kontiert_keinen_umsatz_mit_abgleichsbefund(tmp_path, monkeypat
         (a,) = lade_abrechnungen(s)
         assert all(p.bank_transaktion_id is None for p in a.posten)
     engine.dispose()
+
+
+def test_vielleicht_gebucht_geht_ohne_stichworte_der_regel4_warnung_vor(umgebung):
+    """Simulation Runde 7 (ebay_gleich/ohne, -N ALBXY): ohne ``bank_stichworte``
+    steht A (ohne Nummer) per Regel als Erlös, B nennt die noch unbekannte 6009990002.
+    Kam „vielleicht gebucht“ erst nach der Regel-4-Warnung über B, schwieg die
+    Voranmeldung von A's Monat bei doppeltem Erlös. Ohne Stichworte steht es wie früher
+    „schon gebucht“ vorn — der doppelte Erlös geht vor."""
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+    from tests.test_integrationen_lauf import _ohne_stichwort
+
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext, "ebay")
+    a = bank(s, date(2026, 9, 30), "100.00", f"{EBAY} AUSZAHLUNG", "eBay S.a.r.l.")
+    _als_erloes_gebucht(s, a, "84.03", "15.97")
+    bank(
+        s, date(2026, 10, 1), "100.00", f"{EBAY} AUSZAHLUNG 6009990002", "eBay S.a.r.l."
+    )
+    (ergebnis,) = importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        ebay_bericht(
+            (
+                "24.09.2026",
+                "Bestellung",
+                "12-1",
+                "Deutschland",
+                "100,00",
+                "6009990001",
+                "",
+            ),
+            ("30.09.2026", "Auszahlung", "", "", "-100,00", "6009990001", "30.09.2026"),
+        ),
+        "x.csv",
+    )
+    (befund,) = [m.befund for m in ergebnis.abgleich if m.befund]
+    assert befund.code == "auszahlung_vielleicht_gebucht", befund.text
+    assert _ustva_warnungen(s, "2026-09")

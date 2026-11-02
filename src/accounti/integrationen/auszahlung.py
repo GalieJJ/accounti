@@ -60,8 +60,9 @@ Nachprüfungen 1–5 E):
    ein als Erlös gebuchter mit genau dem Betrag, aber ohne Stichwort und Nummer
    (``auszahlung_vielleicht_gebucht``): ebenso gut eine Kundenzahlung gleicher Höhe,
    deshalb ohne korrigiere-Befehl (der löschte dort echten Erlös, Nachprüfung 6 E,
-   Mc) — ein Hinweis, ohne ``bank_stichworte`` eine Warnung, bei der auch die
-   Voranmeldung des Bankmonats warnt (dort ist der Betrag das einzige Merkmal).
+   Mc) — ein Hinweis; ohne ``bank_stichworte`` eine Warnung, bei der auch die
+   Voranmeldung des Bankmonats warnt (dort ist der Betrag das einzige Merkmal), und
+   dann gleich nach „schon gebucht“ statt zuletzt (der doppelte Erlös geht vor).
    Sonst ist die Auszahlung noch nicht auf der Bank, ohne Befund.
 7. Befunde über einen Umsatz (``_UMSATZBEFUNDE``) gelten, solange ein Lauf sie so
    wiederfindet — nennt ein späterer einen anderen oder keinen Umsatz mehr (etwa weil
@@ -1181,6 +1182,34 @@ def _befund(
     )
     if schon:
         return Abgleich(a, p, befund=_schon_gebucht(lauf, a, p, schon), umsaetze=schon)
+    # als Erlös gebucht, genau der Betrag, aber weder Stichwort noch Nummer: vielleicht
+    # die Auszahlung, vielleicht eine Kundenzahlung — prüfen, nicht raten, kein
+    # korrigiere-Befehl (Nachprüfung 6 E, Mc). Ohne bank_stichworte ist der Betrag das
+    # einzige Merkmal: dann steht er wie früher „schon gebucht“ vorn (der doppelte Erlös
+    # geht vor, die Voranmeldung warnt — sonst schwiege sie hinter einer Warnung zu
+    # einem anderen Umsatz: 5 E und 7 E, Simulation); mit Stichworten zuletzt, als
+    # Hinweis
+    vielleicht = [
+        t
+        for t in alle
+        if t.id in lauf.gebucht
+        and t.betrag == erwartet
+        and not _erkennbar(lauf, a, t)
+        and not _nur_geldbewegung(lauf, t)
+        and not _opos_zahlung(lauf, t)
+    ]
+    vielleicht_befund = (
+        Abgleich(
+            a,
+            p,
+            befund=_vielleicht_gebucht(lauf, a, p, vielleicht),
+            umsaetze=vielleicht,
+        )
+        if vielleicht
+        else None
+    )
+    if vielleicht_befund is not None and _ohne_stichworte(lauf, a):
+        return vielleicht_befund
     # der eigene (mit der Nummer) als Erlös gebucht, aber außerhalb der Toleranz:
     # die Erlöse sind trotzdem doppelt (Nachprüfung 5 E, N2)
     abweichend = [
@@ -1270,27 +1299,16 @@ def _befund(
     ]
     if andere:
         return Abgleich(a, p, befund=_andere_nummer(a, p, andere), umsaetze=andere)
-    # als Erlös gebucht, genau der Betrag, aber weder Stichwort noch Nummer: vielleicht
-    # die Auszahlung, vielleicht eine Kundenzahlung — prüfen, nicht raten, kein
-    # korrigiere-Befehl (Nachprüfung 6 E, Mc; ohne bank_stichworte warnt auch die
-    # Voranmeldung, sonst schwiege sie dort bei doppeltem Erlös: 5 E, Simulation)
-    vielleicht = [
-        t
-        for t in alle
-        if t.id in lauf.gebucht
-        and t.betrag == erwartet
-        and not _erkennbar(lauf, a, t)
-        and not _nur_geldbewegung(lauf, t)
-        and not _opos_zahlung(lauf, t)
-    ]
-    if vielleicht:
-        return Abgleich(
-            a,
-            p,
-            befund=_vielleicht_gebucht(lauf, a, p, vielleicht),
-            umsaetze=vielleicht,
-        )
+    if vielleicht_befund is not None:
+        return vielleicht_befund
     return Abgleich(a, p)
+
+
+def _ohne_stichworte(lauf: _Lauf, a: Abrechnung) -> bool:
+    """Hat der Marktplatz keine ``bank_stichworte`` (Auszahlungen nur an Betrag und
+    Nummer erkennbar)?"""
+    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
+    return not any(w.strip() for w in konten.bank_stichworte)
 
 
 def _erloese(
@@ -1549,8 +1567,7 @@ def _vielleicht_gebucht(
     dann ist der Betrag das einzige Merkmal; sonst trägt eine Auszahlung ihr
     Stichwort, und es bleibt ein Hinweis."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
-    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
-    ohne_stichwort = not any(w.strip() for w in konten.bank_stichworte)
+    ohne_stichwort = _ohne_stichworte(lauf, a)
     wen = (
         f"weder ein Stichwort von {markt} noch {a.nummer}"
         if _nummer_wort(a)
