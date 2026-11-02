@@ -11,10 +11,11 @@ Rz. 58 ff., Richtigkeit; § 239 Abs. 2 HGB). Gerechnet wird zum Stichtag:
   nicht erst bei der Freigabe; ohne Eröffnungsbuchungen (der Saldovortrag wiederholt
   nur, was die Bewegungen der Vorjahre schon enthalten).
 * Posten: die Stichtagsliste (``opos/auswertung.py``, ``stand_zum``) — Rest jedes
-  Postens, dessen Rechnung bis zum Stichtag gebucht ist, zuzüglich der gebuchten
-  Zuordnungen (Zahlung und Skonto) und der Verrechnungen (Gutschrift mit Bezug,
-  ``opos verrechnen``) nach dem Stichtag. Ein Guthaben aus einer Überzahlung, das ältere
-  Stände als Rest 0 führen (gezahlt mehr als der Betrag), zählt mit.
+  Postens, dessen Rechnung bis zum Stichtag gebucht ist (bei Teilbuchungen an
+  verschiedenen Tagen nur der gebuchte Teil), zuzüglich der gebuchten Zuordnungen
+  (Zahlung und Skonto) und der Verrechnungen (Gutschrift mit Bezug, ``opos
+  verrechnen``) nach dem Stichtag. Ein Guthaben aus einer Überzahlung, das ältere Stände
+  als Rest 0 führen (gezahlt mehr als der Betrag), zählt mit.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from accounti.models import (
     Verrechnung,
     Zahlungszuordnung,
 )
-from accounti.opos.auswertung import gebucht_ab, postenbewegungen, stand_zum
+from accounti.opos.auswertung import belegbuchungen, postenbewegungen, stand_zum
 
 NULL = Decimal("0")
 
@@ -91,16 +92,8 @@ def abweichungen(
     minderungen = postenbewegungen(
         zuordnungen, {i: t.datum for i, t in transaktionen.items()}, verrechnungen
     )
-    heute = []
-    for p in posten:
-        # heute offen: der Rest — ältere Stände führen ein Guthaben aus einer
-        # Überzahlung als Rest 0 (gezahlt mehr als der Betrag)
-        gemindert = sum((b for _, b in minderungen.get(p.id, [])), NULL)
-        rest = min(p.restbetrag, p.betrag - gemindert)
-        heute.append(p.model_copy(update={"restbetrag": rest}))
-
     stand: dict[str, Decimal] = defaultdict(lambda: NULL)
-    for p in stand_zum(heute, stichtag, minderungen, gebucht_ab(buchungen)):
+    for p in stand_zum(posten, stichtag, minderungen, belegbuchungen(buchungen, kr)):
         kontakt = kontakte.get(p.kontakt_id)
         konto = _personenkonto(kontakt, p.richtung) if kontakt is not None else None
         if konto is None:

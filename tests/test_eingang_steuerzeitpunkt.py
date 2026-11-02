@@ -15,7 +15,7 @@ die Vorsteuer im selben Zeitraum (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG). Vorher bucht
 accounti alles zum Rechnungsdatum.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -455,3 +455,53 @@ def test_hinweis_nennt_grundstuecksbezogene_leistung(make_session):
     (h,) = [h for h in v.hinweise if "§ 13b Abs. 1" in h]
     assert "grundstücksbezogen" in h and "§ 3a Abs. 3 Nr. 1" in h, h
     assert "§ 13b Abs. 2 Nr. 1" in h, h
+
+
+# --- Nachprüfung Runde 2 (OPOS M): Stichtagsliste bei geteilter Buchung -------------
+
+MONTAGE_MATERIAL = (
+    ("Montage", "600.00", "0", "0.00"),
+    ("Material", "100.00", "19", "19.00"),
+)
+
+
+def _stand(make_session, stichtag):
+    from accounti.opos.auswertung import lade_stand_zum
+
+    with make_session() as s:
+        return [(p.belegnummer, p.restbetrag) for p in lade_stand_zum(s, stichtag)]
+
+
+@pytest.mark.parametrize(
+    ("rechnung", "leistung", "steuertag"),
+    [
+        (date(2026, 3, 5), date(2026, 1, 10), date(2026, 2, 28)),
+        # zum Bilanzstichtag: § 13b-Teil am 31.12., der Rest im neuen Jahr
+        (date(2027, 1, 8), date(2026, 11, 20), date(2026, 12, 31)),
+    ],
+)
+def test_gemischte_rechnung_zaehlt_zum_stichtag_mit_dem_gebuchten_teil(
+    make_session, rechnung, leistung, steuertag
+):
+    """§ 13b-Teil (600) zum Tag der Steuerentstehung, 19-%-Teil (119) zum
+    Rechnungsdatum: Bis zum Rechnungsdatum steht auf dem Kreditor nur der § 13b-Teil
+    — die Stichtagsliste zählt den Posten nur mit dem schon gebuchten Teil, die
+    Abstimmung Personenkonto ↔ Posten (Prüfregel und Abschlussprüfung) meldet
+    nichts. Vorher stand der Posten ab der ersten Teilbuchung mit 719 € in der Liste,
+    die Abstimmung riet, eine richtige Buchung zu korrigieren."""
+    from tests.test_pruefung_regeln import pruefe
+
+    beleg = _beleg(
+        MONTAGE_MATERIAL,
+        leistungsdatum=leistung,
+        belegdatum=rechnung,
+        eingegangen_am=datetime.combine(rechnung, datetime.min.time()),
+        **HUBER,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(steuertag, 94), (rechnung, 9)]
+    assert _stand(make_session, steuertag) == [("RE-2026-0042", D("600.00"))]
+    assert _stand(make_session, rechnung) == [("RE-2026-0042", D("719.00"))]
+    assert _stand(make_session, steuertag - timedelta(days=1)) == []
+    for tag in (steuertag, rechnung - timedelta(days=1), rechnung):
+        assert pruefe(make_session, "personenkonto_op", stichtag=tag) == []

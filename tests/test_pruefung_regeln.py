@@ -1437,3 +1437,70 @@ def test_personenkonto_op(make_session):
     assert "70002" in b.text and "1.000,00" in b.text and "1.190,00" in b.text
     # vor der Rechnung (Stichtag) gibt es nichts abzustimmen
     assert pruefe(make_session, "personenkonto_op", period="2026-02") == []
+
+
+def test_stichtagsliste_zaehlt_das_guthaben_eines_altfalls(make_session):
+    """Nachprüfung Runde 2 (OPOS, Neu-4): Ältere Stände führen ein Guthaben aus einer
+    Überzahlung als Rest 0 (Rechnung 119, gezahlt 130). Die Abstimmung rechnete es
+    schon mit, ``opos liste --stichtag`` nicht — jetzt dieselbe Regel: 119 € zum
+    15.03. (vor der Zahlung), −11 € (Guthaben) zum 31.03."""
+    from accounti.opos.auswertung import lade_stand_zum
+
+    k = kontakt(name="Überzahlt GmbH", kreditor_konto="70003")
+    beleg_id = uuid4()
+    zahlung = umsatz("-130.00", tag=date(2026, 3, 20), zweck="RE-3")
+    anlegen(
+        make_session,
+        k,
+        zahlung,
+        buchung(
+            haben="70003",
+            netto="100.00",
+            steuer="19.00",
+            schluessel=9,
+            beleg_id=beleg_id,
+            tag=date(2026, 3, 10),
+        ),
+        buchung(
+            zahlung,
+            soll="70003",
+            haben="1200",
+            netto="130.00",
+            steuer=None,
+            schluessel=None,
+            beleg_id=beleg_id,
+        ),
+    )
+    p = _posten(
+        k,
+        beleg_id=beleg_id,
+        belegnummer="RE-3",
+        restbetrag=Decimal("0"),
+        status=PostenStatus.AUSGEGLICHEN,
+    )
+    with make_session() as s:
+        speichere_posten(s, p)
+        speichere_zuordnung(
+            s,
+            Zahlungszuordnung(
+                transaktion_id=zahlung.id,
+                posten_id=p.id,
+                betrag=Decimal("130.00"),
+                stufe="referenz",
+                status=ZuordnungStatus.GEBUCHT,
+                confidence=1.0,
+                begruendung="RE-3",
+            ),
+        )
+        s.commit()
+    with make_session() as s:
+        stand = {
+            tag: [x.restbetrag for x in lade_stand_zum(s, tag)]
+            for tag in (date(2026, 3, 15), date(2026, 3, 31))
+        }
+    assert stand == {
+        date(2026, 3, 15): [Decimal("119.00")],
+        date(2026, 3, 31): [Decimal("-11.00")],
+    }
+    for tag in stand:
+        assert pruefe(make_session, "personenkonto_op", stichtag=tag) == []
