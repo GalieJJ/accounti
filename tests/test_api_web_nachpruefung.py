@@ -674,7 +674,12 @@ def test_ustva_fachfehler_verbraucht_den_code_nicht(qw):
     vorschlaege(qw, 1)  # offener Vorschlag im Oktober: Freigabe gesperrt
     client = qw.web.angemeldet("fritz")
     code = qw.web.personen["fritz"].codes[-1]
-    for zeitraum, status in (("2026-13", 422), ("13/2026", 422), ("2026-10", 409)):
+    for zeitraum, status in (
+        ("2026-13", 422),
+        ("13/2026", 422),
+        ("0000-01", 422),  # Runde 4 (g3w-web N4): 500 „Interner Fehler“
+        ("2026-10", 409),
+    ):
         daten = {"csrf": csrf(client), "zeitraum": zeitraum, "einmalcode": code}
         r = client.post("/freigaben/ustva", data=daten)
         assert r.status_code == status, (zeitraum, r.status_code, r.text)

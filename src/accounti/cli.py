@@ -454,7 +454,7 @@ def belege_freigeben(
     'accounti opos verbuchen' ihn."""
     from rich.markup import escape
 
-    from accounti.befehle import handelnde_person
+    from accounti.befehle import fachprobe, handelnde_person
     from accounti.belege.freigabe import FreigabeError, finde_beleg, gib_frei
     from accounti.db import init_db, session_factory
     from accounti.models import Belegart
@@ -469,26 +469,36 @@ def belege_freigeben(
         raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
+
+    def ausfuehren(s: "Session") -> "Beleg":
+        with journal_kontext(grund=grund):
+            return gib_frei(
+                s,
+                beleg_id,
+                belegart=art,
+                steuer=steuer,
+                vorzeichen=vorzeichen,
+                belegnummer=belegnummer,
+                grund=grund,
+            )
+
+    def melde(fehler: Exception) -> NoReturn:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+
+    # erst die Fachprobe (Beleg vorhanden, Grund bei Verdacht …), zurückgerollt —
+    # dann der Einmalcode (Runde 4, g3w-web N2)
+    probe = fachprobe(make_session, ausfuehren, (FreigabeError,), melde)
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von),
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe),
         make_session() as s,
     ):
         try:
             vorher = finde_beleg(s, beleg_id).pruef_grund
-            with journal_kontext(grund=grund):
-                b = gib_frei(
-                    s,
-                    beleg_id,
-                    belegart=art,
-                    steuer=steuer,
-                    vorzeichen=vorzeichen,
-                    belegnummer=belegnummer,
-                    grund=grund,
-                )
+            b = ausfuehren(s)
             s.commit()
         except FreigabeError as fehler:
-            console.print(f"[red]{escape(str(fehler))}[/red]")
-            raise typer.Exit(1) from fehler
+            melde(fehler)
     if vorher:
         console.print(f"[dim]War zur Prüfung: {escape(vorher)}[/dim]")
     console.print(

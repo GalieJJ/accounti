@@ -208,3 +208,88 @@ def test_kasse_und_periode_fachfehler_verbrauchen_den_code_nicht(welt, monkeypat
     r = _run(monkeypatch, code, *kasse, "--betrag", "50", "--konto", "1200",
              "--db", url)  # fmt: skip
     assert r.exit_code == 0 and "Bestand" in r.output, r.output
+
+
+# --- Gesamttest 10b-1, Runde 4 (g3w-web N2–N4) ----------------------------------------
+
+
+@pytest.fixture
+def fritz(welt):
+    url, _ = welt
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        person = lege_person_an(s, "fritz", Rolle.FREIGEBER, jetzt=datetime.now())
+    engine.dispose()
+    return person
+
+
+def _verbraucht(url: str) -> int:
+    from sqlalchemy import text
+
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        n = s.execute(
+            text(
+                "SELECT count(*) FROM auth_wiederherstellungscodes "
+                "WHERE verbraucht_am IS NOT NULL"
+            )
+        ).scalar_one()
+    engine.dispose()
+    return int(n)
+
+
+def _als(monkeypatch, wer: str, code: str, *args: str):  # noqa: ANN202
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", code)
+    return runner.invoke(app, [*args, "--von", wer], env={"COLUMNS": "250"})
+
+
+def test_ustva_freigeben_fachfehler_verbrauchen_den_code_nicht(
+    welt, fritz, monkeypatch
+):
+    """Ein Tippfehler im Zeitraum, Jahr 0000 (bisher Traceback) oder ein gesperrter
+    Monat kosteten einen Wiederherstellungscode; der nächste gültige Aufruf zählte
+    als Fehlversuch."""
+    url, _ = welt
+    engine, fabrik = session_factory(url)
+    tx = umsatz("-119.00", date(2026, 10, 5))
+    anlegen(fabrik, tx, buchung(tx))  # offener Vorschlag: Oktober gesperrt
+    engine.dispose()
+    code = fritz.codes[0]
+    for zeitraum, rc, text in (
+        ("2026-13", 2, "Monat 13"),
+        ("0000-01", 2, "Jahr 0"),
+        ("2026-10", 1, "Freigabe gesperrt"),
+    ):
+        r = _als(monkeypatch, "fritz", code, "ustva", "freigeben", "--period",
+                 zeitraum, "--db", url)  # fmt: skip
+        assert r.exit_code == rc and text in r.output, (zeitraum, r.output)
+        assert "Traceback" not in r.output
+    assert _verbraucht(url) == 0
+    r = _als(monkeypatch, "fritz", code, "ustva", "freigeben", "--period", "2026-07",
+             "--db", url)  # fmt: skip
+    assert r.exit_code == 0 and "Freigegeben von fritz" in r.output, r.output
+    assert _verbraucht(url) == 1
+
+
+def test_zahlung_freigeben_ohne_lauf_verbraucht_den_code_nicht(
+    welt, fritz, monkeypatch
+):
+    url, _ = welt
+    code = fritz.codes[1]
+    r = _als(monkeypatch, "fritz", code, "zahlung", "freigeben", "99", "--db", url)
+    assert r.exit_code == 1 and "Kein Zahlungslauf 99" in r.output, r.output
+    assert _verbraucht(url) == 0
+    r = _als(monkeypatch, "fritz", code, "ustva", "freigeben", "--period", "2026-07",
+             "--db", url)  # fmt: skip
+    assert r.exit_code == 0, r.output  # derselbe Code gilt noch
+
+
+def test_belege_freigeben_ohne_beleg_verbraucht_den_code_nicht(welt, monkeypatch):
+    url, jan = welt
+    code = jan.codes[9]
+    r = _als(monkeypatch, "jan", code, "belege", "freigeben", "deadbeef", "--db", url)
+    assert r.exit_code == 1 and "Kein Beleg" in r.output, r.output
+    assert _verbraucht(url) == 0
+    r = _als(monkeypatch, "jan", code, "kasse", "anfangsbestand", "--betrag", "1",
+             "--datum", "2026-12-01", "--db", url)  # fmt: skip
+    assert r.exit_code == 0, r.output  # derselbe Code gilt noch
