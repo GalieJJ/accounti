@@ -659,7 +659,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Posten zuordnet (bekannter Kunde, genau der Rest), hält Regel 4 nicht mehr als „andere
   Nummer“ zurück, auch wenn eine Zahl darin wie eine Auszahlungsnummer aussieht — opos gleicht
   die Rechnung aus, statt dass sie gemahnt wird. `bank lauf` bestätigt keinen Beleg für einen
-  Umsatz mit Abgleichsbefund, und `marktplatz zuordnen` meldet einen schon bestätigten Beleg
+  Umsatz mit Abgleichsbefund (ebenso `bank abgleich`, jetzt mit `--config`), und
+  `marktplatz zuordnen` meldet einen schon bestätigten Beleg
   auf dem Umsatz (er bliebe sonst still ungebucht). `marktplatz zuordnen` nimmt einen Umsatz
   vor dem Zeitfenster auch mit `--trotzdem` nicht (die Meldung sprach von „spät gebucht“);
   `--trotzdem` gilt wie in der Hilfe nur nach dem Fenster

@@ -2377,6 +2377,7 @@ def _beleg_text(b: "Beleg") -> str:
 def bank_abgleich(
     period: str | None = typer.Option(None, help="Nur Umsätze dieses Monats (JJJJ-MM)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Umsätze mit Quittungen und sonstigen Belegen abgleichen — vor 'classify'."""
     from rich.markup import escape
@@ -2384,11 +2385,23 @@ def bank_abgleich(
     from accounti.bank.abgleichslauf import gleiche_belege_ab
     from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.konfiguration import KonfigurationError
 
+    try:
+        kontext = lade_kontext(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
     with laufsperre_oder_ende(db), make_session() as s:
-        ergebnis = gleiche_belege_ab(s, zeitraum=period)
+        # wie bank lauf: für eine Auszahlung mit Abgleichsbefund keinen Beleg
+        # bestätigen (Nachprüfung 7 E, Abläufe N3)
+        ergebnis = gleiche_belege_ab(
+            s, zeitraum=period, auslassen=umsaetze_ohne_abgleich(s, kontext)
+        )
         s.commit()
     for k in ergebnis.automatisch:
         console.print(

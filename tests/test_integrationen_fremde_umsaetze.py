@@ -1558,3 +1558,60 @@ def test_zuordnen_vor_dem_fenster_auch_mit_trotzdem_nicht(umgebung):
                 trotzdem=trotzdem,
             )
         assert "spät" not in str(fehler.value) and "--trotzdem" not in str(fehler.value)
+
+
+def test_bank_abgleich_bestaetigt_keinen_beleg_fuer_zurueckgehaltene_auszahlung(
+    tmp_path, monkeypatch
+):
+    """Abläufe N3, Fall m2 (``belege abgleichen`` allein): wie ``bank lauf`` lässt
+    auch ``accounti bank abgleich`` Umsätze aus, über die der Marktplatz-Abgleich einen
+    Befund hätte — sonst bestätigte er den Ausgangsbeleg für die zurückgehaltene
+    Auszahlung, und nach ``marktplatz zuordnen`` bliebe er ungebucht."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.db.repository import lade_abgleiche, speichere_beleg
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.models import Belegart, Belegrichtung
+    from tests.test_bank_abgleich import quittung
+
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    url = f"sqlite:///{tmp_path / 'b.db'}"
+    config = str(tmp_path / "fehlt.yaml")
+    engine, make = session_factory(url)
+    init_db(engine)
+    kontext = lade_kontext(config)
+    with make() as s:
+        speichere_beleg(
+            s,
+            quittung(
+                brutto="209.85",
+                belegart=Belegart.SONSTIGES,
+                richtung=Belegrichtung.AUSGANG,
+                lieferant_name="Amazon Payments Europe S.C.A.",
+                belegdatum=date(2026, 9, 2),
+                netto=Decimal("176.34"),
+                steuer=Decimal("33.51"),
+            ),
+        )
+        _amazon_september(s, BelegArchiv(tmp_path / "archiv"), kontext)
+        r = bank(
+            s,
+            date(2026, 9, 3),
+            "209.85",
+            "AMAZON PAYMENTS EUROPE EREF 11223399999",
+            "Amazon Payments Europe S.C.A.",
+        )
+        gleiche_auszahlungen_ab(s, kontext)
+        s.commit()
+    engine.dispose()
+    ergebnis = CliRunner().invoke(
+        app, ["bank", "abgleich", "--db", url, "--config", config]
+    )
+    assert ergebnis.exit_code == 0, ergebnis.output
+    engine, make = session_factory(url)
+    with make() as s:
+        assert not [x for x in lade_abgleiche(s) if x.transaktion_id == r.id]
+    engine.dispose()
