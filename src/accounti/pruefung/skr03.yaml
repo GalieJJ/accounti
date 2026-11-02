@@ -131,6 +131,27 @@ konten:
     bwa_zeile: 4
     steuer: { schluessel: 9, automatik: true }
 
+  # Skonti: 3731/3736 sind Vorsteuer-Automatikkonten (der DATEV-Export lässt BU 8/9
+  # weg); 3730 ohne Automatik nimmt das Skonto aus § 13b und ig. Erwerb mit seinem
+  # Schlüssel (opos/ausgleich.py; Nachprüfung Runde 2)
+  "3730":
+    name: "Erhaltene Skonti"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: null, automatik: false }
+
+  "3731":  # AV
+    name: "Erhaltene Skonti 7 % Vorsteuer"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: 8, automatik: true }
+
+  "3736":  # AV
+    name: "Erhaltene Skonti 19 % Vorsteuer"
+    typ: aufwand
+    bwa_zeile: 4
+    steuer: { schluessel: 9, automatik: true }
+
   # ============================================================
   # Klasse 4: Betriebliche Aufwendungen
   # (V: 4000-4099, 4200-4299, 4400-4509, 4520-4821, 4900-4983, 4985-4989)
@@ -296,6 +317,24 @@ konten:
 
   "8720":  # AM 8720-8721
     name: "Erlösschmälerungen 19 % USt"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: 3, automatik: true }
+
+  "8730":
+    name: "Gewährte Skonti"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: null, automatik: false }
+
+  "8731":  # AM
+    name: "Gewährte Skonti 7 % USt"
+    typ: erloes
+    bwa_zeile: 1
+    steuer: { schluessel: 2, automatik: true }
+
+  "8736":  # AM
+    name: "Gewährte Skonti 19 % USt"
     typ: erloes
     bwa_zeile: 1
     steuer: { schluessel: 3, automatik: true }

@@ -1219,6 +1219,45 @@ def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
     assert "3400" in warnung and "Schlüssel 8" in warnung
 
 
+def test_skontokonten_mit_steuersatz_sind_automatikkonten(
+    make_session, tmp_path, skr03
+):
+    """Nachprüfung Runde 2 (Steuer, Niedrig): Im SKR03 sind 3731/3736 (Erhaltene
+    Skonti 7 %/19 % Vorsteuer, AV) und 8731/8736 (Gewährte Skonti 7 %/19 % USt, AM)
+    Automatikkonten — der DATEV-Export lässt den passenden BU-Schlüssel weg (vorher
+    „3736, BU 9“). 3730/8730 haben keine Automatik: Das Skonto aus § 13b bzw. ig.
+    Erwerb behält BU 94 bzw. 19."""
+    from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    automatik = automatikkonten(Buchhaltung())
+    assert {k: automatik.get(k) for k in ("3731", "3736", "8731", "8736")} == {
+        "3731": 8,
+        "3736": 9,
+        "8731": 2,
+        "8736": 3,
+    }
+    assert "3730" not in automatik and "8730" not in automatik
+    buchungen = [
+        buchung(soll="70001", haben="3736", netto="2.00", steuer="0.38", schluessel=9),
+        buchung(soll="70001", haben="3731", netto="1.00", steuer="0.07", schluessel=8),
+        buchung(
+            soll="70001", haben="3730", netto="12.00", steuer="2.28", schluessel=94
+        ),
+        buchung(soll="8736", haben="10000", netto="2.00", steuer="0.38", schluessel=3),
+    ]
+    exporter = DATEVExporter(
+        DATEVConfig(berater_nummer="1", mandanten_nummer="1", automatikkonten=automatik)
+    )
+    datei = exporter.exportiere(buchungen, tmp_path / "out")
+    zeilen = datei.read_text(encoding="cp1252").splitlines()
+    bu = zeilen[1].split(";").index("BU-Schlüssel")
+    assert [z.split(";")[bu] for z in zeilen[2:]] == ["", "", "94", ""]
+    assert exporter.warnungen == []
+    anlegen(make_session, *buchungen)
+    assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
 def test_steuersatz_ohne_exponentenschreibweise(make_session):
     """Befund N-N2: 20 % und 10 % stehen nicht als „2E+1 %“ im Befund."""
     de20 = beleg(positionen=[("x", "100.00", "20", "20.00")], datei_hash="1" * 64)
