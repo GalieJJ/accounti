@@ -738,3 +738,24 @@ def test_brutto_nach_mehreren_labels_in_einer_zeile():
     assert e.brutto == Decimal("119.00")
     e = extrahiere("Firma GmbH\nGesamt inkl. 19 % USt 119,00\n")
     assert e.brutto == Decimal("119.00")
+
+
+@pytest.mark.parametrize(
+    ("zeile", "erwartet"),
+    [
+        ("Leistungszeitraum: 15.01.2026 - 15.02.2026", date(2026, 2, 15)),
+        ("Leistungszeitraum 01.02.2026 bis 28.02.2026", date(2026, 2, 28)),
+        ("Leistungszeitraum: 01.02.2026 – 28.02.2026", date(2026, 2, 28)),
+        ("Leistungszeitraum: 2026-02-01 - 2026-02-28", date(2026, 2, 28)),
+        ("Leistungsdatum: 03.03.2026", date(2026, 3, 3)),
+    ],
+)
+def test_leistungszeitraum_liefert_sein_ende(zeile, erwartet):
+    """Nachprüfung Runde 2 (Steuer, Niedrig): Eine sonstige Leistung über einen
+    Zeitraum ist mit dessen Ende ausgeführt (Abschn. 13.1 Abs. 3 UStAE) — so nimmt
+    accounti auch BT-74 der E-Rechnung. Vorher lieferte der PDF-Text den Beginn, die
+    Umdatierung nach § 13b Abs. 1 bzw. 2 landete im falschen Monat."""
+    text = f"Rechnung Nr. 4711\nRechnungsdatum: 05.03.2026\n{zeile}\nBeratung\n"
+    e = extrahiere(text)
+    assert e.leistungsdatum == erwartet
+    assert e.belegdatum == date(2026, 3, 5)

@@ -105,8 +105,13 @@ _BELEGDATUM = re.compile(
     rf"\s*[:\s]\s*({DATUM})",
     _I,
 )
+# „Leistungszeitraum A - B“: das Ende B — eine sonstige Leistung über einen Zeitraum ist
+# mit dessen Ende ausgeführt (Abschn. 13.1 Abs. 3 UStAE), wie BT-74 der E-Rechnung
+# (Nachprüfung Runde 2: der Beginn verschob § 13b in den falschen Monat)
 _LEISTUNGSDATUM = re.compile(
-    rf"(?:leistungsdatum|lieferdatum|leistungszeitraum)\s*:?\s*({DATUM})", _I
+    rf"(?:leistungsdatum|lieferdatum|leistungszeitraum)\s*:?\s*({DATUM})"
+    rf"(?:\s*(?:-|–|—|bis)\s*({DATUM}))?",
+    _I,
 )
 _DATUM_IRGENDWO = re.compile(DATUM, _I)
 _RECHTSFORM = re.compile(
@@ -502,7 +507,7 @@ def extrahiere(text: str) -> Extrakt:
         text, korrekturbeleg=e.korrektur is not None or mehrdeutig
     )
     if m := _LEISTUNGSDATUM.search(text):
-        e.leistungsdatum = parse_datum(m.group(1))
+        e.leistungsdatum = parse_datum(m.group(2) or m.group(1))
     if m := _BELEGDATUM.search(text):
         e.belegdatum = parse_datum(m.group(1))
     elif m := _DATUM_IRGENDWO.search(text):
