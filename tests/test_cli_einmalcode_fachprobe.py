@@ -293,3 +293,28 @@ def test_belege_freigeben_ohne_beleg_verbraucht_den_code_nicht(welt, monkeypatch
     r = _als(monkeypatch, "jan", code, "kasse", "anfangsbestand", "--betrag", "1",
              "--datum", "2026-12-01", "--db", url)  # fmt: skip
     assert r.exit_code == 0, r.output  # derselbe Code gilt noch
+
+
+def test_kasse_buchen_ohne_kontonummer_oder_mit_fremdem_satz(welt, monkeypatch):
+    """g3w-web N6: ``--konto abc``/``--konto 12`` und ``--steuer 50`` buchten sofort
+    freigegeben — jetzt Fachfehler vor dem Code."""
+    url, jan = welt
+    code = jan.codes[9]
+    kasse = ["kasse", "buchen", "--text", "Porto", "--datum", "2026-10-02",
+             "--db", url]  # fmt: skip
+    r = _als(monkeypatch, "jan", code, *kasse, "--betrag", "50", "--konto", "1200")
+    assert r.exit_code == 0, r.output
+    for zusatz, text in (
+        (["--konto", "abc"], "keine Kontonummer"),
+        (["--konto", "12"], "keine Kontonummer"),
+        (["--konto", "４９１０"], "keine Kontonummer"),
+        (["--konto", "4910", "--steuer", "50"], "nicht hinterlegt"),
+        (["--konto", "8400", "--steuer", "19"], "passt nicht zum Gegenkonto"),
+    ):
+        code = jan.codes[8]
+        r = _als(monkeypatch, "jan", code, *kasse, "--betrag", "-15", *zusatz)
+        assert r.exit_code == 1 and text in r.output, (zusatz, r.output)
+    assert _verbraucht(url) == 1
+    r = _als(monkeypatch, "jan", code, *kasse, "--betrag", "-15", "--konto", "4910",
+             "--steuer", "19")  # fmt: skip
+    assert r.exit_code == 0, r.output

@@ -525,3 +525,81 @@ def test_cli_kassen_storno_nach_classify(tmp_path, monkeypatch):
             if not (b.beleg_nummer or "").startswith("EB-")
         )
     assert paare == [("1000", "1360", True), ("1360", "1000", False)]
+
+
+# --- Gesamttest 10b-1, Runde 4 (g3w-web N6) -------------------------------------------
+
+
+@pytest.mark.parametrize("konto", ["abc", "12", "４９３０", "4910x", " "])
+def test_gegenkonto_muss_eine_kontonummer_sein(make_session, konto):
+    """``kasse buchen --konto abc`` bzw. ``--konto 12`` buchte sofort freigegeben
+    „abc an 1000“ — wie Korrektur und Regeldatei: 4–8 ASCII-Ziffern."""
+    _start(make_session)
+    with pytest.raises(KassenbuchError, match="keine Kontonummer"):
+        _buche(make_session, "-5", date(2026, 3, 2), "Porto", gegenkonto=konto)
+    with make_session() as s:
+        assert lade_buchungen(s) == [] and len(lade_kassenbuch(s)) == 1
+
+
+@pytest.mark.parametrize(
+    ("betrag", "satz"),
+    [("-15", "50"), ("-15", "17"), ("119", "19.5"), ("119", "16"), ("-10", "-19")],
+)
+def test_nur_hinterlegte_steuersaetze(make_session, betrag, satz):
+    """BU 9 mit 50 % buchte 5,00 € Vorsteuer aus 15 € (Rückfall auf BU 9); bei
+    Einnahmen las ``int(19.5)`` den Schlüssel 3 und rechnete mit 19,5 %."""
+    _start(make_session)
+    with pytest.raises(KassenbuchError, match="nicht hinterlegt"):
+        _buche(
+            make_session, betrag, date(2026, 3, 2), "Bar", gegenkonto="4930"
+            if betrag.startswith("-") else "8400", steuersatz=D(satz),
+        )  # fmt: skip
+    with make_session() as s:
+        assert lade_buchungen(s) == []
+
+
+@pytest.mark.parametrize(
+    ("betrag", "konto", "satz"),
+    [("-119", "8400", "19"), ("119", "4930", "19"), ("-119", "70001", "19")],
+    ids=["vorsteuer_auf_erloes", "ust_auf_aufwand", "steuer_auf_personenkonto"],
+)
+def test_gegenkonto_passt_zum_steuersatz(make_session, betrag, konto, satz):
+    """Die Prüfregel ``steuerschluessel_konto`` (Kontenrahmen) wie bei der Korrektur:
+    ein Fehler dort bucht das Kassenbuch nicht sofort freigegeben."""
+    _start(make_session, "500")
+    with pytest.raises(KassenbuchError, match="passt nicht zum Gegenkonto"):
+        _buche(
+            make_session, betrag, date(2026, 3, 2), "Bar", gegenkonto=konto,
+            steuersatz=D(satz),
+        )  # fmt: skip
+
+
+def test_gueltige_saetze_und_konten_bleiben(make_session):
+    _start(make_session, "500")
+    faelle = [("-119", "4930", "19"), ("-107", "4930", "7"), ("119", "8400", "19"),
+              ("-10", "1360", None)]  # fmt: skip
+    for betrag, konto, satz in faelle:
+        _buche(
+            make_session, betrag, date(2026, 3, 2), "Bar", gegenkonto=konto,
+            steuersatz=D(satz) if satz else None,
+        )  # fmt: skip
+    with make_session() as s:
+        assert sorted(b.steuer_schluessel or 0 for b in lade_buchungen(s)) == [
+            0, 3, 8, 9
+        ]  # fmt: skip
+
+
+def test_kein_kassenvorgang_im_festgeschriebenen_monat(make_session):
+    """Auch ohne Gegenkonto (Kontierung später über classify) nahm das Kassenbuch
+    einen Vorgang im festgeschriebenen Monat an — buchen ließe er sich nie."""
+    from accounti.db.tabellen_pruefung import PeriodeGesperrtError
+    from accounti.pruefung.perioden import schliesse
+
+    _start(make_session, "100", date(2026, 10, 1))
+    with make_session() as s:
+        schliesse(s, "2026-10", "jan")
+        s.commit()
+    with pytest.raises(PeriodeGesperrtError, match="2026-10"):
+        _buche(make_session, "-30", date(2026, 10, 21), "Bar nachgetragen")
+    v = _buche(make_session, "-30", date(2026, 11, 2), "Bar")
+    assert v.nr == 2

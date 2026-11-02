@@ -108,24 +108,34 @@ def buchen(
     from accounti.abschluss.kassenbuch import KassenbuchError, bestand, buche_kasse
     from accounti.anzeige import betrag_de
     from accounti.db.repo_kasse import lade_kassenbuch
+    from accounti.konfiguration import lade_buchhaltung
     from accounti.models.auth import Recht
+    from accounti.pruefung.einstellungen import lade_pruefung
 
     kasse = _kasse(config)
+    # Kontenrahmen und Prüfregeln der Gesellschaft: das Gegenkonto wird wie bei der
+    # Korrektur geprüft (Runde 4, g3w-web N6)
+    buchhaltung, pruefung = lade(lade_buchhaltung, config), lade(lade_pruefung, config)
     satz = betrag(steuer, "--steuer") if steuer else None
     wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
+
+    def ausfuehren(s: Any, wer: str | None) -> Any:
+        return buche_kasse(
+            s, wert, text, kasse, tag, beleg, konto, satz, wer,
+            buchhaltung=buchhaltung, pruefung=pruefung,
+        )  # fmt: skip
+
     # mit Benutzern: buchen (buchhalter) und Einmalcode. Mit --konto entsteht sofort
     # eine freigegebene Buchung (geprueft_von = Benutzer) — buchen schließt laut
-    # Rollenmatrix das Freigeben ein. Erst die Fachprobe (Bestand, Gegenkonto = Kasse,
-    # Jahr gesperrt), dann der Code
-    probe = _probe(
-        db, lambda s: buche_kasse(s, wert, text, kasse, tag, beleg, konto, satz, von)
-    )
+    # Rollenmatrix das Freigeben ein. Erst die Fachprobe (Bestand, Gegenkonto,
+    # Steuersatz, Jahr oder Monat gesperrt), dann der Code
+    probe = _probe(db, lambda s: ausfuehren(s, von))
     with (
         handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
-            v = buche_kasse(s, wert, text, kasse, tag, beleg, konto, satz, person)
+            v = ausfuehren(s, person)
         except (KassenbuchError, JahrGesperrtError) as fehler:
             ende(str(fehler))
         stand = bestand(lade_kassenbuch(s))
