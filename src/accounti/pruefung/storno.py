@@ -811,7 +811,10 @@ def hinweis_14c(beleg: str, luecken: Sequence[UstLuecke], nach: str) -> str:
                 f"{betrag_de(x.gebucht)} € wirksam gebucht"
             )
         else:
-            kopf += f"{_satz_text(x)} aus und hat {nach} keine wirksame Buchung mehr"
+            kopf += (
+                f"{_satz_text(x)} aus und hat {nach} keine wirksame Buchung dieser "
+                "Steuer mehr"
+            )
     else:
         teile = "; ".join(
             f"{_satz_text(x)}: {betrag_de(x.ausgewiesen)} € ausgewiesen, "
@@ -824,7 +827,7 @@ def hinweis_14c(beleg: str, luecken: Sequence[UstLuecke], nach: str) -> str:
         )
         kopf = f"Beleg {beleg} weist Umsatzsteuer aus, die {nach} fehlt ({teile})"
     return (
-        f"{kopf} — die {betrag_de(fehlt)} € Umsatzsteuer fehlen in der "
+        f"{kopf} — die {betrag_de(fehlt)} € Umsatzsteuer fehlt in der "
         "Voranmeldung, geschuldet wird sie, bis die Rechnung berichtigt ist (§ 14c "
         "Abs. 1 UStG). Richtig nur, wenn sie anders gebucht ist; sonst den Beleg "
         "wieder buchen bzw. die Berichtigung als eigenen Beleg (Gutschrift/"
