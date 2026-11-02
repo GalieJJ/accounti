@@ -282,13 +282,15 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
   `sperre`, `iban-klaeren`, `abgleichen`, `sepa` und `stornieren` sowie die Befehle aus
   Baustein 7 (siehe oben). `buchung storniere`, `korrigiere`, `lerne`, `bestaetige`,
-  `regeln deaktivieren`, `regeln uebernehmen`, `kasse anfangsbestand/buchen/storno` und
-  `periode schliessen/oeffnen` führen die Aktion nach der Rechteprüfung zuerst zur Probe aus
-  (zurückgerollt) und bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum
-  vor der Buchung, Soll = Haben, ungültiges Muster, Prüfregel, unbekannte Regel, kaputte
-  Regeldatei, Kasse im Minus, Monat schon festgeschrieben) verbraucht ihn nicht, wie im
-  Browser (dort auch bei der Freigabe von Zahlungslauf und USt-VA). Die übrigen Befehle prüfen
-  nach dem Code.
+  `regeln deaktivieren`, `regeln uebernehmen`, `kasse anfangsbestand/buchen/storno`,
+  `periode schliessen/oeffnen`, `ustva freigeben`, `zahlung freigeben` und `belege
+  freigeben` führen die Aktion nach der Rechteprüfung zuerst zur Probe aus (zurückgerollt)
+  und bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum vor der Buchung,
+  Soll = Haben, ungültiges Muster, Prüfregel, unbekannte Regel, kaputte Regeldatei, Kasse im
+  Minus, Monat schon festgeschrieben, Zeitraum unverständlich, USt-VA gesperrt, unbekannter
+  Zahlungslauf oder Beleg) verbraucht ihn nicht, wie im Browser (dort auch bei der Freigabe
+  von Zahlungslauf und USt-VA); ein `regeln uebernehmen`, das nichts übernähme, endet vor dem
+  Code. Die übrigen Befehle prüfen nach dem Code (siehe Grenzen im Plan).
   Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
@@ -752,6 +754,10 @@ dort wie bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf m
 übernehmen), Einträge mit `pruefen: true` oder `confidence` unter 1 (eine gelernte Regel hat
 kein eigenes Prüfkennzeichen — übernommen buchte sie automatisch; dauerhaft prüfen lässt
 sich nur über `buchhaltung.gelernte_regeln: pruefen` für alle) und Umbuchungen zwischen
-Geldkonten. Danach die übernommenen Einträge von Hand aus der
-Datei löschen. Hat ein Befehl des neuen Abbilds die neuen Tabellen vor der Migration
-schon angelegt, übernimmt die Migration sie.
+Geldkonten. Danach — erst nach allen Läufen, auch denen mit `--name` — die übernommenen
+Einträge von Hand aus der Datei löschen: Jeder Lauf ordnet nach der Stelle in der Datei zur
+Zeit des Laufs; wer vorher löscht und dann `--name` verwendet, rückt dessen Eintrag womöglich
+vor früher übernommene Regeln (`regeln liste` zeigt den Vorrang; bei Bedarf deaktivieren und
+neu lernen). Ein Lauf, der nichts übernähme (keine Datei, nur ungültige Einträge, nur
+unbekannte Namen), verbraucht keinen Einmalcode. Hat ein Befehl des neuen Abbilds die neuen
+Tabellen vor der Migration schon angelegt, übernimmt die Migration sie.

@@ -1634,11 +1634,17 @@ Durchlaufs mit Markern in allen Fremddaten.
   übernommen.
 - Die Einmalcode-Probe der CLI läuft vor dem Code; ändert jemand die Buchung genau zwischen
   Probe und Lauf, ist der Code verbraucht (wie im Browser). Eine Fachprobe haben `buchung
-  storniere`, `korrigiere`, `lerne`, `bestaetige`, `regeln deaktivieren`/`uebernehmen`, `kasse`
-  und `periode`; die übrigen Befehle mit Einmalcode (`anlagen`, `abschluss`, `opos`
-  zuordnen/verrechnen/bestätigen, Belegabgleich, `export datev`, `nachfordern`, `journal
-  uebernehmen`) prüfen nach dem Code — ein Fachfehler kostet dort den Code. Die Probe bräuchte
-  je Befehl eine Prüfung der Seiteneffekte (Dateien, E-Mail, Export); Folgearbeit.
+  storniere`, `korrigiere`, `lerne`, `bestaetige`, `regeln deaktivieren`/`uebernehmen`, `kasse`,
+  `periode` und (Runde 4) `ustva freigeben`, `zahlung freigeben`, `belege freigeben`; die
+  übrigen Befehle mit Einmalcode (`anlagen`, `abschluss`, `opos`
+  zuordnen/verrechnen/bestätigen/ablehnen, Belegabgleich `bank bestaetigen`/`ablehnen`,
+  `export datev`, `nachfordern`, `journal uebernehmen`, `ustva dauerfrist`, `zahlung
+  anlegen`/`entfernen`/`sepa`/`stornieren`/`abgleichen`/`sperre`/`iban-klaeren`) prüfen nach
+  dem Code — ein Fachfehler kostet dort den Code. Die Probe bräuchte je Befehl eine Prüfung der
+  Seiteneffekte (Dateien, E-Mail, Export); Folgearbeit. Die Probe von `regeln uebernehmen`
+  speichert und rollt zurück (Fehler beim Speichern fallen dort auf); ein Datenbankfehler
+  außerhalb der geprüften Spalten (Name, Muster, Buchungstext) bliebe ein Fehler nach der
+  Probe, vor dem Code.
 - Im Browser prüfen Zahlungslauf und USt-VA wie Storno erst zur Probe, dann unter der
   Freigabesperre den Code — die Sperre gilt nur im Server-Prozess; wer zugleich in der CLI
   freigibt, kann einen Code verbrauchen, ohne dass der Browser freigibt (wie bei Storno).
@@ -1655,17 +1661,30 @@ Durchlaufs mit Markern in allen Fremddaten.
   8320–8327; Meldung und Kz 45 zählen sie mit). Die OSS-Steuer selbst bucht OPOS (seit Paket C)
   in beiden Kontenrahmen auf die eigenen Konten 1777xx (Rückfall 1779) — im SKR04 liegen sie
   außerhalb der Steuerkonten (3800 ff.), die Anlage EÜR führt sie dort als Bestand; ein
-  SKR04-eigenes OSS-Steuerkonto fehlt (Folgearbeit, mit DATEV abzustimmen).
+  SKR04-eigenes OSS-Steuerkonto fehlt (Folgearbeit, mit DATEV abzustimmen). Im SKR04 liegen
+  1777xx/1779 zudem im Bank- und Zahlungsmittelbereich (1700–1889): `abschluss pruefen` meldet
+  sie als nicht eingerichtetes Bankkonto (Abschluss gesperrt, Rat „bank verbinde“ irreführend),
+  und die Zahlung der OSS-Steuer an das BZSt lässt sich nicht als Regel lernen („beide
+  Geldkonten“). Das behebt Paket E beim nächsten Zusammenführen, das die OSS-Steuerkonten
+  ohnehin ändert (g3w-fach/g3w-merge N1, Runde 4 nicht behoben).
 - Im Browser bietet die Korrektur einer Belegbuchung nur den bisherigen Schlüssel an
   (`steuer_optionen`); § 13b bzw. ig. Erwerb auf einer Belegbuchung (Paket C) setzt die CLI
-  (`korrigiere … --steuer 94 --grund …`).
-- Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–8 Ziffern, Muster
-  nicht leer); ob es das Konto im Kontenrahmen gibt, prüft er nicht. Ein Fehler in einem Eintrag
-  hält die ganze Regeldatei an (Meldung mit Regelname), wie bisher bei Regex und `feld`.
+  (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung mit ausgewiesener
+  Umsatzsteuer (2/3, § 14c Abs. 1 UStG: Berichtigung als neuer Beleg; Runde 4).
+- Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–8 ASCII-Ziffern,
+  Muster nicht leer, bekannter Steuerschlüssel, keine unbekannten Schlüssel); ob es das Konto im
+  Kontenrahmen gibt, prüft er nicht, `confidence` hat keinen Bereich (über 1 wirkt wie 1). Ein
+  Fehler in einem Eintrag hält die ganze Regeldatei an (Meldung mit Regelname), wie bisher bei
+  Regex und `feld` — auch ein Zusatzfeld (z. B. `kommentar:`) ist jetzt ein Fehler; Kommentare
+  gehören hinter `#`. Ebenso prüft das Kassenbuch das Gegenkonto der Form und der Prüfregel
+  `steuerschluessel_konto` nach, nicht auf sein Vorkommen im Kontenrahmen.
 - Übernommene Regeln stehen untereinander in der Reihenfolge ihrer Stelle in der Datei beim
   Übernehmen (`rang`); ändert der Betreiber die Datei zwischen zwei Läufen, gilt die Stelle zur
   Zeit des jeweiligen Laufs (bei gleicher Stelle der früher übernommene zuerst). Vor Runde 3
-  übernommene Regeln (ohne `rang`) behalten ihre alte Ordnung, vor den neuen.
+  übernommene Regeln (ohne `rang`) behalten ihre alte Ordnung, vor den neuen. Wer die
+  übernommenen Einträge löscht und erst danach `--name` verwendet, stellt dessen Eintrag nach
+  seiner neuen Stelle ein — womöglich vor früher übernommene (gegen:regeln:1, Rest); Hilfe,
+  Ausgabe und betrieb.md sagen deshalb „erst nach allen Läufen löschen“.
 - Als Sachkonto eines Belegs übergeht accounti Zahlungsmittel, Personenkonten und die
   LuL-Sammelkonten (`lul_konten`); andere Bestands- und Verrechnungskonten nimmt es, wenn Kontakt
   oder Regel sie liefern — ob das fachlich passt, entscheidet der Mensch in der Prüfung.

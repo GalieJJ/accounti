@@ -434,7 +434,11 @@ Wirtschaftsjahr ab.
   § 13b und ig. Erwerb mit Steuerpaar `steuerpaare`, z. B. SKR03 1577/1787),
   EB-Werte, Summen- und Saldenliste. *(vorhanden)*
 - `kassenbuch.py` — Kassenbuch (Tabelle `kassenbuch`, nur anfügen): laufende Nummer, Bestand nie
-  negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos. *(vorhanden)*
+  negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos, nie in einem
+  abgeschlossenen Jahr oder festgeschriebenen Monat. Mit Gegenkonto (4–8 ASCII-Ziffern) und
+  Steuersatz (nur 19 oder 7 %) entsteht sofort eine geprüfte Buchung — nicht, wenn die Prüfregel
+  `steuerschluessel_konto` sie als Fehler einstuft (Vorsteuer auf Erlös, USt auf Aufwand, Steuer
+  auf einem Personenkonto). *(vorhanden)*
 - `pruefungen.py` — benannte Abschlussprüfungen mit Befunden (Fehler/Warnung/Hinweis): u. a.
   Bank-Saldenabstimmung gegen `kontoauszugssalden`, Kassenbuch, AfA, offene Vorschläge. *(vorhanden)*
 - `abgrenzung.py` — ARAP/PRAP-Vorschläge aus dem Leistungszeitraum, Auflösung je Folgejahr gleich
@@ -795,6 +799,9 @@ Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung; ergäbe die Kont
 Haben, bleibt der Umsatz offen (`buchung/kontierung.py`). Aus einer Umbuchung zwischen eigenen
 Geldkonten mit Kontoauszug (`Kontenrahmen.ist_zahlungsmittel`, ohne Geldtransit) wird keine
 gelernte Regel. Der Lader (`klassifikation/regeln_loader.py`) prüft jeden Wert — Konten 4–8
-Ziffern, Muster nicht leer, Steuerschlüssel als Zahl — und meldet einen Fehler mit Regelname. Die eingebauten Regeln
+ASCII-Ziffern (nur schlichte Dezimalzahlen liest er als Zahl: `0x1340`, `1:20:00`, `4_920`
+bleiben Text und sind keine Kontonummer), Muster nicht leer, ein Steuerschlüssel, den accounti
+kennt (2, 3, 8, 9, 18, 19, 91, 94), keine unbekannten Schlüssel (`prüfen`, `steuerschluessel`)
+— und meldet einen Fehler mit Regelname. Die eingebauten Regeln
 liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
 Kontenrahmen keine).

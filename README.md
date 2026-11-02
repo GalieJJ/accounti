@@ -645,7 +645,8 @@ Aus einer Korrektur gelernte Regeln gelten nur in der Zahlungsrichtung des Umsat
 entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, `lerne` ohne
 `--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Übernommene Regeln
 stehen hinter den schon gelernten, untereinander in der Reihenfolge der Datei — auch wenn sie in
-mehreren Läufen übernommen werden; Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
+mehreren Läufen übernommen werden (übernommene Einträge erst nach allen Läufen mit `--name` aus
+der Datei löschen, siehe docs/betrieb.md); Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
 ohne Präfix `gelernt_` (ohne `--name`) bleiben in der Regeldatei — die Ausgabe nennt sie. Gelernte
 Regeln haben Vorrang vor der Regeldatei und den Standardregeln des Kontenrahmens und folgen demselben
 Regelmodell: ein Umsatz gegen ihre Richtung wird höchstens als Gegenbuchung zur Prüfung

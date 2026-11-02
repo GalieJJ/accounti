@@ -594,6 +594,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Doppelklick auf Freigeben bekommt 409 statt „Einmalcode falsch“ samt Fehlversuch. Zahlen
   mit mehr als 4300 Ziffern bzw. ab 2^63 (Seite, Steuerschlüssel, Seitennummer der
   Belegvorschau, Nummer des Zahlungslaufs) geben Seite 1, 422 bzw. 404 statt 500.
+- **Nachbesserung 10b-1, Runde 4** (Nachprüfung g3w-fach, g3w-merge, g3w-web): **§ 14c
+  UStG nach dem Zusammenführen:** Eine Belegbuchung mit ausgewiesener Umsatzsteuer (Schlüssel
+  3/2) ließ sich per `korrigiere --steuer 94/91/19/18 --grund …` (bei einem Beleg ohne
+  Positionssatz mit jedem Schlüssel) umschlüsseln, auch per POST im Browser — die USt fiel
+  still aus der Voranmeldung. Wie auf main sperrt wieder jede Schlüsseländerung (§ 14c Abs. 1
+  UStG: geschuldet bis zur Berichtigung); § 13b bzw. ig. Erwerb auf Belegen ohne ausgewiesene
+  USt (Paket C) bleibt möglich. **Regeldatei:** ein Steuerschlüssel ab 2^63 (REST-Lauf 500,
+  Traceback in `classify` und `regeln uebernehmen` nach dem Einmalcode) oder einer, den
+  accounti nicht kennt (0, −9, 99), unbekannte Schlüssel wie `prüfen` oder
+  `steuerschluessel` (still ignoriert: automatisch statt zur Prüfung bzw. ohne Vorsteuer) und
+  YAML-Zahlformen wie `0x1340`, `1:20:00`, `4_920` (gebucht auf 4928, 4800, 4920) ergeben eine
+  Meldung mit Regelname. **Kontonummern nur aus ASCII-Ziffern:** „１２００“ umging die Sperre
+  gegen Soll = Haben, galt als Bank und ließ `export datev` abbrechen (CLI `korrigiere`,
+  `lerne`, `kasse buchen`, Regeldatei). **`korrigiere --steuer`** und **`lerne --steuer`**
+  lehnen unbekannte Schlüssel (−1, 0, 4 …) ab wie der Browser. **Kassenbuch:** Gegenkonto
+  „abc“ bzw. „12“, ein Steuersatz außer 19/7 % (50 % buchte 5 € Vorsteuer aus 15 €), eine
+  Kombination, die die Prüfregel `steuerschluessel_konto` als Fehler einstuft (Vorsteuer auf
+  Erlös, USt auf Aufwand), und ein Vorgang im festgeschriebenen Monat werden abgelehnt.
+  **Einmalcode:** `ustva freigeben`, `zahlung freigeben` und `belege freigeben` prüfen vor dem
+  Code (Zeitraum, gesperrte USt-VA, unbekannter Lauf bzw. Beleg); `regeln uebernehmen` prüft
+  mit dem echten Lauf (zurückgerollt) und verbraucht keinen Code, wenn es nichts übernähme;
+  Namen, die erst nach 100 Zeichen verschieden sind, und zu lange Muster sind ungültig statt
+  ein Fehler beim Speichern. **Zeitraum mit Jahr 0000** gibt eine Meldung bzw. 422 statt
+  Traceback bzw. 500. **SKR04:** Forderungen gegen verbundene Unternehmen (1260–1269) bzw.
+  Beteiligungsunternehmen (1280–1289) sind wie im SKR03 (1594/1596) als Sachkonto eines Belegs
+  zulässig; gesperrt bleiben die Forderungen aus Lieferungen und Leistungen. Hilfe und
+  betrieb.md: übernommene Einträge erst nach allen Läufen mit `--name` aus der Regeldatei
+  löschen.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

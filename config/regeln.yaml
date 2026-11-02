@@ -5,10 +5,13 @@
 #   muster            Regex (case-insensitive), nicht leer
 #   feld              verwendungszweck | gegenkonto_name | gegenkonto_iban | beide
 #   soll_konto/haben_konto (4–8 Ziffern, in Anführungszeichen: '0420' — ohne sie
-#                     liest YAML eine führende Null als Oktalzahl), steuer_schluessel
-#                     (3=USt19, 2=USt7, 9=VSt19, 8=VSt7, null=ohne Steuerautomatik)
-#   Ein ungültiger Wert ist ein Fehler der Datei (Meldung mit Regelname) — die
-#   Kontierung läuft erst nach der Korrektur.
+#                     liest YAML eine führende Null als Oktalzahl; 0x…, 1:20:00, 4_920
+#                     sind keine Kontonummer), steuer_schluessel (3=USt19, 2=USt7,
+#                     9=VSt19, 8=VSt7, 19/18=ig. Erwerb, 94/91=§ 13b, null=ohne
+#                     Steuerautomatik; andere Schlüssel sind ein Fehler)
+#   Ein ungültiger Wert oder ein unbekannter Schlüssel (z. B. „prüfen“ statt
+#   „pruefen“) ist ein Fehler der Datei (Meldung mit Regelname) — die Kontierung
+#   läuft erst nach der Korrektur.
 #   richtung          ausgabe (Betrag < 0) | einnahme (Betrag > 0) | beide.
 #                     Eine Regel gilt nur für Umsätze ihrer Richtung; passt sonst
 #                     keine Regel, schlägt accounti sie als Gegenbuchung vor
