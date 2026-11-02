@@ -139,7 +139,8 @@ def _zeitraum_befunde(
 def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
     """``abgegeben_abweichend``: Die zuletzt abgegebene Voranmeldung des Zeitraums
     passt nicht mehr zu den Buchungen (Korrektur oder Storno danach) — eine
-    berichtigte Anmeldung ist abzugeben (§ 153 Abs. 1 AO, § 18 Abs. 1 UStG)."""
+    berichtigte Anmeldung ist abzugeben, wenn die Zahllast steigt (§ 153 Abs. 1 AO,
+    § 18 Abs. 1 UStG), sonst möglich."""
     zeitraum = str(e.zeitraum)
     abgaben = [
         u
@@ -167,13 +168,26 @@ def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
     ]
     if not geaendert:
         return []
+    freigeben = f"accounti ustva freigeben --period {zeitraum}; Kz 10"
+    # § 153 Abs. 1 Nr. 1 AO verlangt die Berichtigung, wenn die Erklärung zu einer
+    # Verkürzung führen kann — nur, wenn die Zahllast steigt; sonst ist sie möglich
+    # (wie die Hinweise der Verbuchung, Nachprüfung 6 E, merge)
+    if jetzt.get(83, Decimal(0)) > alt.get(83, Decimal(0)):
+        weiter = (
+            f"berichtigte Voranmeldung freigeben und abgeben ({freigeben}) — Pflicht "
+            "nach § 153 Abs. 1 AO, die Zahllast steigt"
+        )
+    else:
+        weiter = (
+            f"eine berichtigte Voranmeldung stellt das richtig ({freigeben}), sonst "
+            "die Jahreserklärung — keine Pflicht nach § 153 Abs. 1 AO, die Zahllast "
+            "steigt nicht"
+        )
     text = (
         f"Die Voranmeldung {zeitraum} ist am {letzte.zeitpunkt:%d.%m.%Y} abgegeben "
         f"(Kz 83 {betrag_de(alt.get(83))} €), die Buchungen ergeben inzwischen "
         f"Kz 83 {betrag_de(jetzt.get(83))} € (geändert: Kz "
-        f"{', '.join(str(kz) for kz in geaendert)}) — berichtigte Voranmeldung "
-        f"freigeben und abgeben (accounti ustva freigeben --period {zeitraum}; Kz 10), "
-        "§ 153 Abs. 1 AO"
+        f"{', '.join(str(kz) for kz in geaendert)}) — {weiter}"
     )
     return [Befund("abgegeben_abweichend", Schweregrad.WARNUNG, text)]
 

@@ -385,6 +385,24 @@ def test_korrektur_nach_abgabe_abgegeben_abweichend(db):
     (befund,) = [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
     assert befund.schweregrad.value == "warnung"
     assert "Kz 83 2.145,18 €" in befund.text and "83" in befund.text
+    # das Storno eines Erlöses senkt die Zahllast — keine Pflicht (Nachprüfung 6 E,
+    # merge: der Text berief sich trotzdem auf die Pflicht nach § 153 Abs. 1 AO)
+    assert "keine Pflicht nach § 153 Abs. 1 AO" in befund.text, befund.text
+
+
+def test_abgegeben_abweichend_pflicht_nur_wenn_die_zahllast_steigt(db):
+    """Nachprüfung 6 E (merge): eine nach der Abgabe gebuchte Ausgangsrechnung
+    erhöht die Zahllast — dann ist die berichtigte Voranmeldung Pflicht (§ 153 Abs. 1
+    AO: die Erklärung führt zu einer Verkürzung)."""
+    make_session, einstellungen, archiv = db
+    with make_session() as s:
+        _abgeben(s, einstellungen, archiv, EricDoppel())
+        speichere_buchung(s, buchung("10001", "8400", "100.00", 3, "19.00"))
+        s.commit()
+        v = vorbereiten(s, einstellungen)
+    (befund,) = [b for b in v.befunde if b.regel == "abgegeben_abweichend"]
+    assert "Pflicht nach § 153 Abs. 1 AO" in befund.text, befund.text
+    assert "keine Pflicht" not in befund.text
 
 
 def test_storno_in_anderem_monat_verlangt_keine_berichtigung_des_originals(db):
