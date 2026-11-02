@@ -1386,3 +1386,175 @@ def test_opos_zuordnen_schlaegt_zurueckgehaltene_auszahlung_keiner_forderung_vor
     with make() as s:
         assert not [z for z in lade_zuordnungen(s) if z.transaktion_id == tx.id]
     engine.dispose()
+
+
+# --- Nachprüfung 7 E, Abläufe: N1 bis N4 --------------------------------------------
+
+
+def _mit_wirtschaftsjahr(kontext, beginn):
+    from dataclasses import replace
+
+    return replace(kontext, wirtschaftsjahr_beginn=beginn)
+
+
+def test_kursdifferenz_nie_im_naechsten_wirtschaftsjahr(umgebung):
+    """Abläufe N1, Fall k1: Wirtschaftsjahr ab 01.10. (WJ 2026 = 01.10.2025–
+    30.09.2026). Der korrigierte Umsatz vom 30.09. steht als Geldbewegung auf 1362,
+    der September ist festgeschrieben — die Kursdifferenz ging auf den 01.10.2026,
+    ins nächste Wirtschaftsjahr (``_kurstag`` verglich das Kalenderjahr). Sie bleibt
+    im Geschäftsjahr der Auszahlung (§ 252 Abs. 1 Nr. 5 HGB): ``auszahlung_gesperrt``,
+    der Text nennt das Ende dieses Geschäftsjahres."""
+    s, archiv, kontext = umgebung
+    kontext = _mit_wirtschaftsjahr(kontext, date(2025, 10, 1))
+    _schon_gebucht_september_zu(s, archiv, kontext)
+    (m,) = gleiche_auszahlungen_ab(s, kontext)
+    assert m.transaktion is None
+    assert m.befund is not None and m.befund.code == "auszahlung_gesperrt"
+    assert "30.09.2026" in m.befund.text, m.befund.text
+    assert not [b for b in lade_buchungen(s) if "Kursdifferenz" in b.buchungstext]
+
+
+def test_kursdifferenz_im_januar_desselben_wirtschaftsjahres(umgebung):
+    """Abläufe N1, Fall k2: Wirtschaftsjahr ab 01.07. (2026/27); September bis
+    Dezember 2026 sind festgeschrieben, der Januar 2027 gehört zum selben
+    Geschäftsjahr und ist offen — accounti sperrte trotzdem („bis zum Ende des
+    Geschäftsjahres 2026 ist kein Tag offen“). Die Kursdifferenz geht auf den
+    01.01.2027."""
+    from accounti.pruefung.perioden import schliesse
+    from accounti.pruefung.storno import VORSCHLAG, freigeben
+
+    s, archiv, kontext = umgebung
+    kontext = _mit_wirtschaftsjahr(kontext, date(2025, 7, 1))
+    a = _schon_gebucht_september_zu(s, archiv, kontext)
+    for b in lade_buchungen(s):
+        if b.status in VORSCHLAG:
+            freigeben(s, str(b.id), von="erika")
+    for monat in ("2026-10", "2026-11", "2026-12"):
+        schliesse(s, monat, "erika", trotzdem=True)
+    (m,) = gleiche_auszahlungen_ab(s, kontext)
+    assert m.transaktion is not None and m.transaktion.id == a.id
+    (kurs,) = [b for b in lade_buchungen(s) if "Kursdifferenz" in b.buchungstext]
+    assert kurs.datum == date(2027, 1, 1)
+
+
+def test_kundenzahlung_mit_nummernform_geht_an_opos(umgebung):
+    """Abläufe N2, Fall m3: eine Kundenzahlung über genau den Betrag der
+    Amazon-Auszahlung trägt eine Zahl mit der Form der Amazon-Nummern („GALERIE NORD
+    11998877665 DANKE“), der Kunde hat eine offene Forderung über denselben Betrag.
+    Regel 4 hielt sie als „wohl die Auszahlung einer noch nicht importierten
+    Abrechnung“ zurück und bot ``marktplatz zuordnen`` an; ``bank lauf`` gab sie opos
+    nicht, die Forderung blieb offen (der Mahnlauf mahnte). Was opos eindeutig einem
+    offenen Posten zuordnet, ist dessen Zahlung."""
+    from accounti.db.repository import lade_posten
+
+    s, archiv, kontext = umgebung
+    _forderung(s, "RE-2026-77", "209.85", tag=date(2026, 8, 20))
+    _amazon_september(s, archiv, kontext)
+    k = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "GALERIE NORD 11998877665 DANKE",
+        "Galerie Nord GmbH",
+    )
+    lauf = _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    assert [t.id for t, _v in lauf.zuordnung.gebucht] == [k.id]
+    assert not _befunde(s, "11223344556", hinweise=True)
+    ((rest, status),) = [(p.restbetrag, p.status.value) for p in lade_posten(s)]
+    assert (rest, status) == (Decimal("0.00"), "ausgeglichen")
+
+
+def test_bank_lauf_bestaetigt_keinen_beleg_fuer_zurueckgehaltene_auszahlung(umgebung):
+    """Abläufe N3, Fall m2b: Regel 4 hält R zurück (Warnung), im selben ``bank lauf``
+    bestätigte der Beleg-Abgleich einen Ausgangsbeleg über genau den Betrag für R;
+    nach ``marktplatz zuordnen`` blieb der Beleg „bestätigt“ und nie gebucht. Wie
+    opos und Kontierung lässt auch der Beleg-Abgleich Umsätze mit Abgleichsbefund
+    aus."""
+    from accounti.db.repository import lade_abgleiche, speichere_beleg
+    from accounti.models import Belegart, Belegrichtung
+    from tests.test_bank_abgleich import quittung
+
+    s, archiv, kontext = umgebung
+    beleg = quittung(
+        brutto="209.85",
+        belegart=Belegart.SONSTIGES,
+        richtung=Belegrichtung.AUSGANG,
+        lieferant_name="Amazon Payments Europe S.C.A.",
+        belegdatum=date(2026, 9, 2),
+        netto=Decimal("176.34"),
+        steuer=Decimal("33.51"),
+    )
+    speichere_beleg(s, beleg)
+    _amazon_september(s, archiv, kontext)
+    r = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE EREF 11223399999",
+        "Amazon Payments Europe S.C.A.",
+    )
+    lauf = _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    (m,) = lauf.marktplatz
+    assert m.befund is not None and m.befund.code == "auszahlung_andere_nummer"
+    assert not [x for x in lade_abgleiche(s) if x.transaktion_id == r.id]
+
+
+def test_zuordnen_meldet_bestaetigten_beleg_auf_dem_umsatz(umgebung):
+    """Abläufe N3: ist für den Umsatz schon ein Beleg bestätigt (ein früherer Lauf),
+    nahm ``marktplatz zuordnen`` ihn ohne ein Wort — der Beleg blieb ungebucht. Die
+    Zuordnung meldet es jetzt (der Beleg kann die Auszahlungsübersicht sein, dann ist
+    es richtig; ein Erlösbeleg fehlte sonst still)."""
+    from accounti.db.repository import speichere_abgleich, speichere_beleg
+    from accounti.models import AbgleichStatus, Belegabgleich
+    from tests.test_bank_abgleich import quittung
+
+    s, archiv, kontext = umgebung
+    _amazon_september(s, archiv, kontext)
+    r = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE EREF 11223399999",
+        "Amazon Payments Europe S.C.A.",
+    )
+    beleg = quittung(brutto="209.85", belegdatum=date(2026, 9, 2))
+    speichere_beleg(s, beleg)
+    speichere_abgleich(
+        s,
+        Belegabgleich(
+            transaktion_id=r.id,
+            beleg_id=beleg.id,
+            stufe="exakt",
+            status=AbgleichStatus.BESTAETIGT,
+            confidence=1.0,
+            begruendung="Test",
+        ),
+    )
+    s.flush()
+    ergebnis = ordne_zu(s, kontext, "11223344556", str(r.id)[:8], von="erika")
+    assert ergebnis.transaktion is not None and ergebnis.transaktion.id == r.id
+    assert any("Beleg" in w and "bestätigt" in w for w in ergebnis.warnungen), (
+        ergebnis.warnungen
+    )
+
+
+def test_zuordnen_vor_dem_fenster_auch_mit_trotzdem_nicht(umgebung):
+    """Abläufe N4, Fall z1: Amazon-Abrechnung 16.–31.08., Auszahlung 02.09. (Fenster
+    31.08.–12.09.). Ein Umsatz vom 16.08. — im Abrechnungszeitraum, aber vor dem
+    Fenster — wurde mit „hat die Bank so spät gebucht“ abgelehnt und mit
+    ``--trotzdem`` angenommen. ``--trotzdem`` gilt laut Hilfe nur nach dem Fenster:
+    vor dem gemeldeten Auszahlungsdatum bucht die Bank keine Auszahlung."""
+    s, archiv, kontext = umgebung
+    _amazon_september(s, archiv, kontext)
+    frueh = bank(s, date(2026, 8, 16), "209.85", "AMAZON PAYMENTS EUROPE")
+    for trotzdem in (False, True):
+        with pytest.raises(ZuordnungError, match="vor dem Zeitfenster") as fehler:
+            ordne_zu(
+                s,
+                kontext,
+                "11223344556",
+                str(frueh.id)[:8],
+                von="erika",
+                trotzdem=trotzdem,
+            )
+        assert "spät" not in str(fehler.value) and "--trotzdem" not in str(fehler.value)

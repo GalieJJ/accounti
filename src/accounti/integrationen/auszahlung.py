@@ -98,8 +98,8 @@ Nachprüfungen 1–5 E):
    nicht zu dieser Auszahlung, der Abgleich nimmt ihn hier nicht wieder (Regel 1).
    Ein als Erlös gebuchter Umsatz wird erst korrigiert (``accounti korrigiere``), ein
    Umsatz mit offenem opos- oder Beleg-Vorschlag erst nach dessen Ablehnung
-   zugeordnet; vor dem Abrechnungszeitraum nie, nach dem Zeitfenster nur mit
-   ``--trotzdem`` (Nachprüfung 6 E, Mb, N-c).
+   zugeordnet; vor dem Zeitfenster nie, nach ihm nur mit ``--trotzdem``
+   (Nachprüfung 6 E, Mb, N-c; 7 E, Abläufe N4).
 
 Zusammenspiel mit der Kontierung (``buchung.marktplatz``): ``classify`` und ``bank
 lauf`` lassen einen Eingang mit Stichwort offen, solange keine Abrechnung ihn
@@ -179,6 +179,7 @@ from accounti.integrationen.einstellungen import Kontext
 from accounti.models import (
     Buchungssatz,
     BuchungStatus,
+    Kontakt,
     OffenerPosten,
     Transaktion,
     TransaktionQuelle,
@@ -194,6 +195,7 @@ from accounti.models.integrationen import (
 from accounti.opos.zahlungslauf import offene_transaktionen
 
 if TYPE_CHECKING:
+    from accounti.abschluss.konfiguration import Wirtschaftsjahr
     from accounti.abschluss.kontenrahmen import Kontenrahmen
 
 VORLAUF = timedelta(days=2)  # Bank bucht selten vor dem gemeldeten Auszahlungsdatum
@@ -458,6 +460,9 @@ class _Lauf:
     wegen_rechnung: set[tuple[UUID, str]] = field(default_factory=set)
     # Umsätze, die opos als Zahlung eines Postens gebucht hat — kein Erlös
     zahlungen: set[UUID] | None = None
+    # offene Posten und Kontakte für ``_opos_eindeutig``; Umsatz → Ergebnis
+    opos: tuple[list[OffenerPosten], list[Kontakt]] | None = None
+    eindeutig: dict[UUID, bool] = field(default_factory=dict)
     # die offenen Aus-/Einzahlungen dieses Laufs (``_offene_posten``)
     offene: list[tuple[Abrechnung, Marktplatzposten, Decimal]] = field(
         default_factory=list
@@ -924,7 +929,16 @@ def _anderer_vorgang(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
         if anderes:
             lauf.wegen_rechnung.add(schluessel)
     else:
-        anderes = False
+        # ohne Stichwort und Nummer: was opos eindeutig einem offenen Posten zuordnet
+        # (der bekannte Kunde zahlt genau seinen offenen Rest), ist dessen Zahlung —
+        # auch wenn eine Zahl darin wie eine Auszahlungsnummer aussieht (Regel 4
+        # hielt sie sonst zurück, opos bekam sie nicht, die bezahlte Rechnung wurde
+        # gemahnt; Nachprüfung 7 E, Abläufe N2)
+        anderes = (
+            t.id in lauf.offen_ids
+            and not _erkennbar(lauf, a, t)
+            and _opos_eindeutig(lauf, t)
+        )
     lauf.anderes[schluessel] = anderes
     return anderes
 
@@ -942,6 +956,33 @@ def _opos_zahlung(lauf: _Lauf, t: Transaktion) -> bool:
             for z in lade_zuordnungen(lauf.session, status={ZuordnungStatus.GEBUCHT})
         }
     return t.id in lauf.zahlungen
+
+
+def _opos_eindeutig(lauf: _Lauf, t: Transaktion) -> bool:
+    """Ordnet opos den Umsatz automatisch offenen Posten zu (Referenz oder der
+    erkannte Kontakt mit genau diesem Rest, ``opos.zuordnung.ordne_zu``)?"""
+    from accounti.db.repository import lade_kontakte, lade_posten
+    from accounti.models import PostenStatus
+    from accounti.opos.zuordnung import ordne_zu as opos_zuordnung
+
+    if t.id not in lauf.eindeutig:
+        if lauf.opos is None:
+            lauf.opos = (
+                lade_posten(
+                    lauf.session, status={PostenStatus.OFFEN, PostenStatus.TEILBEZAHLT}
+                ),
+                lade_kontakte(lauf.session),
+            )
+        posten, kontakte = lauf.opos
+        vorschlag = (
+            opos_zuordnung(
+                t, posten, kontakte, lauf.kontext.buchhaltung.skonto_karenz_tage
+            )
+            if posten
+            else None
+        )
+        lauf.eindeutig[t.id] = vorschlag is not None and vorschlag.automatisch
+    return lauf.eindeutig[t.id]
 
 
 def _rechnungen(lauf: _Lauf, t: Transaktion) -> list[OffenerPosten]:
@@ -1143,7 +1184,7 @@ def _kurs_gesperrt(
     vorgebucht = _vorgebucht(lauf, a, t)
     if vorgebucht is None or vorgebucht == erwartet:
         return False
-    if _kurstag(lauf.session, t.datum) is not None:
+    if _kurstag(lauf.session, t.datum, lauf.kontext) is not None:
         return False
     lauf.gesperrt.setdefault(p.id, []).append(t)
     return True
@@ -1940,7 +1981,7 @@ def _buche(
         if rest:
             konto = e.kursdifferenz_ertrag if rest > 0 else e.kursdifferenz_aufwand
             teile.append((rest, konto, f"{markt} Kursdifferenz {a.nummer}", gegen))
-            ziel = _kurstag(session, t.datum)
+            ziel = _kurstag(session, t.datum, kontext)
             if ziel is None:  # _kandidaten und ordne_zu lassen es nicht so weit kommen
                 raise ZuordnungError(_gesperrt_text(session, kontext, a, t))
             if ziel != t.datum:
@@ -1975,13 +2016,15 @@ def _buche(
     return verschoben
 
 
-def _kurstag(session: Session, tag: date) -> date | None:
+def _kurstag(session: Session, tag: date, kontext: Kontext) -> date | None:
     """Tag der Kursdifferenz eines schon gebuchten Umsatzes vom ``tag``: er selbst,
     liegt er in einem abgeschlossenen Zeitraum der erste offene Tag danach — wie die
     Korrektur des Menschen mit ``--datum`` (GoBD Rz. 107 ff.: der festgeschriebene
     Monat bleibt unverändert, korrigiert wird in der offenen Periode). Nie in einem
     anderen Geschäftsjahr: die Kursdifferenz ist Aufwand bzw. Ertrag des Jahres der
-    Auszahlung (§ 252 Abs. 1 Nr. 5 HGB) — dann ``None``."""
+    Auszahlung (§ 252 Abs. 1 Nr. 5 HGB) — dann ``None``. Das Geschäftsjahr ist das
+    Wirtschaftsjahr (``datev.wirtschaftsjahr_beginn``, Nachprüfung 7 E, Abläufe N1:
+    bei einem WJ ab 01.07. gehört der Januar zum selben, der Juli nicht)."""
     from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 
@@ -1992,7 +2035,13 @@ def _kurstag(session: Session, tag: date) -> date | None:
         ziel = erster_offener_tag(verbindung, tag)
     except JahrGesperrtError:
         return None
-    return ziel if ziel.year == tag.year else None
+    return ziel if ziel <= _geschaeftsjahr(tag, kontext).bis else None
+
+
+def _geschaeftsjahr(tag: date, kontext: Kontext) -> Wirtschaftsjahr:
+    from accounti.abschluss.konfiguration import wirtschaftsjahr_zum
+
+    return wirtschaftsjahr_zum(tag, kontext.wirtschaftsjahr_beginn)
 
 
 def _gesperrt_text(
@@ -2003,13 +2052,15 @@ def _gesperrt_text(
 
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     fehler = sperrfehler(session.connection(), t.datum)
+    wj = _geschaeftsjahr(t.datum, kontext)
     return (
         f"{markt} {a.nummer}: Der Bankumsatz vom {t.datum:%d.%m.%Y} über "
         f"{eur_text(t.betrag)} € ({str(t.id)[:8]}) steht als Geldbewegung auf "
         f"{_gegenkonto(kontext, a)} und ist diese Auszahlung, doch seine Kursdifferenz "
         f"gehört in einen abgeschlossenen Zeitraum ({fehler}), und bis zum Ende des "
-        f"Geschäftsjahres {t.datum.year} ist kein Tag offen — nicht abgeglichen; "
-        "erst den Zeitraum öffnen, dann accounti marktplatz abgleichen"
+        f"Geschäftsjahres ({wj.von:%d.%m.%Y}–{wj.bis:%d.%m.%Y}) ist kein Tag offen — "
+        "nicht abgeglichen; erst den Zeitraum öffnen, dann accounti marktplatz "
+        "abgleichen"
     )
 
 
@@ -2056,10 +2107,11 @@ def ordne_zu(
     gewordener Umsatz findet so seine Abrechnung. Ein als Erlös gebuchter Umsatz wird
     nicht still umgebucht: erst ``accounti korrigiere`` (die Meldung nennt den
     Befehl). Betrag und Richtung müssen passen (Fremdwährung: in der Toleranz), ein
-    Umsatz vor dem Abrechnungszeitraum ist nie die Auszahlung, einer außerhalb des
-    Zeitfensters nur mit ``trotzdem`` (die Bank hat spät gebucht; Nachprüfung 6 E,
-    N-c). Ein Umsatz mit offenem Zahlungs- oder Beleg-Vorschlag wird erst nach dessen
-    Ablehnung zugeordnet (Mb).
+    Umsatz vor dem Zeitfenster ist nie die Auszahlung, einer nach ihm nur mit
+    ``trotzdem`` (die Bank hat spät gebucht; Nachprüfung 6 E, N-c; 7 E, Abläufe N4).
+    Ein Umsatz mit offenem Zahlungs- oder Beleg-Vorschlag wird erst nach dessen
+    Ablehnung zugeordnet (Mb); ein bestätigter Beleg auf dem Umsatz wird gemeldet
+    (``warnungen``, Abläufe N3).
 
     Die Zuordnung steht im Journal (``auszahlung_zugeordnet`` bzw.
     ``auszahlung_geloest``, Person aus dem Journal-Kontext) und als Hinweis an der
@@ -2155,6 +2207,7 @@ def ordne_zu(
         lauf = _neuer_lauf(session, kontext, lade_abrechnungen(session))
         _pruefe_buchungen(lauf, a, t)
         _pruefe_sperre(lauf, a, t, erwartet)
+        ergebnis.warnungen.extend(_bestaetigte_belege(session, a, t))
         erledigt = [
             b
             for b in a.offene_befunde
@@ -2339,18 +2392,29 @@ def _pruefe_umsatz(
 def _pruefe_datum(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, t: Transaktion, trotzdem: bool
 ) -> None:
-    """Vor dem Abrechnungszeitraum (und dem Fenster) ist ein Umsatz nie die
-    Auszahlung; nach dem Fenster nur ausdrücklich (``trotzdem``)."""
+    """Vor dem Zeitfenster ist ein Umsatz nie die Auszahlung — vor dem
+    Abrechnungszeitraum schon gar nicht, und vor dem gemeldeten Auszahlungsdatum
+    (abzüglich ``VORLAUF``) bucht die Bank sie nicht (Nachprüfung 7 E, Abläufe N4:
+    ``--trotzdem`` nahm auch einen Umsatz im Abrechnungszeitraum vor dem Fenster).
+    Nach dem Fenster nur ausdrücklich (``trotzdem``: die Bank hat spät gebucht)."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     von, bis = _fenster(lauf, p)
     ident = str(t.id)[:8]
-    if t.datum < min(a.von, von):
+    if t.datum < a.von:
         raise ZuordnungError(
             f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "
             f"vor dem Abrechnungszeitraum ({a.von:%d.%m.%Y}–{a.bis:%d.%m.%Y}) — er "
             "kann nicht diese Auszahlung sein; nicht zugeordnet"
         )
-    if not von <= t.datum <= bis and not trotzdem:
+    if t.datum < von:
+        raise ZuordnungError(
+            f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "
+            f"vor dem Zeitfenster der Auszahlung vom {p.datum:%d.%m.%Y} "
+            f"({von:%d.%m.%Y}–{bis:%d.%m.%Y}) — vor dem gemeldeten Auszahlungsdatum "
+            "bucht die Bank sie nicht, er kann nicht diese Auszahlung sein; nicht "
+            "zugeordnet"
+        )
+    if t.datum > bis and not trotzdem:
         raise ZuordnungError(
             f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "
             f"außerhalb des Zeitfensters der Auszahlung vom {p.datum:%d.%m.%Y} "
@@ -2383,7 +2447,7 @@ def _pruefe_sperre(
     if (
         vorgebucht is not None
         and vorgebucht != erwartet
-        and _kurstag(lauf.session, t.datum) is None
+        and _kurstag(lauf.session, t.datum, lauf.kontext) is None
     ):
         raise ZuordnungError(_gesperrt_text(lauf.session, lauf.kontext, a, t))
 
@@ -2417,6 +2481,38 @@ def _pruefe_vorschlaege(session: Session, a: Abrechnung, t: Transaktion) -> None
             "vor — ist er diese Auszahlung, erst den Vorschlag verwerfen mit accounti "
             f"bank ablehnen {str(belege[0].id)[:8]}, dann zuordnen"
         )
+
+
+def _bestaetigte_belege(session: Session, a: Abrechnung, t: Transaktion) -> list[str]:
+    """Ist für den Umsatz ein Beleg bestätigt (Beleg-Abgleich), bleibt der nach der
+    Zuordnung ungebucht — als Auszahlungsübersicht des Marktplatzes richtig, als
+    Erlösbeleg fehlten Erlös und USt still. Gemeldet, nicht abgelehnt: einen
+    bestätigten Abgleich löst kein Befehl (Nachprüfung 7 E, Abläufe N3)."""
+    from accounti.db.repository import lade_abgleiche, lade_beleg
+    from accounti.models import AbgleichStatus
+
+    warnungen = []
+    for x in lade_abgleiche(session, status={AbgleichStatus.BESTAETIGT}):
+        if x.transaktion_id != t.id:
+            continue
+        beleg = lade_beleg(session, x.beleg_id)
+        teile = []
+        if beleg is not None:
+            teile.append(beleg.lieferant_name or beleg.belegart.value)
+            if beleg.brutto is not None:
+                teile.append(f"über {eur_text(beleg.brutto)} €")
+            if beleg.belegdatum is not None:
+                teile.append(f"vom {beleg.belegdatum:%d.%m.%Y}")
+        was = " ".join(teile) or "?"
+        warnungen.append(
+            f"Für den Bankumsatz {str(t.id)[:8]} ist der Beleg {str(x.beleg_id)[:8]} "
+            f"({was}) bestätigt — mit der Zuordnung zu "
+            f"{ANZEIGE.get(a.marktplatz, a.marktplatz)} {a.nummer} bleibt er "
+            "ungebucht. Ist er die Auszahlungsübersicht des Marktplatzes, ist das "
+            "richtig; ist er ein Erlös- oder Kostenbeleg, ihn einem anderen Umsatz "
+            "zuordnen oder von Hand buchen"
+        )
+    return warnungen
 
 
 def _pruefe_buchungen(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> None:

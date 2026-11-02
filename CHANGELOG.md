@@ -651,6 +651,18 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **`opos zuordnen` schlug eine zurückgehaltene Auszahlung einer Forderung vor** (Nachprüfung
   7 E, Mb-Rest): Wie `bank lauf` und `classify` lässt es Umsätze aus, über die der
   Marktplatz-Abgleich einen Befund hätte
+- **Marktplatz: Abläufe aus Nachprüfung 7 E** (N1–N4): Die Kursdifferenz eines vorgebuchten
+  Umsatzes bleibt im Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`) der Auszahlung — bisher
+  das Kalenderjahr: bei einem WJ ab 01.07. ging sie in den Juli des nächsten WJ, und ein offener
+  Januar desselben WJ galt als gesperrt; die Warnung `auszahlung_gesperrt` nennt das
+  Geschäftsjahr mit Beginn und Ende. Eine Kundenzahlung, die opos eindeutig einem offenen
+  Posten zuordnet (bekannter Kunde, genau der Rest), hält Regel 4 nicht mehr als „andere
+  Nummer“ zurück, auch wenn eine Zahl darin wie eine Auszahlungsnummer aussieht — opos gleicht
+  die Rechnung aus, statt dass sie gemahnt wird. `bank lauf` bestätigt keinen Beleg für einen
+  Umsatz mit Abgleichsbefund, und `marktplatz zuordnen` meldet einen schon bestätigten Beleg
+  auf dem Umsatz (er bliebe sonst still ungebucht). `marktplatz zuordnen` nimmt einen Umsatz
+  vor dem Zeitfenster auch mit `--trotzdem` nicht (die Meldung sprach von „spät gebucht“);
+  `--trotzdem` gilt wie in der Hilfe nur nach dem Fenster
 - **Marktplatz: festgeschriebener Monat brach jeden Abgleich ab** (Nachprüfung 6 E): Ein
   vorgebuchter Umsatz (nach „schon gebucht“ und der Korrektur auf das Verrechnungskonto) mit
   Kursdifferenz in einem festgeschriebenen Monat ließ `marktplatz abgleichen`, `bank lauf`,

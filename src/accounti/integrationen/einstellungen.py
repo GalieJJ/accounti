@@ -19,6 +19,7 @@ steht im Buchungstext; ``oss_ust_konten`` legt einzelne Länder auf eigene Konte
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -330,14 +331,21 @@ class Kontext:
     buchhaltung: Buchhaltung = field(default_factory=Buchhaltung)
     oss_registriert: bool = False
     firmen_land: str = "DE"
+    # ``datev.wirtschaftsjahr_beginn`` (Tag und Monat; ohne: Kalenderjahr) — die
+    # Kursdifferenz einer Auszahlung bleibt in ihrem Geschäftsjahr (Nachprüfung 7 E)
+    wirtschaftsjahr_beginn: date | None = None
 
 
 def lade_kontext(pfad: str | Path = STANDARD_PFAD) -> Kontext:
-    """Abschnitte ``integrationen`` und ``buchhaltung``, OSS-Angaben aus ``mandant``."""
+    """Abschnitte ``integrationen`` und ``buchhaltung``, OSS-Angaben aus ``mandant``,
+    das Wirtschaftsjahr aus ``datev``."""
+    from accounti.abschluss.konfiguration import lade_wirtschaftsjahr_beginn
+
     oss, land = lade_steuerangaben(pfad)
     return Kontext(
         einstellungen=lade_integrationen(pfad),
         buchhaltung=lade_buchhaltung(pfad),
         oss_registriert=oss,
         firmen_land=land,
+        wirtschaftsjahr_beginn=lade_wirtschaftsjahr_beginn(pfad),
     )

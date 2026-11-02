@@ -228,13 +228,13 @@ def bank_lauf(
         lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
     # ein Umsatz, über den der Abgleich eben einen Befund hat (andere Nummer,
     # mehrdeutig, Abweichung), ist eine Auszahlung — nie zugleich kontieren, auch
-    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a), und nie einer Forderung
-    # vorschlagen (Nachprüfung 6 E, Mb)
+    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a), nie einer Forderung vorschlagen
+    # (Nachprüfung 6 E, Mb) und keinen Beleg für ihn bestätigen (7 E, Abläufe N3)
     befund_umsaetze = umsaetze_mit_befund(lauf.marktplatz)
     lauf.zuordnung = zuordne_zahlungen(
         session, einstellungen, auslassen=befund_umsaetze
     )
-    lauf.abgleich = gleiche_belege_ab(session)
+    lauf.abgleich = gleiche_belege_ab(session, auslassen=befund_umsaetze)
     lauf.kontierung = kontiere_umsaetze(
         session, engine, einstellungen, integrationen, auslassen=befund_umsaetze
     )
