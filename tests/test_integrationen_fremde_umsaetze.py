@@ -658,3 +658,234 @@ def test_kursdifferenz_ohne_offenen_tag_im_geschaeftsjahr_ist_befund(umgebung):
     with pytest.raises(ZuordnungError, match="abgeschlossenen Zeitraum"):
         ordne_zu(s, kontext, "6009990001", str(a.id)[:8], von="erika")
     _bank_lauf_mit_regel(s, kontext)  # bricht nicht ab
+
+
+# --- Niedrig: N-a bis N-i ---------------------------------------------------------
+
+
+def test_gedruckter_zuordnen_befehl_ist_ausfuehrbar(umgebung):
+    """N-a: die Nummer einer PayPal-Abrechnung hat Leerzeichen („PayPal 2026-08-02
+    bis 2026-08-20“) — ohne Anführungszeichen endete der gedruckte Befehl mit „Got
+    unexpected extra argument(s)“. Shell-Wörter wie gedruckt ergeben Nummer und
+    Umsatz."""
+    import re
+    import shlex
+
+    s, archiv, kontext = umgebung
+    erster = bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    bank(s, date(2026, 8, 14), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    nummer = _paypal(s, archiv, kontext)
+    (b,) = _befunde(s, nummer)
+    assert b.code == "auszahlung_mehrdeutig", b.text
+    befehl = re.search(
+        r"accounti marktplatz zuordnen .*? [0-9a-f]{8}(?: --posten \d+)?", b.text
+    )[0]
+    _, _, _, gegeben, umsatz, *rest = shlex.split(befehl)
+    assert gegeben == nummer
+    # PayPal hat Aus- und Einzahlung — der Befehl nennt die Zeile
+    assert rest[0] == "--posten"
+    ordne_zu(s, kontext, gegeben, umsatz, posten=int(rest[1]), von="erika")
+    assert {str(x)[:8] for x in _paypal_zugeordnet(s)} >= {umsatz}
+    assert erster.id in _paypal_zugeordnet(s) or umsatz != str(erster.id)[:8]
+
+
+def test_eigene_nummer_entscheidet_ueber_marktplaetze(umgebung):
+    """N-b, Fall s12: PayPal und eBay 6001234567 erwarten je 150 €, der Umsatz nennt
+    6001234567 — beide meldeten „mehrdeutig“ („kein Verwendungszweck nennt die
+    Nummer“, falsch). Die eigene Nummer geht vor: eBay bekommt ihn."""
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    pp = _paypal(s, archiv, kontext)
+    importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        ebay_bericht(
+            (
+                "10.08.2026",
+                "Bestellung",
+                "12-567",
+                "Deutschland",
+                "150,00",
+                "6001234567",
+                "",
+            ),
+            ("13.08.2026", "Auszahlung", "", "", "-150,00", "6001234567", "13.08.2026"),
+        ),
+        "e.csv",
+    )
+    e = bank(s, date(2026, 8, 13), "150.00", f"{EBAY} AUSZAHLUNG 6001234567", "eBay")
+    _bank_lauf_mit_regel(s, kontext, r"PAYPAL|EBAY")
+    assert e.id not in _paypal_zugeordnet(s)
+    assert not _befunde(s, pp) and not _befunde(s, "6001234567")
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def test_zuordnen_prueft_das_datum(umgebung):
+    """N-c, Fall s2: Amazon-Auszahlung vom 02.09.2026 — ``marktplatz zuordnen`` nahm
+    einen Umsatz vom 15.03.2027 und einen vom 01.06.2026 (vor dem
+    Abrechnungszeitraum). Vor dem Zeitraum ist er nie die Auszahlung; außerhalb des
+    Fensters nur ausdrücklich (``trotzdem``: die Bank hat spät gebucht)."""
+    s, archiv, kontext = umgebung
+    _amazon_september(s, archiv, kontext)
+    spaet = bank(s, date(2027, 3, 15), "209.85", "AMAZON PAYMENTS EUROPE")
+    frueh = bank(s, date(2026, 6, 1), "209.85", "AMAZON PAYMENTS EUROPE")
+    with pytest.raises(ZuordnungError, match="vor dem Abrechnungszeitraum"):
+        ordne_zu(s, kontext, "11223344556", str(frueh.id)[:8], von="erika")
+    with pytest.raises(ZuordnungError, match="--trotzdem"):
+        ordne_zu(s, kontext, "11223344556", str(spaet.id)[:8], von="erika")
+    with pytest.raises(ZuordnungError, match="vor dem Abrechnungszeitraum"):
+        ordne_zu(
+            s, kontext, "11223344556", str(frueh.id)[:8], von="erika", trotzdem=True
+        )
+    ordne_zu(s, kontext, "11223344556", str(spaet.id)[:8], von="erika", trotzdem=True)
+    (a,) = lade_abrechnungen(s)
+    assert spaet.id in {p.bank_transaktion_id for p in a.posten}
+
+
+def test_journal_auch_fuer_den_mitgeloesten_posten(umgebung):
+    """N-e, Fall s11: 6009990001 hat B (ohne Nummer), ``ordne_zu 6009990002 B`` löst
+    diese Zuordnung mit — im Journal stand nur der Zielposten."""
+    from accounti.pruefung.journal import lade_journal
+    from accounti.pruefung.person import journal_kontext
+    from tests.test_integrationen_lauf import _ebay_import
+
+    s, archiv, kontext = umgebung
+    b = bank(s, date(2026, 10, 2), "60.14", f"{EBAY} AUSZAHLUNG", "eBay")
+    _ebay_import(s, archiv, kontext)
+    _ebay_import(s, archiv, kontext, zweite=True)
+    with journal_kontext(person="erika"):
+        ordne_zu(s, kontext, "6009990002", str(b.id)[:8], von="erika")
+    (x,) = [a for a in lade_abrechnungen(s) if a.nummer == "6009990001"]
+    (p,) = [p for p in x.posten if p.art.value == "auszahlung"]
+    (eintrag,) = lade_journal(s, objekt_id=str(p.id))
+    import json
+
+    assert eintrag.vorgang == "auszahlung_geloest"
+    assert json.loads(eintrag.vorher)["bank_transaktion_id"] == str(b.id)
+    assert json.loads(eintrag.nachher)["bank_transaktion_id"] is None
+    assert "6009990002" in (eintrag.grund or "")
+
+
+def test_loesen_warnt_bei_schon_an_datev_uebergebener_buchung(umgebung):
+    """N-f, Fall s24: die Bankbuchung ist ein Vorschlag (Abrechnung mit Fehler) und
+    ging mit ``export datev --alle`` schon an DATEV; ``--loesen`` verwarf sie ohne
+    Warnung — DATEV behielt 1200 an 1361. Wie ``korrigiere``: die Warnung nennt den
+    Stapel und den Weg."""
+    from accounti.db.repo_integrationen import ergaenze_befunde
+    from accounti.models.integrationen import Befund
+    from accounti.pruefung.storno import markiere_exportiert
+
+    s, archiv, kontext = umgebung
+    e = _amazon_september(s, archiv, kontext)
+    ergaenze_befunde(
+        s,
+        e.abrechnung.id,
+        [
+            Befund(
+                code="summe_abweichung",
+                schweregrad=Schweregrad.FEHLER,
+                text="Summe der Einzelposten ≠ Auszahlung (simuliert)",
+            )
+        ],
+    )
+    s.flush()
+    k = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    gleiche_auszahlungen_ab(s, kontext)
+    (b,) = buchungen_zur_transaktion(s, k.id)
+    assert b.status is BuchungStatus.ZUR_PRUEFUNG
+    markiere_exportiert(s, lade_buchungen(s), None, "datev")
+    s.flush()
+    erg = ordne_zu(s, kontext, "11223344556", None, von="erika")
+    assert any(
+        "DATEV" in w and "1200 an 1361" in w and "--erneut --alle" in w
+        for w in erg.warnungen
+    ), erg.warnungen
+
+
+def test_loesen_nennt_die_geldbewegung_auf_dem_verrechnungskonto(umgebung):
+    """N-i, Fall s16: nach „schon gebucht“ und der Korrektur des Menschen (Bank an
+    1362) löst ``--loesen`` die Zuordnung; die Geldbewegung bleibt auf 1362 stehen,
+    die Ausgabe sagte es nicht."""
+    import re
+
+    from accounti.pruefung.storno import korrigiere
+    from tests.test_integrationen_lauf import _ebay_import
+
+    s, archiv, kontext = umgebung
+    a = bank(s, date(2026, 9, 30), "59.75", f"{EBAY} AUSZAHLUNG 6009990001", "eBay")
+    _als_erloes_gebucht(s, a, "50.21", "9.54")
+    _ebay_import(s, archiv, kontext)
+    (befund,) = _befunde(s, "6009990001")
+    ident, soll, haben = re.search(
+        r"korrigiere (\w+) --soll (\d+) --haben (\d+)", befund.text
+    ).groups()
+    korrigiere(s, ident, soll, haben, ohne_steuer=True, von="erika")
+    gleiche_auszahlungen_ab(s, kontext)
+    erg = ordne_zu(s, kontext, "6009990001", None, von="erika")
+    assert any("1362" in w and "Geldbewegung" in w for w in erg.warnungen), (
+        erg.warnungen
+    )
+
+
+@pytest.mark.parametrize(
+    "zweck",
+    [
+        "EBAY RECHNUNGSNUMMER 6009990077",
+        "EBAY BESTELLNR 6009990077",
+        "EBAY ORDER 6009990077",
+        "EBAY INV 6009990077",
+        "EBAY CUSTOMER 6009990077",
+        "EBAY REF 6009990077",
+        "EBAY BELEG 6009990077",
+        "EBAY END-TO-END-REF 6009990077",
+        "EBAY BESTELLNUMMER 6009990077",
+        "EBAY INVOICE 6009990077",
+    ],
+)
+def test_regel4_rechnungs_und_bestellangaben_sind_keine_auszahlungsnummer(zweck):
+    """N-h, Fall s9: hinter einer Rechnungs-, Bestell-, Kunden- oder
+    Referenzangabe ist eine Zahl keine Auszahlungsnummer (Regel 4)."""
+    from accounti.integrationen.auszahlung import _andere_nummern
+    from accounti.models.integrationen import Abrechnung
+
+    a = Abrechnung.model_construct(nummer="6009990001", marktplatz="ebay")
+    t = Transaktion(
+        datum=date(2026, 9, 30),
+        betrag=Decimal("1"),
+        verwendungszweck=zweck,
+        quelle=TransaktionQuelle.BANK,
+        rohtext=zweck,
+    )
+    assert _andere_nummern(a, t) == []
+
+
+@pytest.mark.parametrize(
+    "zweck",
+    [
+        "EBAY EREF 6009990077",
+        "EBAY AUSZAHLUNG 6009990077",
+        "EBAY MANAGED PAYMENTS 6009990077",
+        "EBAY NR 6009990077",
+    ],
+)
+def test_regel4_auszahlungsnummern_bleiben(zweck):
+    """Gegenprobe zu N-h: EREF (Marktplätze setzen dort ihre Auszahlungsnummer) und
+    eine Nummer ohne Bezeichnung zählen weiter."""
+    from accounti.integrationen.auszahlung import _andere_nummern
+    from accounti.models.integrationen import Abrechnung
+
+    a = Abrechnung.model_construct(nummer="6009990001", marktplatz="ebay")
+    t = Transaktion(
+        datum=date(2026, 9, 30),
+        betrag=Decimal("1"),
+        verwendungszweck=zweck,
+        quelle=TransaktionQuelle.BANK,
+        rohtext=zweck,
+    )
+    assert _andere_nummern(a, t) == ["6009990077"]

@@ -319,6 +319,12 @@ def marktplatz_zuordnen(
         help="Storno-Datum der bisherigen Zuordnung, wenn ihr Zeitraum abgeschlossen "
         "ist (JJJJ-MM-TT)",
     ),
+    trotzdem: bool = typer.Option(
+        False,
+        "--trotzdem",
+        help="Auch einen Umsatz nach dem Zeitfenster der Auszahlung zuordnen (die "
+        "Bank hat spät gebucht)",
+    ),
     von: str | None = typer.Option(
         None,
         help="Wer zuordnet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
@@ -378,6 +384,7 @@ def marktplatz_zuordnen(
                 posten=posten,
                 von=person,
                 datum=am,
+                trotzdem=trotzdem,
             )
             s.commit()
         except (

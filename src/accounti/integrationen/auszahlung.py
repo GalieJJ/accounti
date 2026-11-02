@@ -26,8 +26,9 @@ Nachprüfungen 1–5 E):
    noch keine Abrechnung trägt, ist er wohl die Auszahlung einer noch nicht
    importierten: weder Treffer noch Abweichung. Dieselbe Form heißt: nur Ziffern,
    gleiche Länge, dieselben zwei ersten Ziffern (die Nummern eines Marktplatzes
-   laufen fort) und nicht hinter einer Kunden-, Mandats-, Konto- oder
-   Rechnungsangabe (KD, Kunden-Nr., MREF, IBAN …) — eine Referenz der Bank mit
+   laufen fort) und nicht hinter einer Kunden-, Mandats-, Konto-, Rechnungs-,
+   Bestell-, Beleg- oder Referenzangabe (KD, Kunden-Nr., MREF, IBAN, RECHNUNGSNUMMER,
+   INV, BESTELLNR, ORDER, CUSTOMER, REF, BELEG …) — eine Referenz der Bank mit
    anderem Anfang (EREF 4711000815 neben 6009990001) oder eine Kundennummer zählt
    nicht (Nachprüfung 5 E, M4). Eine EREF mit demselben Anfang zählt: Marktplätze
    setzen dort ihre Auszahlungsnummer. Bleibt sonst nichts, ist das die Warnung
@@ -41,8 +42,9 @@ Nachprüfungen 1–5 E):
    Nummer in der Toleranz. Mehrere grenzen Stichwort und eigene Nummer ein; bleiben
    mehrere, ist das ``auszahlung_mehrdeutig`` — es wird nicht geraten. Ebenso, wenn
    derselbe Umsatz der einzige Kandidat der Auszahlungen mehrerer Abrechnungen ist:
-   keine bekommt ihn, jede warnt. Deshalb gleicht auch der Import einer einzelnen
-   Abrechnung alle ab, ein Bericht mit mehreren erst, wenn alle gespeichert sind.
+   nennt er die Nummer genau einer, bekommt sie ihn, sonst keine, jede warnt.
+   Deshalb gleicht auch der Import einer einzelnen Abrechnung alle ab, ein Bericht
+   mit mehreren erst, wenn alle gespeichert sind.
    Nennt der Treffer die eigene Nummer nicht (PayPal: trägt er kein Stichwort, die
    Abrechnung hat keine Nummer im Verwendungszweck), ist die Zuordnung geraten — das
    sagt ein Hinweis (``zuordnung_ohne_nummer``) mit dem Befehl aus Regel 9.
@@ -231,8 +233,10 @@ _MINDESTLAENGE = 6
 # 6009990002; Settlement-IDs) — eine Zahl derselben Länge mit anderem Anfang ist eine
 # Referenz der Bank (EREF 4711000815), keine Auszahlungsnummer (Nachprüfung 5 E, M4)
 _ANFANG = 2
-# Bezeichnungen, hinter denen eine Zahl Kunden-, Mandats-, Konto-, Vertrags- oder
-# Rechnungsangabe ist, nie eine Auszahlungsnummer (KD 40123456789, Kunden-Nr. …)
+# Bezeichnungen, hinter denen eine Zahl Kunden-, Mandats-, Konto-, Vertrags-,
+# Rechnungs-, Bestell-, Beleg- oder Referenzangabe ist, nie eine Auszahlungsnummer
+# (KD 40123456789, Kunden-Nr. …, Nachprüfung 6 E, N-h) — nicht EREF: dort setzen
+# Marktplätze ihre Auszahlungsnummer (Regel 4). END-TO-END-REF endet auf REF.
 _REFERENZEN = frozenset(
     {
         "KD",
@@ -260,9 +264,20 @@ _REFERENZEN = frozenset(
         "VERTRAGSNR",
         "RECHNUNG",
         "RECHNUNGSNR",
+        "RECHNUNGSNUMMER",
         "RE",
         "RG",
         "RGNR",
+        "INV",
+        "INVOICE",
+        "BESTELLUNG",
+        "BESTELLNR",
+        "BESTELLNUMMER",
+        "ORDER",
+        "CUSTOMER",
+        "REF",
+        "BELEG",
+        "BELEGNR",
     }
 )
 _NR = frozenset({"NR", "NO", "NUMMER"})
@@ -497,7 +512,11 @@ def gleiche_auszahlungen_ab(
                 treffer[kandidaten[0].id] = kandidaten[0]
         for ident, anwaerter in einzig.items():
             # Regel 5: ist derselbe Umsatz der einzige Kandidat der Auszahlungen
-            # mehrerer Abrechnungen, entscheidet nichts zwischen ihnen
+            # mehrerer Abrechnungen, entscheidet nur die eigene Nummer zwischen
+            # ihnen (Nachprüfung 6 E, N-b) — sonst nichts
+            nennt = [x for x in anwaerter if _eigene_nummer(x[0], treffer[ident])]
+            if len({a.id for a, _p, _e in nennt}) == 1:
+                anwaerter = nennt
             abrechnungen_hier = {a.id: a for a, _p, _e in anwaerter}
             if len(abrechnungen_hier) > 1:
                 for _a, p, _e in anwaerter:
@@ -1033,15 +1052,43 @@ def _zuordnen(
             text=(
                 f"{markt} {a.nummer}: zugeordnet nach {nach} — der Bankumsatz vom "
                 f"{t.datum:%d.%m.%Y} ({ident}) {nennt}. Gehört er zu einer anderen "
-                "Abrechnung oder ist er keine Auszahlung: accounti marktplatz "
-                f"zuordnen {shlex.quote(a.nummer)} --loesen bzw. accounti marktplatz "
-                f"zuordnen <Nummer> {ident}"
+                "Abrechnung oder ist er keine Auszahlung: "
+                f"{_zuordnen_befehl(a.nummer, '--loesen', a=a, p=p)} bzw. "
+                f"{_zuordnen_befehl('<Nummer>', ident)}"
             ),
             posten_nr=p.nr,
         )
         ergaenze_befunde(lauf.session, a.id, [hinweis])
         a.befunde.append(hinweis)
     return Abgleich(a, p, t, befund)
+
+
+def _zuordnen_befehl(
+    nummer: str,
+    *rest: str,
+    a: Abrechnung | None = None,
+    p: Marktplatzposten | None = None,
+) -> str:
+    """Der Befehl aus Regel 9, so gedruckt, dass er sich ausführen lässt — eine
+    Nummer mit Leerzeichen (PayPal-Zeitraum) in Anführungszeichen, bei einer
+    Abrechnung mit mehreren Aus-/Einzahlungen (PayPal) mit ``--posten`` (Nachprüfung
+    6 E, N-a); Platzhalter in spitzen Klammern bleiben, wie sie sind."""
+    wort = nummer if nummer.startswith("<") else shlex.quote(nummer)
+    teile = ["accounti marktplatz zuordnen", wort, *rest]
+    if a is not None and p is not None and _mehrere_zahlungen(a):
+        teile += ["--posten", str(p.nr)]
+    return " ".join(teile)
+
+
+def _mehrere_zahlungen(a: Abrechnung) -> bool:
+    """Hat die Abrechnung mehrere Aus-/Einzahlungen (``--posten`` nötig)?"""
+    zahlungen = [
+        x
+        for x in a.posten
+        if x.art in (Postenart.AUSZAHLUNG, Postenart.EINZAHLUNG)
+        and (x.betrag or x.betrag_eur)
+    ]
+    return len(zahlungen) > 1
 
 
 def _nummer_wort(a: Abrechnung) -> bool:
@@ -1256,14 +1303,13 @@ def _mehrdeutig(
         text = (
             f"{markt} {a.nummer}: Der Bankumsatz vom {t.datum:%d.%m.%Y} über "
             f"{eur_text(t.betrag)} € ({str(t.id)[:8]}) passt auch zur Auszahlung von "
-            f"{wer}, und kein Verwendungszweck nennt die Nummer — es wird nicht "
-            f"geraten. Ist er diese Auszahlung: accounti marktplatz zuordnen "
-            f"{a.nummer} {str(t.id)[:8]}"
+            f"{wer}, und er nennt keine der Nummern — es wird nicht geraten. Ist er "
+            f"diese Auszahlung: {_zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p)}"
         )
     else:
         liste = "; ".join(
-            f"vom {t.datum:%d.%m.%Y}: accounti marktplatz zuordnen {a.nummer} "
-            f"{str(t.id)[:8]}"
+            f"vom {t.datum:%d.%m.%Y}: "
+            + _zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p)
             for t in kandidaten
         )
         text = (
@@ -1334,12 +1380,13 @@ def _zweifel(
     if eigene:
         befund = _schon_gebucht(lauf, a, p, eigene)
         danach = (
-            f"Ist er diese Auszahlung: nach der Korrektur accounti marktplatz "
-            f"zuordnen {a.nummer} {str(eigene[0].id)[:8]} — das löst die Zuordnung, "
-            "der andere wird frei"
+            "Ist er diese Auszahlung: nach der Korrektur "
+            + _zuordnen_befehl(a.nummer, str(eigene[0].id)[:8], a=a, p=p)
+            + " — das löst die Zuordnung, der andere wird frei"
             if len(eigene) == 1
-            else "Nach der Korrektur den richtigen mit accounti marktplatz zuordnen "
-            f"{a.nummer} <Umsatz> zuordnen — das löst die Zuordnung"
+            else "Nach der Korrektur den richtigen mit "
+            + _zuordnen_befehl(a.nummer, "<Umsatz>", a=a, p=p)
+            + " zuordnen — das löst die Zuordnung"
         )
         text = (
             f"{befund.text}. Zugeordnet ist aber der Bankumsatz vom "
@@ -1362,7 +1409,7 @@ def _zweifel(
             f"keiner Auszahlung zugeordnet — zugeordnet ist der vom "
             f"{zugeordnet.datum:%d.%m.%Y} ({ident}), der {a.nummer} nicht nennt "
             "(damals nannte keiner die Nummer). Ist der mit der Nummer diese "
-            f"Auszahlung: accounti marktplatz zuordnen {a.nummer} {str(t.id)[:8]} — "
+            f"Auszahlung: {_zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p)} — "
             "das löst die Zuordnung, der andere wird frei"
         )
         return _zweifel_befund(p, text), frei
@@ -1372,7 +1419,7 @@ def _zweifel(
             f"{markt} {a.nummer}: Der zugeordnete Bankumsatz vom "
             f"{zugeordnet.datum:%d.%m.%Y} ({ident}) nennt {', '.join(andere)}, nicht "
             f"{a.nummer} — zugeordnet, bevor jene Abrechnung bekannt war. Gehört er "
-            f"zu ihr: accounti marktplatz zuordnen {andere[0]} {ident} — das löst "
+            f"zu ihr: {_zuordnen_befehl(andere[0], ident)} — das löst "
             "diese Zuordnung"
         )
         return _zweifel_befund(p, text), []
@@ -1574,7 +1621,7 @@ def _andere_nummer(
         for t in umsaetze
     )
     befehle = " bzw. ".join(
-        f"accounti marktplatz zuordnen {a.nummer} {str(t.id)[:8]}" for t in umsaetze
+        _zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p) for t in umsaetze
     )
     wer = "Der Bankumsatz" if len(umsaetze) == 1 else f"{len(umsaetze)} Bankumsätze"
     return Befund(
@@ -1725,6 +1772,7 @@ def ordne_zu(
     posten: int | None = None,
     von: str | None = None,
     datum: date | None = None,
+    trotzdem: bool = False,
 ) -> Handzuordnung:
     """Regel 9: ordnet der Auszahlung (Einzahlung) der Abrechnung ``nummer`` den
     Bankumsatz ``umsatz`` (Anfang seiner ID) ausdrücklich zu — der Ausweg, wo der
@@ -1740,7 +1788,11 @@ def ordne_zu(
     accounti wie beim Treffer und gleicht alle offenen Auszahlungen neu ab — ein frei
     gewordener Umsatz findet so seine Abrechnung. Ein als Erlös gebuchter Umsatz wird
     nicht still umgebucht: erst ``accounti korrigiere`` (die Meldung nennt den
-    Befehl). Betrag und Richtung müssen passen (Fremdwährung: in der Toleranz).
+    Befehl). Betrag und Richtung müssen passen (Fremdwährung: in der Toleranz), ein
+    Umsatz vor dem Abrechnungszeitraum ist nie die Auszahlung, einer außerhalb des
+    Zeitfensters nur mit ``trotzdem`` (die Bank hat spät gebucht; Nachprüfung 6 E,
+    N-c). Ein Umsatz mit offenem Zahlungs- oder Beleg-Vorschlag wird erst nach dessen
+    Ablehnung zugeordnet (Mb).
 
     Die Zuordnung steht im Journal (``auszahlung_zugeordnet`` bzw.
     ``auszahlung_geloest``, Person aus dem Journal-Kontext) und als Hinweis an der
@@ -1787,8 +1839,8 @@ def ordne_zu(
                     f"{markt} {a.nummer}: Zuordnung des Bankumsatzes vom "
                     f"{alt.datum:%d.%m.%Y} über {eur_text(alt.betrag)} € ({ident}) "
                     f"von Hand gelöst ({person}) — der Abgleich nimmt ihn für diese "
-                    f"Auszahlung nicht wieder; doch zuordnen mit accounti marktplatz "
-                    f"zuordnen {a.nummer} {ident} [Umsatz {alt.id}]"
+                    "Auszahlung nicht wieder; doch zuordnen mit "
+                    f"{_zuordnen_befehl(a.nummer, ident, a=a, p=p)} [Umsatz {alt.id}]"
                 ),
                 posten_nr=p.nr,
             ),
@@ -1802,6 +1854,7 @@ def ordne_zu(
                 "Auszahlung schon zugeordnet"
             )
         _pruefe_umsatz(lauf, a, t, erwartet)
+        _pruefe_datum(lauf, a, p, t, trotzdem)
         _pruefe_vorschlaege(session, a, t)
         # erst lösen, was im Weg steht: der Umsatz bei einer anderen Auszahlung, die
         # Auszahlung bei einem anderen Umsatz
@@ -1809,6 +1862,23 @@ def ordne_zu(
             for p2 in a2.posten:
                 if p2.bank_transaktion_id == t.id:
                     _loese_in(ergebnis, session, kontext, a2, p2, t, person, datum, kr)
+                    # auch diese Änderung steht im Journal (Nachprüfung 6 E, N-e)
+                    markt2 = ANZEIGE.get(a2.marktplatz, a2.marktplatz)
+                    schreibe(
+                        session,
+                        "auszahlung_geloest",
+                        "marktplatzposten",
+                        str(p2.id),
+                        vorher={
+                            "abrechnung": a2.nummer,
+                            "bank_transaktion_id": str(t.id),
+                        },
+                        nachher={"abrechnung": a2.nummer, "bank_transaktion_id": None},
+                        grund=(
+                            f"{markt2} {a2.nummer}: Zuordnung von Hand gelöst — der "
+                            f"Umsatz gehört zu {markt} {a.nummer}"
+                        ),
+                    )
         if p.bank_transaktion_id is not None:
             alt = _umsatz_mit_id(lauf, p.bank_transaktion_id)
             _loese_in(ergebnis, session, kontext, a, p, alt, person, datum, kr)
@@ -1878,6 +1948,32 @@ def _loese_in(
     text, warnungen = _loese(session, kontext, a, p, t, person, datum, kr)
     ergebnis.geloest.append(text)
     ergebnis.warnungen.extend(warnungen)
+
+
+def _rest_auf_dem_gegenkonto(
+    session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion
+) -> list[str]:
+    """Nach dem Lösen: steht der Umsatz weiter als Geldbewegung auf dem Gegenkonto
+    (die Korrektur des Menschen nach „schon gebucht“), bleibt dort sein Betrag stehen
+    — gehört er zu keiner Abrechnung, ist er umzubuchen (Nachprüfung 6 E, N-i)."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    texte = {f"{markt} {art} {a.nummer}"[:60] for art in ("Auszahlung", "Einzahlung")}
+    gegen = _gegenkonto(kontext, a)
+    rest = [
+        b
+        for b in buchungen_zur_transaktion(session, t.id)
+        if gegen in (b.soll_konto, b.haben_konto) and b.buchungstext not in texte
+    ]
+    if not rest:
+        return []
+    ids = ", ".join(str(b.id)[:8] for b in rest)
+    return [
+        f"Der Bankumsatz vom {t.datum:%d.%m.%Y} über {eur_text(t.betrag)} € steht "
+        f"weiter als Geldbewegung auf {gegen} (Buchung {ids}, die Korrektur nach "
+        f"„schon gebucht“) — {gegen} behält den Betrag. Gehört er zu einer anderen "
+        "Abrechnung desselben Marktplatzes, gleicht deren Abgleich ihn ab; sonst auf "
+        f"das richtige Konto umbuchen (accounti korrigiere {str(rest[0].id)[:8]} …)"
+    ]
 
 
 def _str(wert: UUID | None) -> str | None:
@@ -1970,6 +2066,29 @@ def _pruefe_umsatz(
             f"{markt} {a.nummer}: Bankumsatz {str(t.id)[:8]} über "
             f"{eur_text(t.betrag)} € ≠ {art} {eur_text(erwartet)} €{toleranz} — nicht "
             "zugeordnet; die Differenz klären (Kurs der Abrechnung, Teilbetrag)"
+        )
+
+
+def _pruefe_datum(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, t: Transaktion, trotzdem: bool
+) -> None:
+    """Vor dem Abrechnungszeitraum (und dem Fenster) ist ein Umsatz nie die
+    Auszahlung; nach dem Fenster nur ausdrücklich (``trotzdem``)."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    von, bis = _fenster(lauf, p)
+    ident = str(t.id)[:8]
+    if t.datum < min(a.von, von):
+        raise ZuordnungError(
+            f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "
+            f"vor dem Abrechnungszeitraum ({a.von:%d.%m.%Y}–{a.bis:%d.%m.%Y}) — er "
+            "kann nicht diese Auszahlung sein; nicht zugeordnet"
+        )
+    if not von <= t.datum <= bis and not trotzdem:
+        raise ZuordnungError(
+            f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "
+            f"außerhalb des Zeitfensters der Auszahlung vom {p.datum:%d.%m.%Y} "
+            f"({von:%d.%m.%Y}–{bis:%d.%m.%Y}) — nicht zugeordnet; hat die Bank so "
+            "spät gebucht, mit --trotzdem zuordnen"
         )
 
 
@@ -2068,13 +2187,19 @@ def _loese(
 ) -> tuple[str, list[str]]:
     """Löst die Zuordnung des Postens zum Umsatz: accountis Buchungen dazu (``_buche``:
     Bank an Gegenkonto mit der Kursdifferenz, bzw. nur die umgebuchte Kursdifferenz)
-    werden storniert, ein Vorschlag verworfen; die Befunde dieser Zuordnung sind
-    erledigt. Eine Korrektur des Menschen am Umsatz (Geldbewegung auf dem
-    Gegenkonto) bleibt — der Umsatz ist dann für eine andere Abrechnung
-    ``_vorgebucht``."""
+    werden storniert, ein Vorschlag verworfen (ging er schon an DATEV, sagt das eine
+    Warnung, N-f); die Befunde dieser Zuordnung sind erledigt. Eine Korrektur des
+    Menschen am Umsatz (Geldbewegung auf dem Gegenkonto) bleibt — der Umsatz ist
+    dann für eine andere Abrechnung ``_vorgebucht``; eine Warnung nennt den Rest auf
+    dem Gegenkonto (N-i)."""
     from accounti.db.repo_bank import loesche_buchung
     from accounti.db.repository import lade_belegbuchungen
-    from accounti.pruefung.storno import StornoError, ist_freigegeben, storniere
+    from accounti.pruefung.storno import (
+        StornoError,
+        _warnung_uebergeben,
+        ist_freigegeben,
+        storniere,
+    )
 
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     texte = {f"{markt} {art} {a.nummer}"[:60] for art in ("Auszahlung", "Einzahlung")}
@@ -2104,7 +2229,14 @@ def _loese(
     )
     warnungen: list[str] = []
     for b in eigene:
-        if ist_freigegeben(b):
+        if not ist_freigegeben(b):
+            # ein Vorschlag wird verworfen — ging er schon an DATEV, steht er dort
+            # weiter (wie bei korrigiere; Nachprüfung 6 E, N-f)
+            warnungen.extend(
+                f"Verworfen: {text}" for text in _warnung_uebergeben(session, b)
+            )
+            loesche_buchung(session, b.id)
+        else:
             try:
                 k = storniere(
                     session,
@@ -2120,8 +2252,7 @@ def _loese(
                     "--datum JJJJ-MM-TT)"
                 ) from fehler
             warnungen.extend(k.warnungen)
-        else:
-            loesche_buchung(session, b.id)
+    warnungen.extend(_rest_auf_dem_gegenkonto(session, kontext, a, t))
     setze_bank_transaktion(session, p.id, None)
     p.bank_transaktion_id = None
     erledigt = [
