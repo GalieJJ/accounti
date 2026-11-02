@@ -266,6 +266,16 @@ def _steuer(
             feld="steuer",
             cli="--steuer und --ohne-steuer schließen sich aus",
         )
+    if steuer is not None and steuer not in STEUERSCHLUESSEL:
+        # wie der Browser (_steuerangabe): -1, 0, 4 … buchten sonst ohne Steuerbetrag,
+        # erst die Voranmeldung sperrte (Runde 4, g3w-web N5)
+        bekannt = ", ".join(str(s) for s in sorted(STEUERSCHLUESSEL))
+        raise StornoError(
+            f"Unbekannter Steuerschlüssel {steuer} — bekannt sind {bekannt}",
+            feld="steuer",
+            cli=f"--steuer {steuer}: Unbekannter Steuerschlüssel — bekannt sind "
+            f"{bekannt} (ohne Steuer: --ohne-steuer)",
+        )
     if not ohne_steuer and steuer is None:  # Schlüssel bleibt
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
     schluessel = None if ohne_steuer else steuer

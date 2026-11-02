@@ -70,6 +70,7 @@ from accounti.models.kontierung import (
     RegelHerkunft,
     Richtung,
 )
+from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 
 if TYPE_CHECKING:
     from accounti.abschluss.kontenrahmen import Kontenrahmen
@@ -780,6 +781,13 @@ def lerne_regex(
         )
     except KontoError as fehler:
         raise RegelError(str(fehler), "konto") from fehler
+    if steuer is not None and steuer not in STEUERSCHLUESSEL:
+        # wie korrigiere und die Regeldatei (Runde 4, g3w-web N5)
+        bekannt = ", ".join(str(s) for s in sorted(STEUERSCHLUESSEL))
+        raise RegelError(
+            f"--steuer {steuer}: Unbekannter Steuerschlüssel — bekannt sind {bekannt}",
+            "steuer",
+        )
     umbuchung = umbuchung_fehler(
         soll, haben, zahlungsmittel(buchhaltung or Buchhaltung(), kontenrahmen)
     )
