@@ -503,7 +503,7 @@ Paket kleiner gemacht (markiert mit **[7]**/**[10a]**: vorhanden, nur nutzen).
 | Richtung | `richtung` ∈ {`ausgabe`, `einnahme`} aus dem Vorzeichen des Quellumsatzes (`betrag < 0` → Ausgabe); `Regel` bekommt den optionalen Parameter `richtung`, `passt()` prüft ihn (ohne Angabe wie bisher beide Richtungen; in `regeln.yaml` als optionales Feld erlaubt). Belegdaten laufen als Pseudo-Ausgabe (`mit_beleg.py`, negativer Betrag) und passen zu Ausgaberegeln | Befund 13 |
 | Vorrang | `klassifikation/lernen.lade_regelwerk(session, regeldatei, einstellung)` = aktive gelernte Regeln (neueste zuerst) → Regeldatei der Gesellschaft → `STANDARD_REGELN`. CLI (`classify`, `bank lauf`, `opos verbuchen`) übergibt `betrieb.kontext.regeln_datei()`, `api/rest/laeufe._bank` `g.regeln`; **kein eigener Ausweichpfad**. Weil die Regeln jetzt in der Datenbank liegen, bauen `classify` und `bank lauf` die Engine **in** der Sitzung, nachdem sie die Laufsperre haben (bisher davor). Genutzt auch von `sachkonto_fuer_beleg` | Akzeptanz 2: „greift beim nächsten Lauf“ — auch wenn eine eigene Regel vorher falsch getroffen hat |
 | Schalter | `buchhaltung.gelernte_regeln: automatisch \| pruefen \| aus` (Standard `automatisch`). `automatisch`: Confidence 1,0 wie jede Regel; `pruefen`: Confidence 0,9 — unter der Schwelle von `zu_buchungssatz`, also `zur Prüfung` mit Grund „Regel 'gelernt_…' (Einstellung: prüfen)“; `aus`: gelernte Regeln werden nicht geladen (Lernen bleibt möglich) | vorsichtige Einführung möglich; Akzeptanz 2 gilt in beiden Stufen |
-| Übernahme | `accounti regeln uebernehmen [--probe]`: Einträge `gelernt_*` aus der Regeldatei der Gesellschaft → `kontierungsregeln` (`ist_text=False`, weil schon `re.escape`, `richtung` aus der Bankseite — Bank im Haben → Ausgabe, im Soll → Einnahme, sonst ein Geldkonto des Kontenrahmens; ohne Bankseite leer und gemeldet —, `herkunft=uebernahme`); die Datei bleibt unverändert, die Ausgabe nennt die Einträge, die von Hand zu löschen sind; doppelte Namen werden übersprungen | vor 10b gelernte Regeln stehen mit kaputter Stellung am Dateiende |
+| Übernahme | `accounti regeln uebernehmen [--probe]`: Einträge `gelernt_*` aus der Regeldatei der Gesellschaft → `kontierungsregeln` (`ist_text=False`, weil schon `re.escape`, `richtung` aus der Bankseite — Bank im Haben → Ausgabe, im Soll → Einnahme, sonst ein Geldkonto des Kontenrahmens; ohne Bankseite leer und gemeldet —, `herkunft=uebernahme`); die Datei bleibt unverändert, die Ausgabe nennt die Einträge, die von Hand zu löschen sind; derselbe Eintrag wird übersprungen, ein vergebener Name mit anderem Inhalt ist ungültig (Runde 6) | vor 10b gelernte Regeln stehen mit kaputter Stellung am Dateiende |
 | Regelangebot | Haken „Regel daraus machen“ nur, wenn `herkunft.quelle` ∈ {`regelwerk`, `llm`, `standard`} und ein Umsatz vorliegt; bei Belegbuchungen mit Personenkonto „Sachkonto am Kontakt lernen“; bei `kreditkarte`, `anlagen`, `marktplatz`, `opos` ohne Personenkonto kein Angebot | eine Regel aus „VISA“ (Sammelbelastung) oder einer AfA-Buchung wäre Unsinn |
 | Regelentwurf | `entwurf_aus_korrektur(korrektur, umsatz, buchhaltung)`: Muster = der ganze Name der Gegenpartei ohne Rechtsform (Nachbesserung H1), ohne Namen das erste Wort des Verwendungszwecks (ist es kürzer als 3 Zeichen, die ersten zwei Wörter; dann verlangt die Regel immer die Bestätigung, Nachprüfung H-1), im Browser änderbar; Treffer **nur auf ganze Wörter** (`\b…\b` um den escapten Text); Feld `gegenkonto_name`/`verwendungszweck`/`beide`; `richtung` aus dem Umsatz; Soll/Haben aus der Korrektur, Schlüssel **der Neubuchung** (`korrektur.neu.steuer_schluessel` — bei neuem Sachkonto ausdrücklich angegeben, sonst der des unveränderten Sachkontos, wie 7 es in `korrigiere --lernen` festgelegt hat); steht dort das Finanzkonto des Umsatzes (`tx.sachkonto`, z. B. Kreditkarte), speichert die Regel `buchhaltung.bank_konto`, weil `kontiere_umsaetze` das Finanzkonto beim Anwenden wieder einsetzt | die Regel bucht künftig wie die Korrektur; „Müller“ soll „Müllerstraße“ nicht treffen |
 | Muster nur als Text | im Browser ist das Muster **Text, kein regulärer Ausdruck** (gespeichert mit `ist_text`, beim Laden `re.escape`), 3–100 Zeichen | eigene Regexe aus dem Browser liefen über alle Umsätze (ReDoS); Regexe bleiben Sache des Betreibers (`config/regeln.yaml`, `accounti lerne`) |
@@ -1671,20 +1671,40 @@ Durchlaufs mit Markern in allen Fremddaten.
   (`steuer_optionen`); § 13b bzw. ig. Erwerb auf einer Belegbuchung (Paket C) setzt die CLI
   (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung mit ausgewiesener
   Umsatzsteuer (2/3, § 14c Abs. 1 UStG: Berichtigung als neuer Beleg; Runde 4).
-- Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1): `korrigiere`
-  lehnt jede Korrektur ab, die die Sachseite umdreht — für jede Belegbuchung, nicht nur bei
-  ausgewiesener USt. Die Sachseite liest dieselbe Logik wie die Voranmeldung
-  (`kennziffern.sachseite`: Gegenkonto sind Geld- und Personenkonten nach den Bereichen der
-  Buchhaltung und die Gegenkontenbereiche des Kontenrahmens; zwischen zwei Sachkonten
-  entscheidet das Erlöskonto). Eine Belegbuchung zwischen zwei Gegenkonten (Zahlung an ein
-  Personenkonto) hat keine Sachseite und bleibt tauschbar; ihre Bankseite prüft die
-  Finanzkonto-Regel. Ist die Belegbuchung selbst falsch herum gebucht, bleibt das Storno mit
-  Grund; eine Neubuchung mit demselben Beleg von Hand gibt es nicht (Folgearbeit).
-- Ein Storno ohne Neubuchung bleibt erlaubt (Runde 5, g4w N2); hat ein Beleg mit
-  ausgewiesener USt danach keine wirksame Buchung, warnt es, und `beleg_ust_ohne_buchung`
-  meldet ihn im Zeitraum des Stornos, bis wieder gebucht ist — eine Begründung, die den
-  Befund schließt, gibt es nicht (wie bei den anderen Prüfregeln: Befund mit Begründung
-  stehen lassen). Vorsteuer warnt nicht.
+- Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1; Runde 6, g5w
+  NEU-1/NEU-2): `korrigiere` lehnt eine Korrektur ab, die die Seiten vertauscht — für jede
+  Belegbuchung, nicht nur bei ausgewiesener USt: (a) ein Konto wechselt die Seite (neues Soll
+  = altes Haben oder umgekehrt, auch bei zwei Gegenkonten wie einer Zahlung „1200 an 10001“);
+  (b) die Sachseite ist vorher und nachher aus den Konten bestimmt
+  (`kennziffern.sachseite_aus_konten`: gegenüber dem einzigen Gegen-, sonst das einzige
+  Erlöskonto — wie die Voranmeldung, ohne deren Rückfall auf die Seite des Schlüssels) und
+  eine andere; (e) ein Erfolgskonto (Kontoart der Abschlusszuordnung) steht vorher und
+  nachher allein auf einer Seite, nachher auf der anderen; (d) eine Kennziffer der
+  Voranmeldung kehrt ihr Vorzeichen um (mit `elster.kennziffern_konten` und
+  `steuerrelevante_konten`). Bestimmen die Konten die Seite nicht (zwei Gegenkonten wie „1800
+  an 1200“, zwei Sachkonten ohne Erlös wie „4120 an 1740“), sperrt das nicht (c) — Runde 5
+  las dort „Haben“ und sperrte Privatanteil, Spende, Wertpapier, Geldtransit, Lohn- und
+  sonstige Verbindlichkeit. Grenze: Werden beide Konten ersetzt, ohne dass eine dieser
+  Regeln greift (z. B. „0420 an 1700 → 1701 an 0421“: Bestandskonten ohne Gegenkonto, ohne
+  Erfolgskonto, ohne Kennziffer), erkennt die Sperre den Tausch nicht. Das Vorzeichen der
+  Kennziffern allein genügt nicht: „4930 an 70001, Schlüssel 9 → 1700 an 4930“ lässt die
+  Voranmeldung gleich und bucht den Aufwand ins Haben. Ist die Belegbuchung selbst falsch
+  herum gebucht, bleibt das Storno mit Grund (ein Vorschlag wird dafür erst freigegeben);
+  eine Neubuchung mit demselben Beleg von Hand gibt es nicht (Folgearbeit), und ein Storno
+  einer Buchung aus einem bestätigten Belegabgleich führt `classify` wieder zur selben
+  Buchung — die Korrektur ist der Weg.
+- Ein Storno ohne Neubuchung bleibt erlaubt (Runde 5, g4w N2). Fehlt danach ausgewiesene USt
+  eines Belegs in der Voranmeldung, warnt es, und `beleg_ust_ohne_buchung` meldet den Beleg im
+  Zeitraum des Stornos, bis wieder gebucht ist — eine Begründung, die den Befund schließt,
+  gibt es nicht (wie bei den anderen Prüfregeln: Befund mit Begründung stehen lassen).
+  Gezählt wird je Satz die wirksam gebuchte Steuer (Schlüssel 2/3, Rechnungsseite) gegen die
+  der Belegpositionen (Runde 6, g5w NEU-3/NEU-4): Eine Zahlung mit derselben `beleg_id`, eine
+  Buchung zu einem anderen Satz und eine Minderung (Skonto) decken sie nicht; eine
+  wegfallende Gutschrift fehlt nicht; eine wirksam gebuchte Kopie derselben Rechnung
+  (`belege.dubletten.kopien`: Richtung, Lieferant, Nummer, Betrag gleich) deckt sie. Grenzen:
+  Steuer, die ohne Schlüssel direkt auf ein USt-Konto gebucht ist, zählt nicht (der Befund
+  bleibt mit Begründung); Sätze außer 19/7 % (OSS) prüft die Regel nicht; je Position
+  höchstens ein Cent Rundungsabstand. Vorsteuer warnt nicht.
 - Steuerschlüssel 1 (umsatzsteuerfrei) nimmt nur die Regeldatei (und `regeln uebernehmen`)
   wieder an (Runde 5, g4w N6); `korrigiere --steuer`, `lerne --steuer` und der Browser bieten
   ihn wie in Runde 4 entschieden nicht an.
@@ -1692,9 +1712,12 @@ Durchlaufs mit Markern in allen Fremddaten.
   (Sachkontenlänge 8, Runde 5, g4w N5); bei Sachkontenlänge 5–7 (Personenkonten 6–8 Stellen)
   nicht — accounti rechnet mit 4-stelligen Sachkonten, 6-stellige sind Unterkonten. Die
   Voranmeldung und die Prüfregeln nehmen Personenkonten aus den Bereichen der Buchhaltung
-  (`debitoren_von` …), die zu den 9 Stellen passen müssen. `export datev` nimmt die
-  Sachkontenlänge aus `mandant.sachkonten_laenge`, prüft die Konten aber nur der Länge nach
-  (Warnung), wie `datev belege`.
+  (`debitoren_von` …), die höchstens 9 Stellen haben (Runde 6, g5w-konten N3: mehr lehnt die
+  Konfiguration ab). `export datev`, `datev belege` und `datev stammdaten` nehmen die
+  Sachkontenlänge aus `mandant.sachkonten_laenge` (eine ganze Zahl 4–8, sonst Fehler; Runde
+  6, g5w-konten N2); `export datev` warnt bei Konten, die nicht dazu passen, und bei
+  Personenkonten (Bereiche der Buchhaltung) ohne Sachkontenlänge + 1 Stellen — die Konten
+  prüft es nur der Länge nach (Warnung), wie `datev belege`.
 - Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–9 ASCII-Ziffern,
   Muster nicht leer, bekannter Steuerschlüssel samt 1, keine unbekannten Schlüssel,
   `confidence` von 0 bis 1); ob es das Konto im Kontenrahmen gibt, prüft er nicht. Ein

@@ -285,10 +285,13 @@ Die Mechanik hinter den Prinzipien 6 und 7.
 - `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
   Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
   sitzt in `ereignisse.py`. Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine
-  Korrektur, die die Sachseite umdreht (wie die Voranmeldung sie liest,
-  `kennziffern.sachseite`), lehnt `korrigiere` ab (§ 14c, § 17 UStG — Berichtigung als
-  eigener Beleg); ein Storno ohne Neubuchung, nach dem ein Beleg mit ausgewiesener USt keine
-  wirksame Buchung mehr hat, warnt (Prüfregel `beleg_ust_ohne_buchung`). *(vorhanden)*
+  Korrektur, die die Seiten vertauscht (ein Konto wechselt die Seite, die aus den Konten
+  bestimmte Sachseite — `kennziffern.sachseite_aus_konten` — oder die Seite des
+  Erfolgskontos dreht, eine Kennziffer der Voranmeldung kehrt um —
+  `kennziffern.kennziffern_der_buchung`), lehnt `korrigiere` ab (§ 14c, § 17 UStG —
+  Berichtigung als eigener Beleg); ein Storno ohne Neubuchung, nach dem ausgewiesene USt
+  eines Belegs je Satz nicht mehr wirksam gebucht ist (`ust_luecken`), warnt (Prüfregel
+  `beleg_ust_ohne_buchung`). *(vorhanden)*
 - `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
   Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
   gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*

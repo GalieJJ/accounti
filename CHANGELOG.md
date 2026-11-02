@@ -652,6 +652,33 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   dazu passen. **Regeldatei:** Steuerschlüssel 1 (umsatzsteuerfrei, Kennziffer aus dem Konto)
   ist wieder zulässig. **Geplanter Lauf:** Schlägt ein Schritt fehl, steht der Grund (die
   letzten Zeilen der Ausgabe, geschwärzt) mit im Protokoll statt nur „bank lauf → 1“.
+- **Nachbesserung 10b-1, Runde 6** (Nachprüfung g5w): **Richtungssperre:** Runde 5 sperrte
+  auch Korrekturen derselben Seite, wenn die Konten die Sachseite nicht bestimmen — „4360 an
+  1200 → 1800 an 1200“ (Privatanteil), Spende, Wertpapier 1348, Geldtransit, Lohn- und
+  sonstige Verbindlichkeit (SKR04 ebenso), in CLI, Queue und `/buchungen`; ein Vorschlag hing
+  fest (auch auf dem Automatikkonto 3400), und die Meldung behauptete einen Seitenwechsel.
+  Umgekehrt ging ein echter Tausch ohne Gegenkonto durch („1576 an 1548“ getauscht: Kz 66
+  kehrte still um; „10001 an 8125 → 8125 an 8120“; „4930 an 70001 → 1700 an 4930“). Gesperrt
+  ist jetzt, was die Seiten vertauscht: ein Konto wechselt die Seite, die aus den Konten
+  bestimmte Sachseite oder die Seite des Erfolgskontos dreht, oder eine Kennziffer der
+  Voranmeldung kehrt ihr Vorzeichen um. Die Meldung nennt die vertauschten Konten und beim
+  Vorschlag den Weg, der geht (freigeben, dann mit Grund stornieren). **§ 14c-Warnung und
+  `beleg_ust_ohne_buchung`:** gezählt wird je Satz die wirksam gebuchte ausgewiesene Steuer —
+  sie fehlen nicht mehr bei bezahlten Rechnungen (die Zahlung trägt dieselbe `beleg_id`) und
+  bei Belegen mit mehreren Sätzen; sie melden nicht mehr fälschlich beim Storno einer
+  Gutschrift („die -95,00 € fehlt“) und bei einer wirksam gebuchten Dublette derselben
+  Rechnung. **`regeln uebernehmen`:** Ein vergebener kurzer Name mit anderem Inhalt, eine nur
+  in der Richtung geänderte Regel und derselbe Name zweimal in einer Datei mit anderem Inhalt
+  sind ungültig („… anderem Inhalt … umbenennen“) statt still „schon vorhanden“.
+  **Protokoll:** Benutzer und Passwort einer Webhook-Adresse standen teilweise in der Warnung
+  des geplanten Laufs (Zeilenumbruch nach 80 Zeichen, Adresse samt Zugangsdaten in der
+  Meldung) — jetzt nur Rechner und Port, die Schritte laufen ohne Umbruch, und die Schwärzung
+  kennt die ganze userinfo jeder URL, zerschnittene Adressen, verbreitete Zugangstoken,
+  „Passwort: …“ und PIN/TAN; die Verfahrensdokumentation nennt Connector-Adressen ohne
+  Zugangsdaten. **DATEV:** `mandant.sachkonten_laenge` muss eine ganze Zahl 4–8 sein (bisher
+  standen 0, 3, 9, -1 oder true im Kopf), kaputtes YAML ist eine Meldung statt Traceback, und
+  `export datev` warnt je Personenkonto, das nicht Sachkontenlänge + 1 Stellen hat.
+  **Personenkontenbereiche** (`buchhaltung.debitoren_von` …) nehmen höchstens 9 Stellen.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

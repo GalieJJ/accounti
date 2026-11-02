@@ -585,10 +585,14 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   keinen Traceback, keine Meldung; Datenbank-Engines verbergen die SQL-Parameter
   (`hide_parameters`), Belegtexte und Namen erscheinen auch in Fehlermeldungen nicht.
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
-  Passwörter in URLs und Parameter wie `passwort=`, `token=`, `code=` — auch in Stacktraces.
+  verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
+  vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
+  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Fehlermeldungen nennen eine
+  Webhook-Adresse nur mit Rechner und Port.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
-  geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle
-  geschwärzt auf Stufe DEBUG); schlägt ein Schritt fehl, steht in der Warnung auch der Grund
+  geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
+  Zeilenumbruch erzeugt, geschwärzt auf Stufe DEBUG); schlägt ein Schritt fehl, steht in der
+  Warnung auch der Grund
   — die letzten Zeilen seiner Ausgabe, geschwärzt, höchstens 600 Zeichen (z. B. „bank lauf →
   1 (5 s): config/regeln.yaml: Regel telekom: unbekannter Schlüssel kommentar …“). Diese
   Meldung kann einen Namen enthalten, etwa den einer Regel oder Gegenpartei.
@@ -751,7 +755,11 @@ Datenbank gelernten (eine Korrektur seit dem Update behält Vorrang), untereinan
 Reihenfolge der Datei — auch wenn ein zweiter Lauf (`--name`) weitere übernimmt. Die Einträge
 prüft derselbe Lader wie für die Regeldatei (Kontonummern, Muster, Steuerschlüssel; ungültige
 nennt die Ausgabe mit Grund); eine Datei, die kein YAML, nicht UTF-8 oder keine Liste ist,
-meldet der Befehl vor dem Einmalcode. **Andere Einträge bleiben in der Regeldatei** und greifen
+meldet der Befehl vor dem Einmalcode. „Schon vorhanden (übersprungen)“ heißt: dieselbe Regel
+(Muster, Konten, Schlüssel, Feld; die Richtung, wenn der Eintrag sie nennt) steht schon in der
+Datenbank bzw. früher in derselben Datei. Trägt eine Regel der Datenbank den Namen mit anderem
+Inhalt, ist der Eintrag ungültig („Regelname … ist schon vergeben … anderem Inhalt“) — in der
+Datei umbenennen, nicht löschen, sonst geht die Änderung verloren. **Andere Einträge bleiben in der Regeldatei** und greifen
 dort wie bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
 --name X` gelernt wurden (ohne Präfix `gelernt_`; mit `regeln uebernehmen --name X`
 übernehmen), Einträge mit `pruefen: true` oder `confidence` unter 1 (eine gelernte Regel hat
