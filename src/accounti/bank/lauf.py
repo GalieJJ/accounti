@@ -212,6 +212,11 @@ def bank_lauf(
     (``integrationen``, ohne Angabe die aus ``marktplatz``; ``buchung.marktplatz``).
     ``sichern`` schreibt den Abruf je Konto fest — die Buchungen danach beginnen
     eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst)."""
+    from accounti.integrationen.auszahlung import (
+        gleiche_auszahlungen_ab,
+        umsaetze_mit_befund,
+    )
+
     bank = bank_einstellungen or lade_bank_einstellungen()
     if integrationen is None and marktplatz is not None:
         integrationen = marktplatz.einstellungen
@@ -220,19 +225,15 @@ def bank_lauf(
         session, einstellungen, bank.kreditkarte
     )
     if marktplatz is not None:
-        from accounti.integrationen.auszahlung import gleiche_auszahlungen_ab
-
         lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
     # ein Umsatz, über den der Abgleich eben einen Befund hat (andere Nummer,
     # mehrdeutig, Abweichung), ist eine Auszahlung — nie zugleich kontieren, auch
-    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a)
-    befund_umsaetze = {
-        t.id: m.abrechnung.marktplatz
-        for m in lauf.marktplatz
-        if m.befund is not None
-        for t in m.umsaetze
-    }
-    lauf.zuordnung = zuordne_zahlungen(session, einstellungen)
+    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a), und nie einer Forderung
+    # vorschlagen (Nachprüfung 6 E, Mb)
+    befund_umsaetze = umsaetze_mit_befund(lauf.marktplatz)
+    lauf.zuordnung = zuordne_zahlungen(
+        session, einstellungen, auslassen=befund_umsaetze
+    )
     lauf.abgleich = gleiche_belege_ab(session)
     lauf.kontierung = kontiere_umsaetze(
         session, engine, einstellungen, integrationen, auslassen=befund_umsaetze

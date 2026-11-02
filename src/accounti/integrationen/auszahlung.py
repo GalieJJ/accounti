@@ -164,6 +164,18 @@ class Abgleich:
     umsaetze: list[Transaktion] = field(default_factory=list)
 
 
+def umsaetze_mit_befund(abgleiche: Iterable[Abgleich]) -> dict[UUID, str]:
+    """Umsatz → Marktplatz für die Umsätze, über die ein Abgleich einen Befund hat:
+    eine Auszahlung — ``bank lauf`` und ``classify`` kontieren sie nicht, opos
+    schlägt sie keiner Forderung vor (Nachprüfung 5 E, M4 a; 6 E, Mb, N-g)."""
+    return {
+        t.id: m.abrechnung.marktplatz
+        for m in abgleiche
+        if m.befund is not None
+        for t in m.umsaetze
+    }
+
+
 ABGLEICHSBEFUNDE = {
     "auszahlung_abweichung",
     "auszahlung_mehrdeutig",
@@ -1463,6 +1475,7 @@ def ordne_zu(
                 "Auszahlung schon zugeordnet"
             )
         _pruefe_umsatz(lauf, a, t, erwartet)
+        _pruefe_vorschlaege(session, a, t)
         # erst lösen, was im Weg steht: der Umsatz bei einer anderen Auszahlung, die
         # Auszahlung bei einem anderen Umsatz
         for a2 in lade_abrechnungen(session):
@@ -1621,6 +1634,37 @@ def _pruefe_umsatz(
             f"{markt} {a.nummer}: Bankumsatz {str(t.id)[:8]} über "
             f"{eur_text(t.betrag)} € ≠ {art} {eur_text(erwartet)} €{toleranz} — nicht "
             "zugeordnet; die Differenz klären (Kurs der Abrechnung, Teilbetrag)"
+        )
+
+
+def _pruefe_vorschlaege(session: Session, a: Abrechnung, t: Transaktion) -> None:
+    """Wie der Abgleich (``offen_ids``): ein Umsatz mit offenem Zahlungsvorschlag
+    (opos) oder Beleg-Vorschlag ist nicht frei — nach dem Bestätigen stünde er doppelt
+    gebucht (Nachprüfung 6 E, Mb). Erst den Vorschlag verwerfen."""
+    from accounti.db.repository import lade_abgleiche, lade_zuordnungen
+    from accounti.models import AbgleichStatus, ZuordnungStatus
+
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    ident = str(t.id)[:8]
+    if lade_zuordnungen(
+        session, status={ZuordnungStatus.VORGESCHLAGEN}, transaktion_praefix=str(t.id)
+    ):
+        raise ZuordnungError(
+            f"{markt} {a.nummer}: für den Bankumsatz {ident} liegt ein "
+            "Zahlungsvorschlag einer Forderung bzw. Verbindlichkeit vor (accounti opos "
+            "vorschlaege) — ist er diese Auszahlung, erst den Vorschlag verwerfen mit "
+            f"accounti opos ablehnen {ident}, dann zuordnen"
+        )
+    belege = [
+        b
+        for b in lade_abgleiche(session, status={AbgleichStatus.VORGESCHLAGEN})
+        if b.transaktion_id == t.id
+    ]
+    if belege:
+        raise ZuordnungError(
+            f"{markt} {a.nummer}: für den Bankumsatz {ident} liegt ein Beleg-Vorschlag "
+            "vor — ist er diese Auszahlung, erst den Vorschlag verwerfen mit accounti "
+            f"bank ablehnen {str(belege[0].id)[:8]}, dann zuordnen"
         )
 
 
