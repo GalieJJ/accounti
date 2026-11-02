@@ -93,11 +93,76 @@ def _alnum(text: str | None) -> str:
 
 
 _WORT = re.compile(r"[0-9]+|[a-z]+")
+# ein Datum mit Trennzeichen: TT.MM.JJJJ (auch T.M.JJJJ, TT.MM.JJ, mit / oder -) und
+# JJJJ-MM-TT (auch mit / oder .) — dasselbe Trennzeichen zweimal
+_DATUM_TMJ = re.compile(
+    r"(?<![0-9])([0-9]{1,2})([./-])([0-9]{1,2})\2([0-9]{4}|[0-9]{2})(?![0-9])"
+)
+_DATUM_JMT = re.compile(
+    r"(?<![0-9])([0-9]{4})([./-])([0-9]{1,2})\2([0-9]{1,2})(?![0-9])"
+)
 
 
-def woerter(text: str | None) -> list[str]:
-    """Wörter eines Verwendungszwecks: Ziffern- und Buchstabenfolgen, klein."""
-    return _WORT.findall((text or "").casefold())
+class Woerter(list[str]):
+    """Wörter eines Verwendungszwecks (``woerter``) — dazu, welche Wörter zusammen ein
+    Datum mit Trennzeichen bilden (``daten``: Anfang und Ende je Datum)."""
+
+    daten: tuple[tuple[int, int], ...] = ()
+
+
+def ist_datum(text: str) -> bool:
+    """Ist der ganze Text ein Datum mit Trennzeichen (``2026-08-21``, ``21.8.2026``)?"""
+    return any(
+        (m := muster.fullmatch(text.strip())) is not None and _gueltig(m, muster)
+        for muster in (_DATUM_JMT, _DATUM_TMJ)
+    )
+
+
+def _gueltig(m: re.Match[str], muster: re.Pattern[str]) -> bool:
+    if muster is _DATUM_JMT:
+        jahr, monat, tag = m.group(1), m.group(3), m.group(4)
+    else:
+        tag, monat, jahr = m.group(1), m.group(3), m.group(4)
+    try:
+        date(int(jahr) + (2000 if len(jahr) == 2 else 0), int(monat), int(tag))
+    except ValueError:
+        return False
+    return True
+
+
+def woerter(text: str | None) -> Woerter:
+    """Wörter eines Verwendungszwecks: Ziffern- und Buchstabenfolgen, klein — mit den
+    Daten darin (``Woerter.daten``)."""
+    klein = (text or "").casefold()
+    gefunden = list(_WORT.finditer(klein))
+    ergebnis = Woerter(m.group() for m in gefunden)
+    daten = []
+    for muster in (_DATUM_JMT, _DATUM_TMJ):
+        for m in muster.finditer(klein):
+            if not _gueltig(m, muster):
+                continue
+            drin = [
+                i
+                for i, w in enumerate(gefunden)
+                if m.start() <= w.start() and w.end() <= m.end()
+            ]
+            if drin:
+                daten.append((drin[0], drin[-1] + 1))
+    ergebnis.daten = tuple(daten)
+    return ergebnis
+
+
+def im_datum(zweck: list[str], anfang: int, anzahl: int) -> bool:
+    """Liegen die ``anzahl`` Wörter ab ``anfang`` in einem Datum des Zwecks, ohne es
+    ganz zu sein? „09 2026“ in „03.09.2026“, „2026 09“ in „2026-09-03“ — ein Teil
+    eines Datums nennt keine Belegnummer (Nachprüfung 7 E, M1: die Monatsrechnung
+    09/2026 war sonst in jeder Zahlung „vom 03.09.2026“ genannt). Das ganze Datum
+    prüft ``nur_als_datum``."""
+    ende = anfang + anzahl
+    return any(
+        von <= anfang and ende <= bis and (von, bis) != (anfang, ende)
+        for von, bis in getattr(zweck, "daten", ())
+    )
 
 
 def nennt(zweck: list[str], nummer: str | None) -> bool:
@@ -105,13 +170,15 @@ def nennt(zweck: list[str], nummer: str | None) -> bool:
 
     Trennzeichen dürfen fehlen oder anders sein („RE 2026 0042“ = „RE-2026-0042“),
     die Nummer muss aber an Wortgrenzen beginnen und enden: „2026-0315“ steckt nicht
-    in „120260315“, „2026-03150“ oder einer IBAN.
+    in „120260315“, „2026-03150“ oder einer IBAN — und nicht nur als Teil eines Datums
+    („09/2026“ nicht in „03.09.2026“, ``im_datum``).
     """
     return bool(_treffer(zweck, nummer))
 
 
 def _treffer(zweck: list[str], nummer: str | None) -> list[list[str]]:
-    """Die Wortfolgen des Zwecks, die zusammen genau die Belegnummer ergeben."""
+    """Die Wortfolgen des Zwecks, die zusammen genau die Belegnummer ergeben — nicht
+    als Teil eines Datums (``im_datum``)."""
     ziel = _alnum(nummer)
     if len(ziel) < MIN_REFERENZ:
         return []
@@ -122,7 +189,7 @@ def _treffer(zweck: list[str], nummer: str | None) -> list[list[str]]:
             folge.append(wort)
             if len("".join(folge)) >= len(ziel):
                 break
-        if "".join(folge) == ziel:
+        if "".join(folge) == ziel and not im_datum(zweck, i, len(folge)):
             treffer.append(folge)
     return treffer
 
