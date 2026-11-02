@@ -296,7 +296,7 @@ def _abgleich_ausgabe(ergebnisse: list[Abgleich]) -> None:
     )
     for e in ergebnisse:
         if e.befund is not None:
-            _befunde([e.befund])
+            _befunde([e.befund, *e.hinweise])
 
 
 @befehl.command("zuordnen")

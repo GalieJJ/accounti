@@ -2806,10 +2806,8 @@ def bank_lauf_befehl(
             f"{len(offen)} offen"
         )
     for m in ergebnis.marktplatz:
-        if m.befund is not None:
-            console.print(
-                f"  [yellow]{m.befund.code}: {escape(m.befund.text)}[/yellow]"
-            )
+        for b in [m.befund, *m.hinweise] if m.befund is not None else []:
+            console.print(f"  [yellow]{b.code}: {escape(b.text)}[/yellow]")
     _marktplatz_hinweis(k)
 
 
