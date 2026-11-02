@@ -63,6 +63,18 @@ zahlungsmittel:
   - {von: "1600", bis: "1889"}   # Kasse, Bank (ohne Finanzmittelanlagen 1890, 1895)
   - {von: "3610", bis: "3610"}   # Kreditkartenabrechnung
 
+# Geldtransit: Zahlungsmittel ohne eigenen Kontoauszug — eine Regel „1460 an 1800“
+# bucht auf keinem Konto Soll = Haben und bleibt lernbar
+geldtransit:
+  - {von: "1460", bis: "1460"}
+
+# Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen: wie Personenkonten
+# kein Sachkonto eines Belegs. Finanzmittelanlagen 1890 und Verbindlichkeiten ggü.
+# Kreditinstituten 1895 sind als Sachkonto eines Belegs zulässig (Runde 3)
+lul_konten:
+  - {von: "1200", bis: "1299"}   # Forderungen aus Lieferungen und Leistungen
+  - {von: "3300", bis: "3399"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # DATEV-BU-Schlüssel → Steuerkonto

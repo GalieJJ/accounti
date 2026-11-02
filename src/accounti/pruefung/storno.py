@@ -30,6 +30,7 @@ from accounti.abschluss.kontenrahmen import (
     mit_eingerichteten_konten,
 )
 from accounti.anzeige import datum_de
+from accounti.buchung.konten import soll_gleich_haben
 from accounti.db.repo_pruefung import setze_storniert_durch, speichere_korrektur
 from accounti.db.repository import (
     aktualisiere_buchung,
@@ -491,6 +492,9 @@ def korrigiere(
     """
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
+    if (gleich := soll_gleich_haben(soll, haben)) is not None:
+        # Fachfunktion: CLI, Queue, /buchungen und REST lehnen gleich ab (Runde 3)
+        raise StornoError(gleich, feld="haben")
     person = aktuelle_person(von)
     kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
@@ -621,6 +625,9 @@ def steuer_befunde(
 
     buchhaltung = buchhaltung or Buchhaltung()
     befunde: list[tuple[Any, str]] = []
+    if (gleich := soll_gleich_haben(b.soll_konto, b.haben_konto)) is not None:
+        # Prüfregel soll_gleich_haben: ein Altfall wird nicht freigegeben (gw2-merge B3)
+        befunde.append((Schwere.FEHLER, gleich))
     if b.steuer_schluessel is None and not b.steuer_betrag:
         automatik = automatikkonten(buchhaltung, einstellungen)
         for konto in (b.soll_konto, b.haben_konto):

@@ -11,6 +11,7 @@ der Lauf nennt ihn. ``accounti pruefen`` meldet Altfälle (Prüfregel
 from __future__ import annotations
 
 from datetime import date, datetime
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -100,7 +101,6 @@ def kontiere(make_session, werk=None, llm=None, bh: Buchhaltung = BH):  # noqa: 
         (uebertrag("-400.00"), "1210", "1200"),  # auf dem Giro (Variante c)
         (uebertrag("-50.00", sachkonto="1730", zweck="Karte"), "1200", "1730"),
         (uebertrag("-200.00", zweck="Bareinzahlung"), "1000", "1200"),  # Kasse
-        (uebertrag("-90.00", zweck="PayPal Aufladung"), "1360", "1200"),  # Transit
     ],
 )
 def test_aus_einer_umbuchung_wird_keine_regel(tx, soll, haben):
@@ -381,8 +381,10 @@ def test_rest_lauf_bleibt_offen_und_meldet_die_umbuchung(tmp_path, monkeypatch):
 # --- CLI: korrigiere --lernen, lerne -------------------------------------------------
 
 
-def test_cli_korrigiere_lernen_aus_umbuchung_exit_1_ohne_regel(tmp_path, monkeypatch):
-    """Probe s2 b: bisher Exit 0 „Regel gelernt“, gespeichert „1200 an 1200“."""
+def test_cli_korrigiere_lernen_aus_umbuchung_ohne_regel(tmp_path, monkeypatch):
+    """Probe s2 b: bisher Exit 0 „Regel gelernt“, gespeichert „1200 an 1200“. Nach
+    H-1 verwarf ``--lernen`` auch die Korrektur (gw2-merge B2) — jetzt gilt sie, nur
+    ohne Regel, mit Hinweis (Runde 3)."""
     from accounti.db import init_db
     from accounti.db.repo_kontierung import lade_kontierungsregeln
 
@@ -399,13 +401,12 @@ def test_cli_korrigiere_lernen_aus_umbuchung_exit_1_ohne_regel(tmp_path, monkeyp
     befehl = ["korrigiere", kurz(b.id), "--soll", "1200", "--haben", "1210"]
     r = runner.invoke(app, [*befehl, "--lernen", "--grund", "Umbuchung", "--db", u],
                       env={"COLUMNS": "250"})  # fmt: skip
-    assert r.exit_code == 1 and "Geldkonten" in r.output, r.output
+    assert r.exit_code == 0 and "Korrigiert" in r.output, r.output
+    assert "Keine Regel gelernt" in r.output and "Geldkonten" in r.output
     with fabrik() as s:
         assert lade_kontierungsregeln(s) == []
         (x,) = lade_buchungen(s)
-        assert x.soll_konto == "4900"  # auch die Korrektur ist nicht gespeichert
-    r = runner.invoke(app, [*befehl, "--grund", "Umbuchung", "--db", u])
-    assert r.exit_code == 0, r.output
+        assert (x.soll_konto, x.haben_konto) == ("1200", "1210")
     engine.dispose()
 
 
@@ -421,7 +422,9 @@ def test_cli_lerne_umbuchung_exit_1(url):
 # --- Browser: Queue und Regelvorschau ------------------------------------------------
 
 
-def test_web_korrektur_mit_regel_aus_umbuchung_422(tmp_path, monkeypatch):
+def test_web_korrektur_mit_regel_aus_umbuchung_ohne_regel(tmp_path, monkeypatch):
+    """Die Regelvorschau lehnt ab (422); speichern mit Haken „Regel“ korrigiert ohne
+    Regel und sagt es (Runde 3, gw2-merge B2: vorher 422, Korrektur verworfen)."""
     from accounti.db.repo_kontierung import lade_kontierungsregeln
     from tests.api_hilfe import csrf
     from tests.auth_hilfe import billige_hashes
@@ -431,6 +434,7 @@ def test_web_korrektur_mit_regel_aus_umbuchung_422(tmp_path, monkeypatch):
     qw = queuewelt(tmp_path)
     b = qw.unsicher(betrag="-300.00", zweck="Übertrag auf Giro", name="Probe GmbH",
                     sachkonto="1210")  # fmt: skip
+    qw.unsicher(betrag="-20.00", zweck="RE 4721", name="Bürobedarf Müller")
     client = qw.web.angemeldet("jan")
     seite = client.get(f"/pruefen/{b.id}").text
     daten = {"csrf": csrf(client), "soll": "1200", "haben": "1210", "steuer": "ohne",
@@ -441,10 +445,13 @@ def test_web_korrektur_mit_regel_aus_umbuchung_422(tmp_path, monkeypatch):
     r = client.post(
         f"/pruefen/{b.id}/korrigieren",
         data={**daten, "csrf": csrf(client), "stand": stand_aus(seite), "regel": "1"},
+        headers={"HX-Request": "true"},
     )
-    assert r.status_code == 422 and "Geldkonten" in r.text
+    assert r.status_code == 200 and "Keine Regel gelernt" in r.text, r.text
     with qw.fabrik()() as s:
         assert lade_kontierungsregeln(s) == []
+        x = next(x for x in lade_buchungen(s) if x.id == b.id)
+        assert (x.soll_konto, x.haben_konto) == ("1200", "1210")
 
 
 # --- (c) Prüfregel für Altfälle -----------------------------------------------------
@@ -477,3 +484,114 @@ def test_pruefregel_uebergeht_stornierte(make_session):
         storniere(s, str(alt.id), grund="Umbuchung", von="jan")
         s.commit()
     assert pruefe(make_session, "soll_gleich_haben") == []
+
+
+# --- Runde 3: enge Ausnahme der Sachkonten, Geldtransit, alte Zuordnung --------------
+
+
+@pytest.mark.parametrize(
+    ("konto", "bh"),
+    [
+        ("1348", BH),  # sonstige Wertpapiere (§ 266 Abs. 2 B III HGB)
+        ("1290", BH),  # Finanzmittelanlagen
+        ("1355", BH),  # Rückdeckungsversicherung
+        ("1370", BH),  # Verrechnungskonto
+        ("1890", SKR04),  # Finanzmittelanlagen
+        ("1510", SKR04),  # Wertpapiere
+    ],
+)
+def test_bestandskonten_bleiben_sachkonto_eines_belegs(konto, bh):
+    """gegen:umbuchung:0: Der breite Bereich ``geldkonten`` (SKR03 1000–1399, SKR04
+    1600–1899) verwarf legitime Sachkonten — der Wertpapiersparplan mit Abrechnung
+    ging jedes Mal als Aufwand zur Prüfung, das gelernte Sachkonto wirkte nie."""
+    bank = bh.bank_konto
+    regel = Regel.aus_text(
+        "depot", "Stadtwerke", konto, bank, richtung="ausgabe", feld="beide"
+    )
+    werk = RegelwerkEngine([regel])
+    sk = sachkonto_fuer_beleg(beleg(), None, bh, werk)
+    assert (sk.konto, sk.regel) == (konto, "depot")
+    sk = sachkonto_fuer_beleg(beleg(), kontakt(sachkonto=konto), bh, None)
+    assert sk.konto == konto
+
+
+def test_uebergangenes_sachkonto_steht_in_der_begruendung():
+    sk = sachkonto_fuer_beleg(beleg(), kontakt(sachkonto="1200"), BH, None)
+    assert sk.konto == "4900" and "übergangen: 1200 (Kontakt" in sk.quelle
+
+
+def test_lerne_sachkonto_lehnt_geldkonto_ab_korrektur_bleibt(make_session):
+    """Lernen meldete „Gelernt“, die nächste Belegbuchung überging das Konto — jetzt
+    ein Hinweis statt des Lernens; die Korrektur selbst gilt."""
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+    from accounti.buchung.pruefschlange import Aenderung, LernWunsch, korrigieren
+    from accounti.db.repository import lade_kontakte
+    from accounti.opos.verbuchung import verbuche_beleg
+    from accounti.pruefung.einstellungen import PruefEinstellungen
+    from accounti.pruefung.storno import Korrekturumgebung
+
+    b = beleg()
+    anlegen(make_session, kontakt(), b)
+    with make_session() as s:
+        v = verbuche_beleg(s, b, BH, regelwerk=RegelwerkEngine([]))
+        s.commit()
+    (x,) = v.buchungen
+    umgebung = Korrekturumgebung(lade_kontenrahmen("SKR03"), BH, PruefEinstellungen())
+    with make_session() as s:
+        e = korrigieren(
+            s, x.id, Aenderung("1200", "70001", ohne_steuer=True, grund="Test"),
+            "jan", None, umgebung, lernen=LernWunsch(),
+        )  # fmt: skip
+        s.commit()
+        (k,) = lade_kontakte(s)
+    assert e.gelernt is None and k.sachkonto is None
+    assert any("nicht als Vorschlag" in w for w in e.korrektur.warnungen)
+    with make_session() as s:
+        e = korrigieren(
+            s, x.id, Aenderung("1348", "70001", ohne_steuer=True, grund="Depot"),
+            "jan", None, umgebung, lernen=LernWunsch(), nur_vorschlaege=False,
+        )  # fmt: skip
+        s.commit()
+        (k,) = lade_kontakte(s)
+    assert e.gelernt is not None and k.sachkonto == "1348"
+
+
+@pytest.mark.parametrize(
+    ("betrag", "soll", "haben", "bh"),
+    [
+        ("-500.00", "1360", "1200", BH),
+        ("500.00", "1200", "1360", BH),
+        ("-500.00", "1460", "1800", SKR04),
+    ],
+)
+def test_regel_gegen_geldtransit_bleibt_lernbar(betrag, soll, haben, bh):
+    """gw2-umbuchung N-2: Geldtransit hat keinen eigenen Kontoauszug — eine Regel
+    dagegen bucht auf keinem Konto Soll = Haben."""
+    e = entwurf_fuer(uebertrag(betrag), soll, haben, None, bh)
+    assert (e.soll_konto, e.haben_konto) == (soll, haben)
+
+
+def test_alte_kontenzuordnung_ohne_zahlungsmittel_nimmt_die_mitgelieferten(tmp_path):
+    """gw2-umbuchung N-1: Eine eigene Zuordnung älterer Fassung (ohne Abschnitt
+    ``zahlungsmittel``) machte Kasse, Geldtransit und Karte zu Nicht-Zahlungsmitteln
+    — die Regel „1000 an 1200“ wurde gelernt, die Vorschau lehnte sie ab."""
+    import yaml
+
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+
+    daten = yaml.safe_load(
+        (
+            Path(__file__).parents[1] / "src/accounti/abschluss/kontenrahmen_skr03.yaml"
+        ).read_text(encoding="utf-8")
+    )
+    for abschnitt in ("zahlungsmittel", "geldtransit", "lul_konten"):
+        daten.pop(abschnitt)
+    datei = tmp_path / "zuordnung.yaml"
+    datei.write_text(yaml.safe_dump(daten), encoding="utf-8")
+    kr = lade_kontenrahmen("SKR03", datei)
+    assert kr.zahlungsmittel is None
+    assert all(kr.ist_zahlungsmittel(k) for k in ("1000", "1200", "1360", "1730"))
+    assert kr.ist_geldtransit("1360") and kr.ist_lul_konto("1400")
+    for soll in ("1000", "1730"):
+        with pytest.raises(RegelError, match="Geldkonten"):
+            entwurf_fuer(uebertrag("-10.00"), soll, "1200", None, BH, kontenrahmen=kr)

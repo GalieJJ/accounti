@@ -76,6 +76,19 @@ zahlungsmittel:
   - {von: "1360", bis: "1360"}   # Geldtransit
   - {von: "1730", bis: "1730"}   # Kreditkartenabrechnung
 
+# Geldtransit: Zahlungsmittel ohne eigenen Kontoauszug — eine Regel „1360 an 1200“
+# bucht auf keinem Konto Soll = Haben und bleibt lernbar
+geldtransit:
+  - {von: "1360", bis: "1360"}
+
+# Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen: wie Personenkonten
+# kein Sachkonto eines Belegs (sonst „1400 an 1400“, „1600 an 70001“). Die übrigen
+# Konten 1290–1399 (Finanzmittelanlagen, Wertpapiere 1348, Rückdeckung 1355,
+# Verrechnungskonten) sind als Sachkonto eines Belegs zulässig (Runde 3)
+lul_konten:
+  - {von: "1400", bis: "1499"}   # Forderungen aus Lieferungen und Leistungen
+  - {von: "1600", bis: "1699"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # leer: SKR03-Steuerkonten kommen aus accounti.steuer

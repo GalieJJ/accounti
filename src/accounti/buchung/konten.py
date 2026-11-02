@@ -120,34 +120,55 @@ def mitgelieferter_kontenrahmen(name: str) -> Kontenrahmen | None:
         return None
 
 
+@dataclass(frozen=True)
+class Zahlungsmittel:
+    """Ist das Konto ein Zahlungsmittel der Gesellschaft? (aufrufbar) — dazu
+    ``geldtransit``: ein Zahlungsmittel ohne eigenen Kontoauszug."""
+
+    kontenrahmen: Kontenrahmen | None
+    eigene: frozenset[str]
+
+    def __call__(self, konto: str) -> bool:
+        nummer = (konto or "").strip()
+        kr = self.kontenrahmen
+        return nummer in self.eigene or (
+            kr is not None and kr.ist_zahlungsmittel(nummer)
+        )
+
+    def geldtransit(self, konto: str) -> bool:
+        nummer = (konto or "").strip()
+        kr = self.kontenrahmen
+        return (
+            nummer not in self.eigene and kr is not None and kr.ist_geldtransit(nummer)
+        )
+
+
 def zahlungsmittel(
     buchhaltung: Buchhaltung,
     kontenrahmen: Kontenrahmen | None = None,
     weitere: Iterable[str | None] = (),
-) -> Callable[[str], bool]:
+) -> Zahlungsmittel:
     """Ist das Konto ein Zahlungsmittel der Gesellschaft? Kasse, Bank, Geldtransit und
     Kreditkarte laut Kontenrahmen (``Kontenrahmen.ist_zahlungsmittel``; ohne Angabe
     der mitgelieferte der Buchhaltung), dazu ``buchhaltung.bank_konto`` und
     ``weitere`` (Finanzkonto des Umsatzes, eingerichtete Bank- und Kartenkonten)."""
     kr = kontenrahmen or mitgelieferter_kontenrahmen(buchhaltung.kontenrahmen)
-    eigene = {buchhaltung.bank_konto, *(k for k in weitere if k)}
-
-    def pruefe(konto: str) -> bool:
-        nummer = (konto or "").strip()
-        return nummer in eigene or (kr is not None and kr.ist_zahlungsmittel(nummer))
-
-    return pruefe
+    eigene = frozenset({buchhaltung.bank_konto, *(k for k in weitere if k)})
+    return Zahlungsmittel(kr, eigene)
 
 
 def umbuchung_fehler(
     soll: str, haben: str, ist_zahlungsmittel: Callable[[str], bool]
 ) -> str | None:
     """Meldung, wenn Soll und Haben beide Zahlungsmittel sind (Umbuchung Giro ↔
-    Tagesgeld, Bank ↔ Kasse, Bank ↔ Kreditkarte, Geldtransit) — daraus wird keine
-    Regel: Die Umbuchung steht auf beiden Kontoauszügen; eine Regel buchte die
-    Gegenseite auf dem anderen Konto mit demselben Konto im Soll und im Haben (die
-    Bewegung fiele aus den Büchern, der Bestand wiche vom Auszug ab — § 239 Abs. 2 HGB,
-    § 146 Abs. 1 AO). Sonst ``None``."""
+    Tagesgeld, Bank ↔ Kasse, Bank ↔ Kreditkarte) — daraus wird keine Regel: Die
+    Umbuchung steht auf beiden Kontoauszügen; eine Regel buchte die Gegenseite auf dem
+    anderen Konto mit demselben Konto im Soll und im Haben (die Bewegung fiele aus den
+    Büchern, der Bestand wiche vom Auszug ab — § 239 Abs. 2 HGB, § 146 Abs. 1 AO).
+
+    Ausnahme Geldtransit (``Zahlungsmittel.geldtransit``): Er hat keinen eigenen
+    Kontoauszug, eine Regel „1360 an 1200“ bucht auf keinem Konto Soll = Haben
+    (Gesamttest 10b-1, Runde 3). Sonst ``None``."""
     soll, haben = (soll or "").strip(), (haben or "").strip()
     if soll == haben and not ist_zahlungsmittel(soll):
         return (
@@ -155,29 +176,54 @@ def umbuchung_fehler(
         )
     if not (ist_zahlungsmittel(soll) and ist_zahlungsmittel(haben)):
         return None
+    transit = getattr(ist_zahlungsmittel, "geldtransit", None)
+    if soll != haben and transit is not None and (transit(soll) or transit(haben)):
+        return None
     return (
         f"Soll {soll} und Haben {haben} sind beide Geldkonten (Bank, Kasse, "
-        "Kreditkarte, Geldtransit) — aus einer Umbuchung zwischen eigenen Konten wird "
-        "keine Regel: Sie steht auf beiden Kontoauszügen, und die Regel buchte "
+        "Kreditkarte) — aus einer Umbuchung zwischen eigenen Konten mit Kontoauszug "
+        "wird keine Regel: Sie steht auf beiden Kontoauszügen, und die Regel buchte "
         "künftige Umsätze mit demselben Konto im Soll und im Haben (§ 146 Abs. 1 AO, "
-        "§ 239 Abs. 2 HGB). Ohne Regel korrigieren."
+        "§ 239 Abs. 2 HGB). Ohne Regel korrigieren; über Geldtransit (SKR03 1360, "
+        "SKR04 1460) bleibt sie lernbar."
     )
+
+
+def soll_gleich_haben(soll: str, haben: str) -> str | None:
+    """Meldung, wenn Soll und Haben dasselbe Konto sind — eine solche Buchung bewegt
+    nichts; bei einem Bankumsatz fehlte die Bewegung in den Büchern, der Bestand
+    wiche vom Kontoauszug ab (§ 239 Abs. 2 HGB, § 146 Abs. 1 AO). Gilt für jede
+    Buchung, auch von Hand (Korrektur, Kassenbuch; Gesamttest 10b-1, Runde 3)."""
+    soll, haben = (soll or "").strip(), (haben or "").strip()
+    if soll and soll == haben:
+        return (
+            f"Soll und Haben sind dasselbe Konto ({soll}) — die Buchung bewegte "
+            "nichts (bei einem Bankumsatz fehlte die Bewegung in den Büchern)"
+        )
+    return None
 
 
 def kein_sachkonto(
     konto: str, buchhaltung: Buchhaltung, weitere: Iterable[str | None] = ()
 ) -> bool:
-    """Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto (``ist_geldkonto``
-    des Kontenrahmens), Zahlungsmittel oder Finanzkonto des Umsatzes — kein Sachkonto
-    eines Belegs. Eine Regel „1210 an 1200“ oder „70001 an 1200“ liefert so kein
-    Aufwandskonto (sonst „1210 an 1210“ bzw. „70001 an 70001“)."""
+    """Zahlungsmittel (Kasse, Bank, Geldtransit, Kreditkarte; ``weitere``:
+    Finanzkonto des Umsatzes), Personenkonto oder Forderung bzw. Verbindlichkeit aus
+    Lieferungen und Leistungen (``Kontenrahmen.ist_lul_konto``) — kein Sachkonto eines
+    Belegs. Eine Regel „1210 an 1200“ oder „70001 an 1200“ liefert so kein
+    Aufwandskonto (sonst „1210 an 1210“ bzw. „70001 an 70001“).
+
+    Andere Bestandskonten bleiben zulässig (Gesamttest 10b-1, Runde 3): Wertpapiere
+    (SKR03 1348, SKR04 1510), Festgeld 1290/1890, Rückdeckungsversicherung 1355,
+    Verrechnungs- und durchlaufende Posten — gegen Bank oder Kreditor bucht keines
+    davon Soll = Haben (§ 266 Abs. 2 B III HGB: Wertpapiere sind keine flüssigen
+    Mittel)."""
     nummer = (konto or "").strip()
     kr = mitgelieferter_kontenrahmen(buchhaltung.kontenrahmen)
     if zahlungsmittel(buchhaltung, kr, weitere)(nummer):
         return True
-    if kr is None:
-        return nummer.isdigit() and len(nummer) == 5  # Personenkonto
-    return kr.ist_geldkonto(nummer)
+    if nummer.isdigit() and len(nummer) == 5:  # Personenkonto
+        return True
+    return kr is not None and kr.ist_lul_konto(nummer)
 
 
 @lru_cache(maxsize=8)

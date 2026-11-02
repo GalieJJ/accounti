@@ -263,6 +263,14 @@ def buche_kasse(
         raise KassenbuchError("Ein Kassenvorgang über 0 € ist keiner")
     if not text.strip():
         raise KassenbuchError("Buchungstext fehlt")
+    if gegenkonto is not None and (gegenkonto or "").strip() == einstellungen.konto:
+        # „1000 an 1000“: die Bewegung fehlte im Kassenkonto, das Kassenbuch zeigte sie
+        # (§ 146 Abs. 1 AO, Gesamttest 10b-1, Runde 3)
+        raise KassenbuchError(
+            f"Gegenkonto {gegenkonto} ist das Kassenkonto — Soll und Haben wären "
+            "dasselbe Konto; das Gegenkonto der Kassenbewegung angeben (z. B. Bank "
+            "oder Geldtransit)"
+        )
     v = Kassenvorgang(
         nr=naechste_kassennummer(session),
         datum=datum or date.today(),

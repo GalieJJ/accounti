@@ -37,6 +37,7 @@ from accounti.buchung.konten import (
     KontoError,
     finanzkonto_fehler,
     pruefe_kontonummer,
+    soll_gleich_haben,
 )
 from accounti.db.repo_aufgaben import lade_aufgaben
 from accounti.db.repo_kontierung import lade_kontierungsgruende, lade_kontierungsgrund
@@ -536,6 +537,14 @@ def freigeben(
     — eine Korrektur mit denselben Werten lehnt ``korrigiere`` ebenso ab."""
     b = _sperren_und_pruefen(session, str(buchung_id), stand, nur_vorschlaege)
     aendert = b.status in VORSCHLAG or b.status is BuchungStatus.AUTO_GEBUCHT
+    gleich = soll_gleich_haben(b.soll_konto, b.haben_konto)
+    if gleich is not None and aendert:
+        # Altfall „1210 an 1210“ (Prüfregel soll_gleich_haben): nicht ohne Hinweis
+        # als geprüft festschreiben (gw2-merge B3) — auch ohne Umgebung (REST)
+        raise PruefregelError(
+            f"Buchung {str(b.id)[:8]} ({b.soll_konto} an {b.haben_konto}): {gleich} "
+            "— so nicht freigeben, erst korrigieren (Gegenkonto der Bewegung)"
+        )
     if umgebung is not None and aendert:  # schon geprüft/korrigiert/exportiert: nichts
         fehler = [
             text
@@ -597,6 +606,8 @@ def _konten(a: Aenderung) -> Aenderung:
         haben = pruefe_kontonummer(a.haben, "Haben")
     except KontoError as fehler:
         raise PruefschlangeError(str(fehler), feld="haben") from fehler
+    if (gleich := soll_gleich_haben(soll, haben)) is not None:
+        raise PruefschlangeError(gleich, feld="haben")
     if a.grund is not None and len(a.grund) > GRUND_MAX:
         raise PruefschlangeError(
             f"Der Grund ist zu lang — höchstens {GRUND_MAX} Zeichen", feld="grund"
@@ -713,6 +724,7 @@ def korrigieren(
     ``korrektur.warnungen``; eine Regel gibt es dann nicht."""
     from accounti.klassifikation.lernen import (
         RegelError,
+        UmbuchungError,
         entwurf_aus_korrektur,
         lerne,
         lerne_sachkonto,
@@ -792,14 +804,21 @@ def korrigieren(
                                 vorschau=v,
                             )
                     ergebnis.regel = lerne(session, entwurf, person)
+                except UmbuchungError as fehler:
+                    # Umbuchung zwischen Konten mit Kontoauszug: die Korrektur gilt,
+                    # nur ohne Regel (gw2-merge B2: sonst ging auch sie verloren)
+                    k.warnungen.append(f"Keine Regel gelernt: {fehler.args[0]}")
                 except RegelError as fehler:
                     raise PruefschlangeError(
                         fehler.args[0], feld=fehler.feld or "muster"
                     ) from fehler
         else:
-            ergebnis.gelernt = lerne_sachkonto(
-                session, k.original, a.soll, a.haben, person
-            )
+            try:
+                ergebnis.gelernt = lerne_sachkonto(
+                    session, k.original, a.soll, a.haben, person, umgebung.buchhaltung
+                )
+            except RegelError as fehler:
+                k.warnungen.append(fehler.args[0])
     if k.storno is None:
         _schliesse_aufgaben(
             session, k.original, f"Buchung korrigiert von {person}", person

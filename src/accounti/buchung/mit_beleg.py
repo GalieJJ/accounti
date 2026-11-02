@@ -67,18 +67,27 @@ def sachkonto_fuer_beleg(
     Prüfung — der Schalter gilt für jede Buchung, die die Regel kontiert, nicht nur
     für reine Umsätze.
 
-    Ein Geld-, Personen-, Forderungs- oder Verbindlichkeitskonto ist kein Sachkonto
-    eines Belegs (``konten.kein_sachkonto``): Eine Regel „1210 an 1200“ (Umbuchung)
-    oder „70001 an 1200“ (Zahlung an den Kreditor) und ein solches Konto am Kontakt
-    werden übergangen — sonst buchte die Belegbuchung „1210 an 1210“, OPOS „70001 an
-    70001“ (Gesamttest 10b-1, H-1)."""
+    Ein Zahlungsmittel, Personen- oder LuL-Konto ist kein Sachkonto eines Belegs
+    (``konten.kein_sachkonto``): Eine Regel „1210 an 1200“ (Umbuchung) oder „70001 an
+    1200“ (Zahlung an den Kreditor) und ein solches Konto am Kontakt werden übergangen
+    — sonst buchte die Belegbuchung „1210 an 1210“, OPOS „70001 an 70001“
+    (Gesamttest 10b-1, H-1); die Begründung nennt das übergangene Konto. Andere
+    Bestandskonten (Wertpapiere, Festgeld, Rückdeckung) bleiben zulässig (Runde 3)."""
     ungeprueft = kontakt is not None and kontakt.status is not KontaktStatus.GEPRUEFT
     weitere = (umsatz.sachkonto,) if umsatz is not None else ()
+    uebergangen: list[str] = []
 
-    def taugt(konto: str) -> bool:
-        return not kein_sachkonto(konto, einstellungen, weitere)
+    def taugt(konto: str, woher: str) -> bool:
+        if kein_sachkonto(konto, einstellungen, weitere):
+            uebergangen.append(f"{konto} ({woher})")
+            return False
+        return True
 
-    if kontakt is not None and kontakt.sachkonto and taugt(kontakt.sachkonto):
+    if (
+        kontakt is not None
+        and kontakt.sachkonto
+        and taugt(kontakt.sachkonto, f"Kontakt {kontakt.name}")
+    ):
         return Sachkonto(kontakt.sachkonto, ungeprueft, f"Kontakt {kontakt.name}")
     if regelwerk is not None:
         name = beleg.lieferant_name or (kontakt.name if kontakt else None)
@@ -111,7 +120,7 @@ def sachkonto_fuer_beleg(
             if (
                 ergebnis is not None
                 and ergebnis.haben_konto == einstellungen.bank_konto
-                and taugt(ergebnis.soll_konto)
+                and taugt(ergebnis.soll_konto, f"Regel '{ergebnis.regel}'")
             ):
                 unsicher = ergebnis.pruefen or ergebnis.confidence < AUTO_SCHWELLE
                 regel = next(
@@ -127,7 +136,14 @@ def sachkonto_fuer_beleg(
                     f"Regel '{ergebnis.regel}' ({quelle}){zusatz}",
                     ergebnis.regel,
                 )
-    return Sachkonto(einstellungen.standard_aufwand, True, "Standard")
+    quelle = "Standard"
+    if uebergangen:
+        quelle += (
+            f" — übergangen: {', '.join(dict.fromkeys(uebergangen))} (Zahlungsmittel, "
+            "Personen-, Forderungs- oder Verbindlichkeitskonto ist kein Sachkonto "
+            "eines Belegs)"
+        )
+    return Sachkonto(einstellungen.standard_aufwand, True, quelle)
 
 
 @dataclass

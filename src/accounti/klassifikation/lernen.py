@@ -43,6 +43,7 @@ from sqlalchemy.orm import Session
 from accounti.buchung.konten import (
     KontoError,
     finanzkonto_fehler,
+    kein_sachkonto,
     kontobezeichnung,
     pruefe_kontonummer,
     umbuchung_fehler,
@@ -97,6 +98,12 @@ class RegelError(ValueError):
     def __init__(self, meldung: str, feld: str | None = None) -> None:
         super().__init__(meldung)
         self.feld = feld
+
+
+class UmbuchungError(RegelError):
+    """Soll und Haben sind beide Zahlungsmittel mit Kontoauszug — daraus wird keine
+    Regel. Eine Korrektur mit ``--lernen`` bucht dann ohne Regel (mit Hinweis), statt
+    beides zu verwerfen (Gesamttest 10b-1, Runde 3, gw2-merge B2)."""
 
 
 # --- Entwurf --------------------------------------------------------------------------
@@ -309,7 +316,7 @@ def entwurf_fuer(
         zahlungsmittel(buchhaltung, kontenrahmen, (umsatz.sachkonto,)),
     )
     if umbuchung is not None:
-        raise RegelError(umbuchung, "regel")
+        raise UmbuchungError(umbuchung, "regel")
     finanz = umsatz.sachkonto
     if finanz and finanz != buchhaltung.bank_konto:
         soll = buchhaltung.bank_konto if soll == finanz else soll
@@ -797,10 +804,19 @@ def lerne_regex(
 
 
 def lerne_sachkonto(
-    session: Session, buchung: Buchungssatz, soll: str, haben: str, person: str
+    session: Session,
+    buchung: Buchungssatz,
+    soll: str,
+    haben: str,
+    person: str,
+    buchhaltung: Buchhaltung | None = None,
 ) -> str | None:
     """Belegbuchung auf ein Personenkonto: das Sachkonto wird zum Vorschlag am Kontakt
-    (Journal ``sachkonto_gelernt``). ``None``, wenn es nichts zu lernen gibt."""
+    (Journal ``sachkonto_gelernt``). ``None``, wenn es nichts zu lernen gibt.
+
+    Ein Konto, das die Belegbuchung als Sachkonto übergeht (``konten.kein_sachkonto``:
+    Zahlungsmittel, Personen-, LuL-Konto), wird nicht gelernt — ``RegelError``: sonst
+    meldete das Lernen Erfolg und wirkte nie (Gesamttest 10b-1, Runde 3)."""
     from accounti.db.repository import (
         aktualisiere_kontakt,
         lade_kontakt,
@@ -820,6 +836,13 @@ def lerne_sachkonto(
         sachkonto = haben  # Ausgang: Debitor an Erlös
     else:
         return None
+    if kein_sachkonto(sachkonto, buchhaltung or Buchhaltung()):
+        raise RegelError(
+            f"Sachkonto {sachkonto} nicht als Vorschlag für {kontakt.name} gelernt: "
+            "Zahlungsmittel, Personen-, Forderungs- oder Verbindlichkeitskonto ist "
+            "kein Sachkonto eines Belegs (die nächste Belegbuchung übergänge es)",
+            "regel",
+        )
     bisher = kontakt.sachkonto
     aktualisiere_kontakt(session, kontakt.model_copy(update={"sachkonto": sachkonto}))
     schreibe(
