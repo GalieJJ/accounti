@@ -1014,7 +1014,7 @@ def uebernehme_aus_datei(
             ergebnis.gruende[name] = (
                 f"Regelname {name} ist schon vergeben — "
                 + (
-                    "eine Regel in der Datenbank mit diesem Namen hat"
+                    "eine Regel in der Datenbank trägt ihn mit"
                     if name == kurz
                     else "die ersten 100 Zeichen gleichen einer Regel in der "
                     "Datenbank mit"
