@@ -189,7 +189,7 @@ def test_zweiter_lauf_behaelt_die_reihenfolge_der_datei(
 @pytest.mark.parametrize(
     "wert",
     ["9223372036854775808", "100000000000000000000", "0", "-9", "99", "4", "'-1'",
-     "'1'"],
+     "40"],
 )  # fmt: skip
 def test_steuerschluessel_nur_bekannte(tmp_path, wert):
     """Ab 2^63 gab der REST-Lauf 500, classify und ``regeln uebernehmen`` einen
@@ -200,8 +200,13 @@ def test_steuerschluessel_nur_bekannte(tmp_path, wert):
         lade_regeln(datei)
 
 
-@pytest.mark.parametrize("wert", ["2", "3", "8", "9", "18", "19", "91", "94", "'9'"])
+@pytest.mark.parametrize(
+    "wert", ["1", "'1'", "2", "3", "8", "9", "18", "19", "91", "94", "'9'"]
+)
 def test_bekannte_steuerschluessel_bleiben(tmp_path, wert):
+    """Auch 1 (DATEV „umsatzsteuerfrei mit Vorsteuerabzug“): Voranmeldung und
+    Prüfregel kennen ihn, main buchte ihn — Runde 4 lehnte ihn als unbekannt ab
+    (g4w N6)."""
     [regel] = lade_regeln(_datei(tmp_path, _regel(steuer_schluessel=wert)))
     assert regel.steuer_schluessel == int(wert.strip("'"))
 

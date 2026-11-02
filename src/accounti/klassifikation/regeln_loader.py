@@ -8,14 +8,15 @@ Felder je Regel: ``name``, ``muster``, ``soll_konto``, ``haben_konto``, optional
 gegenkonto_name, gegenkonto_iban, beide), ``richtung`` (ausgabe, einnahme, beide),
 ``pruefen`` (Treffer immer zur Prüfung) und ``confidence`` (0–1, Standard 1).
 
-Jeder Wert wird geprüft (Gesamttest 10b-1, Runde 3): Konten sind 4 bis 8 Ziffern —
+Jeder Wert wird geprüft (Gesamttest 10b-1, Runde 3): Konten sind 4 bis 9 Ziffern —
 eine Zahl mit führender Null (``0420``) bleibt Text (YAML 1.1 läse sie sonst als
 Oktalzahl: 272), ein leeres Konto ist ein Fehler (sonst „None“); das Muster ist ein
 nicht leerer Text (ein leeres Muster träfe jeden Umsatz), der Steuerschlüssel eine Zahl.
 Seit Runde 4 bleibt jede ganze Zahl außer der schlichten Dezimalzahl Text (``0x1340``,
 ``1:20:00``, ``4_920``, ``+4920`` — YAML 1.1 läse 4928, 4800, 4920), Konten bestehen nur
 aus ASCII-Ziffern, der Steuerschlüssel ist einer, den accounti kennt
-(``steuer.kennziffern.STEUERSCHLUESSEL``), und ein unbekannter Schlüssel des Eintrags
+(``steuer.kennziffern.STEUERSCHLUESSEL`` und 1, ``REGEL_SCHLUESSEL``), und ein
+unbekannter Schlüssel des Eintrags
 (``prüfen``, ``steuerschluessel``) ist ein Fehler statt still ignoriert.
 Ein Fehler ist ein ``KonfigurationError`` mit Datei und Regelname.
 """
@@ -33,6 +34,11 @@ from accounti.klassifikation.engine import Regel
 from accounti.konfiguration import KonfigurationError
 from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 
+# DATEV-Schlüssel 1 „umsatzsteuerfrei (mit Vorsteuerabzug)“: keine eigene Kennziffer —
+# die Voranmeldung nimmt die des Kontos (``kennziffern._Ermittler.__call__``), die
+# Prüfregel ``steuerschluessel_konto`` kennt ihn, der DATEV-Export trägt ihn mit; main
+# buchte ihn, Runde 4 lehnte ihn als unbekannt ab (Runde 5, g4w N6)
+REGEL_SCHLUESSEL = frozenset(STEUERSCHLUESSEL) | {1}
 # Textfelder des Umsatzes, auf die ein Muster passen kann (``gegenkonto_iban``: vor
 # Gesamttest 10b-1 N-2 wirksam, gw2-merge B1)
 FELDER = ("verwendungszweck", "gegenkonto_name", "gegenkonto_iban", "beide")
@@ -139,8 +145,8 @@ def _schluessel(eintrag: dict[str, Any], name: str) -> int | None:
     if isinstance(wert, bool) or not isinstance(wert, int):
         msg = f"Regel {name}: steuer_schluessel {wert!r} — eine Zahl (z. B. 9)"
         raise ValueError(msg)
-    if wert not in STEUERSCHLUESSEL:
-        bekannt = ", ".join(str(s) for s in sorted(STEUERSCHLUESSEL))
+    if wert not in REGEL_SCHLUESSEL:
+        bekannt = ", ".join(str(s) for s in sorted(REGEL_SCHLUESSEL))
         msg = (
             f"Regel {name}: steuer_schluessel {wert} — unbekannter Steuerschlüssel "
             f"(bekannt: {bekannt}; ohne Steuer: null)"
