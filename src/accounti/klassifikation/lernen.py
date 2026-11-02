@@ -967,8 +967,10 @@ def uebernehme_aus_datei(
     geld = zahlungsmittel(
         buchhaltung or Buchhaltung(bank_konto=bank_konto), kontenrahmen
     )
-    # Name in der Datenbank (höchstens 100 Zeichen) → Name in der Datei, in diesem Lauf
+    # Name in der Datenbank (höchstens 100 Zeichen) → Name in der Datei bzw. Inhalt
+    # des übernommenen Eintrags, in diesem Lauf
     diesmal: dict[str, str] = {}
+    diesmal_inhalt: dict[str, _Inhalt] = {}
     for nr, eintrag in enumerate(daten):
         if not isinstance(eintrag, dict):
             continue
@@ -987,22 +989,39 @@ def uebernehme_aus_datei(
                 f"{diesmal[kurz][:40]}… — in der Datei umbenennen"
             )
             continue
-        if kurz in vorhanden:
-            if (
-                name == kurz
-                or diesmal.get(kurz) == name
-                or _schon_uebernommen(session, kurz, eintrag, pfad)
-            ):
+        inhalt = _inhalt(eintrag, pfad)
+        if kurz in diesmal_inhalt and inhalt is not None:
+            # derselbe Name zweimal in der Datei: nur derselbe Eintrag ist „schon
+            # vorhanden“ (Runde 6, g5w NEU-5 J/K)
+            if inhalt == diesmal_inhalt[kurz]:
+                ergebnis.uebersprungen.append(name)
+            else:
+                ergebnis.ungueltig.append(name)
+                ergebnis.gruende[name] = (
+                    f"Regelname {name} steht zweimal in der Datei, mit anderem Inhalt "
+                    "(Muster, Konten, Schlüssel, Feld oder Richtung) — übernommen ist "
+                    "der erste; den zweiten in der Datei umbenennen"
+                )
+            continue
+        if kurz in vorhanden and inhalt is not None:
+            if _schon_uebernommen(session, kurz, inhalt):
                 ergebnis.uebersprungen.append(name)
                 continue
-            # ein langer Name, gekürzt gleich dem einer anderen Regel: still
-            # „übersprungen“ verlor die Regel, wer den Eintrag dann löschte (Runde 5,
-            # g4w N4)
+            # gleicher Name, anderer Inhalt: still „übersprungen“ verlor die Änderung,
+            # wer den Eintrag dann löschte — beim langen Namen (Runde 5, g4w N4) wie
+            # beim kurzen und bei geänderter Richtung (Runde 6, g5w NEU-5)
             ergebnis.ungueltig.append(name)
             ergebnis.gruende[name] = (
-                f"Regelname {name} ist schon vergeben — die ersten 100 Zeichen "
-                "gleichen einer Regel in der Datenbank mit anderem Inhalt; in der "
-                "Datei umbenennen"
+                f"Regelname {name} ist schon vergeben — "
+                + (
+                    "eine Regel in der Datenbank mit diesem Namen hat"
+                    if name == kurz
+                    else "die ersten 100 Zeichen gleichen einer Regel in der "
+                    "Datenbank mit"
+                )
+                + " anderem Inhalt (Muster, Konten, Schlüssel, Feld oder Richtung); "
+                "in der Datei umbenennen (die Regel in der Datenbank bleibt, wie sie "
+                "ist)"
             )
             continue
         try:
@@ -1054,6 +1073,8 @@ def uebernehme_aus_datei(
             continue
         vorhanden.add(kurz)
         diesmal[kurz] = name
+        if inhalt is not None:
+            diesmal_inhalt[kurz] = inhalt
         ergebnis.uebernommen.append(name)
         if richtung is None:
             ergebnis.ohne_richtung.append(name)
@@ -1066,31 +1087,53 @@ def uebernehme_aus_datei(
     return ergebnis
 
 
-def _schon_uebernommen(
-    session: Session, kurz: str, eintrag: dict[str, Any], pfad: Path
-) -> bool:
-    """Ist die Regel ``kurz`` der Datenbank dieser Eintrag (Muster, Konten,
-    Steuerschlüssel, Feld) — ein zweiter Lauf über dieselbe Datei?"""
+# Muster, Soll, Haben, Schlüssel, Feld, Richtung ausdrücklich angegeben?, Richtung
+_Inhalt = tuple[str, str, str, int | None, str, bool, str | None]
+
+
+def _inhalt(eintrag: dict[str, Any], pfad: Path) -> _Inhalt | None:
+    """Was einen Eintrag der Regeldatei ausmacht — ``None``, wenn er ungültig ist (den
+    Grund meldet dann die Prüfung des Eintrags)."""
     from accounti.klassifikation.regeln_loader import pruefe_eintrag
     from accounti.konfiguration import KonfigurationError
 
     try:
         geprueft = pruefe_eintrag(eintrag, pfad)
-        regel = finde_kontierungsregel(session, kurz)
     except (KonfigurationError, ValueError):
-        return False
+        return None
     return (
-        regel.muster,
-        regel.soll_konto,
-        regel.haben_konto,
-        regel.steuer_schluessel,
-        regel.feld,
-    ) == (
         geprueft.muster.pattern,
         geprueft.soll_konto,
         geprueft.haben_konto,
         geprueft.steuer_schluessel,
         geprueft.feld,
+        eintrag.get("richtung") is not None,
+        geprueft.richtung,  # "beide" → None
+    )
+
+
+def _schon_uebernommen(session: Session, kurz: str, inhalt: _Inhalt) -> bool:
+    """Ist die Regel ``kurz`` der Datenbank dieser Eintrag (Muster, Konten,
+    Steuerschlüssel, Feld; die Richtung, wenn der Eintrag sie nennt) — ein zweiter
+    Lauf über dieselbe Datei? Ohne ``richtung`` im Eintrag leitet die Übernahme sie
+    aus der Bankseite ab; eine Regel aus ``accounti lerne`` hat dann keine — das ist
+    kein anderer Inhalt."""
+    muster, soll, haben, schluessel, feld, ausdruecklich, richtung = inhalt
+    try:
+        regel = finde_kontierungsregel(session, kurz)
+    except ValueError:
+        return False
+    if (
+        regel.muster,
+        regel.soll_konto,
+        regel.haben_konto,
+        regel.steuer_schluessel,
+        regel.feld,
+    ) != (muster, soll, haben, schluessel, feld):
+        return False
+    return (
+        not ausdruecklich
+        or (regel.richtung.value if regel.richtung else None) == richtung
     )
 
 

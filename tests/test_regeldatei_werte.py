@@ -345,3 +345,98 @@ def test_zu_langes_muster_ungueltig_buchungstext_gekuerzt(make_session, tmp_path
     assert e.ungueltig == ["gelernt_lang"]
     assert "200 Zeichen" in e.gruende["gelernt_lang"]
     assert regeln["gelernt_text"].buchungstext == "T" * 60
+
+
+# --- Runde 6 (g5w NEU-5): gleicher Name, anderer Inhalt -------------------------------
+#
+# Bisher galt jeder kurze Name, den die Datenbank schon kennt, still als „schon
+# vorhanden (übersprungen)“ — auch mit anderem Muster oder Konto; ebenso eine nur in
+# der Richtung geänderte Regel und derselbe Name zweimal in einer Datei. Wer der
+# Ausgabe folgte und den Eintrag löschte, verlor die Änderung. Jetzt „ungültig … anderer
+# Inhalt“ wie beim langen Namen (Runde 5, g4w N4).
+
+
+@pytest.mark.parametrize(
+    "zweit",
+    [
+        {"muster": "'TELEKOM|T-MOBILE'", "soll_konto": "'4925'"},
+        {"soll_konto": "'4925'"},
+        {"steuer_schluessel": "8"},
+        {"feld": "gegenkonto_name"},
+    ],
+    ids=["muster_und_konto", "konto", "schluessel", "feld"],
+)
+def test_kurzer_name_anderer_inhalt_ungueltig(make_session, tmp_path, zweit):
+    name = "gelernt_telekom"
+    with make_session() as s:
+        erst = _datei(tmp_path, _regel(name=name, steuer_schluessel="9"))
+        assert uebernehme_aus_datei(s, erst, "jan").uebernommen == [name]
+        s.commit()
+        zweite = _datei(
+            tmp_path, _regel(name=name, **{"steuer_schluessel": "9", **zweit})
+        )
+        for probe in (True, False):
+            e = uebernehme_aus_datei(s, zweite, "jan", probe=probe)
+            assert (e.uebersprungen, e.ungueltig) == ([], [name]), probe
+            assert "anderem Inhalt" in e.gruende[name]
+            assert "in der Datei umbenennen" in e.gruende[name]
+        s.rollback()
+        regeln = [(r.muster, r.soll_konto) for r in lade_kontierungsregeln(s)]
+    assert regeln == [("telekom", "4920")]
+
+
+def test_kurzer_name_gleicher_inhalt_uebersprungen(make_session, tmp_path):
+    datei = _datei(tmp_path, _regel(name="gelernt_telekom"))
+    with make_session() as s:
+        assert uebernehme_aus_datei(s, datei, "jan").uebernommen == ["gelernt_telekom"]
+        s.commit()
+        e = uebernehme_aus_datei(s, datei, "jan")
+    assert (e.uebersprungen, e.ungueltig) == (["gelernt_telekom"], [])
+
+
+@pytest.mark.parametrize("lang", [False, True], ids=["kurz", "lang"])
+def test_nur_richtung_geaendert_ungueltig(make_session, tmp_path, lang):
+    name = "gelernt_" + ("a" * 100 + "x" if lang else "telekom")
+    with make_session() as s:
+        erst = _datei(tmp_path, _regel(name=name, richtung="ausgabe"))
+        assert uebernehme_aus_datei(s, erst, "jan").uebernommen == [name]
+        s.commit()
+        zweite = _datei(tmp_path, _regel(name=name, richtung="einnahme"))
+        e = uebernehme_aus_datei(s, zweite, "jan")
+        erst = _datei(tmp_path, _regel(name=name, richtung="ausgabe"))
+        gleich = uebernehme_aus_datei(s, erst, "jan")
+    assert e.ungueltig == [name] and "anderem Inhalt" in e.gruende[name]
+    assert gleich.uebersprungen == [name]
+
+
+def test_ohne_richtung_in_der_datei_vergleicht_die_richtung_nicht(
+    make_session, tmp_path
+):
+    """Eine Regel aus ``accounti lerne`` (ohne Richtung) und derselbe Eintrag in der
+    Datei ohne ``richtung``: übersprungen wie bisher (die Richtung leitet die
+    Übernahme sonst aus der Bankseite ab)."""
+    from accounti.klassifikation.lernen import lerne_regex
+
+    datei = _datei(tmp_path, _regel(name="gelernt_aral", muster="Aral", feld="beide"))
+    with make_session() as s:
+        lerne_regex(s, "gelernt_aral", "Aral", "4920", "1200", None, "jan")
+        e = uebernehme_aus_datei(s, datei, "jan")
+    assert (e.uebersprungen, e.ungueltig) == (["gelernt_aral"], [])
+
+
+@pytest.mark.parametrize("lang", [False, True], ids=["kurz", "lang"])
+def test_name_zweimal_in_einer_datei_anderer_inhalt(make_session, tmp_path, lang):
+    name = "gelernt_" + ("a" * 100 + "x" if lang else "x")
+    datei = _datei(
+        tmp_path,
+        _regel(name=name, muster="TELEKOM")
+        + _regel(name=name, muster="STADTWERKE", soll_konto="'4240'")
+        + _regel(name=name, muster="TELEKOM"),
+    )
+    for probe in (True, False):
+        with make_session() as s:
+            e = uebernehme_aus_datei(s, datei, "jan", probe=probe)
+            s.rollback()
+        assert e.uebernommen == [name], probe
+        assert e.ungueltig == [name] and "zweimal" in e.gruende[name]
+        assert e.uebersprungen == [name]  # derselbe Eintrag noch einmal
