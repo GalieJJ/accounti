@@ -12,6 +12,7 @@ SIGTERM beendet die Schleife nach dem laufenden Schritt.
 from __future__ import annotations
 
 import logging
+import os
 import signal
 import subprocess
 import sys
@@ -27,7 +28,8 @@ from accounti.betrieb.protokoll import schwaerze
 LOG = logging.getLogger("accounti.lauf")
 BEFEHLE: list[list[str]] = [["bank", "lauf"], ["aufgaben", "lauf"]]
 ZEITLIMIT_SEKUNDEN = 3600
-GRUND_ZEILEN = 5  # die Meldung am Ende der Ausgabe (Rich bricht nach 80 Zeichen um)
+GRUND_ZEILEN = 5  # die Meldung am Ende der Ausgabe
+AUSGABE_BREITE = "10000"  # COLUMNS der Schritte: Rich bricht so nicht um
 GRUND_ZEICHEN = 600
 
 
@@ -58,12 +60,17 @@ def _starte(argumente: Sequence[str]) -> subprocess.CompletedProcess[str]:
         text=True,
         timeout=ZEITLIMIT_SEKUNDEN,
         check=False,
+        # ohne Terminal bricht Rich nach 80 Zeichen hart um — ein zerschnittenes
+        # Geheimnis (Token in einer Webhook-Adresse) erkennt kein Muster ganz
+        # (Runde 6, g5w-konten N1); die Ausgabe hat keine Panels oder Linien
+        env={**os.environ, "COLUMNS": AUSGABE_BREITE},
     )
 
 
 def _grund(zeilen: list[str]) -> str:
-    """Die letzten Zeilen der Ausgabe eines fehlgeschlagenen Schritts, geschwärzt."""
-    belegt = [" ".join(z.split()) for z in zeilen if z.strip()]
+    """Die letzten Zeilen der Ausgabe eines fehlgeschlagenen Schritts, geschwärzt —
+    jede Zeile für sich und verbunden (ein Muster über einen Umbruch hinweg)."""
+    belegt = [schwaerze(" ".join(z.split())) for z in zeilen if z.strip()]
     # erst schwärzen, dann kürzen: eine angeschnittene IBAN erkennt kein Muster
     text = schwaerze(" ".join(belegt[-GRUND_ZEILEN:]))
     return text if len(text) <= GRUND_ZEICHEN else "…" + text[-GRUND_ZEICHEN:]

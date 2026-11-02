@@ -544,3 +544,21 @@ def test_eigener_kanal_aus_der_registry(tmp_path, monkeypatch):
     assert kanaele == {"teams": attrappe}
     assert "unbekannter Kanal brieftaube" in fehler["brieftaube"]
     assert "teams" in fehler["brieftaube"]  # nennt, was es gibt
+
+
+@pytest.mark.parametrize(
+    ("url", "erwartet"),
+    [
+        ("https://alarm:geheim@hooks.example/x", "https://hooks.example/…"),
+        ("https://alarm:Kassel#2026@hooks.example.invalid/hook", "https://alarm/…"),
+        ("https://alarm:Wint3r?Sonne@hooks.example.invalid/x", "https://alarm/…"),
+        (
+            "https://hooks.example:8443/services/T0/geheim",
+            "https://hooks.example:8443/…",
+        ),
+    ],
+)
+def test_webhook_ziel_ohne_zugangsdaten(url, erwartet):
+    """g5w-konten N1 (Runde 6): die Fehlermeldung nannte netloc samt Benutzer und
+    Passwort; ein unkodiertes # oder ? im Passwort machte den Rest zum Port."""
+    assert WebhookKanal(url)._ziel() == erwartet

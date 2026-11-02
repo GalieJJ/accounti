@@ -42,10 +42,42 @@ def ausgabe():
         ("postgresql+psycopg://accounti:sehr-geheim@db/acc", "sehr-geheim"),
         ("GET /x?passwort=hunter2&einmalcode=123456", "hunter2"),
         ("GET /x?token=abcdef", "abcdef"),
+        # Runde 6 (g5w-konten N1): Zugangsdaten jeder URL, auch unkodiert oder
+        # vom Zeilenumbruch (Rich, 80 Zeichen) zerschnitten
+        ("Webhook https://alarm:Kassel#2026@hooks.example.invalid/hook", "Kassel"),
+        ("Webhook https://alarm:Wint3r?Sonne@hooks.example.invalid/hook", "Wint3r"),
+        ("Webhook https://alarm:Wint3r%3FSonne@hooks.example.invalid/x", "Wint3r"),
+        ("https://accounti:sehr-geheim@hooks.example/x", "accounti:"),
+        ("Webhook https://alarm:Kassel/… nicht zustellbar", "Kassel"),
+        (
+            "Webhook https://accounti:github_pat_11ABCDEFG0123456789_abcdefghijkl"
+            " mnopqrstuvwxyzABCDEF0123456789abcd@hooks.example.invalid/…",
+            "github_pat_11",
+        ),
+        ("Token ghp_abcdefghijklmnopqrstuvwxyz0123456789", "abcdefghijklmnop"),
+        ("passwort: hunter2", "hunter2"),
+        ("Password = hunter2", "hunter2"),
+        ("PIN=12345 falsch", "12345"),
+        ("PIN: 12345 falsch", "12345"),
+        ("TAN 123456 abgelaufen", "123456"),
     ],
 )
 def test_schwaerzung(roh, darf_nicht):
     assert darf_nicht not in schwaerze(roh)
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "GET https://hooks.example:8443/services → 200",
+        "http://127.0.0.1:8080/x",
+        "Buchung 4fec6038 an 1200, Kz 81: 500,00",
+        "sha256 fa34e1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e",
+        "Pin-Liste geladen",
+    ],
+)
+def test_schwaerzung_laesst_harmloses(roh):
+    assert schwaerze(roh) == roh
 
 
 def test_filter_gilt_fuer_alle_logger_und_ausnahmen(ausgabe):

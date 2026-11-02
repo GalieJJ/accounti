@@ -72,6 +72,26 @@ def test_fehlermeldung_eines_schritts_steht_im_protokoll(caplog):
     assert "alles gut" not in caplog.text
 
 
+def test_zugangsdaten_der_webhook_adresse_nicht_in_der_warnung(caplog):
+    """g5w-konten N1 (Runde 6): Rich bricht die Meldung nach 80 Zeichen hart um — der
+    Grund verband die Zeilen erst danach, das URL-Muster verlangte „:geheim@“ ohne
+    Leerraum. 63 von 97 Zeichen eines Tokens standen auf WARNING."""
+    token = "github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyzABCDEF0123456789"
+    ausgabe = (
+        "gemeinsam: webhook fehlgeschlagen — KanalError: Webhook https://accounti:"
+        f"{token[:50]}\n{token[50:]}@hooks.example.invalid/… nicht zustellbar\n"
+    )
+
+    def ausfuehren(argumente):
+        return subprocess.CompletedProcess(argumente, 1, ausgabe, "")
+
+    with caplog.at_level(logging.INFO, logger="accounti.lauf"):
+        einmal(kontext_ohne_registry(), ausfuehren)
+    for teil in (token[:20], token[20:40], token[40:60], token[60:]):
+        assert teil not in caplog.text, teil
+    assert "nicht zustellbar" in caplog.text
+
+
 def test_zeitlimit_steht_im_protokoll(caplog):
     def ausfuehren(argumente):
         raise subprocess.TimeoutExpired(argumente, 3600)

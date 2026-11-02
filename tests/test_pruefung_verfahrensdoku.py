@@ -457,3 +457,23 @@ def test_regelmuster_mit_senkrechtem_strich(tmp_path, monkeypatch):
     pdf = als_pdf(text, tmp_path / "doku.pdf")
     inhalt = "".join(seite.extract_text() for seite in PdfReader(pdf).pages)
     assert "PORTO|BRIEFMARKE" in inhalt and "PORTO\\|" not in inhalt
+
+
+def test_connector_adresse_ohne_zugangsdaten(tmp_path):
+    """g5w-konten N1 (Runde 6): die Verfahrensdokumentation nannte netloc der
+    ``basis_url`` — samt Benutzer und Passwort, wenn die Adresse sie trägt."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        "      basis_url: https://jan:sehr-geheim@portal.example:8443/api\n"
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert "portal.example:8443" in zeile
+    assert "sehr-geheim" not in text and "jan:" not in zeile

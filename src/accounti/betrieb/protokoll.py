@@ -3,9 +3,10 @@
 Zwei Schichten: Der Code schreibt keine Belegtexte, Namen, Passwörter oder Token
 ins Protokoll (das Zugriffsprotokoll der App enthält nur Methode, Pfad ohne Abfrage,
 Status, Dauer). Zusätzlich schwärzt ein Filter an jedem Handler, was als Muster
-erkennbar ist: IBAN, E-Mail-Adressen, accounti-Token, Bearer-Token, Passwörter in
-URLs und Geheimnis-Parameter (``passwort=…``, ``token=…``). Namen erkennt kein
-Muster — sie dürfen gar nicht erst geschrieben werden.
+erkennbar ist: IBAN, E-Mail-Adressen, accounti-Token, Bearer-Token und verbreitete
+Zugangstoken, Benutzer und Passwort in URLs (auch zerschnitten), Geheimnis-Parameter
+(``passwort=…``, ``token=…``), „Passwort: …“ sowie PIN und TAN als Zahl. Namen erkennt
+kein Muster — sie dürfen gar nicht erst geschrieben werden.
 
 Stufe und Format aus ``ACCOUNTI_PROTOKOLL_STUFE`` (``INFO``) und
 ``ACCOUNTI_PROTOKOLL_FORMAT`` (``text`` oder ``json``).
@@ -20,10 +21,27 @@ import re
 import sys
 from typing import IO
 
+_SCHEMA = r"[A-Za-z][A-Za-z0-9+.\-]*://"
 _MUSTER: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"accounti_(?:api|wh)_[A-Za-z0-9_\-]+"), "[Token]"),
+    # verbreitete Zugangstoken (GitHub, GitLab, Slack) — auch ohne „token=“
+    (
+        re.compile(
+            r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|"
+            r"glpat-[A-Za-z0-9_\-]{20,}|xox[abeprs]-[A-Za-z0-9\-]{10,})"
+        ),
+        "[Token]",
+    ),
     (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
-    (re.compile(r"(://[^:/@\s]+:)[^@\s]+@"), r"\1***@"),
+    # Zugangsdaten jeder URL (scheme://benutzer:passwort@): die ganze userinfo, auch
+    # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
+    (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
+    # … und abgeschnitten (Zeilenumbruch, kaputte Adresse): „scheme://benutzer:etwas“
+    # ohne @ — außer einem Port (nur Ziffern)
+    (
+        re.compile(rf"({_SCHEMA}[^/\s:@?#\[\]]+):(?!\d+(?:[/?#\s]|$))[^/\s@]+"),
+        r"\1:***",
+    ),
     (
         re.compile(
             r"(?i)\b(passwor[td]|pin|tan|token|secret|geheimnis|schluessel|key|"
@@ -31,7 +49,17 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
         ),
         r"\1=***",
     ),
-    (re.compile(r"[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+"), "[E-Mail]"),
+    # „Passwort: …“, „Kennwort = …“ (Text statt Parameter)
+    (
+        re.compile(
+            r"(?i)\b(passwor[td]|kennwort|secret|geheimnis)(\s*[:=]\s*)[^\s\"',;]+"
+        ),
+        r"\1\2***",
+    ),
+    # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
+    (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
+    # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“)
+    (re.compile(r"[\w.+\-#?%!$&*=^~]+@[\w\-]+(?:\.[\w\-]+)+"), "[E-Mail]"),
     (
         re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,3})?\b"),
         "[IBAN]",

@@ -303,10 +303,21 @@ class WebhookKanal:
         self.timeout = timeout
 
     def _ziel(self) -> str:
-        teile = urlsplit(self.url)  # Pfad und Abfrage tragen oft ein Geheimnis
+        """Schema, Rechner und Port — Pfad und Abfrage tragen oft ein Geheimnis,
+        Benutzer und Passwort sowieso (Runde 6, g5w-konten N1: netloc stand samt
+        Zugangsdaten in der Meldung; ein unkodiertes # oder ? im Passwort macht für
+        ``urlsplit`` den Rest zum „Port“)."""
+        teile = urlsplit(self.url)
         if not teile.scheme or not teile.netloc:
             return "(ungültige Adresse)"
-        return f"{teile.scheme}://{teile.netloc}/…"
+        try:
+            port = teile.port
+        except ValueError:
+            port = None
+        rechner = teile.hostname or "?"
+        if ":" in rechner:  # IPv6
+            rechner = f"[{rechner}]"
+        return f"{teile.scheme}://{rechner}{f':{port}' if port else ''}/…"
 
     def adresse(self, uebersicht: Tagesuebersicht) -> str | None:
         return self._ziel()

@@ -222,7 +222,9 @@ def _belegeingang(d: _Doku) -> None:
             zeilen.append(["webhook", "—", f"{w.host}:{w.port}, Bearer-Token"])
         for c in kanaele.connectoren:
             basis = str(c.einstellungen().get("basis_url") or "")
-            zeilen.append(["connector", c.name, f"{c.typ}: {urlsplit(basis).netloc}"])
+            # Rechner und Port, ohne Benutzer und Passwort (Runde 6, g5w-konten N1)
+            rechner = urlsplit(basis).netloc.rpartition("@")[2]
+            zeilen.append(["connector", c.name, f"{c.typ}: {rechner}"])
         d(*_tabelle(["Kanal", "Name", "Einstellung"], zeilen))
         d(
             "Dateiprüfung für E-Mail, Webhook, Connector und Ordner: höchstens "
