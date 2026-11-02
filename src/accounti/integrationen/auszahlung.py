@@ -6,8 +6,10 @@ Nachprüfungen 1–5 E):
 
 1. In Frage kommen Bankumsätze im Zeitfenster um das Auszahlungsdatum mit derselben
    Richtung, die weder früher noch in diesem Lauf einem Marktplatzposten zugeordnet
-   sind — nie PayPal-Umsätze, Umsätze auf einem Verrechnungskonto oder einer, dessen
-   Zuordnung zu dieser Auszahlung von Hand gelöst ist (Regel 9).
+   sind — nur von der Bank: nie PayPal-Umsätze, Kassenbuch-Vorgänge, Kartenumsätze
+   (eine Auszahlung geht aufs Bankkonto, Nachprüfung 6 E, Mc, N-d), Umsätze auf
+   einem Verrechnungskonto oder einer, dessen Zuordnung zu dieser Auszahlung von
+   Hand gelöst ist (Regel 9).
 2. Nummer vor Betrag: Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung
    desselben Marktplatzes (gespeichert oder aus demselben Bericht; als eigenes Wort,
    mindestens 6 Zeichen) und nicht die eigene, gehört er zu ihr — hier weder Treffer
@@ -40,16 +42,21 @@ Nachprüfungen 1–5 E):
    Nennt der Treffer die eigene Nummer nicht, ist die Zuordnung
    geraten — das sagt ein Hinweis (``zuordnung_ohne_nummer``) mit dem Befehl aus
    Regel 9.
-6. Ohne Treffer gilt der erste dieser Befunde: ein als Erlös gebuchter mit passendem
-   Betrag (``auszahlung_anderweitig_gebucht``, Fehler — die Voranmeldung des
-   Bankmonats warnt, ``bankdaten``; mehrere grenzen eigene Nummer, keine andere
-   Nummer und exakter Betrag ein, sonst nennt der Befund alle) — ebenso einer mit der
-   eigenen Nummer außerhalb der Toleranz (falscher Kurs, Teilbetrag: der Erlös ist
-   trotzdem doppelt, Nachprüfung 5 E, N2); ein offener Umsatz mit Stichwort oder
-   Nummer in anderer Höhe oder der eigene als Geldbewegung außerhalb der Toleranz
-   (``auszahlung_abweichung``); eine Geldbewegung auf einem anderen Konto
-   (``auszahlung_umgebucht``); Regel 4. Sonst ist die Auszahlung noch nicht auf der
-   Bank, ohne Befund.
+6. Ohne Treffer gilt der erste dieser Befunde: ein als Erlös gebuchter mit Stichwort
+   oder Nummer und passendem Betrag (``auszahlung_anderweitig_gebucht``, Fehler mit
+   dem korrigiere-Befehl — die Voranmeldung des Bankmonats warnt, ``bankdaten``;
+   mehrere grenzen eigene Nummer, keine andere Nummer und exakter Betrag ein, sonst
+   nennt der Befund alle) — ebenso einer mit der eigenen Nummer außerhalb der
+   Toleranz (falscher Kurs, Teilbetrag: der Erlös ist trotzdem doppelt, Nachprüfung
+   5 E, N2); ein offener Umsatz mit Stichwort oder Nummer in anderer Höhe oder der
+   eigene als Geldbewegung außerhalb der Toleranz (``auszahlung_abweichung``); eine
+   Geldbewegung auf einem anderen Konto (``auszahlung_umgebucht``); Regel 4; zuletzt
+   ein als Erlös gebuchter mit genau dem Betrag, aber ohne Stichwort und Nummer
+   (``auszahlung_vielleicht_gebucht``): ebenso gut eine Kundenzahlung gleicher Höhe,
+   deshalb ohne korrigiere-Befehl (der löschte dort echten Erlös, Nachprüfung 6 E,
+   Mc) — ein Hinweis, ohne ``bank_stichworte`` eine Warnung, bei der auch die
+   Voranmeldung des Bankmonats warnt (dort ist der Betrag das einzige Merkmal).
+   Sonst ist die Auszahlung noch nicht auf der Bank, ohne Befund.
 7. Befunde über einen Umsatz (``_UMSATZBEFUNDE``) gelten, solange ein Lauf sie so
    wiederfindet — nennt ein späterer einen anderen oder keinen Umsatz mehr (etwa weil
    die fremde Nummer inzwischen bekannt ist), ist der alte erledigt — „schon
@@ -176,6 +183,9 @@ def umsaetze_mit_befund(abgleiche: Iterable[Abgleich]) -> dict[UUID, str]:
     }
 
 
+# ein als Erlös gebuchter Umsatz mit genau dem Betrag, aber ohne Stichwort und Nummer
+# (Regel 6, Nachprüfung 6 E, Mc) — Warnung ohne ``bank_stichworte``, sonst Hinweis
+VIELLEICHT = "auszahlung_vielleicht_gebucht"
 ABGLEICHSBEFUNDE = {
     "auszahlung_abweichung",
     "auszahlung_mehrdeutig",
@@ -183,6 +193,7 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_umgebucht",
     "auszahlung_andere_nummer",
     "auszahlung_zweifel",
+    VIELLEICHT,
 }
 # Befunde über einen bestimmten Umsatz: überholt, sobald ein Lauf ihn nicht mehr so
 # findet (``gleiche_auszahlungen_ab``, Regel 7)
@@ -191,7 +202,11 @@ _UMSATZBEFUNDE = {
     "auszahlung_umgebucht",
     "auszahlung_andere_nummer",
     "auszahlung_zweifel",
+    VIELLEICHT,
 }
+# Befunde über einen als Erlös gebuchten Umsatz (Regel 7: neben „mehrdeutig“ nur,
+# solange im Fenster noch ein Erlös gebucht ist)
+_ERLOESBEFUNDE = {"auszahlung_anderweitig_gebucht", VIELLEICHT}
 # Text des Befunds „auszahlung_anderweitig_gebucht“ — ``bankdaten`` liest die Tage
 # daraus zurück; beides nur hier ändern
 _SCHON_GEBUCHT = "Der Bankumsatz vom {tag:%d.%m.%Y} ist schon gebucht"
@@ -254,16 +269,18 @@ _UMSATZ_ID = re.compile(r"\[Umsatz ([0-9a-f-]{36})\]")
 
 def bankdaten(befund: Befund) -> list[date]:
     """Tage der schon gebuchten Bankumsätze eines Befunds
-    ``auszahlung_anderweitig_gebucht`` — dort steht die Fehlbuchung und damit der
-    doppelte Erlös in der Voranmeldung, nicht im Zeitraum der Abrechnung (z. B.
-    Abrechnung 16.–31.08., Auszahlung am 03.09.). Passen mehrere Umsätze, nennt der
-    Befund alle (es wird nicht geraten), die Voranmeldung jedes Tages warnt. Die
-    Tabelle ``marktplatz_befunde`` hat keine Spalte dafür, die Tage stehen im
-    Befundtext; leer bei anderen Befunden oder einem Text ohne Tag."""
-    if befund.code != "auszahlung_anderweitig_gebucht":
+    ``auszahlung_anderweitig_gebucht`` (oder ``auszahlung_vielleicht_gebucht``) —
+    dort steht die Fehlbuchung und damit der doppelte Erlös in der Voranmeldung,
+    nicht im Zeitraum der Abrechnung (z. B. Abrechnung 16.–31.08., Auszahlung am
+    03.09.). Passen mehrere Umsätze, nennt der Befund alle (es wird nicht geraten),
+    die Voranmeldung jedes Tages warnt. Die Tabelle ``marktplatz_befunde`` hat keine
+    Spalte dafür, die Tage stehen im Befundtext (vor dem ersten „ — “); leer bei
+    anderen Befunden oder einem Text ohne Tag."""
+    if befund.code == VIELLEICHT:
+        treffer = list(_TAG.finditer(befund.text.split(" — ", 1)[0]))
+    elif befund.code != "auszahlung_anderweitig_gebucht":
         return []
-    einer = _SCHON_GEBUCHT_TAG.search(befund.text)
-    if einer is not None:
+    elif (einer := _SCHON_GEBUCHT_TAG.search(befund.text)) is not None:
         treffer = [einer]
     elif _SCHON_GEBUCHT_MEHRERE in befund.text:
         kopf = befund.text.split(" — ", 1)[0]
@@ -278,6 +295,15 @@ def bankdaten(befund: Befund) -> list[date]:
         except ValueError:
             continue
     return tage
+
+
+def warnt_voranmeldung(befund: Befund) -> bool:
+    """Gehört der offene Befund in die Prüfung der Voranmeldung? Jeder Fehler — und
+    „vielleicht gebucht“ als Warnung (ohne ``bank_stichworte``: dort ist der Betrag
+    das einzige Merkmal, ein doppelter Erlös bliebe sonst still)."""
+    return befund.schweregrad is Schweregrad.FEHLER or (
+        befund.code == VIELLEICHT and befund.schweregrad is Schweregrad.WARNUNG
+    )
 
 
 def bankdatum(befund: Befund) -> date | None:
@@ -347,12 +373,7 @@ def _neuer_lauf(
     lauf = _Lauf(
         session=session,
         kontext=kontext,
-        bankumsaetze=[
-            t
-            for t in lade_transaktionen(session)
-            if t.quelle is not TransaktionQuelle.PAYPAL
-            and (t.sachkonto or kontext.buchhaltung.bank_konto) not in marktkonten
-        ],
+        bankumsaetze=_bankumsaetze(session, kontext, marktkonten),
         offen_ids={t.id for t in offene_transaktionen(session, fuer_kontierung=True)},
         gebucht=gebuchte_transaktion_ids(session),
         zugeordnet=zugeordnete_bank_transaktionen(session),
@@ -371,6 +392,30 @@ def _neuer_lauf(
             elif b.code == VON_HAND:
                 lauf.von_hand.add(ident)
     return lauf
+
+
+def _bankumsaetze(
+    session: Session, kontext: Kontext, marktkonten: set[str]
+) -> list[Transaktion]:
+    """Regel 1: Umsätze, die eine Auszahlung sein können — nur von der Bank (Quelle
+    Bank), nicht auf einem Verrechnungskonto (PayPal-Konto eingeschlossen) und nicht
+    auf einer Kreditkarte. Eine Auszahlung geht aufs Bankkonto: ein Barverkauf im
+    Kassenbuch oder eine Amazon-Erstattung auf der Karte ist keine, auch mit genau
+    dem Betrag (wie ``buchung.marktplatz``; Nachprüfung 6 E, Mc, N-d)."""
+    from accounti.db.repo_bank import lade_kreditkarten
+    from accounti.db.repository import lade_bankkonten
+
+    karten = {k.bankkonto_id for k in lade_kreditkarten(session)}
+    ausgenommen = marktkonten | {
+        k.sachkonto for k in lade_bankkonten(session) if k.id in karten and k.sachkonto
+    }
+    return [
+        t
+        for t in lade_transaktionen(session)
+        if t.quelle is TransaktionQuelle.BANK
+        and (t.sachkonto or kontext.buchhaltung.bank_konto) not in ausgenommen
+        and (t.bankkonto_id is None or t.bankkonto_id not in karten)
+    ]
 
 
 def _erwartet(a: Abrechnung, p: Marktplatzposten) -> Decimal | None:
@@ -468,7 +513,7 @@ def gleiche_auszahlungen_ab(
                 if b.posten_nr == p.nr
                 and (
                     _ueberholt(b, None)
-                    if ohne_erloes and b.code == "auszahlung_anderweitig_gebucht"
+                    if ohne_erloes and b.code in _ERLOESBEFUNDE
                     else _ueberholt(b, neu)
                 )
             )
@@ -886,14 +931,11 @@ def _befund(
     # Erlös still doppelt in der Voranmeldung). Ein zugeordneter oder fremder Umsatz
     # (``_umsaetze``) und eine Geldbewegung sind nicht „schon gebucht“ — sonst träfe
     # die Toleranz den Umsatz der vorigen Auszahlung (Nachprüfung 2 E, M1; 3 E, M2);
-    # nennt einer die eigene Nummer, nur er (4 E, M3). Mit exakt dem erwarteten Betrag
-    # auch ohne Stichwort — wie beim Treffer (Regel 5); sonst schwieg die Voranmeldung,
-    # wo kein Stichwort eingestellt ist (Nachprüfung 5 E, Simulation)
-    gebucht = [
-        t
-        for t in alle
-        if t.id in lauf.gebucht and (_erkennbar(lauf, a, t) or t.betrag == erwartet)
-    ]
+    # nennt einer die eigene Nummer, nur er (4 E, M3). Nur mit Stichwort oder Nummer:
+    # der exakte Betrag allein traf jede Kundenzahlung gleicher Höhe, und der
+    # vorgeschlagene korrigiere-Befehl löschte echten Erlös samt USt (Nachprüfung
+    # 6 E, Mc) — der ist höchstens „vielleicht gebucht“ (unten, ohne Befehl)
+    gebucht = [t for t in alle if t.id in lauf.gebucht and _erkennbar(lauf, a, t)]
     passend = [t for t in gebucht if _passt(lauf, a, t, erwartet)]
     # mehrere: die eigene Nummer, keine andere, dann der exakte Betrag (in
     # Fremdwährung Zufall, die Nummer nicht; in Euro sind ohnehin alle exakt) —
@@ -997,15 +1039,34 @@ def _befund(
     ]
     if andere:
         return Abgleich(a, p, befund=_andere_nummer(a, p, andere), umsaetze=andere)
+    # als Erlös gebucht, genau der Betrag, aber weder Stichwort noch Nummer: vielleicht
+    # die Auszahlung, vielleicht eine Kundenzahlung — prüfen, nicht raten, kein
+    # korrigiere-Befehl (Nachprüfung 6 E, Mc; ohne bank_stichworte warnt auch die
+    # Voranmeldung, sonst schwiege sie dort bei doppeltem Erlös: 5 E, Simulation)
+    vielleicht = [
+        t
+        for t in alle
+        if t.id in lauf.gebucht
+        and t.betrag == erwartet
+        and not _erkennbar(lauf, a, t)
+        and not _nur_geldbewegung(lauf, t)
+    ]
+    if vielleicht:
+        return Abgleich(
+            a,
+            p,
+            befund=_vielleicht_gebucht(lauf, a, p, vielleicht),
+            umsaetze=vielleicht,
+        )
     return Abgleich(a, p)
 
 
 def _erloese(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
 ) -> list[Transaktion]:
-    """Die Umsätze, die „schon gebucht“ (Regel 6) nennen könnte: im Fenster, als
-    Erlös (nicht bloß Geldbewegung) gebucht, mit Stichwort oder Nummer oder exakt
-    dem Betrag."""
+    """Die Umsätze, die „schon gebucht“ oder „vielleicht gebucht“ (Regel 6) nennen
+    könnte: im Fenster, als Erlös (nicht bloß Geldbewegung) gebucht, mit Stichwort
+    oder Nummer oder exakt dem Betrag."""
     return [
         t
         for t in _umsaetze(lauf, a, p, erwartet)
@@ -1240,6 +1301,64 @@ def _schon_gebucht(
     return Befund(
         code="auszahlung_anderweitig_gebucht",
         schweregrad=Schweregrad.FEHLER,
+        text=text,
+        posten_nr=p.nr,
+    )
+
+
+def _vielleicht_gebucht(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, umsaetze: list[Transaktion]
+) -> Befund:
+    """``auszahlung_vielleicht_gebucht``: als Erlös gebucht, genau der Betrag, aber
+    weder Stichwort noch Nummer — eine Kundenzahlung gleicher Höhe genauso wie die
+    Auszahlung. Kein korrigiere-Befehl: der löschte bei einer fremden Einnahme echten
+    Erlös samt USt (Nachprüfung 6 E, Mc). Warnung (die Voranmeldung des Bankmonats
+    warnt mit, ``bankdaten``), wenn der Marktplatz keine ``bank_stichworte`` hat —
+    dann ist der Betrag das einzige Merkmal; sonst trägt eine Auszahlung ihr
+    Stichwort, und es bleibt ein Hinweis."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
+    ohne_stichwort = not any(w.strip() for w in konten.bank_stichworte)
+    wen = (
+        f"weder ein Stichwort von {markt} noch {a.nummer}"
+        if _nummer_wort(a)
+        else f"kein Stichwort von {markt}"
+    )
+    gegen = _gegenkonto(lauf.kontext, a)
+    if len(umsaetze) == 1:
+        (t,) = umsaetze
+        ids = ", ".join(str(b.id)[:8] for b in _buchungen(lauf, t)) or "?"
+        kopf = (
+            f"Der Bankumsatz vom {t.datum:%d.%m.%Y} über {eur_text(t.betrag)} € "
+            f"(Buchung {ids}) ist als Erlös gebucht und hat genau den Betrag der "
+            f"Auszahlung, nennt aber {wen}"
+        )
+        er = "er"
+    else:
+        liste, _ident = _liste(lauf, umsaetze)
+        kopf = (
+            f"{len(umsaetze)} als Erlös gebuchte Bankumsätze ({liste}) haben genau den "
+            f"Betrag der Auszahlung, nennen aber {wen}"
+        )
+        er = "einer"
+    text = (
+        f"{markt} {a.nummer}: {kopf} — ob {er} die Auszahlung ist, sagt kein "
+        "Verwendungszweck, es wird nicht geraten. Prüfen (Kontoauszug): Ist "
+        f"{er} die Auszahlung, stehen ihre Erlöse doppelt in der Voranmeldung — dann "
+        f"seine Buchung zur Geldbewegung auf {gegen} ohne Umsatzsteuer umbuchen, "
+        "danach gleicht der Abgleich ihn ab. Ist es eine "
+        "andere Einnahme (Kundenzahlung, Bareinzahlung), bleibt die Buchung, die "
+        "Auszahlung steht noch aus"
+        + (
+            f"; ohne bank_stichworte für {markt} erkennt accounti eine Auszahlung "
+            "nur an Betrag und Nummer"
+            if ohne_stichwort
+            else ""
+        )
+    )
+    return Befund(
+        code=VIELLEICHT,
+        schweregrad=Schweregrad.WARNUNG if ohne_stichwort else Schweregrad.HINWEIS,
         text=text,
         posten_nr=p.nr,
     )
@@ -1586,10 +1705,17 @@ def _auszahlungsposten(a: Abrechnung, nr: int | None) -> Marktplatzposten:
 
 
 def _umsatz_mit_id(lauf: _Lauf, ident: UUID) -> Transaktion:
+    """Der zugeordnete Umsatz — auch einer, der nach Regel 1 heute kein Kandidat
+    mehr wäre (eine alte Zuordnung zur Karte): lösen geht immer."""
+    from accounti.db.repository import lade_transaktion
+
     for t in lauf.bankumsaetze:
         if t.id == ident:
             return t
-    raise ZuordnungError(f"Bankumsatz {str(ident)[:8]} nicht gefunden")
+    t = lade_transaktion(lauf.session, ident)
+    if t is None:
+        raise ZuordnungError(f"Bankumsatz {str(ident)[:8]} nicht gefunden")
+    return t
 
 
 def _finde_umsatz(lauf: _Lauf, anfang: str) -> Transaktion:
@@ -1601,8 +1727,9 @@ def _finde_umsatz(lauf: _Lauf, anfang: str) -> Transaktion:
     ]
     if not treffer:
         raise ZuordnungError(
-            f"Kein Bankumsatz '{anfang}' (PayPal-Umsätze und Umsätze auf einem "
-            "Verrechnungskonto sind keine Auszahlung auf die Bank)"
+            f"Kein Bankumsatz '{anfang}' (PayPal-Umsätze, Kassenbuch- und "
+            "Kartenumsätze und Umsätze auf einem Verrechnungskonto sind keine "
+            "Auszahlung auf die Bank)"
         )
     if len(treffer) > 1:
         raise ZuordnungError(

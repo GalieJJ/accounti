@@ -1310,13 +1310,22 @@ def test_schon_gebucht_mit_exaktem_betrag_auch_ohne_stichwort(umgebung):
     einen Eingang ohne Nummer vor dem Import per Regel als Erlös. Der Abgleich nimmt
     einen offenen mit exakt dem Betrag auch ohne Stichwort als Treffer (Regel 5),
     „schon gebucht“ verlangte aber ein Stichwort — die Voranmeldung schwieg bei
-    doppeltem Erlös. Jetzt gilt der exakte Betrag auch dort."""
+    doppeltem Erlös. Der exakte Betrag allein ist aber kein Beweis: eine
+    Kundenzahlung gleicher Höhe bekam so den FEHLER mit einem korrigiere-Befehl, der
+    echten Erlös löschte (Nachprüfung 6 E, Mc — vorher schrieb dieser Test den
+    FEHLER fest). Jetzt: die Warnung ``auszahlung_vielleicht_gebucht`` ohne Befehl,
+    die Voranmeldung des Bankmonats warnt weiter."""
     s, archiv, kontext = umgebung
     kontext = _ohne_stichwort(kontext, "amazon")
     tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE")
     _als_erloes_gebucht(s, tx, "176.34", "33.51")
     roh = _amazon_ende_august((FIXTURES / "amazon_abrechnung_v2.txt").read_bytes())
     (ergebnis,) = amazon(s, archiv, kontext, roh)
-    befund = _anderweitig(ergebnis)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_vielleicht_gebucht", befund.text
+    assert befund.schweregrad is Schweregrad.WARNUNG
     assert "03.09.2026" in befund.text
-    assert _ustva_warnungen(s, "2026-09")
+    assert "accounti korrigiere" not in befund.text and "--soll" not in befund.text
+    assert lade_abrechnungen(s)[0].status is not AbrechnungStatus.ABWEICHUNG
+    (warnung,) = _ustva_warnungen(s, "2026-09")
+    assert "auszahlung_vielleicht_gebucht" in warnung

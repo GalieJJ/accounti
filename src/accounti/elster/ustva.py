@@ -180,7 +180,8 @@ def abgabe_befunde(session: Session, e: Ermittlung) -> list[Befund]:
 
 def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
     """Offene Fehler-Befunde von Marktplatz-Abrechnungen des Zeitraums — z.B. eine
-    Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt).
+    Auszahlung, die eine Regel schon als Erlös gebucht hat (Erlös doppelt) — und die
+    Warnung „vielleicht gebucht“ (``auszahlung.warnt_voranmeldung``).
 
     Maßgeblich ist der Zeitraum der Abrechnung; eine schon gebuchte Auszahlung
     (``auszahlung_anderweitig_gebucht``) zählt dagegen im Zeitraum der Bankbuchung —
@@ -188,15 +189,14 @@ def marktplatz_befunde(session: Session, zeitraum: Zeitraum) -> list[Befund]:
     mehrere Umsätze, weil nicht zu entscheiden ist, welcher die Auszahlung ist, in
     jedem ihrer Zeiträume)."""
     from accounti.db.repo_integrationen import lade_abrechnungen
-    from accounti.integrationen.auszahlung import bankdaten
+    from accounti.integrationen.auszahlung import bankdaten, warnt_voranmeldung
     from accounti.integrationen.buchung import ANZEIGE
-    from accounti.models.integrationen import Schweregrad as MarktSchwere
 
     befunde = []
     for a in lade_abrechnungen(session):
         im_zeitraum = not (a.bis < zeitraum.von or a.von > zeitraum.bis)
         for b in a.offene_befunde:
-            if b.schweregrad is not MarktSchwere.FEHLER:
+            if not warnt_voranmeldung(b):
                 continue
             tage = bankdaten(b)
             if not (

@@ -6,7 +6,6 @@ Marktplatzes, mit der Nummer eines anderen oder einer Rechnung sind keine
 Kandidaten; der festgeschriebene Monat; dazu die Niedrig-Befunde N-a bis N-i.
 """
 
-import shlex
 from datetime import date
 from decimal import Decimal
 from uuid import uuid4
@@ -214,3 +213,162 @@ def test_bank_lauf_schlaegt_zurueckgehaltene_auszahlung_keiner_forderung_vor(umg
     ordne_zu(s, kontext, "11223344556", str(tx.id)[:8], von="erika")
     assert saldo(lade_buchungen(s), "1200") == Decimal("209.85")
     assert saldo(lade_buchungen(s), "10001") == 0
+
+
+# --- Mc: „schon gebucht“ nur mit Stichwort oder Nummer; die Kasse ist keine Bank -----
+
+
+def _kassenvorgang(s, tag, betrag):
+    """Ein Barverkauf im Kassenbuch (Quelle manuell, Sachkonto 1000, 1000 an 8400)."""
+    from accounti.db.repository import speichere_transaktion
+
+    t = Transaktion(
+        datum=tag,
+        betrag=Decimal(betrag),
+        verwendungszweck="Barverkauf Bilderrahmen",
+        quelle=TransaktionQuelle.MANUELL,
+        rohtext="Kassenbuch Nr. 17: Barverkauf Bilderrahmen",
+        sachkonto="1000",
+    )
+    speichere_transaktion(s, t)
+    speichere_buchung(
+        s,
+        Buchungssatz(
+            transaktion_id=t.id,
+            datum=t.datum,
+            soll_konto="1000",
+            haben_konto="8400",
+            betrag_netto=Decimal("176.34"),
+            steuer_schluessel=3,
+            steuer_betrag=Decimal("33.51"),
+            buchungstext="Barverkauf",
+            status=BuchungStatus.GEPRUEFT,
+        ),
+    )
+    s.flush()
+    return t
+
+
+def test_kassenvorgang_ist_keine_auszahlung(umgebung):
+    """Mc, Fall s19: ein Barverkauf im Kassenbuch über den Betrag der Amazon-
+    Auszahlung bekam den FEHLER „schon gebucht – Erlöse wären doppelt“ mit
+    ``korrigiere … --soll 1000 --haben 1361`` (der Befehl löschte echten Erlös samt
+    USt), die UStVA 09 warnte. Eine Auszahlung geht auf die Bank, nie in die Kasse:
+    Kassenbuch-Vorgänge sind keine Kandidaten (Regel 1, wie ``buchung.marktplatz``)."""
+    s, archiv, kontext = umgebung
+    _kassenvorgang(s, date(2026, 9, 3), "209.85")
+    ergebnis = _amazon_september(s, archiv, kontext)
+    assert not [a.befund for a in ergebnis.abgleich if a.befund]
+    assert not _befunde(s, "11223344556", hinweise=True)
+    assert not _ustva_warnungen(s, "2026-09")
+
+
+def _paypal_mit_kundenzahlung(s, archiv, kontext):
+    """Fall s20: eine Kundenzahlung über 150,00 € am 12.08. ist per Regel als Erlös
+    gebucht; PayPal erwartet seine Auszahlung von 150 € (12./13.08.), deren
+    Bankumsatz noch fehlt."""
+    from tests.test_integrationen_lauf import paypal
+
+    kunde = bank(
+        s, date(2026, 8, 12), "150.00", "RE-2026-12 RAHMEN", "Galerie Nord GmbH"
+    )
+    _als_erloes_gebucht(s, kunde, "126.05", "23.95")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    (ergebnis,) = paypal(s, archiv, kontext)
+    return kunde, ergebnis
+
+
+def test_fremde_kundenzahlung_mit_dem_betrag_ist_kein_fehler(umgebung):
+    """Mc, Fälle s20/s21: die Kundenzahlung nennt weder ein PayPal-Stichwort noch die
+    Abrechnung. Seit ff68510 bekam sie den FEHLER „schon gebucht“ mit
+    ``korrigiere … --soll 1200 --haben 1360`` — wer ihm folgte, hatte 8400 = 0
+    (126,05 € Erlös und 23,95 € USt fehlten), PayPal war mit ihr abgeglichen und sein
+    echter Umsatz blieb für immer offen. Ohne Stichwort und Nummer ist der Betrag
+    allein höchstens ein Hinweis, ohne korrigiere-Befehl; kommt PayPals Umsatz, wird
+    er Treffer und der Hinweis ist erledigt."""
+    s, archiv, kontext = umgebung
+    kunde, ergebnis = _paypal_mit_kundenzahlung(s, archiv, kontext)
+    nummer = ergebnis.abrechnung.nummer
+    assert not _befunde(s, nummer)  # kein Fehler, keine Warnung
+    (hinweis,) = _befunde(s, nummer, hinweise=True)
+    assert hinweis.code == "auszahlung_vielleicht_gebucht"
+    assert hinweis.schweregrad is Schweregrad.HINWEIS
+    assert "accounti korrigiere" not in hinweis.text and "--soll" not in hinweis.text
+    assert not _ustva_warnungen(s, "2026-08")
+    p = bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE ABBUCHUNG")
+    gleiche_auszahlungen_ab(s, kontext)
+    (a,) = lade_abrechnungen(s)
+    assert p.id in {x.bank_transaktion_id for x in a.posten}
+    assert kunde.id not in {x.bank_transaktion_id for x in a.posten}
+    assert not _befunde(s, nummer, hinweise=True)
+    (erloes,) = buchungen_zur_transaktion(s, kunde.id)
+    assert (erloes.haben_konto, erloes.steuer_betrag) == ("8400", Decimal("23.95"))
+
+
+def test_erkennbarer_umsatz_bleibt_schon_gebucht(umgebung):
+    """Gegenprobe zu Mc: mit Stichwort (oder Nummer) bleibt es der FEHLER mit dem
+    korrigiere-Befehl — dort ist der Umsatz erkennbar die Auszahlung."""
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    _amazon_september(s, archiv, kontext)
+    (b,) = _befunde(s, "11223344556")
+    assert b.code == "auszahlung_anderweitig_gebucht" and "korrigiere" in b.text
+    assert b.schweregrad is Schweregrad.FEHLER
+    assert _ustva_warnungen(s, "2026-09")
+
+
+# --- N-d: Kartenumsätze sind keine Kandidaten ------------------------------------
+
+
+def _kartengutschrift(s, tag, betrag, zweck="AMAZON.DE ERSTATTUNG"):
+    """Eine Gutschrift auf dem Kreditkartenkonto (Sachkonto 1290)."""
+    from accounti.db.repo_bank import speichere_kreditkarte
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.db.tabellen import TransaktionRow
+    from accounti.models import Bankkonto
+    from accounti.models.bank import Kreditkarte
+
+    giro = Bankkonto(
+        iban="DE02120300000000202051", bezeichnung="Giro", sachkonto="1200"
+    )
+    karte = Bankkonto(iban="KARTE-1234", bezeichnung="Visa", sachkonto="1290")
+    speichere_bankkonto(s, giro)
+    speichere_bankkonto(s, karte)
+    speichere_kreditkarte(
+        s, Kreditkarte(bankkonto_id=karte.id, girokonto_id=giro.id, endziffern="1234")
+    )
+    s.flush()
+    t = bank(s, tag, betrag, zweck, "AMAZON")
+    zeile = s.get(TransaktionRow, str(t.id))
+    zeile.bankkonto_id = str(karte.id)
+    zeile.sachkonto = "1290"
+    s.flush()
+    return t
+
+
+def test_kartengutschrift_ist_keine_auszahlung(umgebung):
+    """N-d, Fall s3: eine Amazon-Erstattung auf der Kreditkarte über den Betrag der
+    Auszahlung wurde zugeordnet (1290 an 1361) — sie minderte weder Aufwand noch
+    Vorsteuer. Eine Auszahlung geht nie auf eine Kreditkarte (wie
+    ``buchung.marktplatz``)."""
+    s, archiv, kontext = umgebung
+    c = _kartengutschrift(s, date(2026, 9, 3), "209.85")
+    ergebnis = _amazon_september(s, archiv, kontext)
+    assert all(a.transaktion is None for a in ergebnis.abgleich)
+    assert not buchungen_zur_transaktion(s, c.id)
+    assert not _befunde(s, "11223344556", hinweise=True)
+    with pytest.raises(ZuordnungError, match="Kein Bankumsatz"):
+        ordne_zu(s, kontext, "11223344556", str(c.id)[:8], von="erika")
+
+
+def test_kartengutschrift_nicht_im_befund_mehrdeutig(umgebung):
+    """N-d, Fall s18: Kartengutschrift und Giro-Umsatz, beide ohne Nummer — der
+    Befund „mehrdeutig“ bot die Karte als Bankumsatz an. Jetzt ist der Giro-Umsatz
+    der einzige Kandidat."""
+    s, archiv, kontext = umgebung
+    _kartengutschrift(s, date(2026, 9, 3), "209.85")
+    k = bank(s, date(2026, 9, 4), "209.85", "AMAZON PAYMENTS EUROPE")
+    ergebnis = _amazon_september(s, archiv, kontext)
+    (m,) = ergebnis.abgleich
+    assert m.transaktion is not None and m.transaktion.id == k.id
