@@ -971,3 +971,34 @@ def test_postgresql_uebernahme_hinter_gelernten(pg_datenbank, tmp_path):
         namen = [r.name for r in lade_kontierungsregeln(s)]
     engine.dispose()
     assert namen == ["gelernt_telekom_deutschland", "gelernt_telekom"]
+
+
+@mit_postgresql
+def test_postgresql_uebernahme_langer_werte_ohne_speicherfehler(pg_datenbank, tmp_path):
+    """Runde 4 (g3w-web N3): PostgreSQL lehnt zu lange Werte erst beim Speichern ab
+    (``name`` 100, ``muster`` 200, ``buchungstext`` 60 Zeichen) — die Übernahme prüft
+    sie vorher: ungültig bzw. gekürzt, kein Datenbankfehler."""
+    from accounti.db import init_db, session_factory
+
+    engine, fabrik = session_factory(pg_datenbank())
+    init_db(engine)
+    lang = "gelernt_" + "x" * 95
+    datei = tmp_path / "regeln.yaml"
+    eintrag = "  soll_konto: '4920'\n  haben_konto: '1200'\n"
+    datei.write_text(
+        f"- name: {lang}_eins\n  muster: telekom\n{eintrag}"
+        f"- name: {lang}_zwei\n  muster: vodafone\n{eintrag}"
+        f"- name: gelernt_muster\n  muster: '{'a' * 201}'\n{eintrag}"
+        f"- name: gelernt_text\n  muster: strom\n  buchungstext: '{'T' * 80}'\n"
+        + eintrag,
+        encoding="utf-8",
+    )
+    with fabrik() as s:
+        e = uebernehme_aus_datei(s, datei, "jan")
+        s.commit()
+        regeln = {r.name: r for r in lade_kontierungsregeln(s)}
+    engine.dispose()
+    assert sorted(e.uebernommen) == sorted([lang + "_eins", "gelernt_text"])
+    assert sorted(e.ungueltig) == sorted([lang + "_zwei", "gelernt_muster"])
+    assert regeln["gelernt_text"].buchungstext == "T" * 60
+    assert len(regeln[(lang + "_eins")[:100]].name) == 100
