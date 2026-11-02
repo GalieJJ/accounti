@@ -46,6 +46,41 @@ def test_ein_fehler_haelt_die_anderen_nicht_auf(caplog):
     assert "370400440532013000" not in caplog.text  # Ausgabe nur geschwärzt
 
 
+def test_fehlermeldung_eines_schritts_steht_im_protokoll(caplog):
+    """g4w N6 (Runde 5): Im geplanten Lauf stand nur „bank lauf → 1 (5 s)“ — der
+    Grund (z. B. ein Fehler in der Regeldatei) nur auf DEBUG. Jetzt die letzten
+    Zeilen der Ausgabe auf WARNING, geschwärzt; ein erfolgreicher Schritt bleibt
+    ohne Ausgabe."""
+    meldung = (
+        "config/regeln.yaml: Regel telekom: unbekannter Schlüssel kommentar — "
+        "erlaubt sind name, muster"
+    )
+
+    def ausfuehren(argumente):
+        if argumente[0] == "bank":
+            return subprocess.CompletedProcess(
+                argumente, 1, "Abruf DE89370400440532013000 …\n" + meldung + "\n", ""
+            )
+        return subprocess.CompletedProcess(argumente, 0, "alles gut\n", "")
+
+    with caplog.at_level(logging.INFO, logger="accounti.lauf"):
+        einmal(kontext_ohne_registry(), ausfuehren)
+    warnungen = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    (zeile,) = warnungen
+    assert zeile.startswith("bank lauf → 1") and meldung in zeile
+    assert "370400440532013000" not in caplog.text  # geschwärzt
+    assert "alles gut" not in caplog.text
+
+
+def test_zeitlimit_steht_im_protokoll(caplog):
+    def ausfuehren(argumente):
+        raise subprocess.TimeoutExpired(argumente, 3600)
+
+    with caplog.at_level(logging.INFO, logger="accounti.lauf"):
+        einmal(kontext_ohne_registry(), ausfuehren)
+    assert "Zeitlimit" in caplog.text
+
+
 def test_schleife_endet_auf_signal():
     halt = threading.Event()
     runden = []

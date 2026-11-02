@@ -3,8 +3,10 @@
 Jeder Schritt läuft als eigener Prozess (``python -m accounti.cli …``) — ein Fehler
 in einer Gesellschaft hält die anderen nicht auf, und jeder Lauf beginnt mit frischem
 Zustand. Ins Protokoll kommen Schritt, Rückgabewert und Dauer; die Ausgabe der
-Befehle nur geschwärzt und auf Stufe DEBUG (sie kann Namen enthalten). SIGTERM
-beendet die Schleife nach dem laufenden Schritt.
+Befehle nur geschwärzt und auf Stufe DEBUG (sie kann Namen enthalten). Schlägt ein
+Schritt fehl, steht sein Grund — die letzten Zeilen der Ausgabe, geschwärzt und
+gekürzt — mit in der Warnung (sonst stand dort nur „bank lauf → 1“; Runde 5, g4w N6).
+SIGTERM beendet die Schleife nach dem laufenden Schritt.
 """
 
 from __future__ import annotations
@@ -25,6 +27,8 @@ from accounti.betrieb.protokoll import schwaerze
 LOG = logging.getLogger("accounti.lauf")
 BEFEHLE: list[list[str]] = [["bank", "lauf"], ["aufgaben", "lauf"]]
 ZEITLIMIT_SEKUNDEN = 3600
+GRUND_ZEILEN = 5  # die Meldung am Ende der Ausgabe (Rich bricht nach 80 Zeichen um)
+GRUND_ZEICHEN = 600
 
 
 @dataclass(frozen=True)
@@ -57,6 +61,14 @@ def _starte(argumente: Sequence[str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _grund(zeilen: list[str]) -> str:
+    """Die letzten Zeilen der Ausgabe eines fehlgeschlagenen Schritts, geschwärzt."""
+    belegt = [" ".join(z.split()) for z in zeilen if z.strip()]
+    # erst schwärzen, dann kürzen: eine angeschnittene IBAN erkennt kein Muster
+    text = schwaerze(" ".join(belegt[-GRUND_ZEILEN:]))
+    return text if len(text) <= GRUND_ZEICHEN else "…" + text[-GRUND_ZEICHEN:]
+
+
 def einmal(kontext: Kontext, ausfuehren: Ausfuehren = _starte) -> list[Ergebnis]:
     ergebnisse = []
     for argumente in schritte(kontext):
@@ -64,16 +76,27 @@ def einmal(kontext: Kontext, ausfuehren: Ausfuehren = _starte) -> list[Ergebnis]
         try:
             fertig = ausfuehren(argumente)
             code = fertig.returncode
-            for zeile in (fertig.stdout or "").splitlines() + (
+            zeilen = (fertig.stdout or "").splitlines() + (
                 fertig.stderr or ""
-            ).splitlines():
+            ).splitlines()
+            for zeile in zeilen:
                 LOG.debug("%s", schwaerze(zeile))
+            grund = _grund(zeilen) if code != 0 else ""
         except subprocess.TimeoutExpired:
             code = -1
+            grund = f"Zeitlimit von {ZEITLIMIT_SEKUNDEN} s überschritten"
         dauer = time.monotonic() - beginn
         ergebnis = Ergebnis(tuple(argumente), code, dauer)
-        stufe = logging.INFO if code == 0 else logging.WARNING
-        LOG.log(stufe, "%s → %s (%.0f s)", " ".join(argumente), code, dauer)
+        if code == 0:
+            LOG.info("%s → %s (%.0f s)", " ".join(argumente), code, dauer)
+        else:
+            LOG.warning(
+                "%s → %s (%.0f s)%s",
+                " ".join(argumente),
+                code,
+                dauer,
+                f": {grund}" if grund else "",
+            )
         ergebnisse.append(ergebnis)
     return ergebnisse
 
