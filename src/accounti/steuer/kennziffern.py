@@ -358,6 +358,18 @@ def _sachseite(
     return normal
 
 
+def sachseite(b: Buchungssatz, plan: Kontenplan) -> Seite:
+    """Seite, auf der die Voranmeldung das Sachkonto der Buchung liest — steht es nicht
+    auf der Seite seines Schlüssels (Umsatzsteuer im Haben, Vorsteuer im Soll), kehrt
+    sich das Vorzeichen um (Gutschrift, Storno). Ohne Schlüssel wie Umsatzsteuer: das
+    Erlöskonto ist die Sachseite. Für die Korrektur einer Belegbuchung
+    (``pruefung/storno.py``): Die Richtung bestimmt der Beleg (Runde 5, g4w N1)."""
+    s = b.steuer_schluessel
+    regel = STEUERSCHLUESSEL.get(s) if s is not None else None
+    normal: Seite = regel.seite if regel is not None else "haben"
+    return _sachseite(b, plan, normal, regel is None or s in _USTEUER_SCHLUESSEL)
+
+
 def _gegenkonto(b: Buchungssatz, sachseite: Seite) -> str:
     return b.haben_konto if sachseite == "soll" else b.soll_konto
 

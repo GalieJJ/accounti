@@ -64,7 +64,7 @@ NULL = Decimal("0")
 _JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
 # ausgewiesene Umsatzsteuer (2, 3): --ohne-steuer entfernt sie aus keiner
 # Belegbuchung (§ 14c UStG) — Vorsteuer, ig. Erwerb und § 13b (Eingang) schon
-_AUSGEWIESENE_UST = frozenset(
+AUSGEWIESENE_UST = frozenset(
     s for s, r in STEUERSCHLUESSEL.items() if r.vorsteuer is None and r.bmg is not None
 )
 # § 13b und ig. Erwerb (18, 19, 91, 94): Steuerschuld und Vorsteuer berechnet der
@@ -125,7 +125,7 @@ class SteuerOptionen:
 
 def steuer_optionen(b: Buchungssatz) -> SteuerOptionen:
     beleg = b.beleg_id is not None
-    ausgewiesen = beleg and b.steuer_schluessel in _AUSGEWIESENE_UST
+    ausgewiesen = beleg and b.steuer_schluessel in AUSGEWIESENE_UST
     hinweis = None
     if ausgewiesen:
         hinweis = (
@@ -242,6 +242,86 @@ def _pruefe_ausdruecklich(
         cli=f"Buchung {_kurz(b)}: Das Sachkonto ändert sich ({von} → {nach}) — "
         f"Steuerschlüssel {b.steuer_schluessel} ausdrücklich bestätigen mit "
         f"--steuer {b.steuer_schluessel} oder entfernen mit --ohne-steuer",
+    )
+
+
+_SEITE = {"soll": "Soll", "haben": "Haben"}
+
+
+def _pruefe_richtung(
+    session: Session,
+    b: Buchungssatz,
+    soll: str,
+    haben: str,
+    buchhaltung: Buchhaltung | None,
+) -> None:
+    """Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine Rechnung bucht ihr
+    Sachkonto auf der einen Seite, eine Gutschrift bzw. Rechnungskorrektur auf der
+    anderen. Eine Korrektur, die die Sachseite umdreht, buchte den Beleg als sein
+    Gegenteil — die Voranmeldung kehrte das Vorzeichen um (aus 95 € Umsatzsteuer
+    würden 95 € Erstattung, aus Vorsteuer eine Minderung).
+
+    Gilt für jede Belegbuchung, nicht nur bei ausgewiesener Umsatzsteuer (2, 3):
+    Diese wird geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG); die
+    Vorsteuer mindert erst die Gutschrift bzw. Rechnungskorrektur des Lieferanten,
+    beides im Zeitraum der Berichtigung (§ 17 Abs. 1 Satz 1, 2 und 7 UStG); ohne Steuer
+    würde aus einem Aufwand ein Ertrag. Die Berichtigung ist ein eigener Beleg mit
+    eigener Buchung (``rechnung neu --korrektur-zu``, Gutschrift des Lieferanten); ist
+    die Buchung selbst falsch, ein Storno mit Grund. Die Sachseite liest dieselbe
+    Logik wie die Voranmeldung (``kennziffern.sachseite``) — Runde 5, g4w N1."""
+    if b.beleg_id is None:
+        return
+    from accounti.db.repository import lade_bankkonten
+    from accounti.steuer.kennziffern import Kontenplan, sachseite
+
+    bh = buchhaltung or Buchhaltung()
+    plan = Kontenplan(
+        kontenrahmen=bh.kontenrahmen.upper(),
+        debitoren=(bh.debitoren_von, bh.debitoren_bis),
+        kreditoren=(bh.kreditoren_von, bh.kreditoren_bis),
+        geldkonten=frozenset(
+            {bh.bank_konto} | {k.sachkonto for k in lade_bankkonten(session)}
+        ),
+    )
+    alt = sachseite(b, plan)
+    neu = sachseite(
+        b.model_copy(update={"soll_konto": soll, "haben_konto": haben}), plan
+    )
+    if alt == neu:
+        return
+    konto = b.soll_konto if alt == "soll" else b.haben_konto
+    if b.steuer_schluessel in AUSGEWIESENE_UST:
+        steuer = (
+            f"die ausgewiesene Umsatzsteuer (Schlüssel {b.steuer_schluessel}) wird "
+            "geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG); die "
+            "Berichtigung wirkt erst in ihrem Zeitraum (§ 17 Abs. 1 UStG)"
+        )
+    elif b.steuer_schluessel in STEUERSCHLUESSEL:
+        steuer = (
+            f"die Steuer (Schlüssel {b.steuer_schluessel}) ändert erst die Gutschrift "
+            "bzw. Rechnungskorrektur, in deren Zeitraum (§ 17 Abs. 1 UStG)"
+        )
+    else:
+        steuer = "der Betrag auf dem Sachkonto kehrte sich um"
+    meldung = (
+        f"Buchung {_kurz(b)} hat einen Beleg — er bestimmt die Richtung (Rechnung oder "
+        f"Gutschrift): Das Sachkonto {konto} steht im {_SEITE[alt]}, die Korrektur "
+        f"stellte es ins {_SEITE[neu]}; {steuer}. Berichtigung als eigener Beleg "
+        "(Gutschrift/Rechnungskorrektur) erfassen und verbuchen; ist die Buchung "
+        "selbst falsch, sie mit Grund stornieren — nur Konten derselben Seite "
+        "korrigieren"
+    )
+    raise StornoError(
+        meldung,
+        feld="soll",
+        cli=meldung.replace(
+            "erfassen und verbuchen;",
+            "erfassen und verbuchen (Ausgangsrechnung: accounti rechnung neu "
+            "--korrektur-zu …);",
+        ).replace(
+            "sie mit Grund stornieren",
+            f'sie stornieren (accounti buchung storniere {_kurz(b)} --grund "…")',
+        ),
     )
 
 
@@ -539,13 +619,15 @@ def korrigiere(
     Ändert sich das Sachkonto, muss ein vorhandener Steuerschlüssel ausdrücklich
     bestätigt (``steuer``) oder entfernt werden (``ohne_steuer``); eine Kombination,
     die die Prüfregel ``steuerschluessel_konto`` als Fehler einstuft, wird abgelehnt.
-    Bei Buchungen mit Beleg entfernt ``ohne_steuer`` die Steuer nur mit ``grund``.
+    Bei Buchungen mit Beleg entfernt ``ohne_steuer`` die Steuer nur mit ``grund``, und
+    die Sachseite bleibt, wo der Beleg sie hinstellt (``_pruefe_richtung``).
     """
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
     if (gleich := soll_gleich_haben(soll, haben)) is not None:
         # Fachfunktion: CLI, Queue, /buchungen und REST lehnen gleich ab (Runde 3)
         raise StornoError(gleich, feld="haben")
+    _pruefe_richtung(session, b, soll, haben, buchhaltung)
     person = aktuelle_person(von)
     kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
