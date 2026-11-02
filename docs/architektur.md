@@ -170,12 +170,22 @@ eigenes Konto mit Guthaben).
   ohne sie, ist das „schon gebucht“, offen oder umgebucht `auszahlung_zweifel` (ebenso, wenn
   der zugeordnete Umsatz die Nummer einer inzwischen bekannten anderen Abrechnung nennt).
   „Dieselbe Form“ (Regel 4) heißt gleiche Länge und dieselben zwei ersten Ziffern, nicht
-  hinter einer Kunden-/Mandatsangabe; ein Umsatz, der einziger Kandidat zweier Abrechnungen
-  ist, bleibt offen (mehrdeutig), deshalb gleicht auch der Import einer Abrechnung alle ab;
-  eine Zuordnung ohne Nummer ist ein Hinweis. `ordne_zu` (`marktplatz zuordnen`) ordnet von
-  Hand zu oder löst (Storno der Bankbuchung, Journal, Hinweis als Merkmal für den Abgleich);
-  `Abgleich.umsaetze` hält `bank lauf` davon ab, einen Umsatz mit Befund zu kontieren. Die
-  Regel steht vollständig im Docstring des Moduls.
+  hinter einer Kunden-, Mandats-, Rechnungs-, Bestell- oder Referenzangabe; ein Umsatz, der
+  einziger Kandidat zweier Abrechnungen ist, bleibt offen (mehrdeutig), außer er nennt die
+  Nummer einer — deshalb gleicht auch der Import einer Abrechnung alle ab; eine Zuordnung ohne
+  Nummer (PayPal: ohne Stichwort) ist ein Hinweis. Kandidaten sind nur Bankumsätze (keine
+  Kasse, keine Kreditkarte) und — ohne die eigene Nummer — keiner mit dem Stichwort oder der
+  Abrechnungsnummer eines anderen Marktplatzes oder der Belegnummer eines opos-Postens.
+  „Schon gebucht“ (Fehler mit korrigiere-Befehl) nur mit Stichwort oder Nummer; nur der
+  exakte Betrag ist `auszahlung_vielleicht_gebucht` ohne Befehl (ohne `bank_stichworte` eine
+  Warnung, die auch die Voranmeldung zeigt). Die Kursdifferenz eines vorgebuchten Umsatzes in
+  einem abgeschlossenen Monat geht auf den ersten offenen Tag des Geschäftsjahres, sonst
+  `auszahlung_gesperrt`. `ordne_zu` (`marktplatz zuordnen`) ordnet von Hand zu oder löst
+  (Storno der Bankbuchung, Journal, Hinweis als Merkmal für den Abgleich; nicht bei offenem
+  opos-Vorschlag, nicht vor dem Abrechnungszeitraum); `Abgleich.umsaetze` hält `bank lauf`
+  davon ab, einen Umsatz mit Befund zu kontieren oder opos zu geben, `classify` ebenso
+  (`umsaetze_ohne_abgleich`: Abgleich im zurückgerollten Sicherungspunkt). Die Regel steht
+  vollständig im Docstring des Moduls.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
 - `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je

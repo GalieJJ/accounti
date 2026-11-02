@@ -274,7 +274,13 @@ DATEV-Übergabe:
   desselben Laufs einen Befund hat; mit #31 bleiben Eingänge mit Stichwort ohnehin offen. In
   Fremdwährung findet der Abgleich eine Auszahlung ohne Stichwort und ohne Nummer nicht — mit
   leeren `bank_stichworte` bucht die Kontierung sie dann als Erlös, still doppelt; der Import
-  warnt deshalb (`bank_stichworte_leer`). In Euro erkennt ihn „schon gebucht“ am exakten Betrag.
+  warnt deshalb (`bank_stichworte_leer`). In Euro nennt ihn der Abgleich am exakten Betrag
+  „vielleicht gebucht“ (`auszahlung_vielleicht_gebucht`, Warnung, die Voranmeldung warnt mit) —
+  ohne korrigiere-Befehl, denn eine Kundenzahlung gleicher Höhe sieht genauso aus (Nachprüfung
+  6 E, Mc: der Befehl löschte dort echten Erlös); der Mensch prüft und bucht selbst um, bis dahin
+  ist der Fall in der Simulation „unsauber“, nie still. Kassen- und Kartenumsätze, Umsätze mit
+  dem Stichwort oder der Nummer eines anderen Marktplatzes und mit der Belegnummer eines
+  opos-Postens sind keine Kandidaten (Nachprüfung 6 E, Mc, Md, N-d).
   Weitere Grenzen aus der Simulation (19 584 Läufe, Prüfung nach jedem Schritt; Skripte unter
   `.claude/arbeit/s/gesamttest/r6-e/`): Ein Teilbetrag oder ein Betrag zu einer Abrechnung mit
   falschem Kurs, der statt der Nummer eine Referenz mit dem Anfang der Auszahlungsnummern nennt,
