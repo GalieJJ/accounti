@@ -545,3 +545,116 @@ def test_paypal_mit_stichwort_ohne_hinweis(umgebung):
     bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
     nummer = _paypal(s, archiv, kontext)
     assert not _befunde(s, nummer, hinweise=True)
+
+
+# --- Robustheit: vorgebuchter Umsatz mit Kursdifferenz im festgeschriebenen Monat ---
+
+
+def _schon_gebucht_september_zu(s, archiv, kontext):
+    """Fall s17: A (nennt 6009990001, 59,75 € am 30.09.) per Regel als Erlös
+    gebucht, der eBay-GBP-Import meldet „schon gebucht“; die Vorschläge werden
+    freigegeben, September festgeschrieben, dann korrigiert der Mensch wie
+    vorgeschlagen mit --datum 2026-10-01 (Bank an 1362)."""
+    import re
+
+    from accounti.pruefung.perioden import schliesse
+    from accounti.pruefung.storno import VORSCHLAG, freigeben, korrigiere
+    from tests.test_integrationen_lauf import _ebay_import
+
+    a = bank(s, date(2026, 9, 30), "59.75", f"{EBAY} AUSZAHLUNG 6009990001", "eBay")
+    _als_erloes_gebucht(s, a, "50.21", "9.54")
+    _ebay_import(s, archiv, kontext)
+    for b in lade_buchungen(s):
+        if b.status in VORSCHLAG:
+            freigeben(s, str(b.id), von="erika")
+    schliesse(s, "2026-09", "erika", trotzdem=True)
+    (befund,) = _befunde(s, "6009990001")
+    ident, soll, haben = re.search(
+        r"korrigiere (\w+) --soll (\d+) --haben (\d+)", befund.text
+    ).groups()
+    korrigiere(
+        s, ident, soll, haben, ohne_steuer=True, von="erika", datum=date(2026, 10, 1)
+    )
+    s.flush()
+    return a
+
+
+def test_kursdifferenz_eines_umsatzes_im_festgeschriebenen_monat(umgebung):
+    """Robustheit, Fall s17: der korrigierte Umsatz (30.09.) steht als Geldbewegung
+    auf 1362, die Abrechnung erwartet 59,73 € — die Kursdifferenz von 0,02 € buchte
+    der Abgleich am Tag des Umsatzes, im festgeschriebenen September: jeder Abgleich,
+    jeder ``bank lauf`` und jeder Marktplatz-Import brach mit PeriodeGesperrtError
+    ab. Die Kursdifferenz geht wie die Korrektur selbst in den ersten offenen Tag
+    desselben Geschäftsjahres, der Hinweis nennt den Tag und den Monat."""
+    from accounti.integrationen.lauf import importiere
+    from tests.test_integrationen_lauf import _ebay_gbp
+
+    s, archiv, kontext = umgebung
+    a = _schon_gebucht_september_zu(s, archiv, kontext)
+    (m,) = gleiche_auszahlungen_ab(s, kontext)
+    assert m.transaktion is not None and m.transaktion.id == a.id
+    assert m.befund is not None and m.befund.code == "kursdifferenz"
+    assert "01.10.2026" in m.befund.text and "2026-09" in m.befund.text
+    buchungen = lade_buchungen(s)
+    (kurs,) = [b for b in buchungen if "Kursdifferenz" in b.buchungstext]
+    assert kurs.datum == date(2026, 10, 1)
+    assert saldo(buchungen, "1362") == 0
+    assert not _befunde(s, "6009990001")
+    _bank_lauf_mit_regel(s, kontext)
+    # der Import einer anderen Abrechnung gleicht alle ab — ohne Abbruch
+    importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        _ebay_gbp(zweite=True),
+        "gbp2.csv",
+        kurs=Decimal("0.8650"),
+        buchungsdatum="offen",
+    )
+    # lösen storniert auch die verschobene Kursdifferenz
+    ordne_zu(s, kontext, "6009990001", None, von="erika")
+    assert saldo(lade_buchungen(s), "2660") == 0
+
+
+def test_offener_umsatz_im_festgeschriebenen_monat_zuordnen(umgebung):
+    """Ein offener Umsatz in einem festgeschriebenen Monat: ``marktplatz zuordnen``
+    bricht nicht mit PeriodeGesperrtError ab, sondern sagt, was zu tun ist (die
+    Bankbuchung gehört auf den Tag des Umsatzes)."""
+    from accounti.pruefung.perioden import schliesse
+
+    s, archiv, kontext = umgebung
+    _amazon_september(s, archiv, kontext)
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE EREF 11223399999")
+    from accounti.pruefung.storno import VORSCHLAG, freigeben
+
+    for b in lade_buchungen(s):
+        if b.status in VORSCHLAG:
+            freigeben(s, str(b.id), von="erika")
+    schliesse(s, "2026-09", "erika", trotzdem=True)
+    with pytest.raises(ZuordnungError, match="2026-09.*periode oeffnen"):
+        ordne_zu(s, kontext, "11223344556", str(tx.id)[:8], von="erika")
+
+
+def test_kursdifferenz_ohne_offenen_tag_im_geschaeftsjahr_ist_befund(umgebung):
+    """Robustheit: ist bis zum Jahresende kein Tag offen, bleibt die Kursdifferenz
+    im Geschäftsjahr der Auszahlung (§ 252 Abs. 1 Nr. 5 HGB) — der Umsatz wird nicht
+    Treffer, die Warnung ``auszahlung_gesperrt`` nennt den Zeitraum; Abgleich und
+    ``marktplatz zuordnen`` brechen nicht ab."""
+    from accounti.pruefung.perioden import schliesse
+    from accounti.pruefung.storno import VORSCHLAG, freigeben
+
+    s, archiv, kontext = umgebung
+    a = _schon_gebucht_september_zu(s, archiv, kontext)
+    for b in lade_buchungen(s):
+        if b.status in VORSCHLAG:
+            freigeben(s, str(b.id), von="erika")
+    for monat in ("2026-10", "2026-11", "2026-12"):
+        schliesse(s, monat, "erika", trotzdem=True)
+    (m,) = gleiche_auszahlungen_ab(s, kontext)
+    assert m.transaktion is None
+    assert m.befund is not None and m.befund.code == "auszahlung_gesperrt"
+    assert "2026-09" in m.befund.text and str(a.id)[:8] in m.befund.text
+    with pytest.raises(ZuordnungError, match="abgeschlossenen Zeitraum"):
+        ordne_zu(s, kontext, "6009990001", str(a.id)[:8], von="erika")
+    _bank_lauf_mit_regel(s, kontext)  # bricht nicht ab

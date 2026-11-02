@@ -198,6 +198,7 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_umgebucht",
     "auszahlung_andere_nummer",
     "auszahlung_zweifel",
+    "auszahlung_gesperrt",
     VIELLEICHT,
 }
 # Befunde über einen bestimmten Umsatz: überholt, sobald ein Lauf ihn nicht mehr so
@@ -207,6 +208,7 @@ _UMSATZBEFUNDE = {
     "auszahlung_umgebucht",
     "auszahlung_andere_nummer",
     "auszahlung_zweifel",
+    "auszahlung_gesperrt",
     VIELLEICHT,
 }
 # Befunde über einen als Erlös gebuchten Umsatz (Regel 7: neben „mehrdeutig“ nur,
@@ -270,6 +272,8 @@ OHNE_NUMMER = "zuordnung_ohne_nummer"
 VON_HAND = "zuordnung_von_hand"
 GELOEST = "zuordnung_geloest"
 _UMSATZ_ID = re.compile(r"\[Umsatz ([0-9a-f-]{36})\]")
+# Tag einer verschobenen Kursdifferenz im Hinweis „kursdifferenz“ (``_zuordnen``)
+_KURSTAG = re.compile(r"als Kursdifferenz auf \S+ gebucht am (\d{2})\.(\d{2})\.(\d{4})")
 
 
 def bankdaten(befund: Befund) -> list[date]:
@@ -362,6 +366,9 @@ class _Lauf:
     umstritten: dict[UUID, list[Abrechnung]] = field(default_factory=dict)
     # Regel 1: (Umsatz, Marktplatz) → gehört erkennbar zu etwas anderem
     anderes: dict[tuple[UUID, str], bool] = field(default_factory=dict)
+    # Posten → vorgebuchte Umsätze, deren Kursdifferenz in einen abgeschlossenen
+    # Zeitraum fiele (``_kurs_gesperrt``)
+    gesperrt: dict[UUID, list[Transaktion]] = field(default_factory=dict)
     # Belegnummern der Posten (opos), ohne Trennzeichen → Belegnummer; erst bei
     # Bedarf geladen
     rechnungen: dict[str, str] | None = None
@@ -911,7 +918,11 @@ def _kandidaten(
         if (
             (t.id in lauf.offen_ids and not _andere_nummern(a, t))
             # Betrag zuerst: die Buchungen am Umsatz nur lesen, wo er passen kann
-            or (_passt(lauf, a, t, erwartet) and _vorgebucht(lauf, a, t) is not None)
+            or (
+                _passt(lauf, a, t, erwartet)
+                and _vorgebucht(lauf, a, t) is not None
+                and not _kurs_gesperrt(lauf, a, p, t, erwartet)
+            )
         )
     ]
     kandidaten = _eingrenzen(
@@ -929,6 +940,22 @@ def _kandidaten(
             lambda t: _eigene_nummer(a, t),
         )
     return kandidaten
+
+
+def _kurs_gesperrt(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, t: Transaktion, erwartet: Decimal
+) -> bool:
+    """Robustheit (Nachprüfung 6 E): ein vorgebuchter Umsatz, dessen Kursdifferenz
+    in kein offenes Datum desselben Geschäftsjahres passt (``_kurstag``), wird nicht
+    Treffer — sonst bräche die Buchung jeden Abgleich und ``bank lauf`` ab (wie
+    ``offene_transaktionen``). ``_befund`` meldet ihn (``auszahlung_gesperrt``)."""
+    vorgebucht = _vorgebucht(lauf, a, t)
+    if vorgebucht is None or vorgebucht == erwartet:
+        return False
+    if _kurstag(lauf.session, t.datum) is not None:
+        return False
+    lauf.gesperrt.setdefault(p.id, []).append(t)
+    return True
 
 
 def _zuordnen(
@@ -958,12 +985,21 @@ def _zuordnen(
     setze_bank_transaktion(lauf.session, p.id, t.id)
     p.bank_transaktion_id = t.id
     a.status = status_von(a)
-    _buche(lauf.session, lauf.kontext, a, t, erwartet, vorgebucht=vorgebucht)
+    verschoben = _buche(
+        lauf.session, lauf.kontext, a, t, erwartet, vorgebucht=vorgebucht
+    )
     befund = None
     if t.betrag != erwartet:
         e = lauf.kontext.einstellungen
         differenz = t.betrag - erwartet
         konto = e.kursdifferenz_ertrag if differenz > 0 else e.kursdifferenz_aufwand
+        # _loese findet die verschobene Umbuchung über diesen Tag (_KURSTAG)
+        am = (
+            f" am {verschoben:%d.%m.%Y} (der Monat {t.datum:%Y-%m} des Umsatzes "
+            "ist abgeschlossen)"
+            if verschoben is not None
+            else ""
+        )
         befund = Befund(
             code="kursdifferenz",
             schweregrad=Schweregrad.HINWEIS,
@@ -971,7 +1007,7 @@ def _zuordnen(
                 f"{ANZEIGE.get(a.marktplatz, a.marktplatz)} {a.nummer}: Bank "
                 f"{eur_text(t.betrag)} € ≠ Abrechnung {eur_text(erwartet)} € "
                 f"({a.waehrung}, Kurs {a.kurs}) — Differenz {eur_text(differenz)} € "
-                f"als Kursdifferenz auf {konto} gebucht"
+                f"als Kursdifferenz auf {konto} gebucht{am}"
             ),
             posten_nr=p.nr,
         )
@@ -1032,6 +1068,19 @@ def _befund(
             p,
             befund=_mehrdeutig(lauf, a, p, erwartet, kandidaten),
             umsaetze=kandidaten,
+        )
+    gesperrt = lauf.gesperrt.get(p.id)
+    if gesperrt:
+        return Abgleich(
+            a,
+            p,
+            befund=Befund(
+                code="auszahlung_gesperrt",
+                schweregrad=Schweregrad.WARNUNG,
+                text=_gesperrt_text(lauf.session, lauf.kontext, a, gesperrt[0]),
+                posten_nr=p.nr,
+            ),
+            umsaetze=gesperrt[:1],
         )
     # nur eigene, sonst keine fremden (Regeln 2, 3)
     alle = _umsaetze(lauf, a, p, erwartet)
@@ -1549,7 +1598,7 @@ def _buche(
     t: Transaktion,
     erwartet: Decimal | None = None,
     vorgebucht: Decimal | None = None,
-) -> None:
+) -> date | None:
     """Bank an Verrechnungskonto über die Auszahlung laut Abrechnung; weicht der
     Bankbetrag ab (Fremdwährung), geht die Differenz auf ein Kursdifferenzkonto —
     das Verrechnungskonto ist danach ausgeglichen, die Bank hat ihren Betrag.
@@ -1557,7 +1606,10 @@ def _buche(
     ``vorgebucht``: der Umsatz steht schon mit diesem Betrag auf dem Gegenkonto (die
     Korrektur nach „anderweitig gebucht“ bucht den Bankbetrag) — die Bank ist
     gebucht; was das Gegenkonto mehr oder weniger bekam als laut Abrechnung, ist
-    Kursdifferenz und wird umgebucht (ohne Bank, ohne Umsatz)."""
+    Kursdifferenz und wird umgebucht (ohne Bank, ohne Umsatz). Liegt der Tag des
+    Umsatzes in einem abgeschlossenen Zeitraum, geht diese Umbuchung auf den ersten
+    offenen Tag desselben Geschäftsjahres (``_kurstag``) — zurück kommt dieser Tag,
+    sonst ``None``."""
     e = kontext.einstellungen
     bank = t.sachkonto or kontext.buchhaltung.bank_konto
     gegen = _gegenkonto(kontext, a)
@@ -1568,11 +1620,17 @@ def _buche(
     # (Betrag, Konto, Text, Seite): positiver Betrag — die Seite (Bank: Geld kommt
     # auf die Bank; Gegenkonto: es bekam zu viel) im Soll
     teile: list[tuple[Decimal, str, str, str]] = []
+    tag, verschoben = t.datum, None
     if vorgebucht is not None:
         rest = vorgebucht - erwartet  # Haben-Überschuss auf dem Gegenkonto
         if rest:
             konto = e.kursdifferenz_ertrag if rest > 0 else e.kursdifferenz_aufwand
             teile.append((rest, konto, f"{markt} Kursdifferenz {a.nummer}", gegen))
+            ziel = _kurstag(session, t.datum)
+            if ziel is None:  # _kandidaten und ordne_zu lassen es nicht so weit kommen
+                raise ZuordnungError(_gesperrt_text(session, kontext, a, t))
+            if ziel != t.datum:
+                tag = verschoben = ziel
     else:
         differenz = t.betrag - erwartet
         teile.append((erwartet, gegen, f"{markt} {art} {a.nummer}", bank))
@@ -1587,7 +1645,7 @@ def _buche(
                 # die Umbuchung einer Kursdifferenz berührt die Bank nicht
                 transaktion_id=t.id if seite == bank else None,
                 beleg_id=a.beleg_id,
-                datum=t.datum,
+                datum=tag,
                 soll_konto=soll,
                 haben_konto=haben,
                 betrag_netto=abs(betrag),
@@ -1600,6 +1658,45 @@ def _buche(
             ),
         )
     session.flush()
+    return verschoben
+
+
+def _kurstag(session: Session, tag: date) -> date | None:
+    """Tag der Kursdifferenz eines schon gebuchten Umsatzes vom ``tag``: er selbst,
+    liegt er in einem abgeschlossenen Zeitraum der erste offene Tag danach — wie die
+    Korrektur des Menschen mit ``--datum`` (GoBD Rz. 107 ff.: der festgeschriebene
+    Monat bleibt unverändert, korrigiert wird in der offenen Periode). Nie in einem
+    anderen Geschäftsjahr: die Kursdifferenz ist Aufwand bzw. Ertrag des Jahres der
+    Auszahlung (§ 252 Abs. 1 Nr. 5 HGB) — dann ``None``."""
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
+
+    verbindung = session.connection()
+    if sperrfehler(verbindung, tag) is None:
+        return tag
+    try:
+        ziel = erster_offener_tag(verbindung, tag)
+    except JahrGesperrtError:
+        return None
+    return ziel if ziel.year == tag.year else None
+
+
+def _gesperrt_text(
+    session: Session, kontext: Kontext, a: Abrechnung, t: Transaktion
+) -> str:
+    """Text der Warnung ``auszahlung_gesperrt`` (und der Ablehnung in ordne_zu)."""
+    from accounti.db.tabellen_pruefung import sperrfehler
+
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    fehler = sperrfehler(session.connection(), t.datum)
+    return (
+        f"{markt} {a.nummer}: Der Bankumsatz vom {t.datum:%d.%m.%Y} über "
+        f"{eur_text(t.betrag)} € ({str(t.id)[:8]}) steht als Geldbewegung auf "
+        f"{_gegenkonto(kontext, a)} und ist diese Auszahlung, doch seine Kursdifferenz "
+        f"gehört in einen abgeschlossenen Zeitraum ({fehler}), und bis zum Ende des "
+        f"Geschäftsjahres {t.datum.year} ist kein Tag offen — nicht abgeglichen; "
+        "erst den Zeitraum öffnen, dann accounti marktplatz abgleichen"
+    )
 
 
 # --- Regel 9: Zuordnung von Hand --------------------------------------------------
@@ -1720,6 +1817,7 @@ def ordne_zu(
         p = next(x for x in a.posten if x.id == p.id)
         lauf = _neuer_lauf(session, kontext, lade_abrechnungen(session))
         _pruefe_buchungen(lauf, a, t)
+        _pruefe_sperre(lauf, a, t, erwartet)
         erledigt = [
             b
             for b in a.offene_befunde
@@ -1875,6 +1973,35 @@ def _pruefe_umsatz(
         )
 
 
+def _pruefe_sperre(
+    lauf: _Lauf, a: Abrechnung, t: Transaktion, erwartet: Decimal
+) -> None:
+    """Ein offener Umsatz in einem abgeschlossenen Zeitraum: die Bankbuchung gehört
+    auf seinen Tag — erst den Zeitraum öffnen. Ein vorgebuchter, dessen
+    Kursdifferenz kein offenes Datum im Geschäftsjahr findet, ebenso (``_kurstag``).
+    Statt eines Abbruchs mit PeriodeGesperrtError eine klare Meldung."""
+    from accounti.db.tabellen_pruefung import sperrfehler
+
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    if t.id not in lauf.gebucht:
+        fehler = sperrfehler(lauf.session.connection(), t.datum)
+        if fehler is not None:
+            raise ZuordnungError(
+                f"{markt} {a.nummer}: der Bankumsatz {str(t.id)[:8]} vom "
+                f"{t.datum:%d.%m.%Y} liegt in einem abgeschlossenen Zeitraum "
+                f"({fehler}) — seine Bankbuchung gehört auf seinen Tag; erst den "
+                "Zeitraum öffnen, dann zuordnen"
+            )
+        return
+    vorgebucht = _vorgebucht(lauf, a, t)
+    if (
+        vorgebucht is not None
+        and vorgebucht != erwartet
+        and _kurstag(lauf.session, t.datum) is None
+    ):
+        raise ZuordnungError(_gesperrt_text(lauf.session, lauf.kontext, a, t))
+
+
 def _pruefe_vorschlaege(session: Session, a: Abrechnung, t: Transaktion) -> None:
     """Wie der Abgleich (``offen_ids``): ein Umsatz mit offenem Zahlungsvorschlag
     (opos) oder Beleg-Vorschlag ist nicht frei — nach dem Bestätigen stünde er doppelt
@@ -1958,10 +2085,18 @@ def _loese(
         if b.beleg_id == a.beleg_id and b.buchungstext in texte | {kurs}
     ]
     if a.beleg_id is not None:
+        # am Tag des Umsatzes — oder verschoben, weil sein Monat abgeschlossen war
+        # (der Hinweis „kursdifferenz“ des Postens nennt den Tag)
+        tage = {t.datum} | {
+            date(int(j), int(m), int(d))
+            for x in a.offene_befunde
+            if x.code == "kursdifferenz" and x.posten_nr == p.nr
+            for d, m, j in _KURSTAG.findall(x.text)
+        }
         eigene += [
             b
             for b in lade_belegbuchungen(session, a.beleg_id)
-            if b.buchungstext == kurs and b.datum == t.datum
+            if b.buchungstext == kurs and b.datum in tage
         ]
     grund = (
         f"{markt} {a.nummer}: Zuordnung zum Bankumsatz vom {t.datum:%d.%m.%Y} von "
