@@ -499,7 +499,7 @@ def verbuche_beleg(
             or rechnung.kaeufer.anschrift.land
             or land
         )
-    empfaenger: dict[str, tuple[date, str | None]] = {}
+    empfaenger: dict[str, tuple[date, list[str]]] = {}
     if eingang:
         # § 13b / ig. Erwerb: zum Tag, an dem die Steuer entsteht
         empfaenger = _steuertage_empfaenger(
