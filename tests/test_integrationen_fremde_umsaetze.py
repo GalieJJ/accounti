@@ -997,3 +997,284 @@ def test_vielleicht_gebucht_geht_ohne_stichworte_der_regel4_warnung_vor(umgebung
     (befund,) = [m.befund for m in ergebnis.abgleich if m.befund]
     assert befund.code == "auszahlung_vielleicht_gebucht", befund.text
     assert _ustva_warnungen(s, "2026-09")
+
+
+# --- Nachprüfung 7 E, M1: der Ausschluss nach Belegnummer trifft keine Auszahlung ----
+
+
+def _posten(
+    s,
+    belegnummer,
+    betrag,
+    richtung=PostenRichtung.VERBINDLICHKEIT,
+    ausgeglichen=True,
+):
+    """Ein Posten in opos — Vorgabe: eine bezahlte Eingangsrechnung (Miete, Leasing)."""
+    from accounti.models import PostenStatus
+
+    k = Kontakt(
+        name=f"Kontakt {belegnummer}",
+        debitor_konto="10009" if richtung is PostenRichtung.FORDERUNG else None,
+        kreditor_konto="70009" if richtung is PostenRichtung.VERBINDLICHKEIT else None,
+    )
+    speichere_kontakt(s, k)
+    p = OffenerPosten(
+        kontakt_id=k.id,
+        beleg_id=uuid4(),
+        richtung=richtung,
+        belegnummer=belegnummer,
+        belegdatum=date(2026, 3, 1),
+        betrag=Decimal(betrag),
+        restbetrag=Decimal(0) if ausgeglichen else Decimal(betrag),
+        faellig_am=date(2026, 3, 15),
+        status=PostenStatus.AUSGEGLICHEN if ausgeglichen else PostenStatus.OFFEN,
+    )
+    speichere_posten(s, p)
+    s.flush()
+    return p
+
+
+def _zugeordnet(s, nummer):
+    (a,) = [x for x in lade_abrechnungen(s) if x.nummer == nummer]
+    return {p.bank_transaktion_id for p in a.posten if p.bank_transaktion_id}
+
+
+def _ebay_eur(
+    s, archiv, kontext, nummer="6009990001", tag="30.09.2026", betrag="100,00"
+):
+    from accounti.integrationen.lauf import importiere
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    bestellt = "24.09.2026" if tag == "30.09.2026" else tag
+    return importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        ebay_bericht(
+            (bestellt, "Bestellung", "12-1", "Deutschland", betrag, nummer, ""),
+            (tag, "Auszahlung", "", "", f"-{betrag}", nummer, tag),
+        ),
+        f"e{nummer}.csv",
+    )
+
+
+@pytest.mark.parametrize(
+    ("belegnummer", "zweck"),
+    [
+        ("09/2026", "AMAZON PAYMENTS EUROPE AUSZAHLUNG VOM 03.09.2026"),
+        ("2026-09", "AMAZON PAYMENTS EUROPE 2026-09-03"),
+    ],
+    ids=["d2_monatsrechnung", "d3_iso"],
+)
+def test_datum_im_zweck_neben_monatsrechnung_bleibt_auszahlung(
+    umgebung, belegnummer, zweck
+):
+    """M1, Fälle d2/d3: eine bezahlte Monatsrechnung „09/2026“ (Miete) — die echte
+    Amazon-Auszahlung nennt ihr Datum 03.09.2026. Die Wörter 03 09 2026 ergaben
+    „092026“, die Auszahlung galt als „anderer Vorgang“ und blieb still offen (1361 =
+    209,85 €, kein Befund, UStVA still). Ein Datum nennt keine Rechnung, eine
+    Eingangsrechnung schon gar nicht die Gutschrift einer Auszahlung."""
+    s, archiv, kontext = umgebung
+    _posten(s, belegnummer, "850.00")
+    _amazon_september(s, archiv, kontext)
+    k = bank(s, date(2026, 9, 3), "209.85", zweck, "Amazon Payments Europe S.C.A.")
+    _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    assert k.id in _zugeordnet(s, "11223344556")
+    assert saldo(lade_buchungen(s), "1361") == 0
+    assert saldo(lade_buchungen(s), "8400") == Decimal("-150.89")
+
+
+def test_referenz_gleich_alter_eingangsrechnung_bleibt_auszahlung(umgebung):
+    """M1, Fall d4: eine alte bezahlte Eingangsrechnung „100045“ über 12 €; die
+    eBay-Auszahlung (ohne die eigene Nummer) trägt zufällig „REF 100045“ — sie blieb
+    still offen. Nur ein Posten, den diese Zahlung tilgt (Richtung) und dessen Betrag
+    sie hat, schließt aus."""
+    s, archiv, kontext = umgebung
+    _posten(s, "100045", "12.00")
+    _ebay_eur(s, archiv, kontext)
+    a = bank(s, date(2026, 9, 30), "100.00", f"{EBAY} REF 100045", "eBay S.a.r.l.")
+    _bank_lauf_mit_regel(s, kontext)
+    assert a.id in _zugeordnet(s, "6009990001")
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def test_paypal_auszahlung_mit_datum_neben_monatsrechnung(umgebung):
+    """M1, Fall d10: PayPal (die Nummer ist ein Zeitraum, nie im Text) — eine bezahlte
+    Monatsrechnung „08/2026“; PayPals Umsatz „… AUSZAHLUNG VOM 13.08.2026“ blieb
+    still offen."""
+    s, archiv, kontext = umgebung
+    _posten(s, "08/2026", "39.90")
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    _paypal(s, archiv, kontext)
+    p = bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE AUSZAHLUNG VOM 13.08.2026")
+    _bank_lauf_mit_regel(s, kontext, r"PAYPAL")
+    assert p.id in _paypal_zugeordnet(s)
+
+
+def test_opos_bucht_keine_auszahlung_auf_eine_monatsforderung(umgebung):
+    """M1, Fall d12: eine offene eigene Forderung „09/2026“ über 500 € (Wartung
+    September); die Amazon-Auszahlung nennt 03.09.2026. Der Abgleich schloss sie aus,
+    opos buchte sie automatisch als Teilzahlung (1200/10009 209,85 €, Rest 290,15 €),
+    die Abrechnung wartete ohne Befund — nichts meldete etwas."""
+    from accounti.db.repository import lade_posten
+
+    s, archiv, kontext = umgebung
+    _posten(s, "09/2026", "500.00", PostenRichtung.FORDERUNG, ausgeglichen=False)
+    _amazon_september(s, archiv, kontext)
+    k = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE AUSZAHLUNG VOM 03.09.2026",
+        "Amazon Payments Europe S.C.A.",
+    )
+    lauf = _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    assert not lauf.zuordnung.gebucht and not lauf.zuordnung.vorgeschlagen
+    assert k.id in _zugeordnet(s, "11223344556")
+    ((belegnummer, rest),) = [(p.belegnummer, p.restbetrag) for p in lade_posten(s)]
+    assert (belegnummer, rest) == ("09/2026", Decimal("500.00"))
+
+
+@pytest.mark.parametrize("fall", ["c7_referenz", "c8_datum"])
+def test_schon_gebucht_bleibt_neben_einer_belegnummer(umgebung, fall):
+    """M1, Fälle c7/c8: die Auszahlung mit Stichwort ist von Hand als Erlös gebucht
+    und nennt zufällig eine Belegnummer (REF 100045) bzw. ein Datum (03.09.2026
+    neben der Monatsrechnung 09/2026). Der FEHLER „schon gebucht“ fiel weg — 8400
+    doppelt, die UStVA des Bankmonats schwieg. Er bleibt."""
+    s, archiv, kontext = umgebung
+    if fall == "c7_referenz":
+        _posten(s, "100045", "12.00")
+        a = bank(s, date(2026, 9, 30), "100.00", f"{EBAY} REF 100045", "eBay S.a.r.l.")
+        _als_erloes_gebucht(s, a, "84.03", "15.97")
+        _ebay_eur(s, archiv, kontext)
+        nummer = "6009990001"
+    else:
+        _posten(s, "09/2026", "850.00")
+        k = bank(
+            s,
+            date(2026, 9, 3),
+            "209.85",
+            "AMAZON PAYMENTS EUROPE AUSZAHLUNG VOM 03.09.2026",
+            "Amazon Payments Europe S.C.A.",
+        )
+        _als_erloes_gebucht(s, k, "176.34", "33.51")
+        _amazon_september(s, archiv, kontext)
+        nummer = "11223344556"
+    (b,) = _befunde(s, nummer)
+    assert b.code == "auszahlung_anderweitig_gebucht" and "korrigiere" in b.text
+    assert _ustva_warnungen(s, "2026-09")
+
+
+def test_ohne_stichworte_vielleicht_gebucht_neben_einer_monatsrechnung(umgebung):
+    """M1, Fall d5: Amazon ohne ``bank_stichworte``, die Auszahlung (mit Datum im
+    Zweck) ist vor dem Import per Regel als Erlös gebucht, eine bezahlte
+    Monatsrechnung „09/2026“ existiert — kein Befund, UStVA still. Jetzt wie ohne den
+    Posten: die Warnung „vielleicht gebucht“, die UStVA 09 warnt."""
+    from tests.test_integrationen_lauf import _ohne_stichwort
+
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext, "amazon")
+    _posten(s, "09/2026", "850.00")
+    k = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE AUSZAHLUNG VOM 03.09.2026",
+        "Amazon Payments Europe S.C.A.",
+    )
+    _als_erloes_gebucht(s, k, "176.34", "33.51")
+    _amazon_september(s, archiv, kontext)
+    (b,) = _befunde(s, "11223344556")
+    assert b.code == "auszahlung_vielleicht_gebucht"
+    assert _ustva_warnungen(s, "2026-09")
+
+
+def test_kundenzahlung_mit_stichwort_und_rechnung_ist_ein_hinweis(umgebung):
+    """M1 (d): ein Kunde zahlt RE-2026-12 über Amazon Pay — der Umsatz trägt das
+    Stichwort AMAZON und genau den Betrag der Auszahlung, nennt aber die offene
+    Rechnung über denselben Betrag. Er ist ihre Zahlung (opos gleicht sie aus), nicht
+    die Auszahlung — das verschwand bisher still; jetzt sagt es ein Hinweis an der
+    Abrechnung. Nach der Buchung durch opos ist er auch nicht „schon gebucht“ (e)."""
+    s, archiv, kontext = umgebung
+    _forderung(s, "RE-2026-12", "209.85", tag=date(2026, 8, 25))
+    _amazon_september(s, archiv, kontext)
+    k = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE RE-2026-12",
+        "Amazon Payments Europe S.C.A.",
+    )
+    lauf = _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    assert k.id not in _zugeordnet(s, "11223344556")
+    assert [z.id for z, _v in lauf.zuordnung.gebucht] == [k.id]
+    assert not _befunde(s, "11223344556")  # kein Fehler, keine Warnung
+    (hinweis,) = _befunde(s, "11223344556", hinweise=True)
+    assert hinweis.code == "auszahlung_rechnung", hinweis.text
+    assert "RE-2026-12" in hinweis.text and str(k.id)[:8] in hinweis.text
+    # nächster Lauf: K ist von opos gebucht — kein „schon gebucht“, derselbe Hinweis
+    _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    gleiche_auszahlungen_ab(s, kontext)
+    assert not _befunde(s, "11223344556")
+    assert [b.code for b in _befunde(s, "11223344556", hinweise=True)] == [
+        "auszahlung_rechnung"
+    ]
+    assert not _ustva_warnungen(s, "2026-09")
+
+
+# --- Nachprüfung 7 E, N1: fremdes Stichwort, Datum als Shopify-Nummer --------------
+
+
+def test_ebay_auszahlung_ueber_paypal_ist_kandidat_mit_hinweis(umgebung):
+    """N1, Fall d6b: nur eBay erwartet 150 €, die echte Auszahlung kommt über den
+    Zahlungsdienst („PAYPAL EUROPE S.A.R.L. AUSZAHLUNG“, ohne EBAY und Nummer) — das
+    fremde Stichwort ließ sie still offen (1362 = 150 €, kein Befund). Das Stichwort
+    von PayPal schließt nur aus, wenn PayPal den Betrag erwartet; sonst Treffer mit
+    dem Hinweis, der das Stichwort nennt. (Ein anderes fremdes Stichwort schließt
+    weiter aus: ``test_paypal_nimmt_keinen_umsatz_mit_fremdem_stichwort``.)"""
+    s, archiv, kontext = umgebung
+    _ebay_eur(s, archiv, kontext, "6001234567", "13.08.2026", "150,00")
+    x = bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE S.A.R.L. AUSZAHLUNG")
+    _bank_lauf_mit_regel(s, kontext)
+    assert x.id in _zugeordnet(s, "6001234567")
+    assert saldo(lade_buchungen(s), "1362") == 0
+    (hinweis,) = _befunde(s, "6001234567", hinweise=True)
+    assert hinweis.code == "zuordnung_ohne_nummer"
+    assert "Stichwort von PayPal" in hinweis.text, hinweis.text
+
+
+def test_paypal_stichwort_schliesst_aus_wenn_paypal_den_betrag_erwartet(umgebung):
+    """N1, Gegenprobe d6: erwartet auch PayPal 150 €, gehört der Umsatz mit dem
+    PayPal-Stichwort nicht eBay — PayPal bekommt ihn."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 8, 19), "-50.00", "PAYPAL EUROPE GUTHABEN")
+    _ebay_eur(s, archiv, kontext, "6001234567", "13.08.2026", "150,00")
+    _paypal(s, archiv, kontext)
+    x = bank(s, date(2026, 8, 13), "150.00", "PAYPAL EUROPE S.A.R.L. AUSZAHLUNG")
+    _bank_lauf_mit_regel(s, kontext, r"PAYPAL")
+    assert x.id in _paypal_zugeordnet(s)
+    assert x.id not in _zugeordnet(s, "6001234567")
+
+
+def test_datum_als_shopify_nummer_nennt_keine_abrechnung(umgebung):
+    """N1, Fall d9: ein Shopify-Export ohne Payout ID trägt als Nummer das Datum
+    „2026-08-21“ (``importers.shopify``). Eine eBay-Auszahlung mit „2026-08-21“ im
+    Text war für eBay ausgeschlossen (Nummer eines anderen Marktplatzes), Shopify
+    hielt sie für die eigene und meldete FEHLER ``auszahlung_abweichung`` (150 ≠
+    125,39). Ein Datum ist keine Auszahlungsnummer."""
+    from accounti.integrationen.lauf import importiere
+
+    s, archiv, kontext = umgebung
+    roh = (FIXTURES / "shopify_auszahlung.csv").read_text("utf-8").splitlines()
+    i = roh[0].split(",").index("Payout ID")
+    ohne_id = "\n".join(",".join(z.split(",")[:i] + z.split(",")[i + 1 :]) for z in roh)
+    (shopify,) = importiere(
+        s, archiv, kontext, "shopify", (ohne_id + "\n").encode(), "s.csv"
+    )
+    assert shopify.abrechnung.nummer == "2026-08-21"
+    _ebay_eur(s, archiv, kontext, "6001234567", "21.08.2026", "150,00")
+    e = bank(s, date(2026, 8, 21), "150.00", f"{EBAY} 2026-08-21", "eBay S.a.r.l.")
+    _bank_lauf_mit_regel(s, kontext)
+    assert e.id in _zugeordnet(s, "6001234567")
+    assert not _befunde(s, "2026-08-21", hinweise=True)

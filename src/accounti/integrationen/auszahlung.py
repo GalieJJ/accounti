@@ -161,7 +161,13 @@ from accounti.db.repository import (
 )
 from accounti.integrationen.buchung import ANZEIGE, eur_text
 from accounti.integrationen.einstellungen import Kontext
-from accounti.models import Buchungssatz, BuchungStatus, Transaktion, TransaktionQuelle
+from accounti.models import (
+    Buchungssatz,
+    BuchungStatus,
+    OffenerPosten,
+    Transaktion,
+    TransaktionQuelle,
+)
 from accounti.models.integrationen import (
     Abrechnung,
     AbrechnungStatus,
@@ -187,6 +193,10 @@ class Abgleich:
     # die Bankumsätze, von denen der Befund spricht — ``bank lauf`` kontiert sie im
     # selben Lauf nicht (Nachprüfung 5 E, M4 a)
     umsaetze: list[Transaktion] = field(default_factory=list)
+    # weitere Hinweise zum Posten neben ``befund`` (Nachprüfung 7 E: „vielleicht
+    # gebucht“ geht nicht hinter einem anderen Befund unter, N2; ein Umsatz mit
+    # Stichwort, der die Rechnung eines Postens nennt, M1) — halten nichts zurück
+    hinweise: list[Befund] = field(default_factory=list)
 
 
 def umsaetze_mit_befund(abgleiche: Iterable[Abgleich]) -> dict[UUID, str]:
@@ -204,6 +214,9 @@ def umsaetze_mit_befund(abgleiche: Iterable[Abgleich]) -> dict[UUID, str]:
 # ein als Erlös gebuchter Umsatz mit genau dem Betrag, aber ohne Stichwort und Nummer
 # (Regel 6, Nachprüfung 6 E, Mc) — Warnung ohne ``bank_stichworte``, sonst Hinweis
 VIELLEICHT = "auszahlung_vielleicht_gebucht"
+# ein Umsatz mit Stichwort und dem Betrag, der eine Rechnung bezahlt (Hinweis,
+# Nachprüfung 7 E, M1 d)
+RECHNUNG = "auszahlung_rechnung"
 
 
 def umsaetze_ohne_abgleich(session: Session, kontext: Kontext) -> dict[UUID, str]:
@@ -228,6 +241,7 @@ ABGLEICHSBEFUNDE = {
     "auszahlung_zweifel",
     "auszahlung_gesperrt",
     VIELLEICHT,
+    RECHNUNG,
 }
 # Befunde über einen bestimmten Umsatz: überholt, sobald ein Lauf ihn nicht mehr so
 # findet (``gleiche_auszahlungen_ab``, Regel 7)
@@ -238,6 +252,7 @@ _UMSATZBEFUNDE = {
     "auszahlung_zweifel",
     "auszahlung_gesperrt",
     VIELLEICHT,
+    RECHNUNG,
 }
 # Befunde über einen als Erlös gebuchten Umsatz (Regel 7: neben „mehrdeutig“ nur,
 # solange im Fenster noch ein Erlös gebucht ist)
@@ -410,11 +425,19 @@ class _Lauf:
     # Posten → vorgebuchte Umsätze, deren Kursdifferenz in einen abgeschlossenen
     # Zeitraum fiele (``_kurs_gesperrt``)
     gesperrt: dict[UUID, list[Transaktion]] = field(default_factory=dict)
-    # Belegnummern der Posten (opos), ohne Trennzeichen → Belegnummer; erst bei
+    # Belegnummern der Posten (opos), ohne Trennzeichen → die Posten; erst bei
     # Bedarf geladen
-    rechnungen: dict[str, str] | None = None
+    rechnungen: dict[str, list[OffenerPosten]] | None = None
+    # Umsatz → die Posten, deren Zahlung er ist (``_rechnungen``)
+    bezahlt: dict[UUID, list[OffenerPosten]] = field(default_factory=dict)
+    # (Umsatz, Marktplatz), die nur wegen einer Rechnung kein Kandidat sind (M1 d)
+    wegen_rechnung: set[tuple[UUID, str]] = field(default_factory=set)
     # Umsätze, die opos als Zahlung eines Postens gebucht hat — kein Erlös
     zahlungen: set[UUID] | None = None
+    # die offenen Aus-/Einzahlungen dieses Laufs (``_offene_posten``)
+    offene: list[tuple[Abrechnung, Marktplatzposten, Decimal]] = field(
+        default_factory=list
+    )
 
 
 def _neuer_lauf(
@@ -522,6 +545,7 @@ def gleiche_auszahlungen_ab(
         abrechnungen = alle
     lauf = _neuer_lauf(session, kontext, abrechnungen, nummern)
     offene = _offene_posten(abrechnungen)
+    lauf.offene = offene
 
     ergebnisse: dict[UUID, Abgleich] = {}
     weiter = True
@@ -561,8 +585,11 @@ def gleiche_auszahlungen_ab(
             ergebnis = _befund(lauf, a, p, erwartet)
             ergebnisse[p.id] = ergebnis
             neu = ergebnis.befund
-            if neu is not None:
-                neue_befunde.setdefault(a.id, []).append(neu)
+            neue = [x for x in (neu, *ergebnis.hinweise) if x is not None]
+            if neue:
+                neue_befunde.setdefault(a.id, []).extend(neue)
+            # was dieser Lauf wieder so findet, bleibt (auch ein weiterer Hinweis)
+            wieder = {(x.code, x.text) for x in neue}
             # „mehrdeutig“ sucht nicht nach gebuchten — steht aber gar kein Erlös
             # mehr da (nach der vorgeschlagenen Korrektur), ist „schon gebucht“
             # trotzdem überholt (Simulation Nachprüfung 5 E)
@@ -575,6 +602,7 @@ def gleiche_auszahlungen_ab(
                 b
                 for b in a.offene_befunde
                 if b.posten_nr == p.nr
+                and (b.code, b.text) not in wieder
                 and (
                     _ueberholt(b, None)
                     if ohne_erloes and b.code in _ERLOESBEFUNDE
@@ -679,10 +707,19 @@ def _text(t: Transaktion) -> str:
 def _erkennbar(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
     konten = lauf.kontext.einstellungen.marktplatz(a.marktplatz)
     text = _text(t)
-    return (
-        any(w.upper() in text for w in konten.bank_stichworte)
-        or a.nummer.upper() in text
+    return any(w.upper() in text for w in konten.bank_stichworte) or (
+        _ist_nummer(a.nummer) and a.nummer.upper() in text
     )
+
+
+def _ist_nummer(nummer: str) -> bool:
+    """Kann ein Verwendungszweck diese Abrechnung an ihrer Nummer erkennen (Regeln
+    2–5)? Ein Datum ist keine Auszahlungsnummer: ein Shopify-Export ohne Payout ID
+    trägt als Nummer das Auszahlungsdatum (``importers.shopify``) — „2026-08-21“ im
+    Text einer eBay-Auszahlung nennt diese Abrechnung nicht (Nachprüfung 7 E, N1)."""
+    from accounti.opos.zuordnung import ist_datum
+
+    return bool(nummer.strip()) and not ist_datum(nummer)
 
 
 def _nennt(text: str, nummer: str) -> bool:
@@ -701,7 +738,7 @@ def _nennt(text: str, nummer: str) -> bool:
 
 
 def _eigene_nummer(a: Abrechnung, t: Transaktion) -> bool:
-    return _nennt(_text(t), a.nummer)
+    return _ist_nummer(a.nummer) and _nennt(_text(t), a.nummer)
 
 
 def _fremd(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
@@ -713,7 +750,10 @@ def _fremd(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
         lauf.genannt[schluessel] = {
             n
             for n in lauf.nummern.get(a.marktplatz, set())
-            if len(n) >= _MINDESTLAENGE and n.upper() in text and _nennt(text, n)
+            if len(n) >= _MINDESTLAENGE
+            and n.upper() in text
+            and _nennt(text, n)
+            and _ist_nummer(n)
         }
     return bool(lauf.genannt[schluessel] - {a.nummer}) and not _eigene_nummer(a, t)
 
@@ -753,14 +793,13 @@ def _bezeichnet(davor: str) -> bool:
     return bool(woerter) and woerter[-1] in _REFERENZEN
 
 
-def _umsaetze(
+def _im_fenster(
     lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
 ) -> list[Transaktion]:
-    """Regeln 1–3: die Bankumsätze, unter denen Treffer und Befund des Postens
-    gesucht werden — im Fenster, in Richtung der Auszahlung, keinem Posten
-    zugeordnet, nicht fremd; nennt einer die eigene Nummer, nur die eigenen."""
+    """Regel 1: die Bankumsätze im Fenster, in Richtung der Auszahlung, keinem Posten
+    zugeordnet und nicht von Hand von diesem gelöst."""
     von, bis = _fenster(lauf, p)
-    umsaetze = [
+    return [
         t
         for t in lauf.bankumsaetze
         if t.id not in lauf.benutzt
@@ -768,8 +807,19 @@ def _umsaetze(
         and von <= t.datum <= bis
         and (t.betrag > 0) == (erwartet > 0)
         and t.id not in lauf.ausgeschlossen.get(p.id, ())
-        and not _fremd(lauf, a, t)
-        and not _anderer_vorgang(lauf, a, t)
+    ]
+
+
+def _umsaetze(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> list[Transaktion]:
+    """Regeln 1–3: die Bankumsätze, unter denen Treffer und Befund des Postens
+    gesucht werden — im Fenster, in Richtung der Auszahlung, keinem Posten
+    zugeordnet, nicht fremd; nennt einer die eigene Nummer, nur die eigenen."""
+    umsaetze = [
+        t
+        for t in _im_fenster(lauf, a, p, erwartet)
+        if not _fremd(lauf, a, t) and not _anderer_vorgang(lauf, a, t)
     ]
     return [t for t in umsaetze if _eigene_nummer(a, t)] or umsaetze
 
@@ -781,33 +831,76 @@ def _stichwort(lauf: _Lauf, markt: str, text: str) -> bool:
     )
 
 
+def _fremde_stichworte(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> list[str]:
+    """Die anderen Marktplätze, deren Stichwort der Umsatz trägt — leer, wenn er das
+    eigene trägt."""
+    text = _text(t)
+    if _stichwort(lauf, a.marktplatz, text):
+        return []
+    return [
+        m
+        for m in lauf.kontext.einstellungen.marktplaetze
+        if m != a.marktplatz and _stichwort(lauf, m, text)
+    ]
+
+
+def _erwartet_von(lauf: _Lauf, markt: str, t: Transaktion) -> bool:
+    """Erwartet eine offene Aus-/Einzahlung des Marktplatzes ``markt`` diesen Umsatz
+    (Fenster, Richtung, Betrag)?"""
+    for a, p, erwartet in lauf.offene:
+        if a.marktplatz != markt or p.bank_transaktion_id is not None:
+            continue
+        von, bis = _fenster(lauf, p)
+        if von <= t.datum <= bis and _passt(lauf, a, t, erwartet):
+            return True
+    return False
+
+
 def _anderer_vorgang(lauf: _Lauf, a: Abrechnung, t: Transaktion) -> bool:
-    """Regel 1 (Nachprüfung 6 E, Md): Der Umsatz gehört erkennbar zu etwas anderem —
-    er trägt das Stichwort eines anderen Marktplatzes (und nicht das eigene), nennt
-    die bekannte Nummer einer Abrechnung eines anderen Marktplatzes oder die
-    Belegnummer eines Postens (Ausgangs- oder Eingangsrechnung, opos). Nennt
-    er die eigene Nummer, gilt die (Regel 3). Eine Auszahlung nennt nie die Rechnung
-    eines Kunden — so nimmt der Abgleich, der in ``bank lauf`` vor opos läuft
-    (29d4801), keine Kundenzahlung und keine Lastschrift einer Rechnung."""
+    """Regel 1 (Nachprüfung 6 E, Md; 7 E, M1): Der Umsatz gehört erkennbar zu etwas
+    anderem — er trägt das Stichwort eines anderen Marktplatzes (und nicht das
+    eigene), nennt die bekannte Nummer einer Abrechnung eines anderen Marktplatzes
+    oder ist die Zahlung einer Rechnung (opos, ``_rechnungen``). Nennt er die eigene
+    Nummer, gilt die (Regel 3). So nimmt der Abgleich, der in ``bank lauf`` vor opos
+    läuft (29d4801), keine Kundenzahlung und keine Lastschrift einer Rechnung.
+
+    - Das Stichwort von PayPal allein schließt nur aus, wenn eine PayPal-Abrechnung
+      den Umsatz erwartet: über PayPal zahlen auch andere Marktplätze aus (eBay), und
+      die echte Auszahlung bliebe sonst still offen (7 E, N1). Das Stichwort eines
+      anderen Marktplatzes schließt immer aus — auch wenn dessen Abrechnung noch
+      nicht importiert ist (6 E, Md, s5).
+    - Ist der Umsatz schon gebucht und trägt Stichwort oder Nummer, schließt eine
+      Rechnung nur aus, wenn opos ihn als ihre Zahlung gebucht hat — sonst bleibt
+      „schon gebucht“ (der doppelte Erlös, 7 E, M1 e)."""
     schluessel = (t.id, a.marktplatz)
     if schluessel in lauf.anderes:
         return lauf.anderes[schluessel]
     text = _text(t)
     if _eigene_nummer(a, t):
         anderes = False
-    elif not _stichwort(lauf, a.marktplatz, text) and any(
-        _stichwort(lauf, m, text)
-        for m in lauf.kontext.einstellungen.marktplaetze
+    elif any(
+        m != "paypal" or _erwartet_von(lauf, m, t)
+        for m in _fremde_stichworte(lauf, a, t)
+    ) or any(
+        len(n) >= _MINDESTLAENGE
+        and n.upper() in text
+        and _nennt(text, n)
+        and _ist_nummer(n)
+        for m, nummern in lauf.nummern.items()
         if m != a.marktplatz
+        for n in nummern
     ):
         anderes = True
+    elif _rechnungen(lauf, t):
+        anderes = (
+            t.id not in lauf.gebucht
+            or not _erkennbar(lauf, a, t)
+            or _opos_zahlung(lauf, t)
+        )
+        if anderes:
+            lauf.wegen_rechnung.add(schluessel)
     else:
-        anderes = any(
-            len(n) >= _MINDESTLAENGE and n.upper() in text and _nennt(text, n)
-            for m, nummern in lauf.nummern.items()
-            if m != a.marktplatz
-            for n in nummern
-        ) or _nennt_rechnung(lauf, t)
+        anderes = False
     lauf.anderes[schluessel] = anderes
     return anderes
 
@@ -827,35 +920,64 @@ def _opos_zahlung(lauf: _Lauf, t: Transaktion) -> bool:
     return t.id in lauf.zahlungen
 
 
-def _nennt_rechnung(lauf: _Lauf, t: Transaktion) -> bool:
-    """Nennt der Verwendungszweck die Belegnummer eines Postens (opos) — als ganze
-    Wörter, Trennzeichen dürfen fehlen oder anders sein, nicht nur als Datum (wie
-    opos, ``opos.zuordnung.nennt``)?"""
+def _rechnungen(lauf: _Lauf, t: Transaktion) -> list[OffenerPosten]:
+    """Die Posten (opos), deren Zahlung der Umsatz ist (Nachprüfung 6 E, Md; 7 E, M1):
+    der Verwendungszweck nennt die Belegnummer — als ganze Wörter, Trennzeichen
+    dürfen fehlen oder anders sein, nicht nur als Datum und nicht als Teil eines
+    Datums (wie opos, ``opos.zuordnung.nennt``: „09/2026“ steckt nicht in
+    „03.09.2026“) —, die Zahlung tilgt den Posten in ihrer Richtung (ein Eingang eine
+    Ausgangsrechnung, ein Ausgang eine Eingangsrechnung; Gutschriften umgekehrt) und
+    hat seinen Betrag (offen, ganz oder abzüglich Skonto). Eine zufällige Referenz
+    „REF 100045“ neben einer alten Eingangsrechnung 100045 über 12 € ist das nicht.
+    Jeder Status: nach opos ist die Kundenzahlung keine „vielleicht gebuchte“
+    Auszahlung."""
     from accounti.db.repository import lade_posten
-    from accounti.opos.zuordnung import MIN_REFERENZ, nur_als_datum, woerter
+    from accounti.opos.zuordnung import (
+        MIN_REFERENZ,
+        faktor,
+        im_datum,
+        nur_als_datum,
+        woerter,
+    )
 
+    if t.id in lauf.bezahlt:
+        return lauf.bezahlt[t.id]
     if lauf.rechnungen is None:
         lauf.rechnungen = {}
-        # auch ausgeglichene: nach opos ist die Kundenzahlung keine „vielleicht
-        # gebuchte“ Auszahlung
         for posten in lade_posten(lauf.session):
             ziel = "".join(woerter(posten.belegnummer))
             if posten.belegnummer and len(ziel) >= MIN_REFERENZ:
-                lauf.rechnungen[ziel] = posten.belegnummer
-    if not lauf.rechnungen:
-        return False
-    laengste = max(len(z) for z in lauf.rechnungen)
-    zweck = woerter(t.verwendungszweck)
-    for i in range(len(zweck)):
-        folge = ""
-        for wort in zweck[i:]:
-            folge += wort
-            if len(folge) > laengste:
-                break
-            nummer = lauf.rechnungen.get(folge)
-            if nummer is not None and not nur_als_datum(zweck, nummer):
-                return True
-    return False
+                lauf.rechnungen.setdefault(ziel, []).append(posten)
+    gefunden: list[OffenerPosten] = []
+    if lauf.rechnungen and t.betrag:
+        laengste = max(len(z) for z in lauf.rechnungen)
+        zweck = woerter(t.verwendungszweck)
+        for i in range(len(zweck)):
+            folge = ""
+            for n, wort in enumerate(zweck[i:], start=1):
+                folge += wort
+                if len(folge) > laengste:
+                    break
+                for posten in lauf.rechnungen.get(folge, []):
+                    if (
+                        posten not in gefunden
+                        and not im_datum(zweck, i, n)
+                        and not nur_als_datum(zweck, posten.belegnummer)
+                        and faktor(posten, t.betrag) == (1 if posten.betrag > 0 else -1)
+                        and abs(t.betrag) in _betraege(posten)
+                    ):
+                        gefunden.append(posten)
+    lauf.bezahlt[t.id] = gefunden
+    return gefunden
+
+
+def _betraege(posten: OffenerPosten) -> set[Decimal]:
+    """Was eine Zahlung des Postens betragen kann: der offene Rest, der ganze Betrag,
+    der Betrag abzüglich Skonto."""
+    betraege = {abs(posten.betrag), abs(posten.restbetrag)}
+    if posten.skonto_betrag:
+        betraege.add(abs(posten.betrag) - posten.skonto_betrag)
+    return betraege - {Decimal(0)}
 
 
 def _eingrenzen(
@@ -1072,6 +1194,11 @@ def _zuordnen(
             if _nummer_wort(a)
             else f"nennt kein Stichwort von {markt}"
         )
+        # das Stichwort eines Zahlungsdienstes (PayPal), der nichts erwartet
+        # (``_anderer_vorgang``, Nachprüfung 7 E, N1)
+        fremde = [ANZEIGE.get(m, m) for m in _fremde_stichworte(lauf, a, t)]
+        if fremde:
+            nennt += f" und trägt das Stichwort von {', '.join(fremde)}"
         hinweis = Befund(
             code=OHNE_NUMMER,
             schweregrad=Schweregrad.HINWEIS,
@@ -1132,7 +1259,64 @@ def _befund(
 ) -> Abgleich:
     """Regel 6: kein eindeutiger Treffer — mehrdeutig (auch: derselbe Umsatz einziger
     Kandidat mehrerer Abrechnungen), abweichend, anderweitig gebucht, umgebucht, eine
-    andere Nummer — oder einfach noch nicht auf der Bank."""
+    andere Nummer — oder einfach noch nicht auf der Bank.
+
+    Dazu, als weitere Hinweise (``Abgleich.hinweise``; ohne anderen Befund an seiner
+    Stelle): „vielleicht gebucht“ — es geht hinter keinem anderen Befund unter
+    (Nachprüfung 7 E, N2) — und ``auszahlung_rechnung``, wenn ein Umsatz mit dem
+    eigenen Stichwort und dem Betrag der Auszahlung nur deshalb kein Kandidat ist,
+    weil er die Rechnung eines Postens nennt (7 E, M1 d): er geht an opos, aber nicht
+    still. Diese Hinweise halten keinen Umsatz zurück."""
+    ergebnis = _hauptbefund(lauf, a, p, erwartet)
+    weitere: list[Abgleich] = []
+    vielleicht = _vielleicht(lauf, a, p, erwartet)
+    if vielleicht is not None and (
+        ergebnis.befund is None or ergebnis.befund.code != VIELLEICHT
+    ):
+        weitere.append(vielleicht)
+    rechnung = [
+        t
+        for t in _im_fenster(lauf, a, p, erwartet)
+        if (t.id, a.marktplatz) in lauf.wegen_rechnung
+        and _erkennbar(lauf, a, t)
+        and _passt(lauf, a, t, erwartet)
+    ]
+    if rechnung:
+        weitere.append(Abgleich(a, p, befund=_rechnung_befund(lauf, a, p, rechnung)))
+    if ergebnis.befund is None and weitere:
+        ergebnis = weitere.pop(0)
+    ergebnis.hinweise = [w.befund for w in weitere if w.befund is not None]
+    return ergebnis
+
+
+def _vielleicht(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> Abgleich | None:
+    """Regel 6, „vielleicht gebucht“: als Erlös gebucht, genau der Betrag, aber weder
+    Stichwort noch Nummer — vielleicht die Auszahlung, vielleicht eine Kundenzahlung
+    (prüfen, nicht raten, kein korrigiere-Befehl; Nachprüfung 6 E, Mc). Nie ein
+    Umsatz, den opos als Zahlung gebucht hat oder der eine Rechnung bezahlt
+    (``_umsaetze``)."""
+    vielleicht = [
+        t
+        for t in _umsaetze(lauf, a, p, erwartet)
+        if t.id in lauf.gebucht
+        and t.betrag == erwartet
+        and not _erkennbar(lauf, a, t)
+        and not _nur_geldbewegung(lauf, t)
+        and not _opos_zahlung(lauf, t)
+    ]
+    if not vielleicht:
+        return None
+    return Abgleich(
+        a, p, befund=_vielleicht_gebucht(lauf, a, p, vielleicht), umsaetze=vielleicht
+    )
+
+
+def _hauptbefund(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, erwartet: Decimal
+) -> Abgleich:
+    """Der Befund aus Regel 6 an erster Stelle (``_befund``)."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     kandidaten = _kandidaten(lauf, a, p, erwartet)
     if kandidaten:
@@ -1189,25 +1373,7 @@ def _befund(
     # geht vor, die Voranmeldung warnt — sonst schwiege sie hinter einer Warnung zu
     # einem anderen Umsatz: 5 E und 7 E, Simulation); mit Stichworten zuletzt, als
     # Hinweis
-    vielleicht = [
-        t
-        for t in alle
-        if t.id in lauf.gebucht
-        and t.betrag == erwartet
-        and not _erkennbar(lauf, a, t)
-        and not _nur_geldbewegung(lauf, t)
-        and not _opos_zahlung(lauf, t)
-    ]
-    vielleicht_befund = (
-        Abgleich(
-            a,
-            p,
-            befund=_vielleicht_gebucht(lauf, a, p, vielleicht),
-            umsaetze=vielleicht,
-        )
-        if vielleicht
-        else None
-    )
+    vielleicht_befund = _vielleicht(lauf, a, p, erwartet)
     if vielleicht_befund is not None and _ohne_stichworte(lauf, a):
         return vielleicht_befund
     # der eigene (mit der Nummer) als Erlös gebucht, aber außerhalb der Toleranz:
@@ -1299,8 +1465,7 @@ def _befund(
     ]
     if andere:
         return Abgleich(a, p, befund=_andere_nummer(a, p, andere), umsaetze=andere)
-    if vielleicht_befund is not None:
-        return vielleicht_befund
+    # mit bank_stichworte: „vielleicht gebucht“ zuletzt (``_befund``)
     return Abgleich(a, p)
 
 
@@ -1611,6 +1776,42 @@ def _vielleicht_gebucht(
         text=text,
         posten_nr=p.nr,
     )
+
+
+def _rechnung_befund(
+    lauf: _Lauf, a: Abrechnung, p: Marktplatzposten, umsaetze: list[Transaktion]
+) -> Befund:
+    """HINWEIS ``auszahlung_rechnung`` (Nachprüfung 7 E, M1 d): ein Umsatz mit dem
+    Stichwort des Marktplatzes und dem Betrag der Auszahlung bezahlt die Rechnung
+    eines Postens (Belegnummer, Richtung, Betrag — etwa eine Kundenzahlung über Amazon
+    Pay) und ist deshalb kein Kandidat; opos gleicht den Posten aus. Der Text hängt
+    nicht davon ab, ob opos schon gebucht hat (Regel 7: derselbe Hinweis bleibt)."""
+    markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
+    teile = "; ".join(
+        f"vom {t.datum:%d.%m.%Y} über {eur_text(t.betrag)} € ({str(t.id)[:8]}, "
+        f"Rechnung {_belegnummern(lauf, t)})"
+        for t in umsaetze
+    )
+    befehle = " bzw. ".join(
+        _zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p) for t in umsaetze
+    )
+    wer = "Der Bankumsatz" if len(umsaetze) == 1 else f"{len(umsaetze)} Bankumsätze"
+    return Befund(
+        code=RECHNUNG,
+        schweregrad=Schweregrad.HINWEIS,
+        text=(
+            f"{markt} {a.nummer}: {wer} {teile} trägt das Stichwort von {markt} und "
+            "den Betrag der Auszahlung, nennt aber die Rechnung eines offenen Postens "
+            "über denselben Betrag — er gilt als deren Zahlung (opos), nicht als "
+            "Auszahlung. Ist er doch die Auszahlung: erst die Zahlung in opos lösen, "
+            f"dann {befehle}"
+        ),
+        posten_nr=p.nr,
+    )
+
+
+def _belegnummern(lauf: _Lauf, t: Transaktion) -> str:
+    return ", ".join(sorted({x.belegnummer or "?" for x in _rechnungen(lauf, t)}))
 
 
 def _umgebucht(
