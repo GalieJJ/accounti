@@ -13,6 +13,13 @@ des neuen Codes schon neue Tabellen angelegt, aber keine Spalten an alten Tabell
 ergänzt (der Fall aus B2), zählt der Schritt als offen — seine Migration muss dann mit
 vorhandenen Tabellen umgehen (wie ``ddc9a184ddb4``). Schritte, die nur Daten oder
 Trigger ändern, lassen sich am Schema nicht erkennen (bisher gibt es keine).
+
+Nach dem Upgrade fehlt einer vorhandenen Tabelle keine Spalte des Codes — sonst passt
+der Vermerk nicht zum Schema (eine Datenbank, die auf einem Entwicklungszweig mit
+anderer Reihenfolge der Migrationen auf dessen Kopf kam, Nachprüfung Merge N-2), und
+``db upgrade`` bricht mit dem verlustfreien Weg ab: ``alembic stamp --purge`` auf den
+Stand, den das Schema zeigt, dann noch einmal ``db upgrade``. Fehlende Tabellen zählen
+nicht (``init_db`` legt Tabellen ohne Migration selbst an).
 """
 
 from __future__ import annotations
@@ -203,7 +210,9 @@ def aktualisiere(db: str, ini: Path) -> Ergebnis:
     _pruefe_datei(db)
     engine = create_engine(db)
     try:
-        return _aktualisiere(engine, ini)
+        ergebnis = _aktualisiere(engine, ini)
+        _pruefe_spalten(engine, ini, ergebnis)
+        return ergebnis
     except SQLAlchemyError as fehler:
         ursache = getattr(fehler, "orig", None) or fehler
         grund = (str(ursache).strip().splitlines() or [type(ursache).__name__])[0]
@@ -238,3 +247,51 @@ def _aktualisiere(engine: Engine, ini: Path) -> Ergebnis:
             command.stamp(_konfig(ini, v), vorher)
         command.upgrade(_konfig(ini, v), "head")
     return Ergebnis(vorher, abgeleitet, _stand(engine), offen)
+
+
+def _fehlt(verbindung: Connection) -> tuple[list[str], list[str]]:
+    """(Spalten des Codes, die vorhandenen Tabellen fehlen; fehlende Tabellen) —
+    gemessen an ``Base.metadata``."""
+    from accounti.db import Base, registriere_tabellen
+
+    registriere_tabellen()
+    vorhanden = _merkmale(verbindung)
+    spalten, tabellen = [], []
+    for tabelle in Base.metadata.sorted_tables:
+        if ("tabelle", tabelle.name) not in vorhanden:
+            tabellen.append(tabelle.name)
+            continue
+        spalten += [
+            f"{tabelle.name}.{spalte.name}"
+            for spalte in tabelle.columns
+            if ("spalte", tabelle.name, spalte.name) not in vorhanden
+        ]
+    return spalten, tabellen
+
+
+def _pruefe_spalten(engine: Engine, ini: Path, ergebnis: Ergebnis) -> None:
+    """Vermerk und Schema passen zusammen — sonst ``UpgradeError`` mit dem Weg.
+    Fehlende Tabellen allein zählen nicht (``init_db`` legt sie an)."""
+    with engine.connect() as v:
+        spalten, tabellen = _fehlt(v)
+        if not spalten:
+            return
+        stand = leite_stand_ab(v, ini)
+    liste = ", ".join(spalten[:8])
+    if len(spalten) > 8:
+        liste += f" und {len(spalten) - 8} weitere"
+    if tabellen:
+        liste += f" (Tabellen: {', '.join(tabellen[:8])})"
+    msg = (
+        f"Stand {ergebnis.nachher} laut Versionsvermerk, aber es fehlen Spalten: "
+        f"{liste} — der Vermerk passt nicht zum Schema (z. B. auf einem Zweig mit "
+        "anderer Reihenfolge der Migrationen migriert)."
+    )
+    if stand is not None and stand != ergebnis.nachher:
+        msg += (
+            f" Verlustfrei: Sicherung erstellen, dann 'alembic stamp --purge {stand}' "
+            "(der Stand, den das Schema zeigt) und noch einmal 'accounti db upgrade' — "
+            "Migrationen, deren Spalten es schon gibt, übernehmen sie "
+            "(docs/betrieb.md, Upgrades)"
+        )
+    raise UpgradeError(msg)

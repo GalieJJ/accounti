@@ -297,6 +297,7 @@ def _row_zu_beleg(r: BelegRow, positionen: list[Belegposition]) -> Beleg:
         zahlungsziel=r.zahlungsziel,
         skonto_prozent=_dec(r.skonto_prozent),
         skonto_tage=r.skonto_tage,
+        steuerkennzeichen=r.steuerkennzeichen,
         datei_hash=r.datei_hash,
         dateiname=r.dateiname,
         kanal=r.kanal,
@@ -330,6 +331,7 @@ def speichere_beleg(session: Session, b: Beleg) -> None:
             zahlungsziel=b.zahlungsziel,
             skonto_prozent=b.skonto_prozent,
             skonto_tage=b.skonto_tage,
+            steuerkennzeichen=b.steuerkennzeichen,
             datei_hash=b.datei_hash,
             dateiname=b.dateiname,
             kanal=b.kanal,
@@ -377,6 +379,7 @@ _ERKANNTE_FELDER = (
     "zahlungsziel",
     "skonto_prozent",
     "skonto_tage",
+    "steuerkennzeichen",
     "pruef_grund",
     "confidence",
 )
@@ -1002,6 +1005,17 @@ def lade_zuordnungen(
             ZahlungszuordnungRow.transaktion_id.like(f"{transaktion_praefix}%")
         )
     return [_row_zu_zuordnung(r) for r in query.all()]
+
+
+def setze_zuordnung_skonto(
+    session: Session, zuordnung_id: UUID, skonto: Decimal
+) -> None:
+    """Skonto eines Vorschlags, wie der Mensch es beim Bestätigen anerkennt."""
+    row = session.get(ZahlungszuordnungRow, str(zuordnung_id))
+    if row is None:
+        raise ValueError(f"Zuordnung {zuordnung_id} nicht gefunden.")
+    row.skonto = skonto
+    session.flush()
 
 
 def setze_zuordnungen_status(

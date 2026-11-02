@@ -26,7 +26,9 @@ Buchung mit Schlüssel, sonst fehlt die Korrektur der Umsatzsteuer; bei mehreren
 Kennziffern ist offen, welche gemindert wird. Ein Erlös im Haben ohne Schlüssel mindert
 nichts. Alles andere landet in ``ohne_kennziffer`` und sperrt die Freigabe.
 Buchungen auf Steuerkonten ohne Kennziffer (z. B. Einfuhrumsatzsteuer) sind eine
-Warnung.
+Warnung, ebenso Aufwand ohne Schlüssel gegen einen Kreditor im übrigen
+Gemeinschaftsgebiet mit USt-IdNr.: Dort ist meist § 13b (Schlüssel 94, Kz 46/47) oder
+ein ig. Erwerb (Schlüssel 19, Kz 89) anzumelden.
 
 DATEV-Schlüssel: 2/3 USt 7/19 %, 8/9 VSt 7/19 %, 18/19 ig. Erwerb 7/19 %,
 91/94 § 13b 7/19 %.
@@ -185,6 +187,15 @@ STEUERKONTEN: dict[str, Bereiche] = {
     "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
     "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
 }
+# Vorsteuer im Folgejahr abziehbar (Bilanz) und die Vorsteuerkonten, auf die sie im
+# Zeitraum des Rechnungseingangs umgebucht wird — diese Umbuchung ist die Vorsteuer
+# (Kz 66), § 15 Abs. 1 S. 1 Nr. 1 UStG
+VORSTEUER_FOLGEJAHR: dict[str, tuple[str, frozenset[str]]] = {
+    "SKR03": ("1548", frozenset({"1576", "1571"})),
+    "SKR04": ("1434", frozenset({"1406", "1401"})),
+}
+# Saldenvortrags- und statistische Konten (SKR03/SKR04 9000–9999)
+_VORTRAG: Bereiche = ((9000, 9999),)
 # Nicht steuerbare Umsätze, die bei einem EU-Unternehmer meist eine EU-Leistung sind
 _NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
     "SKR03": (frozenset({"8338", "8339"}), "8336"),
@@ -289,6 +300,15 @@ class Zuordnung:
 
 
 @dataclass(frozen=True)
+class Belegpartner:
+    """Abnehmer laut Rechnung (USt-IdNr., Land) — geht dem Kontakt vor."""
+
+    name: str
+    ust_id: str | None
+    land: str | None
+
+
+@dataclass(frozen=True)
 class EuUmsatz:
     """Steuerfreier Umsatz an einen EU-Unternehmer — für ZM und USt-IdNr.-Prüfung."""
 
@@ -297,6 +317,10 @@ class EuUmsatz:
     art: str  # L, D, S
     betrag: Decimal  # vorzeichenrichtig
     kontakt: Kontakt | None
+    # aus der Rechnung, sonst aus dem Kontakt: § 18a Abs. 7 Nr. 1 UStG meldet je
+    # USt-IdNr., unter der geliefert wurde
+    ust_id: str | None = None
+    name: str | None = None
 
 
 @dataclass
@@ -348,8 +372,10 @@ class _Ermittler:
         plan: Kontenplan,
         kontakte: Sequence[Kontakt],
         beleg_kontakte: Mapping[UUID, UUID],
+        beleg_partner: Mapping[UUID, Belegpartner] | None = None,
     ) -> None:
         self.alle = alle
+        self.beleg_partner = beleg_partner or {}
         self.plan = plan
         self.funktion = plan.funktionskonten
         self.debitoren = {k.debitor_konto: k for k in kontakte if k.debitor_konto}
@@ -522,8 +548,64 @@ class _Ermittler:
             "Zusammenfassende Meldung"
         )
 
+    def _bezug_ohne_schluessel(self, b: Buchungssatz) -> None:
+        """Aufwand ohne Schlüssel von einem EU-Unternehmer: § 13b bzw. ig. Erwerb?
+
+        Der Leistungsempfänger schuldet die Steuer (§ 13b Abs. 1, 5 bzw. § 1a, § 13a
+        Abs. 1 Nr. 2 UStG) — ohne Schlüssel fehlt sie in der Anmeldung."""
+        soll, haben = b.soll_konto, b.haben_konto
+        plan = self.plan
+        folgejahr = VORSTEUER_FOLGEJAHR.get(plan.kontenrahmen, ("", frozenset()))[0]
+        if (
+            soll == folgejahr
+            or plan.ist_gegenkonto(soll)
+            or plan.ist_steuerkonto(soll)
+            or plan.ist_erloeskonto(soll)
+            or _im_bereich(soll, _VORTRAG)
+            or _im_bereich(haben, _VORTRAG)
+            or not plan.ist_gegenkonto(haben)
+            or haben in self.debitoren
+        ):
+            return
+        kontakt = self._kontakt(haben, b.beleg_id)
+        if (
+            kontakt is None
+            or not kontakt.ust_id
+            or kontakt.land.upper() == "DE"
+            or not ist_eu_land(kontakt.land)
+        ):
+            return
+        self.e.warnungen.append(
+            f"{_kurz(b)}: Bezug von {kontakt.name} ({kontakt.land}, USt-IdNr. "
+            f"{kontakt.ust_id}) ohne Steuerschlüssel — § 13b prüfen: sonstige Leistung "
+            "eines EU-Unternehmers → Schlüssel 94/91 (Kz 46/47, 67), Lieferung → ig. "
+            "Erwerb, Schlüssel 19/18 (Kz 89, 61): accounti korrigiere … --steuer 94"
+        )
+
+    def _vorsteuer_umbuchung(self, b: Buchungssatz) -> bool:
+        """Vorsteuerkonto an „Vorsteuer im Folgejahr“: Abzug im Eingangszeitraum."""
+        folgejahr, vorsteuer = VORSTEUER_FOLGEJAHR.get(
+            self.plan.kontenrahmen, ("", frozenset())
+        )
+        seiten = {b.soll_konto, b.haben_konto}
+        if (
+            folgejahr not in seiten
+            or len(seiten) != 2
+            or not seiten - {folgejahr} <= vorsteuer
+        ):
+            return False
+        vz = 1 if b.soll_konto in vorsteuer else -1
+        self._buche(
+            b,
+            f"Vorsteuer aus {folgejahr} umgebucht",
+            [Beitrag(66, vz * b.betrag_netto)],
+        )
+        return True
+
     def konto(self, b: Buchungssatz) -> None:
         """Buchung ohne Steuerschlüssel: jede Seite für sich."""
+        if self._vorsteuer_umbuchung(b):
+            return
         beitraege: list[tuple[Beitrag, Seite]] = []
         regeln: list[str] = []
         gruende: list[str] = []
@@ -550,6 +632,7 @@ class _Ermittler:
             self.e.ohne_kennziffer.append((b, "; ".join(gruende)))
             return
         if not beitraege:
+            self._bezug_ohne_schluessel(b)
             return  # Zahlung, Umbuchung, Aufwand ohne Vorsteuer
         self._buche(b, "; ".join(regeln), [beitrag for beitrag, _ in beitraege])
         for beitrag, seite in beitraege:
@@ -557,7 +640,16 @@ class _Ermittler:
             kontakt = self._kontakt(_gegenkonto(b, seite), b.beleg_id)
             if beitrag.kz in EU_ARTEN:
                 art = EU_ARTEN[beitrag.kz]
-                self.e.eu.append(EuUmsatz(b, beitrag.kz, art, beitrag.betrag, kontakt))
+                partner = self.beleg_partner.get(b.beleg_id) if b.beleg_id else None
+                ust_id = (
+                    partner.ust_id
+                    if partner is not None
+                    else (kontakt.ust_id if kontakt else None)
+                )
+                name = partner.name if partner else (kontakt.name if kontakt else None)
+                self.e.eu.append(
+                    EuUmsatz(b, beitrag.kz, art, beitrag.betrag, kontakt, ust_id, name)
+                )
             elif beitrag.betrag > 0:
                 self._eu_pruefen(b, konto, kontakt)
 
@@ -579,16 +671,20 @@ def ermittle(
     plan: Kontenplan,
     kontakte: Sequence[Kontakt] = (),
     beleg_kontakte: Mapping[UUID, UUID] | None = None,
+    beleg_partner: Mapping[UUID, Belegpartner] | None = None,
 ) -> Ermittlung:
     """Voranmeldung eines Zeitraums aus den endgültigen Buchungen.
 
     ``buchungen`` dürfen alle Buchungen sein; gezählt wird nur der Zeitraum. Ältere
     Buchungen dienen dazu, Minderungen einer Rechnung (Skonto) zuzuordnen.
     ``beleg_kontakte``: Beleg → Kontakt aus den offenen Posten, für Erlöse ohne
-    Personenkonto.
+    Personenkonto. ``beleg_partner``: Beleg → Abnehmer laut Rechnung (USt-IdNr. für
+    die ZM, auch wenn der Kontakt eine andere trägt).
     """
     alle = list(buchungen)
-    ermittler = _Ermittler(alle, zeitraum, plan, kontakte, beleg_kontakte or {})
+    ermittler = _Ermittler(
+        alle, zeitraum, plan, kontakte, beleg_kontakte or {}, beleg_partner
+    )
     for b in sorted(alle, key=lambda x: (x.datum, x.soll_konto, x.haben_konto)):
         if not zeitraum.enthaelt(b.datum):
             continue

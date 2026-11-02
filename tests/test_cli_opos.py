@@ -360,3 +360,50 @@ def test_buchungsdatum_im_folgejahr_braucht_die_gewinnermittlung(tmp_path):
     _, fabrik = session_factory(url)
     with fabrik() as s:
         assert {b.datum for b in lade_buchungen(s)} == {date(2027, 1, 10)}
+
+
+def test_kontakt_anschrift_und_land_bearbeiten(tmp_path):
+    """B06 (Beobachtung): Anschrift und Land pflegbar — das Land bestimmt bei § 13b
+    Kz 46/47 (EU) bzw. 84/85."""
+    url, _ = _eingangsrechnung_verbuchen(tmp_path)
+    r = _run(
+        "kontakte",
+        "bearbeiten",
+        "70000",
+        "--db",
+        url,
+        "--strasse",
+        "Getreidegasse 9",
+        "--plz",
+        "5020",
+        "--ort",
+        "Salzburg",
+        "--land",
+        "at",
+    )
+    assert r.exit_code == 0, r.output
+    zeigen = _run("kontakte", "zeigen", "70000", "--db", url)
+    assert "Getreidegasse 9, 5020 Salzburg, AT" in zeigen.output
+    falsch = _run("kontakte", "bearbeiten", "70000", "--db", url, "--land", "Austria")
+    assert falsch.exit_code == 1
+
+
+def test_bestaetigen_skonto_angabe_wird_geprueft(tmp_path):
+    url, tx = _vorschlag(tmp_path)
+    keine = str(tmp_path / "keine.yaml")
+    r = _run(
+        "opos", "bestaetigen", tx, "--db", url, "--config", keine, "--skonto", "RE-1001"
+    )
+    assert r.exit_code == 1 and "BELEGNR=BETRAG" in r.output
+    r = _run(
+        "opos",
+        "bestaetigen",
+        tx,
+        "--db",
+        url,
+        "--config",
+        keine,
+        "--skonto",
+        "RE-9999=1,00",
+    )
+    assert r.exit_code == 1 and "gehört nicht" in r.output

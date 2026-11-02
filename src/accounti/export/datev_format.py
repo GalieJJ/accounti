@@ -203,6 +203,19 @@ def bu_schluessel(b: Buchungssatz, automatikkonten: Mapping[str, int]) -> str:
     return ""
 
 
+# § 13b und ig. Erwerb: DATEV rechnet Umsatz- und Vorsteuer aus dem Rechnungsbetrag
+# (Netto = Zahlbetrag) — die selbst berechnete Steuer gehört nicht in den Umsatz
+_STEUER_NICHT_IM_UMSATZ = frozenset({18, 19, 91, 94})
+
+
+def datev_umsatz(b: Buchungssatz) -> Decimal:
+    """Umsatz einer Buchung im Stapel: brutto, bei § 13b/ig. Erwerb das Netto."""
+    umsatz = abs(b.betrag_netto)
+    if b.steuer_betrag and b.steuer_schluessel not in _STEUER_NICHT_IM_UMSATZ:
+        umsatz += abs(b.steuer_betrag)
+    return umsatz
+
+
 def automatik_widerspruch(
     b: Buchungssatz, automatikkonten: Mapping[str, int]
 ) -> str | None:

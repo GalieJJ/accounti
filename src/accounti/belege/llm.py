@@ -24,7 +24,9 @@ MAX_ZEICHEN = 6000
 
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b")
 _UST_ID = re.compile(r"\b[A-Z]{2} ?\d{3} ?\d{3} ?\d{3,5}\b")
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+# nur am Wortanfang: sonst setzte das Muster an jedem Zeichen eines langen Wortes neu
+# an (quadratisch, Nachprüfung C, Runde 4, Mittel 2) — die Treffer sind dieselben
+_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 _TELEFON = re.compile(r"(?:\+\d{2}[ /-]?|\b0)\d{2,5}[ /-]?\d{3,}(?:[ -]\d+)*")
 _ZAHLENFOLGE = re.compile(r"\b\d{6,}\b")
 
