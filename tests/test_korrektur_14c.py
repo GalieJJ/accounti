@@ -109,25 +109,29 @@ def test_ohne_steuer_bleibt_gesperrt(alt, steuer, satz, mit_satz):
         _steuer(b, None, True, "doch ig. Lieferung", beleg_mit_satz=mit_satz)
 
 
+@pytest.mark.parametrize(("alt", "steuer", "satz"), AUSGEWIESEN)
 @pytest.mark.parametrize("mit_satz", [True, False], ids=["mit_satz", "ohne_satz"])
-@pytest.mark.parametrize("neu", [94, 19, 2, 9])
-def test_korrigiere_mit_beleg_aus_der_datenbank(make_session, mit_satz, neu):
+@pytest.mark.parametrize("neu", [94, 19, "anders", 9])
+def test_korrigiere_mit_beleg_aus_der_datenbank(
+    make_session, alt, steuer, satz, mit_satz, neu
+):
     """Mit dem Beleg in der Datenbank (``_beleg_mit_satz`` liest seine Positionen):
-    nichts wird gebucht, die Buchung bleibt freigegeben mit Schlüssel 3."""
-    ar = _ausgangsbeleg(mit_satz)
-    b = _belegbuchung(ar.id)
+    nichts wird gebucht, die Buchung bleibt freigegeben mit ihrem Schlüssel."""
+    schluessel = (5 - alt) if neu == "anders" else neu
+    ar = _ausgangsbeleg(mit_satz, steuer, satz)
+    b = _belegbuchung(ar.id, alt, steuer)
     anlegen(make_session, ar, b)
     with make_session() as s:
         with pytest.raises(StornoError) as fehler:
             korrigiere(
-                s, str(b.id), "10001", "2700", steuer=neu, grund="doch § 13b",
+                s, str(b.id), "10001", "2700", steuer=schluessel, grund="doch § 13b",
                 von="erika",
             )  # fmt: skip
         s.rollback()
-        if neu in SELBST_BERECHNET or not mit_satz:
+        if schluessel in SELBST_BERECHNET or not mit_satz:
             assert "§ 14c" in str(fehler.value)
         (geblieben,) = lade_buchungen(s)
-    assert (geblieben.steuer_schluessel, geblieben.storniert_durch) == (3, None)
+    assert (geblieben.steuer_schluessel, geblieben.storniert_durch) == (alt, None)
 
 
 # --- Paket C: Belege ohne ausgewiesene Umsatzsteuer --------------------------------
