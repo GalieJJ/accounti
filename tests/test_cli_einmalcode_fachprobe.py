@@ -129,3 +129,56 @@ def test_bestaetige_mit_pruefregelfehler_verbraucht_den_code_nicht(welt, monkeyp
     assert r.exit_code == 1, r.output
     r = _run(monkeypatch, code, "bestaetige", kurz(richtig.id), "--db", url)
     assert r.exit_code == 0 and "Freigegeben" in r.output, r.output
+
+
+# --- Gesamttest 10b-1, Runde 3 (gw2-betrieb B-1/B-2) ----------------------------------
+
+
+def test_regeln_deaktivieren_mit_tippfehler_verbraucht_den_code_nicht(
+    welt, monkeypatch
+):
+    """Ein unbekannter Name oder eine schon deaktivierte Regel kostete einen
+    Wiederherstellungscode."""
+    url, jan = welt
+    code = jan.codes[4]
+    r = _run(
+        monkeypatch, code, "lerne", "--muster", "strom", "--soll", "4240", "--haben",
+        "1200", "--name", "strom", "--db", url,
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    code = jan.codes[5]
+    befehl = ["regeln", "deaktivieren", "--grund", "falsch", "--db", url]
+    r = _run(monkeypatch, code, *befehl[:2], "gibtsnicht", *befehl[2:])
+    assert r.exit_code == 1 and "nicht gefunden" in r.output, r.output
+    r = _run(monkeypatch, code, *befehl[:2], "strom", *befehl[2:])
+    assert r.exit_code == 0 and "deaktiviert" in r.output, r.output
+    code = jan.codes[6]
+    r = _run(monkeypatch, code, *befehl[:2], "strom", *befehl[2:])
+    assert r.exit_code == 1 and "schon deaktiviert" in r.output, r.output
+    r = _run(
+        monkeypatch, code, "lerne", "--muster", "gas", "--soll", "4240", "--haben",
+        "1200", "--name", "gas", "--db", url,
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output  # derselbe Code gilt noch
+
+
+def test_regeln_uebernehmen_mit_kaputter_datei_meldung_und_code_bleibt(
+    welt, monkeypatch, tmp_path
+):
+    url, jan = welt
+    (tmp_path / "config").mkdir()
+    datei = tmp_path / "config" / "regeln.yaml"
+    datei.write_text("- name: gelernt_x\n  haben: [1200\n", encoding="utf-8")
+    code = jan.codes[7]
+    r = _run(monkeypatch, code, "regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 1 and "kein gültiges YAML" in r.output, r.output
+    assert "Traceback" not in r.output
+    r = runner.invoke(app, ["regeln", "uebernehmen", "--probe", "--db", url])
+    assert r.exit_code == 1 and "kein gültiges YAML" in r.output, r.output
+    datei.write_text(
+        "- name: gelernt_telekom\n  muster: telekom\n  soll_konto: '4920'\n"
+        "  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    r = _run(monkeypatch, code, "regeln", "uebernehmen", "--db", url)
+    assert r.exit_code == 0 and "1 Regeln übernommen" in r.output, r.output

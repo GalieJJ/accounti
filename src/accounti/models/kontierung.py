@@ -71,7 +71,8 @@ class RegelHerkunft(str, enum.Enum):
     UEBERNAHME = "uebernahme"  # accounti regeln uebernehmen (alte gelernt_*-Einträge)
 
 
-Feld = Literal["verwendungszweck", "gegenkonto_name", "beide"]
+# gegenkonto_iban: nur aus der Regeldatei (``regeln uebernehmen``, gw2-merge B1)
+Feld = Literal["verwendungszweck", "gegenkonto_name", "gegenkonto_iban", "beide"]
 
 
 class Kontierungsregel(BaseModel):
@@ -87,6 +88,9 @@ class Kontierungsregel(BaseModel):
     buchungstext: str | None = Field(default=None, max_length=60)
     quelle_buchung_id: UUID | None = None
     herkunft: RegelHerkunft = RegelHerkunft.KORREKTUR
+    # aus der Regeldatei übernommen: Stelle des Eintrags in der Datei — untereinander
+    # gilt die Reihenfolge der Datei, auch über mehrere Läufe (Gesamttest 10b-1 R3)
+    rang: int | None = Field(default=None, ge=0)
     angelegt_von: str = Field(min_length=1, max_length=100)
     angelegt_am: datetime = Field(default_factory=datetime.now)
     aktiv: bool = True

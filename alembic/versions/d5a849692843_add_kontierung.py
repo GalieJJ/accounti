@@ -14,6 +14,11 @@ Migration), übernimmt die Migration sie und legt nur an, was fehlt.
 Hängt seit dem Zusammenführen mit main hinter ``a14acef69fae`` (Verrechnungen,
 Gesamttest Debitoren) — vorher hinter ``ddc9a184ddb4``; die Reihenfolge der beiden
 Migrationen von Baustein 10b bleibt.
+
+``kontierungsregeln.rang`` (Stelle des übernommenen Eintrags in der Regeldatei) kam in
+Runde 3 der Nachbesserung dazu; fehlt die Spalte an einer schon angelegten Tabelle
+(Datenbank vom Vorabstand, ``accounti db upgrade --aus-schema``), ergänzt die Migration
+sie.
 """
 from typing import Sequence, Union
 
@@ -72,6 +77,7 @@ def upgrade() -> None:
         sa.Column('buchungstext', sa.String(length=60), nullable=True),
         sa.Column('quelle_buchung_id', sa.String(length=36), nullable=True),
         sa.Column('herkunft', sa.String(length=20), nullable=False),
+        sa.Column('rang', sa.Integer(), nullable=True),
         sa.Column('angelegt_von', sa.String(length=100), nullable=False),
         sa.Column('angelegt_am', sa.DateTime(), nullable=False),
         sa.Column('aktiv', sa.Boolean(), nullable=False),
@@ -81,6 +87,11 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('name')
         )
+    spalten = {
+        s["name"] for s in sa.inspect(op.get_bind()).get_columns('kontierungsregeln')
+    }
+    if 'rang' not in spalten:
+        op.add_column('kontierungsregeln', sa.Column('rang', sa.Integer(), nullable=True))
     if 'ix_kontierungsregeln_aktiv' not in _indizes('kontierungsregeln'):
         op.create_index(op.f('ix_kontierungsregeln_aktiv'), 'kontierungsregeln', ['aktiv'], unique=False)
     if op.get_bind().dialect.name == "sqlite":

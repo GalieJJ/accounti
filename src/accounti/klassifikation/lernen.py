@@ -37,7 +37,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
-import yaml
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -863,6 +862,7 @@ class Uebernahme:
     unbekannt: list[str] = field(
         default_factory=list
     )  # gewählt, aber nicht in der Datei
+    gruende: dict[str, str] = field(default_factory=dict)  # Name → warum ungültig
 
 
 def richtung_der_bankseite(
@@ -880,18 +880,6 @@ def richtung_der_bankseite(
         if geld(soll) and not geld(haben):
             return Richtung.EINNAHME
     return None
-
-
-def _mit_pruefkennzeichen(eintrag: dict[str, object]) -> bool:
-    """``pruefen: true`` oder ``confidence`` unter 1 (``ValueError`` bei ungültigen
-    Werten — wie der Lader der Regeldatei)."""
-    pruefen = eintrag.get("pruefen", False)
-    if not isinstance(pruefen, bool):
-        raise ValueError(f"pruefen {pruefen!r}")
-    confidence = float(eintrag.get("confidence", 1.0))  # type: ignore[arg-type]
-    if not 0.0 <= confidence <= 1.0:
-        raise ValueError(f"confidence {confidence}")
-    return pruefen or confidence < 1.0
 
 
 def uebernehme_aus_datei(
@@ -920,14 +908,25 @@ def uebernehme_aus_datei(
 
     Übernommene Regeln stehen hinter allen anderen gelernten
     (``repo_kontierung.lade_kontierungsregeln``) — wie bisher die Datei hinter den
-    Korrekturen in der Datenbank —, untereinander in der Reihenfolge der Datei.
+    Korrekturen in der Datenbank —, untereinander in der Reihenfolge der Datei: Jede
+    trägt ihre Stelle in der Datei (``rang``), auch wenn sie erst in einem späteren
+    Lauf (``--name``) übernommen wird.
 
-    In der Datei bleiben (und greifen dort wie bisher): Einträge mit ``pruefen: true``
-    oder ``confidence`` unter 1 — eine gelernte Regel hat kein eigenes
-    Prüfkennzeichen, übernommen buchte sie automatisch (``mit_pruefkennzeichen``) —
-    und Umbuchungen zwischen Geldkonten (``umbuchungen``, wie ``entwurf_fuer``)."""
+    Die Einträge prüft derselbe Lader wie für die Regeldatei
+    (``regeln_loader.pruefe_eintrag``: Konten, Muster, Steuerschlüssel); ein
+    ungültiger steht in ``ungueltig`` (Grund in ``gruende``). Eine Datei, die nicht
+    lesbar, kein YAML oder keine Liste ist, ist ein ``KonfigurationError``.
+
+    In der Datei bleiben (und greifen dort hinter den gelernten Regeln): Einträge mit
+    ``pruefen: true`` oder ``confidence`` unter 1 — eine gelernte Regel hat kein
+    eigenes Prüfkennzeichen, übernommen buchte sie automatisch
+    (``mit_pruefkennzeichen``) — und Umbuchungen zwischen Geldkonten (``umbuchungen``,
+    wie ``entwurf_fuer``)."""
+    from accounti.klassifikation.regeln_loader import lies_regeldatei, pruefe_eintrag
+    from accounti.konfiguration import KonfigurationError
+
     pfad = Path(regeldatei)
-    daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) if pfad.is_file() else []
+    daten = lies_regeldatei(pfad)
     ergebnis = Uebernahme()
     vorhanden = regelnamen(session)
     gewaehlt = {n.strip() for n in namen if n and n.strip()}
@@ -936,7 +935,7 @@ def uebernehme_aus_datei(
     geld = zahlungsmittel(
         buchhaltung or Buchhaltung(bank_konto=bank_konto), kontenrahmen
     )
-    for nr, eintrag in enumerate(daten if isinstance(daten, list) else []):
+    for nr, eintrag in enumerate(daten):
         if not isinstance(eintrag, dict):
             continue
         name = str(eintrag.get("name") or "")
@@ -948,10 +947,9 @@ def uebernehme_aus_datei(
             ergebnis.uebersprungen.append(name)
             continue
         try:
-            muster = str(eintrag["muster"])
-            re.compile(muster)
-            soll, haben = str(eintrag["soll_konto"]), str(eintrag["haben_konto"])
-            if _mit_pruefkennzeichen(eintrag):
+            geprueft = pruefe_eintrag(eintrag, pfad)
+            soll, haben = geprueft.soll_konto, geprueft.haben_konto
+            if geprueft.pruefen or geprueft.confidence < 1.0:
                 ergebnis.mit_pruefkennzeichen.append(name)
                 continue
             if umbuchung_fehler(soll, haben, geld) is not None:
@@ -966,23 +964,29 @@ def uebernehme_aus_datei(
                 richtung = richtung_der_bankseite(soll, haben, bank_konto, kontenrahmen)
             regel = Kontierungsregel(
                 name=name[:100],
-                muster=muster,
+                muster=geprueft.muster.pattern,
                 ist_text=False,
-                feld=eintrag.get("feld", "verwendungszweck"),
+                feld=geprueft.feld,  # type: ignore[arg-type]  # FELDER der Datei
                 richtung=richtung,
                 soll_konto=soll,
                 haben_konto=haben,
-                steuer_schluessel=eintrag.get("steuer_schluessel"),
-                buchungstext=(eintrag.get("buchungstext") or None),
+                steuer_schluessel=geprueft.steuer_schluessel,
+                buchungstext=geprueft.buchungstext,
                 herkunft=RegelHerkunft.UEBERNAHME,
                 angelegt_von=person,
-                # Vorrang wie in der Datei (die erste passende Regel gewinnt): ein
-                # früherer Eintrag gilt als neuer — hinter den anderen gelernten
-                # Regeln stehen alle übernommenen (Herkunft, lade_kontierungsregeln)
-                angelegt_am=zeit - timedelta(microseconds=nr),
+                angelegt_am=zeit,
+                # Vorrang wie in der Datei (die erste passende Regel gewinnt), auch
+                # über mehrere Läufe — hinter den anderen gelernten Regeln stehen alle
+                # übernommenen (Herkunft, lade_kontierungsregeln)
+                rang=nr,
             )
-        except (KeyError, TypeError, re.error, ValueError):
+        except KonfigurationError as fehler:
             ergebnis.ungueltig.append(name)
+            ergebnis.gruende[name] = str(fehler).removeprefix(f"{pfad}: ")
+            continue
+        except ValueError as fehler:
+            ergebnis.ungueltig.append(name)
+            ergebnis.gruende[name] = str(fehler)
             continue
         vorhanden.add(name)
         ergebnis.uebernommen.append(name)

@@ -67,6 +67,8 @@ class KontierungsregelRow(Base):
     buchungstext: Mapped[str | None] = mapped_column(String(60), nullable=True)
     quelle_buchung_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     herkunft: Mapped[str] = mapped_column(String(20))
+    # Stelle in der Regeldatei (nur ``uebernahme``) — Vorrang untereinander
+    rang: Mapped[int | None] = mapped_column(Integer, nullable=True)
     angelegt_von: Mapped[str] = mapped_column(String(100))
     angelegt_am: Mapped[datetime] = mapped_column(DateTime)
     aktiv: Mapped[bool] = mapped_column(Boolean, index=True)

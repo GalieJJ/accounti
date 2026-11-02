@@ -12,7 +12,13 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    fachprobe,
+    handelnde_person,
+)
 from accounti.befehle._anlagen_abschluss import ende, sitzung
 
 NAME = "regeln"
@@ -79,18 +85,32 @@ def deaktivieren(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Regel abschalten — sie greift ab dem nächsten Lauf nicht mehr."""
+    from sqlalchemy.orm import Session
+
     from accounti.db.repo_kontierung import finde_kontierungsregel
     from accounti.klassifikation.lernen import RegelError, deaktiviere
     from accounti.models.auth import Recht
+    from accounti.models.kontierung import Kontierungsregel
     from accounti.pruefung.person import aktuelle_person
 
+    def ausfuehren(s: Session, wer: str) -> Kontierungsregel:
+        r = finde_kontierungsregel(s, regel)
+        return deaktiviere(s, r.id, wer, grund)
+
+    # Fachprobe vor dem Einmalcode: ein unbekannter Name oder eine schon deaktivierte
+    # Regel verbraucht ihn nicht (gw-storno N3, gw2-betrieb B-1)
+    probe = fachprobe(
+        sitzung(db),
+        lambda s: ausfuehren(s, aktuelle_person(von)),
+        (RegelError, ValueError),
+        lambda f: ende(str(f)),
+    )
     with (
-        handelnde_person(db, config, Recht.REGELN_LERNEN, von) as person,
+        handelnde_person(db, config, Recht.REGELN_LERNEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
-            r = finde_kontierungsregel(s, regel)
-            aus = deaktiviere(s, r.id, aktuelle_person(person), grund)
+            aus = ausfuehren(s, aktuelle_person(person))
             s.commit()
         except (RegelError, ValueError) as fehler:
             ende(str(fehler))
@@ -124,13 +144,19 @@ def uebernehmen(
     falsch treffenden eigenen Regeln. Übernommene Regeln stehen hinter den schon
     gelernten. Die Datei bleibt unverändert; die Einträge danach von Hand löschen.
     Einträge mit pruefen/confidence und Umbuchungen bleiben in der Datei."""
+    from sqlalchemy.orm import Session
+
     from accounti.abschluss.konfiguration import lade_abschluss
     from accounti.abschluss.kontenrahmen import (
         KontenrahmenError,
         mit_eingerichteten_konten,
     )
     from accounti.betrieb.kontext import regeln_datei
-    from accounti.klassifikation.lernen import RegelError, uebernehme_aus_datei
+    from accounti.klassifikation.lernen import (
+        RegelError,
+        Uebernahme,
+        uebernehme_aus_datei,
+    )
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models.auth import Recht
     from accounti.pruefung.person import aktuelle_person
@@ -142,32 +168,44 @@ def uebernehmen(
         kontenrahmen = lade_abschluss(config).lade_kontenrahmen()
     except (KonfigurationError, KontenrahmenError) as fehler:
         ende(str(fehler))
+
+    def ausfuehren(s: Session, wer: str, nur_probe: bool) -> Uebernahme:
+        # eingerichtete Bank- und Kartenkonten zählen als Geldkonten
+        return uebernehme_aus_datei(
+            s, datei, wer, bank_konto=bank_konto,
+            kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s), probe=nur_probe,
+            namen=name or (), buchhaltung=buchhaltung,
+        )  # fmt: skip
+
+    fachfehler = (RegelError, KonfigurationError)
     if probe:
         with sitzung(db)() as s:
-            # eingerichtete Bank- und Kartenkonten zählen als Geldkonten
-            ergebnis = uebernehme_aus_datei(
-                s, datei, "probe", bank_konto=bank_konto,
-                kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s), probe=True,
-                namen=name or (), buchhaltung=buchhaltung,
-            )  # fmt: skip
-            s.rollback()
+            try:
+                ergebnis = ausfuehren(s, "probe", True)
+            except fachfehler as fehler:
+                ende(str(fehler))
+            finally:
+                s.rollback()
     else:
         # Übernommene Regeln buchen künftig automatisch wie gelernte: buchen und
-        # Regeln lernen (wie korrigiere --lernen) — der verwalter allein nicht
+        # Regeln lernen (wie korrigiere --lernen) — der verwalter allein nicht. Erst
+        # die Fachprobe (Datei lesbar, Namen frei), dann der Einmalcode
+        vorab = fachprobe(
+            sitzung(db),
+            lambda s: ausfuehren(s, aktuelle_person(von), True),
+            fachfehler,
+            lambda f: ende(str(f)),
+        )
         with (
             handelnde_person(
-                db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,)
+                db, config, Recht.BUCHEN, von, (Recht.REGELN_LERNEN,), vorab
             ) as person,
             sitzung(db)() as s,
         ):
             try:
-                ergebnis = uebernehme_aus_datei(
-                    s, datei, aktuelle_person(person), bank_konto=bank_konto,
-                    kontenrahmen=mit_eingerichteten_konten(kontenrahmen, s),
-                    namen=name or (), buchhaltung=buchhaltung,
-                )  # fmt: skip
+                ergebnis = ausfuehren(s, aktuelle_person(person), False)
                 s.commit()
-            except RegelError as fehler:
+            except fachfehler as fehler:
                 ende(str(fehler))
     verb = "würde übernehmen" if probe else "übernommen"
     console.print(
@@ -188,6 +226,9 @@ def uebernehmen(
             f"[red]Ungültig (nicht übernommen): "
             f"{escape(', '.join(ergebnis.ungueltig))}[/red]"
         )
+        for regelname in ergebnis.ungueltig:
+            if grund := ergebnis.gruende.get(regelname):
+                console.print(f"[red]  {escape(grund)}[/red]")
     if ergebnis.ohne_richtung:
         console.print(
             "[yellow]Ohne erkennbare Bankseite (gelten für Ein- und Ausgänge): "

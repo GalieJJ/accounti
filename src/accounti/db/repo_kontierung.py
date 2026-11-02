@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import case, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from accounti.db.tabellen_kontierung import KontierungsgrundRow, KontierungsregelRow
@@ -134,6 +134,7 @@ def speichere_regel(session: Session, r: Kontierungsregel) -> None:
             buchungstext=r.buchungstext,
             quelle_buchung_id=str(r.quelle_buchung_id) if r.quelle_buchung_id else None,
             herkunft=r.herkunft.value,
+            rang=r.rang,
             angelegt_von=r.angelegt_von[:100],
             angelegt_am=r.angelegt_am,
             aktiv=r.aktiv,
@@ -162,6 +163,7 @@ def _zu_regel(z: KontierungsregelRow) -> Kontierungsregel:
             if z.quelle_buchung_id
             else None,
             "herkunft": RegelHerkunft(z.herkunft),
+            "rang": z.rang,
             "angelegt_von": z.angelegt_von,
             "angelegt_am": z.angelegt_am,
             "aktiv": z.aktiv,
@@ -178,16 +180,27 @@ def lade_kontierungsregeln(
     """Gelernte Regeln in ihrem Vorrang: die neueste zuerst — die aus der
     Regeldatei übernommenen (``accounti regeln uebernehmen``) hinter allen anderen,
     wie vorher die Datei hinter den Korrekturen in der Datenbank (Gesamttest 10b-1
-    M-1: sonst gewann ein alter Eintrag gegen eine neuere Korrektur)."""
-    uebernommen = case(
-        (KontierungsregelRow.herkunft == RegelHerkunft.UEBERNAHME.value, 1), else_=0
-    )
+    M-1: sonst gewann ein alter Eintrag gegen eine neuere Korrektur).
+
+    Übernommene untereinander nach ihrer Stelle in der Regeldatei (``rang``), bei
+    gleicher Stelle der früher übernommene zuerst — unabhängig davon, in wie vielen
+    Läufen übernommen wurde (Runde 3, gegen:regeln:1: ein zweiter Lauf mit ``--name``
+    stellte seinen Eintrag sonst vor die früher übernommenen). Ohne ``rang`` (vor
+    Runde 3 übernommen) wie bisher nach Zeitpunkt, vor denen mit ``rang``."""
     abfrage = select(KontierungsregelRow).order_by(
-        uebernommen, KontierungsregelRow.angelegt_am.desc(), KontierungsregelRow.name
+        KontierungsregelRow.angelegt_am.desc(), KontierungsregelRow.name
     )
     if nur_aktive:
         abfrage = abfrage.where(KontierungsregelRow.aktiv.is_(True))
-    return [_zu_regel(z) for z in session.scalars(abfrage)]
+    zeilen = list(session.scalars(abfrage))
+    uebernahme = RegelHerkunft.UEBERNAHME.value
+    gelernt = [z for z in zeilen if z.herkunft != uebernahme]
+    alt = [z for z in zeilen if z.herkunft == uebernahme and z.rang is None]
+    neu = sorted(
+        (z for z in zeilen if z.herkunft == uebernahme and z.rang is not None),
+        key=lambda z: (z.rang or 0, z.angelegt_am, z.name),
+    )
+    return [_zu_regel(z) for z in (*gelernt, *alt, *neu)]
 
 
 def lade_kontierungsregel(session: Session, regel_id: UUID | str) -> Kontierungsregel:
