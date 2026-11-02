@@ -32,6 +32,9 @@ class DATEVConfig:
     mandanten_nummer: str  # z.B. "40005"
     wirtschaftsjahr_beginn: date = date(2026, 1, 1)
     sachkonten_laenge: int = 4  # 4-stellig Standard, auch 6 möglich
+    # Bereiche der Personenkonten (buchhaltung.debitoren_von … kreditoren_bis): sie
+    # sind eine Stelle länger als die Sachkonten
+    personenkonten: tuple[tuple[int, int], ...] = ((10000, 69999), (70000, 99999))
     datum_von: date = date(2026, 1, 1)
     datum_bis: date = date(2026, 12, 31)
     bezeichnung: str = "accounti Export"
@@ -54,6 +57,11 @@ class DATEVExporter:
         self.config = config
         # vor dem Import zu klären (z.B. anderer Schlüssel auf einem Automatikkonto)
         self.warnungen: list[str] = []
+
+    def _ist_personenkonto(self, konto: str) -> bool:
+        return konto.isdigit() and any(
+            von <= int(konto) <= bis for von, bis in self.config.personenkonten
+        )
 
     def _erzeuge_header(self) -> str:
         """DATEV EXTF Header-Zeile generieren."""
@@ -218,6 +226,19 @@ class DATEVExporter:
             for b in buchungen
             for konto in (b.soll_konto, b.haben_konto)
             if kontoart(konto, laenge) is None
+        ]
+        # ein Personenkonto, das kürzer ist, läse DATEV als Sachkonto — bei Länge 6
+        # oder 8 etwa die 5-stelligen Debitoren (Runde 6, g5w-konten N2)
+        self.warnungen += [
+            f"Personenkonto {konto} (buchhaltung.debitoren/kreditoren) passt nicht zur "
+            f"Sachkontenlänge {laenge} (erwartet {laenge + 1} Stellen, "
+            "mandant.sachkonten_laenge) — DATEV liest es als Sachkonto"
+            for konto in sorted(
+                {k for b in buchungen for k in (b.soll_konto, b.haben_konto)}
+            )
+            if self._ist_personenkonto(konto)
+            and kontoart(konto, laenge) is not None
+            and len(konto) != laenge + 1
         ]
         for buchung in buchungen:
             roh = self._buchung_zu_zeile(buchung)

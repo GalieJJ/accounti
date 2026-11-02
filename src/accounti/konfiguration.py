@@ -211,6 +211,19 @@ class Buchhaltung(BaseModel):
     # jede Regel), nur vorschlagen (Confidence 0,9 → zur Prüfung) oder nicht laden
     gelernte_regeln: Literal["automatisch", "pruefen", "aus"] = "automatisch"
 
+    @field_validator(
+        "debitoren_von", "debitoren_bis", "kreditoren_von", "kreditoren_bis"
+    )
+    @classmethod
+    def _personenkonten(cls, wert: int) -> int:
+        # DATEV-Personenkonten haben höchstens 9 Stellen (Sachkontenlänge 8 + 1); ein
+        # 10-stelliger Debitor wurde gebucht, ließ sich aber weder korrigieren noch in
+        # der Kasse gegenbuchen (Kontonummern 4–9 Ziffern) — Runde 6, g5w-konten N3
+        if not 0 <= wert <= 999_999_999:
+            msg = f"{wert}: Personenkonten haben höchstens 9 Stellen (DATEV)"
+            raise ValueError(msg)
+        return wert
+
     @field_validator("kontenrahmen", mode="before")
     @classmethod
     def _kontenrahmen(cls, wert: object) -> str:

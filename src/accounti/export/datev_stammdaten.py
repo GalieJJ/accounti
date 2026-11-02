@@ -180,15 +180,28 @@ def wirtschaftsjahr_beginn(stichtag: date, beginn: date | None = None) -> date:
     return kandidat
 
 
+SACHKONTENLAENGE = range(4, 9)  # DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)
+
+
 def _laenge(firma: dict[str, object]) -> int:
+    """``mandant.sachkonten_laenge``: eine ganze Zahl 4 bis 8, ohne Angabe 4. Bisher
+    stand jede Zahl im Kopf (0, 3, 9, -1, true als 1) — DATEV lehnt den Stapel ab
+    (Runde 6, g5w-konten N2)."""
     from accounti.konfiguration import KonfigurationError
 
-    laenge = firma.get("sachkonten_laenge", 4)
+    laenge = firma.get("sachkonten_laenge")
+    if laenge is None:
+        return 4
+    msg = f"mandant.sachkonten_laenge {laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
+    if isinstance(laenge, bool) or not isinstance(laenge, int | str):
+        raise KonfigurationError(msg)
     try:
-        return int(laenge) if isinstance(laenge, int | str) else 4
+        zahl = int(laenge)
     except ValueError as fehler:
-        msg = f"mandant.sachkonten_laenge {laenge!r}: eine Zahl (4 bis 8)"
         raise KonfigurationError(msg) from fehler
+    if zahl not in SACHKONTENLAENGE:
+        raise KonfigurationError(msg)
+    return zahl
 
 
 def sachkontenlaenge(pfad: str | Path) -> int:
@@ -197,10 +210,15 @@ def sachkontenlaenge(pfad: str | Path) -> int:
     (Runde 5, g4w N5: der Stapel nannte immer 4)."""
     import yaml
 
+    from accounti.konfiguration import KonfigurationError
+
     datei = Path(pfad)
     if not datei.is_file():
         return 4
-    geladen = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
+    try:
+        geladen = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as fehler:
+        raise KonfigurationError(f"{datei}: kein gültiges YAML ({fehler})") from fehler
     firma = geladen.get("mandant") if isinstance(geladen, dict) else None
     return _laenge(firma if isinstance(firma, dict) else {})
 

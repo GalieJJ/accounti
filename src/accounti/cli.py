@@ -2918,7 +2918,7 @@ def export_datev(
     from accounti.db import session_factory
     from accounti.db.repository import lade_buchungen
     from accounti.export.datev import DATEVConfig, DATEVExporter
-    from accounti.konfiguration import KonfigurationError
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models import BuchungStatus
 
     freigegeben = (
@@ -2939,6 +2939,7 @@ def export_datev(
     try:
         automatik = automatikkonten_aus(config)
         laenge = sachkontenlaenge(config)  # Personenkonten eine Stelle länger
+        bh = lade_buchhaltung(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2955,6 +2956,10 @@ def export_datev(
             mandanten_nummer=mandant,
             automatikkonten=automatik,
             sachkonten_laenge=laenge,
+            personenkonten=(
+                (bh.debitoren_von, bh.debitoren_bis),
+                (bh.kreditoren_von, bh.kreditoren_bis),
+            ),
         )
         exporter = DATEVExporter(cfg)
         datei = exporter.exportiere(buchungen, output)
