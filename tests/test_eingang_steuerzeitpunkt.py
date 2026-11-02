@@ -68,19 +68,20 @@ def make_session():
 
 
 def _beleg(positionen=(("Beratung", "1000.00", "0", "0.00"),), kennzeichen="AE", **kw):
-    b = Beleg(
-        datei_hash="a" * 64,
-        dateiname="re.pdf",
-        kanal="ordner",
-        herkunft="x",
-        aufbewahren_bis=date(2036, 12, 31),
-        belegart=Belegart.EINGANGSRECHNUNG,
-        status=BelegStatus.ERFASST,
-        belegnummer="RE-2026-0042",
-        belegdatum=date(2026, 3, 5),
-        eingegangen_am=datetime(2026, 3, 6, 9, 0),
-        **{**WIEN, **kw},
-    )
+    felder = {
+        "datei_hash": "a" * 64,
+        "dateiname": "re.pdf",
+        "kanal": "ordner",
+        "herkunft": "x",
+        "aufbewahren_bis": date(2036, 12, 31),
+        "belegart": Belegart.EINGANGSRECHNUNG,
+        "status": BelegStatus.ERFASST,
+        "belegnummer": "RE-2026-0042",
+        "belegdatum": date(2026, 3, 5),
+        "eingegangen_am": datetime(2026, 3, 6, 9, 0),
+        **WIEN,
+    }
+    b = Beleg(**{**felder, **kw})
     b.positionen = [
         Belegposition(
             beleg_id=b.id,
@@ -103,15 +104,20 @@ def _beleg(positionen=(("Beratung", "1000.00", "0", "0.00"),), kennzeichen="AE",
     )
 
 
-def _verbuche(make_session, beleg, sperren=()):
+def _lauf(make_session, beleg, sperren=(), **kw):
     with make_session() as s:
         speichere_beleg(s, beleg)
         for monat in sperren:
             schliesse(s, monat, "erika", trotzdem=True)
         s.commit()
     with make_session() as s:
-        lauf = verbuche_belege(s, Buchhaltung(), gewinnermittlung="bilanz")
+        lauf = verbuche_belege(s, Buchhaltung(), **{"gewinnermittlung": "bilanz", **kw})
         s.commit()
+    return lauf
+
+
+def _verbuche(make_session, beleg, sperren=(), **kw):
+    lauf = _lauf(make_session, beleg, sperren, **kw)
     assert lauf.fehler == []
     (v,) = lauf.verbucht
     return v
@@ -247,3 +253,71 @@ def test_steuertag_empfaenger(fall, eu, leistung, tag, teil):
     ergebnis, hinweis = steuertag_empfaenger(date(2026, 3, 5), leistung, fall, eu)
     assert ergebnis == tag
     assert (hinweis is None) if teil is None else (teil in (hinweis or "")), hinweis
+
+
+# --- Nachprüfung Runde 2 (Steuer M): ein Nachlass macht keine Gutschrift -------------
+
+RABATT = (
+    ("Beratung", "1000.00", "0", "0.00"),
+    ("Nachlass: Rabatt", "-100.00", "0", "0.00"),
+)
+
+
+@pytest.mark.parametrize(
+    ("lieferant", "kennzeichen", "leistung", "tag", "schluessel"),
+    [
+        (WIEN, "AE", date(2026, 2, 20), date(2026, 2, 20), 94),  # § 13b Abs. 1
+        (HUBER, "AE", date(2026, 1, 10), date(2026, 2, 28), 94),  # § 13b Abs. 2
+        (PARIS, "K", date(2026, 1, 10), date(2026, 2, 28), 19),  # ig. Erwerb
+    ],
+)
+def test_nachlasszeile_macht_aus_der_rechnung_keine_gutschrift(
+    make_session, lieferant, kennzeichen, leistung, tag, schluessel
+):
+    """Ein Nachlass in der Rechnung (E-Rechnung BG-20: negative Position mit
+    Kategorie) mindert das Entgelt von Anfang an (§ 10 Abs. 1 UStG, Abschn. 10.3
+    UStAE) — keine Änderung nach § 17. Die Rechnung über 900 € netto wird wie jede
+    Rechnung zum Tag der Steuerentstehung gebucht; vorher galt sie als Gutschrift und
+    blieb beim Rechnungsdatum (VA 03 statt 02)."""
+    beleg = _beleg(
+        RABATT, kennzeichen=kennzeichen, leistungsdatum=leistung, **lieferant
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(tag, schluessel)]
+    assert [b.betrag_netto for b in v.buchungen] == [D("900.00")]
+    assert not any("Gutschrift" in h for h in v.hinweise), v.hinweise
+
+
+def test_nachlasszeile_im_festgeschriebenen_rechnungsmonat(make_session):
+    """März festgeschrieben: Die Meldung nennt die Wege einer Eingangsrechnung (nicht
+    § 17 und „zum Belegdatum buchen“); mit ``--buchungsdatum offen`` landet die Steuer
+    im Leistungsmonat 02 wie ohne Nachlasszeile — vorher in 04, ohne Hinweis."""
+    beleg = _beleg(
+        RABATT,
+        leistungsdatum=date(2026, 2, 20),
+        eingegangen_am=datetime(2026, 4, 2, 9, 0),
+    )
+    lauf = _lauf(make_session, beleg, sperren=["2026-03"])
+    ((_, fehler),) = lauf.fehler
+    assert "Eingangsrechnung mit --buchungsdatum" in fehler, fehler
+    assert "Gutschrift" not in fehler and "§ 17" not in fehler, fehler
+    with make_session() as s:
+        lauf = verbuche_belege(
+            s, Buchhaltung(), buchungsdatum="offen", gewinnermittlung="bilanz"
+        )
+        s.commit()
+    (v,) = lauf.verbucht
+    assert _tage(v) == [(date(2026, 2, 20), 94)]
+    assert _va(make_session, "2026-02") == {46: "900.00", 47: "171.00", 67: "171.00"}
+
+
+def test_gutschrift_mit_nachlasszeile_bleibt_gutschrift(make_session):
+    """Gegenprobe: Ist das Netto des § 13b-Teils insgesamt negativ, bleibt es eine
+    Gutschrift (§ 17 Abs. 1 S. 5, 8 UStG) — zum Belegdatum."""
+    beleg = _beleg(
+        (("Gutschrift", "-300.00", "0", "0.00"), ("Zuschlag", "100.00", "0", "0.00")),
+        leistungsdatum=date(2026, 2, 20),
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    assert [b.betrag_netto for b in v.buchungen] == [D("200.00")]

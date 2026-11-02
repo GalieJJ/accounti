@@ -673,21 +673,27 @@ def _gutschrift_eingang(
     beleg: Beleg, rechnung: Rechnung | None
 ) -> Literal["vorsteuer", "selbst"] | None:
     """Mindert die Eingangsrechnung Steuer, ist sie eine Gutschrift des Lieferanten:
-    negative Vorsteuer (``vorsteuer``) oder eine negative Position ohne Steuerausweis
-    mit Steuerfall § 13b bzw. ig. Erwerb (``selbst`` — dort steht keine Steuer im
-    Beleg, Nachprüfung Merge N-3)."""
+    negative Vorsteuer (``vorsteuer``) oder ein negatives Netto der Positionen ohne
+    Steuerausweis mit Steuerfall § 13b bzw. ig. Erwerb (``selbst`` — dort steht keine
+    Steuer im Beleg, Nachprüfung Merge N-3).
+
+    Maßgeblich ist wie bei der Vorsteuer die Summe je Steuerfall, nicht die einzelne
+    Zeile: Ein Nachlass in der Rechnung (E-Rechnung BG-20, Rabattzeile) mindert das
+    Entgelt von vornherein (§ 10 Abs. 1 UStG, Abschn. 10.3 UStAE) — die Rechnung bleibt
+    eine Rechnung über das Netto, keine Änderung nach § 17 UStG (Nachprüfung Runde 2,
+    Steuer M). Eine Gutschrift (UNTDID 381 …) hat negative Beträge
+    (``erechnung/abbildung.py``) und bleibt erkannt."""
     if beleg.steuer is not None and beleg.steuer < 0:
         return "vorsteuer"
+    netto: dict[str, Decimal] = {}
     for p, kategorie in zip(
         beleg.positionen, _kategorien(beleg, rechnung), strict=True
     ):
         fall = kategorie or beleg.steuerkennzeichen
-        if (
-            p.netto < 0
-            and not _satz(p.steuersatz)
-            and fall in SCHLUESSEL_FUER_STEUERFALL
-        ):
-            return "selbst"
+        if not _satz(p.steuersatz) and fall in SCHLUESSEL_FUER_STEUERFALL:
+            netto[fall] = netto.get(fall, NULL) + p.netto
+    if any(summe < 0 for summe in netto.values()):
+        return "selbst"
     return None
 
 
