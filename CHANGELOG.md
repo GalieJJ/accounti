@@ -627,6 +627,30 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   bei PayPal den Hinweis `zuordnung_ohne_nummer` (Text „nach Betrag, ohne Stichwort“, mit
   `--loesen`); nennt ein Umsatz, der einziger Kandidat mehrerer Abrechnungen ist, die Nummer
   genau einer, bekommt sie ihn (N-b)
+- **Marktplatz: echte Auszahlung wegen einer Belegnummer still offen, als Teilzahlung gebucht
+  oder ohne „schon gebucht“** (Nachprüfung 7 E, M1): Der Ausschluss aus Nachprüfung 6 E (Md)
+  traf jeden Umsatz, der irgendeine Belegnummer aus opos nannte — „AUSZAHLUNG VOM 03.09.2026“
+  die Monatsrechnung 09/2026, „2026-09-03“ den Posten 2026-09, „REF 100045“ eine alte
+  Eingangsrechnung. Die Auszahlung blieb ohne Befund offen, opos buchte sie automatisch als
+  Teilzahlung einer Monatsforderung, und eine von Hand als Erlös gebuchte verlor den Fehler
+  „schon gebucht“ (8400 doppelt, UStVA still). Jetzt ist ein Umsatz nur dann die Zahlung eines
+  Postens, wenn er die Belegnummer nennt (nicht als Datum oder Teil eines Datums), den Posten in
+  seiner Richtung tilgt und dessen Betrag hat; ein gebuchter mit Stichwort oder Nummer nur, wenn
+  opos ihn als Zahlung gebucht hat. Trägt die Zahlung einer Rechnung das Stichwort und den
+  Betrag der Auszahlung, sagt es der Hinweis `auszahlung_rechnung`. Auch opos selbst liest einen
+  Teil eines Datums nicht mehr als Referenz (`opos.zuordnung.im_datum`)
+- **Marktplatz: Auszahlung über PayPal, Datum als Shopify-Nummer** (Nachprüfung 7 E, N1): Eine
+  eBay-Auszahlung mit nur „PAYPAL“ im Text blieb still offen; das PayPal-Stichwort schließt jetzt
+  nur aus, wenn eine PayPal-Abrechnung den Betrag erwartet (sonst Treffer mit Hinweis, der das
+  Stichwort nennt) — andere fremde Stichworte weiter immer. Das Datum, das ein Shopify-Export ohne
+  Payout ID als Nummer trägt, gilt nicht als Auszahlungsnummer (die eBay-Auszahlung mit
+  „2026-08-21“ im Text war ausgeschlossen, Shopify meldete eine falsche Abweichung)
+- **Marktplatz: „vielleicht gebucht“ mit Stichworten verdeckt und ohne UStVA** (Nachprüfung 7 E,
+  N2): Der Hinweis erscheint in der Voranmeldung des Bankmonats als Hinweis (nicht sperrend) und
+  steht neben einem anderen Befund derselben Auszahlung, statt hinter ihm zu verschwinden
+- **`opos zuordnen` schlug eine zurückgehaltene Auszahlung einer Forderung vor** (Nachprüfung
+  7 E, Mb-Rest): Wie `bank lauf` und `classify` lässt es Umsätze aus, über die der
+  Marktplatz-Abgleich einen Befund hätte
 - **Marktplatz: festgeschriebener Monat brach jeden Abgleich ab** (Nachprüfung 6 E): Ein
   vorgebuchter Umsatz (nach „schon gebucht“ und der Korrektur auf das Verrechnungskonto) mit
   Kursdifferenz in einem festgeschriebenen Monat ließ `marktplatz abgleichen`, `bank lauf`,

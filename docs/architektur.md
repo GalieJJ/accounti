@@ -175,7 +175,11 @@ eigenes Konto mit Guthaben).
   Nummer einer — deshalb gleicht auch der Import einer Abrechnung alle ab; eine Zuordnung ohne
   Nummer (PayPal: ohne Stichwort) ist ein Hinweis. Kandidaten sind nur Bankumsätze (keine
   Kasse, keine Kreditkarte) und — ohne die eigene Nummer — keiner mit dem Stichwort oder der
-  Abrechnungsnummer eines anderen Marktplatzes oder der Belegnummer eines opos-Postens.
+  Abrechnungsnummer eines anderen Marktplatzes (PayPal nur, wenn es den Betrag erwartet; ein
+  Datum ist keine Nummer) und keine Zahlung eines opos-Postens (Belegnummer — nicht als Teil
+  eines Datums, `opos.zuordnung.im_datum` —, Richtung und Betrag; mit Stichwort und Betrag der
+  Auszahlung der Hinweis `auszahlung_rechnung`; ein gebuchter mit Stichwort nur, wenn opos ihn
+  gebucht hat). Weitere Hinweise neben dem Hauptbefund stehen in `Abgleich.hinweise`.
   „Schon gebucht“ (Fehler mit korrigiere-Befehl) nur mit Stichwort oder Nummer; nur der
   exakte Betrag ist `auszahlung_vielleicht_gebucht` ohne Befehl (ohne `bank_stichworte` eine
   Warnung, die auch die Voranmeldung zeigt). Die Kursdifferenz eines vorgebuchten Umsatzes in

@@ -11,9 +11,18 @@ Nachprüfungen 1–5 E):
    einem Verrechnungskonto oder einer, dessen Zuordnung zu dieser Auszahlung von
    Hand gelöst ist (Regel 9). Ohne die eigene Nummer auch keiner, der erkennbar zu
    etwas anderem gehört: mit dem Stichwort eines anderen Marktplatzes (und nicht dem
-   eigenen), der bekannten Nummer der Abrechnung eines anderen Marktplatzes oder der
-   Belegnummer einer Rechnung (opos) — eine Auszahlung nennt nie die Rechnung eines
-   Kunden (Nachprüfung 6 E, Md; ``bank lauf`` gleicht vor opos ab, 29d4801).
+   eigenen; das von PayPal nur, wenn eine PayPal-Abrechnung den Umsatz erwartet —
+   über PayPal zahlen auch andere Marktplätze aus, Nachprüfung 7 E, N1), der
+   bekannten Nummer der Abrechnung eines anderen Marktplatzes (ein Datum ist keine
+   Nummer: Shopify ohne Payout ID) oder als Zahlung einer Rechnung (opos): er nennt
+   ihre Belegnummer — nicht nur als Datum oder Teil eines Datums —, tilgt sie in seiner
+   Richtung und hat ihren Betrag (Nachprüfung 6 E, Md; 7 E, M1 — eine bezahlte
+   Monatsrechnung 09/2026 neben „AUSZAHLUNG VOM 03.09.2026“ oder eine alte
+   Eingangsrechnung 100045 neben „REF 100045“ schließt nichts aus; ``bank lauf``
+   gleicht vor opos ab, 29d4801). Trägt so ein Umsatz das eigene Stichwort und den
+   Betrag der Auszahlung, sagt es der Hinweis ``auszahlung_rechnung`` (er geht an
+   opos); ist er schon gebucht und erkennbar, schließt die Rechnung nur aus, wenn
+   opos ihn als ihre Zahlung gebucht hat — sonst gilt „schon gebucht“ (Regel 6).
 2. Nummer vor Betrag: Nennt ein Umsatz die Nummer einer anderen bekannten Abrechnung
    desselben Marktplatzes (gespeichert oder aus demselben Bericht; als eigenes Wort,
    mindestens 6 Zeichen) und nicht die eigene, gehört er zu ihr — hier weder Treffer
@@ -63,6 +72,9 @@ Nachprüfungen 1–5 E):
    Mc) — ein Hinweis; ohne ``bank_stichworte`` eine Warnung, bei der auch die
    Voranmeldung des Bankmonats warnt (dort ist der Betrag das einzige Merkmal), und
    dann gleich nach „schon gebucht“ statt zuletzt (der doppelte Erlös geht vor).
+   Steht vorn ein anderer Befund, kommt „vielleicht gebucht“ als weiterer Hinweis
+   dazu (es geht nicht unter); die Voranmeldung des Bankmonats zeigt den Hinweis als
+   Hinweis (``hinweis_voranmeldung``, Nachprüfung 7 E, N2).
    Sonst ist die Auszahlung noch nicht auf der Bank, ohne Befund.
 7. Befunde über einen Umsatz (``_UMSATZBEFUNDE``) gelten, solange ein Lauf sie so
    wiederfindet — nennt ein späterer einen anderen oder keinen Umsatz mehr (etwa weil
@@ -114,7 +126,10 @@ Stichwort und Nummer ist nur „vielleicht gebucht“ (Regel 6): accounti schlä
 Befehl vor — der Mensch prüft und bucht selbst um, denn derselbe Befund trifft eine
 Kundenzahlung gleicher Höhe (Nachprüfung 6 E, Mc). Ein Umsatz, den opos als Zahlung
 gebucht hat, aber mit Stichwort die Auszahlung ist, bekommt „schon gebucht“ mit dem
-korrigiere-Befehl; der lässt den Posten in opos ausgeglichen (dort von Hand klären).
+korrigiere-Befehl; der lässt den Posten in opos ausgeglichen (dort von Hand klären) —
+nennt er die bezahlte Rechnung, gilt er dagegen als ihre Zahlung (Hinweis
+``auszahlung_rechnung``, Regel 1). Ein Teil eines Datums mit Leerzeichen statt
+Trennzeichen („2026 09 03“) erkennt Regel 1 nicht als Datum.
 
 Fremdwährung: Die Abrechnung rechnet jeden Posten mit dem eingegebenen Kurs um, die
 Bank schreibt den Betrag gut, den sie selbst umgerechnet hat — exakt gleich ist das

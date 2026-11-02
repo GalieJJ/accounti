@@ -475,7 +475,9 @@ Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab. Ohn
 Nummer ist ein gebuchter Umsatz mit genau dem Betrag nur „vielleicht“ die Auszahlung — ein
 Befund ohne Befehl, der Mensch prüft (es kann eine Kundenzahlung sein). Kassenbuch- und
 Kartenumsätze sind nie eine Auszahlung, ebenso wenig ein Umsatz mit dem Stichwort oder einer
-Abrechnungsnummer eines anderen Marktplatzes oder mit der Nummer einer Rechnung. Die Nummer im
+Abrechnungsnummer eines anderen Marktplatzes (PayPal: nur, wenn PayPal den Betrag erwartet) oder
+die Zahlung einer Rechnung (Belegnummer, Richtung und Betrag passen; ein Datum wie 03.09.2026
+nennt die Monatsrechnung 09/2026 nicht). Die Nummer im
 Verwendungszweck geht dem Betrag vor: Nennt ein Umsatz die eigene, zählt nur er; nennt er die
 einer anderen Abrechnung, gehört er zu ihr — einen Transaktionsbericht mit mehreren
 Auszahlungen daher vor der Korrektur ganz importieren. Eine unbekannte Zahl, die wie eine

@@ -279,8 +279,14 @@ DATEV-Übergabe:
   ohne korrigiere-Befehl, denn eine Kundenzahlung gleicher Höhe sieht genauso aus (Nachprüfung
   6 E, Mc: der Befehl löschte dort echten Erlös); der Mensch prüft und bucht selbst um, bis dahin
   ist der Fall in der Simulation „unsauber“, nie still. Kassen- und Kartenumsätze, Umsätze mit
-  dem Stichwort oder der Nummer eines anderen Marktplatzes und mit der Belegnummer eines
-  opos-Postens sind keine Kandidaten (Nachprüfung 6 E, Mc, Md, N-d).
+  dem Stichwort oder der Nummer eines anderen Marktplatzes und Zahlungen eines opos-Postens
+  sind keine Kandidaten (Nachprüfung 6 E, Mc, Md, N-d). Seit Nachprüfung 7 E (M1) ist eine
+  Zahlung nur, was die Belegnummer nicht bloß als (Teil eines) Datum nennt, den Posten in seiner
+  Richtung tilgt und seinen Betrag hat; das PayPal-Stichwort schließt nur aus, wenn PayPal den
+  Betrag erwartet (N1), „vielleicht gebucht“ mit Stichworten zeigt die Voranmeldung als
+  Hinweis (N2). Grenzen: ein Datum mit Leerzeichen („2026 09 03“) gilt nicht als Datum; ein
+  Umsatz mit Stichwort und Betrag, der eine Rechnung gleicher Höhe nennt, geht an opos (Hinweis
+  `auszahlung_rechnung`) — ist er doch die Auszahlung, löst der Mensch die opos-Zahlung.
   Weitere Grenzen aus der Simulation (19 584 Läufe, Prüfung nach jedem Schritt; Skripte unter
   `.claude/arbeit/s/gesamttest/r6-e/`): Ein Teilbetrag oder ein Betrag zu einer Abrechnung mit
   falschem Kurs, der statt der Nummer eine Referenz mit dem Anfang der Auszahlungsnummern nennt,
