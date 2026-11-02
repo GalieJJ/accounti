@@ -166,8 +166,12 @@ an — immer mit anteiliger Steuerkorrektur (§ 17 Abs. 1 UStG).
 Abstimmung Personenkonto ↔ offene Posten nimmt die Posten aus `auswertung.stand_zum`, wie
 `opos liste --stichtag`: Zahlungen samt Skonto und Verrechnungen (Gutschrift mit Bezug,
 `opos verrechnen`) aus einer Funktion (`postenbewegungen`), ein Posten zählt ab seiner
-ersten Belegbuchung. Ein Guthaben aus einer Überzahlung, das ältere Stände als Rest 0
-führen, rechnet die Abstimmung weiter aus Betrag minus Minderungen.
+ersten Belegbuchung — bis zur letzten Teilbuchung nur mit dem Teil, der schon auf dem
+Personenkonto steht (Bewegung je Belegbuchung wie in der Saldenliste; Nachprüfung
+Runde 2: gemischte § 13b-Rechnung, Ausgang K + AE). Ein Guthaben aus einer Überzahlung,
+das ältere Stände als Rest 0 führen, rechnet `stand_zum` aus Betrag minus Minderungen —
+für Abstimmung und Stichtagsliste gleich. Verrechnet wird frühestens am Tag der ersten
+Buchung beider Posten.
 
 **Skonto bei § 13b und ig. Erwerb (Nachprüfung Merge, M-2).** Das Skonto mindert
 Bemessungsgrundlage, Steuer und Vorsteuer (§ 17 Abs. 1 S. 1, 2 UStG, für § 13b und den
@@ -180,7 +184,10 @@ sind Vorsteuer-Automatikkonten.
 Gutschrift/Korrektur mit BT-25 nimmt den Debitor der referenzierten Rechnung, wenn der
 Käufer dort derselbe ist (normalisierter Name, keine andere USt-IdNr., kein anderes Land) —
 der Bezug ist ein stärkeres Merkmal als PLZ oder E-Mail. Eine neue Anschrift wird gemeldet,
-nicht in den Kontakt übernommen (vorhandene Angaben überschreibt accounti nie).
+nicht in den Kontakt übernommen (vorhandene Angaben überschreibt accounti nie). Trifft
+der Käufer einen anderen Kontakt genauer (USt-IdNr., bei gleichem Namen PLZ oder E-Mail,
+die der Kontakt der Rechnung nicht hat), ist der Bezug ein Bedienfehler: Die Gutschrift
+bleibt bei diesem Kontakt, unverrechnet (Nachprüfung Runde 2).
 
 **Steuer des Leistungsempfängers entsteht nach § 13b bzw. § 13 Abs. 1 Nr. 6 UStG
 (Nachprüfung Merge, N-4).** Der § 13b-/Erwerbsteil einer Eingangsrechnung bucht zu dem Tag,
@@ -191,9 +198,19 @@ der Rechnung, spätestens mit Ablauf des Folgemonats der Leistung bzw. des Erwer
 Vorsteuer im selben Zeitraum, ohne dass die Rechnung vorliegen muss (§ 15 Abs. 1 S. 1
 Nr. 3, 4 UStG). Abs. 1 oder 2 entscheidet wie die Voranmeldung das Land des Leistenden.
 Das Leistungsdatum kommt aus dem Beleg (E-Rechnung BT-72, sonst Ende des
-Leistungszeitraums BT-74; PDF „Leistungsdatum/Lieferdatum/Leistungszeitraum“). Der Rest
-der Rechnung bleibt beim Belegdatum, Fälligkeit und Skonto ebenso; eine Gutschrift mindert
-im Zeitraum der Änderung (§ 17 Abs. 1 S. 8).
+Leistungszeitraums BT-74; PDF „Leistungsdatum/Lieferdatum/Leistungszeitraum“, bei einem
+Zeitraum dessen Ende, Abschn. 13.1 Abs. 3 UStAE). Der Rest der Rechnung bleibt beim
+Belegdatum, Fälligkeit und Skonto ebenso; eine Gutschrift mindert im Zeitraum der Änderung
+(§ 17 Abs. 1 S. 8). Gutschrift ist nur ein negatives Netto des § 13b-/Erwerbsteils — eine
+Nachlasszeile in der Rechnung (BG-20) mindert das Entgelt von vornherein (§ 10 Abs. 1
+UStG, Abschn. 10.3 UStAE), die Rechnung bleibt eine Rechnung (Nachprüfung Runde 2).
+Hinweise statt Umdatierung (Nachprüfung Runde 2): Liegt der Tag in einem Zeitraum mit
+übermittelter Voranmeldung, nennt die Verbuchung die Berichtigung (bei vollem
+Vorsteuerabzug keine Pflicht nach § 153 Abs. 1 AO, die Zahllast ändert sich nicht); bei
+der EÜR über den Jahreswechsel bleibt die Buchung beim Rechnungsdatum (Aufwand im Jahr des
+Abflusses, § 11 Abs. 2 EStG) und der Hinweis nennt die Voranmeldung des Vorjahres; ein
+ig. Erwerb mit Rechnung vor der Lieferung bleibt beim Rechnungsdatum (die Steuer entsteht
+nicht vor dem Erwerb, Art. 68, 69 MwStSystRL).
 
 **Dateiprüfung (B03).** Der Ordner-Kanal prüft wie E-Mail, Webhook und Connector Typ (am
 Inhalt) und Größe; der Handimport `belege import` bleibt ungeprüft (die Datei wählt der
@@ -293,10 +310,14 @@ Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt de
   wäre ein eigener Baustein.
 - **Journal vor dieser Korrektur:** ältere Einträge `beleg_freigegeben` aus `belege
   erkennen` bleiben, wie sie sind (das Journal ist unveränderbar).
-- **§ 13b Abs. 1 oder 2 nach dem Land** (Nachprüfung Merge, N-4): Eine Werklieferung eines
-  EU-Unternehmers (§ 13b Abs. 2 Nr. 1) bucht accounti wie eine sonstige Leistung zum
-  Leistungsmonat (Abs. 1) — richtig wäre die Rechnung, spätestens der Folgemonat; der
-  Hinweis nennt das, die Buchung geht ohnehin zur Prüfung. Dauerleistungen über mehr als
+- **§ 13b Abs. 1 oder 2 nach dem Land** (Nachprüfung Merge, N-4; Runde 2): Eine
+  Werklieferung oder grundstücksbezogene Leistung (§ 3a Abs. 3 Nr. 1 UStG, z. B.
+  Bauleistung, Gebäudereinigung) eines EU-Unternehmers fällt unter § 13b Abs. 2 Nr. 1;
+  accounti bucht sie wie eine sonstige Leistung nach § 3a Abs. 2 zum Leistungsmonat
+  (Abs. 1) und meldet sie in Kz 46/47 — richtig wären die Rechnung, spätestens der
+  Folgemonat, und Kz 84/85. Die Leistungsart steht nicht maschinenlesbar im Beleg (eine
+  Wortliste über die Positionstexte wäre unzuverlässig); der Hinweis nennt beide Fälle,
+  die Buchung geht ohnehin zur Prüfung. Dauerleistungen über mehr als
   ein Jahr (§ 13b Abs. 3) und Anzahlungen vor der Leistung (§ 13b Abs. 4 S. 2) bildet
   accounti nicht ab (Hinweis bei Leistung nach dem Rechnungsdatum). Ohne Leistungsdatum
   bleibt es beim Rechnungsdatum (bei Abs. 1 mit Hinweis). Liegt der Tag der
@@ -311,6 +332,38 @@ Anwender, Text-Belege für Beispiele). Die Verfahrensdokumentation beschreibt de
   meist vorbei).
 - **Kunde der Bezugsrechnung** (N-1): Nur bei genau einem Kontakt mit Posten unter der
   Bezugsnummer; die abweichende Anschrift pflegt der Mensch (`kontakte bearbeiten`).
+  Ein falscher Bezug fällt nur auf, wenn USt-IdNr., PLZ oder E-Mail der Gutschrift einen
+  anderen bestehenden Kontakt treffen (Runde 2, Neu-2) — ohne solches Merkmal (ein
+  gleichnamiger Kunde ohne E-Mail mit neuer Anschrift) gilt der Bezug.
+- **EÜR: § 13b mit Leistung im Vorjahr** (Runde 2): Die Buchung bleibt beim
+  Rechnungsdatum, damit der Aufwand nicht in die EÜR des Vorjahres fällt (§ 11 Abs. 2
+  EStG). Steuer und Vorsteuer stehen dadurch in der Voranmeldung des Rechnungsmonats statt
+  des Leistungsmonats (§ 13b Abs. 1, § 15 Abs. 1 S. 1 Nr. 4 UStG); eine Buchung trägt
+  Aufwand und Steuer gemeinsam (Schlüssel 94), eine Trennung bräuchte eine reine
+  Steuerbuchung ohne Aufwand. Der Hinweis nennt die Voranmeldung; bei vollem
+  Vorsteuerabzug ändert sich die Zahllast nicht.
+- **Hinweis auf die übermittelte Voranmeldung im Eingang nur für § 13b/ig. Erwerb**
+  (Runde 2): Die Vorsteuer aus der Rechnung (§ 15 Abs. 1 S. 1 Nr. 1) gehört in den
+  Zeitraum, in dem die Rechnung vorliegt — dafür gibt es schon den Hinweis zum späten
+  Eingang und den Befund `beleg_nach_zeitraum`.
+- **Teilbuchungen in der Stichtagsliste** (Runde 2): Ausstehend sind nur Teilbuchungen in
+  Richtung des Postens; ein Storno nach dem Stichtag ändert den Stand davor nicht, eine
+  Korrektur (Storno + Neubuchung mit anderem Betrag auf dem Personenkonto) zeigt sich als
+  Abweichung. `opos liste` rechnet den Betrag auf dem Personenkonto mit SKR03 — er hängt
+  nur am Steuerschlüssel, den SKR03 und SKR04 gleich führen.
+- **Zahllast-Berichtigung nach unten vor der Zahlung** (Runde 2, Neu-5; nicht geändert):
+  `elster/zahllast._verrechne` kürzt den offenen Posten der ersten Zahllast ohne Tag (es
+  gibt keine Verrechnung, weil eine Minderung der Zahllast auch eine offene Erstattung —
+  Forderung gegen Verbindlichkeit — treffen kann, was `verrechne_posten` ablehnt). Zum
+  Stichtag zwischen erster Abgabe und Berichtigung zeigt die Stichtagsliste deshalb den
+  schon gekürzten Rest, die Abstimmung meldet eine Abweichung. Selten (Berichtigung vor
+  der Zahlung der ersten Zahllast); ein datierter Ausgleich wäre ein Umbau im Bereich
+  ELSTER.
+- **DATEV-Automatikkonten nur für SKR03** (Runde 2): Die Kontenrahmen-Datei der Prüfung
+  (`pruefung/skr03.yaml`) gibt es nur für SKR03; im SKR04 setzt der Export den
+  BU-Schlüssel auch auf Automatikkonten (5736/5731 Skonti, 5400 Wareneingang, 4400
+  Erlöse …). Abhilfe: eigene Datei über `pruefung.kontenrahmen_datei`; eine SKR04-Datei
+  nach DATEV-Vorlage wäre ein eigener Baustein.
 - **`db upgrade` prüft nur Spalten vorhandener Tabellen** (N-2): Ein Vermerk, dem nur
   Tabellen, Indizes oder Trigger fehlen, fällt nicht auf (`init_db` legt Tabellen selbst
   an); den Weg (`alembic stamp --purge <Stand>`, dann `db upgrade`) führt accounti nicht

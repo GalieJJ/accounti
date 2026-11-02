@@ -863,6 +863,49 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   aktuell. Jetzt prüft `db upgrade` nach dem Lauf, ob vorhandenen Tabellen Spalten des
   Codes fehlen, und nennt den verlustfreien Weg (`alembic stamp --purge ddc9a184ddb4`,
   dann noch einmal `accounti db upgrade`; [Upgrades](docs/betrieb.md#upgrades))
+- **Nachlasszeile machte aus einer § 13b- bzw. Erwerbsrechnung eine Gutschrift**
+  (Nachprüfung Runde 2): Jeder Nachlass einer E-Rechnung (BG-20) ist eine negative Zeile
+  ohne Steuerausweis — accounti nahm die ganze Rechnung als Lieferanten-Gutschrift. Die
+  Umdatierung zum Tag der Steuerentstehung fiel aus (AT-Beratung im Februar mit Rabatt:
+  VA 03 statt 02), Sperr- und Jahreswechselmeldung verwiesen auf § 17. Jetzt zählt wie
+  bei der Vorsteuer die Summe je Steuerfall: ein Nachlass mindert das Entgelt von
+  vornherein (§ 10 Abs. 1 UStG, Abschn. 10.3 UStAE), Gutschrift ist nur ein negatives
+  Netto
+- **Steuer des Empfängers in einer schon übermittelten Voranmeldung** (Nachprüfung
+  Runde 2): Liegt der Tag der Steuerentstehung (§ 13b, ig. Erwerb) in einem Zeitraum,
+  dessen Voranmeldung übermittelt ist, nennt `opos verbuchen` die berichtigte
+  Voranmeldung — bei vollem Vorsteuerabzug ohne Pflicht nach § 153 Abs. 1 AO, die
+  Zahllast ändert sich nicht. Bei der Einnahmenüberschussrechnung bleibt eine Rechnung
+  mit Leistung im Vorjahr beim Rechnungsdatum (der Aufwand gehörte sonst in die EÜR des
+  Vorjahres, § 11 Abs. 2 EStG), der Hinweis nennt die Voranmeldung, in die Steuer und
+  Vorsteuer gehören. Bei abgeschlossenem Leistungsjahr nennt der Hinweis `abschluss
+  oeffnen --jahr` statt `periode oeffnen`; ein ig. Erwerb mit Rechnung vor der Lieferung
+  und eine grundstücksbezogene Leistung eines EU-Unternehmers (§ 13b Abs. 2 Nr. 1)
+  bekommen einen Hinweis
+- **PDF-Leistungszeitraum „A - B“ lieferte den Beginn** (Nachprüfung Runde 2): Das
+  Leistungsdatum ist jetzt das Ende des Zeitraums (Abschn. 13.1 Abs. 3 UStAE), wie BT-74
+  bei der E-Rechnung — die Umdatierung nach § 13b stand sonst einen Monat zu früh
+- **Stichtagsliste bei geteilt gebuchten Rechnungen** (Nachprüfung Runde 2): Eine
+  gemischte Eingangsrechnung (§ 13b-Teil zum Tag der Steuerentstehung, Rest zum
+  Rechnungsdatum) und eine Ausgangsrechnung mit ig. Lieferung und sonstiger Leistung im
+  Vormonat zählten in `opos liste --stichtag` ab der ersten Teilbuchung voll —
+  `pruefen --regel personenkonto_op` und die Abschlussprüfung `personenkonten` meldeten
+  eine Abweichung (auch zum 31.12.) und rieten, eine richtige Buchung zu korrigieren.
+  Bis zur letzten Teilbuchung zählt der Posten jetzt nur mit dem gebuchten Teil. Das
+  Guthaben eines Altfalls (Überzahlung als Rest 0) rechnet die Stichtagsliste wie die
+  Abstimmung mit
+- **Verrechnung vor der Buchung eines Postens** (Nachprüfung Runde 2): `opos verrechnen`
+  nahm einen Tag zwischen Belegdatum und Buchung einer später gebuchten Rechnung an;
+  jetzt frühestens am Tag der ersten Buchung beider Posten
+- **Gutschrift mit falschem Bezug bei gleichnamigen Kunden** (Nachprüfung Runde 2): Nannte
+  die Gutschrift den einen „Max Müller“ (PLZ, E-Mail bzw. USt-IdNr. eindeutig), der Bezug
+  (BT-25) aber die Rechnung des anderen, minderte sie dessen Forderung. Trifft der Käufer
+  einen anderen Kontakt genauer, bleibt die Gutschrift jetzt bei ihm, unverrechnet, mit
+  Hinweis „Bezug prüfen“
+- **DATEV-Export: Skonto mit BU-Schlüssel auf Automatikkonten** (Nachprüfung Runde 2):
+  SKR03 3731/3736 (erhaltene Skonti 7 %/19 % Vorsteuer) und 8731/8736 (gewährte Skonti
+  7 %/19 % USt) fehlten in `pruefung/skr03.yaml` — der Export setzte BU 8/9 bzw. 2/3 auf
+  Konten mit Automatik. Jetzt bleibt das Feld dort leer
 - **ZUGFeRD MINIMUM: Steuer verloren, Personenkonto ≠ offener Posten** (Eingang B05): Eine
   Belegposition ohne Steuersatz buchte netto an den Kreditor, der offene Posten stand
   brutto. Ohne Schlüssel wird die Steuer jetzt in den Betrag gebucht (brutto, zur
