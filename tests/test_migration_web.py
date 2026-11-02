@@ -3,9 +3,10 @@
 ``d5a849692843`` (Kontierung: ``kontierungsgruende``, ``kontierungsregeln``) hängt an
 ``46371a6681c2`` (``belege.steuerkennzeichen``, Gesamttest Paket C — beim zweiten
 Zusammenführen mit main dahinter gehängt, davor an ``a14acef69fae``, ursprünglich an
-``ddc9a184ddb4``), ``SPRACHE`` (``auth_benutzer.sprache``) daran. Beide übernehmen, was ``init_db`` schon anlegte, und laufen gegen jede
-Datenbank (System- und Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der
-gemeinsamen Metadaten in jeder). Zurück geht es immer auf feste Revisionen, nie
+``ddc9a184ddb4``), ``SPRACHE`` (``auth_benutzer.sprache``) daran. Beide übernehmen,
+was ``init_db`` schon anlegte, und laufen gegen jede Datenbank (System- und
+Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der gemeinsamen Metadaten in
+jeder). Zurück geht es immer auf feste Revisionen, nie
 „-1“ — sonst hinge der Test daran, welche Migration gerade der Kopf ist.
 """
 
