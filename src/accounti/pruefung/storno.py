@@ -291,6 +291,12 @@ def _pruefe_richtung(
     if alt == neu:
         return
     konto = b.soll_konto if alt == "soll" else b.haben_konto
+    konto_neu = soll if neu == "soll" else haben
+    stellt = (
+        f"stellte es ins {_SEITE[neu]}"
+        if konto_neu == konto
+        else f"stellte das Sachkonto ins {_SEITE[neu]} ({konto_neu})"
+    )
     if b.steuer_schluessel in AUSGEWIESENE_UST:
         steuer = (
             f"die ausgewiesene Umsatzsteuer (Schlüssel {b.steuer_schluessel}) wird "
@@ -307,7 +313,7 @@ def _pruefe_richtung(
     meldung = (
         f"Buchung {_kurz(b)} hat einen Beleg — er bestimmt die Richtung (Rechnung oder "
         f"Gutschrift): Das Sachkonto {konto} steht im {_SEITE[alt]}, die Korrektur "
-        f"stellte es ins {_SEITE[neu]}; {steuer}. Berichtigung als eigener Beleg "
+        f"{stellt}; {steuer}. Berichtigung als eigener Beleg "
         "(Gutschrift/Rechnungskorrektur) erfassen und verbuchen; ist die Buchung "
         "selbst falsch, sie mit Grund stornieren — nur Konten derselben Seite "
         "korrigieren"

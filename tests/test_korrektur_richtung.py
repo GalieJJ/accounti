@@ -140,8 +140,11 @@ def test_seitentausch_auch_mit_anderen_konten(make_session, soll, haben, steuer)
     werden."""
     ar, b = _ausgang()
     anlegen(make_session, ar, b)
-    with make_session() as s, pytest.raises(StornoError, match="§ 14c"):
+    with make_session() as s, pytest.raises(StornoError, match="§ 14c") as fehler:
         korrigiere(s, str(b.id), soll, haben, steuer=steuer, von="erika")
+    # die Meldung nennt das neue Sachkonto, wenn es ein anderes ist
+    erwartet = "stellte es ins Soll" if soll == "8400" else f"ins Soll ({soll})"
+    assert erwartet in fehler.value.meldung
 
 
 @pytest.mark.parametrize("schluessel", [9, 8])
