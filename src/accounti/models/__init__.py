@@ -154,6 +154,12 @@ class Beleg(BaseModel):
     zahlungsziel: date | None = None
     skonto_prozent: Decimal | None = None
     skonto_tage: int | None = None
+    steuerkennzeichen: str | None = Field(
+        default=None,
+        description="Steuerfall ohne Steuerausweis (UNTDID 5305): AE § 13b, K ig. "
+        "Lieferung, E steuerfrei bzw. Kleinunternehmer — aus dem Hinweistext oder "
+        "der E-Rechnung, sonst bei der Freigabe gesetzt",
+    )
     datei_hash: str = Field(description="SHA-256 der Originaldatei")
     dateiname: str
     kanal: str = Field(description="Eingangskanal, z.B. 'ordner'")

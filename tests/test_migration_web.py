@@ -1,9 +1,9 @@
 """Migrationen von Baustein 10b — Alembic als eigener Prozess wie im Container.
 
 ``d5a849692843`` (Kontierung: ``kontierungsgruende``, ``kontierungsregeln``) hängt an
-``a14acef69fae`` (Verrechnungen, Gesamttest Debitoren — beim Zusammenführen mit main
-dahinter gehängt, vorher an ``ddc9a184ddb4``), ``SPRACHE`` (``auth_benutzer.sprache``)
-daran. Beide übernehmen, was ``init_db`` schon anlegte, und laufen gegen jede
+``46371a6681c2`` (``belege.steuerkennzeichen``, Gesamttest Paket C — beim zweiten
+Zusammenführen mit main dahinter gehängt, davor an ``a14acef69fae``, ursprünglich an
+``ddc9a184ddb4``), ``SPRACHE`` (``auth_benutzer.sprache``) daran. Beide übernehmen, was ``init_db`` schon anlegte, und laufen gegen jede
 Datenbank (System- und Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der
 gemeinsamen Metadaten in jeder). Zurück geht es immer auf feste Revisionen, nie
 „-1“ — sonst hinge der Test daran, welche Migration gerade der Kopf ist.
@@ -24,7 +24,7 @@ from tests.pg_hilfe import pg_datenbank as pg_datenbank  # noqa: F401 (Fixture)
 
 WURZEL = Path(__file__).resolve().parents[1]
 SIEBEN = "ddc9a184ddb4"  # Baustein 7
-VOR_10B = "a14acef69fae"  # Verrechnungen (main) — der Stand vor Baustein 10b
+VOR_10B = "46371a6681c2"  # Steuerkennzeichen (main) — der Stand vor Baustein 10b
 KONTIERUNG = "d5a849692843"
 SPRACHE = "e7153706b43a"
 BUCHUNG = "00000000-0000-0000-0000-000000000001"
@@ -146,6 +146,32 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     ok(alembic(db, "upgrade", "head"))
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
     assert ok(alembic(db, "heads")).count("(head)") == 1
+
+
+def test_migration_ergaenzt_rang_an_vorhandener_tabelle(tmp_path):
+    """Runde 3: ``kontierungsregeln.rang`` kam zu ``d5a849692843`` dazu — legte der
+    Vorabstand die Tabelle ohne die Spalte an, ergänzt die Migration sie (die
+    gelernten Regeln bleiben)."""
+    db = tmp_path / "alt.db"
+    bestand(db)
+    ok(alembic(db, "upgrade", "head"))
+    with sqlite3.connect(db) as v:
+        v.execute(
+            "INSERT INTO kontierungsregeln (id, name, muster, ist_text, feld, "
+            "soll_konto, haben_konto, herkunft, angelegt_von, angelegt_am, aktiv) "
+            "VALUES ('r1', 'gelernt_probe', 'Probe', 1, 'beide', '4930', '1200', "
+            "'korrektur', 'jan', '2026-10-01 00:00:00', 1)"
+        )
+        v.execute("ALTER TABLE kontierungsregeln DROP COLUMN rang")
+    ok(alembic(db, "stamp", "--purge", VOR_10B))
+    ok(alembic(db, "upgrade", "head"))
+    with sqlite3.connect(db) as v:
+        spalten = {z[1] for z in v.execute("PRAGMA table_info(kontierungsregeln)")}
+        assert "rang" in spalten
+        assert v.execute("SELECT name, rang FROM kontierungsregeln").fetchall() == [
+            ("gelernt_probe", None)
+        ]
+    assert "No new upgrade operations detected" in ok(alembic(db, "check"))
 
 
 def test_upgrade_ergaenzt_sprache_in_bestehender_tabelle(tmp_path):

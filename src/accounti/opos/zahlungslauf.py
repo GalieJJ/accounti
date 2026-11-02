@@ -8,7 +8,9 @@ Ruhe, was hier zugeordnet ist.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -24,6 +26,7 @@ from accounti.db.repository import (
     lade_transaktion,
     lade_transaktionen,
     lade_zuordnungen,
+    setze_zuordnung_skonto,
     setze_zuordnungen_status,
     speichere_zuordnung,
 )
@@ -177,18 +180,41 @@ def bestaetige(
     praefix: str,
     einstellungen: Buchhaltung,
     von: str | None = None,
+    skonto: Mapping[str, Decimal] | None = None,
 ) -> list[Buchungssatz]:
     """Bucht einen Vorschlag; die Buchungen gelten als vom Menschen (``von``)
-    geprüft."""
+    geprüft.
+
+    ``skonto``: Belegnummer → Skonto, das der Mensch für diesen Posten anerkennt (statt
+    des vorgeschlagenen) — gebucht mit anteiliger Steuerkorrektur wie jedes Skonto;
+    Zahlung und Skonto dürfen den Rest des Postens nicht übersteigen.
+    """
     zuordnungen = _vorschlag_zu(session, praefix)
     tx = lade_transaktion(session, zuordnungen[0].transaktion_id)
     if tx is None:
         msg = f"Transaktion {zuordnungen[0].transaktion_id} nicht gefunden."
         raise ZahlungslaufError(msg)
-    anteile = [
-        Anteil(lade_einen_posten(session, z.posten_id), z.betrag, z.skonto)
-        for z in zuordnungen
-    ]
+    offen = dict(skonto or {})
+    anteile = []
+    for z in zuordnungen:
+        posten = lade_einen_posten(session, z.posten_id)
+        abzug = z.skonto
+        if posten.belegnummer is not None and posten.belegnummer in offen:
+            abzug = offen.pop(posten.belegnummer)
+            if abzug < 0 or z.betrag + abzug > posten.restbetrag:
+                msg = (
+                    f"Skonto {abzug} auf {posten.belegnummer}: Zahlung {z.betrag} plus "
+                    f"Skonto übersteigt den Rest {posten.restbetrag}"
+                )
+                raise ZahlungslaufError(msg)
+            setze_zuordnung_skonto(session, z.id, abzug)
+        anteile.append(Anteil(posten, z.betrag, abzug))
+    if offen:
+        msg = (
+            f"--skonto: {', '.join(sorted(offen))} gehört nicht zu diesem Vorschlag "
+            "(accounti opos vorschlaege)"
+        )
+        raise ZahlungslaufError(msg)
     try:
         buchungen = gleiche_aus(
             session,

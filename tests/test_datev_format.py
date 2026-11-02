@@ -156,3 +156,27 @@ def test_kontoart():
 def test_belegfeld1_nur_datev_zeichen(roh, erwartet):
     # DATEV-Format, Buchungsstapel Feld 11: ^(["][\w$&%*+\-\/]{0,36}["])$
     assert belegfeld1(roh) == erwartet
+
+
+def test_umsatz_bei_13b_ohne_die_selbst_berechnete_steuer():
+    """DATEV rechnet bei BU 94/91/19/18 die Steuer aus dem Rechnungsbetrag — der
+    Umsatz ist das Netto (Zahlbetrag), nicht Netto + Steuer."""
+    from datetime import date
+    from decimal import Decimal
+
+    from accounti.export.datev_format import datev_umsatz
+    from accounti.models import Buchungssatz
+
+    def buchung(schluessel, steuer):
+        return Buchungssatz(
+            datum=date(2026, 4, 2),
+            soll_konto="4900",
+            haben_konto="70000",
+            betrag_netto=Decimal("600.00"),
+            steuer_schluessel=schluessel,
+            steuer_betrag=Decimal(steuer),
+            buchungstext="t",
+        )
+
+    assert datev_umsatz(buchung(94, "114.00")) == Decimal("600.00")
+    assert datev_umsatz(buchung(9, "114.00")) == Decimal("714.00")

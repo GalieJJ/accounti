@@ -24,7 +24,8 @@ VOR_BAUSTEIN_7 = "a684d10751de"
 VOR_TOKEN = "ddc9a184ddb4"  # Journal und Storno (Baustein 7)
 TOKEN_JE_GESELLSCHAFT = "6d38d11fc348"  # der Stand vor 2f7c7043043e (Anlagen-Buchung)
 ANLAGEN_BUCHUNG = "2f7c7043043e"  # der Stand vor a14acef69fae (Verrechnungen)
-VERRECHNUNGEN = "a14acef69fae"  # Gesamttest Debitoren — der Stand vor Baustein 10b
+VERRECHNUNGEN = "a14acef69fae"  # Gesamttest Debitoren
+STEUERKENNZEICHEN = "46371a6681c2"  # Gesamttest Belege, nach a14acef69fae
 KONTIERUNG = "d5a849692843"  # Baustein 10b: Kontierungsgründe, gelernte Regeln
 SPRACHE = "e7153706b43a"  # Baustein 10b: auth_benutzer.sprache (Kopf)
 runner = CliRunner()
@@ -63,6 +64,17 @@ def _version(db: Path) -> list[str]:
 def _spalten(db: Path, tabelle: str) -> set[str]:
     with sqlite3.connect(db) as v:
         return {z[1] for z in v.execute(f"PRAGMA table_info('{tabelle}')")}
+
+
+def _nach(revision: str) -> list[str]:
+    """Die Revisionen über ``revision``, in der Reihenfolge, in der sie laufen — die
+    Tests nennen so feste Stände statt des aktuellen Kopfs oder einer Anzahl."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    skripte = ScriptDirectory.from_config(Config(str(WURZEL / "alembic.ini")))
+    kette = [r.revision for r in reversed(list(skripte.walk_revisions()))]
+    return kette[kette.index(revision) + 1 :]
 
 
 def _tabellen(db: Path) -> set[str]:
@@ -189,8 +201,9 @@ def test_db_upgrade_ohne_vermerk_vor_den_verrechnungen(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert f"abgeleitet: {ANLAGEN_BUCHUNG}" in r.output
-    # a14acef69fae, dazu die beiden Migrationen von Baustein 10b dahinter
-    assert "(3 Migration(en))" in r.output
+    offen = _nach(ANLAGEN_BUCHUNG)
+    assert offen[0] == VERRECHNUNGEN
+    assert f"({len(offen)} Migration(en))" in r.output
     assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
     assert {"rechnungstyp", "korrektur_zu"} <= _spalten(db, "ausgangsrechnungen")
     assert "elektronisch" in _spalten(db, "ausgangspositionen")
@@ -207,10 +220,26 @@ def _ohne_vermerk(db: Path, revision: str) -> None:
         v.execute("DROP TABLE alembic_version")
 
 
+def _beleg(db: Path) -> None:
+    with sqlite3.connect(db) as v:
+        v.execute(
+            "INSERT INTO belege (id, belegart, richtung, datei_hash, dateiname, kanal, "
+            "herkunft, eingegangen_am, aufbewahren_bis, status, confidence, waehrung) "
+            "VALUES ('b1', 'eingangsrechnung', 'eingang', 'h', 'r.pdf', 'upload', 'x', "
+            "'2026-04-02 10:00:00', '2036-12-31', 'pruefung', 0.5, 'EUR')"
+        )
+
+
+def _belege(db: Path) -> list[tuple[str, str | None]]:
+    with sqlite3.connect(db) as v:
+        return v.execute("SELECT id, steuerkennzeichen FROM belege").fetchall()
+
+
 def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
-    """Stand a14acef69fae ohne Vermerk (noch kein Befehl von Baustein 10b): ``db
-    upgrade`` erkennt ihn an den fehlenden Tabellen ``kontierungsgruende``/
-    ``kontierungsregeln`` und holt d5a849692843 und e7153706b43a nach."""
+    """Stand a14acef69fae ohne Vermerk (noch kein Befehl von Baustein 10b und Paket C):
+    ``db upgrade`` erkennt ihn an der fehlenden Spalte ``belege.steuerkennzeichen`` und
+    den fehlenden Tabellen ``kontierungsgruende``/``kontierungsregeln`` und holt
+    46371a6681c2, d5a849692843 und e7153706b43a nach."""
     db = tmp_path / "alt.db"
     _ohne_vermerk(db, VERRECHNUNGEN)
     assert not {"kontierungsgruende", "kontierungsregeln"} & _tabellen(db)
@@ -219,10 +248,13 @@ def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert f"abgeleitet: {VERRECHNUNGEN}" in r.output
-    assert "(2 Migration(en))" in r.output
+    assert _nach(VERRECHNUNGEN) == [STEUERKENNZEICHEN, KONTIERUNG, SPRACHE]
+    assert "(3 Migration(en))" in r.output
     assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
     assert {"kontierungsgruende", "kontierungsregeln"} <= _tabellen(db)
     assert "sprache" in _spalten(db, "auth_benutzer")
+    assert "steuerkennzeichen" in _spalten(db, "belege")
+    assert "rang" in _spalten(db, "kontierungsregeln")
     assert _trigger(db, "kontierungsgruende") == {
         "kontierungsgruende_kein_update",
         "kontierungsgruende_kein_delete",
@@ -232,10 +264,11 @@ def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
 
 @pytest.mark.parametrize("init", [False, True], ids=["ohne_init_db", "mit_init_db"])
 def test_db_upgrade_ohne_vermerk_vor_der_benutzersprache(tmp_path, init):
-    """Stand d5a849692843 ohne Vermerk — oder a14acef69fae, danach ``init_db`` des
-    neuen Codes: die Tabellen der Kontierung (samt Triggern) gibt es dann schon, die
-    Spalte ``auth_benutzer.sprache`` nicht. ``db upgrade`` erkennt den Stand an der
-    fehlenden Spalte und holt nur e7153706b43a nach."""
+    """Stand d5a849692843 ohne Vermerk: nur die Spalte ``auth_benutzer.sprache`` fehlt
+    — ``db upgrade`` holt nur e7153706b43a nach. Mit a14acef69fae und ``init_db`` des
+    neuen Codes gibt es die Tabellen der Kontierung (samt Triggern) schon, aber
+    ``init_db`` ergänzt keine Spalten: ``belege.steuerkennzeichen`` fehlt, der Stand
+    ist a14acef69fae, und die drei Migrationen danach übernehmen das Vorhandene."""
     db = tmp_path / "alt.db"
     _ohne_vermerk(db, VERRECHNUNGEN if init else KONTIERUNG)
     if init:
@@ -248,10 +281,171 @@ def test_db_upgrade_ohne_vermerk_vor_der_benutzersprache(tmp_path, init):
         app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
     )
     assert r.exit_code == 0, r.output
-    assert f"abgeleitet: {KONTIERUNG}" in r.output
-    assert "(1 Migration(en))" in r.output
+    stand = VERRECHNUNGEN if init else KONTIERUNG
+    assert f"abgeleitet: {stand}" in r.output
+    assert f"({len(_nach(stand))} Migration(en))" in r.output
     assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
     assert "sprache" in _spalten(db, "auth_benutzer")
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_db_upgrade_ohne_vermerk_vor_dem_steuerkennzeichen(tmp_path):
+    """Stand a14acef69fae ohne Vermerk, danach ``init_db`` des neuen Codes: ``belege``
+    gibt es, die Spalte ``steuerkennzeichen`` nicht (``init_db`` ergänzt keine Spalten)
+    — ``db upgrade`` erkennt den Stand an der fehlenden Spalte und holt 46371a6681c2
+    nach (Gesamttest Belege). Die Prüfung nimmt nichts über Nachbar-Revisionen an:
+    Rückt die Migration in der Kette weiter, darf der abgeleitete Stand eine spätere
+    Revision vor ihr sein (deren Tabellen ``init_db`` schon angelegt hat)."""
+    db = tmp_path / "alt.db"
+    _alembic(db, "upgrade", VERRECHNUNGEN)
+    _beleg(db)
+    with sqlite3.connect(db) as v:
+        v.execute("DROP TABLE alembic_version")
+    engine, _ = session_factory(f"sqlite:///{db}")
+    init_db(engine)
+    engine.dispose()
+    assert "alembic_version" not in _tabellen(db)
+    assert "steuerkennzeichen" not in _spalten(db, "belege")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    abgeleitet = r.output.split("abgeleitet: ")[1].split()[0]
+    assert abgeleitet == VERRECHNUNGEN or abgeleitet in _nach(VERRECHNUNGEN)
+    offen = _nach(abgeleitet)
+    assert STEUERKENNZEICHEN in offen
+    assert f"({len(offen)} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert _belege(db) == [("b1", None)]
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_db_upgrade_mit_vermerk_vor_dem_steuerkennzeichen(tmp_path):
+    db = tmp_path / "alt.db"
+    _alembic(db, "upgrade", VERRECHNUNGEN)
+    _beleg(db)
+    assert _version(db) == [VERRECHNUNGEN]
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert "abgeleitet" not in r.output
+    offen = _nach(VERRECHNUNGEN)
+    assert STEUERKENNZEICHEN in offen
+    assert f"({len(offen)} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert _belege(db) == [("b1", None)]
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def _zweig_paket_c(db: Path) -> None:
+    """So hinterließ der Zweig von Paket C die Datenbank: 46371a6681c2 hing dort an
+    ddc9a184ddb4, der Vermerk nennt sie, die Migrationen von main dazwischen fehlen."""
+    _alembic(db, "upgrade", VOR_TOKEN)
+    _beleg(db)
+    with sqlite3.connect(db) as v:
+        v.execute("ALTER TABLE belege ADD COLUMN steuerkennzeichen VARCHAR(10)")
+        v.execute(f"UPDATE alembic_version SET version_num = '{STEUERKENNZEICHEN}'")
+        v.execute("UPDATE belege SET steuerkennzeichen = 'AE'")
+
+
+def test_db_upgrade_erkennt_vermerk_ohne_die_migrationen_davor(tmp_path):
+    """Nachprüfung Merge N-2: eine auf dem Zweig von Paket C migrierte Datenbank trägt
+    den Vermerk 46371a6681c2, ihr fehlen aber die Migrationen von main davor. ``db
+    upgrade`` meldete „0 Migrationen“ und Erfolg — jetzt Exit 1 mit einer Meldung
+    (eine Schemaprüfung für Vorabstand und Zweig) und beiden verlustfreien Wegen: von
+    Hand stamp --purge auf den Stand, den das Schema zeigt, dann db upgrade."""
+    db = tmp_path / "zweig.db"
+    _zweig_paket_c(db)
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "400"}
+    )
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 1, ausgabe
+    assert "verrechnungen" in ausgabe and STEUERKENNZEICHEN in ausgabe, ausgabe
+    assert ausgabe.count("Das Schema passt nicht") == 1  # keine Doppelmeldung
+    assert f"alembic stamp --purge {VOR_TOKEN}" in ausgabe, ausgabe
+    assert "accounti db upgrade --aus-schema" in ausgabe, ausgabe
+    _alembic(db, "stamp", "--purge", VOR_TOKEN)
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"({len(_nach(VOR_TOKEN))} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert _belege(db) == [("b1", "AE")]  # verlustfrei
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_db_upgrade_aus_schema_fuer_den_zweig_von_paket_c(tmp_path):
+    """Derselbe Zweig-Stand — ``--aus-schema`` holt die fehlenden Migrationen in einem
+    Lauf nach, verlustfrei."""
+    db = tmp_path / "zweig.db"
+    _zweig_paket_c(db)
+    r = runner.invoke(
+        app,
+        ["db", "upgrade", "--aus-schema", "--db", f"sqlite:///{db}"],
+        env={"COLUMNS": "250"},
+    )
+    assert r.exit_code == 0, r.output
+    assert f"abgeleitet: {VOR_TOKEN}" in r.output
+    assert f"({len(_nach(VOR_TOKEN))} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert _belege(db) == [("b1", "AE")]
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_db_upgrade_vorabstand_ohne_steuerkennzeichen_und_rang(tmp_path):
+    """Eine Datenbank von 10b-1 vor diesem Zusammenführen: Vermerk e7153706b43a, aber
+    ohne ``belege.steuerkennzeichen`` (46371a6681c2 kam erst mit main) und ohne
+    ``kontierungsregeln.rang`` (Runde 3). ``db upgrade`` bricht mit dem Weg ab,
+    ``--aus-schema`` stempelt auf a14acef69fae zurück und holt alle drei nach."""
+    db = tmp_path / "vorab.db"
+    _alembic(db, "upgrade", "head")
+    _beleg(db)
+    with sqlite3.connect(db) as v:
+        v.execute("ALTER TABLE belege DROP COLUMN steuerkennzeichen")
+        v.execute("ALTER TABLE kontierungsregeln DROP COLUMN rang")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "400"}
+    )
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 1 and "Nichts geändert" in ausgabe, ausgabe
+    assert "belege.steuerkennzeichen" in ausgabe and "kontierungsregeln.rang" in ausgabe
+    assert f"laut Schema {VERRECHNUNGEN}" in ausgabe, ausgabe
+    r = runner.invoke(
+        app,
+        ["db", "upgrade", "--aus-schema", "--db", f"sqlite:///{db}"],
+        env={"COLUMNS": "250"},
+    )
+    assert r.exit_code == 0, r.output
+    assert f"({len(_nach(VERRECHNUNGEN))} Migration(en))" in r.output
+    assert {"steuerkennzeichen"} <= _spalten(db, "belege")
+    assert "rang" in _spalten(db, "kontierungsregeln")
+    assert _belege(db) == [("b1", None)]
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_db_upgrade_vermerk_mit_zwei_zeilen(tmp_path):
+    """Zwei Zeilen in ``alembic_version`` (``upgrade heads`` im Zweikopf-Zustand):
+    bisher ein CommandError ohne Meldung — jetzt der Weg über ``--aus-schema``."""
+    db = tmp_path / "zwei.db"
+    _alembic(db, "upgrade", VOR_TOKEN)
+    with sqlite3.connect(db) as v:
+        v.execute(f"INSERT INTO alembic_version VALUES ('{STEUERKENNZEICHEN}')")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "400"}
+    )
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 1 and "mehrere Stände" in ausgabe, ausgabe
+    assert r.exception is None or isinstance(r.exception, SystemExit)
+    r = runner.invoke(
+        app,
+        ["db", "upgrade", "--aus-schema", "--db", f"sqlite:///{db}"],
+        env={"COLUMNS": "250"},
+    )
+    assert r.exit_code == 0, r.output
+    assert _version(db) == [SCHEMA_STAND]
     assert "No new upgrade operations detected" in _alembic(db, "check")
 
 
@@ -363,7 +557,8 @@ def test_db_upgrade_aus_schema_holt_die_migrationen_verlustfrei_nach(tmp_path):
         env={"COLUMNS": "250"},
     )
     assert r.exit_code == 0, r.output
-    assert VOR_TOKEN in r.output and "(5 Migration(en))" in r.output
+    offen = _nach(VOR_TOKEN)  # 6d38…, 2f70…, a14a…, 4637…, d5a8…, e715…
+    assert VOR_TOKEN in r.output and f"({len(offen)} Migration(en))" in r.output
     assert _version(db) == [SCHEMA_STAND]
     assert "verrechnungen" in _tabellen(db)
     assert "buchung_id" in _spalten(db, "anlagegueter")
@@ -491,8 +686,8 @@ def test_postgresql_migration_und_db_upgrade(pg_datenbank, tmp_path):
     with pytest.raises(IntegrityError), engine.begin() as v:
         v.execute(zeile, {"id": "3", "h": "h3", "g": "b"})
     # Nachprüfung N3: das Downgrade bricht vorher ab, der Index bleibt (PostgreSQL:
-    # eine Transaktion, auch die Schritte e7153706b43a, d5a849692843, a14acef69fae
-    # und 2f7c7043043e davor werden zurückgerollt)
+    # eine Transaktion, auch die Schritte darüber — e7153706b43a, d5a849692843,
+    # 46371a6681c2, a14acef69fae, 2f7c7043043e … — werden zurückgerollt)
     ausgabe = _alembic_url(url, tmp_path, "downgrade", VOR_TOKEN, ok=False)
     assert "Downgrade abgebrochen" in ausgabe, ausgabe
     with pytest.raises(IntegrityError), engine.begin() as v:
@@ -530,7 +725,8 @@ def test_postgresql_vorabstand_aus_schema_und_cli_hinweis(pg_datenbank, tmp_path
     r = runner.invoke(
         app, ["db", "upgrade", "--aus-schema", "--db", url], env={"COLUMNS": "250"}
     )
-    assert r.exit_code == 0 and "(5 Migration(en))" in r.output, r.output
+    assert r.exit_code == 0, r.output
+    assert f"({len(_nach(VOR_TOKEN))} Migration(en))" in r.output, r.output
     assert "No new upgrade operations detected" in _alembic_url(url, tmp_path, "check")
 
     main = pg_datenbank()
@@ -538,3 +734,31 @@ def test_postgresql_vorabstand_aus_schema_und_cli_hinweis(pg_datenbank, tmp_path
     r = runner.invoke(app, ["benutzer", "liste", "--db", main], env={"COLUMNS": "250"})
     assert r.exit_code == 1, r.output
     assert "sprache" in r.output and "accounti db upgrade" in r.output
+
+
+@mit_postgresql
+def test_postgresql_zweig_von_paket_c_aus_schema(pg_datenbank, tmp_path):
+    """PostgreSQL: Vermerk 46371a6681c2 ohne die Migrationen davor (Zweig von Paket
+    C) — ``db upgrade`` bricht mit dem Weg ab, ``--aus-schema`` holt sie nach."""
+    from sqlalchemy import create_engine, text
+
+    url = pg_datenbank()
+    _alembic_url(url, tmp_path, "upgrade", VOR_TOKEN)
+    engine = create_engine(url)
+    with engine.begin() as v:
+        v.execute(text("ALTER TABLE belege ADD COLUMN steuerkennzeichen VARCHAR(10)"))
+        v.execute(
+            text("UPDATE alembic_version SET version_num = :r"),
+            {"r": STEUERKENNZEICHEN},
+        )
+    engine.dispose()
+    r = runner.invoke(app, ["db", "upgrade", "--db", url], env={"COLUMNS": "400"})
+    ausgabe = " ".join(r.output.split())
+    assert r.exit_code == 1 and "verrechnungen" in ausgabe, ausgabe
+    assert f"alembic stamp --purge {VOR_TOKEN}" in ausgabe, ausgabe
+    r = runner.invoke(
+        app, ["db", "upgrade", "--aus-schema", "--db", url], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"({len(_nach(VOR_TOKEN))} Migration(en))" in r.output, r.output
+    assert "No new upgrade operations detected" in _alembic_url(url, tmp_path, "check")

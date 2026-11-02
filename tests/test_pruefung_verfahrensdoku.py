@@ -396,6 +396,21 @@ def test_verfahrensdoku_nennt_regeln_ohne_richtung(tmp_path, monkeypatch):
     assert "| telekom | /telekom/ | beide |" in text
 
 
+def test_belegeingang_beschreibt_kanaele_und_dateipruefung_wie_sie_sind(tmp_path):
+    """Gesamttest B03: Ordner → belege abholen (geprüft), Upload → belege import
+    (Handimport, ungeprüft) — vorher vertauscht und „Prüfung je Kanal“ behauptet."""
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(s, _konfig(tmp_path / "accounti.yaml"), stand=date(2026, 10, 21))
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| ordner"))
+    assert "belege abholen --kanal ordner" in zeile
+    zeile = next(z for z in text.splitlines() if z.startswith("| upload"))
+    assert "belege import" in zeile
+    assert "Dateiprüfung für E-Mail, Webhook, Connector und Ordner" in text
+    assert "Handimport einzelner Dateien (accounti belege import) prüft" in text
+
+
 def test_regelmuster_feld_und_aufbewahrung(tmp_path, monkeypatch):
     """Gesamttest Abschluss B10: das Muster stand als ``re.compile(…)`` im Dokument,
     das Feld fehlte; die Aufbewahrung nannte 10 Jahre ab Ende des Eingangsjahres —

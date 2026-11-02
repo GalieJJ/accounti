@@ -1,7 +1,7 @@
 """add kontierung (Baustein 10b: Herkunft je Buchung, gelernte Kontierungsregeln)
 
 Revision ID: d5a849692843
-Revises: a14acef69fae
+Revises: 46371a6681c2
 Create Date: 2026-10-21 22:55:11.190053
 
 ``kontierungsgruende`` ist nur anfügbar (unter SQLite zusätzlich per Trigger, wie
@@ -11,9 +11,12 @@ als ``gelernt_*`` in der Regeldatei — ``accounti regeln uebernehmen`` holt sie
 Hat ein Befehl des neuen Codes die Tabellen schon angelegt (``init_db`` vor der
 Migration), übernimmt die Migration sie und legt nur an, was fehlt.
 
-Hängt seit dem Zusammenführen mit main hinter ``a14acef69fae`` (Verrechnungen,
-Gesamttest Debitoren) — vorher hinter ``ddc9a184ddb4``; die Reihenfolge der beiden
-Migrationen von Baustein 10b bleibt.
+Hängt seit dem zweiten Zusammenführen mit main hinter ``46371a6681c2``
+(``belege.steuerkennzeichen``, Gesamttest Paket C), davor hinter ``a14acef69fae``
+(Verrechnungen) und ursprünglich hinter ``ddc9a184ddb4``; die Reihenfolge der beiden
+Migrationen von Baustein 10b bleibt. Eine Datenbank, die schon diese beiden, aber nicht
+``46371a6681c2`` hat (Vermerk ``e7153706b43a`` ohne Spalte ``steuerkennzeichen``), holt
+``accounti db upgrade --aus-schema`` nach — alle drei übernehmen Vorhandenes.
 
 ``kontierungsregeln.rang`` (Stelle des übernommenen Eintrags in der Regeldatei) kam in
 Runde 3 der Nachbesserung dazu; fehlt die Spalte an einer schon angelegten Tabelle
@@ -28,7 +31,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'd5a849692843'
-down_revision: Union[str, Sequence[str], None] = 'a14acef69fae'
+down_revision: Union[str, Sequence[str], None] = '46371a6681c2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

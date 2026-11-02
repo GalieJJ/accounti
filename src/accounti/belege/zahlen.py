@@ -7,7 +7,11 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 # Betrag mit zwei Nachkommastellen, wie er auf Belegen steht: 1.234,56 · 23,99- · -5,00
-BETRAG = r"[-+]?(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}-?"
+# Er beginnt nicht mitten in einer Ziffernfolge oder Tausendergruppe — sonst setzte
+# das Muster an jeder Ziffer einer langen Folge neu an und las bis zu ihrem Ende
+# (quadratisch, Nachprüfung C, Runde 4, Mittel 2). Punkte davor („Summe.....5,00“)
+# stören nicht.
+BETRAG = r"[-+]?(?<!\d)(?<!\d\.)(?:\d{1,3}(?:\.\d{3})+|\d+),\d{2}-?"
 
 _MONATE = {
     "januar": 1,

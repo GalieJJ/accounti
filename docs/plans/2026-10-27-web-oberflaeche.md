@@ -1239,6 +1239,21 @@ Test, der ohne die Korrektur scheitert:
 Kein Fehler (gegen:regeln:2): ein Eintrag mit `pruefen` bleibt in der Datei und greift hinter
 den gelernten Regeln — dokumentiert (Grenze unten, CLI-Ausgabe).
 
+**Zweites Zusammenführen mit main (2305d47, Paket C #35)** — Migrationskette `a14acef69fae` →
+`46371a6681c2` (`belege.steuerkennzeichen`) → `d5a849692843` → `e7153706b43a` (ein Kopf,
+`SCHEMA_STAND`). `db/upgrade.py`: eine Schemaprüfung (`fehlendes_schema`: fehlende Tabellen
+und Spalten, vor dem Lauf, wenn nichts offen ist, und danach) statt zweier — `_pruefe_spalten`
+von Paket C entfällt, ihre Meldung (Stand laut Schema, `alembic stamp --purge …`) steht in
+der einen Meldung neben `--aus-schema`; ein Vermerk mit zwei Zeilen ergibt eine Meldung statt
+eines `CommandError`. Tests: `test_db_upgrade.py::test_db_upgrade_erkennt_vermerk_ohne_die_
+migrationen_davor` (keine Doppelmeldung), `::test_db_upgrade_aus_schema_fuer_den_zweig_von_
+paket_c`, `::test_db_upgrade_vorabstand_ohne_steuerkennzeichen_und_rang`,
+`::test_db_upgrade_vermerk_mit_zwei_zeilen`, `::test_postgresql_zweig_von_paket_c_aus_schema`,
+`test_migration_web.py::test_migration_ergaenzt_rang_an_vorhandener_tabelle`. OPOS: das
+Erlöskonto des OSS-Fernverkaufs aus `erloeskonten` (Länderkonten je Kontenrahmen), die
+OSS-Steuer wie Paket C auf `OSS_UST_KONTEN_SKR03` (1777xx, sonst 1779 — eigene Konten, auch im
+SKR04; Grenze), das Bestimmungsland aus der Rechnung.
+
 ### Paket 4 — Auswertungen (PR 10b-2)
 
 - [ ] **Kontenrahmen: Ergebnisverwendung** (`abschluss/kontenrahmen.py`: Schlüssel
@@ -1637,7 +1652,13 @@ Durchlaufs mit Markern in allen Fremddaten.
   DATEV-Automatik von 4400/4300 kennt accounti im SKR04 nur mit einer eigenen
   `pruefung.kontenrahmen_datei` (sonst trägt der Export den BU-Schlüssel mit).
   Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten (im SKR04
-  8320–8327; Meldung und Kz 45 zählen sie mit).
+  8320–8327; Meldung und Kz 45 zählen sie mit). Die OSS-Steuer selbst bucht OPOS (seit Paket C)
+  in beiden Kontenrahmen auf die eigenen Konten 1777xx (Rückfall 1779) — im SKR04 liegen sie
+  außerhalb der Steuerkonten (3800 ff.), die Anlage EÜR führt sie dort als Bestand; ein
+  SKR04-eigenes OSS-Steuerkonto fehlt (Folgearbeit, mit DATEV abzustimmen).
+- Im Browser bietet die Korrektur einer Belegbuchung nur den bisherigen Schlüssel an
+  (`steuer_optionen`); § 13b bzw. ig. Erwerb auf einer Belegbuchung (Paket C) setzt die CLI
+  (`korrigiere … --steuer 94 --grund …`).
 - Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–8 Ziffern, Muster
   nicht leer); ob es das Konto im Kontenrahmen gibt, prüft er nicht. Ein Fehler in einem Eintrag
   hält die ganze Regeldatei an (Meldung mit Regelname), wie bisher bei Regex und `feld`.
@@ -1679,8 +1700,9 @@ Durchlaufs mit Markern in allen Fremddaten.
 - Die Sprache wählt man nur im Browser (kein CLI-Befehl).
 
 **Technik**
-- Zwei Migrationen (`kontierungsgruende` und `kontierungsregeln`; `auth_benutzer.sprache`) auf
-  `ddc9a184ddb4`, auszuführen gegen die Systemdatenbank **und** jede Gesellschaftsdatenbank
+- Zwei Migrationen (`kontierungsgruende` und `kontierungsregeln` samt `rang`;
+  `auth_benutzer.sprache`) hinter `46371a6681c2` (Paket C; davor hinter `a14acef69fae`,
+  ursprünglich `ddc9a184ddb4`), Kopf und `SCHEMA_STAND` `e7153706b43a`, auszuführen gegen die Systemdatenbank **und** jede Gesellschaftsdatenbank
   (Alembic liest nur `ACCOUNTI_DB`); ohne die Spalte startet `serve` nicht. Altbuchungen haben
   keine Begründung (außer AfA über `AfaVorgang` und Prüfgründe an Beleg, Abgleich, Zuordnung,
   Kontakt).
@@ -1863,8 +1885,8 @@ kumuliert, Abweichung; ein nicht festgeschriebener Monat ist als vorläufig geke
   Anlagen, Marktplatz und offene Posten speichern jetzt zu jeder Buchung Quelle, Regel und
   Begründung (`kontierungsgruende`). HTMX 2.0.11 (0BSD) liegt lokal unter `/statisch`. Neue
   Abschnitte `bwa` (optional); neue Schlüssel `buchhaltung.gelernte_regeln`, `server.sprache`,
-  `server.max_vorschau_megapixel`; Kontenrahmen mit `ergebnisverwendung`. Zwei Migrationen auf
-  `ddc9a184ddb4` — `alembic upgrade head` für die Systemdatenbank und jede Gesellschaft.
+  `server.max_vorschau_megapixel`; Kontenrahmen mit `ergebnisverwendung`. Zwei Migrationen
+  hinter `46371a6681c2` — `accounti db upgrade` für die Systemdatenbank und jede Gesellschaft.
 ```
 
 **Unter `### Geändert`** oben einfügen:

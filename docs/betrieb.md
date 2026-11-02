@@ -201,7 +201,10 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   `abschluss buchen` (derselbe AfA-Lauf wie `anlagen afa`, dazu die
   Abgrenzungsvorschläge) und `abschluss abgrenzen` (Person aus `ACCOUNTI_BENUTZER` bzw.
   dem Anmeldenamen — `--von` ist dort der Leistungszeitraum),
-  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
+  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`, `belege freigeben` (Beleg
+  aus der Prüfung, mit Belegart, Steuerfall, Belegnummer oder umgekehrtem Vorzeichen;
+  `--grund` Pflicht bei Dublettenverdacht, Rechenprobe, Vorzeichen und mehrdeutigem
+  Titel). Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
@@ -635,6 +638,44 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
   `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
   dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
 
+**Vermerk passt nicht zum Schema** (eine Prüfung für alle Fälle): `db upgrade` vergleicht
+das Schema mit den Tabellen und Spalten des Codes — vor dem Upgrade, wenn nichts offen ist,
+und danach. Fehlt etwas, trägt die Datenbank einen Vermerk, dessen Migrationen sie nicht
+alle hat: meist ein Entwicklungszweig mit anderer Reihenfolge der Migrationen (Vorabstand von
+Baustein 10b: Vermerk `e7153706b43a` ohne die Migrationen von main; Zweig von Paket C:
+`46371a6681c2` direkt hinter `ddc9a184ddb4`; 10b-1 vor dem zweiten Zusammenführen:
+`e7153706b43a` ohne `belege.steuerkennzeichen`). Dann bricht `db upgrade` mit einer Meldung
+ab: die fehlenden Tabellen und Spalten, der Stand, den das Schema zeigt, und zwei
+verlustfreie Wege — die Daten seit dem Update bleiben, die Migrationen übernehmen Vorhandenes:
+
+```bash
+docker compose run --rm app -g muster sicherung erstellen --ziel /sicherungen/   # vorher sichern
+docker compose run --rm app -g muster db upgrade --aus-schema   # Stand aus dem Schema, Migrationen nach
+# oder von Hand, mit dem Stand aus der Meldung (hier der Zweig von Paket C):
+docker compose run --rm --entrypoint alembic app -c /app/alembic.ini stamp --purge ddc9a184ddb4
+docker compose run --rm app -g muster db upgrade
+```
+
+`--aus-schema` leitet den Stand auch bei vorhandenem Vermerk aus dem Schema ab, stempelt ihn,
+wenn er älter ist (`alembic stamp --purge`), und migriert bis zum Kopf; auch ein Vermerk mit
+zwei Zeilen (nach `alembic upgrade heads` mit zwei Köpfen) geht nur so. Im Quellbaum
+entsprechend `alembic stamp --purge …` mit einer ini-Kopie auf diese Datenbank und `accounti
+db upgrade --db …`; oder `sicherung erstellen` aus der alten Datenbank und `sicherung
+wiederherstellen` in eine leere (das Schema legt der laufende Code an). Fehlende Indizes oder
+Trigger erkennt die Prüfung nicht; `--aus-schema` stempelt nur zurück, nie vor.
+
+**Update Gesamttest Belege** (Migration `46371a6681c2` nach `a14acef69fae`: Spalte
+`belege.steuerkennzeichen`, der Steuerfall einer Rechnung ohne Steuerausweis): ohne die
+Migration scheitern Befehle an der neuen Spalte — die Datenbank wie oben mit `accounti db
+upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Ohne
+Versionsvermerk erkennt `db upgrade` den Stand `a14acef69fae` an der fehlenden Spalte
+(`init_db` ergänzt keine Spalten an vorhandenen Tabellen).
+Eine Datenbank, die schon auf dem Entwicklungszweig von Paket C mit `alembic upgrade
+head` migriert wurde (Vermerk `46371a6681c2`, dort an `ddc9a184ddb4`), fehlen die
+Migrationen von main dazwischen (`6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`) — siehe
+„Vermerk passt nicht zum Schema“ oben (Stand laut Schema `ddc9a184ddb4`); die Migration
+`46371a6681c2` übernimmt die schon vorhandene Spalte samt Inhalt.
+
 **Update Gesamttest Debitoren** (Migration `a14acef69fae` nach `2f7c7043043e`: Tabelle
 `verrechnungen` mit SQLite-Triggern, Spalten `ausgangsrechnungen.rechnungstyp`/
 `korrektur_zu`, `ausgangspositionen.elektronisch`): ohne die Migration scheitern Befehle
@@ -668,13 +709,15 @@ des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`
 übernimmt die Migration sie und ergänzt nur, was fehlt.
 
 **Update auf Baustein 10b** (Migrationen `d5a849692843` und `e7153706b43a` nach
-`a14acef69fae`: `kontierungsgruende`, `kontierungsregeln`, `auth_benutzer.sprache`):
+`46371a6681c2`: `kontierungsgruende`, `kontierungsregeln` samt `rang`,
+`auth_benutzer.sprache`):
 `accounti db upgrade` migriert — bei mehreren Gesellschaften **jede** Datenbank einzeln, die
 Systemdatenbank zuerst (ohne `auth_benutzer.sprache` startet `serve` nicht: Exit 2 mit dem
 Hinweis auf `accounti db upgrade`). Ohne Versionsvermerk erkennt `db upgrade` den Stand vor
-jeder der beiden Migrationen (`a14acef69fae` an den fehlenden Tabellen der Kontierung,
-`d5a849692843` an der fehlenden Spalte `sprache` — auch wenn ein Befehl des neuen Abbilds
-die Tabellen schon angelegt hat). Die URLs stehen in `.env` und werden auf dem Host
+jeder der beiden Migrationen (`46371a6681c2` an den fehlenden Tabellen der Kontierung,
+`d5a849692843` an der fehlenden Spalte `sprache`; hat ein Befehl des neuen Abbilds die
+Tabellen schon angelegt, zeigt die fehlende Spalte `belege.steuerkennzeichen` den Stand
+`a14acef69fae`, und alle drei Migrationen übernehmen das Vorhandene). Die URLs stehen in `.env` und werden auf dem Host
 eingesetzt — deshalb zuerst die `.env` in die Shell laden:
 
 ```bash
@@ -688,24 +731,11 @@ docker compose run --rm app -g muster regeln uebernehmen --probe   # alte gelern
 Gleichwertig für Datenbanken **mit** Versionsvermerk: `docker compose run --rm -e
 ACCOUNTI_DB="$ACCOUNTI_SYSTEM_DB" --entrypoint alembic app -c /app/alembic.ini upgrade head`
 (je Datenbank). Eine Datenbank, die schon mit einem **Vorabstand von Baustein 10b** migriert
-wurde (die beiden Migrationen hingen dort an `ddc9a184ddb4`), steht auf dem Kopf
-`e7153706b43a`, ohne die Migrationen von main dazwischen (`verrechnungen`,
-`anlagegueter.buchung_id`, Index `uq_api_token_aktiv` …). `db upgrade` prüft nach der
-Migration das Schema gegen den Code und bricht dann mit den fehlenden Tabellen und Spalten,
-dem aus dem Schema abgeleiteten Stand (`ddc9a184ddb4`) und diesem Weg ab — verlustfrei,
-die Daten seit dem Update bleiben:
-
-```bash
-docker compose run --rm app -g muster sicherung erstellen --ziel /sicherungen/   # vorher sichern
-docker compose run --rm app -g muster db upgrade --aus-schema   # Stand aus dem Schema, Migrationen nach
-```
-
-`--aus-schema` leitet den Stand auch bei vorhandenem Vermerk aus dem Schema ab, stempelt ihn,
-wenn er älter ist (`alembic stamp --purge`), und migriert bis zum Kopf — die Migrationen ab
-Baustein 7 übernehmen schon vorhandene Tabellen. Von Hand gleichwertig: `alembic stamp
---purge ddc9a184ddb4` und `alembic upgrade head` (mit der ini-Kopie auf diese Datenbank),
-oder `sicherung erstellen` aus der alten Datenbank und `sicherung wiederherstellen` in eine
-leere (das Schema legt der laufende Code an).
+wurde (die beiden Migrationen hingen dort an `ddc9a184ddb4` bzw. `a14acef69fae`), steht auf
+dem Kopf `e7153706b43a`, ohne Migrationen von main (`verrechnungen`,
+`anlagegueter.buchung_id`, `belege.steuerkennzeichen` …) oder ohne `kontierungsregeln.rang`
+— `db upgrade` bricht ab, `db upgrade --aus-schema` holt sie nach (siehe „Vermerk passt
+nicht zum Schema“ oben).
 
 Früher gelernte Regeln (`gelernt_*` am Ende der Regeldatei) übernimmt `regeln uebernehmen` in die
 Datenbank, mit der Richtung ihrer Bankseite (mit eingerichteten Benutzern mit den Rechten

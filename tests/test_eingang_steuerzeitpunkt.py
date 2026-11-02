@@ -1,0 +1,507 @@
+"""Eingangsrechnung nach § 13b und ig. Erwerb: Buchungstag = Entstehung der Steuer
+(Nachprüfung Merge N-4).
+
+Die Steuer, die der Leistungsempfänger schuldet, entsteht
+
+* bei einer sonstigen Leistung eines im übrigen Gemeinschaftsgebiet ansässigen
+  Unternehmers (§ 13b Abs. 1 UStG) mit Ablauf des Voranmeldungszeitraums der Leistung,
+* in den Fällen des § 13b Abs. 2 UStG (Werklieferungen und sonstige Leistungen anderer
+  ausländischer Unternehmer, Bauleistungen, Gebäudereinigung …) mit Ausstellung der
+  Rechnung, spätestens mit Ablauf des Folgemonats der Leistung,
+* beim ig. Erwerb mit Ausstellung der Rechnung, spätestens mit Ablauf des Folgemonats
+  des Erwerbs (§ 13 Abs. 1 Nr. 6 UStG);
+
+die Vorsteuer im selben Zeitraum (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG). Vorher buchte
+accounti alles zum Rechnungsdatum.
+"""
+
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+
+import pytest
+
+from accounti.db import init_db, session_factory
+from accounti.db.repository import (
+    lade_buchungen,
+    lade_kontakte,
+    lade_posten,
+    setze_status,
+    speichere_beleg,
+)
+from accounti.konfiguration import Buchhaltung
+from accounti.models import (
+    Beleg,
+    Belegart,
+    Belegposition,
+    BelegStatus,
+    BuchungStatus,
+)
+from accounti.opos.verbuchung import verbuche_belege
+from accounti.pruefung.perioden import schliesse
+from accounti.steuer.kennziffern import Kontenplan, ermittle
+from accounti.steuer.zeitraum import Zeitraum
+
+D = Decimal
+WIEN = {
+    "lieferant_name": "Consult Wien GmbH",
+    "lieferant_ust_id": "ATU12345678",
+    "iban": "AT611904300234573201",
+}
+HUBER = {
+    "lieferant_name": "Bau Huber GmbH",
+    "lieferant_ust_id": "DE123456789",
+    "iban": "DE89370400440532013000",
+}
+PARIS = {
+    "lieferant_name": "Fournisseur SARL",
+    "lieferant_ust_id": "FR12345678901",
+    "iban": "FR7630006000011234567890189",
+}
+
+
+@pytest.fixture
+def make_session():
+    engine, fabrik = session_factory("sqlite:///:memory:")
+    init_db(engine)
+    yield fabrik
+    engine.dispose()
+
+
+def _beleg(positionen=(("Beratung", "1000.00", "0", "0.00"),), kennzeichen="AE", **kw):
+    felder = {
+        "datei_hash": "a" * 64,
+        "dateiname": "re.pdf",
+        "kanal": "ordner",
+        "herkunft": "x",
+        "aufbewahren_bis": date(2036, 12, 31),
+        "belegart": Belegart.EINGANGSRECHNUNG,
+        "status": BelegStatus.ERFASST,
+        "belegnummer": "RE-2026-0042",
+        "belegdatum": date(2026, 3, 5),
+        "eingegangen_am": datetime(2026, 3, 6, 9, 0),
+        **WIEN,
+    }
+    b = Beleg(**{**felder, **kw})
+    b.positionen = [
+        Belegposition(
+            beleg_id=b.id,
+            bezeichnung=text,
+            netto=D(netto),
+            steuersatz=D(satz),
+            steuer_betrag=D(steuer),
+        )
+        for text, netto, satz, steuer in positionen
+    ]
+    netto = sum((p.netto for p in b.positionen), D("0"))
+    steuer = sum((p.steuer_betrag or D("0") for p in b.positionen), D("0"))
+    return b.model_copy(
+        update={
+            "netto": netto,
+            "steuer": steuer,
+            "brutto": netto + steuer,
+            "steuerkennzeichen": kennzeichen,
+        }
+    )
+
+
+def _lauf(make_session, beleg, sperren=(), **kw):
+    with make_session() as s:
+        speichere_beleg(s, beleg)
+        for monat in sperren:
+            schliesse(s, monat, "erika", trotzdem=True)
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, Buchhaltung(), **{"gewinnermittlung": "bilanz", **kw})
+        s.commit()
+    return lauf
+
+
+def _verbuche(make_session, beleg, sperren=(), **kw):
+    lauf = _lauf(make_session, beleg, sperren, **kw)
+    assert lauf.fehler == []
+    (v,) = lauf.verbucht
+    return v
+
+
+def _va(make_session, zeitraum):
+    with make_session() as s:
+        for b in lade_buchungen(s):
+            setze_status(s, str(b.id), BuchungStatus.GEPRUEFT)
+        s.commit()
+        e = ermittle(
+            lade_buchungen(s),
+            Zeitraum.lies(zeitraum),
+            Kontenplan(),
+            lade_kontakte(s),
+            {p.beleg_id: p.kontakt_id for p in lade_posten(s)},
+        )
+    return {kz: str(b) for kz, b in e.voranmeldung.werte.items()}
+
+
+def _tage(v):
+    return sorted((b.datum, b.steuer_schluessel) for b in v.buchungen)
+
+
+def test_13b_abs_1_zum_leistungsmonat(make_session):
+    """AT-Berater, Leistung am 20.02., Rechnung vom 05.03.: Kz 46/47/67 gehören in
+    02/2026 (§ 13b Abs. 1 UStG), vorher standen sie in 03/2026."""
+    v = _verbuche(make_session, _beleg(leistungsdatum=date(2026, 2, 20)))
+    assert _tage(v) == [(date(2026, 2, 20), 94)]
+    assert v.posten.belegdatum == date(2026, 3, 5)  # Fälligkeit, Skonto: Belegdatum
+    (h,) = [h for h in v.hinweise if "§ 13b Abs. 1" in h]
+    assert "20.02.2026" in h and "Voranmeldungszeitraums der Leistung" in h, h
+    assert _va(make_session, "2026-02") == {46: "1000.00", 47: "190.00", 67: "190.00"}
+    assert _va(make_session, "2026-03") == {}
+
+
+def test_13b_abs_2_mit_der_rechnung_im_folgemonat(make_session):
+    """Bauleistung eines inländischen Unternehmers (§ 13b Abs. 2 Nr. 4), Leistung im
+    Februar, Rechnung im März: die Steuer entsteht mit Ausstellung der Rechnung."""
+    beleg = _beleg(leistungsdatum=date(2026, 2, 20), **HUBER)
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    assert not any("§ 13b Abs. 2" in h for h in v.hinweise), v.hinweise
+    assert _va(make_session, "2026-03") == {84: "1000.00", 85: "190.00", 67: "190.00"}
+
+
+def test_13b_abs_2_spaetestens_mit_ablauf_des_folgemonats(make_session):
+    """Leistung im Januar, Rechnung erst im März: Steuer mit Ablauf Februar."""
+    beleg = _beleg(leistungsdatum=date(2026, 1, 10), **HUBER)
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 2, 28), 94)]
+    (h,) = [h for h in v.hinweise if "§ 13b Abs. 2" in h]
+    assert "28.02.2026" in h and "spätestens" in h, h
+    assert _va(make_session, "2026-02") == {84: "1000.00", 85: "190.00", 67: "190.00"}
+
+
+def test_ig_erwerb_spaetestens_mit_ablauf_des_folgemonats(make_session):
+    """§ 13 Abs. 1 Nr. 6 UStG: Lieferung im Januar, Rechnung im März → Februar."""
+    beleg = _beleg(
+        (("Ware", "1000.00", "0", "0.00"),),
+        kennzeichen="K",
+        leistungsdatum=date(2026, 1, 10),
+        **PARIS,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 2, 28), 19)]
+    (h,) = [h for h in v.hinweise if "§ 13 Abs. 1 Nr. 6" in h]
+    assert "28.02.2026" in h, h
+    assert _va(make_session, "2026-02") == {89: "1000.00", 61: "190.00"}
+
+
+def test_13b_abs_1_ohne_leistungsdatum_bleibt_beim_rechnungsdatum(make_session):
+    v = _verbuche(make_session, _beleg())
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    (h,) = [h for h in v.hinweise if "§ 13b Abs. 1" in h]
+    assert "kein Leistungsdatum" in h and "umdatieren" in h, h
+
+
+def test_13b_abs_1_leistungsmonat_festgeschrieben(make_session):
+    """Ist der Leistungsmonat festgeschrieben, bleibt die Buchung beim Rechnungsdatum
+    — zur Prüfung, der Hinweis nennt den Monat, dessen Voranmeldung zu berichtigen
+    ist."""
+    beleg = _beleg(leistungsdatum=date(2026, 2, 20))
+    v = _verbuche(make_session, beleg, sperren=["2026-02"])
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    assert {b.status for b in v.buchungen} == {BuchungStatus.ZUR_PRUEFUNG}
+    (h,) = [h for h in v.hinweise if "festgeschrieben" in h]
+    assert "02/2026" in h and "berichtigen" in h and "§ 13b Abs. 1" in h, h
+
+
+def test_gemischte_rechnung_teilt_den_buchungstag(make_session):
+    """§ 13b-Teil zum Ende des Folgemonats, Vorsteuer aus der Rechnung (19 %) zum
+    Rechnungsdatum (§ 15 Abs. 1 S. 1 Nr. 1 UStG)."""
+    beleg = _beleg(
+        (("Montage", "600.00", "0", "0.00"), ("Material", "100.00", "19", "19.00")),
+        leistungsdatum=date(2026, 1, 10),
+        **HUBER,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 2, 28), 94), (date(2026, 3, 5), 9)]
+
+
+def test_13b_gutschrift_bleibt_im_zeitraum_der_aenderung(make_session):
+    """Eine Gutschrift mindert im Zeitraum der Änderung (§ 17 Abs. 1 S. 5, 8 UStG),
+    nicht im Leistungsmonat."""
+    beleg = _beleg(
+        (("Gutschrift Beratung", "-200.00", "0", "0.00"),),
+        leistungsdatum=date(2026, 2, 20),
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    assert not any("§ 13b Abs. 1" in h and "gebucht zum" in h for h in v.hinweise)
+
+
+@pytest.mark.parametrize(
+    ("fall", "eu", "leistung", "tag", "teil"),
+    [
+        # Vorausrechnung: die Steuer entsteht nicht vor der Leistung, bei Zahlung
+        # vorher mit der Zahlung (§ 13b Abs. 4 S. 2) — beim Rechnungsdatum, Hinweis
+        ("AE", True, date(2026, 4, 10), date(2026, 3, 5), "§ 13b Abs. 4 Satz 2"),
+        ("AE", False, date(2026, 4, 10), date(2026, 3, 5), "§ 13b Abs. 4 Satz 2"),
+        # gleicher Monat: Rechnungsdatum ohne Hinweis
+        ("AE", True, date(2026, 3, 1), date(2026, 3, 5), None),
+        # ig. Erwerb: Rechnung vor der Lieferung — die Steuer entsteht nicht vor dem
+        # Erwerb (§ 13 Abs. 1 Nr. 6 setzt ihn voraus, keine Anzahlungsregel;
+        # Nachprüfung Runde 2: vorher ohne Hinweis)
+        ("K", True, date(2026, 4, 10), date(2026, 3, 5), "nicht vor dem Erwerb"),
+        ("K", False, date(2026, 4, 10), date(2026, 3, 5), "§ 13 Abs. 1 Nr. 6"),
+        # gleicher Monat: kein Hinweis
+        ("K", True, date(2026, 3, 20), date(2026, 3, 5), None),
+        # § 13b Abs. 2 Rechnung im Folgemonat: Rechnungsdatum ohne Hinweis
+        ("AE", False, date(2026, 2, 27), date(2026, 3, 5), None),
+    ],
+)
+def test_steuertag_empfaenger(fall, eu, leistung, tag, teil):
+    from accounti.steuer.leistungszeitpunkt import steuertag_empfaenger
+
+    ergebnis, hinweis = steuertag_empfaenger(date(2026, 3, 5), leistung, fall, eu)
+    assert ergebnis == tag
+    assert (hinweis is None) if teil is None else (teil in (hinweis or "")), hinweis
+
+
+# --- Nachprüfung Runde 2 (Steuer M): ein Nachlass macht keine Gutschrift -------------
+
+RABATT = (
+    ("Beratung", "1000.00", "0", "0.00"),
+    ("Nachlass: Rabatt", "-100.00", "0", "0.00"),
+)
+
+
+@pytest.mark.parametrize(
+    ("lieferant", "kennzeichen", "leistung", "tag", "schluessel"),
+    [
+        (WIEN, "AE", date(2026, 2, 20), date(2026, 2, 20), 94),  # § 13b Abs. 1
+        (HUBER, "AE", date(2026, 1, 10), date(2026, 2, 28), 94),  # § 13b Abs. 2
+        (PARIS, "K", date(2026, 1, 10), date(2026, 2, 28), 19),  # ig. Erwerb
+    ],
+)
+def test_nachlasszeile_macht_aus_der_rechnung_keine_gutschrift(
+    make_session, lieferant, kennzeichen, leistung, tag, schluessel
+):
+    """Ein Nachlass in der Rechnung (E-Rechnung BG-20: negative Position mit
+    Kategorie) mindert das Entgelt von Anfang an (§ 10 Abs. 1 UStG, Abschn. 10.3
+    UStAE) — keine Änderung nach § 17. Die Rechnung über 900 € netto wird wie jede
+    Rechnung zum Tag der Steuerentstehung gebucht; vorher galt sie als Gutschrift und
+    blieb beim Rechnungsdatum (VA 03 statt 02)."""
+    beleg = _beleg(
+        RABATT, kennzeichen=kennzeichen, leistungsdatum=leistung, **lieferant
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(tag, schluessel)]
+    assert [b.betrag_netto for b in v.buchungen] == [D("900.00")]
+    assert not any("Gutschrift" in h for h in v.hinweise), v.hinweise
+
+
+def test_nachlasszeile_im_festgeschriebenen_rechnungsmonat(make_session):
+    """März festgeschrieben: Die Meldung nennt die Wege einer Eingangsrechnung (nicht
+    § 17 und „zum Belegdatum buchen“); mit ``--buchungsdatum offen`` landet die Steuer
+    im Leistungsmonat 02 wie ohne Nachlasszeile — vorher in 04, ohne Hinweis."""
+    beleg = _beleg(
+        RABATT,
+        leistungsdatum=date(2026, 2, 20),
+        eingegangen_am=datetime(2026, 4, 2, 9, 0),
+    )
+    lauf = _lauf(make_session, beleg, sperren=["2026-03"])
+    ((_, fehler),) = lauf.fehler
+    assert "Eingangsrechnung mit --buchungsdatum" in fehler, fehler
+    assert "Gutschrift" not in fehler and "§ 17" not in fehler, fehler
+    with make_session() as s:
+        lauf = verbuche_belege(
+            s, Buchhaltung(), buchungsdatum="offen", gewinnermittlung="bilanz"
+        )
+        s.commit()
+    (v,) = lauf.verbucht
+    assert _tage(v) == [(date(2026, 2, 20), 94)]
+    assert _va(make_session, "2026-02") == {46: "900.00", 47: "171.00", 67: "171.00"}
+
+
+def test_gutschrift_mit_nachlasszeile_bleibt_gutschrift(make_session):
+    """Gegenprobe: Ist das Netto des § 13b-Teils insgesamt negativ, bleibt es eine
+    Gutschrift (§ 17 Abs. 1 S. 5, 8 UStG) — zum Belegdatum."""
+    beleg = _beleg(
+        (("Gutschrift", "-300.00", "0", "0.00"), ("Zuschlag", "100.00", "0", "0.00")),
+        leistungsdatum=date(2026, 2, 20),
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 3, 5), 94)]
+    assert [b.betrag_netto for b in v.buchungen] == [D("200.00")]
+
+
+# --- Nachprüfung Runde 2 (Steuer, Niedrig) ----------------------------------------
+
+
+def _va_uebermittelt(make_session, zeitraum):
+    from accounti.elster.protokoll import neuer_eintrag, protokolliere
+    from accounti.models.elster import Meldeart, Modus
+
+    with make_session() as s:
+        protokolliere(
+            s,
+            neuer_eintrag(
+                None,
+                art=Meldeart.USTVA,
+                zeitraum=zeitraum,
+                modus=Modus.ECHT,
+                weg="eric",
+                datensatz="<Elster/>",
+                erfolgreich=True,
+                ergebnis="ok",
+                pruefbericht="",
+            ),
+        )
+        s.commit()
+
+
+@pytest.mark.parametrize(
+    ("lieferant", "kennzeichen", "leistung", "rechnung", "tag"),
+    [
+        # umdatiert: § 13b Abs. 1, Abs. 2 (Ende Folgemonat), ig. Erwerb
+        (WIEN, "AE", date(2026, 2, 20), date(2026, 3, 5), date(2026, 2, 20)),
+        (HUBER, "AE", date(2026, 1, 10), date(2026, 3, 5), date(2026, 2, 28)),
+        (PARIS, "K", date(2026, 1, 10), date(2026, 3, 5), date(2026, 2, 28)),
+        # nicht umdatiert: Rechnung vom 25.02., erst im März erfasst
+        (HUBER, "AE", date(2026, 2, 10), date(2026, 2, 25), date(2026, 2, 25)),
+    ],
+)
+def test_steuer_des_empfaengers_in_uebermittelter_voranmeldung(
+    make_session, lieferant, kennzeichen, leistung, rechnung, tag
+):
+    """Die Voranmeldung 02 ist schon übermittelt, die Rechnung kommt erst am 16.03.:
+    Steuer und Vorsteuer gehören nach 02 und fehlen dort. Wie im Ausgang sagt die
+    Verbuchung das — bei vollem Vorsteuerabzug ohne Pflicht nach § 153 Abs. 1 AO
+    (die Zahllast ändert sich nicht), sonst mit."""
+    _va_uebermittelt(make_session, "2026-02")
+    beleg = _beleg(
+        kennzeichen=kennzeichen,
+        leistungsdatum=leistung,
+        belegdatum=rechnung,
+        eingegangen_am=datetime(2026, 3, 16, 9, 0),
+        **lieferant,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v)[0][0] == tag
+    (h,) = [h for h in v.hinweise if "übermittelt" in h]
+    assert "Voranmeldung 2026-02" in h and "ustva freigeben --period 2026-02" in h, h
+    assert "Zahllast" in h and "§ 153 Abs. 1 AO" in h, h
+
+
+def test_ohne_uebermittelte_voranmeldung_kein_hinweis(make_session):
+    _va_uebermittelt(make_session, "2026-01")
+    v = _verbuche(make_session, _beleg(leistungsdatum=date(2026, 2, 20)))
+    assert not any("übermittelt" in h for h in v.hinweise), v.hinweise
+
+
+@pytest.mark.parametrize(
+    ("gewinnermittlung", "tag"),
+    [("bilanz", date(2025, 12, 20)), ("euer", date(2026, 1, 10))],
+)
+def test_leistung_im_vorjahr_bei_bilanz_und_euer(make_session, gewinnermittlung, tag):
+    """§ 13b Abs. 1, Leistung 20.12.2025, Rechnung 10.01.2026. Bei der Bilanz gehören
+    Aufwand und Verbindlichkeit ins alte Jahr, die Buchung zum Leistungsdatum ist
+    richtig. Bei der EÜR zählt der Abfluss (§ 11 Abs. 2 EStG): Die Buchung bleibt
+    beim Rechnungsdatum, der Hinweis nennt die Voranmeldung 12/2025, in die Steuer und
+    Vorsteuer gehören — vorher stand der Aufwand in der EÜR 2025."""
+    beleg = _beleg(
+        belegdatum=date(2026, 1, 10),
+        leistungsdatum=date(2025, 12, 20),
+        eingegangen_am=datetime(2026, 1, 12, 9, 0),
+    )
+    v = _verbuche(make_session, beleg, gewinnermittlung=gewinnermittlung)
+    assert _tage(v) == [(tag, 94)]
+    if gewinnermittlung == "euer":
+        (h,) = [h for h in v.hinweise if "12/2025" in h]
+        assert "§ 11 Abs. 2 EStG" in h and "Voranmeldung 12/2025" in h, h
+        assert "01/2026" in h, h
+
+
+def test_leistungsjahr_abgeschlossen_nennt_abschluss_oeffnen(make_session):
+    """Ist das Jahr der Leistung abgeschlossen, hilft ``periode oeffnen`` nicht (der
+    Monat ist nicht einzeln geschlossen) — der Hinweis nennt ``abschluss oeffnen``."""
+    from accounti.db.repo_abschluss import setze_jahresabschluss
+    from accounti.models.abschluss import Jahresabschluss
+
+    with make_session() as s:
+        setze_jahresabschluss(
+            s,
+            Jahresabschluss(
+                jahr=2025,
+                gesperrt=True,
+                gewinnermittlung="bilanz",
+                ergebnis=D("0"),
+                abgeschlossen_am=date(2026, 1, 5),
+                von="chef",
+            ),
+        )
+        s.commit()
+    beleg = _beleg(
+        belegdatum=date(2026, 1, 10),
+        leistungsdatum=date(2025, 12, 20),
+        eingegangen_am=datetime(2026, 1, 12, 9, 0),
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 1, 10), 94)]
+    (h,) = [h for h in v.hinweise if "12/2025" in h]
+    assert "accounti abschluss oeffnen --jahr 2025" in h, h
+    assert "periode oeffnen" not in h, h
+
+
+def test_hinweis_nennt_grundstuecksbezogene_leistung(make_session):
+    """§ 13b Abs. 1 gilt nur für Leistungen nach § 3a Abs. 2 UStG. Eine
+    grundstücksbezogene Leistung eines EU-Unternehmers (§ 3a Abs. 3 Nr. 1, z. B.
+    Gebäudereinigung) fällt unter Abs. 2 Nr. 1 — accounti erkennt die Leistungsart
+    nicht; der Hinweis zur Umdatierung nennt den Fall."""
+    v = _verbuche(make_session, _beleg(leistungsdatum=date(2026, 2, 27)))
+    (h,) = [h for h in v.hinweise if "§ 13b Abs. 1" in h]
+    assert "grundstücksbezogen" in h and "§ 3a Abs. 3 Nr. 1" in h, h
+    assert "§ 13b Abs. 2 Nr. 1" in h, h
+
+
+# --- Nachprüfung Runde 2 (OPOS M): Stichtagsliste bei geteilter Buchung -------------
+
+MONTAGE_MATERIAL = (
+    ("Montage", "600.00", "0", "0.00"),
+    ("Material", "100.00", "19", "19.00"),
+)
+
+
+def _stand(make_session, stichtag):
+    from accounti.opos.auswertung import lade_stand_zum
+
+    with make_session() as s:
+        return [(p.belegnummer, p.restbetrag) for p in lade_stand_zum(s, stichtag)]
+
+
+@pytest.mark.parametrize(
+    ("rechnung", "leistung", "steuertag"),
+    [
+        (date(2026, 3, 5), date(2026, 1, 10), date(2026, 2, 28)),
+        # zum Bilanzstichtag: § 13b-Teil am 31.12., der Rest im neuen Jahr
+        (date(2027, 1, 8), date(2026, 11, 20), date(2026, 12, 31)),
+    ],
+)
+def test_gemischte_rechnung_zaehlt_zum_stichtag_mit_dem_gebuchten_teil(
+    make_session, rechnung, leistung, steuertag
+):
+    """§ 13b-Teil (600) zum Tag der Steuerentstehung, 19-%-Teil (119) zum
+    Rechnungsdatum: Bis zum Rechnungsdatum steht auf dem Kreditor nur der § 13b-Teil
+    — die Stichtagsliste zählt den Posten nur mit dem schon gebuchten Teil, die
+    Abstimmung Personenkonto ↔ Posten (Prüfregel und Abschlussprüfung) meldet
+    nichts. Vorher stand der Posten ab der ersten Teilbuchung mit 719 € in der Liste,
+    die Abstimmung riet, eine richtige Buchung zu korrigieren."""
+    from tests.test_pruefung_regeln import pruefe
+
+    beleg = _beleg(
+        MONTAGE_MATERIAL,
+        leistungsdatum=leistung,
+        belegdatum=rechnung,
+        eingegangen_am=datetime.combine(rechnung, datetime.min.time()),
+        **HUBER,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(steuertag, 94), (rechnung, 9)]
+    assert _stand(make_session, steuertag) == [("RE-2026-0042", D("600.00"))]
+    assert _stand(make_session, rechnung) == [("RE-2026-0042", D("719.00"))]
+    assert _stand(make_session, steuertag - timedelta(days=1)) == []
+    for tag in (steuertag, rechnung - timedelta(days=1), rechnung):
+        assert pruefe(make_session, "personenkonto_op", stichtag=tag) == []

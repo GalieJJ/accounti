@@ -203,8 +203,10 @@ def _belegeingang(d: _Doku) -> None:
     kanaele = d.lade(lade_belegkanaele, "belegkanaele")
     d("Eingerichtete Kanäle (Ordner und Upload stehen immer zur Verfügung):", "")
     if kanaele is not None:
-        zeilen: list[list[object]] = [["ordner", "—", "accounti belege import"]]
-        zeilen.append(["upload", "—", "Webhook/Upload"])
+        zeilen: list[list[object]] = [
+            ["ordner", "—", "accounti belege abholen --kanal ordner"],
+            ["upload", "—", "accounti belege import (Handimport einzelner Dateien)"],
+        ]
         for p in kanaele.email:
             zeilen.append(
                 [
@@ -223,8 +225,12 @@ def _belegeingang(d: _Doku) -> None:
             zeilen.append(["connector", c.name, f"{c.typ}: {urlsplit(basis).netloc}"])
         d(*_tabelle(["Kanal", "Name", "Einstellung"], zeilen))
         d(
-            f"Dateiprüfung je Kanal: höchstens {kanaele.max_groesse_mb} MB, Typen "
-            f"{', '.join(kanaele.dateitypen)} (Typ am Inhalt geprüft).",
+            "Dateiprüfung für E-Mail, Webhook, Connector und Ordner: höchstens "
+            f"{kanaele.max_groesse_mb} MB, Typen {', '.join(kanaele.dateitypen)} (Typ "
+            "am Inhalt geprüft); abgelehnte Dateien werden gemeldet, im Ordner nach "
+            "abgelehnt/ verschoben und nicht archiviert. Der Handimport einzelner "
+            "Dateien (accounti belege import) prüft Typ und Größe nicht — die Datei "
+            "wählt der Anwender selbst.",
             "",
         )
     llm = inspect.signature(LLMBelegEngine).parameters["model"].default

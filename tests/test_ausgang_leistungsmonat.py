@@ -203,6 +203,46 @@ def test_ig_lieferung_im_rechnungsmonat_hoechstens_folgemonat(
     assert _tage(make_session) == [gebucht]
 
 
+def test_gemischte_eu_rechnung_zaehlt_zum_stichtag_mit_dem_gebuchten_teil(umgebung):
+    """Nachprüfung Runde 2 (OPOS, Neu-3): ig. Lieferung (K, Rechnungsmonat) und
+    sonstige Leistung (AE, Leistungsmonat) auf einer Rechnung — zum 31.08. steht nur
+    der AE-Teil auf dem Debitor. Die Stichtagsliste zählt den Posten mit diesem Teil,
+    die Abstimmung meldet nichts; vorher 1500 € gegen 500 €."""
+    from accounti.opos.auswertung import lade_stand_zum
+    from tests.test_pruefung_regeln import pruefe
+
+    make_session, archiv = umgebung
+    with make_session() as s:
+        bestaetige(s, ust_id="FR40303265045", jetzt=datetime(2026, 9, 1, 9))
+        s.commit()
+    e = entwurf(
+        kunde(land="FR", ust_id="FR40303265045"),
+        pos("Ware", "1000"),
+        pos("Beratung", "500", sonstige_leistung=True),
+    )
+    e = e.model_copy(update={"leistungsdatum": date(2026, 8, 25)})
+    with make_session() as s:
+        speichere_ausgangsrechnung(s, e)
+        stelle_aus(
+            s, archiv, str(e.id)[:8], FIRMA, date(2026, 9, 3), ustid_max_alter_tage=60
+        )
+        s.commit()
+    with make_session() as s:
+        lauf = verbuche_belege(s, Buchhaltung(), archiv=archiv, ustid_max_alter_tage=60)
+        s.commit()
+    assert lauf.fehler == []
+    assert _tage(make_session) == [date(2026, 8, 25), date(2026, 9, 3)]
+    with make_session() as s:
+        assert [p.restbetrag for p in lade_stand_zum(s, date(2026, 8, 31))] == [
+            D("500.00")
+        ]
+        assert [p.restbetrag for p in lade_stand_zum(s, date(2026, 9, 3))] == [
+            D("1500.00")
+        ]
+    for stichtag in (date(2026, 8, 31), date(2026, 9, 3)):
+        assert pruefe(make_session, "personenkonto_op", stichtag=stichtag) == []
+
+
 def test_gesperrter_leistungsmonat_verlangt_oeffnen_und_berichtigung(umgebung):
     make_session, archiv = umgebung
     with make_session() as s:

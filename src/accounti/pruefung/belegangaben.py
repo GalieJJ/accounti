@@ -26,7 +26,7 @@ from accounti.belege.erkennung import (
     hole_text,
     normalisiere_ocr,
 )
-from accounti.belege.extraktion import extrahiere
+from accounti.belege.extraktion import GEKUERZT, begrenze_text, extrahiere
 from accounti.belege.kanaele import RohBeleg
 from accounti.belege.ocr import OCREngine
 from accounti.erechnung import ERechnungError
@@ -34,8 +34,10 @@ from accounti.erechnung import lies as lies_erechnung
 from accounti.models import Beleg
 
 _I = re.IGNORECASE
+# ``\s*(?:[:.]\s*)?`` statt ``\s*[:.]?\s*``: dieselben Treffer, ohne Leerzeichen
+# zwischen zwei ``\s*`` aufzuteilen (Nachprüfung C, Runde 4, Mittel 2)
 _STEUERNUMMER_LABEL = re.compile(
-    r"(?:\bSt(?:euer)?[\s.-]*(?:Nr|Nummer)\b|\bStNr\b)\.?\s*[:.]?\s*"
+    r"(?:\bSt(?:euer)?[\s.-]*(?:Nr|Nummer)\b|\bStNr\b)\.?\s*(?:[:.]\s*)?"
     r"(\d[\d\s/.-]{8,18}\d)",
     _I,
 )
@@ -130,9 +132,13 @@ def _aus_erechnung(xml: bytes, beleg: Beleg) -> Belegangaben | None:
 
 
 def _aus_text(text: str, quelle: str, beleg: Beleg) -> Belegangaben:
+    # das Original aus dem Archiv sind Fremddaten wie beim Import: Leerraum und Länge
+    # begrenzt, bevor ein Muster den Text sieht (Nachprüfung C, Runde 4, Mittel 2)
+    text, gekuerzt = begrenze_text(text)
     extrakt = extrahiere(text)
     return Belegangaben(
         quelle=quelle,
+        hinweis=GEKUERZT if gekuerzt else None,
         leistender_name=beleg.lieferant_name or extrakt.lieferant_name,
         leistender_anschrift=bool(_PLZ_ORT.search(text)),
         steuernummer=finde_steuernummer(text),
