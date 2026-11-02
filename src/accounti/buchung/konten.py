@@ -14,7 +14,10 @@ if TYPE_CHECKING:
     from accounti.konfiguration import Buchhaltung
     from accounti.pruefung.einstellungen import PruefEinstellungen
 
-_KONTO = re.compile(r"^\d{4,8}$")
+# nur ASCII-Ziffern: ``\d`` ließe „１２００“ (vollbreit) durch — ein Phantomkonto neben
+# 1200, an dem die Sperre gegen Soll = Haben vorbeiging und der DATEV-Export abbrach
+# (Runde 4, g3w-fach N6)
+_KONTO = re.compile(r"[0-9]{4,8}")
 
 
 class KontoError(ValueError):
@@ -22,10 +25,10 @@ class KontoError(ValueError):
 
 
 def pruefe_kontonummer(konto: str, feld: str = "Konto") -> str:
-    """4 bis 8 Ziffern (Sachkonten 4-stellig, Personenkonten 5-stellig, mehr bei
-    erweiterten Kontenrahmen) — sonst ``KontoError``."""
+    """4 bis 8 ASCII-Ziffern (Sachkonten 4-stellig, Personenkonten 5-stellig, mehr
+    bei erweiterten Kontenrahmen) — sonst ``KontoError``."""
     wert = (konto or "").strip()
-    if not _KONTO.match(wert):
+    if not _KONTO.fullmatch(wert):
         raise KontoError(
             f"{feld}: {wert or '(leer)'} ist keine Kontonummer (4–8 Ziffern)"
         )

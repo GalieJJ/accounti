@@ -12,6 +12,11 @@ Jeder Wert wird geprüft (Gesamttest 10b-1, Runde 3): Konten sind 4 bis 8 Ziffer
 eine Zahl mit führender Null (``0420``) bleibt Text (YAML 1.1 läse sie sonst als
 Oktalzahl: 272), ein leeres Konto ist ein Fehler (sonst „None“); das Muster ist ein
 nicht leerer Text (ein leeres Muster träfe jeden Umsatz), der Steuerschlüssel eine Zahl.
+Seit Runde 4 bleibt jede ganze Zahl außer der schlichten Dezimalzahl Text (``0x1340``,
+``1:20:00``, ``4_920``, ``+4920`` — YAML 1.1 läse 4928, 4800, 4920), Konten bestehen nur
+aus ASCII-Ziffern, der Steuerschlüssel ist einer, den accounti kennt
+(``steuer.kennziffern.STEUERSCHLUESSEL``), und ein unbekannter Schlüssel des Eintrags
+(``prüfen``, ``steuerschluessel``) ist ein Fehler statt still ignoriert.
 Ein Fehler ist ein ``KonfigurationError`` mit Datei und Regelname.
 """
 
@@ -26,19 +31,34 @@ import yaml
 from accounti.buchung.konten import KontoError, pruefe_kontonummer
 from accounti.klassifikation.engine import Regel
 from accounti.konfiguration import KonfigurationError
+from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 
 # Textfelder des Umsatzes, auf die ein Muster passen kann (``gegenkonto_iban``: vor
 # Gesamttest 10b-1 N-2 wirksam, gw2-merge B1)
 FELDER = ("verwendungszweck", "gegenkonto_name", "gegenkonto_iban", "beide")
-_FUEHRENDE_NULL = re.compile(r"[-+]?0[0-9_]+")
+# die Schlüssel eines Eintrags — ein anderer ist ein Tippfehler (Runde 4, g3w-fach N4)
+SCHLUESSEL = (
+    "name",
+    "muster",
+    "feld",
+    "richtung",
+    "soll_konto",
+    "haben_konto",
+    "steuer_schluessel",
+    "buchungstext",
+    "pruefen",
+    "confidence",
+)
+_DEZIMAL = re.compile(r"-?(?:0|[1-9][0-9]*)")
 
 
 class _Lader(yaml.SafeLoader):
-    """SafeLoader ohne Oktalzahlen: ``0420`` bleibt der Text „0420“."""
+    """SafeLoader, der nur schlichte Dezimalzahlen als Zahl liest: ``0420`` (Oktal),
+    ``0x1340``, ``1:20:00`` (sexagesimal), ``4_920``, ``+4920`` bleiben Text."""
 
 
 def _ganzzahl(lader: yaml.SafeLoader, knoten: yaml.ScalarNode) -> object:
-    if _FUEHRENDE_NULL.fullmatch(knoten.value):
+    if not _DEZIMAL.fullmatch(knoten.value):
         return knoten.value
     return yaml.SafeLoader.construct_yaml_int(lader, knoten)
 
@@ -107,15 +127,36 @@ def _konto(eintrag: dict[str, Any], feld: str, name: str) -> str:
 
 
 def _schluessel(eintrag: dict[str, Any], name: str) -> int | None:
+    """Ein Steuerschlüssel, den accounti kennt — sonst ``ValueError``: ab 2^63 schlug
+    erst das Speichern fehl (REST 500, Traceback), 0, −9 oder 99 sperrten erst die
+    Voranmeldung (Runde 4, g3w-fach N3)."""
     wert = eintrag.get("steuer_schluessel")
     if wert is None:
         return None
-    if isinstance(wert, str) and wert.strip().isascii() and wert.strip().isdigit():
-        return int(wert.strip())
+    text = wert.strip() if isinstance(wert, str) else None
+    if text is not None and text.isascii() and text.isdigit() and len(text) <= 3:
+        wert = int(text)
     if isinstance(wert, bool) or not isinstance(wert, int):
         msg = f"Regel {name}: steuer_schluessel {wert!r} — eine Zahl (z. B. 9)"
         raise ValueError(msg)
+    if wert not in STEUERSCHLUESSEL:
+        bekannt = ", ".join(str(s) for s in sorted(STEUERSCHLUESSEL))
+        msg = (
+            f"Regel {name}: steuer_schluessel {wert} — unbekannter Steuerschlüssel "
+            f"(bekannt: {bekannt}; ohne Steuer: null)"
+        )
+        raise ValueError(msg)
     return wert
+
+
+def _unbekannte_schluessel(eintrag: dict[str, Any], name: str) -> None:
+    unbekannt = [str(k) for k in eintrag if k not in SCHLUESSEL]
+    if unbekannt:
+        msg = (
+            f"Regel {name}: unbekannter Schlüssel {', '.join(unbekannt)} — erlaubt "
+            f"sind {', '.join(SCHLUESSEL)}"
+        )
+        raise ValueError(msg)
 
 
 def pruefe_eintrag(eintrag: Any, pfad: str | Path) -> Regel:
@@ -127,6 +168,7 @@ def pruefe_eintrag(eintrag: Any, pfad: str | Path) -> Regel:
     try:
         if not eintrag.get("name"):
             raise KeyError("name")
+        _unbekannte_schluessel(eintrag, name)
         if "muster" not in eintrag:
             raise KeyError("muster")
         muster = eintrag["muster"]

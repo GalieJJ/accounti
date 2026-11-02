@@ -76,6 +76,43 @@ def test_cli_korrigiere_1200_an_1200_exit_1(tmp_path, monkeypatch):
     assert r.exit_code == 1 and "dasselbe Konto" in r.output, r.output
 
 
+@pytest.mark.parametrize(
+    "befehl",
+    [
+        ["korrigiere", "{id}", "--soll", "１２００", "--haben", "1200",
+         "--ohne-steuer", "--grund", "x"],
+        ["lerne", "--muster", "telekom", "--soll", "４９３０", "--haben", "1200",
+         "--name", "telekom"],
+    ],
+    ids=["korrigiere", "lerne"],
+)  # fmt: skip
+def test_cli_unicode_ziffern_sind_keine_kontonummer(tmp_path, monkeypatch, befehl):
+    """Runde 4 (g3w-fach N6): „１２００ an 1200“ ging an der Sperre gegen Soll = Haben
+    vorbei, ein Phantomkonto „１２００“ galt als Bank, und ``export datev`` brach mit
+    UnicodeEncodeError ab. Nur ASCII-Ziffern sind eine Kontonummer, wie im Browser."""
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    from accounti.db import init_db, session_factory
+    from accounti.db.repo_kontierung import lade_kontierungsregeln
+    from accounti.db.repository import lade_buchungen
+
+    url = db_url(tmp_path)
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    tx = umsatz("-20.00")
+    b = buchung(tx, soll="4930", haben="1200", status=BuchungStatus.GEPRUEFT)
+    anlegen(fabrik, tx, b)
+    args = [a.replace("{id}", kurz(b.id)) for a in befehl]
+    r = runner.invoke(app, [*args, "--db", url], env={"COLUMNS": "250"})
+    assert r.exit_code == 1 and "keine Kontonummer" in r.output, r.output
+    with fabrik() as s:
+        assert [x.soll_konto for x in lade_buchungen(s)] == ["4930"]
+        assert lade_kontierungsregeln(s) == []
+    engine.dispose()
+
+
 def test_kasse_buchen_mit_kassenkonto_als_gegenkonto_abgelehnt(make_session):
     kasse = KassenEinstellungen(konto="1000")
     with make_session() as s:

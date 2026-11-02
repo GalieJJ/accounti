@@ -112,10 +112,14 @@ def test_rest_lauf_mit_kaputter_regeldatei_409_statt_500(tmp_path, monkeypatch):
     assert "Regel kaputt" in r.text
 
 
-@pytest.mark.parametrize("art", ["latin1", "verzeichnis", "konto_leer"])
+@pytest.mark.parametrize(
+    "art", ["latin1", "verzeichnis", "konto_leer", "schluessel_riesig", "unicode"]
+)
 def test_rest_lauf_mit_unlesbarer_regeldatei_409_statt_500(tmp_path, monkeypatch, art):
     """Runde 3 (gw2-web B3, gegen:regeln:3): Latin-1, Verzeichnis und ein leeres
-    Konto gaben 500 bzw. buchten auf „None“ — jetzt 409 mit Datei und Grund."""
+    Konto gaben 500 bzw. buchten auf „None“ — jetzt 409 mit Datei und Grund. Runde 4
+    (g3w-fach N3, N6): ein Steuerschlüssel ab 2^63 gab 500, ein Konto aus
+    Unicode-Ziffern wurde mit 200 gebucht."""
     from accounti.models.auth import TokenRecht
     from tests.api_hilfe import webwelt
     from tests.auth_hilfe import billige_hashes
@@ -128,6 +132,14 @@ def test_rest_lauf_mit_unlesbarer_regeldatei_409_statt_500(tmp_path, monkeypatch
         datei.write_bytes((eintrag + "  soll_konto: '4930'\n").encode("latin-1"))
     elif art == "verzeichnis":
         datei.mkdir()
+    elif art == "schluessel_riesig":
+        datei.write_text(
+            eintrag + "  soll_konto: '4930'\n"
+            "  steuer_schluessel: 9223372036854775808\n",
+            encoding="utf-8",
+        )
+    elif art == "unicode":
+        datei.write_text(eintrag + "  soll_konto: '４９３０'\n", encoding="utf-8")
     else:
         datei.write_text(eintrag + "  soll_konto:\n", encoding="utf-8")
     token = welt.token("a", TokenRecht.LAEUFE_STARTEN)

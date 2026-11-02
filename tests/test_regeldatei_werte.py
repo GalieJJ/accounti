@@ -181,3 +181,83 @@ def test_zweiter_lauf_behaelt_die_reihenfolge_der_datei(
     e = werk.klassifiziere(telekom)
     assert e is not None and e.regel == sieger
     assert reihenfolge[0] == sieger
+
+
+# --- Runde 4 (g3w-fach N3–N6) ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "wert",
+    ["9223372036854775808", "100000000000000000000", "0", "-9", "99", "4", "'-1'",
+     "'1'"],
+)  # fmt: skip
+def test_steuerschluessel_nur_bekannte(tmp_path, wert):
+    """Ab 2^63 gab der REST-Lauf 500, classify und ``regeln uebernehmen`` einen
+    Traceback (OverflowError beim Speichern); 0, −9, 99 nahm der Lader an, erst die
+    Voranmeldung sperrte („hat keine Kennziffer“)."""
+    datei = _datei(tmp_path, _regel(steuer_schluessel=wert))
+    with pytest.raises(KonfigurationError, match="Regel telekom: steuer_schluessel"):
+        lade_regeln(datei)
+
+
+@pytest.mark.parametrize("wert", ["2", "3", "8", "9", "18", "19", "91", "94", "'9'"])
+def test_bekannte_steuerschluessel_bleiben(tmp_path, wert):
+    [regel] = lade_regeln(_datei(tmp_path, _regel(steuer_schluessel=wert)))
+    assert regel.steuer_schluessel == int(wert.strip("'"))
+
+
+@pytest.mark.parametrize(
+    ("schluessel", "wert"),
+    [("prüfen", "true"), ("steuerschluessel", "9"), ("konto", "'4920'"),
+     ("Muster", "x")],
+)  # fmt: skip
+def test_unbekannter_schluessel_ist_fehler_mit_namen(tmp_path, schluessel, wert):
+    """Ein Eintrag mit ``prüfen: true`` (Umlaut) buchte die Miete automatisch, einer
+    mit ``steuerschluessel: 9`` ohne Vorsteuer — still."""
+    datei = _datei(tmp_path, _regel(**{schluessel: wert}))
+    with pytest.raises(
+        KonfigurationError, match=f"Regel telekom: unbekannter Schlüssel {schluessel}"
+    ):
+        lade_regeln(datei)
+
+
+@pytest.mark.parametrize(
+    "wert",
+    ["0x1340", "1:20:00", "83:20", "4_920", "0b1001100111000", "+4920", "４９２０",
+     "'４９２０'", "'٤٩٢٠'"],
+)  # fmt: skip
+def test_zahlformen_aendern_das_konto_nicht(tmp_path, wert):
+    """YAML 1.1 liest 0x1340 als 4928, 1:20:00 (sexagesimal) als 4800, 4_920 als
+    4920 — gebucht wurde automatisch auf ein anderes Konto. Unicode-Ziffern
+    („４９２０“) wurden ein Phantomkonto, an dem der DATEV-Export abbrach."""
+    datei = _datei(tmp_path, _regel(soll_konto=wert))
+    with pytest.raises(KonfigurationError, match="ist keine Kontonummer"):
+        lade_regeln(datei)
+
+
+def test_ganze_zahlen_ohne_anfuehrungszeichen_bleiben_konten(tmp_path):
+    datei = _datei(tmp_path, _regel(soll_konto="4920", haben_konto="1200",
+                                    steuer_schluessel="9"))  # fmt: skip
+    [regel] = lade_regeln(datei)
+    assert (regel.soll_konto, regel.haben_konto, regel.steuer_schluessel) == (
+        "4920",
+        "1200",
+        9,
+    )
+
+
+def test_uebernahme_mit_riesigem_schluessel_ungueltig_statt_traceback(
+    make_session, tmp_path
+):
+    """g3w-web N3 (a): Die Probe von ``regeln uebernehmen`` war grün, der echte Lauf
+    endete mit OverflowError — jetzt ist der Eintrag schon in der Probe ungültig."""
+    datei = _datei(
+        tmp_path,
+        _regel(name="gelernt_riesig", steuer_schluessel="9223372036854775808")
+        + _regel(name="gelernt_tippfehler", steuerschluessel="9"),
+    )
+    with make_session() as s:
+        e = uebernehme_aus_datei(s, datei, "jan", probe=True)
+    assert sorted(e.ungueltig) == ["gelernt_riesig", "gelernt_tippfehler"]
+    assert e.uebernommen == []
+    assert "unbekannter Schlüssel steuerschluessel" in e.gruende["gelernt_tippfehler"]
