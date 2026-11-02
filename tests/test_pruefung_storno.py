@@ -898,7 +898,7 @@ def test_steuer_optionen_wie_korrigiere(make_session, art, werte):
     das ab, was nicht angeboten wird (gleiche Konten, nur die Steuerangabe)."""
     from uuid import uuid4 as neu
 
-    from accounti.pruefung.storno import _steuer, steuer_optionen
+    from accounti.pruefung.storno import SELBST_BERECHNET, _steuer, steuer_optionen
 
     b = buchung(
         soll=werte.get("soll", "4900"),
@@ -908,16 +908,27 @@ def test_steuer_optionen_wie_korrigiere(make_session, art, werte):
         beleg_id=neu() if werte.get("beleg") else None,
     )
     o = steuer_optionen(b)
-    for schluessel in sorted({*o.schluessel, 2, 3, 8, 9, 19, 94}):
+    for schluessel in sorted({*o.schluessel, 2, 3, 8, 9, 18, 19, 91, 94}):
         angeboten = schluessel in o.schluessel and (
             o.andere_schluessel or schluessel == b.steuer_schluessel
         )
-        try:
-            _steuer(b, schluessel, False, None)
-            angenommen = True
-        except StornoError:
-            angenommen = False
-        assert angenommen == angeboten, (art, schluessel)
+        for grund in (None, "doch § 13b"):
+            # mit Grund nimmt eine Belegbuchung zusätzlich § 13b bzw. ig. Erwerb an
+            # (Paket C; im Browser nicht angeboten, nur CLI) — nie, wenn der Beleg
+            # Umsatzsteuer ausweist (§ 14c Abs. 1 UStG; Runde 4: g3w-merge M1, bis
+            # dahin prüfte dieser Test nur ohne Grund)
+            erwartet = angeboten or (
+                grund is not None
+                and b.beleg_id is not None
+                and o.ohne_steuer
+                and schluessel in SELBST_BERECHNET
+            )
+            try:
+                _steuer(b, schluessel, False, grund)
+                angenommen = True
+            except StornoError:
+                angenommen = False
+            assert angenommen == erwartet, (art, schluessel, grund)
     for grund in (None, "kein Vorsteuerabzug"):
         angeboten = o.ohne_steuer and (bool(grund) or not o.ohne_nur_mit_grund)
         if b.steuer_schluessel is None:

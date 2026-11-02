@@ -258,7 +258,8 @@ def _steuer(
     nimmt sie nur an, wenn der Beleg keinen Satz liefert (``beleg_mit_satz``, z. B.
     ZUGFeRD MINIMUM: brutto gebucht) oder der Schlüssel § 13b bzw. ig. Erwerb ist —
     diese Steuer steht nie auf dem Beleg (§ 14a Abs. 5 UStG), der Empfänger
-    berechnet sie selbst."""
+    berechnet sie selbst. Weist der Beleg Umsatzsteuer aus (Schlüssel 2, 3), ändert
+    keine Korrektur den Schlüssel (§ 14c Abs. 1 UStG)."""
     if ohne_steuer and steuer is not None:
         raise StornoError(
             "Steuerschlüssel und „ohne Steuer“ schließen sich aus",
@@ -290,12 +291,18 @@ def _steuer(
             "mit --steuer 94/91/19/18 (oder die Vorsteuer mit --ohne-steuer --grund … "
             "entfernen)",
         )
-    if ohne_steuer and not optionen.ohne_steuer:
+    if not optionen.ohne_steuer:
+        # ausgewiesene USt (2, 3) einer Belegbuchung: jede Schlüsseländerung, nicht nur
+        # „ohne Steuer“ — auch § 13b/ig. Erwerb und ein Beleg ohne Satz nehmen sie
+        # nicht aus der Voranmeldung; sie wird geschuldet, bis die Rechnung berichtigt
+        # ist, die Berichtigung wirkt erst in ihrem Zeitraum (§ 14c Abs. 1 Satz 2
+        # i. V. m. § 17 Abs. 1 UStG; wie main, Gesamttest 10b-1 Runde 4, g3w-merge M1)
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg mit Schlüssel {b.steuer_schluessel}: "
             "ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt "
             "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen und "
-            "verbuchen, nicht die Steuer aus der Buchung entfernen",
+            "verbuchen, nicht den Schlüssel der Buchung ändern oder die Steuer "
+            "entfernen",
             feld="steuer",
         )
     selbst = ohne_steuer and b.steuer_schluessel in SELBST_BERECHNET
