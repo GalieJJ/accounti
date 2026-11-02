@@ -36,6 +36,7 @@ from accounti.belege.zuordnung import beleg_zur_buchung
 from accounti.buchung.konten import (
     KontoError,
     finanzkonto_fehler,
+    ist_personenkontonummer,
     pruefe_kontonummer,
     soll_gleich_haben,
 )
@@ -438,7 +439,7 @@ def _kontakt(session: Session, b: Buchungssatz, beleg: Beleg | None) -> Kontakt 
 
 
 def _personenkonto(konto: str) -> bool:
-    return konto.isdigit() and len(konto) == 5
+    return ist_personenkontonummer(konto)
 
 
 def lade_eintrag(

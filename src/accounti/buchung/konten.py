@@ -16,8 +16,10 @@ if TYPE_CHECKING:
 
 # nur ASCII-Ziffern: ``\d`` ließe „１２００“ (vollbreit) durch — ein Phantomkonto neben
 # 1200, an dem die Sperre gegen Soll = Haben vorbeiging und der DATEV-Export abbrach
-# (Runde 4, g3w-fach N6)
-_KONTO = re.compile(r"[0-9]{4,8}")
+# (Runde 4, g3w-fach N6). Bis 9 Stellen: DATEV-Personenkonten sind eine Stelle länger
+# als die Sachkontenlänge (4–8), bei Sachkontenlänge 8 also 9 Stellen (Runde 5, g4w N5)
+_KONTO = re.compile(r"[0-9]{4,9}")
+KONTO_ZIFFERN = "4–9 Ziffern"
 
 
 class KontoError(ValueError):
@@ -25,14 +27,22 @@ class KontoError(ValueError):
 
 
 def pruefe_kontonummer(konto: str, feld: str = "Konto") -> str:
-    """4 bis 8 ASCII-Ziffern (Sachkonten 4-stellig, Personenkonten 5-stellig, mehr
-    bei erweiterten Kontenrahmen) — sonst ``KontoError``."""
+    """4 bis 9 ASCII-Ziffern (Sachkonten 4-stellig, Personenkonten 5-stellig, mehr
+    bei erweiterten Kontenrahmen: Unterkonten 6-stellig, Personenkonten bei
+    Sachkontenlänge 8 9-stellig) — sonst ``KontoError``."""
     wert = (konto or "").strip()
     if not _KONTO.fullmatch(wert):
         raise KontoError(
-            f"{feld}: {wert or '(leer)'} ist keine Kontonummer (4–8 Ziffern)"
+            f"{feld}: {wert or '(leer)'} ist keine Kontonummer ({KONTO_ZIFFERN})"
         )
     return wert
+
+
+def ist_personenkontonummer(konto: str) -> bool:
+    """Personenkonto an der Länge: 5 Stellen (Sachkontenlänge 4, wie accounti
+    rechnet) oder 9 (Sachkontenlänge 8 — längere Sachkonten gibt es bei DATEV nicht,
+    9 Stellen sind dort immer ein Personenkonto; Runde 5, g4w N5)."""
+    return konto.isascii() and konto.isdigit() and len(konto) in (5, 9)
 
 
 def finanzkonto_fehler(
@@ -224,7 +234,7 @@ def kein_sachkonto(
     kr = mitgelieferter_kontenrahmen(buchhaltung.kontenrahmen)
     if zahlungsmittel(buchhaltung, kr, weitere)(nummer):
         return True
-    if nummer.isdigit() and len(nummer) == 5:  # Personenkonto
+    if ist_personenkontonummer(nummer):
         return True
     return kr is not None and kr.ist_lul_konto(nummer)
 

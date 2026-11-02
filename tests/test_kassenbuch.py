@@ -533,7 +533,7 @@ def test_cli_kassen_storno_nach_classify(tmp_path, monkeypatch):
 @pytest.mark.parametrize("konto", ["abc", "12", "４９３０", "4910x", " "])
 def test_gegenkonto_muss_eine_kontonummer_sein(make_session, konto):
     """``kasse buchen --konto abc`` bzw. ``--konto 12`` buchte sofort freigegeben
-    „abc an 1000“ — wie Korrektur und Regeldatei: 4–8 ASCII-Ziffern."""
+    „abc an 1000“ — wie Korrektur und Regeldatei: 4–9 ASCII-Ziffern."""
     _start(make_session)
     with pytest.raises(KassenbuchError, match="keine Kontonummer"):
         _buche(make_session, "-5", date(2026, 3, 2), "Porto", gegenkonto=konto)

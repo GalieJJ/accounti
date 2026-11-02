@@ -8,9 +8,9 @@
     <legend>{{ _("Korrigieren") }}</legend>
     <div class="konten">
       <label for="soll">{{ _("Soll") }} <kbd>e</kbd></label>
-      <input id="soll" name="soll" value="{{ eingaben.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required data-taste="e"{{ m.feldfehler(aktion_fehler, "soll") }}>
+      <input id="soll" name="soll" value="{{ eingaben.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required data-taste="e"{{ m.feldfehler(aktion_fehler, "soll") }}>
       <label for="haben">{{ _("Haben") }}</label>
-      <input id="haben" name="haben" value="{{ eingaben.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(aktion_fehler, "haben") }}>
+      <input id="haben" name="haben" value="{{ eingaben.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(aktion_fehler, "haben") }}>
     </div>
     <label for="steuer">{{ _("Steuerschlüssel") }}</label>
     <select id="steuer" name="steuer"{% if steuer_pflicht %} required aria-invalid="true" class="markiert"{% endif %}>

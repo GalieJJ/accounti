@@ -19,6 +19,7 @@ from accounti.export.datev_format import (
     belegfeld2_storno,
     bu_schluessel,
     datev_umsatz,
+    kontoart,
 )
 from accounti.models import Buchungssatz
 
@@ -207,6 +208,16 @@ class DATEVExporter:
             w
             for b in buchungen
             if (w := automatik_widerspruch(b, self.config.automatikkonten)) is not None
+        ]
+        laenge = self.config.sachkonten_laenge
+        # wie datev belege: ein Konto, das nicht zur Sachkontenlänge der Kopfzeile
+        # passt, lehnt DATEV ab (Personenkonten: eine Stelle länger) — Runde 5, g4w N5
+        self.warnungen += [
+            f"Buchung {b.beleg_nummer or str(b.id)[:8]}: Konto {konto} passt nicht "
+            f"zur Sachkontenlänge {laenge} (mandant.sachkonten_laenge)"
+            for b in buchungen
+            for konto in (b.soll_konto, b.haben_konto)
+            if kontoart(konto, laenge) is None
         ]
         for buchung in buchungen:
             roh = self._buchung_zu_zeile(buchung)

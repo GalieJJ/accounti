@@ -57,9 +57,9 @@
       <fieldset>
         <legend>{{ _("Korrigieren (Storno und Neubuchung)") }}</legend>
         <label for="soll">{{ _("Soll") }}</label>
-        <input id="soll" name="soll" value="{{ ek.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(fk, "soll") }}>
+        <input id="soll" name="soll" value="{{ ek.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(fk, "soll") }}>
         <label for="haben">{{ _("Haben") }}</label>
-        <input id="haben" name="haben" value="{{ ek.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,8}" required{{ m.feldfehler(fk, "haben") }}>
+        <input id="haben" name="haben" value="{{ ek.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(fk, "haben") }}>
         <label for="steuer">{{ _("Steuerschlüssel") }}</label>
         <select id="steuer" name="steuer"{{ m.feldfehler(fk, "steuer") }}>
           <option value="">{{ _("unverändert") }}</option>

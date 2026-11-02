@@ -180,6 +180,31 @@ def wirtschaftsjahr_beginn(stichtag: date, beginn: date | None = None) -> date:
     return kandidat
 
 
+def _laenge(firma: dict[str, object]) -> int:
+    from accounti.konfiguration import KonfigurationError
+
+    laenge = firma.get("sachkonten_laenge", 4)
+    try:
+        return int(laenge) if isinstance(laenge, int | str) else 4
+    except ValueError as fehler:
+        msg = f"mandant.sachkonten_laenge {laenge!r}: eine Zahl (4 bis 8)"
+        raise KonfigurationError(msg) from fehler
+
+
+def sachkontenlaenge(pfad: str | Path) -> int:
+    """``mandant.sachkonten_laenge`` der Konfiguration (Standard 4) — für den
+    Buchungsstapel von ``export datev`` wie für ``datev belege`` und die Stammdaten
+    (Runde 5, g4w N5: der Stapel nannte immer 4)."""
+    import yaml
+
+    datei = Path(pfad)
+    if not datei.is_file():
+        return 4
+    geladen = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
+    firma = geladen.get("mandant") if isinstance(geladen, dict) else None
+    return _laenge(firma if isinstance(firma, dict) else {})
+
+
 def lade_datev_mandant(
     pfad: str | Path,
     stichtag: date,
@@ -230,11 +255,10 @@ def lade_datev_mandant(
     wj = wirtschaftsjahr_beginn(stichtag, beginn if isinstance(beginn, date) else None)
     # eine Quelle mit USt, Abschluss und Prüfregeln (Gesamttest Betrieb B4)
     rahmen = lade_buchhaltung(datei).kontenrahmen
-    laenge = firma.get("sachkonten_laenge", 4)
     return DatevMandant(
         berater=int(berater),
         mandant=int(mandant),
         wj_beginn=wj,
-        sachkontenlaenge=int(laenge) if isinstance(laenge, int | str) else 4,
+        sachkontenlaenge=_laenge(firma),
         skr=rahmen.upper().removeprefix("SKR")[-2:].zfill(2),
     )

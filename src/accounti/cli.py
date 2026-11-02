@@ -2932,11 +2932,13 @@ def export_datev(
         }
     )
     from accounti.befehle import handelnde_person
+    from accounti.export.datev_stammdaten import sachkontenlaenge
     from accounti.models.auth import Recht
     from accounti.pruefung.storno import markiere_exportiert
 
     try:
         automatik = automatikkonten_aus(config)
+        laenge = sachkontenlaenge(config)  # Personenkonten eine Stelle länger
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2949,7 +2951,10 @@ def export_datev(
     ):
         buchungen = lade_buchungen(s, status=freigegeben)
         cfg = DATEVConfig(
-            berater_nummer=berater, mandanten_nummer=mandant, automatikkonten=automatik
+            berater_nummer=berater,
+            mandanten_nummer=mandant,
+            automatikkonten=automatik,
+            sachkonten_laenge=laenge,
         )
         exporter = DATEVExporter(cfg)
         datei = exporter.exportiere(buchungen, output)

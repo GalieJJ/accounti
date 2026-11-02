@@ -39,6 +39,7 @@ from accounti.api.sitzung import (
     gesellschaft_db,
 )
 from accounti.api.vorlagen import seite
+from accounti.buchung.konten import KONTO_ZIFFERN
 from accounti.buchung.pruefschlange import (
     Aenderung,
     Ansicht,
@@ -108,7 +109,7 @@ def formularkonto(wert: str | None, feld: str) -> str:
     wert = (wert or "").strip()
     if not wert.isascii():
         raise PruefschlangeError(
-            f"{feld.capitalize()}: {wert} ist keine Kontonummer (4–8 Ziffern)",
+            f"{feld.capitalize()}: {wert} ist keine Kontonummer ({KONTO_ZIFFERN})",
             feld=feld,
         )
     return wert

@@ -126,7 +126,11 @@ class Kontenrahmen(BaseModel):
 
     @staticmethod
     def ist_personenkonto(konto: str) -> bool:
-        return konto.isdigit() and len(konto) == 5
+        """5 Stellen, bei DATEV-Sachkontenlänge 8 auch 9
+        (``buchung.konten.ist_personenkontonummer``)."""
+        from accounti.buchung.konten import ist_personenkontonummer
+
+        return ist_personenkontonummer(konto)
 
     def _engste(self, regeln: list[Any], konto: str) -> Any:
         nummer = self._nummer(konto)
