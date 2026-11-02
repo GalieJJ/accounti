@@ -228,3 +228,184 @@ def test_browser_stornieren_warnt(qw):
     r = client.post(f"/buchungen/{b.id}/stornieren", data=daten)
     assert r.status_code == 200, r.status_code
     assert "§ 14c" in r.text and "keine wirksame Buchung" in r.text
+
+
+# --- Runde 6 (g5w NEU-3, NEU-4): ausgewiesene USt je Satz -----------------------------
+#
+# Gezählt wird nur die ausgewiesene Umsatzsteuer: je Steuersatz die wirksam gebuchte
+# Steuer (Schlüssel 2, 3, Rechnungsseite) gegen die des Belegs. Eine Zahlung mit
+# derselben beleg_id (opos/ausgleich) oder eine Buchung zu einem anderen Satz deckt
+# sie nicht (NEU-3); eine wegfallende Minderung (Gutschrift) fehlt nicht, und eine
+# Dublette derselben Rechnung, die wirksam gebucht ist, deckt sie (NEU-4).
+
+
+def _rechnung(nummer="AR-1", positionen=None, hash_="a", **kw):  # noqa: ANN001, ANN202
+    positionen = positionen or [("Ware", "500.00", "19", "95.00")]
+    netto = sum(D(p[1]) for p in positionen)
+    steuer = sum(D(p[3]) for p in positionen)
+    return beleg(
+        belegart=Belegart.AUSGANGSRECHNUNG,
+        richtung=Belegrichtung.AUSGANG,
+        nummer=nummer,
+        tag=date(2026, 10, 1),
+        netto=str(netto),
+        steuer=str(steuer),
+        brutto=str(netto + steuer),
+        lieferant="Kunde K GmbH",
+        positionen=positionen,
+        datei_hash=hash_ * 64,
+        **kw,
+    )
+
+
+def _erloes(bel, haben="8400", netto="500.00", steuer="95.00", schluessel=3, **kw):  # noqa: ANN001, ANN202
+    werte = {"soll": "10001", "haben": haben}
+    werte.update(kw)
+    return buchung(
+        status=BuchungStatus.GEPRUEFT,
+        netto=netto,
+        steuer=steuer,
+        schluessel=schluessel,
+        tag=date(2026, 10, 1),
+        beleg_id=bel.id,
+        **werte,
+    )
+
+
+def test_bezahlte_rechnung_storno_warnt(make_session):
+    """NEU-3 T1: die Zahlungsbuchung „1200 an 10001“ mit derselben beleg_id zählte als
+    wirksame Buchung — Storno der Erlösbuchung ohne Warnung, Prüfregel stumm."""
+    from tests.pruefung_hilfe import umsatz
+
+    ar = _rechnung()
+    b = _erloes(ar)
+    tx = umsatz(betrag="595.00", tag=date(2026, 10, 10), zweck="AR-1")
+    zahlung = buchung(
+        tx, status=BuchungStatus.GEPRUEFT, soll="1200", haben="10001",
+        netto="595.00", steuer=None, schluessel=None, beleg_id=ar.id,
+    )  # fmt: skip
+    anlegen(make_session, ar, b, tx, zahlung)
+    with make_session() as s:
+        k = storniere(s, str(b.id), grund="Test", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "AR-1" in hinweis and "95,00 €" in hinweis
+    (befund,) = _pruefe(make_session)
+    assert befund.objekt_id == str(ar.id) and befund.betrag == D("95.00")
+
+
+def test_zwei_steuersaetze_storno_einer_buchung_warnt(make_session):
+    """NEU-3 T2: Beleg mit 19 % und 7 %, nur die 19-%-Buchung storniert — die 7-%-
+    Buchung zählte als wirksame Buchung des Belegs."""
+    ar = _rechnung(
+        "AR-2",
+        [("Ware 19", "500.00", "19", "95.00"), ("Buch 7", "100.00", "7", "7.00")],
+    )
+    b19 = _erloes(ar)
+    b7 = _erloes(ar, haben="8300", netto="100.00", steuer="7.00", schluessel=2)
+    anlegen(make_session, ar, b19, b7)
+    with make_session() as s:
+        k = storniere(s, str(b19.id), grund="Test", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "95,00 €" in hinweis and "19 %" in hinweis and "7,00" not in hinweis
+    (befund,) = _pruefe(make_session)
+    assert befund.betrag == D("95.00") and "19 %" in befund.text
+    # die 7-%-Buchung storniert: jetzt fehlt beides
+    with make_session() as s:
+        k = storniere(s, str(b7.id), grund="Test", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "95,00 €" in hinweis and "7,00 €" in hinweis
+    (befund,) = _pruefe(make_session)
+    assert befund.betrag == D("102.00")
+
+
+def test_teilweise_gebucht_nennt_den_rest(make_session):
+    """Zwei 19-%-Buchungen (zwei Erlöskonten), eine storniert: 60 € fehlen."""
+    ar = _rechnung(
+        "AR-5",
+        [("Ware", "300.00", "19", "57.00"), ("Dienst", "200.00", "19", "38.00")],
+    )
+    a = _erloes(ar, netto="300.00", steuer="57.00")
+    b = _erloes(ar, haben="8401", netto="200.00", steuer="38.00")
+    anlegen(make_session, ar, a, b)
+    with make_session() as s:
+        k = storniere(s, str(b.id), grund="Test", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "38,00 €" in hinweis and "57,00 €" in hinweis  # fehlt, noch gebucht
+
+
+def test_dublette_storno_der_doppelbuchung_warnt_nicht(make_session):
+    """NEU-4 T3: zweiter Belegdatensatz derselben Rechnung (Lieferant, Nummer,
+    Betrag gleich), beide gebucht; die Doppelbuchung des zweiten storniert — die
+    Steuer steht über den ersten in der Voranmeldung."""
+    a = _rechnung("AR-3", hash_="a")
+    kopie = _rechnung("AR-3", hash_="b")
+    ba, bk = _erloes(a), _erloes(kopie)
+    anlegen(make_session, a, kopie, ba, bk)
+    with make_session() as s:
+        k = storniere(s, str(bk.id), grund="doppelt", von="erika")
+        s.commit()
+    assert _hinweis(k.warnungen) == []
+    assert _pruefe(make_session) == []
+    # beide storniert: ein Befund für die Rechnung, nicht zwei
+    with make_session() as s:
+        k = storniere(s, str(ba.id), grund="Rechnung storniert", von="erika")
+        s.commit()
+    assert len(_hinweis(k.warnungen)) == 1
+    assert len(_pruefe(make_session)) == 1
+
+
+def test_andere_rechnung_gleicher_nummer_deckt_nicht(make_session):
+    """Gleiche Nummer, anderer Betrag (berichtigte Rechnung): keine Kopie."""
+    a = _rechnung("AR-6", hash_="a")
+    andere = _rechnung("AR-6", [("Ware", "400.00", "19", "76.00")], hash_="b")
+    ba, bo = _erloes(a), _erloes(andere, netto="400.00", steuer="76.00")
+    anlegen(make_session, a, andere, ba, bo)
+    with make_session() as s:
+        k = storniere(s, str(ba.id), grund="Test", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "95,00 €" in hinweis
+
+
+def test_storno_einer_gutschrift_fehlt_nicht(make_session):
+    """NEU-4 T4: Gutschrift GS-4 (Belegsteuer −95) storniert — die Steuer steigt, sie
+    fehlt nicht; die Regel meldete „die -95,00 € Umsatzsteuer fehlt“."""
+    r = _rechnung("AR-4")
+    gs = beleg(
+        belegart=Belegart.AUSGANGSRECHNUNG,
+        richtung=Belegrichtung.AUSGANG,
+        nummer="GS-4",
+        tag=date(2026, 10, 1),
+        netto="-500.00",
+        steuer="-95.00",
+        brutto="-595.00",
+        lieferant="Kunde K GmbH",
+        positionen=[("Gutschrift", "-500.00", "19", "-95.00")],
+        datei_hash="c" * 64,
+    )
+    br = _erloes(r)
+    bg = _erloes(gs, soll="8400", haben="10001")
+    anlegen(make_session, r, gs, br, bg)
+    with make_session() as s:
+        k = storniere(s, str(bg.id), grund="Gutschrift zurückgenommen", von="erika")
+        s.commit()
+    assert _hinweis(k.warnungen) == []
+    assert _pruefe(make_session) == []
+
+
+def test_skonto_ist_keine_luecke(make_session):
+    """Eine Minderung (Skonto mit Schlüssel 3) desselben Belegs mindert die Steuer nach
+    § 17 — sie ist keine fehlende Rechnungssteuer: Korrektur der Erlösbuchung (Storno
+    und Neubuchung) mit Skonto auf dem Beleg meldet nichts."""
+    ar = _rechnung()
+    b = _erloes(ar)
+    skonto = _erloes(ar, soll="8736", haben="10001", netto="10.00", steuer="1.90")
+    anlegen(make_session, ar, b, skonto)
+    with make_session() as s:
+        korrigiere(s, str(b.id), "10002", "8400", von="erika")
+        s.commit()
+    assert _pruefe(make_session) == []

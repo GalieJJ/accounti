@@ -373,62 +373,60 @@ class KontoauszugLuecke:
 
 
 class BelegUstOhneBuchung:
-    """Ein Beleg mit ausgewiesener Umsatzsteuer, dessen Buchungen alle storniert sind:
-    Seine Steuer fehlt in der Voranmeldung, geschuldet wird sie, bis die Rechnung
-    berichtigt ist (§ 14c Abs. 1 UStG). ``beleg_unbearbeitet`` zählt jede Buchung und
-    jeden offenen Posten als „gebucht“ und sieht das deshalb nicht (Runde 5, g4w N2).
-    Gemeldet im Zeitraum des letzten Stornos — dort fehlt die Steuer."""
+    """Ein Beleg, dessen ausgewiesene Umsatzsteuer nach einem Storno nicht mehr (ganz)
+    wirksam gebucht ist: Sie fehlt in der Voranmeldung, geschuldet wird sie, bis die
+    Rechnung berichtigt ist (§ 14c Abs. 1 UStG). ``beleg_unbearbeitet`` zählt jede
+    Buchung und jeden offenen Posten als „gebucht“ und sieht das deshalb nicht
+    (Runde 5, g4w N2). Gezählt wird je Satz die wirksam gebuchte Steuer gegen die des
+    Belegs (``storno.ust_luecken``): Eine Zahlung mit derselben ``beleg_id`` oder eine
+    Buchung zu einem anderen Satz deckt sie nicht, eine wegfallende Gutschrift fehlt
+    nicht, eine wirksam gebuchte Kopie derselben Rechnung deckt sie (Runde 6, g5w
+    NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos — dort fehlt die Steuer;
+    für Kopien derselben Rechnung einmal."""
 
     name = "beleg_ust_ohne_buchung"
     kategorie = Kategorie.VOLLSTAENDIGKEIT
     schwere = Schwere.WARNUNG
     beschreibung = (
-        "Beleg mit ausgewiesener USt ohne wirksame Buchung (alle storniert, § 14c UStG)"
+        "Beleg mit ausgewiesener USt, die nach einem Storno nicht mehr wirksam gebucht "
+        "ist (§ 14c UStG)"
     )
 
     class Parameter(BaseModel):
         pass
 
     def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
-        from accounti.pruefung.storno import (
-            AUSGEWIESENE_UST,
-            hinweis_14c,
-            ist_wirksam,
-        )
+        from accounti.belege.dubletten import kopien
+        from accounti.pruefung.storno import hinweis_14c, kontenplan, ust_luecken
 
         je_beleg: dict[UUID, list[Buchungssatz]] = defaultdict(list)
         for x in k.buchungen:
             if x.beleg_id is not None:
                 je_beleg[x.beleg_id].append(x)
+        plan = kontenplan(k.session, k.buchhaltung, None)
+        gemeldet: set[UUID] = set()
         befunde = []
         for beleg_id, liste in je_beleg.items():
-            if any(ist_wirksam(x) for x in liste):
-                continue
-            originale = sorted(
-                (
-                    x
-                    for x in liste
-                    if x.storno_von is None and x.steuer_schluessel in AUSGEWIESENE_UST
-                ),
-                key=lambda x: x.datum,
-            )
             stornos = [x.datum for x in liste if x.storno_von is not None]
-            if not originale or not stornos or not k.im_zeitraum(max(stornos)):
+            if beleg_id in gemeldet or not stornos or not k.im_zeitraum(max(stornos)):
                 continue
-            letzte = originale[-1]
             b = k.belege.get(beleg_id)
-            steuer = (b.steuer if b is not None else None) or letzte.steuer_betrag
+            gleiche = kopien(b, k.belege.values()) if b is not None else []
+            andere = [x for c in gleiche for x in je_beleg.get(c.id, [])]
+            luecken = ust_luecken(b, liste, plan, andere)
+            if not luecken:
+                continue
+            gemeldet |= {beleg_id, *(c.id for c in gleiche)}
+            fehlt = sum((x.fehlt for x in luecken), Decimal("0"))
             name = (b.belegnummer or b.dateiname) if b else str(beleg_id)[:8]
             befunde.append(
                 befund(
                     self,
                     "beleg",
                     beleg_id,
-                    hinweis_14c(
-                        name, letzte.steuer_schluessel, steuer, "nach dem Storno"
-                    ),
+                    hinweis_14c(name, luecken, "nach dem Storno"),
                     datum=max(stornos),
-                    betrag=steuer,
+                    betrag=fehlt,
                     gegenpartei=b.lieferant_name if b else None,
                     abhilfe=(
                         "Beleg wieder buchen bzw. die Berichtigung als eigenen Beleg "

@@ -852,6 +852,8 @@ def stornieren(
         von=person,
         datum=datum,
         kontenrahmen=umgebung.kontenrahmen,
+        buchhaltung=umgebung.buchhaltung,
+        elster=umgebung.elster,
     )
     session.flush()
     return k

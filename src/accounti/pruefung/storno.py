@@ -14,14 +14,14 @@ Sperre in ``ereignisse`` lässt andere Wege gar nicht erst zu.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -44,7 +44,7 @@ from accounti.db.repository import (
 )
 from accounti.db.tabellen import BuchungssatzRow
 from accounti.konfiguration import Buchhaltung
-from accounti.models import Buchungssatz, BuchungStatus
+from accounti.models import Beleg, Buchungssatz, BuchungStatus
 from accounti.models.pruefung import Buchungskorrektur
 from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.ereignisse import gesperrt
@@ -71,6 +71,7 @@ FREIGEGEBEN = frozenset(
 )
 VORSCHLAG = frozenset({BuchungStatus.ENTWURF, BuchungStatus.ZUR_PRUEFUNG})
 NULL = Decimal("0")
+CENT = Decimal("0.01")
 _JE_ABFRAGE = 500  # Buchungen je IN-Abfrage
 # ausgewiesene Umsatzsteuer (2, 3): --ohne-steuer entfernt sie aus keiner
 # Belegbuchung (§ 14c UStG) — Vorsteuer, ig. Erwerb und § 13b (Eingang) schon
@@ -264,7 +265,7 @@ _SEITE = {"soll": "Soll", "haben": "Haben"}
 _ANDERE: dict[Seite, Seite] = {"soll": "haben", "haben": "soll"}
 
 
-def _kontenplan(
+def kontenplan(
     session: Session,
     buchhaltung: Buchhaltung | None,
     elster: ElsterEinstellungen | None,
@@ -691,15 +692,139 @@ def ist_wirksam(b: Buchungssatz) -> bool:
     return b.storno_von is None and b.storniert_durch is None
 
 
-def hinweis_14c(
-    beleg: str, schluessel: int | None, steuer: Decimal | None, nach: str
-) -> str:
-    """Ein Beleg mit ausgewiesener Umsatzsteuer ohne wirksame Buchung — für die
-    Warnung beim Storno und die Prüfregel ``beleg_ust_ohne_buchung``."""
-    betrag = f"{betrag_de(steuer)} € " if steuer else ""
+# Satz der ausgewiesenen Umsatzsteuer je Schlüssel (3 → 19 %, 2 → 7 %)
+_SATZ_DER_UST = {s: STEUERSCHLUESSEL[s].satz for s in AUSGEWIESENE_UST}
+
+
+@dataclass(frozen=True)
+class UstLuecke:
+    """Ausgewiesene Umsatzsteuer eines Belegs zu einem Satz, die nicht (ganz) wirksam
+    gebucht ist."""
+
+    schluessel: int
+    satz: Decimal
+    ausgewiesen: Decimal
+    gebucht: Decimal
+
+    @property
+    def fehlt(self) -> Decimal:
+        return self.ausgewiesen - self.gebucht
+
+
+def _ausgewiesen(
+    beleg: Beleg | None,
+    saetze: dict[Decimal, int],
+    eigene: list[Buchungssatz],
+    plan: Kontenplan,
+) -> dict[Decimal, tuple[Decimal, int]]:
+    """Umsatzsteuer des Belegs je Satz (Betrag, Positionen) — aus seinen Positionen
+    (ohne Steuerbetrag: Netto × Satz); nennen sie keinen der Sätze, die Belegsteuer
+    (ein Satz) bzw. die Steuer der jüngsten Rechnungsbuchung je Satz."""
+    je: dict[Decimal, tuple[Decimal, int]] = {}
+    if beleg is not None:
+        for p in beleg.positionen:
+            satz = next((s for s in saetze if s == p.steuersatz), None)
+            if satz is None:
+                continue
+            steuer = p.steuer_betrag
+            if steuer is None:
+                steuer = (p.netto * satz / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+            betrag, anzahl = je.get(satz, (NULL, 0))
+            je[satz] = (betrag + steuer, anzahl + 1)
+        if not je and beleg.steuer is not None and len(saetze) == 1:
+            je = {next(iter(saetze)): (beleg.steuer, 1)}
+    if not je:
+        from accounti.steuer.kennziffern import sachseite
+
+        for x in sorted(eigene, key=lambda x: x.datum):
+            if x.storno_von is None and x.steuer_schluessel in AUSGEWIESENE_UST:
+                vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
+                je[_SATZ_DER_UST[x.steuer_schluessel]] = (
+                    vorzeichen * (x.steuer_betrag or NULL),
+                    1,
+                )
+    return je
+
+
+def ust_luecken(
+    beleg: Beleg | None,
+    buchungen: Iterable[Buchungssatz],
+    plan: Kontenplan,
+    kopien: Iterable[Buchungssatz] = (),
+) -> list[UstLuecke]:
+    """Ausgewiesene Umsatzsteuer des Belegs, die nicht wirksam gebucht ist — je Satz
+    die wirksam gebuchte Steuer (Schlüssel 2, 3, auf der Seite einer Rechnung) gegen
+    die des Belegs (Gesamttest 10b-1, Runde 6: g5w NEU-3, NEU-4).
+
+    ``buchungen``: alle Buchungen des Belegs (mit Stornos), ``kopien``: die Buchungen
+    anderer Belegdatensätze derselben Rechnung (``belege.dubletten.kopien``) — ist die
+    Rechnung dort gebucht, fehlt nichts. Nicht gezählt werden eine Zahlung mit
+    derselben ``beleg_id`` (``opos/ausgleich``, ohne Schlüssel), eine Buchung zu einem
+    anderen Satz und eine Minderung (Skonto, Gutschrift: die Steuer auf der
+    Gegenseite) — sie mindert nach § 17 UStG, sie bucht nicht die ausgewiesene Steuer.
+    Ein Beleg, der Steuer mindert (Gutschrift, negativer Betrag), fehlt nie: Fällt
+    seine Buchung weg, steigt die Steuer. Die Sätze sind die der Rechnungsbuchungen
+    des Belegs mit Schlüssel 2 oder 3 (ohne sie: keine ausgewiesene Steuer in accounti,
+    z. B. OSS)."""
+    from accounti.steuer.kennziffern import sachseite
+
+    eigene = list(buchungen)
+    saetze: dict[Decimal, int] = {}
+    for x in eigene:
+        if x.storno_von is None and x.steuer_schluessel in AUSGEWIESENE_UST:
+            saetze.setdefault(_SATZ_DER_UST[x.steuer_schluessel], x.steuer_schluessel)
+    if not saetze:
+        return []
+    ausgewiesen = _ausgewiesen(beleg, saetze, eigene, plan)
+    gebucht: dict[Decimal, Decimal] = dict.fromkeys(saetze, NULL)
+    for x in [*eigene, *kopien]:
+        if not ist_wirksam(x) or x.steuer_schluessel not in AUSGEWIESENE_UST:
+            continue
+        vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
+        betrag = vorzeichen * (x.steuer_betrag or NULL)
+        satz = _SATZ_DER_UST[x.steuer_schluessel]
+        if betrag > 0 and satz in gebucht:
+            gebucht[satz] += betrag
+    luecken = []
+    for satz, schluessel in sorted(saetze.items(), reverse=True):
+        betrag, anzahl = ausgewiesen.get(satz, (NULL, 0))
+        # Rundung: je Position höchstens ein Cent Abstand zur Buchung
+        if betrag > 0 and betrag - gebucht[satz] > CENT * max(1, anzahl):
+            luecken.append(UstLuecke(schluessel, satz, betrag, gebucht[satz]))
+    return luecken
+
+
+def _satz_text(luecke: UstLuecke) -> str:
+    return f"{luecke.satz.normalize():f} % (Schlüssel {luecke.schluessel})"
+
+
+def hinweis_14c(beleg: str, luecken: Sequence[UstLuecke], nach: str) -> str:
+    """Ausgewiesene Umsatzsteuer eines Belegs ohne (ausreichende) wirksame Buchung —
+    für die Warnung beim Storno und die Prüfregel ``beleg_ust_ohne_buchung``."""
+    fehlt = sum((x.fehlt for x in luecken), NULL)
+    if len(luecken) == 1:
+        (x,) = luecken
+        kopf = f"Beleg {beleg} weist {betrag_de(x.ausgewiesen)} € Umsatzsteuer zu "
+        if x.gebucht:
+            kopf += (
+                f"{_satz_text(x)} aus, {nach} sind davon nur "
+                f"{betrag_de(x.gebucht)} € wirksam gebucht"
+            )
+        else:
+            kopf += f"{_satz_text(x)} aus und hat {nach} keine wirksame Buchung mehr"
+    else:
+        teile = "; ".join(
+            f"{_satz_text(x)}: {betrag_de(x.ausgewiesen)} € ausgewiesen, "
+            + (
+                f"nur {betrag_de(x.gebucht)} € gebucht"
+                if x.gebucht
+                else "keine wirksame Buchung"
+            )
+            for x in luecken
+        )
+        kopf = f"Beleg {beleg} weist Umsatzsteuer aus, die {nach} fehlt ({teile})"
     return (
-        f"Beleg {beleg} weist Umsatzsteuer aus (Schlüssel {schluessel}) und hat {nach} "
-        f"keine wirksame Buchung mehr — die {betrag}Umsatzsteuer fehlt in der "
+        f"{kopf} — die {betrag_de(fehlt)} € Umsatzsteuer fehlen in der "
         "Voranmeldung, geschuldet wird sie, bis die Rechnung berichtigt ist (§ 14c "
         "Abs. 1 UStG). Richtig nur, wenn sie anders gebucht ist; sonst den Beleg "
         "wieder buchen bzw. die Berichtigung als eigenen Beleg (Gutschrift/"
@@ -707,27 +832,32 @@ def hinweis_14c(
     )
 
 
-def _warnung_14c(session: Session, b: Buchungssatz) -> list[str]:
-    """Storno ohne Neubuchung einer Belegbuchung mit ausgewiesener Umsatzsteuer: Hat
-    der Beleg danach keine wirksame Buchung mehr, fehlt die Steuer in der
-    Voranmeldung (Runde 5, g4w N2). Das Storno bleibt erlaubt — eine Doppelbuchung
-    ist so aufzuheben, der Grund ist Pflicht und steht im Journal."""
+def _warnung_14c(session: Session, b: Buchungssatz, plan: Kontenplan) -> list[str]:
+    """Storno ohne Neubuchung einer Belegbuchung mit ausgewiesener Umsatzsteuer: Fehlt
+    danach ausgewiesene Steuer des Belegs in der Voranmeldung (``ust_luecken``), warnt
+    das Storno (Runde 5, g4w N2; Runde 6, g5w NEU-3/NEU-4: auch bei bezahlter Rechnung
+    und mehreren Sätzen, nicht bei Gutschrift und Dublette). Das Storno bleibt erlaubt —
+    eine Doppelbuchung ist so aufzuheben, der Grund ist Pflicht und steht im
+    Journal."""
+    from accounti.belege.dubletten import kopien
+    from accounti.db.repository import lade_belege, lade_buchungen_zu
+
     if b.beleg_id is None or b.steuer_schluessel not in AUSGEWIESENE_UST:
         return []
-    rest = session.scalar(
-        select(func.count())
-        .select_from(BuchungssatzRow)
-        .where(
-            BuchungssatzRow.beleg_id == str(b.beleg_id),
-            BuchungssatzRow.storno_von.is_(None),
-            BuchungssatzRow.storniert_durch.is_(None),
-        )
-    )
-    if rest:
-        return []
     beleg = lade_beleg(session, b.beleg_id)
+    eigene = lade_buchungen_zu(session, beleg_id=b.beleg_id)
+    luecken = ust_luecken(beleg, eigene, plan)
+    if luecken and beleg is not None and beleg.belegnummer:
+        gleiche = kopien(beleg, lade_belege(session))
+        if gleiche:
+            andere = [
+                x for c in gleiche for x in lade_buchungen_zu(session, beleg_id=c.id)
+            ]
+            luecken = ust_luecken(beleg, eigene, plan, andere)
+    if not luecken:
+        return []
     name = (beleg.belegnummer or beleg.dateiname) if beleg else str(b.beleg_id)[:8]
-    return [hinweis_14c(name, b.steuer_schluessel, b.steuer_betrag, "nach dem Storno")]
+    return [hinweis_14c(name, luecken, "nach dem Storno")]
 
 
 def storniere(
@@ -738,10 +868,12 @@ def storniere(
     von: str | None = None,
     datum: date | None = None,
     kontenrahmen: Kontenrahmen | None = None,
+    buchhaltung: Buchhaltung | None = None,
+    elster: ElsterEinstellungen | None = None,
 ) -> Korrektur:
     """Hebt eine freigegebene Buchung durch eine Gegenbuchung auf (ohne Neubuchung) —
-    mit Warnung, wenn ein Beleg mit ausgewiesener Umsatzsteuer danach keine wirksame
-    Buchung mehr hat (``_warnung_14c``)."""
+    mit Warnung, wenn ausgewiesene Umsatzsteuer ihres Belegs danach nicht mehr wirksam
+    gebucht ist (``_warnung_14c``)."""
     if not grund.strip():
         raise StornoError("Grund für das Storno fehlt", feld="grund")
     b = _lade(session, buchung_id)
@@ -755,7 +887,9 @@ def storniere(
         mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session),
         None,
     )
-    k.warnungen.extend(_warnung_14c(session, b))
+    k.warnungen.extend(
+        _warnung_14c(session, b, kontenplan(session, buchhaltung, elster))
+    )
     return k
 
 
@@ -796,7 +930,7 @@ def korrigiere(
         kontenrahmen or lade_kontenrahmen((buchhaltung or Buchhaltung()).kontenrahmen),
         session,
     )
-    plan = _kontenplan(session, buchhaltung, elster) if b.beleg_id else None
+    plan = kontenplan(session, buchhaltung, elster) if b.beleg_id else None
     if plan is not None and (kern := _richtungswechsel(b, soll, haben, plan, kr)):
         raise _richtung_fehler(b, kern)
     person = aktuelle_person(von)
