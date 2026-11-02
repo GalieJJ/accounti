@@ -2,9 +2,10 @@
 
 Die Marktplatz-Buchung legt EU-Fernverkäufe an Privatkunden je Bestimmungsland auf die
 OSS-Erlöskonten aus ``steuer.umsatzsteuer.OSS_ERLOES_KONTEN_SKR03`` (ermäßigte Sätze auf
-die Konten aus ``integrationen.oss_erloes_ermaessigt``); die Meldung bildet
-``steuer.oss.OSSEngine`` aus diesen Buchungen. Hier wird nur zusammengestellt und die
-gemeldete Steuer gegen die gebuchte abgeglichen.
+die Konten aus ``integrationen.oss_erloes_ermaessigt``), eigene Rechnungen (OPOS) auf
+die Länderkonten des Kontenrahmens (SKR04 4320–4327, ``umsatzsteuer.oss_konto_land``);
+die Meldung bildet ``steuer.oss.OSSEngine`` aus diesen Buchungen. Hier wird nur
+zusammengestellt und die gemeldete Steuer gegen die gebuchte abgeglichen.
 """
 
 from __future__ import annotations
@@ -20,13 +21,15 @@ from accounti.integrationen.einstellungen import Integrationen
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE
 from accounti.steuer.oss import OSSEngine, OSSMeldung
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, UStBerechner
+from accounti.steuer.umsatzsteuer import UStBerechner, oss_konto_land
 
 NULL = Decimal("0.00")
 
 
-def _erloeskonten(einstellungen: Integrationen | None) -> set[str]:
-    konten = set(OSS_ERLOES_KONTEN_SKR03.values())
+def _erloeskonten(
+    einstellungen: Integrationen | None, kontenrahmen: str = "SKR03"
+) -> set[str]:
+    konten = set(oss_konto_land(kontenrahmen))
     if einstellungen is not None:
         konten |= set(einstellungen.oss_erloes_ermaessigt.values())
     return konten
@@ -45,9 +48,10 @@ def oss_buchungen(
     jahr: int,
     quartal: int,
     einstellungen: Integrationen | None = None,
+    kontenrahmen: str = "SKR03",
 ) -> list[Buchungssatz]:
     """Buchungen eines Quartals auf OSS-Erlöskonten (Erlöse und Erstattungen)."""
-    konten = _erloeskonten(einstellungen)
+    konten = _erloeskonten(einstellungen, kontenrahmen)
     von, bis = _zeitraum(jahr, quartal)
     return [
         b
@@ -62,9 +66,11 @@ def oss_meldung(
     quartal: int,
     firmen_land: str = "DE",
     einstellungen: Integrationen | None = None,
+    kontenrahmen: str = "SKR03",
 ) -> OSSMeldung:
-    """Meldung des Quartals; frühere Buchungen ordnen Erstattungen ihrem Quartal zu."""
-    konten = _erloeskonten(einstellungen)
+    """Meldung des Quartals; frühere Buchungen ordnen Erstattungen ihrem Quartal zu.
+    ``kontenrahmen``: ``buchhaltung.kontenrahmen`` (SKR04: Länderkonten 4320–4327)."""
+    konten = _erloeskonten(einstellungen, kontenrahmen)
     _von, bis = _zeitraum(jahr, quartal)
     buchungen = [
         b
@@ -78,6 +84,7 @@ def oss_meldung(
         erloes_konten_ermaessigt=(
             einstellungen.oss_erloes_ermaessigt if einstellungen else None
         ),
+        kontenrahmen=kontenrahmen,
     )
 
 

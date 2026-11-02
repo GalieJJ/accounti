@@ -62,14 +62,15 @@ class Erloeskonten:
     E-Rechnung (EN 16931: K ig. Lieferung, G Ausfuhr, E steuerfrei § 4 Nr. 8 ff., AE
     Steuerschuld beim Empfänger) → Konto — aus ``steuer.kennziffern.KENNZIFFERN_KONTEN``
     (dasselbe Konto, das die Voranmeldung der Kennziffer zuordnet); ``unbekannt``:
-    ohne erkennbaren Satz (zur Prüfung); ``oss``/``oss_sammel``: Erlöse eines
-    OSS-Fernverkaufs (zur Prüfung)."""
+    ohne erkennbaren Satz (zur Prüfung); ``oss``: Land → Erlöskonto eines
+    OSS-Fernverkaufs (zur Prüfung; ``steuer.umsatzsteuer.oss_erloeskonten``) — ein Land
+    ohne eigenes Konto geht auf ``unbekannt``, die OSS-Meldung ordnet über das Konto
+    zu."""
 
     steuerpflichtig: dict[Decimal, str]
     steuerfrei: dict[str, str]
     unbekannt: str
     oss: dict[str, str]
-    oss_sammel: str
 
 
 # Kategorie der E-Rechnung → Kennziffer der Voranmeldung (Bemessungsgrundlage)
@@ -79,11 +80,12 @@ _KATEGORIE_KZ = {"K": 41, "G": 43, "E": 48, "AE": 21}
 @lru_cache(maxsize=4)
 def erloeskonten(kontenrahmen: str) -> Erloeskonten:
     """Erlöskonten des Kontenrahmens (DATEV SKR03 bzw. SKR04, Kontenrahmen 2026):
-    SKR03 8400 (19 %), 8300 (7 %), 8200 (ohne Satz); SKR04 4400, 4300, 4200 — im
-    SKR04 sind 8400/8300/8200 „zur freien Verfügung“ (Gesamttest 10b-1 nach dem
-    Merge, M-3). Andere Kontenrahmen lässt ``Buchhaltung`` nicht zu."""
+    SKR03 8400 (19 %), 8300 (7 %), 8200 (ohne Satz), OSS 8320–8327; SKR04 4400, 4300,
+    4200, OSS 4320–4327 — im SKR04 sind 8400/8300/8200 „zur freien Verfügung“
+    (Gesamttest 10b-1 nach dem Merge, M-3; OSS: Runde 3). Andere Kontenrahmen lässt
+    ``Buchhaltung`` nicht zu."""
     from accounti.steuer.kennziffern import KENNZIFFERN_KONTEN
-    from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+    from accounti.steuer.umsatzsteuer import oss_erloeskonten
 
     name = kontenrahmen.upper()
     funktion = KENNZIFFERN_KONTEN[name]
@@ -96,15 +98,13 @@ def erloeskonten(kontenrahmen: str) -> Erloeskonten:
             {Decimal("19"): "4400", Decimal("7"): "4300"},
             steuerfrei,
             "4200",
-            {},
-            "4320",
+            oss_erloeskonten("SKR04"),
         )
     return Erloeskonten(
         {Decimal("19"): "8400", Decimal("7"): "8300"},
         steuerfrei,
         "8200",
-        dict(OSS_ERLOES_KONTEN_SKR03),
-        "8320",
+        oss_erloeskonten("SKR03"),
     )
 
 

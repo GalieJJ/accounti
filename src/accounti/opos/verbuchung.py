@@ -212,8 +212,10 @@ def _gruppen(
             konto, schluessel = erloese.steuerpflichtig[satz], _UST_SCHLUESSEL[satz]
             pruefen = False
         elif kategorie == "S" and satz:
-            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands)
-            konto = erloese.oss.get(land, erloese.oss_sammel)
+            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands) — Länderkonto;
+            # ohne eines „Erlöse“ (Hinweis ``_oss_ohne_konto``): ein Sammelkonto
+            # zählte die OSS-Meldung dem Land seines Kontos zu (8320/4320: FR)
+            konto = erloese.oss.get(land, erloese.unbekannt)
             schluessel, pruefen = None, True
         else:
             konto, schluessel, pruefen = erloese.unbekannt, None, True
@@ -225,6 +227,28 @@ def _gruppen(
         g.netto += p.netto
         g.steuer += p.steuer_betrag or NULL
     return list(gruppen.values())
+
+
+def _oss_ohne_konto(
+    beleg: Beleg, rechnung: Rechnung | None, land: str, erloese: Erloeskonten
+) -> str | None:
+    """Hinweis, wenn ein OSS-Fernverkauf (Kategorie S, Satz des Bestimmungslands) in ein
+    Land ohne OSS-Erlöskonto geht — die OSS-Meldung (§ 18j UStG) ordnet Erlöse über
+    das Konto dem Land zu und erfasst ihn so nicht."""
+    if land in erloese.oss:
+        return None
+    for p, kategorie in zip(
+        beleg.positionen or [], _kategorien(beleg, rechnung), strict=True
+    ):
+        satz = _satz(p.steuersatz)
+        if kategorie == "S" and satz and satz not in erloese.steuerpflichtig:
+            return (
+                f"OSS-Fernverkauf nach {land or '—'} ({satz.normalize():f} %): kein "
+                f"OSS-Erlöskonto für {land or 'das Land'} — auf {erloese.unbekannt} "
+                "zur Prüfung; die OSS-Meldung (accounti marktplatz oss) erfasst ihn "
+                "nicht, selbst melden"
+            )
+    return None
 
 
 def _faelligkeit(
@@ -363,6 +387,11 @@ def verbuche_beleg(
                 f"(accounti kontakte pruefe-ustid {personenkonto})"
             )
 
+    erloese = erloeskonten(einstellungen.kontenrahmen)
+    if not eingang and (oss := _oss_ohne_konto(
+        beleg, rechnung, treffer.kontakt.land, erloese
+    )):  # fmt: skip
+        hinweise.append(oss)
     buchungen = []
     for g in _gruppen(
         beleg,
@@ -373,7 +402,7 @@ def verbuche_beleg(
         treffer.kontakt.land,
         tag_fuer,
         ustid_bestaetigt,
-        erloeskonten(einstellungen.kontenrahmen),
+        erloese,
     ):
         soll, haben = (g.konto, personenkonto) if eingang else (personenkonto, g.konto)
         if g.netto < 0:  # Gutschrift: Seiten tauschen, Beträge positiv

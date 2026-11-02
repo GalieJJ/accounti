@@ -293,8 +293,9 @@ def marktplatz_oss(
     engine, make_session = session_factory(db)
     init_db(engine)
     with make_session() as s:
-        meldung = oss_meldung(s, jahr, nr, kontext.firmen_land, e)
-        offen = ungepruefte(oss_buchungen(s, jahr, nr, e))
+        rahmen = kontext.buchhaltung.kontenrahmen
+        meldung = oss_meldung(s, jahr, nr, kontext.firmen_land, e, rahmen)
+        offen = ungepruefte(oss_buchungen(s, jahr, nr, e, rahmen))
         differenzen = steuerabgleich(s, meldung, kontext.firmen_land)
     tabelle = Table(title=f"OSS-Meldung {meldung.quartal}")
     for spalte in ("Land", "Satz", "Bemessungsgrundlage", "Steuer", "Anzahl"):

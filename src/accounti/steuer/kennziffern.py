@@ -42,7 +42,7 @@ from uuid import UUID
 
 from accounti.models import Buchungssatz, BuchungStatus, Kontakt
 from accounti.steuer.eu_steuersaetze import ist_eu_land
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.umsatzsteuer import oss_konto_land
 from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art, UStVoranmeldung
 from accounti.steuer.zeitraum import Zeitraum
 
@@ -115,7 +115,7 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
         "8338": 45,  # Drittland steuerbar, im Inland nicht steuerbar
         "8339": 45,  # anderes EU-Land steuerbar, im Inland nicht steuerbar
         # OSS-Fernverkäufe: Nettoumsatz in Kz 45 (USt 1 E 2026, Zeile 36)
-        **dict.fromkeys(OSS_ERLOES_KONTEN_SKR03.values(), 45),
+        **dict.fromkeys(oss_konto_land("SKR03"), 45),
     },
     "SKR04": {
         "4125": 41,
@@ -126,6 +126,8 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
         "4337": 60,
         "4338": 45,
         "4339": 45,
+        # OSS-Fernverkäufe (4320–4327, Marktplatz 8320–8327): Kz 45 wie im SKR03
+        **dict.fromkeys(oss_konto_land("SKR04"), 45),
     },
 }
 

@@ -37,7 +37,7 @@ from accounti.steuer.kennziffern import (
     STEUERSCHLUESSEL,
     Kontenplan,
 )
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.umsatzsteuer import oss_konto_land
 
 if TYPE_CHECKING:
     from accounti.pruefung.belegangaben import Belegangaben
@@ -315,7 +315,7 @@ class Pflichtangaben:
         nur_felder = 0
         schluessel: dict[Any, set[int | None]] = defaultdict(set)
         oss: set[Any] = set()
-        oss_konten = set(OSS_ERLOES_KONTEN_SKR03.values())
+        oss_konten = set(oss_konto_land(k.buchhaltung.kontenrahmen))
         for x in k.buchungen:
             if x.beleg_id is not None and not (x.storno_von or x.storniert_durch):
                 schluessel[x.beleg_id].add(x.steuer_schluessel)
