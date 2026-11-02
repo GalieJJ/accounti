@@ -774,6 +774,7 @@ def korrigieren(
         kontenrahmen=umgebung.kontenrahmen,
         buchhaltung=umgebung.buchhaltung,
         einstellungen=umgebung.pruefung,
+        elster=umgebung.elster,
     )
     if wechsel is not None:
         k.warnungen.append(wechsel.warnung)

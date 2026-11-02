@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from accounti.abschluss.kontenrahmen import (
+    Kontenart,
     Kontenrahmen,
     lade_kontenrahmen,
     mit_eingerichteten_konten,
@@ -49,8 +50,16 @@ from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.ereignisse import gesperrt
 from accounti.pruefung.journal import schreibe
 from accounti.pruefung.person import aktuelle_person, journal_kontext
-from accounti.steuer.kennziffern import STEUERSCHLUESSEL
+from accounti.steuer.kennziffern import (
+    STEUERSCHLUESSEL,
+    Kontenplan,
+    Seite,
+    sachseite_aus_konten,
+)
 from accounti.steuer.umsatzsteuer import UStBerechner
+
+if TYPE_CHECKING:
+    from accounti.elster.konfiguration import ElsterEinstellungen
 
 FREIGEGEBEN = frozenset(
     {
@@ -157,12 +166,16 @@ class Korrekturumgebung:
     kontenrahmen: Kontenrahmen
     buchhaltung: Buchhaltung
     pruefung: PruefEinstellungen
+    # Funktionskonten und steuerrelevante Konten der Voranmeldung — für die
+    # Richtungsprüfung (``_kennziffer_gedreht``); None: die Standards
+    elster: ElsterEinstellungen | None = None
 
 
 def lade_korrekturumgebung(pfad: str | Path) -> Korrekturumgebung:
     """Aus der Konfiguration der Gesellschaft (``KonfigurationError``,
     ``KontenrahmenError`` bei Fehlern)."""
     from accounti.abschluss.konfiguration import lade_abschluss
+    from accounti.elster.konfiguration import lade_elster_konten
     from accounti.konfiguration import lade_buchhaltung
     from accounti.pruefung.einstellungen import lade_pruefung
 
@@ -170,6 +183,7 @@ def lade_korrekturumgebung(pfad: str | Path) -> Korrekturumgebung:
         kontenrahmen=lade_abschluss(pfad).lade_kontenrahmen(),
         buchhaltung=lade_buchhaltung(pfad),
         pruefung=lade_pruefung(pfad),
+        elster=lade_elster_konten(pfad),
     )
 
 
@@ -247,56 +261,141 @@ def _pruefe_ausdruecklich(
 
 
 _SEITE = {"soll": "Soll", "haben": "Haben"}
+_ANDERE: dict[Seite, Seite] = {"soll": "haben", "haben": "soll"}
 
 
-def _pruefe_richtung(
+def _kontenplan(
     session: Session,
-    b: Buchungssatz,
-    soll: str,
-    haben: str,
     buchhaltung: Buchhaltung | None,
-) -> None:
-    """Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine Rechnung bucht ihr
-    Sachkonto auf der einen Seite, eine Gutschrift bzw. Rechnungskorrektur auf der
-    anderen. Eine Korrektur, die die Sachseite umdreht, buchte den Beleg als sein
-    Gegenteil — die Voranmeldung kehrte das Vorzeichen um (aus 95 € Umsatzsteuer
-    würden 95 € Erstattung, aus Vorsteuer eine Minderung).
-
-    Gilt für jede Belegbuchung, nicht nur bei ausgewiesener Umsatzsteuer (2, 3):
-    Diese wird geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG); die
-    Vorsteuer mindert erst die Gutschrift bzw. Rechnungskorrektur des Lieferanten,
-    beides im Zeitraum der Berichtigung (§ 17 Abs. 1 Satz 1, 2 und 7 UStG); ohne Steuer
-    würde aus einem Aufwand ein Ertrag. Die Berichtigung ist ein eigener Beleg mit
-    eigener Buchung (``rechnung neu --korrektur-zu``, Gutschrift des Lieferanten); ist
-    die Buchung selbst falsch, ein Storno mit Grund. Die Sachseite liest dieselbe
-    Logik wie die Voranmeldung (``kennziffern.sachseite``) — Runde 5, g4w N1."""
-    if b.beleg_id is None:
-        return
+    elster: ElsterEinstellungen | None,
+) -> Kontenplan:
+    """Konten, wie die Voranmeldung sie liest (``elster.ustva.kontenplan``): Bereiche
+    der Buchhaltung, eingerichtete Bankkonten, ``elster.steuerrelevante_konten`` und
+    ``elster.kennziffern_konten``."""
     from accounti.db.repository import lade_bankkonten
-    from accounti.steuer.kennziffern import Kontenplan, sachseite
+    from accounti.elster.konfiguration import bereiche
 
     bh = buchhaltung or Buchhaltung()
-    plan = Kontenplan(
+    return Kontenplan(
         kontenrahmen=bh.kontenrahmen.upper(),
         debitoren=(bh.debitoren_von, bh.debitoren_bis),
         kreditoren=(bh.kreditoren_von, bh.kreditoren_bis),
         geldkonten=frozenset(
             {bh.bank_konto} | {k.sachkonto for k in lade_bankkonten(session)}
         ),
+        steuerrelevant=bereiche(elster.steuerrelevante_konten) if elster else None,
+        kennziffern_konten=dict(elster.kennziffern_konten) if elster else {},
     )
-    alt = sachseite(b, plan)
-    neu = sachseite(
-        b.model_copy(update={"soll_konto": soll, "haben_konto": haben}), plan
+
+
+def _erfolgsseite(soll: str, haben: str, kr: Kontenrahmen) -> Seite | None:
+    """Seite des einzigen Erfolgskontos (Aufwand, Ertrag) laut Abschlusszuordnung —
+    Steuerkonten zählen hier als Bestand; ``None`` bei zwei oder keinem."""
+
+    def erfolg(konto: str) -> bool:
+        return kr.art(konto, "bilanz") is Kontenart.ERFOLG
+
+    if erfolg(soll) == erfolg(haben):
+        return None
+    return "soll" if erfolg(soll) else "haben"
+
+
+def _richtungswechsel(
+    b: Buchungssatz, soll: str, haben: str, plan: Kontenplan, kr: Kontenrahmen
+) -> str | None:
+    """Was die Korrektur einer Belegbuchung an ihrer Richtung umdreht — ``None``, wenn
+    die Seiten bleiben (Gesamttest 10b-1, Runde 6: g5w NEU-1, NEU-2):
+
+    (a) ein Konto wechselt die Seite (neues Soll = altes Haben oder umgekehrt) — der
+        Tausch zweier Sachkonten („1576 an 1548“) ebenso wie „10001 an 8400“;
+    (b) die Sachseite ist vorher und nachher aus den Konten bestimmt
+        (``kennziffern.sachseite_aus_konten``: gegenüber dem einzigen Gegenkonto,
+        sonst das einzige Erlöskonto) und eine andere;
+    (c) ist sie nur per Rückfall bestimmt (zwei Gegenkonten, zwei Sachkonten ohne
+        Erlös), sperrt sie nicht — Runde 5 las dort die Seite des Schlüssels, ohne
+        Schlüssel „Haben“, und sperrte „4360 an 1200 → 1800 an 1200“ (Privatanteil),
+        „4120 an 70001 → 4120 an 1740“ (Lohnverbindlichkeit) usw.;
+    (e) ein Erfolgskonto steht vorher und nachher allein auf einer Seite, nachher auf
+        der anderen — aus einem Aufwand würde ein Ertrag („4930 an 70001 → 1700 an
+        4931“, zwei Konten ohne Gegenkonto).
+
+    Ob eine Kennziffer der Voranmeldung umkehrt (d), prüft ``_kennziffer_gedreht``
+    mit dem Schlüssel nach der Korrektur."""
+    alt_soll, alt_haben = b.soll_konto, b.haben_konto
+    gewandert: list[tuple[str, Seite]] = []
+    if alt_soll != alt_haben:  # ein Altfall „4900 an 4900“ hat keine Richtung
+        if alt_soll == haben:
+            gewandert.append((alt_soll, "soll"))
+        if alt_haben == soll:
+            gewandert.append((alt_haben, "haben"))
+    if gewandert:
+        return "die Korrektur stellt " + " und ".join(
+            f"Konto {konto} aus dem {_SEITE[seite]} ins {_SEITE[_ANDERE[seite]]}"
+            for konto, seite in gewandert
+        )
+
+    def sachkonto(s: str, h: str) -> Seite | None:
+        return sachseite_aus_konten(s, h, plan)
+
+    def erfolgskonto(s: str, h: str) -> Seite | None:
+        return _erfolgsseite(s, h, kr)
+
+    for art, seiten in (("Sachkonto", sachkonto), ("Erfolgskonto", erfolgskonto)):
+        vorher, nachher = seiten(alt_soll, alt_haben), seiten(soll, haben)
+        if vorher is None or nachher is None or vorher == nachher:
+            continue
+        konto = alt_soll if vorher == "soll" else alt_haben
+        neu = soll if nachher == "soll" else haben
+        return (
+            f"das {art} {konto} steht im {_SEITE[vorher]}, nach der Korrektur stünde "
+            f"das {art} {neu} im {_SEITE[nachher]}"
+        )
+    return None
+
+
+def _kennziffer_gedreht(
+    session: Session, b: Buchungssatz, kandidat: Buchungssatz, plan: Kontenplan
+) -> str | None:
+    """(d) Kehrt eine Kennziffer der Voranmeldung, die die Buchung vorher und nachher
+    bucht, ihr Vorzeichen um? Fängt, was (a), (b) und (e) nicht sehen: eigene
+    Funktionskonten (``elster.kennziffern_konten``) auf beiden Seiten getauscht. Allein
+    genügte das nicht — „4930 an 70001, Schlüssel 9 → 1700 an 4930“ lässt die
+    Voranmeldung gleich und bucht doch den Aufwand ins Haben."""
+    from accounti.db.repository import lade_buchungen_zu
+    from accounti.steuer.kennziffern import kennziffern_der_buchung
+
+    andere = lade_buchungen_zu(session, beleg_id=b.beleg_id)
+    vorher = kennziffern_der_buchung(b, plan, andere)
+    nachher = kennziffern_der_buchung(kandidat, plan, andere)
+    gedreht = sorted(
+        kz for kz in vorher.keys() & nachher.keys() if vorher[kz] * nachher[kz] < 0
     )
-    if alt == neu:
-        return
-    konto = b.soll_konto if alt == "soll" else b.haben_konto
-    konto_neu = soll if neu == "soll" else haben
-    stellt = (
-        f"stellte es ins {_SEITE[neu]}"
-        if konto_neu == konto
-        else f"stellte das Sachkonto ins {_SEITE[neu]} ({konto_neu})"
+    if not gedreht:
+        return None
+    return "die Voranmeldung kehrte " + ", ".join(
+        f"Kz {kz} um ({betrag_de(vorher[kz])} € → {betrag_de(nachher[kz])} €)"
+        for kz in gedreht
     )
+
+
+def _richtung_fehler(b: Buchungssatz, kern: str) -> StornoError:
+    """Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine Rechnung bucht ihr
+    Sachkonto auf der einen Seite, eine Gutschrift bzw. Rechnungskorrektur auf der
+    anderen. Eine Korrektur, die die Seiten vertauscht, buchte den Beleg als sein
+    Gegenteil — die Voranmeldung kehrte das Vorzeichen um (aus 95 € Umsatzsteuer
+    würden 95 € Erstattung, aus Vorsteuer eine Minderung), ohne Steuer würde aus einem
+    Aufwand ein Ertrag.
+
+    Gilt für jede Belegbuchung, nicht nur bei ausgewiesener Umsatzsteuer (2, 3):
+    Diese wird geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG); die
+    Vorsteuer mindert erst die Gutschrift bzw. Rechnungskorrektur des Lieferanten,
+    beides im Zeitraum der Berichtigung (§ 17 Abs. 1 Satz 1, 2 und 7 UStG). Die
+    Berichtigung ist ein eigener Beleg mit eigener Buchung (``rechnung neu
+    --korrektur-zu``, Gutschrift des Lieferanten); ist die Buchung selbst falsch, ein
+    Storno mit Grund — ein Vorschlag wird dafür erst freigegeben (sonst hinge er fest:
+    „noch ein Vorschlag — direkt korrigieren statt stornieren“). Runde 5, g4w N1;
+    Runde 6, g5w NEU-1/NEU-2."""
+    k = _kurz(b)
     if b.steuer_schluessel in AUSGEWIESENE_UST:
         steuer = (
             f"die ausgewiesene Umsatzsteuer (Schlüssel {b.steuer_schluessel}) wird "
@@ -309,26 +408,34 @@ def _pruefe_richtung(
             "bzw. Rechnungskorrektur, in deren Zeitraum (§ 17 Abs. 1 UStG)"
         )
     else:
-        steuer = "der Betrag auf dem Sachkonto kehrte sich um"
-    meldung = (
-        f"Buchung {_kurz(b)} hat einen Beleg — er bestimmt die Richtung (Rechnung oder "
-        f"Gutschrift): Das Sachkonto {konto} steht im {_SEITE[alt]}, die Korrektur "
-        f"{stellt}; {steuer}. Berichtigung als eigener Beleg "
-        "(Gutschrift/Rechnungskorrektur) erfassen und verbuchen; ist die Buchung "
-        "selbst falsch, sie mit Grund stornieren — nur Konten derselben Seite "
-        "korrigieren"
+        steuer = "der Beleg würde als sein Gegenteil gebucht (Rechnung als Gutschrift)"
+    if ist_freigegeben(b):
+        falsch = "ist die Buchung selbst falsch, sie mit Grund stornieren"
+        falsch_cli = (
+            "ist die Buchung selbst falsch, sie stornieren (accounti buchung "
+            f'storniere {k} --grund "…")'
+        )
+    else:
+        falsch = (
+            "ist der Vorschlag selbst falsch (z. B. ein anderer Beleg), ihn freigeben "
+            "und dann mit Grund stornieren"
+        )
+        falsch_cli = (
+            "ist der Vorschlag selbst falsch (z. B. ein anderer Beleg), ihn freigeben "
+            f"und dann stornieren (accounti bestaetige {k}, dann accounti buchung "
+            f'storniere {k} --grund "…")'
+        )
+    kopf = (
+        f"Buchung {k} hat einen Beleg — er bestimmt die Richtung (Rechnung oder "
+        f"Gutschrift): {kern}; {steuer}. Berichtigung als eigener Beleg "
+        "(Gutschrift/Rechnungskorrektur) erfassen und verbuchen"
     )
-    raise StornoError(
-        meldung,
+    ende = " — nur Konten derselben Seite korrigieren"
+    return StornoError(
+        f"{kopf}; {falsch}{ende}",
         feld="soll",
-        cli=meldung.replace(
-            "erfassen und verbuchen;",
-            "erfassen und verbuchen (Ausgangsrechnung: accounti rechnung neu "
-            "--korrektur-zu …);",
-        ).replace(
-            "sie mit Grund stornieren",
-            f'sie stornieren (accounti buchung storniere {_kurz(b)} --grund "…")',
-        ),
+        cli=f"{kopf} (Ausgangsrechnung: accounti rechnung neu --korrektur-zu …); "
+        f"{falsch_cli}{ende}",
     )
 
 
@@ -666,6 +773,7 @@ def korrigiere(
     kontenrahmen: Kontenrahmen | None = None,
     buchhaltung: Buchhaltung | None = None,
     einstellungen: PruefEinstellungen | None = None,
+    elster: ElsterEinstellungen | None = None,
 ) -> Korrektur:
     """Vorschlag: direkt korrigieren. Freigegeben: Storno und Neubuchung.
 
@@ -675,16 +783,23 @@ def korrigiere(
     bestätigt (``steuer``) oder entfernt werden (``ohne_steuer``); eine Kombination,
     die die Prüfregel ``steuerschluessel_konto`` als Fehler einstuft, wird abgelehnt.
     Bei Buchungen mit Beleg entfernt ``ohne_steuer`` die Steuer nur mit ``grund``, und
-    die Sachseite bleibt, wo der Beleg sie hinstellt (``_pruefe_richtung``).
+    die Seiten bleiben, wo der Beleg sie hinstellt (``_richtungswechsel``,
+    ``_kennziffer_gedreht``; ``elster``: Funktionskonten und steuerrelevante Konten der
+    Voranmeldung).
     """
     b = _lade(session, buchung_id)
     _nicht_storniert(b)
     if (gleich := soll_gleich_haben(soll, haben)) is not None:
         # Fachfunktion: CLI, Queue, /buchungen und REST lehnen gleich ab (Runde 3)
         raise StornoError(gleich, feld="haben")
-    _pruefe_richtung(session, b, soll, haben, buchhaltung)
+    kr = mit_eingerichteten_konten(
+        kontenrahmen or lade_kontenrahmen((buchhaltung or Buchhaltung()).kontenrahmen),
+        session,
+    )
+    plan = _kontenplan(session, buchhaltung, elster) if b.beleg_id else None
+    if plan is not None and (kern := _richtungswechsel(b, soll, haben, plan, kr)):
+        raise _richtung_fehler(b, kern)
     person = aktuelle_person(von)
-    kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
     schluessel, netto, steuerbetrag = _steuer(
         b, steuer, ohne_steuer, grund, _beleg_mit_satz(session, b)
@@ -703,9 +818,10 @@ def korrigiere(
         f"Korrektur: {b.soll_konto} an {b.haben_konto} → {soll} an {haben}"
         + (f", Schlüssel {schluessel}" if schluessel != b.steuer_schluessel else "")
     )
-    _pruefe_steuerschluessel(
-        session, b.model_copy(update=aenderung), buchhaltung, einstellungen
-    )
+    kandidat = b.model_copy(update=aenderung)
+    if plan is not None and (kern := _kennziffer_gedreht(session, b, kandidat, plan)):
+        raise _richtung_fehler(b, kern)
+    _pruefe_steuerschluessel(session, kandidat, buchhaltung, einstellungen)
     if not ist_freigegeben(b):
         if datum is not None:
             raise StornoError(

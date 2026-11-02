@@ -342,20 +342,43 @@ def _andere(seite: Seite) -> Seite:
     return "haben" if seite == "soll" else "soll"
 
 
+def _seite_aus_konten(
+    soll: str, haben: str, plan: Kontenplan
+) -> tuple[Seite, bool] | None:
+    """Seite des Sachkontos, soweit die Konten sie bestimmen: gegenüber dem einzigen
+    Gegenkonto, sonst die des einzigen Erlöskontos (``True``: über das Erlöskonto) —
+    ``None`` bei zwei bzw. keinem Gegen- und Erlöskonto."""
+    soll_gegen = plan.ist_gegenkonto(soll)
+    haben_gegen = plan.ist_gegenkonto(haben)
+    if soll_gegen != haben_gegen:
+        return ("soll" if haben_gegen else "haben"), False
+    soll_erloes = plan.ist_erloeskonto(soll)
+    if soll_erloes != plan.ist_erloeskonto(haben):
+        return ("soll" if soll_erloes else "haben"), True
+    return None
+
+
 def _sachseite(
     b: Buchungssatz, plan: Kontenplan, normal: Seite, umsatzsteuer: bool
 ) -> Seite:
     """Seite des Sachkontos: gegenüber dem Gegenkonto — sonst entscheidet das
     Erlöskonto (Umsatzsteuer: das Erlöskonto selbst, Vorsteuer: die Gegenseite)."""
-    soll_gegen = plan.ist_gegenkonto(b.soll_konto)
-    haben_gegen = plan.ist_gegenkonto(b.haben_konto)
-    if soll_gegen != haben_gegen:
-        return "soll" if haben_gegen else "haben"
-    soll_erloes = plan.ist_erloeskonto(b.soll_konto)
-    if soll_erloes != plan.ist_erloeskonto(b.haben_konto):
-        erloes: Seite = "soll" if soll_erloes else "haben"
-        return erloes if umsatzsteuer else _andere(erloes)
-    return normal
+    seite = _seite_aus_konten(b.soll_konto, b.haben_konto, plan)
+    if seite is None:
+        return normal
+    sachseite, ueber_erloes = seite
+    return _andere(sachseite) if ueber_erloes and not umsatzsteuer else sachseite
+
+
+def sachseite_aus_konten(soll: str, haben: str, plan: Kontenplan) -> Seite | None:
+    """Seite des Sachkontos ohne Rückfall und ohne Schlüssel: gegenüber dem einzigen
+    Gegenkonto, sonst die des einzigen Erlöskontos. ``None``, wenn die Konten sie nicht
+    bestimmen (zwei Gegenkonten wie „1800 an 1200“, zwei Sachkonten ohne Erlös wie
+    „4120 an 1740“) — dort setzt die Voranmeldung die Seite des Schlüssels ein
+    (``sachseite``), ohne Schlüssel „Haben“; als Richtung einer Korrektur taugt das
+    nicht (Gesamttest 10b-1, Runde 6: g5w NEU-1)."""
+    seite = _seite_aus_konten(soll, haben, plan)
+    return seite[0] if seite is not None else None
 
 
 def sachseite(b: Buchungssatz, plan: Kontenplan) -> Seite:
@@ -677,6 +700,28 @@ class _Ermittler:
             self.e.ohne_kennziffer.append(
                 (b, f"Steuerschlüssel {schluessel} hat keine Kennziffer in accounti")
             )
+
+
+def kennziffern_der_buchung(
+    b: Buchungssatz, plan: Kontenplan, andere: Iterable[Buchungssatz] = ()
+) -> dict[int, Decimal]:
+    """Was die Voranmeldung aus dieser einen Buchung bucht (Kennziffer → Betrag, ohne
+    die berechnete Kz 83) — unabhängig von Status und Zeitraum. ``andere``: die übrigen
+    Buchungen desselben Belegs (eine Minderung liest die Kennziffer ihrer Rechnung).
+    Für die Richtungsprüfung einer Korrektur (Gesamttest 10b-1, Runde 6: g5w NEU-2)."""
+    ermittler = _Ermittler(
+        [*(x for x in andere if x.id != b.id), b],
+        Zeitraum.monat_von(b.datum),
+        plan,
+        (),
+        {},
+    )
+    ermittler(b)
+    summe: dict[int, Decimal] = {}
+    for zuordnung in ermittler.e.zugeordnet:
+        for beitrag in zuordnung.beitraege:
+            summe[beitrag.kz] = summe.get(beitrag.kz, NULL) + beitrag.betrag
+    return summe
 
 
 def ermittle(
