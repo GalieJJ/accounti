@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -29,7 +30,7 @@ from accounti.abschluss.kontenrahmen import (
     lade_kontenrahmen,
     mit_eingerichteten_konten,
 )
-from accounti.anzeige import datum_de
+from accounti.anzeige import betrag_de, datum_de
 from accounti.buchung.konten import soll_gleich_haben
 from accounti.buchung.steuergruppe import selbst_berechnete_steuer
 from accounti.db.repo_pruefung import setze_storniert_durch, speichere_korrektur
@@ -572,6 +573,50 @@ def _warnungen(b: Buchungssatz, tag: date) -> list[str]:
     ]
 
 
+def ist_wirksam(b: Buchungssatz) -> bool:
+    """Weder storniert noch selbst ein Storno."""
+    return b.storno_von is None and b.storniert_durch is None
+
+
+def hinweis_14c(
+    beleg: str, schluessel: int | None, steuer: Decimal | None, nach: str
+) -> str:
+    """Ein Beleg mit ausgewiesener Umsatzsteuer ohne wirksame Buchung — für die
+    Warnung beim Storno und die Prüfregel ``beleg_ust_ohne_buchung``."""
+    betrag = f"{betrag_de(steuer)} € " if steuer else ""
+    return (
+        f"Beleg {beleg} weist Umsatzsteuer aus (Schlüssel {schluessel}) und hat {nach} "
+        f"keine wirksame Buchung mehr — die {betrag}Umsatzsteuer fehlt in der "
+        "Voranmeldung, geschuldet wird sie, bis die Rechnung berichtigt ist (§ 14c "
+        "Abs. 1 UStG). Richtig nur, wenn sie anders gebucht ist; sonst den Beleg "
+        "wieder buchen bzw. die Berichtigung als eigenen Beleg (Gutschrift/"
+        "Rechnungskorrektur) erfassen und verbuchen"
+    )
+
+
+def _warnung_14c(session: Session, b: Buchungssatz) -> list[str]:
+    """Storno ohne Neubuchung einer Belegbuchung mit ausgewiesener Umsatzsteuer: Hat
+    der Beleg danach keine wirksame Buchung mehr, fehlt die Steuer in der
+    Voranmeldung (Runde 5, g4w N2). Das Storno bleibt erlaubt — eine Doppelbuchung
+    ist so aufzuheben, der Grund ist Pflicht und steht im Journal."""
+    if b.beleg_id is None or b.steuer_schluessel not in AUSGEWIESENE_UST:
+        return []
+    rest = session.scalar(
+        select(func.count())
+        .select_from(BuchungssatzRow)
+        .where(
+            BuchungssatzRow.beleg_id == str(b.beleg_id),
+            BuchungssatzRow.storno_von.is_(None),
+            BuchungssatzRow.storniert_durch.is_(None),
+        )
+    )
+    if rest:
+        return []
+    beleg = lade_beleg(session, b.beleg_id)
+    name = (beleg.belegnummer or beleg.dateiname) if beleg else str(b.beleg_id)[:8]
+    return [hinweis_14c(name, b.steuer_schluessel, b.steuer_betrag, "nach dem Storno")]
+
+
 def storniere(
     session: Session,
     buchung_id: str,
@@ -581,12 +626,14 @@ def storniere(
     datum: date | None = None,
     kontenrahmen: Kontenrahmen | None = None,
 ) -> Korrektur:
-    """Hebt eine freigegebene Buchung durch eine Gegenbuchung auf (ohne Neubuchung)."""
+    """Hebt eine freigegebene Buchung durch eine Gegenbuchung auf (ohne Neubuchung) —
+    mit Warnung, wenn ein Beleg mit ausgewiesener Umsatzsteuer danach keine wirksame
+    Buchung mehr hat (``_warnung_14c``)."""
     if not grund.strip():
         raise StornoError("Grund für das Storno fehlt", feld="grund")
     b = _lade(session, buchung_id)
     person = aktuelle_person(von)
-    return _storno(
+    k = _storno(
         session,
         b,
         person,
@@ -595,6 +642,8 @@ def storniere(
         mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session),
         None,
     )
+    k.warnungen.extend(_warnung_14c(session, b))
+    return k
 
 
 def korrigiere(
