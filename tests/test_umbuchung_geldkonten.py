@@ -498,6 +498,13 @@ def test_pruefregel_uebergeht_stornierte(make_session):
         ("1370", BH),  # Verrechnungskonto
         ("1890", SKR04),  # Finanzmittelanlagen
         ("1510", SKR04),  # Wertpapiere
+        # Runde 4 (g3w-fach N7): sonstige Forderungen im SKR04 wie 1594/1596 im SKR03
+        ("1594", BH),  # Forderungen gegen verbundene Unternehmen (SKR03)
+        ("1260", SKR04),  # Forderungen gegen verbundene Unternehmen
+        ("1261", SKR04),  # … Restlaufzeit bis 1 Jahr
+        ("1265", SKR04),  # … Restlaufzeit größer 1 Jahr
+        ("1280", SKR04),  # Forderungen gegen Beteiligungsunternehmen
+        ("1298", SKR04),  # ausstehende Einlagen, eingefordert
     ],
 )
 def test_bestandskonten_bleiben_sachkonto_eines_belegs(konto, bh):
@@ -513,6 +520,18 @@ def test_bestandskonten_bleiben_sachkonto_eines_belegs(konto, bh):
     assert (sk.konto, sk.regel) == (konto, "depot")
     sk = sachkonto_fuer_beleg(beleg(), kontakt(sachkonto=konto), bh, None)
     assert sk.konto == konto
+
+
+@pytest.mark.parametrize(
+    "konto", ["1200", "1210", "1240", "1250", "1259", "1270", "1275", "1290", "1297",
+              "3300", "3310"],
+)  # fmt: skip
+def test_skr04_lul_konten_bleiben_gesperrt(konto):
+    """Forderungen (auch gegen verbundene bzw. Beteiligungsunternehmen) und
+    Verbindlichkeiten aus Lieferungen und Leistungen sind kein Sachkonto eines Belegs
+    (DATEV SKR 04 2026: 1200–1259, 1270–1279, 1290–1297, 3300–3399)."""
+    sk = sachkonto_fuer_beleg(beleg(), kontakt(sachkonto=konto), SKR04, None)
+    assert sk.konto != konto and f"übergangen: {konto}" in sk.quelle
 
 
 def test_uebergangenes_sachkonto_steht_in_der_begruendung():
