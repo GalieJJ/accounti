@@ -34,6 +34,7 @@ from accounti.models import (
     BuchungStatus,
     OffenerPosten,
     PostenRichtung,
+    PostenStatus,
     Zahlungszuordnung,
     ZuordnungStatus,
 )
@@ -424,6 +425,31 @@ def test_rechnung_mit_steuernummer_ist_vollstaendig(make_session, tmp_path):
         positionen=[("Papier", "500.00", "19", "95.00")],
     )
     assert pruefe(make_session, "pflichtangaben", archiv=archiv) == []
+
+
+def test_belegangaben_begrenzen_leerraum_und_laenge(make_session, tmp_path):
+    """Mittel 2 (Nachprüfung C, Runde 4): Der Prüflauf liest das Original aus dem
+    Archiv — dort war weder der Leerraum begrenzt (20 000 Leerzeichen nach
+    „Steuer-Nr.“: 7,5 s, quadratisch) noch die Länge. Anfang und Ende bleiben, der
+    Hinweis sagt, dass gekürzt wurde."""
+    from accounti.pruefung.belegangaben import lies_angaben
+    from tests.test_belege_extraktion import _zeitschranke
+
+    zusatz = (
+        "Steuer-Nr."
+        + " " * 20_000
+        + "x\n"
+        + "a" * 300_000
+        + "\nSteuernummer: 12/345/67890"
+    )
+    archiv, b = _archiviert(
+        make_session, tmp_path, RECHNUNGSTEXT.format(zusatz=zusatz).encode()
+    )
+    with _zeitschranke(5):
+        a = lies_angaben(b, archiv)
+    assert a.steuernummer == "12/345/67890"
+    assert a.hinweis is not None and "gekürzt" in a.hinweis
+    assert a.text is not None and len(a.text) <= 100_000
 
 
 def test_kleinbetragsrechnung_braucht_keine_steuernummer(make_session, tmp_path):
@@ -1197,6 +1223,53 @@ def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
     assert "3400" in warnung and "Schlüssel 8" in warnung
 
 
+def test_skontokonten_mit_steuersatz_sind_automatikkonten(
+    make_session, tmp_path, skr03
+):
+    """Nachprüfung Runde 2 (Steuer, Niedrig): Im SKR03 sind 3731/3736 (Erhaltene
+    Skonti 7 %/19 % Vorsteuer, AV) und 8731/8736 (Gewährte Skonti 7 %/19 % USt, AM)
+    Automatikkonten — der DATEV-Export lässt den passenden BU-Schlüssel weg (vorher
+    „3736, BU 9“). 3730/8730 haben keine Automatik: Das Skonto aus § 13b bzw. ig.
+    Erwerb behält BU 94 bzw. 19."""
+    from accounti.export.datev import DATEVConfig, DATEVExporter
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    automatik = automatikkonten(Buchhaltung())
+    assert {k: automatik.get(k) for k in ("3731", "3736", "8731", "8736")} == {
+        "3731": 8,
+        "3736": 9,
+        "8731": 2,
+        "8736": 3,
+    }
+    assert "3730" not in automatik and "8730" not in automatik
+    buchungen = [
+        buchung(soll="70001", haben="3736", netto="2.00", steuer="0.38", schluessel=9),
+        buchung(soll="70001", haben="3731", netto="1.00", steuer="0.07", schluessel=8),
+        buchung(
+            soll="70001", haben="3730", netto="12.00", steuer="2.28", schluessel=94
+        ),
+        buchung(soll="8736", haben="10000", netto="2.00", steuer="0.38", schluessel=3),
+    ]
+    # Beraternummer im DATEV-Bereich, Textfelder in Anführungszeichen — wie der
+    # Export seit Gesamttest Abschluss B1–B3 (Paket E) schreibt
+    exporter = DATEVExporter(
+        DATEVConfig(
+            berater_nummer="1001", mandanten_nummer="1", automatikkonten=automatik
+        )
+    )
+    datei = exporter.exportiere(buchungen, tmp_path / "out")
+    import csv
+
+    zeilen = list(
+        csv.reader(datei.read_text(encoding="cp1252").splitlines(), delimiter=";")
+    )
+    bu = zeilen[1].index("BU-Schlüssel")
+    assert [z[bu] for z in zeilen[2:]] == ["", "", "94", ""]
+    assert exporter.warnungen == []
+    anlegen(make_session, *buchungen)
+    assert pruefe(make_session, "steuerschluessel_konto") == []
+
+
 def test_steuersatz_ohne_exponentenschreibweise(make_session):
     """Befund N-N2: 20 % und 10 % stehen nicht als „2E+1 %“ im Befund."""
     de20 = beleg(positionen=[("x", "100.00", "20", "20.00")], datei_hash="1" * 64)
@@ -1340,3 +1413,145 @@ def test_datev_export_warnt_bei_steuer_ohne_schluessel_auf_automatikkonto(tmp_pa
     )
     (warnung,) = exporter.warnungen
     assert "3400" in warnung and "ohne Schlüssel" in warnung and "--steuer 9" in warnung
+
+
+def test_personenkonto_op(make_session):
+    """B05 (Gesamttest): Rechnung netto auf den Kreditor gebucht, Posten brutto —
+    Hauptbuch und Offene-Posten-Liste weichen ab. Stimmige Konten und ein Guthaben aus
+    einer Überzahlung sind kein Befund."""
+    falsch = kontakt(name="Druckerei Beispiel GmbH", kreditor_konto="70002")
+    richtig = kontakt(kreditor_konto="70001")
+    guthaben = kontakt(name="Überzahlt GmbH", kreditor_konto="70003")
+    tag = date(2026, 3, 10)
+    belege = {k.kreditor_konto: uuid4() for k in (falsch, richtig, guthaben)}
+
+    def rechnung(konto, netto, steuer):
+        return buchung(
+            haben=konto,
+            netto=netto,
+            steuer=steuer,
+            schluessel=9 if steuer else None,
+            beleg_id=belege[konto],
+            tag=tag,
+        )
+
+    zahlung = umsatz("-130.00", tag=date(2026, 3, 20), zweck="RE-3")
+    anlegen(
+        make_session,
+        falsch,
+        richtig,
+        guthaben,
+        zahlung,
+        rechnung("70002", "1000.00", None),
+        rechnung("70001", "100.00", "19.00"),
+        rechnung("70003", "100.00", "19.00"),
+        buchung(
+            zahlung,
+            soll="70003",
+            haben="1200",
+            netto="130.00",
+            steuer=None,
+            schluessel=None,
+            beleg_id=belege["70003"],
+        ),
+    )
+    posten = [
+        _posten(falsch, beleg_id=belege["70002"], betrag=Decimal("1190.00")),
+        _posten(richtig, beleg_id=belege["70001"], belegnummer="RE-2"),
+        _posten(
+            guthaben,
+            beleg_id=belege["70003"],
+            belegnummer="RE-3",
+            restbetrag=Decimal("0"),
+            status=PostenStatus.AUSGEGLICHEN,
+        ),
+    ]
+    with make_session() as s:
+        for p in posten:
+            speichere_posten(s, p)
+        speichere_zuordnung(
+            s,
+            Zahlungszuordnung(
+                transaktion_id=zahlung.id,
+                posten_id=posten[2].id,
+                betrag=Decimal("130.00"),
+                stufe="referenz",
+                status=ZuordnungStatus.GEBUCHT,
+                confidence=1.0,
+                begruendung="RE-3",
+            ),
+        )
+        s.commit()
+    (b,) = pruefe(make_session, "personenkonto_op")
+    assert b.objekt_id == str(falsch.id)
+    assert b.betrag == Decimal("-190.00")
+    assert "70002" in b.text and "1.000,00" in b.text and "1.190,00" in b.text
+    # vor der Rechnung (Stichtag) gibt es nichts abzustimmen
+    assert pruefe(make_session, "personenkonto_op", period="2026-02") == []
+
+
+def test_stichtagsliste_zaehlt_das_guthaben_eines_altfalls(make_session):
+    """Nachprüfung Runde 2 (OPOS, Neu-4): Ältere Stände führen ein Guthaben aus einer
+    Überzahlung als Rest 0 (Rechnung 119, gezahlt 130). Die Abstimmung rechnete es
+    schon mit, ``opos liste --stichtag`` nicht — jetzt dieselbe Regel: 119 € zum
+    15.03. (vor der Zahlung), −11 € (Guthaben) zum 31.03."""
+    from accounti.opos.auswertung import lade_stand_zum
+
+    k = kontakt(name="Überzahlt GmbH", kreditor_konto="70003")
+    beleg_id = uuid4()
+    zahlung = umsatz("-130.00", tag=date(2026, 3, 20), zweck="RE-3")
+    anlegen(
+        make_session,
+        k,
+        zahlung,
+        buchung(
+            haben="70003",
+            netto="100.00",
+            steuer="19.00",
+            schluessel=9,
+            beleg_id=beleg_id,
+            tag=date(2026, 3, 10),
+        ),
+        buchung(
+            zahlung,
+            soll="70003",
+            haben="1200",
+            netto="130.00",
+            steuer=None,
+            schluessel=None,
+            beleg_id=beleg_id,
+        ),
+    )
+    p = _posten(
+        k,
+        beleg_id=beleg_id,
+        belegnummer="RE-3",
+        restbetrag=Decimal("0"),
+        status=PostenStatus.AUSGEGLICHEN,
+    )
+    with make_session() as s:
+        speichere_posten(s, p)
+        speichere_zuordnung(
+            s,
+            Zahlungszuordnung(
+                transaktion_id=zahlung.id,
+                posten_id=p.id,
+                betrag=Decimal("130.00"),
+                stufe="referenz",
+                status=ZuordnungStatus.GEBUCHT,
+                confidence=1.0,
+                begruendung="RE-3",
+            ),
+        )
+        s.commit()
+    with make_session() as s:
+        stand = {
+            tag: [x.restbetrag for x in lade_stand_zum(s, tag)]
+            for tag in (date(2026, 3, 15), date(2026, 3, 31))
+        }
+    assert stand == {
+        date(2026, 3, 15): [Decimal("119.00")],
+        date(2026, 3, 31): [Decimal("-11.00")],
+    }
+    for tag in stand:
+        assert pruefe(make_session, "personenkonto_op", stichtag=tag) == []

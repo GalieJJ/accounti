@@ -11,8 +11,9 @@ Rechtlich mindert eine Gutschrift wegen Minderung (§ 441 BGB) die Forderung sel
 Guthaben aus Überzahlung wird aufgerechnet (§§ 387, 389 BGB). Verrechnet werden nur
 Posten derselben Richtung und desselben Kontakts — Forderung gegen Verbindlichkeit
 (Aufrechnung über zwei Personenkonten) bucht accounti nicht. Der Tag der Verrechnung
-liegt frühestens am Belegdatum beider Posten und am Tag der Zahlung, aus der ein
-Guthaben stammt (Aufrechnungslage, § 387 BGB: beide Forderungen müssen bestehen).
+liegt frühestens am Belegdatum und am Tag der ersten Buchung beider Posten und am Tag
+der Zahlung, aus der ein Guthaben stammt (Aufrechnungslage, § 387 BGB: beide
+Forderungen müssen bestehen).
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from accounti.db.repo_opos import (
 )
 from accounti.db.repository import (
     aktualisiere_posten,
+    lade_buchungen,
     lade_transaktion,
     lade_zuordnungen,
 )
@@ -77,8 +79,15 @@ def verrechne(
 
 def _pruefe_datum(session: Session, posten: list[OffenerPosten], datum: date) -> None:
     """Verrechnet wird frühestens, wenn beide Seiten bestehen: nicht vor dem
-    Belegdatum eines Postens und nicht vor der Zahlung, aus der ein Guthaben stammt
+    Belegdatum eines Postens, nicht vor seiner ersten Buchung (eine Rechnung aus einem
+    festgeschriebenen Monat, später gebucht — die Stichtagsliste zählt sie erst ab da,
+    Nachprüfung Runde 2, Neu-6) und nicht vor der Zahlung, aus der ein Guthaben stammt
     (Überzahlung) — sonst passten Stichtagsliste und Personenkonto nicht zusammen."""
+    belege = {p.beleg_id for p in posten if p.beleg_id is not None}
+    gebucht: dict[UUID, date] = {}
+    for b in lade_buchungen(session):
+        if b.beleg_id in belege and b.transaktion_id is None:
+            gebucht[b.beleg_id] = min(b.datum, gebucht.get(b.beleg_id, b.datum))
     guthaben = {p.id for p in posten if p.restbetrag < 0}
     gezahlt: dict[UUID, date] = {}
     for z in lade_zuordnungen(session, status={ZuordnungStatus.GEBUCHT}):
@@ -90,6 +99,8 @@ def _pruefe_datum(session: Session, posten: list[OffenerPosten], datum: date) ->
     for p in posten:
         nummer = p.belegnummer or str(p.id)[:8]
         grenzen.append((p.belegdatum, f"dem Belegdatum von {nummer}"))
+        if p.beleg_id in gebucht:
+            grenzen.append((gebucht[p.beleg_id], f"der Buchung von {nummer}"))
         if p.id in gezahlt:
             grenzen.append(
                 (gezahlt[p.id], f"der Zahlung, aus der das Guthaben {nummer} stammt")

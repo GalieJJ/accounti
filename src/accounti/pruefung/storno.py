@@ -31,10 +31,12 @@ from accounti.abschluss.kontenrahmen import (
     mit_eingerichteten_konten,
 )
 from accounti.anzeige import datum_de
+from accounti.buchung.steuergruppe import selbst_berechnete_steuer
 from accounti.db.repo_pruefung import setze_storniert_durch, speichere_korrektur
 from accounti.db.repository import (
     aktualisiere_buchung,
     finde_buchung,
+    lade_beleg,
     setze_status,
     speichere_buchung,
 )
@@ -166,9 +168,19 @@ def _pruefe_ausdruecklich(
 
 
 def _steuer(
-    b: Buchungssatz, steuer: int | None, ohne_steuer: bool, grund: str | None
+    b: Buchungssatz,
+    steuer: int | None,
+    ohne_steuer: bool,
+    grund: str | None,
+    beleg_mit_satz: bool = True,
 ) -> tuple[int | None, Decimal, Decimal | None]:
-    """(Schlüssel, Netto, Steuer) nach der Korrektur — aus dem Brutto der Buchung."""
+    """(Schlüssel, Netto, Steuer) nach der Korrektur — aus dem Brutto der Buchung.
+
+    Bei einer Belegbuchung kommt die Steuer aus dem Beleg; einen anderen Schlüssel
+    nimmt sie nur an, wenn der Beleg keinen Satz liefert (``beleg_mit_satz``, z. B.
+    ZUGFeRD MINIMUM: brutto gebucht) oder der Schlüssel § 13b bzw. ig. Erwerb ist —
+    diese Steuer steht nie auf dem Beleg (§ 14a Abs. 5 UStG), der Empfänger
+    berechnet sie selbst."""
     if ohne_steuer and steuer is not None:
         raise StornoError("--steuer und --ohne-steuer schließen sich aus")
     if not ohne_steuer and steuer is None:  # Schlüssel bleibt
@@ -176,11 +188,17 @@ def _steuer(
     schluessel = None if ohne_steuer else steuer
     if schluessel == b.steuer_schluessel:
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
-    if b.beleg_id is not None and not ohne_steuer:
+    if (
+        b.beleg_id is not None
+        and not ohne_steuer
+        and beleg_mit_satz
+        and schluessel not in SELBST_BERECHNET
+    ):
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
-            "bzw. aus dem Ausgleich; nur Konten korrigieren (oder die Vorsteuer mit "
-            "--ohne-steuer --grund … entfernen)"
+            "bzw. aus dem Ausgleich; nur Konten korrigieren, § 13b bzw. ig. Erwerb "
+            "mit --steuer 94/91/19/18 (oder die Vorsteuer mit --ohne-steuer --grund … "
+            "entfernen)"
         )
     if b.beleg_id is not None and b.steuer_schluessel in _AUSGEWIESENE_UST:
         raise StornoError(
@@ -198,6 +216,12 @@ def _steuer(
             'Journal): --ohne-steuer --grund "kein § 13b: …"'
         )
     if b.beleg_id is not None and not (grund or "").strip():
+        if not ohne_steuer:
+            raise StornoError(
+                f"Buchung {_kurz(b)} hat einen Beleg — Steuerschlüssel {schluessel} "
+                "setzt nur, wer einen Grund nennt (steht im Journal): --grund "
+                '"z.B. Reverse Charge, Satz laut PDF-Ansicht 19 %"'
+            )
         raise StornoError(
             f"Buchung {_kurz(b)} hat einen Beleg — die Steuer daraus entfernt nur, "
             "wer einen Grund nennt (steht im Journal): --ohne-steuer --grund "
@@ -212,6 +236,9 @@ def _steuer(
     if schluessel in _IM_BRUTTO:
         netto = UStBerechner().brutto_zu_netto(brutto, _IM_BRUTTO[schluessel])
         return schluessel, netto, brutto - netto
+    if schluessel in SELBST_BERECHNET:
+        # der Zahlbetrag ist das Netto; die Steuer berechnet der Empfänger
+        return schluessel, brutto, selbst_berechnete_steuer(schluessel, brutto)
     return schluessel, brutto, None
 
 
@@ -422,7 +449,9 @@ def korrigiere(
     person = aktuelle_person(von)
     kr = mit_eingerichteten_konten(kontenrahmen or lade_kontenrahmen(), session)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
-    schluessel, netto, steuerbetrag = _steuer(b, steuer, ohne_steuer, grund)
+    schluessel, netto, steuerbetrag = _steuer(
+        b, steuer, ohne_steuer, grund, _beleg_mit_satz(session, b)
+    )
     aenderung = {
         "soll_konto": soll,
         "haben_konto": haben,
@@ -520,6 +549,21 @@ def _warnung_uebergeben(session: Session, b: Buchungssatz) -> list[str]:
             f"nur die Buchungen von {monat} ersetzen"
         )
     return [text]
+
+
+def _beleg_mit_satz(session: Session, b: Buchungssatz) -> bool:
+    """Nennt der Beleg der Buchung einen Steuersatz (ihre bzw. irgendeine Position)?"""
+    if b.beleg_id is None:
+        return True
+    beleg = lade_beleg(session, b.beleg_id)
+    if beleg is None:
+        return True
+    positionen = [
+        p
+        for p in beleg.positionen
+        if b.beleg_position_id is None or p.id == b.beleg_position_id
+    ]
+    return any(p.steuersatz is not None for p in positionen)
 
 
 def _warnung_selbst(b: Buchungssatz, ohne_steuer: bool) -> list[str]:

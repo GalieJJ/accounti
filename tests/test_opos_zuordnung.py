@@ -216,3 +216,19 @@ def test_zu_kurze_belegnummer_ist_keine_referenz():
     kurz = op("4711", "75.83")
     v = ordne_zu(tx("-75.83", "Tankstelle Karte 4711 0042"), [kurz], KONTAKTE)
     assert v is None or v.stufe is not Stufe.REFERENZ
+
+
+def test_sammelzahlung_mit_skonto_nur_auf_einem_posten():
+    """B02 (Gesamttest): Rest einer Teilzahlung ohne Skonto + Rechnung mit Skonto."""
+    angezahlt = op("RW-8801", "2380.00", rest="1380.00", faellig=date(2026, 3, 1))
+    neu = op("RW-8890", "1785.00", skonto="53.55", skonto_bis=date(2026, 3, 19))
+    v = ordne_zu(
+        tx("-3111.45", "RW-8801 Rest, RW-8890 abzgl. 3% Skonto"),
+        [angezahlt, neu],
+        KONTAKTE,
+    )
+    assert v.stufe is Stufe.SAMMEL
+    assert sorted(_anteile(v)) == [
+        ("RW-8801", Decimal("1380.00"), Decimal("0")),
+        ("RW-8890", Decimal("1731.45"), Decimal("53.55")),
+    ]

@@ -346,3 +346,36 @@ def test_verrechnungskonten_der_marktplaetze(make_session, config):
     buche(make_session, date(J, 12, 30), "1210", "1200", "50")
     (b,) = befunde(make_session, config, "verrechnungskonten")
     assert b.schwere is Schwere.WARNUNG and "1362" in b.text and "0,02" in b.text
+
+
+def test_personenkonto_weicht_von_offenen_posten_ab(make_session, config):
+    """B05 (Gesamttest): Kreditor netto gebucht, Posten brutto — Warnung im Abschluss
+    (vorher bemerkte keine Prüfung die Abweichung)."""
+    from uuid import uuid4
+
+    from accounti.db.repository import speichere_kontakt, speichere_posten
+    from accounti.models import Kontakt, OffenerPosten, PostenRichtung
+
+    druckerei = Kontakt(name="Druckerei Beispiel GmbH", kreditor_konto="70002")
+    beleg_id = uuid4()
+    with make_session() as s:
+        speichere_kontakt(s, druckerei)
+        speichere_posten(
+            s,
+            OffenerPosten(
+                kontakt_id=druckerei.id,
+                beleg_id=beleg_id,
+                richtung=PostenRichtung.VERBINDLICHKEIT,
+                belegnummer="MIN-2026-9",
+                belegdatum=date(J, 3, 10),
+                betrag=D("1190.00"),
+                faellig_am=date(J, 3, 24),
+            ),
+        )
+        s.commit()
+    buche(make_session, date(J, 3, 10), "4900", "70002", "1000.00", beleg_id=beleg_id)
+    (b,) = befunde(make_session, config, "personenkonten")
+    assert b.schwere is Schwere.WARNUNG and not blockiert([b])
+    assert "70002" in b.text and "190,00" in b.text
+    buche(make_session, date(J, 3, 10), "1576", "70002", "190.00", beleg_id=beleg_id)
+    assert befunde(make_session, config, "personenkonten") == []

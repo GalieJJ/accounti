@@ -200,7 +200,10 @@ Buchungen (Baustein 7), jeweils mit Einmalcode (vollständige Liste: `FREIGABEWE
   `abschluss buchen` (derselbe AfA-Lauf wie `anlagen afa`, dazu die
   Abgrenzungsvorschläge) und `abschluss abgrenzen` (Person aus `ACCOUNTI_BENUTZER` bzw.
   dem Anmeldenamen — `--von` ist dort der Leistungszeitraum),
-  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`. Wer erfasst
+  `bank bestaetigen|ablehnen`, `nachfordern anfrage --senden`, `belege freigeben` (Beleg
+  aus der Prüfung, mit Belegart, Steuerfall, Belegnummer oder umgekehrtem Vorzeichen;
+  `--grund` Pflicht bei Dublettenverdacht, Rechenprobe, Vorzeichen und mehrdeutigem
+  Titel). Wer erfasst
   und korrigiert, legt dabei freigegebene Buchungen an — das Recht zu buchen schließt laut
   Rollen das Freigeben ein (ein Test hält das fest).
 - **Buchungen freigeben** (`buchhalter`, `freigeber`): `bestaetige`, `opos
@@ -621,6 +624,32 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
 - Eine Sicherung bringt ihren Versionsvermerk nicht mit, wenn das Ziel schon einen hat:
   `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
   dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
+
+**Update Gesamttest Belege** (Migration `46371a6681c2` nach `a14acef69fae`: Spalte
+`belege.steuerkennzeichen`, der Steuerfall einer Rechnung ohne Steuerausweis): ohne die
+Migration scheitern Befehle an der neuen Spalte — die Datenbank wie oben mit `accounti db
+upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Ohne
+Versionsvermerk erkennt `db upgrade` den Stand `a14acef69fae` an der fehlenden Spalte
+(`init_db` ergänzt keine Spalten an vorhandenen Tabellen).
+Eine Datenbank, die schon auf dem Entwicklungszweig von Paket C mit `alembic upgrade
+head` migriert wurde, trägt den Vermerk `46371a6681c2`, ihr fehlen aber die
+Migrationen von main dazwischen (`6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`: Tabelle
+`verrechnungen`, `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`,
+`ausgangspositionen.elektronisch`, `anlagegueter.buchung_id`) — dort hing `46371a6681c2`
+noch an `ddc9a184ddb4`. `db upgrade` erkennt das (einer vorhandenen Tabelle fehlen
+Spalten des Codes), bricht ab und nennt den verlustfreien Weg:
+
+```bash
+docker compose run --rm app sicherung erstellen --ziel /arbeit/daten/sicherungen/
+docker compose run --rm --entrypoint alembic app -c /app/alembic.ini stamp --purge ddc9a184ddb4
+docker compose run --rm app db upgrade      # holt die vier Migrationen nach
+```
+
+Die Migration `46371a6681c2` übernimmt die schon vorhandene Spalte
+`belege.steuerkennzeichen` samt Inhalt. Im Quellbaum entsprechend `alembic stamp --purge
+ddc9a184ddb4` (Datenbank aus `ACCOUNTI_DB` bzw. `sqlalchemy.url`) und `accounti db
+upgrade --db …`. Allgemein nennt die Meldung den Stand, den das Schema zeigt; fehlende
+Tabellen allein lösen sie nicht aus (`init_db` legt Tabellen ohne Migration selbst an).
 
 **Update Gesamttest Debitoren** (Migration `a14acef69fae` nach `2f7c7043043e`: Tabelle
 `verrechnungen` mit SQLite-Triggern, Spalten `ausgangsrechnungen.rechnungstyp`/
