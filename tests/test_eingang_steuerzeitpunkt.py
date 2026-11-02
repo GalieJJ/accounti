@@ -241,8 +241,13 @@ def test_13b_gutschrift_bleibt_im_zeitraum_der_aenderung(make_session):
         ("AE", False, date(2026, 4, 10), date(2026, 3, 5), "§ 13b Abs. 4 Satz 2"),
         # gleicher Monat: Rechnungsdatum ohne Hinweis
         ("AE", True, date(2026, 3, 1), date(2026, 3, 5), None),
-        # ig. Erwerb: Rechnung vor der Lieferung — mit Ausstellung der Rechnung
-        ("K", True, date(2026, 4, 10), date(2026, 3, 5), None),
+        # ig. Erwerb: Rechnung vor der Lieferung — die Steuer entsteht nicht vor dem
+        # Erwerb (§ 13 Abs. 1 Nr. 6 setzt ihn voraus, keine Anzahlungsregel;
+        # Nachprüfung Runde 2: vorher ohne Hinweis)
+        ("K", True, date(2026, 4, 10), date(2026, 3, 5), "nicht vor dem Erwerb"),
+        ("K", False, date(2026, 4, 10), date(2026, 3, 5), "§ 13 Abs. 1 Nr. 6"),
+        # gleicher Monat: kein Hinweis
+        ("K", True, date(2026, 3, 20), date(2026, 3, 5), None),
         # § 13b Abs. 2 Rechnung im Folgemonat: Rechnungsdatum ohne Hinweis
         ("AE", False, date(2026, 2, 27), date(2026, 3, 5), None),
     ],
@@ -321,3 +326,132 @@ def test_gutschrift_mit_nachlasszeile_bleibt_gutschrift(make_session):
     v = _verbuche(make_session, beleg)
     assert _tage(v) == [(date(2026, 3, 5), 94)]
     assert [b.betrag_netto for b in v.buchungen] == [D("200.00")]
+
+
+# --- Nachprüfung Runde 2 (Steuer, Niedrig) ----------------------------------------
+
+
+def _va_uebermittelt(make_session, zeitraum):
+    from accounti.elster.protokoll import neuer_eintrag, protokolliere
+    from accounti.models.elster import Meldeart, Modus
+
+    with make_session() as s:
+        protokolliere(
+            s,
+            neuer_eintrag(
+                None,
+                art=Meldeart.USTVA,
+                zeitraum=zeitraum,
+                modus=Modus.ECHT,
+                weg="eric",
+                datensatz="<Elster/>",
+                erfolgreich=True,
+                ergebnis="ok",
+                pruefbericht="",
+            ),
+        )
+        s.commit()
+
+
+@pytest.mark.parametrize(
+    ("lieferant", "kennzeichen", "leistung", "rechnung", "tag"),
+    [
+        # umdatiert: § 13b Abs. 1, Abs. 2 (Ende Folgemonat), ig. Erwerb
+        (WIEN, "AE", date(2026, 2, 20), date(2026, 3, 5), date(2026, 2, 20)),
+        (HUBER, "AE", date(2026, 1, 10), date(2026, 3, 5), date(2026, 2, 28)),
+        (PARIS, "K", date(2026, 1, 10), date(2026, 3, 5), date(2026, 2, 28)),
+        # nicht umdatiert: Rechnung vom 25.02., erst im März erfasst
+        (HUBER, "AE", date(2026, 2, 10), date(2026, 2, 25), date(2026, 2, 25)),
+    ],
+)
+def test_steuer_des_empfaengers_in_uebermittelter_voranmeldung(
+    make_session, lieferant, kennzeichen, leistung, rechnung, tag
+):
+    """Die Voranmeldung 02 ist schon übermittelt, die Rechnung kommt erst am 16.03.:
+    Steuer und Vorsteuer gehören nach 02 und fehlen dort. Wie im Ausgang sagt die
+    Verbuchung das — bei vollem Vorsteuerabzug ohne Pflicht nach § 153 Abs. 1 AO
+    (die Zahllast ändert sich nicht), sonst mit."""
+    _va_uebermittelt(make_session, "2026-02")
+    beleg = _beleg(
+        kennzeichen=kennzeichen,
+        leistungsdatum=leistung,
+        belegdatum=rechnung,
+        eingegangen_am=datetime(2026, 3, 16, 9, 0),
+        **lieferant,
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v)[0][0] == tag
+    (h,) = [h for h in v.hinweise if "übermittelt" in h]
+    assert "Voranmeldung 2026-02" in h and "ustva freigeben --period 2026-02" in h, h
+    assert "Zahllast" in h and "§ 153 Abs. 1 AO" in h, h
+
+
+def test_ohne_uebermittelte_voranmeldung_kein_hinweis(make_session):
+    _va_uebermittelt(make_session, "2026-01")
+    v = _verbuche(make_session, _beleg(leistungsdatum=date(2026, 2, 20)))
+    assert not any("übermittelt" in h for h in v.hinweise), v.hinweise
+
+
+@pytest.mark.parametrize(
+    ("gewinnermittlung", "tag"),
+    [("bilanz", date(2025, 12, 20)), ("euer", date(2026, 1, 10))],
+)
+def test_leistung_im_vorjahr_bei_bilanz_und_euer(make_session, gewinnermittlung, tag):
+    """§ 13b Abs. 1, Leistung 20.12.2025, Rechnung 10.01.2026. Bei der Bilanz gehören
+    Aufwand und Verbindlichkeit ins alte Jahr, die Buchung zum Leistungsdatum ist
+    richtig. Bei der EÜR zählt der Abfluss (§ 11 Abs. 2 EStG): Die Buchung bleibt
+    beim Rechnungsdatum, der Hinweis nennt die Voranmeldung 12/2025, in die Steuer und
+    Vorsteuer gehören — vorher stand der Aufwand in der EÜR 2025."""
+    beleg = _beleg(
+        belegdatum=date(2026, 1, 10),
+        leistungsdatum=date(2025, 12, 20),
+        eingegangen_am=datetime(2026, 1, 12, 9, 0),
+    )
+    v = _verbuche(make_session, beleg, gewinnermittlung=gewinnermittlung)
+    assert _tage(v) == [(tag, 94)]
+    if gewinnermittlung == "euer":
+        (h,) = [h for h in v.hinweise if "12/2025" in h]
+        assert "§ 11 Abs. 2 EStG" in h and "Voranmeldung 12/2025" in h, h
+        assert "01/2026" in h, h
+
+
+def test_leistungsjahr_abgeschlossen_nennt_abschluss_oeffnen(make_session):
+    """Ist das Jahr der Leistung abgeschlossen, hilft ``periode oeffnen`` nicht (der
+    Monat ist nicht einzeln geschlossen) — der Hinweis nennt ``abschluss oeffnen``."""
+    from accounti.db.repo_abschluss import setze_jahresabschluss
+    from accounti.models.abschluss import Jahresabschluss
+
+    with make_session() as s:
+        setze_jahresabschluss(
+            s,
+            Jahresabschluss(
+                jahr=2025,
+                gesperrt=True,
+                gewinnermittlung="bilanz",
+                ergebnis=D("0"),
+                abgeschlossen_am=date(2026, 1, 5),
+                von="chef",
+            ),
+        )
+        s.commit()
+    beleg = _beleg(
+        belegdatum=date(2026, 1, 10),
+        leistungsdatum=date(2025, 12, 20),
+        eingegangen_am=datetime(2026, 1, 12, 9, 0),
+    )
+    v = _verbuche(make_session, beleg)
+    assert _tage(v) == [(date(2026, 1, 10), 94)]
+    (h,) = [h for h in v.hinweise if "12/2025" in h]
+    assert "accounti abschluss oeffnen --jahr 2025" in h, h
+    assert "periode oeffnen" not in h, h
+
+
+def test_hinweis_nennt_grundstuecksbezogene_leistung(make_session):
+    """§ 13b Abs. 1 gilt nur für Leistungen nach § 3a Abs. 2 UStG. Eine
+    grundstücksbezogene Leistung eines EU-Unternehmers (§ 3a Abs. 3 Nr. 1, z. B.
+    Gebäudereinigung) fällt unter Abs. 2 Nr. 1 — accounti erkennt die Leistungsart
+    nicht; der Hinweis zur Umdatierung nennt den Fall."""
+    v = _verbuche(make_session, _beleg(leistungsdatum=date(2026, 2, 27)))
+    (h,) = [h for h in v.hinweise if "§ 13b Abs. 1" in h]
+    assert "grundstücksbezogen" in h and "§ 3a Abs. 3 Nr. 1" in h, h
+    assert "§ 13b Abs. 2 Nr. 1" in h, h

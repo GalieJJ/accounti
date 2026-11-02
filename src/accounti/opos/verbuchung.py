@@ -503,7 +503,14 @@ def verbuche_beleg(
     if eingang:
         # § 13b / ig. Erwerb: zum Tag, an dem die Steuer entsteht
         empfaenger = _steuertage_empfaenger(
-            session, beleg, belegdatum, gebucht_am, land, gutschrift is not None, anlass
+            session,
+            beleg,
+            belegdatum,
+            gebucht_am,
+            land,
+            gutschrift is not None,
+            anlass,
+            gewinnermittlung,
         )
         tag_fuer = _tag_je_steuerfall(empfaenger, gebucht_am)
     gruppen = _gruppen(
@@ -516,11 +523,11 @@ def verbuche_beleg(
         tag_fuer,
         ustid_bestaetigt,
     )
-    for fall, (_, hinweis) in empfaenger.items():
-        if hinweis and any(
+    for fall, (_, texte) in empfaenger.items():
+        if any(
             _STEUERFALL_DES_SCHLUESSELS.get(g.schluessel or 0) == fall for g in gruppen
         ):
-            hinweise.append(hinweis)
+            hinweise += [h for h in texte if h not in hinweise]
     vorsteuer = [g.steuer for g in gruppen if g.schluessel in (8, 9) and g.steuer]
     abzug = any(s > 0 for s in vorsteuer)
     selbst_berechnet = any(g.schluessel in SELBST_BERECHNET for g in gruppen)
@@ -936,37 +943,69 @@ def _steuertage_empfaenger(
     land: str,
     gutschrift: bool,
     anlass: str,
-) -> dict[str, tuple[date, str | None]]:
-    """Steuerfall AE/K → (Buchungstag, Hinweis): der Tag, an dem die Steuer entsteht,
+    gewinnermittlung: str | None = None,
+) -> dict[str, tuple[date, list[str]]]:
+    """Steuerfall AE/K → (Buchungstag, Hinweise): der Tag, an dem die Steuer entsteht,
     die der Empfänger schuldet (``steuer/leistungszeitpunkt.py``, Nachprüfung Merge
-    N-4) — eine Gutschrift bleibt beim Buchungstag (§ 17 Abs. 1 S. 8 UStG). Liegt der
-    Tag in einem festgeschriebenen Monat oder abgeschlossenen Jahr, bleibt es beim
-    Buchungstag des Belegs, mit Hinweis auf die zu berichtigende Voranmeldung."""
+    N-4) — eine Gutschrift bleibt beim Buchungstag (§ 17 Abs. 1 S. 8 UStG).
+
+    Es bleibt beim Buchungstag des Belegs, mit Hinweis auf die Voranmeldung, in die
+    Steuer und Vorsteuer gehören,
+
+    * wenn der Tag in einem festgeschriebenen Monat oder abgeschlossenen Jahr liegt
+      (der Hinweis nennt ``periode oeffnen`` bzw. ``abschluss oeffnen``),
+    * bei der Einnahmenüberschussrechnung über den Jahreswechsel: Der Aufwand gehört
+      ins Jahr des Abflusses (§ 11 Abs. 2 EStG), nicht ins Leistungsjahr — accounti
+      kann Aufwand und Steuer einer Buchung nicht trennen (Nachprüfung Runde 2).
+
+    Ist die Voranmeldung des Zeitraums schon übermittelt, fehlen Steuer und Vorsteuer
+    darin: Hinweis auf die berichtigte Voranmeldung (``_abgegebene_voranmeldung``)."""
     if gutschrift:
         return {}
     eu = land.upper() != "DE" and ist_eu_land(land)
-    tage: dict[str, tuple[date, str | None]] = {}
+    tage: dict[str, tuple[date, list[str]]] = {}
     for fall in SCHLUESSEL_FUER_STEUERFALL:
         tag, hinweis = steuertag_empfaenger(belegdatum, beleg.leistungsdatum, fall, eu)
-        gesperrt = ist_gesperrt(session, tag.year) or (
-            sperrfehler(session.connection(), tag) is not None
-        )
-        if tag != gebucht_am and gesperrt:
+        regel = _REGEL_EMPFAENGER[(fall, eu)]
+        jahr_zu = ist_gesperrt(session, tag.year)
+        gesperrt = jahr_zu or sperrfehler(session.connection(), tag) is not None
+        if gewinnermittlung == "euer" and tag.year != gebucht_am.year:
             hinweis = (
-                f"die Steuer nach {_REGEL_EMPFAENGER[(fall, eu)]} gehört in den "
-                f"Voranmeldungszeitraum {tag:%m/%Y}, der ist festgeschrieben — gebucht "
-                f"am {gebucht_am:%d.%m.%Y}, zählt sie in {gebucht_am:%m/%Y}; Buchung "
-                f"zur Prüfung: den Monat mit Grund öffnen (accounti periode oeffnen "
-                f"{tag:%Y-%m} --grund …) und umbuchen, die Voranmeldung {tag:%m/%Y} "
+                f"die Steuer nach {regel} gehört in den Voranmeldungszeitraum "
+                f"{tag:%m/%Y} — bei der Einnahmenüberschussrechnung bleibt die Buchung "
+                f"am {gebucht_am:%d.%m.%Y}, der Aufwand gehört ins Jahr des Abflusses "
+                f"(§ 11 Abs. 2 EStG); Steuer und Vorsteuer zählen so in "
+                f"{gebucht_am:%m/%Y} statt in der Voranmeldung {tag:%m/%Y} (§ 15 "
+                "Abs. 1 S. 1 Nr. 3, 4 UStG): bei vollem Vorsteuerabzug ändert das die "
+                f"Zahllast nicht, die Kennzahlen gehören aber nach {tag:%m/%Y} — "
+                "berichtigen bzw. mit dem Steuerberater klären"
+            )
+            tag = gebucht_am
+        elif tag != gebucht_am and gesperrt:
+            oeffnen = (
+                f"das Geschäftsjahr mit Grund öffnen (accounti abschluss oeffnen "
+                f"--jahr {tag.year})"
+                if jahr_zu
+                else f"den Monat mit Grund öffnen (accounti periode oeffnen "
+                f"{tag:%Y-%m} --grund …)"
+            )
+            hinweis = (
+                f"die Steuer nach {regel} gehört in den Voranmeldungszeitraum "
+                f"{tag:%m/%Y}, der ist festgeschrieben — gebucht am "
+                f"{gebucht_am:%d.%m.%Y}, zählt sie in {gebucht_am:%m/%Y}; Buchung zur "
+                f"Prüfung: {oeffnen} und umbuchen, die Voranmeldung {tag:%m/%Y} "
                 "berichtigen (Steuer und Vorsteuer, § 15 Abs. 1 S. 1 Nr. 3, 4 UStG)"
             )
             tag = gebucht_am
-        tage[fall] = (tag, f"{anlass}: {hinweis}" if hinweis else None)
+        texte = [f"{anlass}: {hinweis}"] if hinweis else []
+        if berichtigung := _abgegebene_voranmeldung(session, tag, selbst=True):
+            texte.append(f"{anlass}: {berichtigung}")
+        tage[fall] = (tag, texte)
     return tage
 
 
 def _tag_je_steuerfall(
-    tage: dict[str, tuple[date, str | None]], sonst: date
+    tage: dict[str, tuple[date, list[str]]], sonst: date
 ) -> Callable[[str | None], date]:
     return lambda fall: tage[fall][0] if fall in tage else sonst
 
@@ -1038,20 +1077,36 @@ def _pruefe_sperre(
 
 
 def _abgegebene_voranmeldung(
-    session: Session, tag: date, *, minderung: bool = False
+    session: Session, tag: date, *, minderung: bool = False, selbst: bool = False
 ) -> str | None:
     """Ist die Voranmeldung des Zeitraums schon übermittelt (Monat oder Quartal), fehlt
     die Umsatzsteuer dieser Buchung darin — sie ist zu berichtigen (§ 153 Abs. 1 AO,
     berichtigte Anmeldung mit Kz 10). Eine ``minderung`` (Gutschrift, Korrektur nach
     unten) verkürzt keine Steuer: keine Pflicht nach § 153 Abs. 1 AO, die berichtigte
     Anmeldung ist nur möglich (§ 164 Abs. 2, § 168 AO) — sonst erfasst sie die
-    Jahreserklärung. Festgeschriebene Monate lehnt ``_pruefe_sperre`` vorher ab."""
+    Jahreserklärung. Festgeschriebene Monate lehnt ``_pruefe_sperre`` vorher ab.
+
+    ``selbst``: Steuer, die der Empfänger schuldet (§ 13b, ig. Erwerb, Eingang). Mit
+    ihr fehlt die Vorsteuer desselben Zeitraums (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG) — bei
+    vollem Vorsteuerabzug ändert sich die Zahllast nicht, die Kennzahlen sind aber
+    unvollständig; eine Pflicht nach § 153 Abs. 1 AO besteht erst, wenn der Abzug ganz
+    oder teilweise ausgeschlossen ist (Nachprüfung Runde 2)."""
     for zeitraum in (
         Zeitraum.monat_von(tag),
         Zeitraum(tag.year, quartal=(tag.month - 1) // 3 + 1),
     ):
         if not abgegeben(session, Meldeart.USTVA, str(zeitraum)):
             continue
+        if selbst:
+            return (
+                f"Die Voranmeldung {zeitraum} ist schon übermittelt — Steuer und "
+                f"Vorsteuer des § 13b- bzw. Erwerbsteils (gebucht am {tag:%d.%m.%Y}) "
+                "fehlen darin: bei vollem Vorsteuerabzug ändert sich die Zahllast "
+                "nicht, die Kennzahlen sind unvollständig — berichtigte Voranmeldung "
+                f"(accounti ustva freigeben --period {zeitraum}, dann uebermitteln); "
+                "Pflicht nach § 153 Abs. 1 AO, wenn der Vorsteuerabzug ganz oder "
+                "teilweise ausgeschlossen ist"
+            )
         if minderung:
             return (
                 f"Die Voranmeldung {zeitraum} ist schon übermittelt — die Minderung "

@@ -31,9 +31,15 @@ Schuldet der Leistungsempfänger die Steuer (Eingangsrechnung,
 
 die Vorsteuer ist im selben Zeitraum abziehbar, ohne dass die Rechnung vorliegen muss
 (§ 15 Abs. 1 S. 1 Nr. 3, 4 UStG). Welcher Absatz gilt, entscheidet accounti wie die
-Voranmeldung (Kz 46/47 oder 84/85) nach dem Land des Leistenden — eine Werklieferung
-eines EU-Unternehmers (§ 13b Abs. 2 Nr. 1) erkennt es nicht. Dauerleistungen
-(§ 13b Abs. 3) und Anzahlungen (§ 13b Abs. 4 Satz 2) bildet accounti nicht ab.
+Voranmeldung (Kz 46/47 oder 84/85) nach dem Land des Leistenden. Abs. 1 erfasst nur
+Leistungen nach § 3a Abs. 2 UStG — eine Werklieferung oder grundstücksbezogene Leistung
+(§ 3a Abs. 3 Nr. 1, z. B. Bau, Gebäudereinigung) eines EU-Unternehmers fällt unter
+Abs. 2 Nr. 1; die Leistungsart erkennt accounti nicht, der Hinweis nennt den Fall.
+Liegt die Leistung bzw. Lieferung nach dem Rechnungsdatum, bleibt es beim
+Rechnungsdatum mit Hinweis: Die Steuer entsteht nicht vor der Leistung (§ 13b Abs. 4
+S. 2: bei Zahlung vorher mit ihr) bzw. nicht vor dem Erwerb (§ 13 Abs. 1 Nr. 6 setzt
+ihn voraus, Art. 68, 69 MwStSystRL). Dauerleistungen (§ 13b Abs. 3) und Anzahlungen
+(§ 13b Abs. 4 Satz 2) bildet accounti nicht ab.
 """
 
 from __future__ import annotations
@@ -121,8 +127,10 @@ def steuertag_empfaenger(
                 "Leistung eines EU-Unternehmers entsteht die Steuer mit Ablauf des "
                 "Voranmeldungszeitraums der Leistung (§ 13b Abs. 1 UStG), die "
                 "Vorsteuer im selben Zeitraum (§ 15 Abs. 1 S. 1 Nr. 4 UStG); bei einer "
-                "Werklieferung gilt § 13b Abs. 2 Nr. 1 (Rechnungsmonat, spätestens "
-                "Folgemonat; Kz 84/85)"
+                "Werklieferung oder einer grundstücksbezogenen Leistung (§ 3a Abs. 3 "
+                "Nr. 1 UStG, z. B. Bauleistung, Gebäudereinigung) gilt § 13b Abs. 2 "
+                "Nr. 1 (Rechnungsmonat, spätestens Folgemonat; Kz 84/85) — die "
+                "Leistungsart erkennt accounti nicht"
             )
     elif leistung is not None:
         spaetestens = ende_folgemonat(leistung)
@@ -139,16 +147,23 @@ def steuertag_empfaenger(
                 f"des Folgemonats ({regel}), die Vorsteuer im selben Zeitraum (§ 15 "
                 f"Abs. 1 S. 1 {vorsteuer} UStG)"
             )
-    if (
-        fall == "AE"
-        and leistung is not None
-        and _monat(leistung) > _monat(rechnungsdatum)
-    ):
+    if leistung is None or _monat(leistung) <= _monat(rechnungsdatum):
+        return rechnungsdatum, None
+    if fall == "K":
+        # Steuertatbestand ist der Erwerb (Art. 68 MwStSystRL), die Rechnung zieht
+        # die Entstehung nur vor, wenn er bewirkt ist (Art. 69); § 13 Abs. 1 Nr. 6
+        # UStG kennt keine Anzahlungsregel (Nachprüfung Runde 2)
         return rechnungsdatum, (
-            f"Leistung am {leistung:%d.%m.%Y} nach dem Rechnungsdatum: gebucht zum "
-            "Rechnungsdatum — nach § 13b entsteht die Steuer nicht vor der Leistung, "
-            "bei Zahlung vorher mit Ablauf des Voranmeldungszeitraums der Zahlung "
-            "(§ 13b Abs. 4 Satz 2 UStG); Anzahlungen bildet accounti nicht gesondert "
-            "ab — prüfen"
+            f"Lieferung am {leistung:%d.%m.%Y} nach dem Rechnungsdatum: gebucht zum "
+            "Rechnungsdatum — die Steuer auf den ig. Erwerb entsteht nicht vor dem "
+            "Erwerb (§ 13 Abs. 1 Nr. 6 UStG, Art. 68, 69 MwStSystRL; eine Anzahlung "
+            "löst sie nicht aus): Steuer und Vorsteuer (Kz 89/93, 61) gehören in den "
+            f"Monat der Lieferung ({leistung:%m/%Y}) — prüfen und umbuchen"
         )
-    return rechnungsdatum, None
+    return rechnungsdatum, (
+        f"Leistung am {leistung:%d.%m.%Y} nach dem Rechnungsdatum: gebucht zum "
+        "Rechnungsdatum — nach § 13b entsteht die Steuer nicht vor der Leistung, "
+        "bei Zahlung vorher mit Ablauf des Voranmeldungszeitraums der Zahlung "
+        "(§ 13b Abs. 4 Satz 2 UStG); Anzahlungen bildet accounti nicht gesondert "
+        "ab — prüfen"
+    )
