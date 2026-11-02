@@ -1340,3 +1340,49 @@ def test_vielleicht_gebucht_geht_hinter_einem_anderen_befund_nicht_unter(umgebun
     gleiche_auszahlungen_ab(s, kontext)
     codes = sorted(b.code for b in _befunde(s, "11223344556", hinweise=True))
     assert codes == ["auszahlung_abweichung", "auszahlung_vielleicht_gebucht"]
+
+
+# --- Mb-Rest: ``accounti opos zuordnen`` allein --------------------------------------
+
+
+def test_opos_zuordnen_schlaegt_zurueckgehaltene_auszahlung_keiner_forderung_vor(
+    tmp_path, monkeypatch
+):
+    """Mb-Rest (Nachprüfung 7 E, g7b mb_rest): Regel 4 hält die Amazon-Auszahlung
+    zurück (Warnung mit dem zuordnen-Befehl); ``bank lauf`` gibt sie opos nicht
+    (Mb), ``accounti opos zuordnen`` allein schlug sie aber weiter der fremden
+    Forderung gleichen Betrags vor — bestätigt, folgte „schon gebucht“. Es lässt
+    jetzt wie ``bank lauf`` aus, worüber der Abgleich einen Befund hat."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.integrationen.einstellungen import lade_kontext
+
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    url = f"sqlite:///{tmp_path / 'o.db'}"
+    config = str(tmp_path / "fehlt.yaml")
+    engine, make = session_factory(url)
+    init_db(engine)
+    kontext = lade_kontext(config)
+    with make() as s:
+        _amazon_september(s, BelegArchiv(tmp_path / "archiv"), kontext)
+        _forderung(s, "RE-2026-77", "209.85", tag=date(2026, 8, 20))
+        tx = bank(
+            s,
+            date(2026, 9, 3),
+            "209.85",
+            "AMAZON PAYMENTS EUROPE EREF 11223399999",
+            "Amazon Payments Europe S.C.A.",
+        )
+        gleiche_auszahlungen_ab(s, kontext)
+        s.commit()
+    engine.dispose()
+    r = CliRunner().invoke(app, ["opos", "zuordnen", "--db", url, "--config", config])
+    assert r.exit_code == 0, r.output
+    assert "0 Vorschläge" in r.output, r.output
+    engine, make = session_factory(url)
+    with make() as s:
+        assert not [z for z in lade_zuordnungen(s) if z.transaktion_id == tx.id]
+    engine.dispose()

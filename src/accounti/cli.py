@@ -2055,8 +2055,12 @@ def opos_zuordnen(
     if posten:
         console.print("[red]--posten nur zusammen mit --transaktion[/red]")
         raise typer.Exit(1)
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
+
     try:
         einstellungen = lade_buchhaltung(config)
+        kontext = lade_kontext(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2065,7 +2069,15 @@ def opos_zuordnen(
     engine, make_session = session_factory(db)
     init_db(engine)
     with laufsperre_oder_ende(db), make_session() as s:
-        lauf = zuordne_zahlungen(s, einstellungen, zeitraum=period)
+        # wie bank lauf: eine Auszahlung, über die der Marktplatz-Abgleich einen
+        # Befund hätte, ist nie die Zahlung einer Forderung (Nachprüfung 6 E, Mb;
+        # 7 E, Mb-Rest — opos zuordnen gleicht selbst nicht ab)
+        lauf = zuordne_zahlungen(
+            s,
+            einstellungen,
+            zeitraum=period,
+            auslassen=umsaetze_ohne_abgleich(s, kontext),
+        )
         s.commit()
 
     def anteile_text(vorschlag: "Zuordnungsvorschlag") -> str:
