@@ -176,3 +176,18 @@ def test_neunstellige_bereiche_erlaubt():
         kreditoren_bis=999999999,
     )
     assert b.kreditoren_bis == 999999999
+
+
+def test_cli_export_kaputtes_yaml_meldung_statt_traceback(cli_welt):
+    """export_kaputt.py: „mandant: [unclosed“ endete in export datev mit ParserError
+    (aus lade_buchhaltung, vor der Sachkontenlänge)."""
+    tmp_path, url = cli_welt
+    konfig = _konfig(tmp_path, "mandant: [unclosed\n")
+    rc, text = _export(tmp_path, url, konfig)
+    assert rc == 1 and "kein gültiges YAML" in text, text
+    assert "Traceback" not in text
+
+
+def test_lade_buchhaltung_kaputtes_yaml(tmp_path):
+    with pytest.raises(KonfigurationError, match="kein gültiges YAML"):
+        lade_buchhaltung(_konfig(tmp_path, "buchhaltung: [unclosed\n"))

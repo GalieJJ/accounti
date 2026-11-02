@@ -243,7 +243,11 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     pfad = Path(pfad)
     if not pfad.is_file():
         return Buchhaltung()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    try:
+        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as fehler:
+        # sonst endete z. B. export datev mit ParserError (Runde 6, g5w-konten N2)
+        raise KonfigurationError(f"{pfad}: kein gültiges YAML ({fehler})") from fehler
     abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
     mandant = daten.get("mandant") if isinstance(daten, dict) else None
     werte: Any = abschnitt or {}
