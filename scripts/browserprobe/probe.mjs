@@ -287,7 +287,8 @@ async function main() {
             const viewport = { width: breite, height: HOEHEN[breite] ?? 900 };
             const colorScheme = thema === 'dunkel' ? 'dark' : 'light';
             // Kontext ohne Umgehung: CSP-Meldungen, Scrollbreite, Maße, Fokus, Bild
-            const seite = await normal.newPage({ viewport });
+            const seite = await normal.newPage();
+            await seite.setViewportSize(viewport);
             await seite.emulateMedia({ colorScheme });
             const konsole = [];
             seite.on('console', (m) => {
@@ -296,6 +297,8 @@ async function main() {
             seite.on('pageerror', (e) => konsole.push(`Fehler: ${e.message}`));
             const antwort = await seite.goto(welt.basis + s.pfad, { waitUntil: 'load' });
             eintrag.status = antwort?.status();
+            const fenster = await seite.evaluate(() => window.innerWidth);
+            if (fenster !== breite) throw new Error(`Fenster ${fenster} statt ${breite} px`);
             if (breite <= 390) eintrag.messungen.ak1 = await MESSUNGEN.ak1(seite);
             if (s.vorlage === '/muster' && !auslassen.has('masse') && breite === 1440) {
               if (s.thema) {
@@ -320,7 +323,8 @@ async function main() {
             await seite.close();
             // Kontext mit bypassCSP: axe-core
             if (breite !== 320 && !auslassen.has('axe')) {
-              const p = await umgangen.newPage({ viewport });
+              const p = await umgangen.newPage();
+              await p.setViewportSize(viewport);
               await p.emulateMedia({ colorScheme });
               await p.goto(welt.basis + s.pfad, { waitUntil: 'load' });
               eintrag.messungen.ak2 = await MESSUNGEN.ak2(p, { axe });
@@ -372,7 +376,8 @@ async function vergleich(browser, welt, leinwandOrdner, tag, name) {
   const zeilen = [];
   for (const v of VERGLEICH) {
     for (const thema of v.themen) {
-      const seite = await kontext.newPage({ viewport: { width: v.breite, height: HOEHEN[v.breite] ?? 900 } });
+      const seite = await kontext.newPage();
+      await seite.setViewportSize({ width: v.breite, height: HOEHEN[v.breite] ?? 900 });
       await seite.emulateMedia({ colorScheme: thema === 'dunkel' ? 'dark' : 'light' });
       const antwort = await seite.goto(welt.basis + v.pfad);
       const bild = `${datei(v.pfad)}-${v.breite}-${thema}.png`;
