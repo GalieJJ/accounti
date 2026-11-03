@@ -185,11 +185,26 @@ Transaktion
 └──────────────┘
 ```
 
+**Stufe 3 — Lernschleife** (`lernen.py`): Aus der Korrektur eines Kontierungsvorschlags entsteht
+auf Wunsch eine Regel (Text-Muster: der ganze Name der Gegenpartei ohne Rechtsform, sonst das
+erste Wort des Verwendungszwecks; nur ganze Wörter, Zahlungsrichtung des Umsatzes, Konten der
+Korrektur mit dem Finanzkonto auf seiner Seite, Schlüssel der Neubuchung), mit Vorschau der
+Treffer und der verdrängten Regel; trifft das Muster andere Gegenparteien oder jeden Kauf über
+einen Zahlungsdienst oder hat der Umsatz keinen Namen der Gegenpartei, speichert
+`pruefschlange.korrigieren` sie nur mit Bestätigung. Eine Korrektur darf das Finanzkonto nur
+gegen ein anderes eingerichtetes Bankkonto tauschen (`Bankkontowechsel`, mit Warnung, ohne
+Regel). Gelernte Regeln — auch Regexe aus `accounti lerne` — liegen
+je Gesellschaft in der Tabelle `kontierungsregeln` (im Journal, nur deaktivierbar) und gehen in
+`lade_regelwerk` vor der Regeldatei und den Standardregeln — die erste passende Regel gewinnt.
+`buchhaltung.gelernte_regeln` schaltet sie auf automatisch, vorlegen oder aus. Bei Belegbuchungen
+lernt der Kontakt sein Sachkonto. Jede Kontierung speichert Quelle, Regel und Begründung in
+`kontierungsgruende` (auch Kreditkarte, Anlagen, Marktplatz, offene Posten; nur anfügen).
+
 ### `buchung/`
 
 Erzeugt vollständige Buchungssätze (Soll/Haben) aus Klassifikationsergebnissen. Berücksichtigt Steuerautomatik, Belegverknüpfung, Kostenstellen.
 
-`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. *(vorhanden)*
+`kontierung.py` ist der Kontierungslauf (`classify`): Ein Umsatz mit bestätigtem Beleg wird über `mit_beleg.py` aus dem Beleg gebucht — je Steuersatz ein Buchungssatz, Vorsteuer aus dem Beleg, Sachkonto aus Kontakt oder Regelwerk auf die Belegdaten; der Buchungssatz trägt Transaktion und Beleg; zahlt der Umsatz mehr oder weniger als der Beleg (Trinkgeld, Rundung), wird die Differenz eine eigene Zeile ohne Steuerschlüssel zur Prüfung. Umsätze, die der Marktplatz-Abgleich erwartet (`marktplatz.py`: Stichwort eines Marktplatzes bei Zahlungseingang, offene Aus-/Einzahlung einer importierten Abrechnung), bleiben offen. Alle anderen Umsätze gehen durch Regelwerk und LLM. Eine Buchung mit demselben Konto im Soll und im Haben legt der Lauf nie an — gleich aus welcher Quelle (Beleg, Regel, Gegenbuchung, LLM): Der Umsatz bleibt offen, `Kontierungslauf.umbuchungen` nennt ihn (meist eine Umbuchung zwischen eigenen Geldkonten). Belegbuchung und OPOS nehmen kein Zahlungsmittel, Personenkonto und kein Sammelkonto der Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen (`lul_konten`) als Sachkonto — andere Bestandskonten (Wertpapiere, Festgeld) schon; Ausgangsbelege buchen auf die Erlöskonten des Kontenrahmens (`konten.erloeskonten`, OSS je Bestimmungsland SKR03 8320–8327, SKR04 4320–4327). Eine Buchung mit Soll = Haben lehnen auch Korrektur, Kassenbuch und Freigabe ab. *(vorhanden)*
 
 Zweiter Pfad über Personenkonten (`opos/verbuchung.py`): Liegt ein erfasster Beleg vor, wird gegen Kreditor bzw. Debitor gebucht und ein offener Posten erzeugt; der Buchungssatz trägt dann `beleg_id` statt `transaktion_id`. Der bestehende Pfad (Bankbuchung ohne Beleg) bleibt — für Gebühren, Zinsen und Ähnliches ist er weiterhin richtig. *(vorhanden)*
 
@@ -262,12 +277,27 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   prüft Kette, Anker, Übernahmen, Verlauf je Objekt und den Bestand (Buchungen, Belege,
   Verrechnungen, Sperren) aus einem Stand (`lesestand`: PostgreSQL-Schnappschuss, SQLite-Lesetransaktion).
   Person und Grund aus `person.journal_kontext` — mit Benutzern setzt ihn die Rechteprüfung
-  der CLI (`befehle.handelnde_person`, geprüft), für API-Token die REST-API; jede andere
+  der CLI (`befehle.handelnde_person`, geprüft), im Browser die Sitzung
+  (`api/handeln.im_namen`), für API-Token die REST-API; jede andere
   Person kennzeichnet `fuege_an` als „(ungeprüft)“, sobald die Datenbank zu einer
-  Benutzerverwaltung gehört. *(vorhanden)*
+  Benutzerverwaltung gehört. Erfasst sind auch die gelernten Kontierungsregeln
+  (`kontierungsregeln`, mit Bestandsabgleich). *(vorhanden)*
 - `storno.py` — Freigabe, Korrektur (Vorschlag direkt, freigegeben per Storno mit
   Neubuchung), Storno als Gegenbuchung, Export-Vermerk; die Sperre freigegebener Buchungen
-  sitzt in `ereignisse.py`. *(vorhanden)*
+  sitzt in `ereignisse.py`. Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine
+  Korrektur, die die Seiten vertauscht (ein Konto wechselt die Seite, die aus den Konten
+  bestimmte Sachseite — `kennziffern.sachseite_aus_konten` — oder die Seite des
+  Erfolgskontos dreht, eine Kennziffer der Voranmeldung kehrt um —
+  `kennziffern.kennziffern_der_buchung`, auch eine neue negative), lehnt `korrigiere` ab
+  (§ 14c, § 17 UStG — Berichtigung als eigener Beleg) — gegen jeden früheren Stand der
+  Korrekturkette (`fruehere_staende`: `buchungskorrekturen` und Journal; ein Altbestand
+  zählt ab seinem Richtungswechsel), ohne bestimmte Seite gegen die der Rechnung (nicht bei
+  Zahlung, Erstattung, Verrechnung, Skonto zur gebuchten Rechnung). Den Schlüssel, den der
+  Beleg vorgibt (`schluessel_laut_beleg`), nimmt jede Korrektur an; auf einem Eingangsbeleg
+  ist ein Umsatzsteuerschlüssel ein Fehlschlüssel (`eingangsbeleg` — ohne eindeutige
+  Belegart entscheidet die Buchung: ein Erlös ist kein Eingang); ein Storno ohne Neubuchung, nach dem ausgewiesene USt
+  eines Belegs je Satz nicht mehr wirksam gebucht ist (`ust_luecken`), warnt (Prüfregel
+  `beleg_ust_ohne_buchung`). *(vorhanden)*
 - `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus
   Baustein 12: gemeinsame Fehlerklasse (`PeriodeGesperrtError` ist ein `JahrGesperrtError`),
   gemeinsames Abschlussprotokoll, `sperre_am`. *(vorhanden)*
@@ -417,7 +447,11 @@ Wirtschaftsjahr ab.
   § 13b und ig. Erwerb mit Steuerpaar `steuerpaare`, z. B. SKR03 1577/1787),
   EB-Werte, Summen- und Saldenliste. *(vorhanden)*
 - `kassenbuch.py` — Kassenbuch (Tabelle `kassenbuch`, nur anfügen): laufende Nummer, Bestand nie
-  negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos. *(vorhanden)*
+  negativ, auch nicht rückwirkend; jeder Vorgang wird Transaktion des Kassenkontos, nie in einem
+  abgeschlossenen Jahr oder festgeschriebenen Monat. Mit Gegenkonto (4–9 ASCII-Ziffern) und
+  Steuersatz (nur 19 oder 7 %) entsteht sofort eine geprüfte Buchung — nicht, wenn die Prüfregel
+  `steuerschluessel_konto` sie als Fehler einstuft (Vorsteuer auf Erlös, USt auf Aufwand, Steuer
+  auf einem Personenkonto). *(vorhanden)*
 - `pruefungen.py` — benannte Abschlussprüfungen mit Befunden (Fehler/Warnung/Hinweis): u. a.
   Bank-Saldenabstimmung gegen `kontoauszugssalden`, Kassenbuch, AfA, offene Vorschläge. *(vorhanden)*
 - `abgrenzung.py` — ARAP/PRAP-Vorschläge aus dem Leistungszeitraum, Auflösung je Folgejahr gleich
@@ -495,7 +529,7 @@ Rollen → Rechte (`ROLLEN_RECHTE`): `betrachter` lesen · `buchhalter` lesen, b
 einliefern, Läufe starten, Buchungen freigeben · `freigeber` lesen, Buchungen, Zahlungsläufe,
 Steuermeldungen freigeben · `verwalter` lesen, verwalten. Additiv, nicht hierarchisch.
 
-### `api/` *(Gerüst und REST-API vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
+### `api/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md); Auswertungen folgen)*
 
 FastAPI-Anwendung aus `app.erstelle_app(Dienste)`: Systemdatenbank, Gesellschaften und ihre
 Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Personenbezug
@@ -514,9 +548,37 @@ Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Per
 - `vorlagen/` + `vorlagen.py` (Jinja2, Autoescape, `basis.html`), `statisch/` (CSS), `formular.py`
   (urlencoded ohne `python-multipart`), `registry.py`, `einstellungen.py` (Abschnitt `server`).
 
-Die Oberfläche ruft dieselben Funktionen wie die CLI. Geplant auf diesem Gerüst: die
-Supervisions-Queue (links Beleg, rechts Vorschlag mit Confidence und Begründung, Korrektur in
-einem Schritt, Angebot einer Regel), Auswertungen, DE/EN.
+- `seiten/pruefen.py` — Supervisions-Queue: Liste, Arbeitsfläche (Beleg | Vorschlag mit
+  Confidence, Herkunft und Begründung | Aktionen), freigeben, korrigieren (mit Regel),
+  zurückstellen, Regelvorschau (HTMX-Fragment), gelernte Regeln. Ruft `buchung.pruefschlange` und
+  `klassifikation.lernen` — dieselben Funktionen wie `review`, `bestaetige`, `korrigiere`, `lerne`.
+- `seiten/buchungen.py` — Buchung mit Storno-Kette und Journal; Korrektur und Storno über
+  `pruefung.storno` (Baustein 7), mit frischem Einmalcode (`einmalcode.py`, auch für die
+  Freigaben in `seiten/freigaben.py`).
+- `seiten/belege.py`, `belegantwort.py` — Belegvorschau nur aus dem Archiv der aktiven
+  Gesellschaft: Typ aus dem Inhalt, inline nur PDF/PNG/JPEG, TIFF als PNG-Seiten, E-Rechnung als
+  eigene Ansicht, alles andere nur als Download.
+- `seiten/sprache.py` — Sprache am Benutzer.
+- `handeln.py` — `im_namen(a)`: der angemeldete Benutzer als Person im Journal
+  (`pruefung.person.journal_kontext`).
+- `htmx.py` — HTMX-Erkennung; 409/422 als Fragment, ohne Sitzung `HX-Redirect`, CSRF-Fehler
+  `HX-Refresh`, Datenbank beschäftigt 503 (htmx tauscht andere Fehlerantworten nicht ein).
+- `statisch/` — `accounti.css` und je Bereich ein Stylesheet, `htmx-2.0.11.min.js` (ohne `eval`,
+  ohne Verlaufscache, Prüfsumme im Test), `pruefen.js` (Tasten, Fehlerhinweis). Keine
+  Inline-Skripte und -Stile; eigene Dateien mit Versionsanhang.
+
+Die Oberfläche ruft dieselben Funktionen wie die CLI; jede Seite liest Daten nur über
+`gesellschaft_db` und `a.gesellschaft`, Personen im Journal sind angemeldete Benutzer. Geplant
+auf diesem Gerüst: die Auswertungen (`seiten/auswertungen.py`, 10b Teil 2).
+
+### `i18n/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md))*
+
+Zweisprachigkeit der Oberfläche ohne Zusatzpaket: `jinja2.ext.i18n` (newstyle) mit Callables,
+die die Sprache der Anfrage aus einer Context-Variable lesen; Deutsch ist Quellsprache, `en.yaml`
+der Katalog (Glossar im Kopf). Sprachwahl: Benutzer → `Accept-Language` → `server.sprache`.
+Formate für Beträge, Daten, Prozent, Monate je Sprache. `N_()` markiert Texte im Python-Code,
+`Text()` übersetzbare Meldungen. Ein Test fordert für jeden Text einen Eintrag; geschützte
+Fachbegriffe bleiben deutsch. CSV, CLI und E-Mails bleiben deutsch.
 
 ### `betrieb/` *(vorhanden — [Baustein 10](specs/2026-08-10-web-ui-auth-betrieb.md), [Betrieb](betrieb.md))*
 
@@ -561,6 +623,8 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
 | `Buchungskorrektur` | Original, Storno, Neubuchung, Datum, Grund, Person | → `Buchungssatz` (nur anfügen) |
 | `Periodenabschluss` | Monat, gesperrt, geschlossen/geöffnet (Zeit, Person), Grund | → Buchungen des Monats |
 | `Befund` | Regel, Kategorie, Schwere, Objekt, Datum, Betrag, Gegenpartei, Begründung, Abhilfe | nicht gespeichert |
+| `Kontierungsgrund` | Quelle (Regelwerk, LLM, Beleg, Kontakt, Standard, OPOS, Kreditkarte, Anlagen, Marktplatz), Regel, LLM-Modell, Begründung, Zeitpunkt | → `Buchungssatz` (ohne Fremdschlüssel, nur anfügen) |
+| `Kontierungsregel` | Name, Muster (Text oder Regex), Feld, Richtung, Soll, Haben, Steuerschlüssel, Buchungstext, Herkunft, angelegt/deaktiviert von und am, Grund | → `Buchungssatz` (Quelle), im Journal |
 
 `Buchungssatz` hat zwei Ergänzungen: `beleg_position_id` für den Belegbezug (Prinzip 7) und
 `storniert_durch` / `storno_von` (je eindeutig) für Korrekturen nach Freigabe (Prinzip 6).
@@ -598,6 +662,18 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
   SHA-256, TOTP-Geheimnisse im Tresor; Freigaben mit Rolle und frischem Einmalcode
 - Protokolle ohne IP-Adressen, Abfrageparameter, Namen, Token und Passwörter; Sicherungen
   verschlüsselt mit einem Schlüssel aus der Umgebung, getrennt aufzubewahren
+- Belege gehen nur aus dem Archiv der aktiven Gesellschaft an den Browser, per ID, mit dem Typ
+  aus dem Inhalt; inline nur PDF und Bilder, E-Rechnungen als eigene Ansicht, alles andere als
+  Download. Keine Inline-Skripte und -Stile, HTMX ohne `eval`
+- Vorschläge entscheidet die angemeldete Sitzung (Passwort und zweiter Faktor); Storno und
+  Korrektur freigegebener Buchungen verlangen wie Zahlungslauf und USt-VA einen frischen
+  Einmalcode; im Journal steht immer der angemeldete Benutzer
+- Regelmuster aus dem Browser sind Text, keine regulären Ausdrücke; aus Korrekturen gelernte
+  Regeln gelten nur in ihrer Zahlungsrichtung; Regeln anlegen verlangt buchen und Regeln lernen
+- E-Rechnungen: DTD und Entities lehnt der Parser in jeder Kodierung ab (auch UTF-16); TIFF-Seiten
+  werden nur bis zur Höchstzahl gelesen
+- TIFF-Belege dekodiert nur der TIFF-Decoder von Pillow, mit Pixelgrenze je Seite; Belegdateien
+  werden vor der Auslieferung gegen ihren Hash geprüft
 
 ## Erweiterungspunkte
 
@@ -615,6 +691,8 @@ können und keiner `cli.py`, `models/__init__.py` oder `db/tabellen.py` umbauen 
 | Konfiguration | eigener Abschnitt in `config/accounti.yaml`, eigener Lader im Baustein | — |
 | HTML-Seiten der Oberfläche | `src/accounti/api/seiten/<bereich>.py` mit `router` (optional `NAVIGATION`) | `routermodule()` in `api/app.py` |
 | REST-Endpunkte | `src/accounti/api/rest/<bereich>.py` mit `router` | `routermodule()` in `api/app.py`, Präfix `/api/v1` |
+| Texte der Oberfläche | `_()`/`{% trans %}` in Vorlagen, `N_()`/`Text()` im Code, Eintrag in `src/accounti/i18n/en.yaml` | `tests/test_i18n_katalog.py` |
+| Schreibende Seite | Thread-Funktion in `with im_namen(a):`, Fachfunktion mit `von=`/`person=`, Commit in der Seite; Freigaben mit Außenwirkung zusätzlich `einmalcode.bestaetige_einmalcode` | `tests/test_api_journal_person.py`, Rechte-Matrix |
 
 Migrationen entstehen beim Zusammenführen mit `alembic revision --autogenerate`. Danach
 `SCHEMA_STAND` in `db/__init__.py` auf die neue Revision setzen: `init_db` vermerkt ihn in
@@ -702,13 +780,22 @@ Namens. Eigene Objekttypen (`registriere_objekttyp`) und Benachrichtigungskanäl
 
 ### Neue Kontierungsregel hinzufügen
 
+Am einfachsten aus der Korrektur: im Browser „Regel daraus machen“ oder
+`accounti korrigiere <ID> --soll … --haben … --lernen`; einen regulären Ausdruck nimmt
+`accounti lerne --muster … --soll … --haben … --name …` — beide landen in der Datenbank der
+Gesellschaft und haben Vorrang (gelernt → Regeldatei → Standardregeln des Kontenrahmens,
+`klassifikation.lernen.lade_regelwerk`; ein Regelmodell `engine.Regel` für alle drei, mit
+denselben Richtungswerten). Handgeschriebene Regeln (auch reguläre Ausdrücke) stehen in der
+Regeldatei der Gesellschaft (ohne Registry `config/regeln.yaml`; accounti schreibt sie nicht);
+die erste passende gewinnt, `richtung` ist optional:
+
 ```yaml
 # config/regeln.yaml (bzw. regeln: der Gesellschaft)
 - name: "mein_lieferant"
   muster: "Firma XY GmbH"
-  feld: "gegenkonto_name"
-  richtung: ausgabe          # ausgabe | einnahme | beide
-  soll_konto: "3300"
+  feld: "gegenkonto_name"    # verwendungszweck | gegenkonto_name | gegenkonto_iban | beide
+  richtung: ausgabe          # ausgabe | einnahme | beide (ohne Angabe: beide)
+  soll_konto: "3300"         # in Anführungszeichen: '0420' liest YAML sonst als Oktalzahl
   haben_konto: "1200"
   steuer_schluessel: 9
   pruefen: false             # true: Treffer immer zur Prüfung
@@ -721,6 +808,13 @@ Eine Regel mit `richtung` gilt nur für Umsätze dieser Richtung; passt sonst ke
 und Haben getauscht, immer zur Prüfung (Erstattung mindert Aufwand und Vorsteuer, § 17
 UStG). Unabhängig von der Quelle prüft `buchung/mapper.py` die Bankseite gegen das
 Vorzeichen: Bankkonto auf der falschen Seite → tauschen und zur Prüfung; keine Seite das
-Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung. Die eingebauten Regeln
+Bankkonto (Regel eines anderen Kontenrahmens) → zur Prüfung; ergäbe die Kontierung Soll =
+Haben, bleibt der Umsatz offen (`buchung/kontierung.py`). Aus einer Umbuchung zwischen eigenen
+Geldkonten mit Kontoauszug (`Kontenrahmen.ist_zahlungsmittel`, ohne Geldtransit) wird keine
+gelernte Regel. Der Lader (`klassifikation/regeln_loader.py`) prüft jeden Wert — Konten 4–9
+ASCII-Ziffern (Personenkonten bei DATEV-Sachkontenlänge 8 haben 9 Stellen) (nur schlichte Dezimalzahlen liest er als Zahl: `0x1340`, `1:20:00`, `4_920`
+bleiben Text und sind keine Kontonummer), Muster nicht leer, ein Steuerschlüssel, den accounti
+kennt (1, 2, 3, 8, 9, 18, 19, 91, 94), keine unbekannten Schlüssel (`prüfen`, `steuerschluessel`)
+— und meldet einen Fehler mit Regelname. Die eingebauten Regeln
 liefert `standard_regeln(kontenrahmen, bank_konto)` für SKR03 und SKR04 (für andere
 Kontenrahmen keine).

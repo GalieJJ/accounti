@@ -186,15 +186,21 @@ def _neubuchung(fabrik, original_id):
 
 
 def test_cli_ausgleichsbuchung(tmp_path):
+    """(angepasst, Nachbesserung 10b-1 M1: bisher wechselte die Korrektur das
+    Geldkonto 1200 → 1210 — das lehnt sie jetzt ab, weil der Kontostand nicht mehr
+    zum Auszug passte; korrigiert wird deshalb das Personenkonto)"""
     url, fabrik = _fabrik(tmp_path)
     tx, p, (zahlung,) = _ausgleich(fabrik)
+    geldkonto = ["korrigiere", kurz(zahlung.id), "--soll", "70001", "--haben", "1210"]
+    r = _run(*geldkonto, "--db", url)
+    assert r.exit_code == 1 and "Finanzkonto 1200" in r.output
     r = _run(
         "korrigiere",
         kurz(zahlung.id),
         "--soll",
-        "70001",
+        "70002",
         "--haben",
-        "1210",
+        "1200",
         "--db",
         url,
     )

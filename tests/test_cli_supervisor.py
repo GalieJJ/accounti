@@ -143,9 +143,22 @@ def test_export_nur_freigegeben(tmp_path):
     assert "3 Buchungen" in res_alle.stdout
 
 
+def _gelernt(url: str):  # noqa: ANN202
+    from accounti.db.repo_kontierung import lade_kontierungsregeln
+
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        regeln = lade_kontierungsregeln(s)
+    engine.dispose()
+    return regeln
+
+
 def test_korrigiere_lernen(tmp_path, monkeypatch):
+    """(umgestellt, Baustein 10b) Die Regel landet in der Datenbank der Gesellschaft —
+    die Regeldatei bleibt unverändert, samt Kommentaren."""
     (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "regeln.yaml").write_text("[]\n", encoding="utf-8")
+    datei = tmp_path / "config" / "regeln.yaml"
+    datei.write_text("# eigene Regeln — Kommentar bleibt\n[]\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     url = _url(tmp_path)
     bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
@@ -166,30 +179,107 @@ def test_korrigiere_lernen(tmp_path, monkeypatch):
             url,
         ],
     )
-    assert res.exit_code == 0
-    regeln = yaml.safe_load((tmp_path / "config" / "regeln.yaml").read_text("utf-8"))
-    assert any(r["muster"] == "Stadtwerke" for r in regeln)
+    assert res.exit_code == 0, res.output
+    assert "Regel gelernt" in res.output
+    (regel,) = _gelernt(url)
+    # der ganze Name der Gegenpartei (Nachbesserung H1)
+    assert regel.muster == "Stadtwerke Hamburg" and regel.ist_text
+    assert regel.richtung is not None and regel.richtung.value == "ausgabe"
+    assert (
+        datei.read_text(encoding="utf-8") == "# eigene Regeln — Kommentar bleibt\n[]\n"
+    )
 
 
 def test_korrigiere_lernt_den_schluessel_der_neubuchung(tmp_path, monkeypatch):
-    """Befund N-N5: Die Regel bucht künftig wie die Korrektur — bleibt das Sachkonto
-    (nur das Geldkonto wechselt), bleibt der Schlüssel und wird mit gelernt; ein neues
-    Sachkonto verlangt ihn ohnehin ausdrücklich."""
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "regeln.yaml").write_text("[]\n", encoding="utf-8")
+    """Befund N-N5: Die Regel bucht künftig wie die Korrektur — bleibt das Sachkonto,
+    bleibt der Schlüssel und wird mit gelernt; ein neues Sachkonto verlangt ihn
+    ohnehin ausdrücklich. (umgestellt: Schlüssel in ``kontierungsregeln``;
+    Nachbesserung M1: bisher wechselte hier das Geldkonto 1200 → 1210 — das lehnt
+    die Korrektur jetzt ab, der Kontostand passte sonst nicht mehr zum Auszug. Das
+    Sachkonto bleibt deshalb durch eine unveränderte Bestätigung des Vorschlags.)"""
     monkeypatch.chdir(tmp_path)
     url = _url(tmp_path)
     bs = _seed(url, [BuchungStatus.ZUR_PRUEFUNG])
     pid = str(bs[0].id)[:8]
-    args = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
+    geldkonto = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--lernen"]
+    res = runner.invoke(app, [*geldkonto, "--db", url])
+    assert res.exit_code == 1 and "Finanzkonto 1200" in res.output
+    assert _gelernt(url) == []
+    args = ["korrigiere", pid, "--soll", "4900", "--haben", "1200", "--lernen"]
     res = runner.invoke(app, [*args, "--db", url])
     assert res.exit_code == 0, res.output
     _, make_session = session_factory(url)
     with make_session() as s:
         assert finde_buchung(s, pid).steuer_schluessel == 9
-    regeln = yaml.safe_load((tmp_path / "config" / "regeln.yaml").read_text("utf-8"))
-    (regel,) = regeln
-    assert regel["steuer_schluessel"] == 9
+    (regel,) = _gelernt(url)
+    assert regel.steuer_schluessel == 9 and regel.haben_konto == "1200"
+    assert not (tmp_path / "config" / "regeln.yaml").exists()
+
+
+def test_korrigiere_falsch_zugeordnetes_bankkonto(tmp_path, monkeypatch):
+    """Nachbesserung M-1 (Probe q9): Der Umsatz kam ohne ``--konto`` herein (über
+    1200 gebucht), gehört aber zu Giro 2 (1210, eingerichtet) — die Korrektur auf
+    1210 geht, mit Warnung; ein Aufwandskonto statt der Bank bleibt abgewiesen."""
+    from accounti.db.repository import speichere_bankkonto
+    from accounti.models import Bankkonto
+
+    monkeypatch.chdir(tmp_path)
+    url = _url(tmp_path)
+    (b,) = _seed(url, [BuchungStatus.GEPRUEFT])
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        giro2 = Bankkonto(
+            iban="DE02120300000000202051", bezeichnung="Giro 2", sachkonto="1210"
+        )
+        speichere_bankkonto(s, giro2)
+        s.commit()
+    engine.dispose()
+    pid = str(b.id)[:8]
+    aufwand = ["korrigiere", pid, "--soll", "4900", "--haben", "4980", "--db", url]
+    res = runner.invoke(app, aufwand, env={"COLUMNS": "250"})
+    assert res.exit_code == 1 and "Finanzkonto 1200" in res.output
+    giro = ["korrigiere", pid, "--soll", "4900", "--haben", "1210", "--db", url]
+    res = runner.invoke(app, giro, env={"COLUMNS": "250"})
+    assert res.exit_code == 0, res.output
+    assert "Storniert" in res.output and "Bankkonto gewechselt" in res.output
+    _, make_session = session_factory(url)
+    with make_session() as s:
+        from accounti.db.repository import lade_buchungen
+
+        offen = [x for x in lade_buchungen(s) if x.status is BuchungStatus.KORRIGIERT]
+    assert [(x.soll_konto, x.haben_konto) for x in offen] == [("4900", "1210")]
+
+
+def test_korrigiere_nutzt_die_kontenzuordnung_der_gesellschaft(tmp_path):
+    """``abschluss.kontenzuordnung`` gilt auch für die Korrektur (wie für die SuSa):
+    Hier ist 1800 ein Geldkonto — das Storno von 4900 an 1800 mit Vorsteuer ist
+    umkehrbar; mit dem SKR03-Standard (1800 Privatentnahme) wäre es das nicht."""
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+
+    url = _url(tmp_path)
+    (b,) = _seed(url, [BuchungStatus.GEPRUEFT])
+    engine, make_session = session_factory(url)
+    with make_session() as s:
+        from sqlalchemy import text
+
+        s.execute(text("UPDATE buchungssaetze SET haben_konto = '1800'"))
+        s.commit()
+    engine.dispose()
+    args = ["korrigiere", str(b.id)[:8], "--soll", "4930", "--haben", "1800"]
+    args += ["--steuer", "9", "--db", url]
+    res = runner.invoke(app, args)
+    assert res.exit_code == 1 and "dieselbe Natur" in res.output
+    kr = lade_kontenrahmen().model_dump(mode="json")
+    kr["geldkonten"].append({"von": "1800", "bis": "1800"})
+    zuordnung = tmp_path / "kontenrahmen.yaml"
+    zuordnung.write_text(yaml.safe_dump(kr, allow_unicode=True), encoding="utf-8")
+    config = tmp_path / "accounti.yaml"
+    config.write_text(
+        f"abschluss:\n  kontenzuordnung: '{zuordnung}'\n", encoding="utf-8"
+    )
+    res = runner.invoke(app, [*args, "--config", str(config)])
+    assert res.exit_code == 0, res.output
+    assert "Storniert" in res.output
 
 
 def test_korrigiere_neues_sachkonto_braucht_steuerangabe(tmp_path):
@@ -221,3 +311,28 @@ def test_korrigiere_nutzt_die_kontenrahmen_datei_der_konfiguration(tmp_path):
     res = runner.invoke(app, [*args, "--db", url, "--config", str(config)])
     assert res.exit_code == 1, res.output
     assert "Automatikkonto" in res.output
+
+
+def test_review_zeigt_begruendung_und_zurueckgestellt(tmp_path):
+    """``review`` nutzt die Prüfschlange: Begründung je Vorschlag, Zähler und
+    Ansicht der zurückgestellten Buchungen."""
+    from accounti.buchung.pruefschlange import zurueckstellen
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+
+    url = _url(tmp_path)
+    erste, zweite = _seed(url, [BuchungStatus.ZUR_PRUEFUNG, BuchungStatus.ZUR_PRUEFUNG])
+    _, make_session = session_factory(url)
+    with make_session() as s:
+        speichere_kontierungsgrund(
+            s, erste.id, quelle="llm", begruendung="Stromabschlag laut Zweck"
+        )
+        zurueckstellen(s, zweite.id, "Wofür?", "jan")
+        s.commit()
+    res = runner.invoke(app, ["review", "--db", url], env={"COLUMNS": "250"})
+    assert res.exit_code == 0, res.output
+    assert "Stromabschlag laut Zweck" in res.output
+    assert "zurückgest." in res.output and str(zweite.id)[:8] not in res.output
+    res = runner.invoke(
+        app, ["review", "--zurueckgestellt", "--db", url], env={"COLUMNS": "250"}
+    )
+    assert str(zweite.id)[:8] in res.output and str(erste.id)[:8] not in res.output

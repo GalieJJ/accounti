@@ -11,6 +11,7 @@ from __future__ import annotations
 import enum
 from collections.abc import Iterable
 from decimal import Decimal
+from functools import lru_cache
 from importlib import resources
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
@@ -100,6 +101,14 @@ class Kontenrahmen(BaseModel):
     arten: list[_Art] = Field(default_factory=list)
     geldkonten: list[_Spanne] = Field(default_factory=list)
     bankkonten: list[_Spanne] = Field(default_factory=list)
+    # Kasse, Bank, Geldtransit, Kreditkarte; fehlt der Abschnitt (eigene Zuordnung
+    # älterer Fassung), gilt der des mitgelieferten Kontenrahmens gleichen Namens
+    # (sonst die Bankkonten) — Gesamttest 10b-1, Runde 3
+    zahlungsmittel: list[_Spanne] | None = None
+    # Geldtransit: ein Zahlungsmittel ohne eigene Umsätze (kein Kontoauszug)
+    geldtransit: list[_Spanne] | None = None
+    # Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen (Sammelkonten)
+    lul_konten: list[_Spanne] | None = None
     vortragskonten: Vortragskonten = Field(default_factory=Vortragskonten)
     steuerkonten: dict[int, str] = Field(default_factory=dict)
     # § 13b und ig. Erwerb: (Vorsteuerkonto, Umsatzsteuerkonto) je Schlüssel — die
@@ -117,7 +126,11 @@ class Kontenrahmen(BaseModel):
 
     @staticmethod
     def ist_personenkonto(konto: str) -> bool:
-        return konto.isdigit() and len(konto) == 5
+        """5 Stellen, bei DATEV-Sachkontenlänge 8 auch 9
+        (``buchung.konten.ist_personenkontonummer``)."""
+        from accounti.buchung.konten import ist_personenkontonummer
+
+        return ist_personenkontonummer(konto)
 
     def _engste(self, regeln: list[Any], konto: str) -> Any:
         nummer = self._nummer(konto)
@@ -140,17 +153,60 @@ class Kontenrahmen(BaseModel):
             return True
         return self._engste(self.geldkonten, konto) is not None
 
+    def _abschnitt(self, name: str) -> list[_Spanne] | None:
+        """Abschnitt der Zuordnung — fehlt er (eigene Zuordnung älterer Fassung), der
+        des mitgelieferten Kontenrahmens gleichen Namens."""
+        eigener: list[_Spanne] | None = getattr(self, name)
+        if eigener is not None:
+            return eigener
+        mitgeliefert = _mitgeliefert(self.name)
+        if mitgeliefert is None or mitgeliefert is self:
+            return None
+        spannen: list[_Spanne] | None = getattr(mitgeliefert, name)
+        return spannen
+
+    def _zahlungsmittel(self) -> list[_Spanne]:
+        return self._abschnitt("zahlungsmittel") or self.bankkonten
+
+    def ist_zahlungsmittel(self, konto: str) -> bool:
+        """Kasse, Bank, Geldtransit, Kreditkarte (``zahlungsmittel``) — anders als
+        ``ist_geldkonto`` ohne Forderungen, Verbindlichkeiten und Personenkonten.
+        Zwischen zwei solchen Konten gibt es nur Umbuchungen: Sie stehen auf beiden
+        Kontoauszügen, daraus wird keine Kontierungsregel (Gesamttest 10b-1, H-1)."""
+        if self.ist_personenkonto(konto):
+            return False
+        return self._engste(self._zahlungsmittel(), konto) is not None
+
+    def ist_geldtransit(self, konto: str) -> bool:
+        """Geldtransit (SKR03 1360, SKR04 1460): ein Zahlungsmittel ohne eigenen
+        Kontoauszug — eine Regel dagegen bucht nie Soll = Haben."""
+        if self.ist_personenkonto(konto):
+            return False
+        return self._engste(self._abschnitt("geldtransit") or [], konto) is not None
+
+    def ist_lul_konto(self, konto: str) -> bool:
+        """Forderungen bzw. Verbindlichkeiten aus Lieferungen und Leistungen
+        (Sammelkonten, ``lul_konten``) — wie ein Personenkonto kein Sachkonto eines
+        Belegs."""
+        if self.ist_personenkonto(konto):
+            return False
+        return self._engste(self._abschnitt("lul_konten") or [], konto) is not None
+
     def mit_geldkonten(self, konten: Iterable[str]) -> Kontenrahmen:
-        """Kopie, in der auch diese Konten Geldkonten sind (eingerichtete Bank- und
-        Kartenkonten mit eigenem Sachkonto)."""
-        neu = [
-            _Spanne(von=k, bis=k)
-            for k in sorted(set(konten))
-            if k.isdigit() and not self.ist_geldkonto(k)
-        ]
-        if not neu:
+        """Kopie, in der auch diese Konten Geldkonten und Zahlungsmittel sind
+        (eingerichtete Bank- und Kartenkonten mit eigenem Sachkonto)."""
+        alle = sorted({k for k in konten if k.isdigit()})
+        geld = [_Spanne(von=k, bis=k) for k in alle if not self.ist_geldkonto(k)]
+        mittel = [_Spanne(von=k, bis=k) for k in alle if not self.ist_zahlungsmittel(k)]
+        if not geld and not mittel:
             return self
-        return self.model_copy(update={"geldkonten": [*self.geldkonten, *neu]})
+        bisher = self._zahlungsmittel()
+        return self.model_copy(
+            update={
+                "geldkonten": [*self.geldkonten, *geld],
+                "zahlungsmittel": [*bisher, *mittel],
+            }
+        )
 
     def ist_bankkonto(self, konto: str) -> bool:
         """Bankkonto laut Kontenrahmen — wird mit dem Kontoauszug abgestimmt."""
@@ -221,6 +277,16 @@ def mit_eingerichteten_konten(kr: Kontenrahmen, session: Session) -> Kontenrahme
     from accounti.db.repository import lade_bankkonten
 
     return kr.mit_geldkonten(k.sachkonto for k in lade_bankkonten(session))
+
+
+@lru_cache(maxsize=4)
+def _mitgeliefert(name: str) -> Kontenrahmen | None:
+    """Mitgelieferte Zuordnung zum Namen (``None`` ohne eine) — für Abschnitte, die
+    einer eigenen Zuordnung älterer Fassung fehlen."""
+    try:
+        return lade_kontenrahmen(name)
+    except KontenrahmenError:
+        return None
 
 
 def _pruefe(text: str, name: str) -> Kontenrahmen:

@@ -1,0 +1,9 @@
+{# Umsatzdaten: daraus stammt der Mustervorschlag einer Regel — deshalb immer sichtbar,
+   auch wenn links der Beleg steht. #}
+<dl class="daten umsatz">
+  <div><dt>{{ _("Datum") }}</dt><dd>{{ e.umsatz.datum | datum }}</dd></div>
+  <div><dt>{{ _("Betrag") }}</dt><dd>{{ e.umsatz.betrag | euro }}</dd></div>
+  <div><dt>{{ _("Gegenpartei") }}</dt><dd>{{ e.umsatz.gegenkonto_name or "—" }}</dd></div>
+  {% if e.umsatz.gegenkonto_iban %}<div><dt>IBAN</dt><dd class="iban">{{ e.umsatz.gegenkonto_iban | iban }}</dd></div>{% endif %}
+  <div><dt>{{ _("Verwendungszweck") }}</dt><dd>{{ e.umsatz.verwendungszweck }}</dd></div>
+</dl>

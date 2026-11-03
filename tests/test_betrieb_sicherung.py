@@ -756,3 +756,74 @@ def test_journal_und_korrekturen_im_rundlauf(tmp_path):
 @mit_postgresql
 def test_journal_und_korrekturen_im_rundlauf_postgresql(tmp_path, pg_datenbank):
     _baustein_7_rundlauf(tmp_path, pg_datenbank(), pg_datenbank())
+
+
+# ---------------------------------------------------------------------------
+# Baustein 10b: Kontierungsgründe (nur anfügen) und gelernte Regeln (Journal)
+# ---------------------------------------------------------------------------
+
+
+def _kontierung_rundlauf(tmp_path: Path, quelle: str, ziel_db: str) -> None:
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.db.tabellen_kontierung import KontierungsgrundRow
+    from accounti.klassifikation.lernen import deaktiviere, lerne_regex
+    from accounti.pruefung.journal import pruefe_journal
+
+    engine, fabrik = session_factory(quelle)
+    init_db(engine)
+    with fabrik() as s:
+        b = Buchungssatz(
+            datum=date(2026, 9, 30),
+            soll_konto="4980",
+            haben_konto="1200",
+            betrag_netto=Decimal("50.00"),
+            buchungstext="Bürobedarf",
+            status=BuchungStatus.ZUR_PRUEFUNG,
+            confidence=0.62,
+        )
+        speichere_buchung(s, b)
+        speichere_kontierungsgrund(s, b.id, quelle="llm", begruendung="Bürobedarf äöü")
+        lerne_regex(s, "telekom", "telekom", "4920", "1200", 9, "jan")
+        aus = lerne_regex(s, "aral", "aral", "4530", "1200", 9, "jan")
+        deaktiviere(s, aus.id, "eva", "Privatwagen")
+        s.commit()
+        assert pruefe_journal(s).in_ordnung
+    engine.dispose()
+    ziel = tmp_path / "10b.accounti"
+    e = erstelle(quelle, None, ziel, SCHLUESSEL)
+    assert e.tabellen["kontierungsgruende"] == 1
+    assert e.tabellen["kontierungsregeln"] == 2
+    w = stelle_wieder_her(ziel, ziel_db, None, SCHLUESSEL)
+    assert w.tabellen == e.tabellen
+    vorher, nachher = tabelleninhalt(quelle), tabelleninhalt(ziel_db)
+    for name in ("kontierungsgruende", "kontierungsregeln", "journal"):
+        assert nachher[name] == vorher[name], name
+    engine, fabrik = session_factory(ziel_db)
+    with fabrik() as s:
+        p = pruefe_journal(s)
+        assert p.in_ordnung, [x.text for x in p.befunde]
+        zeile = s.execute(select(KontierungsgrundRow)).scalar_one()
+        zeile.begruendung = "geändert"
+        with pytest.raises(UnveraenderbarError):
+            s.flush()
+        s.rollback()
+    if engine.dialect.name == "sqlite":
+        with engine.connect() as v:
+            with pytest.raises(Exception, match="unveränderbar"):
+                v.execute(text("UPDATE kontierungsgruende SET begruendung = 'x'"))
+            v.rollback()
+    engine.dispose()
+
+
+def test_kontierung_im_rundlauf(tmp_path):
+    """Die Nur-anfügen-Trigger stehen dem Zurückspielen nicht im Weg und wirken
+    danach; gelernte Regeln und Journal passen zusammen."""
+    _kontierung_rundlauf(
+        tmp_path, url(tmp_path / "quelle.db"), url(tmp_path / "ziel.db")
+    )
+
+
+@mit_postgresql
+def test_kontierung_im_rundlauf_postgresql(tmp_path, pg_datenbank):
+    _kontierung_rundlauf(tmp_path, pg_datenbank(), pg_datenbank())

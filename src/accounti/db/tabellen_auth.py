@@ -2,8 +2,8 @@
 
 Sie liegen in der Systemdatenbank — ohne Registry der Gesellschaften ist das die
 Datenbank der einen Gesellschaft. ``auth_ereignisse`` ist nur anfügbar: das ORM
-lehnt Änderungen ab, unter SQLite zusätzlich ein Trigger (``after_create``; beim
-Zusammenführen gehört er wie bei ``ustid_pruefungen`` in die Migration).
+lehnt Änderungen ab, unter SQLite zusätzlich ein Trigger (``after_create`` und
+Migration ``a684d10751de``).
 """
 
 from __future__ import annotations
@@ -53,6 +53,9 @@ class BenutzerRow(Base):
     letzte_anmeldung_am: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    # Sprache der Oberfläche (Baustein 10b, Migration …_add_benutzer_sprache);
+    # NULL = automatisch nach dem Browser
+    sprache: Mapped[str | None] = mapped_column(String(5), nullable=True)
 
 
 class RollenzuordnungRow(Base):

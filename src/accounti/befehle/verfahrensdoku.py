@@ -31,19 +31,25 @@ def verfahrensdoku(
     if ctx.invoked_subcommand is not None:
         return
     from accounti.betrieb.kontext import aktueller_kontext
+    from accounti.konfiguration import KonfigurationError
     from accounti.pruefung.verfahrensdoku import als_pdf, erzeuge, fassung, vermerke
 
     kontext = aktueller_kontext()
     system_db = kontext.systemdatenbank(db)
     with sitzung(db)() as s:
-        text = erzeuge(
-            s,
-            config,
-            db_url=db,
-            archiv=archiv,
-            system_db=system_db,
-            gesellschaft=kontext.kuerzel,
-        )
+        try:
+            text = erzeuge(
+                s,
+                config,
+                db_url=db,
+                archiv=archiv,
+                system_db=system_db,
+                gesellschaft=kontext.kuerzel,
+            )
+        except KonfigurationError as fehler:
+            # kaputtes YAML: Meldung statt ParserError, kein Dokument (g6w B-3)
+            console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+            raise typer.Exit(1) from fehler
         ziel = Path(ausgabe)
         ziel.write_text(text, encoding="utf-8")
         vermerke(s, text, ziel.name)

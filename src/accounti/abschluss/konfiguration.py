@@ -20,7 +20,6 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from accounti.abschluss.kontenrahmen import (
@@ -28,7 +27,12 @@ from accounti.abschluss.kontenrahmen import (
     Kontenrahmen,
     lade_kontenrahmen,
 )
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lade_buchhaltung
+from accounti.konfiguration import (
+    STANDARD_PFAD,
+    KonfigurationError,
+    lade_buchhaltung,
+    lies_yaml,
+)
 
 _STANDARDS: dict[str, dict[str, Any]] = {
     "SKR03": {
@@ -159,7 +163,7 @@ class KassenEinstellungen(BaseModel):
 def _abschnitt(pfad: Path, name: str) -> dict[str, Any]:
     if not pfad.is_file():
         return {}
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get(name) if isinstance(daten, dict) else None
     return dict(abschnitt) if isinstance(abschnitt, dict) else {}
 

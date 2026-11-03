@@ -544,3 +544,104 @@ def test_eigener_kanal_aus_der_registry(tmp_path, monkeypatch):
     assert kanaele == {"teams": attrappe}
     assert "unbekannter Kanal brieftaube" in fehler["brieftaube"]
     assert "teams" in fehler["brieftaube"]  # nennt, was es gibt
+
+
+@pytest.mark.parametrize(
+    ("url", "erwartet"),
+    [
+        ("https://alarm:geheim@hooks.example/x", "https://hooks.example/…"),
+        # Runde 7 (g6w B-2): bis zum letzten „@“ vor dem Pfad sind es Zugangsdaten —
+        # nicht mehr der Benutzer als Rechner und die Passwortziffern als Port
+        (
+            "https://alarm:Kassel#2026@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:Wint3r?Sonne@hooks.example.invalid/x",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:4711#Sonne@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        ("https://alarm:1234?abc@hooks.example:8443/x", "https://hooks.example:8443/…"),
+        ("https://alarm:pa/ss@hooks.example/x", "https://hooks.example/…"),
+        (
+            "https://hooks.example:8443/services/T0/geheim",
+            "https://hooks.example:8443/…",
+        ),
+        ("https://[2001:db8::1]:8443/hook", "https://[2001:db8::1]:8443/…"),
+        ("https://hooks.example:99999/x", "https://hooks.example/…"),
+        (
+            "https://hooks.example/notify?an=jan@firma.example",
+            "https://hooks.example/…",
+        ),
+        ("https://[::1/x", "(ungültige Adresse)"),
+        ("https:///nur-pfad", "(ungültige Adresse)"),
+        # Runde 8 (g7w B7-1): ein „@“ in Abfrage oder Fragment ohne Pfad ist keine
+        # Zugangsangabe; ein Rechnername mit Umlauten (IDN) ist gültig
+        ("https://hooks.example?an=jan@firma.example", "https://hooks.example/…"),
+        ("https://hooks.example?token=abc@geheim", "https://hooks.example/…"),
+        ("https://hooks.example#frag@x", "https://hooks.example/…"),
+        ("https://bücher.example/hook", "https://bücher.example/…"),
+        ("https://bücher.example:8443?x=1", "https://bücher.example:8443/…"),
+        # … ein unkodiertes „/“ im Passwort mit Ziffern davor (g7w B7-2): ein „@“ im
+        # ersten Pfadabschnitt beendet die Zugangsdaten
+        (
+            "https://alarm:4711/Sonne@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:4711/Sonne@hooks.example.invalid",
+            "https://hooks.example.invalid/…",
+        ),
+        ("https://alarm:4711/x@hooks.example:8443?a=1", "https://hooks.example:8443/…"),
+        ("https://user:pa/ss@hooks.example/x/@y", "https://hooks.example/…"),
+        ("https://user:pa/s/s@hooks.example/x", "https://hooks.example/…"),
+        # ein „@“ am Anfang oder hinter dem ersten Pfadabschnitt bleibt Pfad
+        ("https://hooks.example:8443/@kanal", "https://hooks.example:8443/…"),
+        ("https://hooks.example:8443/pfad/@user", "https://hooks.example:8443/…"),
+        (
+            "https://outlook.office.com/webhook/a1b2-c3@d4e5-f6/IncomingWebhook/abc",
+            "https://outlook.office.com/…",
+        ),
+    ],
+)
+def test_webhook_ziel_ohne_zugangsdaten(url, erwartet):
+    """g5w-konten N1 (Runde 6): die Fehlermeldung nannte netloc samt Benutzer und
+    Passwort; ein unkodiertes # oder ? im Passwort machte den Rest zum Port."""
+    assert WebhookKanal(url)._ziel() == erwartet
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://alarm:4711#Sonne@hooks.example.invalid/hook",
+        # Runde 8 (g7w B7-2): unkodiertes „/“ im Passwort mit Ziffern davor
+        "https://alarm:4711/Sonne@hooks.example.invalid/hook",
+    ],
+    ids=["raute", "schraegstrich"],
+)
+def test_webhook_fehler_gespeichert_ohne_passwortziffern(
+    make_session, fuenf_aufgaben, monkeypatch, url
+):
+    """g6w B-2: WARNUNG und ``aufgaben_benachrichtigungen`` (adresse, fehler) zeigten
+    „https://alarm:4711/…“ — Benutzer und Ziffern des Passworts als Rechner und
+    Port. Gespeichert wird nur die bereinigte Adresse."""
+    import urllib.error
+
+    from accounti.aufgaben import benachrichtigung
+
+    def urlopen(*_args, **_kw):  # noqa: ANN002, ANN003, ANN202
+        raise urllib.error.URLError("Temporary failure in name resolution")
+
+    monkeypatch.setattr(benachrichtigung.urllib.request, "urlopen", urlopen)
+    e = _einstellungen(kanaele=["webhook"], webhook={"url": url})
+    lauf = _versende(make_session, e, {"webhook": WebhookKanal(url, timeout=1)})
+    assert lauf.zustellungen and not any(z.erfolgreich for z in lauf.zustellungen)
+    with make_session() as s:
+        gespeichert = lade_benachrichtigungen(s)
+    texte = [str(x) for z in gespeichert for x in (z.adresse, z.fehler)]
+    assert all("https://hooks.example.invalid/…" in x for x in texte), texte
+    for geheim in ("alarm", "4711", "Sonne"):
+        assert not any(geheim in x for x in texte), geheim

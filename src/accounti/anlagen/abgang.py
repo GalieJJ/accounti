@@ -27,6 +27,7 @@ from accounti.db.repo_anlagen import (
     lade_afa_vorgaenge,
     lade_anlage,
 )
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.anlagen import AbgangArt, AfaArt, Anlagegut, sammelposten_objekt
@@ -128,6 +129,15 @@ def buche_abgang(
             confidence=1.0,
         )
         speichere_buchung(session, rbw_buchung)
+        speichere_kontierungsgrund(
+            session,
+            rbw_buchung.id,
+            quelle="anlagen",
+            begruendung=f"{text} am {datum:%d.%m.%Y}: Restbuchwert {betrag_de(rbw)} "
+            f"aus dem Anlagekonto {anlage.konto} als "
+            + ("Buchgewinn-" if gewinn else "Buchverlust-")
+            + "Abgang ausgebucht",
+        )
         ergebnis.buchungen.append(rbw_buchung)
     if erloes is not None and erloes > 0 and gegenkonto:
         if mit_ust:
@@ -155,6 +165,14 @@ def buche_abgang(
             confidence=1.0,
         )
         speichere_buchung(session, erloes_buchung)
+        speichere_kontierungsgrund(
+            session,
+            erloes_buchung.id,
+            quelle="anlagen",
+            begruendung=f"{text}: Erlös {betrag_de(erloes)} "
+            + ("mit Umsatzsteuer" if mit_ust else "ohne Umsatzsteuer")
+            + f" gegen {gegenkonto}",
+        )
         ergebnis.buchungen.append(erloes_buchung)
     ergebnis.hinweise.append(
         f"Restbuchwert {betrag_de(rbw)}, Erlös {betrag_de(ergebnis.erloes)}, "

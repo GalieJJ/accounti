@@ -46,7 +46,7 @@ def starte_aus_cli(
     from rich.console import Console
     from rich.markup import escape
 
-    from accounti.api.dienste import dienste_aus_kontext
+    from accounti.api.dienste import SchemaError, dienste_aus_kontext
     from accounti.bank.tresor import UMGEBUNG
     from accounti.betrieb.kontext import aktueller_kontext
     from accounti.db.repo_auth import anzahl_benutzer
@@ -56,6 +56,11 @@ def starte_aus_cli(
     try:
         dienste = dienste_aus_kontext(aktueller_kontext(), db, archiv, config)
     except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+        raise typer.Exit(2) from fehler
+    try:
+        dienste.pruefe_schema()
+    except SchemaError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
         raise typer.Exit(2) from fehler
     with dienste.system() as s:

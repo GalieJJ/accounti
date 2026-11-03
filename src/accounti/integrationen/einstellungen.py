@@ -13,7 +13,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
 from accounti.konfiguration import (
@@ -21,6 +20,7 @@ from accounti.konfiguration import (
     Buchhaltung,
     KonfigurationError,
     lade_buchhaltung,
+    lies_yaml,
 )
 
 UStModus = Literal["vorsteuer", "13b", "ohne"]
@@ -164,7 +164,7 @@ def _fehlertext(fehler: ValidationError) -> str:
 def _abschnitt(pfad: Path, name: str) -> Any:
     if not pfad.is_file():
         return None
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     return daten.get(name) if isinstance(daten, dict) else None
 
 

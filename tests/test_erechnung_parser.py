@@ -159,6 +159,20 @@ def test_doctype_wird_abgelehnt():
         lies(xml)
 
 
+@pytest.mark.parametrize(
+    ("kodierung", "bom"), [("utf-16", b""), ("utf-16-be", b"\xfe\xff")]
+)
+def test_doctype_auch_in_utf16_abgelehnt(kodierung, bom):
+    """Nachbesserung 10b-1 Technik N1: Der Byte-Vergleich fand „<!DOCTYPE“ in UTF-16
+    nicht — eine interne Entity wurde in der E-Rechnungsansicht expandiert."""
+    text = (
+        '<?xml version="1.0" encoding="UTF-16"?>'
+        '<!DOCTYPE x [<!ENTITY a "ENTITYWIRKT">]><Invoice>&a;</Invoice>'
+    )
+    with pytest.raises(ERechnungError, match="DTD"):
+        lies(bom + text.encode(kodierung))
+
+
 @pytest.mark.parametrize("xml", [b"<Rechnung/>", b"<Invoice", b""])
 def test_unbekanntes_oder_kaputtes_xml(xml):
     with pytest.raises(ERechnungError):

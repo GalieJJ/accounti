@@ -61,6 +61,18 @@ def _anderer_betrag(a: Beleg, b: Beleg) -> bool:
     return a.brutto is not None and b.brutto is not None and a.brutto != b.brutto
 
 
+def kopien(beleg: Beleg, bestand: Iterable[Beleg]) -> list[Beleg]:
+    """Andere Belegdatensätze derselben Rechnung: gleiche Richtung, gleicher
+    Lieferant, gleiche Belegnummer, kein anderer Betrag (Stufe 2 ohne Verdacht) — etwa
+    dieselbe Rechnung über zwei Kanäle erfasst. Eine Gutschrift oder berichtigte
+    Rechnung mit derselben Nummer (anderer Betrag) ist keine Kopie."""
+    return [
+        b
+        for b in _gleiche_belegnummern(beleg, bestand)
+        if b.richtung == beleg.richtung and not _anderer_betrag(b, beleg)
+    ]
+
+
 def pruefe_dublette(kandidat: Beleg, bestand: Iterable[Beleg]) -> DublettenBefund:
     """Prüft einen neuen Beleg gegen den Bestand; die sicherste Stufe gewinnt."""
     bestand = [b for b in bestand if b.id != kandidat.id]

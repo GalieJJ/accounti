@@ -37,7 +37,7 @@ from accounti.steuer.kennziffern import (
     STEUERSCHLUESSEL,
     Kontenplan,
 )
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+from accounti.steuer.umsatzsteuer import oss_konto_land
 
 if TYPE_CHECKING:
     from accounti.pruefung.belegangaben import Belegangaben
@@ -315,7 +315,7 @@ class Pflichtangaben:
         nur_felder = 0
         schluessel: dict[Any, set[int | None]] = defaultdict(set)
         oss: set[Any] = set()
-        oss_konten = set(OSS_ERLOES_KONTEN_SKR03.values())
+        oss_konten = set(oss_konto_land(k.buchhaltung.kontenrahmen))
         for x in k.buchungen:
             if x.beleg_id is not None and not (x.storno_von or x.storniert_durch):
                 schluessel[x.beleg_id].add(x.steuer_schluessel)
@@ -1291,6 +1291,76 @@ class BankumsatzOhneBankkonto:
         ]
 
 
+# --- Soll = Haben -------------------------------------------------------------------
+
+
+class SollGleichHaben:
+    """Eine Buchung mit demselben Konto im Soll und im Haben bewegt nichts. Bei einem
+    Bankumsatz fehlt die Bewegung in den Büchern, der Bestand weicht vom Kontoauszug
+    ab (§ 239 Abs. 2 HGB, § 146 Abs. 1 AO). Solche Buchungen entstanden vor 10b-1 H-1
+    automatisch aus Regeln, die aus einer Umbuchung zwischen eigenen Geldkonten
+    gelernt waren („1200 an 1200“); seither entsteht keine mehr automatisch —
+    die Regel meldet die Altfälle. Ein stornierter Fall (samt Storno) zählt nicht."""
+
+    name = "soll_gleich_haben"
+    kategorie = Kategorie.RICHTIGKEIT
+    schwere = Schwere.FEHLER
+    beschreibung = "Buchung mit demselben Konto im Soll und im Haben"
+
+    class Parameter(BaseModel):
+        pass
+
+    def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
+        from accounti.db.repo_kontierung import lade_kontierungsgruende
+
+        faelle = [
+            x
+            for x in k.buchungen
+            if x.soll_konto == x.haben_konto
+            and not (x.storno_von or x.storniert_durch)
+            and k.im_zeitraum(x.datum)
+        ]
+        gruende = lade_kontierungsgruende(k.session, (x.id for x in faelle))
+        befunde: list[Befund] = []
+        for x in faelle:
+            t = k.transaktionen.get(x.transaktion_id) if x.transaktion_id else None
+            grund = gruende.get(x.id)
+            regel = grund.regel if grund is not None else None
+            betrag = t.betrag if t is not None else x.betrag_netto
+            wer = (
+                f" ({t.gegenkonto_name or t.verwendungszweck[:40]})"
+                if t is not None
+                else ""
+            )
+            befunde.append(
+                befund(
+                    self,
+                    "buchung",
+                    x.id,
+                    f"Buchung {str(x.id)[:8]} vom {datum_de(x.datum)} über "
+                    f"{betrag_de(betrag)} €{wer}: {x.soll_konto} an {x.haben_konto} — "
+                    "Soll und Haben sind dasselbe Konto, die Bewegung fehlt in den "
+                    "Büchern" + (f" (Regel {regel})" if regel else ""),
+                    datum=x.datum,
+                    betrag=betrag,
+                    gegenpartei=t.gegenkonto_name if t is not None else None,
+                    abhilfe=(
+                        f"accounti korrigiere {str(x.id)[:8]} --soll … --haben … "
+                        "(eine Umbuchung zwischen eigenen Konten gegen das andere "
+                        "Geldkonto bzw. Geldtransit, nur einmal buchen; eine "
+                        "freigegebene Buchung wird storniert und neu gebucht)"
+                        + (
+                            f"; die Regel {regel} prüfen (accounti regeln liste, "
+                            "regeln deaktivieren)"
+                            if regel
+                            else ""
+                        )
+                    ),
+                )
+            )
+        return befunde
+
+
 for _regel in (
     Pflichtangaben(),
     Rechenprobe(),
@@ -1300,5 +1370,6 @@ for _regel in (
     IgErwerbUstid(),
     Dublette(),
     BankumsatzOhneBankkonto(),
+    SollGleichHaben(),
 ):
     registriere_pruefregel(_regel)

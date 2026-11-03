@@ -336,9 +336,16 @@ def pruefe_recht_in(
     gesellschaft: str | None,
     frage: Frage = frage_einmalcode,
     jetzt: datetime | None = None,
+    weitere: tuple[Recht, ...] = (),
+    vorab: Callable[[], None] | None = None,
 ) -> Benutzer:
     """Person hat das Recht (in der Gesellschaft; ``None`` = in irgendeiner) und
-    bestätigt es mit dem Einmalcode — sonst ``RechteError``/``AnmeldungError``."""
+    bestätigt es mit dem Einmalcode — sonst ``RechteError``/``AnmeldungError``.
+
+    ``weitere``: zusätzlich nötige Rechte (z.B. ``korrigiere --lernen``: buchen und
+    Regeln lernen) — alle mit **einem** Einmalcode. ``vorab``: Fachprobe nach der
+    Rechteprüfung und **vor** dem Einmalcode (die Aktion zur Probe, zurückgerollt) —
+    scheitert sie, bleibt der Code unverbraucht (gw-storno N3, wie im Browser)."""
     b = lade_benutzer(s, person)
     if b is None or not b.aktiv:
         _verweigert(s, "recht_verweigert", None, recht, gesellschaft)
@@ -350,12 +357,17 @@ def pruefe_recht_in(
         rollen = [z.rolle for z in rollen_von(s, b.id)]
     else:
         rollen = rollen_in(s, b.id, gesellschaft)
-    if recht not in rechte_der_rollen(rollen):
-        _verweigert(s, "recht_verweigert", b.name, recht, gesellschaft)
+    vorhanden = rechte_der_rollen(rollen)
+    for noetig in (recht, *weitere):
+        if noetig in vorhanden:
+            continue
+        _verweigert(s, "recht_verweigert", b.name, noetig, gesellschaft)
         wo = f" in der Gesellschaft {gesellschaft}" if gesellschaft else ""
         liste = ", ".join(sorted({r.value for r in rollen})) or "keine"
-        msg = f"{person} darf{wo} nicht: {RECHT_TEXT[recht]} (Rollen: {liste})"
+        msg = f"{person} darf{wo} nicht: {RECHT_TEXT[noetig]} (Rollen: {liste})"
         raise RechteError(msg)
+    if vorab is not None:
+        vorab()
     if einstellungen.einmalcode_bestaetigung:
         pruefe_zweiten_faktor(
             s, b, frage(person), lade_schluessel(), einstellungen, jetzt, quelle="cli"
@@ -366,7 +378,7 @@ def pruefe_recht_in(
         jetzt or datetime.now(),
         b.name,
         gesellschaft=gesellschaft,
-        hinweis=recht.value,
+        hinweis=",".join(r.value for r in (recht, *weitere)),
     )
     s.commit()
     return b
@@ -378,8 +390,11 @@ def pruefe_befehlsrecht(
     recht: Recht,
     person: str,
     frage: Frage = frage_einmalcode,
+    weitere: tuple[Recht, ...] = (),
+    vorab: Callable[[], None] | None = None,
 ) -> Benutzer | None:
-    """Für Befehle mit einem Recht. ``None``: keine Benutzer eingerichtet.
+    """Für Befehle mit einem Recht. ``None``: keine Benutzer eingerichtet (dann
+    auch keine Fachprobe ``vorab`` — es gibt keinen Code zu schützen).
 
     Geprüft wird in der Gesellschaft, zu der ``db`` gehört (Registry und Merker);
     eine leere oder fremde Systemdatenbank führt zum Abbruch, nicht zu „frei“.
@@ -395,7 +410,15 @@ def pruefe_befehlsrecht(
         if bindung is None:
             _binde(db, system_url, s, kuerzel)
         return pruefe_recht_in(
-            s, auth_einstellungen(config), recht, person, kuerzel, frage
+            s,
+            auth_einstellungen(config),
+            recht,
+            person,
+            kuerzel,
+            frage,
+            None,
+            weitere,
+            vorab,
         )
 
 
@@ -582,11 +605,18 @@ def _meldung(fehler: Exception) -> str:
 
 
 def befehlsrecht_oder_ende(
-    db: str, config: str, recht: Recht, person: str
+    db: str,
+    config: str,
+    recht: Recht,
+    person: str,
+    weitere: tuple[Recht, ...] = (),
+    vorab: Callable[[], None] | None = None,
 ) -> Benutzer | None:
     """Wie ``pruefe_befehlsrecht`` — Fehler werden zur Meldung mit Exit-Code 1."""
     try:
-        return pruefe_befehlsrecht(db, config, recht, person)
+        return pruefe_befehlsrecht(
+            db, config, recht, person, weitere=weitere, vorab=vorab
+        )
     except (AuthError, TresorError, KonfigurationError) as fehler:
         console.print(f"[red]{escape(_meldung(fehler))}[/red]", soft_wrap=True)
         raise typer.Exit(1) from fehler

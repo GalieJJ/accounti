@@ -1,0 +1,40 @@
+{% import "_makros.html" as m with context %}
+{% if e.beleg and e.umsatz %}
+<h2>{{ _("Umsatz") }}</h2>
+{% include "pruefen/_umsatz.html" %}
+{% endif %}
+<h2>{{ _("Vorschlag") }}</h2>
+<dl class="daten vorschlag">
+  <div><dt>{{ _("Soll") }}</dt><dd>{{ m.konto(b.soll_konto, kontonamen) }}</dd></div>
+  <div><dt>{{ _("Haben") }}</dt><dd>{{ m.konto(b.haben_konto, kontonamen) }}</dd></div>
+  <div><dt>{{ _("Steuerschlüssel") }}</dt><dd>{{ m.schluessel(b.steuer_schluessel, steuernamen) }}</dd></div>
+  <div><dt>{{ _("Netto") }}</dt><dd>{{ b.betrag_netto | euro }}</dd></div>
+  <div><dt>{{ _("Steuer") }}</dt><dd>{{ b.steuer_betrag | euro }}</dd></div>
+  <div><dt>{{ _("Brutto") }}</dt><dd>{{ brutto | euro }}</dd></div>
+  <div><dt>{{ _("Datum") }}</dt><dd>{{ b.datum | datum }}</dd></div>
+  <div><dt>{{ _("Buchungstext") }}</dt><dd>{{ b.buchungstext }}</dd></div>
+  <div><dt>{{ _("Confidence") }}</dt><dd><span class="confidence">{{ confidence_prozent | prozent_ganz }}</span> <span class="klein">{{ _("automatisch gebucht ab %(schwelle)s", schwelle=(schwelle * 100) | int | prozent_ganz) }}</span></dd></div>
+  <div><dt>{{ _("Herkunft") }}</dt><dd>
+    {% if e.herkunft.bekannt %}
+    <span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span>{% if e.herkunft.regel %} · {{ _("Regel %(name)s", name=e.herkunft.regel) }}{% endif %}{% if e.herkunft.modell %} · {{ _("Modell %(name)s", name=e.herkunft.modell) }}{% endif %}
+    <p class="begruendung" lang="de">{{ e.herkunft.text }}</p>
+    {% else %}
+    <span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>
+    {% endif %}
+  </dd></div>
+  {% if e.kontakt %}<div><dt>{{ _("Kontakt") }}</dt><dd>{{ e.kontakt.name }}</dd></div>{% endif %}
+</dl>
+{% if e.geschwister %}
+<h3>{{ _("Weitere Buchungen zu Umsatz bzw. Beleg") }}</h3>
+<ul class="geschwister">
+  {% for x in e.geschwister %}<li><a href="/buchungen/{{ x.id }}">{{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }}</a> · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }} · {{ x.status | bezeichnung }}</li>{% endfor %}
+</ul>
+{% endif %}
+{% if e.rueckfragen %}
+<h3>{{ _("Rückfragen") }}</h3>
+<ul class="rueckfragen">{% for k in e.rueckfragen %}<li><strong>{{ k.autor }}</strong> ({{ k.erstellt_am.date() | datum }}): {{ k.text }}</li>{% endfor %}</ul>
+{% endif %}
+{% if e.aufgaben %}
+<h3>{{ _("Aufgaben") }}</h3>
+<ul class="aufgaben">{% for a in e.aufgaben %}<li>#{{ a.nr }} {{ a.titel }}{% if a.zustaendig or a.rolle %} · {{ _("zuständig: %(wer)s", wer=a.zustaendig or a.rolle) }}{% endif %}{% if a.faellig_am %} · {{ _("fällig am %(tag)s", tag=a.faellig_am | datum) }}{% endif %}</li>{% endfor %}</ul>
+{% endif %}

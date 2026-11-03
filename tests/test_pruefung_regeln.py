@@ -113,6 +113,7 @@ def test_alle_regeln_aus_der_spec_sind_registriert():
         "op_alter",
         "periode_nicht_festgeschrieben",
         "bankumsatz_ohne_bankkonto",
+        "soll_gleich_haben",
     }
     from accounti.pruefung.regeln import _lade_regeln
 

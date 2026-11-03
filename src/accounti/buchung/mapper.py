@@ -13,6 +13,7 @@ Kontenrahmens) ebenfalls zur Prüfung.
 from __future__ import annotations
 
 from decimal import Decimal
+from typing import Literal
 
 from accounti.models import (
     Buchungssatz,
@@ -31,24 +32,52 @@ _SCHLUESSEL_SATZ: dict[int, tuple[Decimal, bool]] = {
 }
 
 
+AUTO_SCHWELLE = 0.95  # ab dieser Confidence bucht ein Vorschlag automatisch
+
+
+Bankseite = Literal["passt", "verkehrt", "ohne_bank"]
+
+
+def bankseite(
+    transaktion: Transaktion, soll: str, haben: str, bank_konto: str = "1200"
+) -> Bankseite:
+    """Die Schranke: steht das Bankkonto auf der Seite, die das Vorzeichen verlangt?
+
+    ``bank_konto``: Bankkonto der Buchhaltung; das Sachkonto des Umsatzes
+    (Kreditkarte, zweites Giro, PayPal, Kasse) zählt ebenfalls als Bankseite."""
+    bank = {bank_konto, transaktion.sachkonto} - {None}
+    soll_bank, haben_bank = soll in bank, haben in bank
+    if (transaktion.betrag > 0 and haben_bank and not soll_bank) or (
+        transaktion.betrag < 0 and soll_bank and not haben_bank
+    ):
+        return "verkehrt"
+    return "passt" if soll_bank or haben_bank else "ohne_bank"
+
+
+# Zusatz zur Begründung (``kontierungsgruende``), wenn die Schranke eingreift
+SCHRANKE_HINWEIS: dict[Bankseite, str] = {
+    "verkehrt": (
+        "Bankseite passt nicht zum Vorzeichen des Umsatzes — Soll und Haben "
+        "getauscht (Gegenbuchung), zur Prüfung"
+    ),
+    "ohne_bank": "kein Bankkonto auf einer Seite — zur Prüfung",
+}
+
+
 def zu_buchungssatz(
     transaktion: Transaktion,
     ergebnis: Klassifikationsergebnis,
-    auto_schwelle: float = 0.95,
+    auto_schwelle: float = AUTO_SCHWELLE,
     bank_konto: str = "1200",
 ) -> Buchungssatz:
-    """``bank_konto``: Bankkonto der Buchhaltung; das Sachkonto des Umsatzes
-    (Kreditkarte, zweites Giro, PayPal, Kasse) zählt ebenfalls als Bankseite."""
+    """``bank_konto``: Bankkonto der Buchhaltung (``bankseite``)."""
     berechner = UStBerechner()
     soll, haben = ergebnis.soll_konto, ergebnis.haben_konto
-    bank = {bank_konto, transaktion.sachkonto} - {None}
-    soll_bank, haben_bank = soll in bank, haben in bank
-    verkehrt = (transaktion.betrag > 0 and haben_bank and not soll_bank) or (
-        transaktion.betrag < 0 and soll_bank and not haben_bank
-    )
+    seite = bankseite(transaktion, soll, haben, bank_konto)
+    verkehrt = seite == "verkehrt"
     if verkehrt:
         soll, haben = haben, soll
-    ohne_bank = not (soll_bank or haben_bank)
+    ohne_bank = seite == "ohne_bank"
     brutto = abs(transaktion.betrag)
     schluessel = ergebnis.steuer_schluessel
 

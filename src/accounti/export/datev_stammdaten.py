@@ -180,6 +180,47 @@ def wirtschaftsjahr_beginn(stichtag: date, beginn: date | None = None) -> date:
     return kandidat
 
 
+SACHKONTENLAENGE = range(4, 9)  # DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)
+
+
+def _laenge(firma: dict[str, object]) -> int:
+    """``mandant.sachkonten_laenge``: eine ganze Zahl 4 bis 8, ohne Angabe 4. Bisher
+    stand jede Zahl im Kopf (0, 3, 9, -1, true als 1) — DATEV lehnt den Stapel ab
+    (Runde 6, g5w-konten N2). Eine ganze Zahl als Float (``4.0``) galt bis Runde 5
+    und gilt weiter (Runde 7, g6w B-5); 4.5 nicht."""
+    from accounti.konfiguration import KonfigurationError
+
+    laenge = firma.get("sachkonten_laenge")
+    if laenge is None:
+        return 4
+    msg = f"mandant.sachkonten_laenge {laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
+    if isinstance(laenge, float) and laenge.is_integer():
+        laenge = int(laenge)
+    if isinstance(laenge, bool) or not isinstance(laenge, int | str):
+        raise KonfigurationError(msg)
+    try:
+        zahl = int(laenge)
+    except ValueError as fehler:
+        raise KonfigurationError(msg) from fehler
+    if zahl not in SACHKONTENLAENGE:
+        raise KonfigurationError(msg)
+    return zahl
+
+
+def sachkontenlaenge(pfad: str | Path) -> int:
+    """``mandant.sachkonten_laenge`` der Konfiguration (Standard 4) — für den
+    Buchungsstapel von ``export datev`` wie für ``datev belege`` und die Stammdaten
+    (Runde 5, g4w N5: der Stapel nannte immer 4)."""
+    from accounti.konfiguration import lies_yaml
+
+    datei = Path(pfad)
+    if not datei.is_file():
+        return 4
+    geladen = lies_yaml(datei)
+    firma = geladen.get("mandant") if isinstance(geladen, dict) else None
+    return _laenge(firma if isinstance(firma, dict) else {})
+
+
 def lade_datev_mandant(
     pfad: str | Path,
     stichtag: date,
@@ -193,14 +234,13 @@ def lade_datev_mandant(
     Wirtschaftsjahresbeginn aus ``datev.wirtschaftsjahr_beginn`` (Tag und Monat,
     Standard 1. Januar) für das Wirtschaftsjahr, in dem ``stichtag`` liegt.
     """
-    import yaml
-
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung, lies_yaml
 
     daten: dict[str, object] = {}
     datei = Path(pfad)
     if datei.is_file():
-        geladen = yaml.safe_load(datei.read_text(encoding="utf-8")) or {}
+        # kaputtes YAML: Meldung wie export datev (Runde 7, g6w B-3)
+        geladen = lies_yaml(datei)
         daten = geladen if isinstance(geladen, dict) else {}
 
     def abschnitt(name: str) -> dict[str, object]:
@@ -230,11 +270,10 @@ def lade_datev_mandant(
     wj = wirtschaftsjahr_beginn(stichtag, beginn if isinstance(beginn, date) else None)
     # eine Quelle mit USt, Abschluss und Prüfregeln (Gesamttest Betrieb B4)
     rahmen = lade_buchhaltung(datei).kontenrahmen
-    laenge = firma.get("sachkonten_laenge", 4)
     return DatevMandant(
         berater=int(berater),
         mandant=int(mandant),
         wj_beginn=wj,
-        sachkontenlaenge=int(laenge) if isinstance(laenge, int | str) else 4,
+        sachkontenlaenge=_laenge(firma),
         skr=rahmen.upper().removeprefix("SKR")[-2:].zfill(2),
     )

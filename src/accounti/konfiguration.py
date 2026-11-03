@@ -6,10 +6,11 @@ elektronische Adresse und Zahlungsdaten des Verkäufers.
 
 from __future__ import annotations
 
+import logging
 import os
 import string
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
@@ -156,6 +157,20 @@ def _fehlertext(
     return "; ".join(teile)
 
 
+def lies_yaml(pfad: str | Path) -> Any:
+    """Die Konfigurationsdatei lesen (leer: ``{}``) — kaputtes YAML wird zum
+    ``KonfigurationError`` mit derselben Meldung für jeden Abschnitt. Sonst endete
+    jeder Befehl, dessen Lader die Datei roh las, mit einem ParserError-Traceback
+    (Runde 6, g5w-konten N2; Runde 7, g6w B-3)."""
+    pfad = Path(pfad)
+    try:
+        return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as fehler:
+        raise KonfigurationError(f"{pfad}: kein gültiges YAML ({fehler})") from fehler
+    except UnicodeDecodeError as fehler:
+        raise KonfigurationError(f"{pfad}: keine UTF-8-Datei ({fehler})") from fehler
+
+
 def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
     pfad = Path(pfad)
     if not pfad.is_file():
@@ -164,7 +179,7 @@ def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
             "den Abschnitt 'mandant' ausfüllen"
         )
         raise KonfigurationError(msg)
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     mandant = daten.get("mandant") if isinstance(daten, dict) else None
     if not isinstance(mandant, dict):
         msg = f"{pfad}: Abschnitt 'mandant' fehlt"
@@ -177,6 +192,9 @@ def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
 
 
 KONTENRAHMEN = ("SKR03", "SKR04")
+PERSONENKONTO_MAX = 999_999_999  # DATEV: höchstens 9 Stellen
+LOG = logging.getLogger("accounti.konfiguration")
+_GEMELDET: set[tuple[str, str]] = set()  # Hinweise je Datei und Feld einmal
 
 
 class Buchhaltung(BaseModel):
@@ -207,6 +225,22 @@ class Buchhaltung(BaseModel):
     skonto_gewaehrt: dict[str, str] = Field(
         default_factory=lambda: {"19": "8736", "7": "8731", "0": "8730"}
     )
+    # gelernte Kontierungsregeln (Datenbank, Baustein 10b): automatisch buchen (wie
+    # jede Regel), nur vorschlagen (Confidence 0,9 → zur Prüfung) oder nicht laden
+    gelernte_regeln: Literal["automatisch", "pruefen", "aus"] = "automatisch"
+
+    @field_validator(
+        "debitoren_von", "debitoren_bis", "kreditoren_von", "kreditoren_bis"
+    )
+    @classmethod
+    def _personenkonten(cls, wert: int) -> int:
+        # DATEV-Personenkonten haben höchstens 9 Stellen (Sachkontenlänge 8 + 1); ein
+        # 10-stelliger Debitor wurde gebucht, ließ sich aber weder korrigieren noch in
+        # der Kasse gegenbuchen (Kontonummern 4–9 Ziffern) — Runde 6, g5w-konten N3
+        if not 0 <= wert <= PERSONENKONTO_MAX:
+            msg = f"{wert}: Personenkonten haben höchstens 9 Stellen (DATEV)"
+            raise ValueError(msg)
+        return wert
 
     @field_validator("kontenrahmen", mode="before")
     @classmethod
@@ -227,7 +261,7 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     pfad = Path(pfad)
     if not pfad.is_file():
         return Buchhaltung()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
     mandant = daten.get("mandant") if isinstance(daten, dict) else None
     werte: Any = abschnitt or {}
@@ -244,12 +278,46 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
                 f"({alt}) widersprechen sich — nur buchhaltung.kontenrahmen angeben"
             )
             raise KonfigurationError(msg)
+    if isinstance(werte, dict):
+        werte = _offene_obergrenzen(pfad, werte)
     try:
         return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
         text = _fehlertext(fehler, "buchhaltung", herkunft)
         msg = f"{pfad}: Abschnitt 'buchhaltung': {text}"
         raise KonfigurationError(msg) from fehler
+
+
+def _offene_obergrenzen(pfad: Path, werte: dict[str, Any]) -> dict[str, Any]:
+    """Eine Obergrenze über 9 Stellen (``kreditoren_bis: 9999999999`` als „offen“)
+    gilt als 999999999 — mit Hinweis statt Abbruch: Bis Runde 5 lief so eine
+    Konfiguration, seit Runde 6 hielt sie jeden Befehl an (Gesamttest 10b-1, Runde 7:
+    g6w B-5). Eine Untergrenze über 9 Stellen bleibt ein Fehler (dann gäbe es kein
+    gültiges Personenkonto im Bereich)."""
+    neu = dict(werte)
+    for feld in ("debitoren_bis", "kreditoren_bis"):
+        wert = neu.get(feld)
+        if isinstance(wert, bool) or not isinstance(wert, int | str):
+            continue
+        try:
+            zahl = int(str(wert).strip())
+        except ValueError:
+            continue  # den Fehler meldet die Prüfung des Modells
+        if zahl <= PERSONENKONTO_MAX:
+            continue
+        neu[feld] = PERSONENKONTO_MAX
+        if (str(pfad), feld) not in _GEMELDET:
+            _GEMELDET.add((str(pfad), feld))
+            LOG.warning(
+                "%s: buchhaltung.%s %s — Personenkonten haben höchstens 9 Stellen "
+                "(DATEV), es gilt %s; bitte in der Konfiguration berichtigen "
+                "(docs/betrieb.md, Upgrades)",
+                pfad,
+                feld,
+                zahl,
+                PERSONENKONTO_MAX,
+            )
+    return neu
 
 
 class UstIdEinstellungen(BaseModel):
@@ -269,7 +337,7 @@ def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
     pfad = Path(pfad)
     abschnitt: Any = None
     if pfad.is_file():
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(pfad)
         abschnitt = daten.get("ustid_pruefung") if isinstance(daten, dict) else None
     werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
     if os.environ.get("ACCOUNTI_EVATR_URL"):

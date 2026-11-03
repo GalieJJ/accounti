@@ -251,8 +251,25 @@ def freigeben(
     from accounti.models.auth import Recht
     from accounti.pruefung.person import geprueft_als
 
+    def probe() -> None:
+        """Erst Zeitraum und Fachlogik (Befunde, die die Freigabe sperren), zur Probe
+        und zurückgerollt — ein Fehler kostet den Einmalcode nicht (wie im Browser;
+        Runde 4, g3w-web N2)."""
+        with sitzung(period, db, config) as (s, lauf):
+            try:
+                v = lauf.vorbereiten(s)
+                try:
+                    gib_frei(s, v, von)
+                except FreigabeError as fehler:
+                    zeige_befunde(v.befunde)
+                    ende(fehler, 1)
+            finally:
+                s.rollback()
+
     # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10)
-    benutzer = befehlsrecht_oder_ende(db, config, Recht.STEUER_FREIGEBEN, von)
+    benutzer = befehlsrecht_oder_ende(
+        db, config, Recht.STEUER_FREIGEBEN, von, vorab=probe
+    )
     with (
         geprueft_als(benutzer.name if benutzer else None),
         sitzung(period, db, config) as (s, lauf),

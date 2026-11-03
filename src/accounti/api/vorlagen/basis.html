@@ -1,49 +1,68 @@
 <!doctype html>
-<html lang="de">
+<html lang="{{ sprache }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
-  <title>{% block titel %}{{ titel }}{% endblock %} · accounti</title>
-  <link rel="stylesheet" href="/statisch/accounti.css">
+  <meta name="htmx-config" content="{{ htmx_konfig }}">
+  <title>{% block titel %}{{ _(titel) }}{% endblock %} · accounti</title>
+  <link rel="stylesheet" href="/statisch/accounti.css?v={{ version }}">
+  <script src="/statisch/htmx-2.0.11.min.js?v={{ version }}" defer></script>
+  <script src="/statisch/pruefen.js?v={{ version }}" defer></script>
   {% block kopf %}{% endblock %}
 </head>
-<body>
+<body hx-history="false" hx-headers="{{ hx_kopf }}">
   <header class="kopfleiste">
     <a class="marke" href="/">accounti</a>
     {% if angemeldet %}
-    <nav class="navigation" aria-label="Hauptmenü">
+    <nav class="navigation" aria-label="{{ _('Hauptmenü') }}">
       {% for punkt in navigation %}
-      <a href="{{ punkt.pfad }}">{{ punkt.titel }}</a>
+      <a href="{{ punkt.pfad }}">{{ _(punkt.titel) }}</a>
       {% endfor %}
     </nav>
     <div class="sitzung">
       {% if angemeldet.gesellschaften | length > 1 %}
       <form method="post" action="/gesellschaft" class="gesellschaft-wahl">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label for="gesellschaft">Gesellschaft</label>
+        <label for="gesellschaft">{{ _("Gesellschaft") }}</label>
         <select id="gesellschaft" name="kuerzel">
           {% for g in angemeldet.gesellschaften %}
           <option value="{{ g.kuerzel }}"{% if g.kuerzel == angemeldet.gesellschaft.kuerzel %} selected{% endif %}>{{ g.name }}</option>
           {% endfor %}
         </select>
-        <button type="submit">Wechseln</button>
+        <button type="submit">{{ _("Wechseln") }}</button>
       </form>
       {% else %}
       <span class="gesellschaft" data-gesellschaft="{{ angemeldet.gesellschaft.kuerzel }}">{{ angemeldet.gesellschaft.name }}</span>
       {% endif %}
+      <form method="post" action="/einstellungen/sprache" class="sprachwahl">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <input type="hidden" name="weiter" value="{{ pfad }}">
+        <label for="sprachwahl">{{ _("Sprache") }}</label>
+        <select id="sprachwahl" name="sprache">
+          <option value=""{% if not benutzersprache %} selected{% endif %}>{{ _("automatisch") }}</option>
+          {% for code, name in sprachen.items() %}
+          <option value="{{ code }}" lang="{{ code }}"{% if benutzersprache == code %} selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </select>
+        <button type="submit">{{ _("Übernehmen") }}</button>
+      </form>
       <span class="benutzer">{{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }}</span>
       <form method="post" action="/abmelden" class="abmelden">
         <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button type="submit">Abmelden</button>
+        <button type="submit">{{ _("Abmelden") }}</button>
       </form>
     </div>
     {% endif %}
   </header>
   <main id="inhalt">
-    {% if angemeldet %}<p class="aktive-gesellschaft">Gesellschaft: <strong>{{ angemeldet.gesellschaft.name }}</strong></p>{% endif %}
-    {% if meldung %}<p class="meldung" role="status">{{ meldung }}</p>{% endif %}
-    {% if fehler %}<p class="fehler" role="alert">{{ fehler }}</p>{% endif %}
+    {% if angemeldet %}<p class="aktive-gesellschaft">{{ _("Gesellschaft: <strong>%(name)s</strong>", name=angemeldet.gesellschaft.name) }}</p>{% endif %}
+    <p id="netzhinweis" class="netzhinweis" role="alert" hidden>
+      <span data-hinweis="allgemein">{{ _("Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.") }}</span>
+      <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span>
+    </p>
+    {% if meldung %}<p class="meldung" role="status">{{ meldung | uebersetzt }}</p>{% endif %}
+    {% if fehler %}<p class="fehler" role="alert">{{ fehler | uebersetzt }}</p>{% endif %}
     {% block inhalt %}{% endblock %}
   </main>
   <footer class="fuss">accounti {{ version }}</footer>

@@ -16,13 +16,14 @@ from accounti.api.sitzung import Angemeldet, erfordert, gesellschaft_db
 from accounti.api.vorlagen import seite
 from accounti.db.repo_zahlung import lade_laeufe
 from accounti.db.repository import lade_belege, lade_kontakte, lade_posten
+from accounti.i18n import N_
 from accounti.models import BelegStatus, BuchungStatus
 from accounti.models.auth import Recht
 from accounti.models.zahlung import LaufStatus
 from accounti.opos.auswertung import offene_posten
 
 router = APIRouter()
-NAVIGATION = [Navigationspunkt("Übersicht", "/", Recht.LESEN, 0)]
+NAVIGATION = [Navigationspunkt(N_("Übersicht"), "/", Recht.LESEN, 0)]
 
 
 def kennzahlen(s: Session, heute: date) -> dict[str, Any]:
@@ -63,4 +64,4 @@ async def start(
     s: Annotated[Session, Depends(gesellschaft_db)],
 ) -> HTMLResponse:
     werte = await run_in_threadpool(kennzahlen, s, date.today())
-    return seite(request, "start.html", {"titel": "Übersicht", **werte})
+    return seite(request, "start.html", {"titel": N_("Übersicht"), **werte})

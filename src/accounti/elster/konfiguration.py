@@ -14,7 +14,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 __all__ = [
     "BUNDESLAENDER",
@@ -177,10 +177,35 @@ def lade_elster(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return ElsterEinstellungen()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("elster") if isinstance(daten, dict) else None
     try:
         return ElsterEinstellungen.model_validate(abschnitt or {})
+    except ValidationError as fehler:
+        msg = f"{pfad}: {_fehlertext(fehler)}"
+        raise KonfigurationError(msg) from fehler
+
+
+def lade_elster_konten(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
+    """Nur ``elster.kennziffern_konten`` und ``elster.steuerrelevante_konten`` (sonst
+    die Standards) — wie die Voranmeldung die Konten liest, für die Richtungsprüfung
+    einer Korrektur. Ein Fehler anderswo im Abschnitt (Bundesland, ERiC …) hält die
+    Korrektur nicht auf; ein Fehler in diesen beiden Angaben ist ein
+    ``KonfigurationError`` wie bei ``lade_elster``."""
+    pfad = Path(pfad)
+    if not pfad.is_file():
+        return ElsterEinstellungen()
+    daten: Any = lies_yaml(pfad)
+    abschnitt = daten.get("elster") if isinstance(daten, dict) else None
+    if not isinstance(abschnitt, dict):
+        return ElsterEinstellungen()
+    teil = {
+        k: abschnitt[k]
+        for k in ("kennziffern_konten", "steuerrelevante_konten")
+        if k in abschnitt
+    }
+    try:
+        return ElsterEinstellungen.model_validate(teil)
     except ValidationError as fehler:
         msg = f"{pfad}: {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

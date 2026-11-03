@@ -224,13 +224,22 @@ def _fehlertext(fehler: ValidationError) -> str:
 
 
 def lies_yaml(pfad: Path) -> Any:
-    """YAML-Datei lesen — ein Syntaxfehler wird zum ``KonfigurationError``."""
+    """YAML-Datei lesen — ein Syntaxfehler, eine Datei in anderer Kodierung als UTF-8
+    und eine unlesbare Datei werden zum ``KonfigurationError`` (Meldung mit Datei,
+    Exit 1). Sonst endete jeder Befehl, ``serve`` und der Planer mit einem Traceback
+    aus ``bestimme_kontext`` (Runde 8, g7w B7-5)."""
     try:
         return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
     except yaml.YAMLError as fehler:
         stelle = getattr(fehler, "problem_mark", None)
         wo = f", Zeile {stelle.line + 1}" if stelle is not None else ""
         msg = f"{pfad}: kein gültiges YAML{wo}"
+        raise KonfigurationError(msg) from fehler
+    except UnicodeDecodeError as fehler:
+        msg = f"{pfad}: keine UTF-8-Datei ({fehler.reason} an Stelle {fehler.start})"
+        raise KonfigurationError(msg) from fehler
+    except OSError as fehler:
+        msg = f"{pfad}: nicht lesbar ({fehler.strerror or fehler})"
         raise KonfigurationError(msg) from fehler
 
 

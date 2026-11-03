@@ -9,7 +9,9 @@ auth:
   sitzung_leerlauf_minuten: 30    # OWASP: 15–30 min (geringes Risiko)
   sitzung_hoechstdauer_stunden: 8 # OWASP: z. B. 4–8 h
   totp_toleranz_schritte: 1       # RFC 6238 5.2: höchstens ein Schritt empfohlen
-  einmalcode_bestaetigung: true   # Freigaben (Browser und CLI) mit Einmalcode
+  einmalcode_bestaetigung: true   # Zahlungsläufe, Steuermeldungen, Storno/Korrektur
+                                  # freigegebener Buchungen im Browser; CLI: jeder
+                                  # Befehl mit Recht
   aussteller: accounti            # Name in der Authenticator-App
 ```
 """
@@ -19,10 +21,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 
 class AuthEinstellungen(BaseModel):
@@ -44,8 +45,10 @@ class AuthEinstellungen(BaseModel):
     einmalcode_bestaetigung: bool = Field(
         default=True,
         description=(
-            "Freigaben im Browser und in der CLI sowie die Verwaltung in der CLI "
-            "verlangen den Einmalcode"
+            "Zahlungsläufe, Steuermeldungen und Storno/Korrektur freigegebener "
+            "Buchungen im Browser mit Einmalcode; in der CLI jeder Befehl mit Recht "
+            "(auch die Verwaltung). Die Entscheidung über Vorschläge in der "
+            "Prüfschlange verlangt keinen — die Sitzung entstand mit zweitem Faktor"
         ),
     )
     aussteller: str = Field(default="accounti", min_length=1, max_length=60)
@@ -65,11 +68,9 @@ def lade_auth(pfad: str | Path = STANDARD_PFAD) -> AuthEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return AuthEinstellungen()
-    try:
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as fehler:
-        msg = f"{pfad}: kein gültiges YAML"
-        raise KonfigurationError(msg) from fehler
+    # über lies_yaml: auch eine Datei in anderer Kodierung als UTF-8 ist eine Meldung,
+    # kein Traceback (Runde 8, g7w B7-5)
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("auth") if isinstance(daten, dict) else None
     if abschnitt is None:
         return AuthEinstellungen()
