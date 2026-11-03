@@ -487,8 +487,9 @@ Umsatz zurück; ohne Nummer ist die Zuordnung geraten (Hinweis, bei PayPal ohne 
 passt ein Umsatz zu zwei Abrechnungen, bekommt ihn keine (außer er nennt die Nummer einer). Wo
 der Abgleich nicht entscheidet, ordnet `marktplatz zuordnen <Nummer> <Umsatz>` ausdrücklich zu
 (die Befunde nennen den Befehl mit der Umsatz-ID; eine bisherige Zuordnung wird dabei storniert,
-`--loesen` löst nur; nach dem Zeitfenster nur mit `--trotzdem`, mit offenem opos-Vorschlag erst
-nach `opos ablehnen`).
+`--loesen` löst nur; nach dem Zeitfenster nur mit `--trotzdem`, eine Einzahlung auch davor —
+die Bank bucht die Überweisung vor der Gutschrift —, mit offenem opos-Vorschlag erst nach
+`opos ablehnen`).
 Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
 bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
 Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne
@@ -881,8 +882,9 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 - Trackt die **€10.000-Schwelle** über alle EU-B2C-Verkäufe
 - Berechnet den **korrekten Steuersatz** je Bestimmungsland
 - Bucht auf **ein OSS-Erlöskonto je Bestimmungsland** (Vorgabe acht Länder im DATEV-Bereich
-  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`; eine
-  eigene Rechnung in ein Land ohne eigenes Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die
+  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`, die
+  Länderkonten der Vorgabe bleiben ihrem Land; eine eigene Rechnung in ein Land ohne eigenes
+  Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die
   Meldung erfasst sie nicht), die Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem
   Land im Buchungstext — Marktplatz-Abrechnung und eigene Rechnungen (OPOS) gleich, vierstellig,
   passend zur Sachkontenlänge des DATEV-Stapels; im SKR04 ein Steuerkonto (3800 ff.), nicht

@@ -332,9 +332,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   nimmt den Umsatz für diese Auszahlung nicht wieder. Ein als Erlös gebuchter Umsatz wird erst
   mit `korrigiere` umgebucht (die Meldung nennt den Befehl); Betrag und Richtung müssen passen,
   ein Umsatz vor dem Abrechnungszeitraum wird abgelehnt, einer nach dem Zeitfenster nur mit
-  `--trotzdem`, einer mit offenem opos- oder Beleg-Vorschlag erst nach dessen Ablehnung
-  (Nachprüfung 6 E). Recht „buchen“ wie `korrigiere`, Journal (`auszahlung_zugeordnet`/
-  `auszahlung_geloest`, auch für eine mitgelöste Zuordnung) mit der handelnden Person, Hinweis
+  `--trotzdem` (eine Einzahlung auch davor, Nachprüfung 9 E), einer mit offenem opos- oder
+  Beleg-Vorschlag erst nach dessen Ablehnung (Nachprüfung 6 E). Recht „buchen“ wie
+  `korrigiere`, Journal (`auszahlung_zugeordnet`/`auszahlung_geloest`, auch für eine
+  mitgelöste Zuordnung) mit der handelnden Person, Hinweis
   an der Abrechnung; die Befunde des Abgleichs nennen den Befehl mit der Umsatz-ID
 
 ### Geändert
@@ -531,6 +532,20 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **OSS und Marktplatz: Nachprüfung 9 E** (Runde 10, N1–N4, N9-1, N9-2): Ein Länderkonto des
+  Kontenrahmens (im SKR04 auch 8320–8327) lässt sich in `integrationen.oss_erloes_konten`
+  keinem anderen Land und in `oss_erloes_ermaessigt` gar nicht mehr geben — OPOS bucht eigene
+  Rechnungen dort, die OSS-Meldung nahm das Land aus der Einstellung (`{DK: "8327", BE: null}`:
+  BE-Rechnung als DK 25 %; AT und IT vertauscht; IT 22 % als FR 5,5 %); das Laden lehnt ab und
+  rät zu einem anderen Konto (z. B. 8328) und zum Umbuchen. `LAND: null` nimmt ein Land nur für
+  den Marktplatz heraus, das Konto bleibt das Konto seines Lands. Eine Erstattung im
+  Folgequartal auf einem anderen Konto desselben Lands (SKR04 8320 → 4320) berichtigt das
+  Ursprungsquartal statt das laufende zu mindern. Die Beispielkonfiguration setzt Kursdifferenz-
+  und OSS-Steuerkonto nicht mehr fest (auf SKR04 gestellt gingen Kursdifferenzen still auf die
+  Privatkonten 2150/2660). `marktplatz zuordnen --trotzdem` nimmt eine Einzahlung auch vor dem
+  Zeitfenster (die Bank bucht die Überweisung zuerst; die Meldung sprach von einer Auszahlung),
+  eine Auszahlung davor weiter nie. Der Hinweis `auszahlung_rechnung` nennt eine schon bezahlte
+  Rechnung nicht mehr „offen“ und sagt, dass opos den Umsatz dann nicht bucht
 - **SKR04: OSS-Umsatzsteuer im Bankbereich** (Merge Paket E mit main nach #36; g3w-fach/
   g3w-merge N1): Eigene Rechnungen (OPOS) buchten die Steuer eines OSS-Fernverkaufs im SKR04
   auf 177720/1779 bzw. 1767 — dort Bank- und Zahlungsmittelbereich (1700–1889). `abschluss
@@ -538,8 +553,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   das BZSt ließ sich nicht als Regel lernen („beide Geldkonten“). Jetzt DATEV SKR04 3817
   „Umsatzsteuer aus im anderen EU-Land steuerpflichtigen Lieferungen“ (Gegenstück zu SKR03
   1767, Steuerkonto, Anlage EÜR Zeile 140), wie beim Marktplatz-Import; der Steuerabgleich
-  der OSS-Meldung nimmt ohne Einstellungen das Konto des Kontenrahmens. Im SKR04 schon auf
-  1777xx gebuchte OSS-Steuer auf 3817 umbuchen.
+  der OSS-Meldung nimmt ohne Einstellungen das Konto des Kontenrahmens. Schon auf 1777xx
+  gebuchte OSS-Steuer auf das Sammelkonto umbuchen (SKR04 3817, SKR03 1767).
 - **EU-Steuersätze veraltet** (Gesamttest Steuer B8): Die Tabelle führt je Land Stände mit
   `gueltig_ab`; maßgeblich ist der Satz am Tag der Leistung (Art. 63, 93 MwStSystRL).
   Berichtigt: Rumänien 21/11 % ab 01.08.2025 (vorher 19 % — OSS-Buchung und -Meldung nach
@@ -575,13 +590,16 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Sachkonto); ein Konto, das in kein DATEV-Kontofeld passt (10 Stellen), hält den Export an
 - **OSS-Konten fest verdrahtet, sechsstellige Steuerkonten** (Gesamttest Steuer B6/B7):
   `integrationen.oss_erloes_konten` ordnet jedem EU-Land ein Erlöskonto zu (Vorgabe wie bisher
-  acht Länder, SKR04 4320–4327; `LAND: null` nimmt eines heraus; ein Konto für zwei Länder ist
-  ein Konfigurationsfehler); ein Dänemark-Verkauf landete ohne Ausweg auf 8200/1779. Eigene
-  OSS-Erlöskonten (auch `oss_erloes_ermaessigt`, z. B. 8328) zählen in der Voranmeldung zu Kz 45
-  statt die Freigabe zu sperren. Die OSS-Umsatzsteuer geht auf das DATEV-Sammelkonto 1767 (SKR04
+  acht Länder, SKR04 4320–4327; `LAND: null` nimmt eines nur für den Marktplatz heraus, das
+  Konto bleibt das Konto seines Lands; ein Konto für zwei Länder ist ein Konfigurationsfehler);
+  ein Dänemark-Verkauf landete ohne Ausweg auf 8200/1779. Eigene OSS-Erlöskonten (auch
+  `oss_erloes_ermaessigt`, z. B. 8328) zählen in der Voranmeldung zu Kz 45 statt die Freigabe
+  zu sperren. Die OSS-Umsatzsteuer geht auf das DATEV-Sammelkonto 1767 (SKR04
   3817, `oss_ust_konto`, je Land `oss_ust_konten`) statt auf 177720–177725, die der Stapel mit
   Sachkontenlänge 4 nicht annahm; sie erscheint nicht als „Steuerkonto ohne Kennziffer“ in der
-  Voranmeldung. Wer schon auf 1777xx gebucht hat, stellt diese Konten in `oss_ust_konten` ein.
+  Voranmeldung. Schon auf 1777xx gebuchte OSS-Steuer auf das Sammelkonto umbuchen (SKR04 3817,
+  SKR03 1767), nicht in `oss_ust_konten` einstellen: im SKR04 liegen 1777xx im Bankbereich, im
+  SKR03 bucht der Marktplatz neue OSS-Steuer dann wieder sechsstellig.
   OSS-Meldung, Lieferschwelle und Kz 45 lesen die Länderkonten des Kontenrahmens (OPOS, im SKR04
   auch 8320–8327) und die eingestellten `oss_erloes_konten`; die Richtungsprüfung einer
   Korrektur kennt dieselben OSS-Konten wie die Voranmeldung
@@ -759,8 +777,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Umsatz mit Abgleichsbefund (ebenso `bank abgleich`, jetzt mit `--config`), und
   `marktplatz zuordnen` meldet einen schon bestätigten Beleg
   auf dem Umsatz (er bliebe sonst still ungebucht). `marktplatz zuordnen` nimmt einen Umsatz
-  vor dem Zeitfenster auch mit `--trotzdem` nicht (die Meldung sprach von „spät gebucht“);
-  `--trotzdem` gilt wie in der Hilfe nur nach dem Fenster
+  vor dem Zeitfenster einer Auszahlung auch mit `--trotzdem` nicht (die Meldung sprach von
+  „spät gebucht“); `--trotzdem` gilt wie in der Hilfe nur nach dem Fenster (bei einer
+  Einzahlung auch davor, Nachprüfung 9 E)
 - **Marktplatz: festgeschriebener Monat brach jeden Abgleich ab** (Nachprüfung 6 E): Ein
   vorgebuchter Umsatz (nach „schon gebucht“ und der Korrektur auf das Verrechnungskonto) mit
   Kursdifferenz in einem festgeschriebenen Monat ließ `marktplatz abgleichen`, `bank lauf`,

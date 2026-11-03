@@ -1668,7 +1668,8 @@ Durchlaufs mit Markern in allen Fremddaten.
   im Bank- und Zahlungsmittelbereich (1700–1889): `abschluss pruefen` meldete ein nicht
   eingerichtetes Bankkonto (Abschluss gesperrt), und die Zahlung der OSS-Steuer an das BZSt
   ließ sich nicht als Regel lernen („beide Geldkonten“; g3w-fach/g3w-merge N1, Runde 4 nicht
-  behoben). Wer im SKR04 schon auf 1777xx gebucht hat, bucht den Bestand auf 3817 um. Eigene
+  behoben). Wer schon auf 1777xx gebucht hat, bucht den Bestand auf das Sammelkonto um (SKR04
+  3817, SKR03 1767), statt die Konten in `oss_ust_konten` einzustellen. Eigene
   Konten je Land (`integrationen.oss_ust_konten`) kennt OPOS nicht: Es bucht immer auf das
   Sammelkonto, der Steuerabgleich der OSS-Meldung zeigt dann eine Differenz je Konto.
 - Im Browser bietet die Korrektur einer Belegbuchung den bisherigen Schlüssel und den, den der

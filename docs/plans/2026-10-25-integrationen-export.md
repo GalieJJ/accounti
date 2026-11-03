@@ -286,7 +286,13 @@ DATEV-Übergabe:
   Betrag erwartet (N1), „vielleicht gebucht“ mit Stichworten zeigt die Voranmeldung als
   Hinweis (N2). Grenzen: ein Datum mit Leerzeichen („2026 09 03“) gilt nicht als Datum; ein
   Umsatz mit Stichwort und Betrag, der eine Rechnung gleicher Höhe nennt, geht an opos (Hinweis
-  `auszahlung_rechnung`) — ist er doch die Auszahlung, löst der Mensch die opos-Zahlung.
+  `auszahlung_rechnung`) — ist er doch die Auszahlung, löst der Mensch die opos-Zahlung; ist
+  die Rechnung schon bezahlt, bucht opos ihn nicht, der Hinweis sagt das und nennt
+  `marktplatz zuordnen` (Nachprüfung 9 E, N9-2). Das Zeitfenster des Abgleichs ist für Aus-
+  und Einzahlungen gleich (Auszahlungsdatum − 2 Tage bis + `auszahlung_toleranz_tage`): Eine
+  Einzahlung, deren Überweisung die Bank früher bucht, gleicht er nicht selbst ab —
+  `marktplatz zuordnen --trotzdem` nimmt sie, auch vor dem Abrechnungszeitraum; eine
+  Auszahlung vor dem Fenster nie (Nachprüfung 9 E, N9-1).
   Weitere Grenzen aus der Simulation (19 584 Läufe, Prüfung nach jedem Schritt; Skripte unter
   `.claude/arbeit/s/gesamttest/r6-e/`): Ein Teilbetrag oder ein Betrag zu einer Abrechnung mit
   falschem Kurs, der statt der Nummer eine Referenz mit dem Anfang der Auszahlungsnummern nennt,
@@ -314,11 +320,12 @@ DATEV-Übergabe:
   eingetragen werden. Fehlt der Vorjahreswert, kann accounti ein überschrittenes Vorjahr nicht
   erkennen.
 - OSS-Korrekturen: Eine Erstattung wird ihrem Ursprungsquartal nur zugeordnet, wenn der Erlös
-  mit derselben Belegnummer auf demselben OSS-Erlöskonto gebucht ist; sonst mindert sie das
-  laufende Quartal (die CLI warnt bei negativen Länderzeilen). Ausgewiesen wird die Änderung,
-  nicht der „ursprüngliche und berichtigte Steuerbetrag“ des Portals — die ursprünglich
-  gemeldete Steuer kennt accounti nicht. Die CSV ist eine Prüfliste, nicht das Upload-Format
-  des BZSt.
+  mit derselben Belegnummer im selben Land gebucht ist (auf einem seiner OSS-Erlöskonten, seit
+  Nachprüfung 9 E, N2 auch auf einem anderen als die Erstattung — SKR04 8320 → 4320); sonst
+  mindert sie das laufende Quartal (die CLI warnt bei negativen Länderzeilen). Ausgewiesen
+  wird die Änderung, nicht der „ursprüngliche und berichtigte Steuerbetrag“ des Portals — die
+  ursprünglich gemeldete Steuer kennt accounti nicht. Die CSV ist eine Prüfliste, nicht das
+  Upload-Format des BZSt.
 - Gebuchte OSS-Steuer (Brutto − Netto je Bestellung) und gemeldete (je Land und Satz aus der
   Summe) können centweise auseinanderliegen; die CLI zeigt die Differenz je Steuerkonto, eine
   Ausgleichsbuchung gibt es nicht.
@@ -326,7 +333,14 @@ DATEV-Übergabe:
   AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuer geht seit
   Steuer B6/B7 auf das Sammelkonto des Kontenrahmens (SKR03 1767, SKR04 3817; vorher sechsstellig
   `1777xx`, die nicht zur Sachkontenlänge 4 passten), seit dem Merge mit main nach #36 auch bei
-  eigenen Rechnungen (OPOS).
+  eigenen Rechnungen (OPOS). Schon auf 1777xx gebuchte OSS-Steuer bucht der Mensch auf das
+  Sammelkonto um (SKR04 3817, SKR03 1767), statt die Konten in `oss_ust_konten` einzustellen.
+- OPOS liest `integrationen` nicht: Eigene Rechnungen gehen auf die Länderkonten des
+  Kontenrahmens, ein Land ohne solches Konto (DK) zur Prüfung, auch mit `oss_erloes_konten`
+  `{DK: "8328"}`. Deshalb gehört ein Länderkonto des Kontenrahmens seinem Land:
+  `oss_erloes_konten` kann es keinem anderen Land geben, `oss_erloes_ermaessigt` gar nicht
+  (im SKR04 auch 8320–8327; `lade_integrationen` lehnt ab, Nachprüfung 9 E, N1); `LAND: null`
+  nimmt ein Land nur für den Marktplatz heraus.
 
 **DATEV**
 - Kein Import in ein echtes DATEV-Programm. Die Golden-Datei ist von accounti erzeugt und gegen die
