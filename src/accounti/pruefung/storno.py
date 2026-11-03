@@ -1364,7 +1364,8 @@ def _erloes_ust(
     § 17 UStG, nicht die ausgewiesene Steuer, und hob sonst den Erlös auf (Storno
     ohne Warnung, F Runde 3, gf2-richtung GF2-1, GF2-2). So zählt auch ``gebucht`` in
     ``ust_luecken`` nur Steuer auf der Seite einer Rechnung; eine Minderung, die der
-    Beleg selbst ausweist (Position Rücksendung), mindert schon ``_ausgewiesen``."""
+    Beleg selbst ausweist (Position Rücksendung), mindert schon ``_ausgewiesen`` und,
+    soweit sie nicht gebucht ist, die Obergrenze (``_ungebuchte_erstattung``)."""
     from accounti.steuer.kennziffern import sachseite
 
     nach_id = {str(x.id): x for x in eigene}
@@ -1391,6 +1392,50 @@ def _erloes_ust(
         for satz, betrag in hoechst.items():
             je[satz] = je.get(satz, NULL) + betrag
     return je
+
+
+def _ungebuchte_erstattung(
+    beleg: Beleg | None,
+    saetze: dict[Decimal, int],
+    eigene: list[Buchungssatz],
+    plan: Kontenplan,
+) -> dict[Decimal, Decimal]:
+    """Umsatzsteuer je Satz (≤ 0), die der Beleg selbst als Erstattung ausweist
+    (negative Position: Erstattung, Rücksendung; ohne Satz der, den ihre Steuer zum
+    Netto ergibt) und die keine wirksame Minderung desselben Satzes (Steuer auf der
+    Gegenseite) bucht. Sie gleicht in ``ust_luecken`` die nicht gebuchte Erlössteuer
+    desselben Belegs aus: Sind Verkauf und Erstattung storniert, fehlt nichts bzw. nur
+    der Rest (Paket G, gf3-obergrenze GF3-2: neben einer Gebühr desselben Satzes hoben
+    sich Erstattung und Gebühr in ``_ausgewiesen`` auf, gemeldet wurde die Vorsteuer
+    der Gebühr). Eine wirksam gebuchte Erstattung steht in der Voranmeldung, sie
+    gleicht nichts aus."""
+    from accounti.steuer.kennziffern import sachseite
+
+    erstattet: dict[Decimal, Decimal] = {}
+    for p in beleg.positionen if beleg is not None else ():
+        steuer, satz = p.steuer_betrag, p.steuersatz
+        if satz is None and steuer and p.netto:
+            quote = steuer / p.netto * 100
+            satz = next((s for s in saetze if abs(quote - s) < 1), None)
+        satz = next((s for s in saetze if s == satz), None)
+        if satz is None:
+            continue
+        if steuer is None:
+            steuer = (p.netto * satz / 100).quantize(CENT, rounding=ROUND_HALF_UP)
+        if steuer < 0:
+            erstattet[satz] = erstattet.get(satz, NULL) + steuer
+    gemindert: dict[Decimal, Decimal] = {}
+    for x in eigene:
+        if ist_wirksam(x) and x.steuer_schluessel in AUSGEWIESENE_UST:
+            vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
+            betrag = vorzeichen * (x.steuer_betrag or NULL)
+            if betrag < 0:
+                satz = _SATZ_DER_UST[x.steuer_schluessel]
+                gemindert[satz] = gemindert.get(satz, NULL) + betrag
+    return {
+        satz: min(NULL, betrag - gemindert.get(satz, NULL))
+        for satz, betrag in erstattet.items()
+    }
 
 
 def ust_luecken(
@@ -1421,7 +1466,9 @@ def ust_luecken(
     Neubuchung der Korrekturen, ``ersetzte_buchungen`` — je Kette ihr höchster
     positiver Stand, eine Erlösschmälerung zählt nicht), eine Gebühren- oder
     Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w G8R-4; F Runde 2,
-    gf-richtung GF-1b; F Runde 3, gf2-richtung GF2-1, GF2-2)."""
+    gf-richtung GF-1b; F Runde 3, gf2-richtung GF2-1, GF2-2) — abzüglich einer
+    Erstattung, die er selbst ausweist und die nicht gebucht ist
+    (``_ungebuchte_erstattung``; Paket G, gf3-obergrenze GF3-2)."""
     from accounti.steuer.kennziffern import sachseite
 
     eigene = list(buchungen)
@@ -1440,8 +1487,12 @@ def ust_luecken(
     ausgewiesen = _ausgewiesen(beleg, saetze, eigene, plan)
     if eingangsbeleg(beleg):  # nur über seine Erlösbuchungen Ausgangsbeleg
         erloes = _erloes_ust(beleg, eigene, plan, ersetzt or {})
+        erstattet = _ungebuchte_erstattung(beleg, saetze, eigene, plan)
         ausgewiesen = {
-            satz: (min(betrag, erloes.get(satz, NULL)), anzahl)
+            satz: (
+                min(betrag, erloes.get(satz, NULL) + erstattet.get(satz, NULL)),
+                anzahl,
+            )
             for satz, (betrag, anzahl) in ausgewiesen.items()
         }
     gebucht: dict[Decimal, Decimal] = dict.fromkeys(saetze, NULL)
