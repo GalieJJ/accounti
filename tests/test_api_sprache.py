@@ -30,7 +30,8 @@ def test_html_lang_und_navigation_englisch(welt):
     client = welt.angemeldet("jan")
     seite = client.get("/", headers=EN).text
     assert '<html lang="en" ' in seite
-    assert "Company: <strong>Alpha Papier GmbH</strong>" in seite
+    # umgestellt (Plan P1, Schritt 7): Titel statt der Zeile „Gesellschaft: …“
+    assert "<title>Overview · Alpha Papier GmbH · accounti</title>" in seite
     # umgestellt (Plan P1, B9): jan ist buchhalter — Freigaben sieht nur, wer freigeben
     # darf; „Navigation englisch“ prüft Übersicht und Prüfen bzw. Freigaben für fritz
     assert ">Overview<" in seite and ">Review<" in seite and "Sign out" in seite
@@ -39,7 +40,7 @@ def test_html_lang_und_navigation_englisch(welt):
     assert ">Approvals<" in welt.angemeldet("fritz").get("/", headers=EN).text
     seite = client.get("/", headers=DE).text
     assert '<html lang="de" ' in seite
-    assert "Gesellschaft: <strong>Alpha Papier GmbH</strong>" in seite
+    assert "<title>Übersicht · Alpha Papier GmbH · accounti</title>" in seite
 
 
 def test_anmeldeseite_nach_accept_language(welt):
@@ -98,7 +99,8 @@ def test_sprache_bleibt_nach_neuer_anmeldung(welt):
     neu = welt.angemeldet("jan")
     seite = neu.get("/", headers=DE).text
     assert '<html lang="en" ' in seite
-    assert '<option value="en" lang="en" selected>' in seite
+    # umgestellt (Plan P1, Schritt 7): die Wahl steht im Benutzermenü als Wahlpille
+    assert 'id="menue-sprache-en" name="sprache" value="en" checked' in seite
 
 
 def test_automatisch_folgt_wieder_dem_browser(welt):
@@ -123,10 +125,9 @@ def test_jede_seite_in_beiden_sprachen(welt):
     )
     client = welt.angemeldet("jan")
     for pfad in pfade:
-        for kopf, lang, firma in (
-            (DE, "de", "Gesellschaft: <strong>Alpha Papier GmbH</strong>"),
-            (EN, "en", "Company: <strong>Alpha Papier GmbH</strong>"),
-        ):
+        # umgestellt (Plan P1, Schritt 7): die Gesellschaft im Titel statt in der Zeile
+        firma = " · Alpha Papier GmbH · accounti</title>"
+        for kopf, lang in ((DE, "de"), (EN, "en")):
             r = client.get(pfad, headers=kopf)
             assert r.status_code == 200, (pfad, lang)
             assert f'<html lang="{lang}" ' in r.text and firma in r.text, (pfad, lang)

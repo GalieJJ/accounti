@@ -239,9 +239,11 @@ def test_schriftgroessen_nur_aus_der_skala():
 
 
 ABSTAND = re.compile(r"padding|margin|gap|row-gap|column-gap|inset|border-radius")
+# dazu Abstände in Höhe von Kopf- bzw. unterer Leiste (Maße, L3): der Inhalt rückt
+# unter 64rem um die feste untere Leiste ein (Plan P1, Schritt 7)
 ERLAUBT = re.compile(
     r"var\(--a-\d+\)|var\(--fein-\d\)|var\(--radius(-[a-z]+)?\)|0|auto|-?1px"
-    r"|env\(safe-area-inset-(top|right|bottom|left)\)"
+    r"|env\(safe-area-inset-(top|right|bottom|left)\)|var\(--(kopf|leisten)hoehe\)"
 )
 
 

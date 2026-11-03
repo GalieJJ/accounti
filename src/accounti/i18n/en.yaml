@@ -22,10 +22,12 @@ Passwort: Password
 Einmalcode aus der App oder Wiederherstellungscode: One-time code from the app or recovery code
 Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — please submit it again.
 Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
-Gesellschaft: Company
 "Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
-Hauptmenü: Main menu
-Wechseln: Switch
+"Gesellschaft wechseln:": "Switch company:"
+Zum Inhalt springen: Skip to content
+Hilfe: Help
+Mein Konto: My account
+Mein Konto und Menü: My account and menu
 Sprache: Language
 automatisch: automatic
 Übernehmen: Apply

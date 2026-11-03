@@ -57,7 +57,8 @@ def _rahmen(html: str) -> list[str]:
 def test_fragment_mit_hx_request(leo):
     teil = leo.get("/muster", headers=HX)
     assert teil.status_code == 200
-    assert "<html" not in teil.text and '<nav class="navigation"' not in teil.text
+    assert "<html" not in teil.text and 'class="kopfleiste' not in teil.text
+    assert 'class="seitenleiste"' not in teil.text.split("muster-rahmen")[0]
     assert "<h1>Bausteine</h1>" in teil.text
     assert 'class="knopf knopf-primaer"' in teil.text  # Makros gerendert
     assert teil.headers["Vary"] == "Accept-Language"

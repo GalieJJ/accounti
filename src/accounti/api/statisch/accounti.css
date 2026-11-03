@@ -114,15 +114,6 @@ html{scroll-padding-block-end:calc(var(--leistenhoehe) + env(safe-area-inset-bot
 leert die Ebene Seite für Seite; vor „komponenten“, damit gleichnamige Komponenten
 gewinnen. */
 @layer bestand {
-body{min-height:100vh;display:flex;flex-direction:column}
-.kopfleiste{display:flex;flex-wrap:wrap;gap:1rem;align-items:center;padding:0.6rem 1rem;background:var(--flaeche);border-bottom:1px solid var(--linie)}
-.wortmarke{font-weight:600;text-decoration:none;color:var(--text)}
-.navigation{display:flex;flex-wrap:wrap;gap:0.8rem;flex:1}
-.sitzung{display:flex;flex-wrap:wrap;gap:0.6rem;align-items:center}
-.sitzung form{display:flex;gap:0.4rem;align-items:center;margin:0}
-main{flex:1;width:100%;max-width:72rem;margin:0 auto;padding:1rem}
-.aktive-gesellschaft{color:var(--text-2);margin-top:0}
-.fuss{padding:0.6rem 1rem;color:var(--text-2);font-size:var(--gr-3)}
 .meldung{padding:0.6rem;border-left:4px solid var(--ok);background:var(--flaeche)}
 .fehler{padding:0.6rem;border-left:4px solid var(--fehler);background:var(--flaeche)}
 .anmeldung{max-width:24rem;margin:2rem auto}
@@ -137,7 +128,6 @@ input, select, button{padding:0.4rem 0.5rem}
 .liste th, .liste td{padding:0.4rem 0.6rem;border-bottom:1px solid var(--linie);text-align:left}
 .liste .zahl{text-align:right}
 @media not all and (min-width: 40rem) { .freigabe { grid-auto-flow: row; } }
-.sprachwahl label{color:var(--text-2);font-size:var(--gr-3)}
 .netzhinweis{padding:0.6rem;border-left:4px solid var(--fehler);background:var(--flaeche)}
 .htmx-request button[type="submit"], button[disabled]{opacity:0.6;cursor:progress}
 .fachmeldung{display:block;margin-top:0.3rem}
@@ -376,7 +366,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .nav-eintrag[aria-current="page"]{font-weight:600;color:var(--akzent);background-color:var(--akzent-flaeche)}
 .nav-trenner{margin:var(--a-3);border:0;border-top:1px solid var(--linie)}
 .untere-leiste{display:grid;grid-auto-columns:minmax(0, 1fr);grid-auto-flow:column;padding-bottom:env(safe-area-inset-bottom);background-color:var(--flaeche);border-top:1px solid var(--linie)}
-.leisten-ziel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--fein-1);min-height:var(--leistenhoehe);padding:0 var(--a-1);font-size:var(--gr-1);text-align:center;color:var(--text-2);text-decoration:none}
+.leisten-ziel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--fein-1);min-height:calc(var(--leistenhoehe) - 1px);padding:0 var(--a-1);font-size:var(--gr-1);text-align:center;color:var(--text-2);text-decoration:none}
 .leisten-ziel[aria-current="page"]{font-weight:600;color:var(--akzent)}
 .leisten-titel{overflow-wrap:anywhere}
 /* Aktionsleiste, Sammelleiste */
@@ -401,6 +391,44 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .unternavigation a[aria-current="true"]{font-weight:600;background-color:var(--flaeche);border-color:var(--linie)}
 @media (pointer: coarse) { .unternavigation a { min-height: 2.75rem; } }
 .zeige-fokus{outline:3px solid var(--fokus);outline-offset:2px}
+/* Gerüst (L4/L5): Kopf 56 px; ab 64rem Seitenleiste, darunter untere Leiste */
+.sprunglink{position:absolute;left:var(--a-2);top:var(--a-2);z-index:40;padding:var(--a-2) var(--a-3);font-weight:600;background-color:var(--flaeche);border-radius:var(--radius);transform:translateY(-300%)}
+.sprunglink:focus{transform:none}
+.kopfleiste{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:var(--a-4);height:var(--kopfhoehe);padding:0 var(--a-5);background-color:var(--flaeche);border-bottom:1px solid var(--linie)}
+.wortmarke{font-size:var(--gr-6);font-weight:600;letter-spacing:-0.01em;color:var(--text);text-decoration:none}
+.kopf-gesellschaft{display:inline-flex;align-items:center;gap:var(--a-2);min-width:0;min-height:2.5rem;padding:0 var(--a-3) 0 var(--a-2);font-weight:600;color:var(--text);text-decoration:none;border:1px solid var(--linie);border-radius:var(--radius-m)}
+.kopf-rechts{display:flex;align-items:center;gap:var(--a-2);margin-left:auto}
+.kopf-hilfe, .kopf-konto, .benutzermenue-ausloeser{display:inline-flex;align-items:center;justify-content:center;gap:var(--fein-3);min-height:2.5rem;padding:0 var(--a-2);color:var(--text-2);text-decoration:none;border-radius:var(--radius-m)}
+a.kopf-gesellschaft:hover, .kopf-hilfe:hover, .benutzermenue-ausloeser:hover, .menue-eintrag:hover{background-image:linear-gradient(var(--schleier), var(--schleier))}
+.kopf-titel, .kopf-konto{display:none}
+.benutzermenue{position:relative}
+.benutzermenue-ausloeser{gap:var(--a-2);padding:0 var(--a-2) 0 var(--a-1);color:var(--text);list-style:none;cursor:pointer}
+.benutzermenue-ausloeser::-webkit-details-marker{display:none}
+.benutzermenue-feld{position:absolute;right:0;top:calc(100% + var(--a-1));z-index:30;display:flex;flex-direction:column;gap:var(--a-1);min-width:16rem;padding:var(--a-2);background-color:var(--flaeche);border:1px solid var(--linie);border-radius:var(--radius-l);box-shadow:var(--schatten)}
+.benutzermenue-wahl{display:flex;flex-direction:column;align-items:flex-start;gap:var(--a-3);padding:var(--a-2) var(--a-3);border-block:1px solid var(--linie)}
+.menue-eintrag{display:flex;align-items:center;gap:var(--a-3);width:100%;min-height:2.75rem;margin:0;padding:0 var(--a-3);font:inherit;color:var(--text);text-align:left;text-decoration:none;background:transparent;border:0;border-radius:var(--radius-m);cursor:pointer}
+.geruest-rumpf{display:flex;align-items:flex-start}
+.geruest-rumpf > .seitenleiste{position:sticky;top:var(--kopfhoehe);flex:0 0 var(--seitenleiste);min-height:calc(100vh - var(--kopfhoehe))}
+#inhalt{flex:1 1 0;min-width:0;max-width:var(--inhalt-max);padding:var(--a-6) var(--a-65) var(--a-7)}
+:where(#inhalt) :is(p, li, dd){max-width:75ch}
+.schlicht #inhalt{max-width:26rem;margin:var(--a-6) auto;padding:var(--a-5);background-color:var(--flaeche);border:1px solid var(--linie);border-radius:var(--radius-karte)}
+body > .untere-leiste{display:none}
+@media not all and (min-width: 64rem) {
+.kopfleiste{gap:var(--a-3);height:calc(var(--kopfhoehe) + env(safe-area-inset-top));padding:env(safe-area-inset-top) calc(var(--a-4) + env(safe-area-inset-right)) 0 calc(var(--a-4) + env(safe-area-inset-left))}
+.geruest .wortmarke, .benutzermenue, .kopf-gesellschaft > .symbol, .geruest-rumpf > .seitenleiste{display:none}
+.kopf-gesellschaft{min-width:2.75rem;min-height:2.75rem;padding:0;border:0}
+.kopf-gesellschaft-name, .kopf-hilfe-text, .mit-kopftitel #inhalt h1{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
+.kopf-titel{display:block;flex:1;min-width:0;overflow:hidden;font-size:var(--gr-5);font-weight:600;white-space:nowrap;text-overflow:ellipsis}
+.kopf-rechts{gap:0}
+.kopf-hilfe, .kopf-konto{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;padding:0}
+#inhalt{padding:var(--a-4)}
+body > .untere-leiste{position:fixed;inset:auto 0 0;z-index:20;display:grid}
+body.geruest{padding-bottom:calc(var(--leistenhoehe) + env(safe-area-inset-bottom))}
+}
+@media (max-height: 30rem) {
+.kopfleiste, .geruest-rumpf > .seitenleiste, body > .untere-leiste{position:static}
+body.geruest{padding-bottom:0}
+}
 }
 
 @layer seiten {

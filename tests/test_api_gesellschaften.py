@@ -43,7 +43,13 @@ def test_akzeptanz_5_wechsel_aendert_alle_ansichten(welt):
     assert "A-RE-1" in seite and "111,00" in seite and "B-RE-7" not in seite
     start = client.get("/")
     assert "Alpha Papier GmbH" in start.text and "111,00" in start.text
-    assert "Beta Rahmen KG" in start.text  # nur als Auswahl im Wechsler
+    # umgestellt (Plan P1, Schritt 7): gewechselt wird über /gesellschaft — der Kopf
+    # zeigt die aktive Gesellschaft als Link dorthin, die andere steht nicht im Kopf
+    assert (
+        '<a class="kopf-gesellschaft" href="/gesellschaft" data-gesellschaft="a"'
+        in (start.text)
+    )
+    assert "Beta Rahmen KG" not in start.text
     r = client.post(
         "/gesellschaft",
         data={"csrf": csrf(client), "kuerzel": "b"},
@@ -55,7 +61,9 @@ def test_akzeptanz_5_wechsel_aendert_alle_ansichten(welt):
     for pfad in pfade:
         seite = client.get(pfad)
         assert seite.status_code == 200, pfad
-        assert "Gesellschaft: <strong>Beta Rahmen KG</strong>" in seite.text, pfad
+        # umgestellt: statt der Zeile „Gesellschaft: …“ Kennzeichen im Kopf und Titel
+        assert 'data-gesellschaft="b"' in seite.text, pfad
+        assert " · Beta Rahmen KG · accounti</title>" in seite.text, pfad
     start = client.get("/")
     assert "777,00" in start.text and "111,00" not in start.text
     seite = client.get("/freigaben").text

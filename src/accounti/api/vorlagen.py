@@ -360,10 +360,10 @@ async def seite(
         "pfad": ansichtspfad(request),
         "htmx_konfig": HTMX_KONFIG,
         "hx_kopf": json.dumps({"X-CSRF-Token": csrf}),
-        # Darstellung an <html> (data-theme, color-scheme); die Wahl am Benutzer
-        # verdrahtet das Gerüst (Schritt 7), /muster setzt sie mit ?theme=
-        "darstellung": "auto",
-        "color_scheme": "light dark",
+        # Darstellung an <html> (data-theme, color-scheme) aus den Vorlieben; /muster
+        # überschreibt sie mit ?theme=
+        "darstellung": g.darstellung,
+        "color_scheme": g.color_scheme,
     }
     kontext.update(werte or {})
     if teil is not None:

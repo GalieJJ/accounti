@@ -74,6 +74,11 @@ class Geruest:
     fachansicht: bool = False
     betraege_verbergen: bool = False
     druck_datum: date | None = None
+    initialen: str = ""
+
+
+# Darstellung am Benutzer → <meta name="color-scheme"> (E16)
+COLOR_SCHEME = {"auto": "light dark", "hell": "light", "dunkel": "dark"}
 
 
 KENNFARBEN = 6
@@ -217,14 +222,33 @@ def zaehlfunktionen(
     }
 
 
+def hilfe_pfad(aktiv: Bereich | None, pfad: str) -> str:
+    """Ziel des Hilfe-Links: die Hilfe des aktiven Bereichs, auf der Anmeldung die der
+    Anmeldung, auf „Mein Konto“ die des Kontos, sonst die Übersicht der Hilfe."""
+    if pfad.startswith("/anmelden"):
+        return "/hilfe/anmeldung"
+    if pfad == "/konto" or pfad.startswith("/konto/"):
+        return "/hilfe/konto"
+    return f"/hilfe/{aktiv.value}" if aktiv is not None else "/hilfe"
+
+
+def _aktiver_bereich(
+    punkte: Sequence[Navigationspunkt], rechte: Collection[Recht], pfad: str
+) -> Bereich | None:
+    treffer = aktiver_punkt([p for p in punkte if p.erlaubt(rechte)], pfad)
+    return treffer.bereich if treffer is not None else None
+
+
 async def geruest(
     request: Request, a: Angemeldet | None, *, zaehler: bool = True
 ) -> Geruest:
     """Alles, was ``basis.html`` braucht. Zähler nur mit ``zaehler`` (ganze Seiten mit
     Status < 400, ``seite()`` entscheidet) — in **einem** Aufruf des Lesezugriffs mit
     **einer** Sitzung der aktiven Gesellschaft; fehlt eine Zahl, fehlt nur sie."""
+    pfad = request.url.path
     if a is None:
-        return Geruest()
+        return Geruest(hilfe_pfad=hilfe_pfad(None, pfad))
+    dienste = request.app.state.dienste
     punkte: Sequence[Navigationspunkt] = getattr(request.app.state, "navigation", [])
     zahlen: dict[str, int] = {}
     funktionen = zaehlfunktionen(punkte, a.rechte)
@@ -232,6 +256,22 @@ async def geruest(
     if zaehler and funktionen and lesezugriff is not None:
         zahlen = await zaehle(lesezugriff, a.gesellschaft.datenbank, funktionen) or {}
     bereiche, einstellungen, unten = navigation_des_geruests(
-        punkte, a.rechte, request.url.path, zahlen
+        punkte, a.rechte, pfad, zahlen
     )
-    return Geruest(bereiche=bereiche, einstellungen=einstellungen, unten=unten)
+    alle_marken = marken(dienste.gesellschaften)
+    b = a.benutzer
+    return Geruest(
+        bereiche=bereiche,
+        einstellungen=einstellungen,
+        unten=unten,
+        hilfe_pfad=hilfe_pfad(_aktiver_bereich(punkte, a.rechte, pfad), pfad),
+        marke=alle_marken.get(a.gesellschaft.kuerzel),
+        marken=alle_marken,
+        darstellung=b.darstellung,
+        color_scheme=COLOR_SCHEME[b.darstellung],
+        tastenkuerzel=b.tastenkuerzel,
+        fachansicht=b.fachansicht,
+        betraege_verbergen=b.betraege_verbergen,
+        druck_datum=dienste.uhr().date(),
+        initialen=initialen(b.anzeigename or b.name),
+    )

@@ -2,5 +2,6 @@
 {% block titel %}{{ _("Prüfen") }}{% endblock %}
 {% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
 {% block inhalt %}
+<h1 class="unsichtbar">{{ _("Prüfen") }}</h1>
 <div id="arbeitsflaeche" class="arbeitsflaeche-rahmen">{% include "pruefen/_arbeitsflaeche.html" %}</div>
 {% endblock %}

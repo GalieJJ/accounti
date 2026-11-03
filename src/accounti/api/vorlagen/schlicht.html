@@ -1,0 +1,8 @@
+{#- Schlichtes Layout (Plan P1, L5): Kopf mit „accounti“ und Hilfe, ohne Navigation und
+    ohne Gesellschaft — für die 500 (ohne Datenbank) und später den Assistenten (P7).
+    Seiten ohne Anmeldung bekommen in basis.html denselben Kopf. -#}
+{% extends "basis.html" %}
+{% block koerperklasse %}schlicht{% endblock %}
+{% block kopfleiste %}{% import "_geruest.html" as gr with context %}{{ gr.kopf_schlicht(geruest.hilfe_pfad) }}{% endblock %}
+{% block seitenleiste %}{% endblock %}
+{% block untere_leiste %}{% endblock %}
