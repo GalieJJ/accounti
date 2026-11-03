@@ -343,6 +343,22 @@
   .sicherheit-niedrig .sicherheit-kaestchen span:first-child { background-color: var(--fehler); }
   .sicherheit-mittel .sicherheit-kaestchen span:nth-child(-n+2) { background-color: var(--warn); }
   .sicherheit-hoch .sicherheit-kaestchen span { background-color: var(--ok); }
+  /* Zähler: neutral, betont im Akzent (Prüfen) */
+  .zaehler {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.75rem;
+    height: 1.375rem;
+    margin-left: auto;
+    padding: 0 var(--a-2);
+    font-size: var(--gr-2);
+    font-weight: 600;
+    color: var(--text-2);
+    background-color: var(--flaeche-2);
+    border-radius: var(--radius-rund);
+  }
+  .zaehler-betont { color: var(--akzent-text); background-color: var(--akzent); }
 }
 
 @layer hilfen {

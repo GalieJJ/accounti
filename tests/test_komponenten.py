@@ -102,3 +102,13 @@ def test_status_und_sicherheit_wort_und_symbol():
     assert "Sicherheit: mittel · KI" in render('{{ k.sicherheit("mittel", "KI") }}')
     assert "sicherheit-klein" in render('{{ k.sicherheit("hoch", klein=true) }}')
     assert "Confidence: high" in render('{{ k.sicherheit("hoch") }}', sprache="en")
+
+
+def test_zaehler_betont_und_beschriftung():
+    html = render('{{ k.zaehler(12, "offen") }}')
+    assert (
+        html == '<span class="zaehler">12<span class="unsichtbar"> offen</span></span>'
+    )
+    assert 'class="zaehler zaehler-betont"' in render(
+        '{{ k.zaehler(3, "x", betont=true) }}'
+    )

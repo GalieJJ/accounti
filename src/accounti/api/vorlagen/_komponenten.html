@@ -37,3 +37,8 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- set worte = {"niedrig": _("niedrig"), "mittel": _("mittel"), "hoch": _("hoch")} -%}
 <span class="sicherheit sicherheit-{{ stufe }}{% if klein %} sicherheit-klein{% endif %}"><span class="sicherheit-kaestchen" aria-hidden="true"><span></span><span></span><span></span></span><span class="sicherheit-wort">{{ _("Sicherheit: %(stufe)s", stufe=worte[stufe]) }}{% if zusatz %} · {{ zusatz }}{% endif %}</span></span>
 {%- endmacro %}
+
+{#- Zähler in Navigation und Listen; die Beschriftung („offen“) nur für Screenreader. -#}
+{% macro zaehler(anzahl, beschriftung, betont=false) -%}
+<span class="zaehler{% if betont %} zaehler-betont{% endif %}">{{ anzahl }}<span class="unsichtbar"> {{ beschriftung }}</span></span>
+{%- endmacro %}
