@@ -435,3 +435,206 @@ def test_zahlungsstorno_verschiebt_die_meldung_nicht(make_session):
     assert befund.objekt_id == str(ar.id) and befund.datum == date(2026, 10, 20)
     assert _pruefe(make_session, "2026-12") == []
     assert len(_pruefe(make_session, None)) == 1
+
+
+# --- Paket G (gf3-obergrenze GF3-1): Beleg ohne Steuerzeile ---------------------------
+#
+# Nennt keine Position einen Satz und gibt es keine eindeutige Belegsteuer — so legt die
+# Erkennung einen Beleg ohne Steuerzeile an (eine Position „Gesamtbetrag“ ohne Satz,
+# belege/erkennung.py) —, weist der Beleg die Steuer seiner Rechnungsbuchungen aus. Der
+# Rückfall nahm die vorzeichenbehaftete Steuer der nach Datum letzten Buchung mit
+# Schlüssel 2/3, auch einer (stornierten) Erlösschmälerung: ausgewiesen ≤ 0, keine
+# Warnung, kein Befund, die 95 € fehlten still (o2_wege.py, o3_rueckfall.py,
+# o4_rueckfall_cli.py, o5_rueckfall_ar.py).
+
+OHNE_STEUERZEILE = {
+    "Q": (Belegart.QUITTUNG, Belegrichtung.EINGANG, "1000"),
+    "S": (Belegart.SONSTIGES, Belegrichtung.EINGANG, "1200"),
+    "AR": (Belegart.AUSGANGSRECHNUNG, Belegrichtung.AUSGANG, "10001"),
+}
+T1, T2 = date(2026, 10, 1), date(2026, 10, 2)
+
+
+def _ohne_steuerzeile(art, brutto="595.00", **kw):  # noqa: ANN001, ANN003, ANN202
+    belegart, richtung, _ = OHNE_STEUERZEILE[art]
+    werte: dict[str, str | None] = {"netto": None, "steuer": None}
+    werte.update(kw)
+    return beleg(
+        belegart=belegart,
+        richtung=richtung,
+        nummer=f"OS-{art}",
+        tag=T1,
+        brutto=brutto,
+        lieferant="Partner GmbH",
+        positionen=[("Gesamtbetrag", brutto, None, None)],
+        **werte,
+    )
+
+
+def _am(bel, soll, haben, steuer, netto="500.00", schluessel=3, tag=T1):  # noqa: ANN001, ANN202
+    return buchung(
+        status=BuchungStatus.GEPRUEFT,
+        soll=soll,
+        haben=haben,
+        netto=netto,
+        steuer=steuer,
+        schluessel=schluessel,
+        tag=tag,
+        beleg_id=bel.id,
+    )
+
+
+# (Sollkonto der zweiten Buchung, ihr Tag, wird sie vor dem Erlös storniert?)
+MINDERUNGEN = {
+    "minderung_storniert": ("8700", T2, True),
+    "minderung_wirksam": ("8700", T2, False),
+    "minderung_selber_tag": ("8700", T1, False),
+    "erstattung_8400_soll": ("8400", T2, False),
+}
+
+
+@pytest.mark.parametrize("fall", list(MINDERUNGEN))
+@pytest.mark.parametrize("art", list(OHNE_STEUERZEILE))
+def test_minderung_ohne_steuerzeile_hebt_die_steuer_des_belegs_nicht_auf(
+    make_session, art, fall
+):
+    """GF3-1 (o2 W1b, o3 W1e/W1f/W1g, o5): Beleg ohne Steuerzeile, Erlös B1 „Geld an
+    8400, Schlüssel 3, 500/95“ (01.10.), daneben B2 „8700 an Geld, Schlüssel 3,
+    10/1,90“ bzw. eine Erstattung „8400 an Geld“ — B2 storniert oder wirksam, später
+    oder am selben Tag. Nach dem Storno von B1 fehlen die 95 € des Belegs: Warnung und
+    Befund 95 € wie ohne B2. Eine Minderung ist keine Rechnungsbuchung."""
+    konto, tag, zuerst = MINDERUNGEN[fall]
+    geld = OHNE_STEUERZEILE[art][2]
+    bel = _ohne_steuerzeile(art)
+    b1 = _am(bel, geld, "8400", "95.00")
+    b2 = _am(bel, konto, geld, "1.90", netto="10.00", tag=tag)
+    anlegen(make_session, bel, b1, b2)
+    assert _pruefe(make_session, None) == []
+    if zuerst:
+        with make_session() as s:
+            k = storniere(s, str(b2.id), grund="falsch erfasst", von="erika")
+            s.commit()
+        assert _hinweis(k.warnungen) == []
+    with make_session() as s:
+        k = storniere(s, str(b1.id), grund="doppelt erfasst", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert f"OS-{art} weist 95,00 € Umsatzsteuer zu 19 %" in hinweis, hinweis
+    (befund,) = _pruefe(make_session, None)
+    assert befund.objekt_id == str(bel.id) and befund.betrag == D("95.00"), befund.text
+
+
+@pytest.mark.parametrize("art", ["Q", "AR"])
+def test_ohne_steuerzeile_mit_zwei_saetzen_zaehlt_den_erloes_je_satz(make_session, art):
+    """GF3-1 (o3 W1i): Belegsteuer 130 bei Erlösen zu 19 % und 7 % (die Belegsteuer ist
+    nicht eindeutig einem Satz zuzuordnen), dazu eine spätere Minderung zu 19 % — das
+    Storno des 19-%-Erlöses meldet 95 € zu 19 %, nicht nichts."""
+    geld = OHNE_STEUERZEILE[art][2]
+    bel = _ohne_steuerzeile(art, brutto="1130.00", netto="1000.00", steuer="130.00")
+    v19 = _am(bel, geld, "8400", "95.00")
+    v7 = _am(bel, geld, "8300", "35.00", schluessel=2)
+    m = _am(bel, "8700", geld, "1.90", netto="10.00", tag=T2)
+    anlegen(make_session, bel, v19, v7, m)
+    with make_session() as s:
+        k = storniere(s, str(v19.id), grund="doppelt erfasst", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "weist 95,00 € Umsatzsteuer zu 19 %" in hinweis, hinweis
+    (befund,) = _pruefe(make_session, None)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+@pytest.mark.parametrize("art", ["Q", "S"])
+def test_ohne_steuerzeile_nach_umbuchung_ohne_steuer_meldet_die_luecke(
+    make_session, art
+):
+    """GF3-1 (o3 W1k, GF-1b-Weg): Minderung storniert, dann der Erlös über „→ 2700
+    --steuer 3“ und „--ohne-steuer --grund“ berichtigt — die Prüfregel meldet 95 €."""
+    geld = OHNE_STEUERZEILE[art][2]
+    bel = _ohne_steuerzeile(art)
+    b1 = _am(bel, geld, "8400", "95.00")
+    b2 = _am(bel, "8700", geld, "1.90", netto="10.00", tag=T2)
+    anlegen(make_session, bel, b1, b2)
+    with make_session() as s:
+        storniere(s, str(b2.id), grund="falsch erfasst", von="erika")
+        k = korrigiere(s, str(b1.id), geld, "2700", steuer=3, von="erika")
+        assert k.neu is not None
+        korrigiere(
+            s, str(k.neu.id), geld, "2700", ohne_steuer=True, grund="kein", von="erika"
+        )
+        s.commit()
+    (befund,) = _pruefe(make_session, None)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+def test_rechnungsbuchungen_einer_ausgangsrechnung_ohne_steuerzeile(make_session):
+    """GF3-1 auf einer Ausgangsrechnung (eindeutige Belegart, keine Obergrenze) mit
+    mehreren Rechnungsbuchungen: B1 „10001 an 8400“ korrigiert auf „10002 an 8400“
+    (Storno und Neubuchung, 01.10.), Skonto „8736 an 10002, Schlüssel 3“ (02.10.)
+    storniert, dann die Neubuchung storniert — es fehlen 95 €. Eine Doppelbuchung
+    desselben Erlöses zählt nicht doppelt: ihr Storno warnt nicht."""
+    bel = _ohne_steuerzeile("AR")
+    b1 = _am(bel, "10001", "8400", "95.00")
+    doppel = b1.model_copy(update={"id": uuid4()})
+    anlegen(make_session, bel, b1, doppel)
+    with make_session() as s:
+        k = storniere(s, str(doppel.id), grund="doppelt", von="erika")
+        s.commit()
+    assert _hinweis(k.warnungen) == []
+    with make_session() as s:
+        k = korrigiere(s, str(b1.id), "10002", "8400", von="erika")
+        s.commit()
+    neu = k.neu
+    assert neu is not None and _hinweis(k.warnungen) == []
+    skonto = _am(bel, "8736", "10002", "1.90", netto="10.00", tag=T2)
+    anlegen(make_session, skonto)
+    with make_session() as s:
+        k = storniere(s, str(skonto.id), grund="kein Skonto", von="erika")
+        s.commit()
+    assert _hinweis(k.warnungen) == [] and _pruefe(make_session, None) == []
+    with make_session() as s:
+        k = storniere(s, str(neu.id), grund="Rechnung storniert", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "OS-AR weist 95,00 € Umsatzsteuer zu 19 %" in hinweis, hinweis
+    (befund,) = _pruefe(make_session, None)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+@pytest.mark.parametrize("art", ["Q", "S"])
+def test_cli_storno_der_minderung_dann_des_erloeses_ohne_steuerzeile(
+    tmp_path, monkeypatch, art
+):
+    """GF3-1 über die echte CLI (o4_rueckfall_cli.py W1e): ``buchung storniere`` der
+    Minderung B2, dann des Erlöses B1 — die Ausgabe warnt mit 95,00 €, ``accounti
+    pruefen --regel beleg_ust_ohne_buchung`` meldet 95,00 € (vorher: keine Warnung,
+    „keine Befunde“)."""
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    from accounti.db import init_db, session_factory
+
+    url = db_url(tmp_path)
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    geld = OHNE_STEUERZEILE[art][2]
+    bel = _ohne_steuerzeile(art)
+    b1 = _am(bel, geld, "8400", "95.00")
+    b2 = _am(bel, "8700", geld, "1.90", netto="10.00", tag=T2)
+    anlegen(fabrik, bel, b1, b2)
+    engine.dispose()
+
+    def cli(*argumente: str) -> str:
+        r = runner.invoke(app, [*argumente, "--db", url], env={"COLUMNS": "250"})
+        assert r.exit_code == 0, r.output
+        return " ".join(r.output.split())
+
+    text = cli("buchung", "storniere", kurz(b2.id), "--grund", "falsch erfasst",
+               "--datum", "2026-10-02")  # fmt: skip
+    assert "Storniert:" in text and "§ 14c" not in text, text
+    text = cli("buchung", "storniere", kurz(b1.id), "--grund", "doppelt erfasst",
+               "--datum", "2026-10-03")  # fmt: skip
+    assert f"OS-{art} weist 95,00 € Umsatzsteuer" in text, text
+    text = cli("pruefen", "--regel", REGEL)
+    assert "1 Befunde" in text and "│ 95,00 │" in text, text
