@@ -6,13 +6,15 @@ Zustand. Ins Protokoll kommen Schritt, Rückgabewert und Dauer; die Ausgabe der
 Befehle nur geschwärzt und auf Stufe DEBUG (sie kann Namen enthalten). Schlägt ein
 Schritt fehl, steht sein Grund — die letzten Zeilen der Ausgabe, geschwärzt und
 gekürzt — mit in der Warnung (sonst stand dort nur „bank lauf → 1“; Runde 5, g4w N6).
-SIGTERM beendet die Schleife nach dem laufenden Schritt.
+Rahmenzeichen (Rich) kommen nicht ins Protokoll, jede Zeile ist begrenzt (Runde 7,
+g6w B-1). SIGTERM beendet die Schleife nach dem laufenden Schritt.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -31,6 +33,10 @@ ZEITLIMIT_SEKUNDEN = 3600
 GRUND_ZEILEN = 5  # die Meldung am Ende der Ausgabe
 AUSGABE_BREITE = "10000"  # COLUMNS der Schritte: Rich bricht so nicht um
 GRUND_ZEICHEN = 600
+ZEILE_ZEICHEN = 1000  # höchstens so lang steht eine Zeile der Ausgabe auf DEBUG
+# Rahmen von Rich (Box Drawing, U+2500–U+257F) — sonst stand ein Traceback in
+# Terminalbreite im Protokoll (mit COLUMNS=10000: 10 000 Zeichen je Zeile)
+_RAHMEN = re.compile(r"[\u2500-\u257f]+")
 
 
 @dataclass(frozen=True)
@@ -62,15 +68,38 @@ def _starte(argumente: Sequence[str]) -> subprocess.CompletedProcess[str]:
         check=False,
         # ohne Terminal bricht Rich nach 80 Zeichen hart um — ein zerschnittenes
         # Geheimnis (Token in einer Webhook-Adresse) erkennt kein Muster ganz
-        # (Runde 6, g5w-konten N1); die Ausgabe hat keine Panels oder Linien
-        env={**os.environ, "COLUMNS": AUSGABE_BREITE},
+        # (Runde 6, g5w-konten N1). Ein Traceback kommt von Python, nicht als
+        # Rich-Panel in Terminalbreite (Typer ab 0.12: TYPER_STANDARD_TRACEBACK,
+        # davor _TYPER_STANDARD_TRACEBACK; Runde 7, g6w B-1)
+        env={
+            **os.environ,
+            "COLUMNS": AUSGABE_BREITE,
+            "TYPER_STANDARD_TRACEBACK": "1",
+            "_TYPER_STANDARD_TRACEBACK": "1",
+        },
     )
+
+
+def _ohne_rahmen(zeile: str) -> str:
+    """Ohne Rahmenzeichen und Füllraum — der Einzug bleibt (Traceback lesbar)."""
+    zeile = _RAHMEN.sub(" ", zeile).rstrip()
+    rest = zeile.lstrip(" ")
+    return zeile[: min(len(zeile) - len(rest), 8)] + " ".join(rest.split())
+
+
+def _debug_zeile(zeile: str) -> str:
+    # erst schwärzen, dann kürzen: ein angeschnittenes Geheimnis erkennt kein Muster
+    text = schwaerze(_ohne_rahmen(zeile))
+    return text if len(text) <= ZEILE_ZEICHEN else text[:ZEILE_ZEICHEN] + " …"
 
 
 def _grund(zeilen: list[str]) -> str:
     """Die letzten Zeilen der Ausgabe eines fehlgeschlagenen Schritts, geschwärzt —
-    jede Zeile für sich und verbunden (ein Muster über einen Umbruch hinweg)."""
-    belegt = [schwaerze(" ".join(z.split())) for z in zeilen if z.strip()]
+    jede Zeile für sich und verbunden (ein Muster über einen Umbruch hinweg); ohne
+    Rahmenzeichen, die nur aus ihnen bestehenden Zeilen zählen nicht."""
+    belegt = [
+        schwaerze(text) for z in zeilen if (text := " ".join(_ohne_rahmen(z).split()))
+    ]
     # erst schwärzen, dann kürzen: eine angeschnittene IBAN erkennt kein Muster
     text = schwaerze(" ".join(belegt[-GRUND_ZEILEN:]))
     return text if len(text) <= GRUND_ZEICHEN else "…" + text[-GRUND_ZEICHEN:]
@@ -87,7 +116,8 @@ def einmal(kontext: Kontext, ausfuehren: Ausfuehren = _starte) -> list[Ergebnis]
                 fertig.stderr or ""
             ).splitlines()
             for zeile in zeilen:
-                LOG.debug("%s", schwaerze(zeile))
+                if zeile.strip() and not _RAHMEN.fullmatch(zeile.strip()):
+                    LOG.debug("%s", _debug_zeile(zeile))
             grund = _grund(zeilen) if code != 0 else ""
         except subprocess.TimeoutExpired:
             code = -1

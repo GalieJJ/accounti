@@ -131,3 +131,74 @@ def test_echter_einmaliger_lauf(tmp_path, monkeypatch):
     ergebnisse = einmal(kontext_ohne_registry())
     assert [e.code for e in ergebnisse] == [0, 0], ergebnisse
     assert (tmp_path / "a.db").exists()
+
+
+def test_rahmen_und_ueberbreite_zeilen_nicht_im_protokoll(caplog):
+    """g6w B-1 (Runde 7): Mit COLUMNS=10000 wurde ein Rich-Traceback 10 000 Zeichen
+    breit — das DEBUG-Protokoll 64-mal so groß, die WARNUNG voller Rahmenzeichen. Jetzt
+    ohne Rahmen, jede Zeile begrenzt; der Grund steht vollständig und geschwärzt in der
+    WARNUNG."""
+    rahmen = "╭" + "─" * 9990 + "╮"
+    ausgabe = "\n".join(
+        [
+            rahmen,
+            "│ /pfad/datei.py:12 in lauf" + " " * 9960 + "│",
+            "╰" + "─" * 9990 + "╯",
+            "OperationalError: unable to open database file (DE89370400440532013000)",
+        ]
+    )
+
+    def ausfuehren(argumente):
+        return subprocess.CompletedProcess(argumente, 1, "", ausgabe)
+
+    with caplog.at_level(logging.DEBUG, logger="accounti.lauf"):
+        einmal(kontext_ohne_registry(), ausfuehren)
+    warnungen = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnungen) == 2  # bank lauf, aufgaben lauf
+    for warnung in warnungen:
+        assert "unable to open database file" in warnung and "[IBAN]" in warnung
+    assert not set("─│╭╮╰╯") & set(caplog.text)
+    assert max(len(r.getMessage()) for r in caplog.records) <= 1000
+    assert len(caplog.text) < 6000
+
+
+def test_schritt_ohne_rich_traceback(monkeypatch):
+    """Der Schritt läuft mit dem Traceback von Python (Typer: TYPER_STANDARD_TRACEBACK,
+    ältere Fassungen _TYPER_STANDARD_TRACEBACK) — ohne Rahmen in Terminalbreite."""
+    from accounti.betrieb import planer
+
+    gesehen = {}
+
+    def run(befehl, **kw):
+        gesehen.update(kw["env"])
+        return subprocess.CompletedProcess(befehl, 0, "", "")
+
+    monkeypatch.setattr(planer.subprocess, "run", run)
+    planer._starte(["bank", "lauf"])
+    assert gesehen["TYPER_STANDARD_TRACEBACK"] == "1"
+    assert gesehen["_TYPER_STANDARD_TRACEBACK"] == "1"
+    assert gesehen["COLUMNS"] == planer.AUSGABE_BREITE
+
+
+def test_echter_traceback_eines_schritts(tmp_path, monkeypatch, caplog):
+    """planer_db_fehlt.py: Datenbankdatei in einem fehlenden Ordner — der Grund steht
+    in der WARNUNG, ohne Rahmen; DEBUG bleibt klein."""
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text('mandant:\n  name: "Galerie Muster GmbH"\n', encoding="utf-8")
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(konfig))
+    monkeypatch.setenv("ACCOUNTI_DB", f"sqlite:///{tmp_path / 'fehlt' / 'a.db'}")
+    monkeypatch.setenv("PYTHONPATH", str(Path(accounti.__file__).parents[1]))
+    monkeypatch.delenv("COLUMNS", raising=False)
+    monkeypatch.chdir(tmp_path)
+    from accounti.betrieb import planer
+
+    monkeypatch.setattr(planer, "BEFEHLE", [["bank", "lauf"]])
+    with caplog.at_level(logging.DEBUG, logger="accounti.lauf"):
+        (ergebnis,) = einmal(kontext_ohne_registry())
+    assert ergebnis.code != 0
+    (warnung,) = [
+        r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING
+    ]
+    assert "unable to open database file" in warnung, warnung
+    assert "─" not in caplog.text and "│" not in caplog.text
+    assert len(caplog.text) < 60_000
