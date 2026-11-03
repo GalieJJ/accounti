@@ -346,3 +346,7 @@ niedrig: low
 mittel: medium
 hoch: high
 'Sicherheit: %(stufe)s': 'Confidence: %(stufe)s'
+'Hinweis:': 'Note:'
+'Erledigt:': 'Done:'
+'Achtung:': 'Caution:'
+'Fehler:': 'Error:'

@@ -395,6 +395,26 @@
     background-color: var(--akzent-flaeche);
     border-radius: var(--radius-rund);
   }
+  /* Hinweis: Symbol, farbiges Wort, Text in --text; border: 0 gegen den alten Balken */
+  .hinweis {
+    padding: var(--a-3) var(--a-4);
+    color: var(--text);
+    background-color: var(--info-flaeche);
+    border: 0;
+    border-radius: var(--radius-m);
+  }
+  .hinweis-info, .hinweis-ok, .hinweis-warn, .hinweis-fehler { display: flex; align-items: flex-start; gap: var(--fein-5); }
+  .hinweis > .symbol { margin-top: var(--fein-1); }
+  .hinweis-text { min-width: 0; }
+  .hinweis-text > :first-child { margin-top: 0; }
+  .hinweis-text > :last-child { margin-bottom: 0; }
+  .hinweis-ok { background-color: var(--ok-flaeche); }
+  .hinweis-warn { background-color: var(--warn-flaeche); }
+  .hinweis-fehler { background-color: var(--fehler-flaeche); }
+  .hinweis-info > .symbol, .hinweis-info .hinweis-wort { color: var(--info); }
+  .hinweis-ok > .symbol, .hinweis-ok .hinweis-wort { color: var(--ok); }
+  .hinweis-warn > .symbol, .hinweis-warn .hinweis-wort { color: var(--warn); }
+  .hinweis-fehler > .symbol, .hinweis-fehler .hinweis-wort { color: var(--fehler); }
 }
 
 @layer hilfen {

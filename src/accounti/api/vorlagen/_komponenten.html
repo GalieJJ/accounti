@@ -54,3 +54,10 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {% macro avatar(initialen) -%}
 <span class="avatar" aria-hidden="true">{{ initialen }}</span>
 {%- endmacro %}
+
+{#- Hinweis: Symbol, farbiges Wort und Text. role nur für neue Meldungen (neu=true). -#}
+{% macro hinweis(art, titel=none, neu=false) -%}
+{%- set worte = {"info": _("Hinweis:"), "ok": _("Erledigt:"), "warn": _("Achtung:"), "fehler": _("Fehler:")} -%}
+{%- set zeichen = {"info": "info", "ok": "check", "warn": "triangle-alert", "fehler": "circle-x"} -%}
+<div class="hinweis hinweis-{{ art }}"{% if neu %} role="{{ "alert" if art == "fehler" else "status" }}"{% endif %}>{{ symbol(zeichen[art]) }}<div class="hinweis-text"><strong class="hinweis-wort">{{ titel or worte[art] }}</strong> {{ caller() }}</div></div>
+{%- endmacro %}

@@ -132,3 +132,35 @@ def test_marke_monogramm_ohne_aria_label_auf_span():
     assert render('{{ k.avatar("JH") }}') == (
         '<span class="avatar" aria-hidden="true">JH</span>'
     )
+
+
+def test_hinweis_rolle_nur_wenn_neu():
+    dauerhaft = render(
+        '{% call k.hinweis("warn") %}Letzte Sicherung vor 9 Tagen.{% endcall %}'
+    )
+    assert "role=" not in dauerhaft
+    neu = render(
+        '{% call k.hinweis("ok", neu=true) %}6 Buchungen freigegeben.{% endcall %}'
+    )
+    assert 'role="status"' in neu
+    fehler = render('{% call k.hinweis("fehler", neu=true) %}Code falsch.{% endcall %}')
+    assert 'role="alert"' in fehler
+
+
+def test_hinweis_mit_symbol_und_wort():
+    erwartet = {
+        "info": ("info", "Hinweis:"),
+        "ok": ("check", "Erledigt:"),
+        "warn": ("triangle-alert", "Achtung:"),
+        "fehler": ("circle-x", "Fehler:"),
+    }
+    for art, (symbol, wort) in erwartet.items():
+        html = render(f'{{% call k.hinweis("{art}") %}}Text{{% endcall %}}')
+        assert html.startswith(f'<div class="hinweis hinweis-{art}">'), art
+        assert f"#{symbol}" in html
+        assert f'<strong class="hinweis-wort">{wort}</strong> Text' in html
+    eigen = render('{% call k.hinweis("info", titel="Gesperrt:") %}x{% endcall %}')
+    assert ">Gesperrt:</strong>" in eigen
+    assert ">Note:</strong>" in render(
+        '{% call k.hinweis("info") %}x{% endcall %}', sprache="en"
+    )
