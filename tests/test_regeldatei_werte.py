@@ -363,8 +363,9 @@ def test_zu_langes_muster_ungueltig_buchungstext_gekuerzt(make_session, tmp_path
         {"soll_konto": "'4925'"},
         {"steuer_schluessel": "8"},
         {"feld": "gegenkonto_name"},
+        {"buchungstext": "Mobilfunk"},  # Runde 7, g6w N4
     ],
-    ids=["muster_und_konto", "konto", "schluessel", "feld"],
+    ids=["muster_und_konto", "konto", "schluessel", "feld", "buchungstext"],
 )
 def test_kurzer_name_anderer_inhalt_ungueltig(make_session, tmp_path, zweit):
     name = "gelernt_telekom"
@@ -440,3 +441,33 @@ def test_name_zweimal_in_einer_datei_anderer_inhalt(make_session, tmp_path, lang
         assert e.uebernommen == [name], probe
         assert e.ungueltig == [name] and "zweimal" in e.gruende[name]
         assert e.uebersprungen == [name]  # derselbe Eintrag noch einmal
+
+
+@pytest.mark.parametrize("lang", [False, True], ids=["kurz", "lang"])
+def test_nur_buchungstext_geaendert_ungueltig(make_session, tmp_path, lang):
+    """g6w N4 (Runde 7): Ein geänderter buchungstext bei gleichem Namen wurde still
+    „Schon vorhanden (übersprungen)“ — in der Datenbank blieb der alte Text. Jetzt
+    ungültig wie Muster und Konto; unverändert (auch über 60 Zeichen, gespeichert
+    gekürzt) bleibt er übersprungen."""
+    name = "gelernt_" + ("a" * 100 + "x" if lang else "telekom")
+    langer = "T" * 80
+    with make_session() as s:
+        erst = _datei(tmp_path, _regel(name=name, buchungstext="Telefon"))
+        assert uebernehme_aus_datei(s, erst, "jan").uebernommen == [name]
+        s.commit()
+        zweite = _datei(tmp_path, _regel(name=name, buchungstext="Mobilfunk"))
+        e = uebernehme_aus_datei(s, zweite, "jan")
+        erst = _datei(tmp_path, _regel(name=name, buchungstext="Telefon"))
+        gleich = uebernehme_aus_datei(s, erst, "jan")
+        ohne = uebernehme_aus_datei(s, _datei(tmp_path, _regel(name=name)), "jan")
+        lang_erst = _datei(tmp_path, _regel(name="gelernt_lang", buchungstext=langer))
+        assert uebernehme_aus_datei(s, lang_erst, "jan").uebernommen == ["gelernt_lang"]
+        s.commit()
+        lang_gleich = uebernehme_aus_datei(s, lang_erst, "jan")
+        regeln = {r.name: r.buchungstext for r in lade_kontierungsregeln(s)}
+    assert e.ungueltig == [name] and "anderem Inhalt" in e.gruende[name]
+    assert "Buchungstext" in e.gruende[name]
+    assert gleich.uebersprungen == [name]
+    assert ohne.ungueltig == [name]  # Text entfernt: auch eine Änderung
+    assert lang_gleich.uebersprungen == ["gelernt_lang"]
+    assert regeln[name[:100]] == "Telefon"

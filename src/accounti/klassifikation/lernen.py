@@ -999,8 +999,8 @@ def uebernehme_aus_datei(
                 ergebnis.ungueltig.append(name)
                 ergebnis.gruende[name] = (
                     f"Regelname {name} steht zweimal in der Datei, mit anderem Inhalt "
-                    "(Muster, Konten, Schlüssel, Feld oder Richtung) — übernommen ist "
-                    "der erste; den zweiten in der Datei umbenennen"
+                    "(Muster, Konten, Schlüssel, Feld, Richtung oder Buchungstext) — "
+                    "übernommen ist der erste; den zweiten in der Datei umbenennen"
                 )
             continue
         if kurz in vorhanden and inhalt is not None:
@@ -1019,7 +1019,8 @@ def uebernehme_aus_datei(
                     else "die ersten 100 Zeichen gleichen einer Regel in der "
                     "Datenbank mit"
                 )
-                + " anderem Inhalt (Muster, Konten, Schlüssel, Feld oder Richtung); "
+                + " anderem Inhalt (Muster, Konten, Schlüssel, Feld, Richtung oder "
+                "Buchungstext); "
                 "in der Datei umbenennen (die Regel in der Datenbank bleibt, wie sie "
                 "ist)"
             )
@@ -1087,8 +1088,9 @@ def uebernehme_aus_datei(
     return ergebnis
 
 
-# Muster, Soll, Haben, Schlüssel, Feld, Richtung ausdrücklich angegeben?, Richtung
-_Inhalt = tuple[str, str, str, int | None, str, bool, str | None]
+# Muster, Soll, Haben, Schlüssel, Feld, Richtung ausdrücklich angegeben?, Richtung,
+# Buchungstext (wie gespeichert: höchstens 60 Zeichen)
+_Inhalt = tuple[str, str, str, int | None, str, bool, str | None, str | None]
 
 
 def _inhalt(eintrag: dict[str, Any], pfad: Path) -> _Inhalt | None:
@@ -1109,27 +1111,35 @@ def _inhalt(eintrag: dict[str, Any], pfad: Path) -> _Inhalt | None:
         geprueft.feld,
         eintrag.get("richtung") is not None,
         geprueft.richtung,  # "beide" → None
+        # gespeichert wird er gekürzt — sonst wäre jeder lange Text eine Änderung
+        (geprueft.buchungstext or "")[:60] or None,
     )
 
 
 def _schon_uebernommen(session: Session, kurz: str, inhalt: _Inhalt) -> bool:
     """Ist die Regel ``kurz`` der Datenbank dieser Eintrag (Muster, Konten,
-    Steuerschlüssel, Feld; die Richtung, wenn der Eintrag sie nennt) — ein zweiter
-    Lauf über dieselbe Datei? Ohne ``richtung`` im Eintrag leitet die Übernahme sie
-    aus der Bankseite ab; eine Regel aus ``accounti lerne`` hat dann keine — das ist
-    kein anderer Inhalt."""
-    muster, soll, haben, schluessel, feld, ausdruecklich, richtung = inhalt
+    Steuerschlüssel, Feld, Buchungstext; die Richtung, wenn der Eintrag sie nennt) —
+    ein zweiter Lauf über dieselbe Datei? Ohne ``richtung`` im Eintrag leitet die
+    Übernahme sie aus der Bankseite ab; eine Regel aus ``accounti lerne`` hat dann
+    keine — das ist kein anderer Inhalt. Ein geänderter Buchungstext ist einer (die
+    Übernahme speichert ihn; Runde 7, g6w N4), außer der Eintrag nennt keinen und die
+    Regel trägt den Standardtext von ``accounti lerne`` (ihren Namen)."""
+    muster, soll, haben, schluessel, feld, ausdruecklich, richtung, text = inhalt
     try:
         regel = finde_kontierungsregel(session, kurz)
     except ValueError:
         return False
+    gespeichert = regel.buchungstext or None
+    if text is None and gespeichert == kurz[:60]:
+        gespeichert = None  # der Standardtext einer Regel aus ``accounti lerne``
     if (
         regel.muster,
         regel.soll_konto,
         regel.haben_konto,
         regel.steuer_schluessel,
         regel.feld,
-    ) != (muster, soll, haben, schluessel, feld):
+        gespeichert,
+    ) != (muster, soll, haben, schluessel, feld, text):
         return False
     return (
         not ausdruecklich
