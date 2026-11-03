@@ -581,7 +581,9 @@ gehört `--steuer` oder `--ohne-steuer` dazu. Bei einer Buchung mit Beleg bestim
 die Richtung: Soll und Haben tauschen lehnt `korrigiere` ab (§ 14c, § 17 UStG) — eine
 Gutschrift bzw. Rechnungskorrektur ist ein eigener Beleg (`rechnung neu --korrektur-zu`);
 Konten derselben Seite bleiben korrigierbar (etwa „4360 an 1200 → 1800 an 1200“ für einen
-Privatanteil). Fehlt nach einem Storno ausgewiesene Umsatzsteuer eines Belegs in der
+Privatanteil). Die Richtung gilt für die ganze Korrekturkette, nicht nur gegenüber der
+vorigen Buchung. Ein Umsatzsteuerschlüssel auf einer Eingangsrechnung ist ein Fehlschlüssel:
+Die Korrektur auf den Schlüssel, den der Beleg vorgibt (19 % → 9, 7 % → 8), geht immer. Fehlt nach einem Storno ausgewiesene Umsatzsteuer eines Belegs in der
 Voranmeldung, warnt es (Prüfregel `beleg_ust_ohne_buchung`). Einen festgeschriebenen Monat öffnet nur, wer
 einen Grund angibt — protokolliert wie der Jahresabschluss. Nur die EB-Werte des
 Saldovortrags am 01.01. nimmt ein festgeschriebener Januar noch an; eine Eingangsrechnung zu

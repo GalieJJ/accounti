@@ -679,6 +679,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   standen 0, 3, 9, -1 oder true im Kopf), kaputtes YAML ist eine Meldung statt Traceback, und
   `export datev` warnt je Personenkonto, das nicht Sachkontenlänge + 1 Stellen hat.
   **Personenkontenbereiche** (`buchhaltung.debitoren_von` …) nehmen höchstens 9 Stellen.
+- **Nachbesserung 10b-1, Runde 7** (Nachprüfung g6w): **Richtungssperre über die
+  Korrekturkette:** Zwei Korrekturen hintereinander konnten die Seiten einer Belegbuchung
+  tauschen („10001 an 8125 → 10001 an 1590 → 8125 an 1200“ buchte Kz 41 −500; ebenso über
+  Aufwand, Privat, Verrechnung, SKR04 und als Vorschlag), weil nur mit der vorigen Buchung
+  verglichen wurde. Jetzt gilt jeder frühere Stand der Kette (Original, Neubuchungen,
+  direkt korrigierte Vorschläge laut Journal); bestimmt keiner die Seite, die der Rechnung
+  (Gutschrift dreht). Eine Kennziffer, die erst durch die Korrektur entsteht und negativ ist
+  wie bei einer Gutschrift („10001 an 8125 → 8120 an 8125“: Kz 43 −500), sperrt ebenso.
+  **Fehlschlüssel:** Ein Vorschlag „4930 an 1200, Schlüssel 3“ auf einer Eingangsrechnung hing
+  fest (keine Freigabe, keine Korrektur, kein Storno) — ein Umsatzsteuerschlüssel auf einem
+  Eingangsbeleg ist keine ausgewiesene Steuer (§ 14c gilt für eigene Rechnungen); der
+  Schlüssel, den der Beleg vorgibt (19 % → 9, 7 % → 8; Ausgang 3 bzw. 2), ist immer wählbar,
+  auch in Queue und `/buchungen`. **`beleg_ust_ohne_buchung`** meldet im Zeitraum des
+  Stornos der Umsatzsteuer, nicht in dem eines späteren Zahlungsstornos.
+  **`regeln uebernehmen`:** Ein geänderter Buchungstext bei gleichem Namen ist ungültig
+  („anderem Inhalt“) statt still übersprungen. **Geplanter Lauf:** Mit `COLUMNS=10000` (Runde
+  6) wurde ein Traceback eines Schritts 10 000 Zeichen breit (DEBUG-Protokoll 64-mal so
+  groß, Rahmen in der Warnung) — jetzt der Traceback von Python, ohne Rahmenzeichen, Zeilen
+  höchstens 1000 Zeichen. **Adressen:** Mit unkodiertem `#` oder `?` im Passwort nannten
+  Verfahrensdokumentation („json: alarm:Kassel“), Webhook-Warnung und
+  `aufgaben_benachrichtigungen` Benutzer bzw. Passwortziffern als Rechner und Port — jetzt
+  nur der Rechner hinter dem letzten `@`; die Schwärzung nimmt „:4711#Sonne“ nicht mehr als
+  Port. Eine ungültige Connector-`basis_url` bricht die Verfahrensdokumentation nicht mehr ab
+  (der Fehler steht im Dokument). **Kaputtes YAML** ergibt in jedem Befehl eine Meldung
+  (`datev stammdaten`, `datev belege`, `pruefen`, `verfahrensdoku` …) statt eines
+  Tracebacks. **Abwärtsverträglich:** Eine offene Obergrenze (`kreditoren_bis: 9999999999`)
+  gilt mit Hinweis als 999999999 statt jeden Befehl anzuhalten, `sachkonten_laenge: 4.0` als
+  4.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

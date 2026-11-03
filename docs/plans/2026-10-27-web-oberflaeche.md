@@ -249,7 +249,7 @@ nach dem Merge der Stand von `main` ist; Abweichungen zu `main` sind genannt.
 | A4 | Person im Web über `von=` und `journal_kontext` | Storno-Funktionen setzen einen inneren Kontext mit `aktuelle_person(von)`; alle anderen Schreibwege (Rückfrage, Regel, Grund) lesen den äußeren Kontext | beides: `von=a.benutzer.name` an jede Fachfunktion **und** `api/handeln.im_namen(a)` um jede schreibende Thread-Funktion; Test über alle POST-Endpunkte mit `ACCOUNTI_BENUTZER=mallory` |
 | A5 | Buchungsfreigaben im Browser ohne Einmalcode „wie `accounti bestaetige`“ | `bestaetige`, `korrigiere`, `buchung storniere` verlangen in der CLI Recht **und** Einmalcode (7); die 10a-Schnittstelle sieht Einmalcode „vor jeder Freigabe“ vor | Queue (Vorschläge) ohne Code in der 2FA-Sitzung, Storno/Korrektur freigegebener Buchungen auf `/buchungen/{id}` **mit** Code — Begründung unter „Person, Einmalcode, Sperren“ |
 | A6 | Korrigieren braucht `BUCHEN` **und** `BUCHUNG_FREIGEBEN` | 7: `BUCHEN` genügt, Invariante getestet (`test_buchen_umfasst_die_freigabe`) | Web wie CLI: `BUCHEN`; Matrix braucht dafür keine Mengen mehr (nur noch `EinesVon` fürs Zurückstellen) |
-| A7 | `korrigiere(…, kontenrahmen, buchhaltung)` | zusätzlich `einstellungen: PruefEinstellungen`; Meldungen mit CLI-Optionen | Web übergibt `lade_pruefung(g.konfiguration)`; `StornoError` bekommt `meldung`, `feld`, `cli`; `storno.steuer_optionen(b)` für das Formular |
+| A7 | `korrigiere(…, kontenrahmen, buchhaltung)` | zusätzlich `einstellungen: PruefEinstellungen`; Meldungen mit CLI-Optionen | Web übergibt `lade_pruefung(g.konfiguration)`; `StornoError` bekommt `meldung`, `feld`, `cli`; `storno.steuer_optionen(b, beleg)` für das Formular (Runde 7: mit dem Schlüssel laut Beleg) |
 | A8 | Web nimmt `lade_abschluss(pfad).lade_kontenrahmen()` | CLI `korrigiere`/`buchung storniere` nehmen `lade_kontenrahmen(buchhaltung.kontenrahmen)` (ohne `abschluss.kontenzuordnung`), SuSa/Abschluss mit | ein Lader `storno.lade_korrekturumgebung(pfad)` für CLI und Web (mit Kontenzuordnung) |
 | A9 | `stand` aus dem Schnappschuss | Schreibsperre erst beim ersten Flush | `pruefschlange` holt `schreibsperre` **vor** dem Lesen und Vergleichen des Stands |
 | A10 | Befund 4: neue Spalte bricht den Journalabgleich | Abgleich feldweise, `NULL` in Altzeilen zählt nicht; aber `_pruefe_festschreibung` sperrt jede andere Spalte freigegebener Buchungen, und jeder Journaleintrag einer Buchung trüge die Begründung erneut | eigene Tabelle bleibt; Begründung neu formuliert |
@@ -1667,10 +1667,18 @@ Durchlaufs mit Markern in allen Fremddaten.
   und die Zahlung der OSS-Steuer an das BZSt lässt sich nicht als Regel lernen („beide
   Geldkonten“). Das behebt Paket E beim nächsten Zusammenführen, das die OSS-Steuerkonten
   ohnehin ändert (g3w-fach/g3w-merge N1, Runde 4 nicht behoben).
-- Im Browser bietet die Korrektur einer Belegbuchung nur den bisherigen Schlüssel an
-  (`steuer_optionen`); § 13b bzw. ig. Erwerb auf einer Belegbuchung (Paket C) setzt die CLI
-  (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung mit ausgewiesener
-  Umsatzsteuer (2/3, § 14c Abs. 1 UStG: Berichtigung als neuer Beleg; Runde 4).
+- Im Browser bietet die Korrektur einer Belegbuchung den bisherigen Schlüssel und den, den der
+  Beleg vorgibt (`steuer_optionen(b, beleg).laut_beleg`: sein einziger Satz mit seiner
+  Richtung — 19 % Eingang 9, 7 % 8, Ausgang 3 bzw. 2; ohne Satz in den Positionen das
+  Verhältnis Steuer/Netto; Runde 7, g6w N5); § 13b bzw. ig. Erwerb auf einer Belegbuchung
+  (Paket C) setzt die CLI (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung
+  mit ausgewiesener Umsatzsteuer (2/3 auf einem Ausgangsbeleg, § 14c Abs. 1 UStG: Berichtigung
+  als neuer Beleg; Runde 4). Ein Umsatzsteuerschlüssel auf einem Eingangsbeleg (`richtung`
+  Eingang, nicht Ausgangsrechnung) ist ein Fehlschlüssel, keine ausgewiesene Steuer: „ohne
+  Steuer“ mit Grund und der Schlüssel laut Beleg gehen, § 14c-Warnung und
+  `beleg_ust_ohne_buchung` zählen ihn nicht. Grenze: Nennt der Beleg mehrere Sätze und die
+  Buchung keine Position, gibt es keinen Schlüssel laut Beleg (Weg: „ohne Steuer“ mit Grund
+  bzw. Storno).
 - Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1; Runde 6, g5w
   NEU-1/NEU-2): `korrigiere` lehnt eine Korrektur ab, die die Seiten vertauscht — für jede
   Belegbuchung, nicht nur bei ausgewiesener USt: (a) ein Konto wechselt die Seite (neues Soll
@@ -1684,9 +1692,21 @@ Durchlaufs mit Markern in allen Fremddaten.
   `steuerrelevante_konten`). Bestimmen die Konten die Seite nicht (zwei Gegenkonten wie „1800
   an 1200“, zwei Sachkonten ohne Erlös wie „4120 an 1740“), sperrt das nicht (c) — Runde 5
   las dort „Haben“ und sperrte Privatanteil, Spende, Wertpapier, Geldtransit, Lohn- und
-  sonstige Verbindlichkeit. Grenze: Werden beide Konten ersetzt, ohne dass eine dieser
-  Regeln greift (z. B. „0420 an 1700 → 1701 an 0421“: Bestandskonten ohne Gegenkonto, ohne
-  Erfolgskonto, ohne Kennziffer), erkennt die Sperre den Tausch nicht. Das Vorzeichen der
+  sonstige Verbindlichkeit. Die Regeln gelten gegen jeden früheren Stand der Korrekturkette,
+  nicht nur gegen die vorige Buchung (Runde 7, g6w N1: „10001 an 8125 → 10001 an 1590 → 8125
+  an 1200“ buchte Kz 41 −500): Original und Neubuchungen über `buchungskorrekturen`, direkt
+  korrigierte Vorschläge über das Journal (`storno.fruehere_staende`). Bestimmt kein Stand eine
+  Seite, gilt für das Erfolgskonto die Seite der Rechnung (Eingangsrechnung: Aufwand im Soll,
+  Ausgangsrechnung: Erlös im Haben; negativer Beleg dreht) — außer bei einem Altfall „4900 an
+  4900“. (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht und negativ ist
+  (Vorzeichen einer Gutschrift), wenn kein Stand der Kette eine Kennziffer negativ bucht und
+  der Beleg keine Gutschrift ist („10001 an 8125 → 8120 an 8125“: Kz 43 −500; g6w N2).
+  Grenzen: Werden beide Konten ersetzt, ohne dass eine dieser Regeln greift (z. B. „0420 an
+  1700 → 1701 an 0421“: Bestandskonten ohne Gegenkonto, ohne Erfolgskonto, ohne Kennziffer),
+  erkennt die Sperre den Tausch nicht. Ohne Journal (Datenbank von vor Baustein 7) kennt sie
+  den ersten Stand eines direkt korrigierten Vorschlags nicht. Eine Belegbuchung, die nach
+  Storno ohne Neubuchung neu entsteht (`classify`, OPOS), beginnt eine neue Kette. Ein
+  Belegtyp außer Eingangs- und Ausgangsrechnung (Quittung, unbekannt) gibt keine Seite vor. Das Vorzeichen der
   Kennziffern allein genügt nicht: „4930 an 70001, Schlüssel 9 → 1700 an 4930“ lässt die
   Voranmeldung gleich und bucht den Aufwand ins Haben. Ist die Belegbuchung selbst falsch
   herum gebucht, bleibt das Storno mit Grund (ein Vorschlag wird dafür erst freigegeben);
@@ -1698,7 +1718,8 @@ Durchlaufs mit Markern in allen Fremddaten.
   Zeitraum des Stornos, bis wieder gebucht ist — eine Begründung, die den Befund schließt,
   gibt es nicht (wie bei den anderen Prüfregeln: Befund mit Begründung stehen lassen).
   Gezählt wird je Satz die wirksam gebuchte Steuer (Schlüssel 2/3, Rechnungsseite) gegen die
-  der Belegpositionen (Runde 6, g5w NEU-3/NEU-4): Eine Zahlung mit derselben `beleg_id`, eine
+  der Belegpositionen (Runde 6, g5w NEU-3/NEU-4); der Zeitraum ist der des letzten Stornos
+  einer solchen Buchung, ein späteres Zahlungsstorno verschiebt ihn nicht (Runde 7, g6w N3): Eine Zahlung mit derselben `beleg_id`, eine
   Buchung zu einem anderen Satz und eine Minderung (Skonto) decken sie nicht; eine
   wegfallende Gutschrift fehlt nicht; eine wirksam gebuchte Kopie derselben Rechnung
   (`belege.dubletten.kopien`: Richtung, Lieferant, Nummer, Betrag gleich) deckt sie. Grenzen:
@@ -1712,10 +1733,11 @@ Durchlaufs mit Markern in allen Fremddaten.
   (Sachkontenlänge 8, Runde 5, g4w N5); bei Sachkontenlänge 5–7 (Personenkonten 6–8 Stellen)
   nicht — accounti rechnet mit 4-stelligen Sachkonten, 6-stellige sind Unterkonten. Die
   Voranmeldung und die Prüfregeln nehmen Personenkonten aus den Bereichen der Buchhaltung
-  (`debitoren_von` …), die höchstens 9 Stellen haben (Runde 6, g5w-konten N3: mehr lehnt die
-  Konfiguration ab). `export datev`, `datev belege` und `datev stammdaten` nehmen die
-  Sachkontenlänge aus `mandant.sachkonten_laenge` (eine ganze Zahl 4–8, sonst Fehler; Runde
-  6, g5w-konten N2); `export datev` warnt bei Konten, die nicht dazu passen, und bei
+  (`debitoren_von` …), die höchstens 9 Stellen haben (Runde 6, g5w-konten N3: eine Untergrenze
+  mit mehr Stellen lehnt die Konfiguration ab, eine Obergrenze darüber gilt mit Hinweis als
+  999999999 — Runde 7, g6w B-5). `export datev`, `datev belege` und `datev stammdaten` nehmen
+  die Sachkontenlänge aus `mandant.sachkonten_laenge` (eine ganze Zahl 4–8, auch als `4.0`,
+  sonst Fehler; Runde 6, g5w-konten N2); `export datev` warnt bei Konten, die nicht dazu passen, und bei
   Personenkonten (Bereiche der Buchhaltung) ohne Sachkontenlänge + 1 Stellen — die Konten
   prüft es nur der Länge nach (Warnung), wie `datev belege`.
 - Die Werte der Regeldatei prüft der Lader nur der Form nach (Kontonummer 4–9 ASCII-Ziffern,
@@ -1737,6 +1759,19 @@ Durchlaufs mit Markern in allen Fremddaten.
   oder Regel sie liefern — ob das fachlich passt, entscheidet der Mensch in der Prüfung.
 - `db upgrade` erkennt einen unpassenden Vermerk an fehlenden Tabellen und Spalten, nicht an
   fehlenden Indizes oder Triggern; `--aus-schema` stempelt nur zurück, nie vor.
+- Kaputtes YAML der Konfiguration ist in jedem strengen Lader ein `KonfigurationError`
+  („… kein gültiges YAML (…)“, `konfiguration.lies_yaml`; Runde 7, g6w B-3 — auch
+  `lade_pruefung` und `lade_elster`, bisher Grenze). Roh lesen weiter nur die nachsichtig
+  gelesenen Angaben (`lade_eigene_firma`, `lade_oss`, `lade_mandant`, die Anzeige des
+  Wirtschaftsjahrs in `gesellschaft liste`); jeder Befehl, der sie nutzt, lädt vorher einen
+  strengen Abschnitt.
+- Die Schwärzung des Protokolls ist musterbasiert (Namen, kleingeschriebene IBANs erkennt sie
+  nicht). Adressen nennt accounti in Meldungen nur über `betrieb.protokoll.rechner_der_adresse`
+  (Schema, Rechner, Port; Zugangsdaten bis zum letzten `@` vor dem Pfad, auch mit unkodiertem
+  `#`, `?` oder `/` im Passwort; Runde 7, g6w B-2). Steht ein `@` nur im Pfad, gilt der Teil
+  davor als Rechner; ein `@` in der Abfrage („?an=jan@firma“) ändert nichts. Der geplante Lauf
+  schreibt die Ausgabe der Schritte ohne Rahmenzeichen, je Zeile höchstens 1000 Zeichen
+  (DEBUG), Tracebacks von Python statt Rich (g6w B-1).
 
 **Auswertungen**
 - Die BWA-Zuordnung ist accountis eigene, an DATEV-Form 01 angelehnte Tabelle — nicht
