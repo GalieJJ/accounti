@@ -481,3 +481,21 @@ def test_fehlerliste_alert_mit_links():
     assert '<a href="#grund-k">Bitte einen Grund angeben.</a>' in html
     assert '<a href="#steuer">Steuer fehlt.</a>' in html
     assert "<li>Allgemein</li>" in html
+
+
+def test_reiter_als_nav_mit_aria_current():
+    html = render(
+        '{{ k.reiter("Ansicht", [("offen", "Offen", "/pruefen", 12),'
+        ' ("zurueck", "Zurückgestellt", "/pruefen?ansicht=zurueckgestellt", 2),'
+        ' ("regeln", "Gelernte Regeln", "/pruefen/regeln")], "offen") }}'
+    )
+    assert html.startswith('<nav class="reiter" aria-label="Ansicht">')
+    assert (
+        '<a href="/pruefen" aria-current="page">Offen '
+        '<span class="reiter-anzahl">12</span>' in (html)
+    )
+    assert html.count("aria-current") == 1 and "role=" not in html
+    assert '<a href="/pruefen/regeln">Gelernte Regeln</a>' in html
+    assert 'class="reiter reiter-geteilt"' in render(
+        '{{ k.reiter("x", [("a", "A", "/a")], "a", geteilt=true) }}'
+    )

@@ -631,6 +631,24 @@
   .fehlerliste-titel { margin: 0; }
   .fehlerliste ul { margin: var(--a-1) 0 0; padding-left: var(--a-45); }
   .fehlerliste a { font-weight: 600; color: var(--fehler); }
+  /* Reiter: Links in einer nav, der aktive mit 3 px Strich über der Linie */
+  .reiter { display: flex; flex-wrap: wrap; gap: var(--a-1); margin: 0 0 var(--a-5); border-bottom: 1px solid var(--linie); }
+  .reiter > a {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--a-2);
+    min-height: 2.75rem;
+    margin-bottom: -1px;
+    padding: 0 var(--a-4);
+    color: var(--text-2);
+    text-decoration: none;
+    border-bottom: 3px solid transparent;
+  }
+  .reiter > a:hover { color: var(--text); background-image: linear-gradient(var(--schleier), var(--schleier)); }
+  .reiter > a[aria-current="page"] { font-weight: 600; color: var(--text); border-bottom-color: var(--akzent); }
+  .reiter-anzahl { font-weight: 400; color: var(--text-2); }
+  .reiter-geteilt { display: grid; grid-template-columns: 1fr 1fr; gap: 0; background-color: var(--flaeche); }
+  .reiter-geteilt > a { justify-content: center; }
 }
 
 @layer hilfen {
