@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from accounti import __version__
 from accounti.anzeige import datum_de
+from accounti.betrieb.protokoll import rechner_der_adresse
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.pruefung import Journaleintrag
 
@@ -220,12 +221,26 @@ def _belegeingang(d: _Doku) -> None:
         if "webhook" in (d.roh().get("belegkanaele") or {}):
             w = kanaele.webhook
             zeilen.append(["webhook", "—", f"{w.host}:{w.port}, Bearer-Token"])
+        fehlerhaft = []
         for c in kanaele.connectoren:
             basis = str(c.einstellungen().get("basis_url") or "")
-            # Rechner und Port, ohne Benutzer und Passwort (Runde 6, g5w-konten N1)
-            rechner = urlsplit(basis).netloc.rpartition("@")[2]
+            # Rechner und Port, ohne Benutzer und Passwort — auch mit unkodiertem #
+            # oder ? im Passwort (Runde 6, g5w-konten N1; Runde 7, g6w B-2); eine
+            # ungültige Adresse steht als Fehler im Dokument, statt es abzubrechen
+            # (g6w B-4: „https://[::1/api“ endete mit ValueError)
+            ziel = rechner_der_adresse(basis) if basis else ""
+            if ziel is None:
+                fehlerhaft.append(c.name)
+                ziel = "(Adresse fehlerhaft)"
+            rechner = ziel.partition("://")[2] if "://" in ziel else ziel
             zeilen.append(["connector", c.name, f"{c.typ}: {rechner}"])
         d(*_tabelle(["Kanal", "Name", "Einstellung"], zeilen))
+        for name in fehlerhaft:
+            d(
+                f"> **Konfiguration belegkanaele.connectoren[{_zelle(name)}].basis_url "
+                "fehlerhaft:** keine gültige Adresse (Schema, Rechner, Port)",
+                "",
+            )
         d(
             "Dateiprüfung für E-Mail, Webhook, Connector und Ordner: höchstens "
             f"{kanaele.max_groesse_mb} MB, Typen {', '.join(kanaele.dateitypen)} (Typ "

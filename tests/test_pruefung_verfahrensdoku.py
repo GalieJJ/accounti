@@ -477,3 +477,61 @@ def test_connector_adresse_ohne_zugangsdaten(tmp_path):
     zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
     assert "portal.example:8443" in zeile
     assert "sehr-geheim" not in text and "jan:" not in zeile
+
+
+@pytest.mark.parametrize(
+    ("basis", "erwartet", "darf_nicht"),
+    [
+        ("https://alarm:Kassel#2026@portal.example/api", "json: portal.example |",
+         "Kassel"),
+        ("https://alarm:Wint3r?Sonne@portal.example/api", "json: portal.example |",
+         "Wint3r"),
+        ("https://alarm:1234#abc@portal.example:8443/api", "portal.example:8443",
+         "1234"),
+    ],
+    ids=["raute", "fragezeichen", "ziffern"],
+)  # fmt: skip
+def test_connector_adresse_mit_unkodiertem_passwort(
+    tmp_path, basis, erwartet, darf_nicht
+):
+    """g6w B-2 (Runde 7): „netloc.rpartition('@')“ nannte bei unkodiertem # oder ? im
+    Passwort Benutzer und Passwortanfang („json: alarm:Kassel“)."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        f'      basis_url: "{basis}"\n'
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert erwartet in zeile, zeile
+    assert darf_nicht not in text and "alarm" not in zeile
+
+
+def test_connector_mit_ungueltiger_adresse_bricht_nicht_ab(tmp_path):
+    """g6w B-4 (Runde 7): „https://[::1/api“ (Tippfehler) endete mit ValueError aus
+    urlsplit, es entstand kein Dokument. Jetzt steht der Fehler im Dokument."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        '      basis_url: "https://[::1/api"\n'
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert "(Adresse fehlerhaft)" in zeile
+    assert (
+        "**Konfiguration belegkanaele.connectoren[portal].basis_url fehlerhaft:**"
+        in text
+    )
+    assert "## 3" in text  # das Dokument geht weiter

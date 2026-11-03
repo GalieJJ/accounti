@@ -6,7 +6,8 @@ Status, Dauer). Zusätzlich schwärzt ein Filter an jedem Handler, was als Muste
 erkennbar ist: IBAN, E-Mail-Adressen, accounti-Token, Bearer-Token und verbreitete
 Zugangstoken, Benutzer und Passwort in URLs (auch zerschnitten), Geheimnis-Parameter
 (``passwort=…``, ``token=…``), „Passwort: …“ sowie PIN und TAN als Zahl. Namen erkennt
-kein Muster — sie dürfen gar nicht erst geschrieben werden.
+kein Muster — sie dürfen gar nicht erst geschrieben werden. Wer eine Adresse nennen
+muss (Webhook, Connector), nennt nur ``rechner_der_adresse``.
 
 Stufe und Format aus ``ACCOUNTI_PROTOKOLL_STUFE`` (``INFO``) und
 ``ACCOUNTI_PROTOKOLL_FORMAT`` (``text`` oder ``json``).
@@ -37,9 +38,10 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
     (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
     # … und abgeschnitten (Zeilenumbruch, kaputte Adresse): „scheme://benutzer:etwas“
-    # ohne @ — außer einem Port (nur Ziffern)
+    # ohne @ — außer einem Port (nur Ziffern vor „/“, Leerraum oder Ende; „:4711#Sonne“
+    # ist ein Passwort, Runde 7, g6w B-2)
     (
-        re.compile(rf"({_SCHEMA}[^/\s:@?#\[\]]+):(?!\d+(?:[/?#\s]|$))[^/\s@]+"),
+        re.compile(rf"({_SCHEMA}[^/\s:@?#\[\]]+):(?!\d+(?:[/\s]|$))[^/\s@]+"),
         r"\1:***",
     ),
     (
@@ -58,8 +60,14 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     ),
     # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
     (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
-    # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“)
-    (re.compile(r"[\w.+\-#?%!$&*=^~]+@[\w\-]+(?:\.[\w\-]+)+"), "[E-Mail]"),
+    # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“, auch
+    # „benutzer:4711#Sonne@host“ ohne Schema)
+    (
+        re.compile(
+            r"[\w.+\-#?%!$&*=^~]+(?::[\w.+\-#?%!$&*=^~]+)?@[\w\-]+(?:\.[\w\-]+)+"
+        ),
+        "[E-Mail]",
+    ),
     (
         re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{4}){2,7}(?:[ ]?[A-Z0-9]{1,3})?\b"),
         "[IBAN]",
@@ -71,6 +79,58 @@ def schwaerze(text: str) -> str:
     for muster, ersatz in _MUSTER:
         text = muster.sub(ersatz, text)
     return text
+
+
+_RECHNER = re.compile(r"[A-Za-z0-9._~\-]+|\[[0-9A-Za-z:.%]+\]")
+
+
+def _rechner_und_port(teil: str) -> tuple[str, str | None] | None:
+    """„rechner[:port]“ zerlegt — ``None``, wenn kein Rechner zu erkennen ist; ein
+    Port, der keiner ist (Text, 0, über 65535), fällt weg."""
+    if teil.startswith("["):
+        rechner, zu, rest = teil.partition("]")
+        if not zu:
+            return None  # „[::1“ ohne Klammer zu (Tippfehler)
+        rechner += "]"
+        port = rest[1:] if rest.startswith(":") else None
+        if rest and port is None:
+            return None
+    else:
+        rechner, trenner, port_text = teil.partition(":")
+        port = port_text if trenner else None
+    if not _RECHNER.fullmatch(rechner):
+        return None
+    if port is not None and not (port.isascii() and port.isdigit()):
+        return rechner, None
+    if port is not None and not 0 < int(port) <= 65535:
+        return rechner, None
+    return rechner, port
+
+
+def rechner_der_adresse(adresse: str) -> str | None:
+    """„schema://rechner[:port]“ einer Adresse — ohne Benutzer, Passwort, Pfad und
+    Abfrage (die tragen oft ein Geheimnis). Robust gegen ein unkodiertes #, ? oder /
+    im Passwort (``urlsplit`` machte dort den Passwortanfang zum Rechner und seine
+    Ziffern zum Port, Runde 7, g6w B-2): Steht nach „://“ vor dem Pfad ein „@“, ist
+    alles bis zum letzten „@“ Zugangsdaten; ist der Teil vor dem ersten „/“ kein
+    sauberer Rechner, aber folgt später ein „@“, ebenso. Im Zweifel ohne Port.
+    ``None``, wenn die Adresse keinen Rechner erkennen lässt."""
+    schema, trenner, rest = adresse.strip().partition("://")
+    if not trenner or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.\-]*", schema):
+        return None
+    vorn = rest.split("/", 1)[0]
+    if "@" in vorn:
+        vorn = vorn.rpartition("@")[2]
+    elif "@" in rest:
+        # ein „/“ im Passwort: „benutzer:pa/ss@rechner/…“
+        sauber = _rechner_und_port(re.split(r"[?#]", vorn, maxsplit=1)[0])
+        if sauber is None or (sauber[1] is None and ":" in vorn):
+            vorn = rest.rpartition("@")[2].split("/", 1)[0]
+    zerlegt = _rechner_und_port(re.split(r"[?#]", vorn, maxsplit=1)[0])
+    if zerlegt is None:
+        return None
+    rechner, port = zerlegt
+    return f"{schema.lower()}://{rechner}" + (f":{port}" if port else "")
 
 
 class Schwaerzung(logging.Filter):

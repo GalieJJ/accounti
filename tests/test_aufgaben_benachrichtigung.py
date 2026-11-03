@@ -550,15 +550,63 @@ def test_eigener_kanal_aus_der_registry(tmp_path, monkeypatch):
     ("url", "erwartet"),
     [
         ("https://alarm:geheim@hooks.example/x", "https://hooks.example/…"),
-        ("https://alarm:Kassel#2026@hooks.example.invalid/hook", "https://alarm/…"),
-        ("https://alarm:Wint3r?Sonne@hooks.example.invalid/x", "https://alarm/…"),
+        # Runde 7 (g6w B-2): bis zum letzten „@“ vor dem Pfad sind es Zugangsdaten —
+        # nicht mehr der Benutzer als Rechner und die Passwortziffern als Port
+        (
+            "https://alarm:Kassel#2026@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:Wint3r?Sonne@hooks.example.invalid/x",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:4711#Sonne@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        ("https://alarm:1234?abc@hooks.example:8443/x", "https://hooks.example:8443/…"),
+        ("https://alarm:pa/ss@hooks.example/x", "https://hooks.example/…"),
         (
             "https://hooks.example:8443/services/T0/geheim",
             "https://hooks.example:8443/…",
         ),
+        ("https://[2001:db8::1]:8443/hook", "https://[2001:db8::1]:8443/…"),
+        ("https://hooks.example:99999/x", "https://hooks.example/…"),
+        (
+            "https://hooks.example/notify?an=jan@firma.example",
+            "https://hooks.example/…",
+        ),
+        ("https://[::1/x", "(ungültige Adresse)"),
+        ("https:///nur-pfad", "(ungültige Adresse)"),
     ],
 )
 def test_webhook_ziel_ohne_zugangsdaten(url, erwartet):
     """g5w-konten N1 (Runde 6): die Fehlermeldung nannte netloc samt Benutzer und
     Passwort; ein unkodiertes # oder ? im Passwort machte den Rest zum Port."""
     assert WebhookKanal(url)._ziel() == erwartet
+
+
+def test_webhook_fehler_gespeichert_ohne_passwortziffern(
+    make_session, fuenf_aufgaben, monkeypatch
+):
+    """g6w B-2: WARNUNG und ``aufgaben_benachrichtigungen`` (adresse, fehler) zeigten
+    „https://alarm:4711/…“ — Benutzer und Ziffern des Passworts als Rechner und
+    Port. Gespeichert wird nur die bereinigte Adresse."""
+    import urllib.error
+
+    from accounti.aufgaben import benachrichtigung
+
+    def urlopen(*_args, **_kw):  # noqa: ANN002, ANN003, ANN202
+        raise urllib.error.URLError("Temporary failure in name resolution")
+
+    monkeypatch.setattr(benachrichtigung.urllib.request, "urlopen", urlopen)
+    url = "https://alarm:4711#Sonne@hooks.example.invalid/hook"
+    e = _einstellungen(kanaele=["webhook"], webhook={"url": url})
+    lauf = _versende(make_session, e, {"webhook": WebhookKanal(url, timeout=1)})
+    assert lauf.zustellungen and not any(z.erfolgreich for z in lauf.zustellungen)
+    with make_session() as s:
+        gespeichert = lade_benachrichtigungen(s)
+    texte = [str(x) for z in gespeichert for x in (z.adresse, z.fehler)]
+    assert all("https://hooks.example.invalid/…" in x for x in texte), texte
+    for geheim in ("alarm", "4711", "Sonne"):
+        assert not any(geheim in x for x in texte), geheim

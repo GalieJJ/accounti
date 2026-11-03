@@ -31,7 +31,6 @@ from email.message import EmailMessage
 from email.utils import format_datetime, getaddresses, make_msgid, parseaddr
 from pathlib import Path
 from typing import Any, Literal, Protocol
-from urllib.parse import urlsplit
 
 from sqlalchemy.orm import Session
 
@@ -40,6 +39,7 @@ from accounti.aufgaben.anbindung import lade_anbindungen
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.erinnerung import Erinnerung, faellige_erinnerungen
 from accounti.aufgaben.zustaendigkeit import GEMEINSAM
+from accounti.betrieb.protokoll import rechner_der_adresse
 from accounti.db.repo_aufgaben import (
     AufgabeVeraltetError,
     aktualisiere_aufgabe,
@@ -304,20 +304,12 @@ class WebhookKanal:
 
     def _ziel(self) -> str:
         """Schema, Rechner und Port — Pfad und Abfrage tragen oft ein Geheimnis,
-        Benutzer und Passwort sowieso (Runde 6, g5w-konten N1: netloc stand samt
-        Zugangsdaten in der Meldung; ein unkodiertes # oder ? im Passwort macht für
-        ``urlsplit`` den Rest zum „Port“)."""
-        teile = urlsplit(self.url)
-        if not teile.scheme or not teile.netloc:
-            return "(ungültige Adresse)"
-        try:
-            port = teile.port
-        except ValueError:
-            port = None
-        rechner = teile.hostname or "?"
-        if ":" in rechner:  # IPv6
-            rechner = f"[{rechner}]"
-        return f"{teile.scheme}://{rechner}{f':{port}' if port else ''}/…"
+        Benutzer und Passwort sowieso (Runde 6, g5w-konten N1). Nicht über
+        ``urlsplit``: Ein unkodiertes # oder ? im Passwort machte dort den
+        Benutzer zum Rechner und die Ziffern des Passworts zum Port — in WARNUNG und
+        ``aufgaben_benachrichtigungen`` (Runde 7, g6w B-2; ``rechner_der_adresse``)."""
+        ziel = rechner_der_adresse(self.url)
+        return f"{ziel}/…" if ziel is not None else "(ungültige Adresse)"
 
     def adresse(self, uebersicht: Tagesuebersicht) -> str | None:
         return self._ziel()
