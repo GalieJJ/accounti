@@ -63,3 +63,7 @@ def test_pruefung_einmal_je_vorlage(monkeypatch):
     monkeypatch.setattr(env, "parse", lambda *a, **k: aufrufe.append(a))
     pruefe_teilvorlage(env, "seite.html", "inhalt")
     assert aufrufe == []
+
+
+def test_muster_hat_den_import_im_block():
+    pruefe_teilvorlage(UMGEBUNG, "muster.html", "inhalt")

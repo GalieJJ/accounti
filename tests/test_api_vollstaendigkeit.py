@@ -118,6 +118,9 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     ("GET", "/belege/{beleg_id:uuid}/datei"): ("ganze_seite", "Datei, kein HTML"),
     ("GET", "/belege/{beleg_id:uuid}/seite/{n}.png"): ("ganze_seite", "Bild"),
     ("GET", "/belege/{beleg_id:uuid}/download"): ("ganze_seite", "Datei, kein HTML"),
+    # Baustein 10c P1
+    ("GET", "/muster"): ("fragment", "neue Seite: Block inhalt"),
+    ("GET", "/muster/beispiel"): ("fragment", "Austausch; ohne htmx 303"),
 }
 
 

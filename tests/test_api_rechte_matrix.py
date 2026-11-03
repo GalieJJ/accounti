@@ -54,6 +54,9 @@ SEITEN: dict[tuple[str, str], object] = {
     ("GET", "/belege/{beleg_id:uuid}/datei"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/seite/{n}.png"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/download"): Recht.LESEN,
+    # Baustein 10c P1: Musterseite
+    ("GET", "/muster"): Recht.LESEN,
+    ("GET", "/muster/beispiel"): Recht.LESEN,
 }
 # Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
 # Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)

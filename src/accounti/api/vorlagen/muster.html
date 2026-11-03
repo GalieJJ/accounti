@@ -1,0 +1,131 @@
+{% extends "basis.html" %}
+{% block titel %}{{ _("Bausteine") }}{% endblock %}
+{% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+{#- Musterseite: Nachbildung der Zeichenfläche „Bausteine“ der Design-Leinwand (Plan P1,
+    L9). Ohne Parameter hell und dunkel nebeneinander, mit ?theme= ein Rahmen ohne
+    Themenklasse. Erfundene Beispieldaten, keine Daten der Gesellschaft. -#}
+<div class="muster">
+<div class="muster-kopf">
+<h1>{{ _("Bausteine") }}</h1>
+<p class="muster-einleitung">{{ _("Ruhig, hell und dunkel, Systemschrift, Beträge in gleich breiten Ziffern. Farbe trägt nie allein Bedeutung: Status hat immer Wort und Symbol. Der Fokusring ist bernsteinfarben und unterscheidet sich von Akzent und Fehler.") }}</p>
+</div>
+<nav class="muster-umschalter" aria-label="{{ _("Darstellung der Musterseite") }}"><ul>
+{% for wert, text in [(none, _("beide")), ("hell", _("hell")), ("dunkel", _("dunkel")), ("auto", _("automatisch"))] %}
+<li><a href="/muster{% if wert %}?theme={{ wert }}{% endif %}"{% if wert == wahl %} aria-current="page"{% endif %}>{{ text }}</a></li>
+{% endfor %}
+</ul></nav>
+<div class="muster-themen">
+{% for th in themen %}
+{%- set v = th.vorsilbe -%}
+<section class="thema{% if th.klasse %} {{ th.klasse }}{% endif %}" aria-labelledby="{{ v }}-titel">
+<h2 id="{{ v }}-titel">{{ _(th.titel) }}</h2>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-farben"><h3 class="etikett" id="{{ v }}-farben">{{ _("Farben") }}</h3>
+<ul class="farbfelder">
+{% for name, text in farben %}<li><span class="farbfeld farbfeld-{{ name }}"></span>{{ _(text) }}</li>{% endfor %}
+</ul>
+<ul class="muster-reihe">{% for m in marken %}<li>{{ k.marke(m) }} {{ m.name }}</li>{% endfor %}</ul>
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-schrift"><h3 class="etikett" id="{{ v }}-schrift">{{ _("Schrift") }}</h3>
+<p class="schrift-8">{{ _("Seitentitel 28") }}</p>
+<p class="schrift-7">{{ _("Abschnitt 22") }}</p>
+<p class="schrift-6">{{ _("Titel 20") }}</p>
+<p class="schrift-5">{{ _("Kartentitel 18") }}</p>
+<p>{{ _("Fließtext 16 — Kontobezeichnung vor Nummer, „19 %% Vorsteuer“ vor „Schlüssel 9“.") }}</p>
+<p class="schrift-3">{{ _("Nebentext 14") }}</p>
+<p class="etikett">{{ _("Etikett 13") }}</p>
+<p class="schrift-1">{{ _("Beschriftung 12") }}</p>
+<p class="muster-betraege schrift-5">{{ k.betrag(beispiel.einnahme, "einnahme") }} {{ k.betrag(beispiel.ausgabe, "ausgabe") }} {{ k.betrag(beispiel.summe) }}</p>
+<p class="kennzahl"><span class="kennzahl-wert">40</span> <span class="kennzahl-satz">{{ _("Kennzahl in einer Karte") }}</span></p>
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-knoepfe"><h3 class="etikett" id="{{ v }}-knoepfe">{{ _("Knöpfe") }}</h3>
+<div class="knopfreihe">{{ k.knopf(_("Primär"), typ="button") }}{{ k.knopf(_("Sekundär"), art="sekundaer", typ="button") }}{{ k.knopf(_("Still"), art="still", typ="button") }}{{ k.knopf(_("Stornieren"), art="gefaehrlich", typ="button") }}</div>
+<div class="knopfreihe">{{ k.knopf(_("Klein"), art="sekundaer", groesse="klein", typ="button") }}<span class="knopf knopf-sekundaer zeige-fokus">{{ _("Mit Fokus") }}</span>{{ k.knopf(_("Deaktiviert"), typ="button", deaktiviert=true) }}{{ k.knopf(_("Speichert …"), typ="button", laedt=true) }}</div>
+<div class="knopfreihe">{{ k.knopf(_("Groß"), groesse="gross", typ="button") }}{{ k.knopf(_("Weiter"), art="sekundaer", symbol="arrow-right", typ="button") }}{{ k.knopf(_("Passt – freigeben"), typ="button", taste="f") }}{{ k.linkknopf(_("Durcharbeiten"), "#" ~ v ~ "-knoepfe", taste="j") }}</div>
+{{ k.knopf(_("Volle Breite"), art="sekundaer", breit=true, typ="button") }}
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-status"><h3 class="etikett" id="{{ v }}-status">{{ _("Status und Sicherheit") }}</h3>
+<div class="muster-reihe">{{ k.status("ok", _("freigegeben")) }}{{ k.status("info", _("vorbereitet")) }}{{ k.status("warn", _("zur Prüfung")) }}{{ k.status("fehler", _("überfällig")) }}</div>
+<div class="muster-reihe">{{ k.sicherheit("niedrig") }}{{ k.sicherheit("mittel", "KI") }}{{ k.sicherheit("hoch", klein=true) }}</div>
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-felder"><h3 class="etikett" id="{{ v }}-felder">{{ _("Felder") }}</h3>
+{{ k.fehlerliste([("plz", _("Die PLZ hat 5 Ziffern."))], ids={"plz": v ~ "-plz"}) }}
+<div class="muster-felder">
+{{ k.feld("iban", "IBAN", wert="DE89 3704 0044 0532 0130 00", hilfe=_("Wird geprüft, sobald Sie das Feld verlassen."), id=v ~ "-iban") }}
+{{ k.feld("plz", _("PLZ"), wert="1011", fehler=_("Die PLZ hat 5 Ziffern."), breite="schmal", pflicht=true, inputmode="numeric", id=v ~ "-plz") }}
+{{ k.feld("ustid", _("USt-IdNr."), wert="DE12345678", warnung=_("Die USt-IdNr. hat 9 Ziffern nach DE."), breite="breit", id=v ~ "-ustid") }}
+{{ k.feld("steuernummer", _("Steuernummer"), wert="21/815/08150", bestaetigt=_("Format passt"), breite="mittel", id=v ~ "-steuernummer") }}
+{{ k.auswahl("rechtsform", _("Rechtsform"), [("gmbh", "GmbH"), ("ug", "UG (haftungsbeschränkt)"), ("eu", _("Einzelunternehmen"))], gewaehlt="gmbh", breite="mittel", id=v ~ "-rechtsform") }}
+{{ k.textfeld("notiz", _("Notiz"), hilfe=_("Steht im Journal neben der Buchung."), id=v ~ "-notiz") }}
+{{ k.codefeld(wechsel_href="#" ~ v ~ "-felder", id=v ~ "-code") }}
+{{ k.codefeld("wiederherstellung", wechsel_href="#" ~ v ~ "-felder", id=v ~ "-wiederherstellung") }}
+</div>
+{% call k.feldgruppe(_("Anzeige")) %}
+{{ k.optionen("darstellung", _("Darstellung"), [("auto", _("automatisch")), ("hell", _("hell")), ("dunkel", _("dunkel"))], gewaehlt="auto", id=v ~ "-darstellung") }}
+{{ k.haken("regel", _("Künftig immer so buchen"), id=v ~ "-regel") }}
+{% endcall %}
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-hinweise"><h3 class="etikett" id="{{ v }}-hinweise">{{ _("Hinweise") }}</h3>
+{% call k.hinweis("info") %}{{ _("accounti berät nicht steuerlich.") }}{% endcall %}
+{% call k.hinweis("ok") %}{{ _("6 Buchungen freigegeben.") }}{% endcall %}
+{% call k.hinweis("warn") %}{{ _("Letzte Sicherung vor 9 Tagen.") }}{% endcall %}
+{% call k.hinweis("fehler") %}{{ _("Code falsch oder schon benutzt.") }}{% endcall %}
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-tabelle"><h3 class="etikett" id="{{ v }}-tabelle">{{ _("Tabelle und leerer Zustand") }}</h3>
+{% call k.tabelle(_("Kosten im Oktober"), [Spalte(_("Konto")), Spalte(_("Betrag"), zahl=true)], summe=[_("Summe"), "652,31 €"]) %}
+{% for konto, betrag in beispiel.konten %}{% call k.zeile(gewaehlt=loop.first) %}{% call k.zelle(_("Konto")) %}{{ konto }}{% endcall %}{% call k.zelle(_("Betrag"), zahl=true) %}{{ betrag }}{% endcall %}{% endcall %}{% endfor %}
+{% endcall %}
+<div class="tabelle-rahmen"><table class="tabelle" role="table"><caption>{{ _("Spaltenköpfe mit Sortierung") }}</caption><thead role="rowgroup"><tr role="row">{{ k.spaltenkopf(Spalte(_("Datum"), sortierung="absteigend", href="/muster?sortierung=datum")) }}{{ k.spaltenkopf(Spalte(_("Betrag"), zahl=true, sortierung="keine", href="/muster?sortierung=betrag")) }}</tr></thead><tbody role="rowgroup"><tr role="row"><td role="cell" data-label="{{ _("Datum") }}">{{ beispiel.datum | datum }}</td><td role="cell" data-label="{{ _("Betrag") }}" class="zahl">239,94 €</td></tr></tbody></table></div>
+{{ k.leer(_("Nichts zu prüfen."), _("Nächster Bankabruf: heute 14:00."), _("Zur Hilfe für Prüfen"), "/hilfe") }}
+</section>
+
+<section class="muster-abschnitt" aria-labelledby="{{ v }}-weitere"><h3 class="etikett" id="{{ v }}-weitere">{{ _("Weitere Bausteine") }}</h3>
+<div class="layout-karten">
+{% call k.karte(_("Prüfen"), anzahl=12, status=("warn", _("3 unsicher")), hauptaktion=(_("Durcharbeiten"), "#" ~ v ~ "-weitere", "primaer"), ebene=4) %}<ul class="karte-liste"><li><span>Telekom</span>{{ k.betrag(beispiel.telefon) }}</li><li><span>{{ _("Bürobedarf") }}</span>{{ k.betrag(beispiel.buero) }}</li></ul>{% endcall %}
+{% call k.karte(_("Offene Posten"), kennzahl=("4", _("Rechnungen offen")), hauptaktion=(_("Alle ansehen"), "#" ~ v ~ "-weitere", "link"), ebene=4) %}{% endcall %}
+</div>
+{{ k.reiter(_("Ansicht"), [("offen", _("Offen"), "#" ~ v ~ "-weitere", 12), ("zurueck", _("Zurückgestellt"), "#" ~ v ~ "-weitere", 2), ("regeln", _("Gelernte Regeln"), "#" ~ v ~ "-weitere")], "offen") }}
+{{ k.reiter(_("Ansicht auf dem Handy"), [("vorschlag", _("Vorschlag"), "#" ~ v ~ "-weitere"), ("beleg", _("Beleg"), "#" ~ v ~ "-weitere")], "vorschlag", geteilt=true) }}
+<fieldset class="optionskarten"><legend class="etikett">{{ _("Welches Konto passt?") }}</legend>
+{{ k.optionskarte("konto", "4930", _("Bürobedarf"), nebentext="4930 · 19 %", gewaehlt=true, taste="1", id=v ~ "-konto-4930") }}
+{{ k.optionskarte("konto", "4980", _("Betriebsbedarf"), nebentext="4980 · 19 %", taste="2", id=v ~ "-konto-4980") }}
+{{ k.optionskarte("konto", "4900", _("Sonstige Kosten"), grund=_("nur mit Beleg"), taste="3", id=v ~ "-konto-4900") }}
+</fieldset>
+{{ k.segment("ust", _("Umsatzsteuer-Voranmeldung"), [("monat", _("monatlich")), ("quartal", _("vierteljährlich")), ("jahr", _("jährlich"))], gewaehlt="quartal", id=v ~ "-ust") }}
+{% call k.aufklapper(_("Zahlungen ansehen (4)")) %}<p>{{ _("Vier Zahlungen, zusammen 3.212,40 €.") }}</p>{% endcall %}
+{% call k.aufklapper(_("Kennzahlen Oktober"), art="karte", offen=true) %}<p>{{ _("Umsatz, Kosten und Ergebnis des Monats.") }}</p>{% endcall %}
+{% call k.angaben() %}{% call k.angabe(_("Verwendungszweck")) %}RE-2026-0815 Telekom Deutschland GmbH Mobilfunk Oktober{% endcall %}{% call k.angabe(_("Datum")) %}{{ beispiel.datum | datum }}{% endcall %}{% endcall %}
+{% call k.angaben(klein=true) %}{% call k.angabe(_("Herkunft")) %}{{ _("gelernte Regel") }}{% endcall %}{% endcall %}
+<p class="muster-reihe">{{ k.symbol("check", beschriftung=_("erledigt"), groesse=22) }}{{ k.symbol("lock", beschriftung=_("gesperrt")) }}{{ k.symbol("triangle-alert", groesse=16, kraeftig=true) }}{{ k.zaehler(12, _("offen"), betont=true) }}{{ k.zaehler(2, _("offen")) }}{{ k.avatar("JH") }}<kbd>j</kbd><kbd>f</kbd>{{ k.marke(marken[0], klein=true, href="#" ~ v ~ "-weitere") }}</p>
+{{ k.brotkrumen([(_("Einstellungen"), "#" ~ v ~ "-weitere"), (_("Firma"), none)]) }}
+{{ k.seitenblaettern(3, 9, "/muster?seite=") }}
+{{ k.schritte([_("Firma"), _("Konten"), _("Steuern"), _("Bank"), _("Belege"), _("Benutzer"), _("Fertig")], 3) }}
+{% call k.bestaetigung(_("Wirklich stornieren?"), _("Stornieren"), "#" ~ v ~ "-weitere", art="gefaehrlich") %}<p>{{ _("Die Buchung wird gegengebucht; beide bleiben im Journal.") }}</p>{% endcall %}
+<div class="htmx-request">{{ k.ladeanzeige() }}</div>
+<div class="muster-rahmen">{{ k.seitenleiste(geruest) }}</div>
+<div class="muster-rahmen">{{ k.untere_leiste(geruest) }}</div>
+<div class="muster-rahmen">{% call k.aktionsleiste(_("Aktionen der Prüfung")) %}{{ k.knopf(_("Passt – freigeben"), groesse="gross", taste="f", typ="button") }}{{ k.knopf(_("Anderes Konto"), art="sekundaer", groesse="gross", typ="button") }}{{ k.knopf(_("Später klären"), art="sekundaer", groesse="gross", typ="button") }}{% endcall %}</div>
+<div class="muster-rahmen">{% call k.sammelleiste() %}<p><strong>{{ _("2 ausgewählt") }}</strong> <span class="schrift-3">{{ _("zusammen 652,31 €") }}</span></p>{{ k.knopf(_("Auswahl aufheben"), art="still", typ="button") }}{{ k.knopf(_("Freigeben"), typ="button") }}{% endcall %}</div>
+<div class="muster-layouts">
+<div class="layout-zweispaltig muster-skizze"><div>{{ _("Beleg") }}</div><div>{{ _("Vorschlag") }}</div></div>
+<div class="layout-einstellungen muster-skizze"><div>{{ _("Unternavigation") }}</div><div>{{ _("Abschnitte") }}</div></div>
+<div class="layout-formular muster-skizze"><div>{{ _("Formular, eine Spalte") }}</div></div>
+</div>
+</section>
+</section>
+{% endfor %}
+</div>
+<section id="austausch" class="muster-abschnitt" aria-labelledby="austausch-titel"><h2 id="austausch-titel">{{ _("Austausch") }}</h2>
+<p>{{ _("Lädt ein Fragment per htmx; danach liegt der Fokus auf dem neuen Inhalt.") }}</p>
+{{ k.linkknopf(_("Beispiel laden"), "/muster/beispiel", attribute={"hx-get": "/muster/beispiel", "hx-target": "#austausch-ziel", "hx-swap": "innerHTML"}) }}
+<div id="austausch-ziel" class="muster-ziel"></div>
+</section>
+</div>
+{% endblock %}

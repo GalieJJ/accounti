@@ -367,3 +367,118 @@ Weiter: Next
 Bereiche: Areas
 Aktionen: Actions
 Auswahl: Selection
+
+# --- Musterseite /muster (Baustein 10c P1) ----------------------------------------
+2 ausgewählt: 2 selected
+3 unsicher: 3 uncertain
+6 Buchungen freigegeben.: 6 bookings approved.
+Abschnitt 22: Section 22
+Abschnitte: Sections
+Aktionen der Prüfung: Review actions
+Akzent (Petrol): Accent (petrol)
+Alle ansehen: View all
+Anderes Konto: Other account
+Ansicht: View
+Ansicht auf dem Handy: View on the phone
+Anzeige: Display
+Austausch: Swap
+Auswahl aufheben: Clear selection
+Automatisch: Automatic
+Bank: Bank
+Bausteine: Building blocks
+Beispiel laden: Load example
+Belege: Documents
+Beschriftung 12: Label 12
+Betriebsbedarf: Operating supplies
+Bürobedarf: Office supplies
+Code falsch oder schon benutzt.: Code wrong or already used.
+Darstellung: Appearance
+Darstellung der Musterseite: Appearance of the pattern page
+Deaktiviert: Disabled
+Die Buchung wird gegengebucht; beide bleiben im Journal.: The booking is reversed; both stay in the journal.
+Die PLZ hat 5 Ziffern.: The postcode has 5 digits.
+Die USt-IdNr. hat 9 Ziffern nach DE.: The USt-IdNr. has 9 digits after DE.
+Dunkel: Dark
+Einstellungen: Settings
+Einzelunternehmen: Sole proprietorship
+Erfolg: Success
+Etikett 13: Label 13
+Farben: Colours
+Felder: Fields
+Fertig: Done
+Firma: Company
+Fließtext 16 — Kontobezeichnung vor Nummer, „19 %% Vorsteuer“ vor „Schlüssel 9“.: Body text 16 — account name before number, “19 %% input VAT” before “key 9”.
+Fläche: Surface
+Fläche 2: Surface 2
+Fokus (Bernstein): Focus (amber)
+Format passt: Format is valid
+Formular, eine Spalte: Form, one column
+Groß: Large
+Hell: Light
+Hinweis: Note
+Hinweise: Notices
+Kartentitel 18: Card title 18
+Kennzahl in einer Karte: Key figure in a card
+Kennzahlen Oktober: Key figures October
+Klein: Small
+Knöpfe: Buttons
+Konten: Accounts
+Konto: Account
+Kosten im Oktober: Costs in October
+Künftig immer so buchen: Always book like this from now on
+Letzte Sicherung vor 9 Tagen.: Last backup 9 days ago.
+Linie: Line
+Lädt ein Fragment per htmx; danach liegt der Fokus auf dem neuen Inhalt.: Loads a fragment via htmx; focus then moves to the new content.
+Mehr: More
+Mit Fokus: With focus
+Nebentext: Secondary text
+Nebentext 14: Secondary text 14
+Nichts zu prüfen.: Nothing to review.
+Notiz: Note
+'Nächster Bankabruf: heute 14:00.': 'Next bank fetch: today 14:00.'
+PLZ: Postcode
+Passt – freigeben: Correct – approve
+Primär: Primary
+Rechnungen offen: invoices open
+Rechtsform: Legal form
+? 'Ruhig, hell und dunkel, Systemschrift, Beträge in gleich breiten Ziffern. Farbe trägt nie allein Bedeutung: Status hat immer Wort und Symbol. Der Fokusring ist bernsteinfarben und unterscheidet sich von Akzent und Fehler.'
+: 'Calm, light and dark, system font, amounts in equal-width digits. Colour never carries meaning alone: status always has a word and a symbol. The focus ring is amber and differs from accent and error.'
+Schrift: Type
+Seitentitel 28: Page title 28
+Sekundär: Secondary
+Sonstige Kosten: Other costs
+Speichert …: Saving …
+Später klären: Clarify later
+Status und Sicherheit: Status and confidence
+Steht im Journal neben der Buchung.: Shown in the journal next to the booking.
+Steuern: Taxes
+Still: Quiet
+Tabelle und leerer Zustand: Table and empty state
+Text: Text
+Titel 20: Title 20
+Umsatz, Kosten und Ergebnis des Monats.: Revenue, costs and result of the month.
+Unternavigation: Sub-navigation
+Vier Zahlungen, zusammen 3.212,40 €.: Four payments, together €3,212.40.
+Volle Breite: Full width
+Warnung: Warning
+Weitere Bausteine: More building blocks
+Welches Konto passt?: Which account fits?
+Wird geprüft, sobald Sie das Feld verlassen.: Checked as soon as you leave the field.
+Wirklich stornieren?: Really reverse?
+Zahlungen ansehen (4): View payments (4)
+Zur Hilfe für Prüfen: To the help for reviewing
+accounti berät nicht steuerlich.: accounti does not give tax advice.
+dunkel: dark
+freigegeben: approved
+gelernte Regel: learned rule
+hell: light
+jährlich: yearly
+monatlich: monthly
+nur mit Beleg: only with a document
+vierteljährlich: quarterly
+vorbereitet: prepared
+zusammen 652,31 €: together €652.31
+überfällig: overdue
+Neuer Inhalt, per htmx geladen.: New content, loaded via htmx.
+"Spaltenköpfe mit Sortierung": "Column headers with sorting"
+"gesperrt": "locked"
