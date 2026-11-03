@@ -57,9 +57,12 @@ integrationen:
   ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
   oss_erloes_konten: {}         # Land → OSS-Erlöskonto zum Normalsatz, ergänzt die Vorgabe
                                 # FR 8320, IT 8321, ES 8322, NL 8323, SE 8324, PL 8325,
-                                # AT 8326, BE 8327 (SKR04 4320–4327), z.B. { DK: "8328" };
-                                # { BE: null } nimmt ein Land heraus. Ohne Konto geht ein
-                                # Fernverkauf zur Prüfung und nicht in die OSS-Meldung.
+                                # AT 8326, BE 8327 (SKR04 4320–4327), z.B. { DK: "8328" }.
+                                # Ohne Konto geht ein Fernverkauf zur Prüfung und nicht in
+                                # die OSS-Meldung; { BE: null } nimmt ein Land so nur für den
+                                # Marktplatz heraus — sein Konto bleibt das Konto seines Lands
+                                # (eigene Rechnungen bucht OPOS dort) und lässt sich keinem
+                                # anderen Land geben, auch nicht als ermäßigtes Konto.
   oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8329" } (anlegen)
                                 # OSS-Erlöse im DATEV-Bereich 8320–8329 (SKR04 4320–4329);
                                 # 8330/4330 sind im Kontenrahmen 2026 reserviert,

@@ -307,10 +307,59 @@ def lade_integrationen(pfad: str | Path = STANDARD_PFAD) -> Integrationen:
             basis = dict(_STANDARD_MARKTPLAETZE.get(name, {}))
             basis.update(eigene.get(name) or {})
             marktplaetze[name] = Marktplatzkonten.model_validate(basis)
-        return Integrationen.model_validate({**werte, "marktplaetze": marktplaetze})
+        einstellungen = Integrationen.model_validate(
+            {**werte, "marktplaetze": marktplaetze}
+        )
     except ValidationError as fehler:
         msg = f"{pfad}: Abschnitt 'integrationen': {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler
+    _pruefe_laenderkonten(pfad, rahmen, einstellungen)
+    return einstellungen
+
+
+def _pruefe_laenderkonten(pfad: Path, rahmen: str, e: Integrationen) -> None:
+    """Ein Länderkonto des Kontenrahmens (``oss_konto_land``, im SKR04 auch die
+    Altbestandskonten 8320–8327) gehört seinem Land: OPOS bucht eigene Rechnungen an
+    Privatkunden dort, die OSS-Meldung liest das Land aus dem Konto. In
+    ``oss_erloes_konten`` einem anderen Land gegeben, meldete sie diese Rechnungen
+    im falschen Land; in ``oss_erloes_ermaessigt`` (überhaupt) mit dem ermäßigten
+    Satz (Nachprüfung 9 E, N1). ``LAND: null`` nimmt ein Land nur für den Marktplatz
+    heraus — sein Konto bleibt das Konto dieses Lands."""
+    from accounti.steuer.umsatzsteuer import oss_konto_land
+
+    laenderkonten = oss_konto_land(rahmen)
+    fehler = []
+    for land, konto in sorted(e.oss_erloes_konten.items()):
+        fest = laenderkonten.get(konto)
+        if fest is not None and fest != land:
+            fehler.append(
+                f"integrationen.oss_erloes_konten.{land}: Konto {konto} ist im "
+                f"{rahmen} das OSS-Erlöskonto für {fest} — eigene Rechnungen an "
+                f"Privatkunden in {fest} bucht OPOS darauf, die OSS-Meldung zählte sie "
+                f"{land} zu"
+            )
+    for land, konto in sorted(e.oss_erloes_ermaessigt.items()):
+        fest = laenderkonten.get(konto)
+        if fest is not None:
+            fehler.append(
+                f"integrationen.oss_erloes_ermaessigt.{land}: Konto {konto} ist im "
+                f"{rahmen} das OSS-Erlöskonto für {fest} zum Normalsatz — OPOS bucht "
+                f"Rechnungen an Privatkunden in {fest} darauf, die OSS-Meldung zählte "
+                f"sie als ermäßigt ({land})"
+            )
+    if not fehler:
+        return
+    vorrat = ("4328", "4329") if rahmen == "SKR04" else ("8328", "8329")
+    belegt = {*e.oss_erloes_konten.values(), *e.oss_erloes_ermaessigt.values()}
+    frei = [k for k in vorrat if k not in belegt]
+    beispiel = f" (z. B. {frei[0]})" if frei else ""
+    msg = (
+        f"{pfad}: {'; '.join(fehler)}. Ein anderes Konto wählen{beispiel} und die mit "
+        "dieser Einstellung schon darauf gebuchten Marktplatz-Erlöse dorthin umbuchen; "
+        "`LAND: null` nimmt ein Land nur für den Marktplatz heraus, sein Konto bleibt "
+        "das Konto dieses Lands"
+    )
+    raise KonfigurationError(msg)
 
 
 def lade_steuerangaben(pfad: str | Path = STANDARD_PFAD) -> tuple[bool, str]:

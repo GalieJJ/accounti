@@ -633,13 +633,97 @@ def test_oss_konten_eindeutig_und_nur_eu(tmp_path):
     with pytest.raises(KonfigurationError, match="8327 doppelt"):
         lade_integrationen(pfad)
     pfad.write_text(
-        'integrationen:\n  oss_erloes_konten: {DK: "8327", BE: null}\n',
-        encoding="utf-8",
-    )
-    e = lade_integrationen(pfad)
-    assert e.oss_erloes_konten["DK"] == "8327" and "BE" not in e.oss_erloes_konten
-    pfad.write_text(
         'integrationen:\n  oss_erloes_konten: {CH: "8328"}\n', encoding="utf-8"
     )
     with pytest.raises(KonfigurationError, match="CH"):
         lade_integrationen(pfad)
+    # ``LAND: null`` nimmt ein Land nur für den Marktplatz heraus
+    pfad.write_text("integrationen:\n  oss_erloes_konten: {BE: null}\n", encoding="utf-8")
+    e = lade_integrationen(pfad)
+    assert "BE" not in e.oss_erloes_konten and e.oss_erloes_konten["FR"] == "8320"
+
+
+@pytest.mark.parametrize(
+    ("rahmen", "abschnitt", "falsch"),
+    [
+        # E's früherer Test: BE herausgenommen, sein Konto an DK gegeben
+        ("SKR03", '{DK: "8327", BE: null}', [("oss_erloes_konten.DK", "8327", "BE")]),
+        # Länderkonten nach eigener Nummerierung (AT und IT vertauscht)
+        (
+            "SKR03",
+            '{AT: "8321", IT: "8326"}',
+            [("oss_erloes_konten.AT", "8321", "IT"), ("oss_erloes_konten.IT", "8326", "AT")],
+        ),
+        ("SKR04", '{DK: "4327", BE: null}', [("oss_erloes_konten.DK", "4327", "BE")]),
+        # im SKR04 sind auch die Altbestandskonten 8320–8327 Länderkonten
+        ("SKR04", '{DK: "8320"}', [("oss_erloes_konten.DK", "8320", "FR")]),
+    ],
+)
+def test_oss_konto_eines_anderen_lands_abgelehnt(tmp_path, rahmen, abschnitt, falsch):
+    """Nachprüfung 9 E, N1: OPOS bucht eigene Rechnungen auf die Länderkonten des
+    Kontenrahmens, die OSS-Meldung nahm das Land aus der Einstellung — eine BE-Rechnung
+    auf 8327 wurde als DK 25 % gemeldet, AT und IT vertauscht. Ein Länderkonto des
+    Kontenrahmens gehört seinem Land; ``LAND: null`` gibt es nicht frei."""
+    from accounti.konfiguration import KonfigurationError
+
+    pfad = tmp_path / "x.yaml"
+    pfad.write_text(
+        f"buchhaltung:\n  kontenrahmen: {rahmen}\n"
+        f"integrationen:\n  oss_erloes_konten: {abschnitt}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_integrationen(pfad)
+    text = str(fehler.value)
+    assert str(pfad) in text
+    for schluessel, konto, land in falsch:
+        assert f"integrationen.{schluessel}: Konto {konto}" in text, text
+        assert f"OSS-Erlöskonto für {land}" in text, text
+    rat = "4328" if rahmen == "SKR04" else "8328"
+    assert f"z. B. {rat}" in text and "umbuchen" in text, text
+
+
+@pytest.mark.parametrize(
+    ("abschnitt", "konto", "land"),
+    [
+        # IT herausgenommen, sein Konto als ermäßigtes für FR: IT 22 % als FR 5,5 %
+        ('oss_erloes_konten: {IT: null}\n  oss_erloes_ermaessigt: {FR: "8321"}', "8321", "IT"),
+        # das Normalsatz-Konto des eigenen Lands als ermäßigtes
+        ('oss_erloes_konten: {FR: null}\n  oss_erloes_ermaessigt: {FR: "8320"}', "8320", "FR"),
+    ],
+)
+def test_ermaessigtes_oss_konto_ist_kein_laenderkonto(tmp_path, abschnitt, konto, land):
+    """Nachprüfung 9 E, N1: Ein Länderkonto des Kontenrahmens ist ein Konto zum
+    Normalsatz — OPOS bucht dort; als ermäßigtes Konto meldete die OSS-Meldung jede
+    Rechnung darauf mit dem ermäßigten Satz (und im ersten Fall im falschen Land)."""
+    from accounti.konfiguration import KonfigurationError
+
+    pfad = tmp_path / "x.yaml"
+    pfad.write_text(f"integrationen:\n  {abschnitt}\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_integrationen(pfad)
+    text = str(fehler.value)
+    assert f"integrationen.oss_erloes_ermaessigt.FR: Konto {konto}" in text, text
+    assert f"OSS-Erlöskonto für {land}" in text and "z. B. 8328" in text, text
+
+
+@pytest.mark.parametrize(
+    ("rahmen", "abschnitt"),
+    [
+        ("SKR03", None),
+        ("SKR04", None),
+        ("SKR03", '  oss_erloes_konten: {DK: "8328"}'),
+        ("SKR03", '  oss_erloes_konten: {FR: "8330"}'),
+        ("SKR03", '  oss_erloes_konten: {FR: "8320", BE: null}'),
+        ("SKR04", '  oss_erloes_konten: {FR: "8320", DK: "4328"}'),
+        ("SKR03", '  oss_erloes_ermaessigt: {FR: "8328", IT: "8329"}'),
+    ],
+)
+def test_oss_konten_ohne_fremdes_laenderkonto_gueltig(tmp_path, rahmen, abschnitt):
+    pfad = tmp_path / "x.yaml"
+    text = f"buchhaltung:\n  kontenrahmen: {rahmen}\n"
+    if abschnitt is not None:
+        text += f"integrationen:\n{abschnitt}\n"
+    pfad.write_text(text, encoding="utf-8")
+    e = lade_integrationen(pfad)
+    assert e.oss_erloes_konten["AT"] == ("4326" if rahmen == "SKR04" else "8326")
