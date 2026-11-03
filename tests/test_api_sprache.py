@@ -29,11 +29,11 @@ def welt(tmp_path):
 def test_html_lang_und_navigation_englisch(welt):
     client = welt.angemeldet("jan")
     seite = client.get("/", headers=EN).text
-    assert '<html lang="en">' in seite
+    assert '<html lang="en" ' in seite
     assert "Company: <strong>Alpha Papier GmbH</strong>" in seite
     assert ">Overview<" in seite and ">Approvals<" in seite and "Sign out" in seite
     seite = client.get("/", headers=DE).text
-    assert '<html lang="de">' in seite
+    assert '<html lang="de" ' in seite
     assert "Gesellschaft: <strong>Alpha Papier GmbH</strong>" in seite
 
 
@@ -62,10 +62,10 @@ def test_vary_accept_language(welt):
 
 def test_sprache_leckt_nicht_in_die_naechste_anfrage(welt):
     client = welt.angemeldet("jan")
-    assert '<html lang="en">' in client.get("/", headers=EN).text
+    assert '<html lang="en" ' in client.get("/", headers=EN).text
     assert i18n.aktive_sprache.get() == "de"
-    assert '<html lang="de">' in client.get("/", headers=DE).text
-    assert '<html lang="de">' in client.get("/").text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
+    assert '<html lang="de" ' in client.get("/").text
 
 
 def _waehle(client, sprache: str, mit_csrf: bool = True):  # noqa: ANN001, ANN202
@@ -79,10 +79,10 @@ def test_sprache_wechseln_braucht_csrf(welt):
     client = welt.angemeldet("jan")
     r = _waehle(client, "en", mit_csrf=False)
     assert r.status_code == 403
-    assert '<html lang="de">' in client.get("/", headers=DE).text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
     r = _waehle(client, "en")
     assert r.status_code == 303 and r.headers["location"] == "/freigaben"
-    assert '<html lang="en">' in client.get("/", headers=DE).text
+    assert '<html lang="en" ' in client.get("/", headers=DE).text
     assert _waehle(client, "fr").status_code == 422
 
 
@@ -92,7 +92,7 @@ def test_sprache_bleibt_nach_neuer_anmeldung(welt):
     client.post("/abmelden", data={"csrf": csrf(client)})
     neu = welt.angemeldet("jan")
     seite = neu.get("/", headers=DE).text
-    assert '<html lang="en">' in seite
+    assert '<html lang="en" ' in seite
     assert '<option value="en" lang="en" selected>' in seite
 
 
@@ -100,8 +100,8 @@ def test_automatisch_folgt_wieder_dem_browser(welt):
     client = welt.angemeldet("jan")
     _waehle(client, "en")
     _waehle(client, "")
-    assert '<html lang="de">' in client.get("/", headers=DE).text
-    assert '<html lang="en">' in client.get("/", headers=EN).text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
+    assert '<html lang="en" ' in client.get("/", headers=EN).text
 
 
 def test_jede_seite_in_beiden_sprachen(welt):
@@ -124,4 +124,4 @@ def test_jede_seite_in_beiden_sprachen(welt):
         ):
             r = client.get(pfad, headers=kopf)
             assert r.status_code == 200, (pfad, lang)
-            assert f'<html lang="{lang}">' in r.text and firma in r.text, (pfad, lang)
+            assert f'<html lang="{lang}" ' in r.text and firma in r.text, (pfad, lang)

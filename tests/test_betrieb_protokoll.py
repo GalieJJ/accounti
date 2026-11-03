@@ -455,7 +455,7 @@ def test_lange_sprachangabe_haelt_den_server_nicht_an(tmp_path):
             r = client.get(pfad, headers={"Accept-Language": kopf})
             dauer = time.perf_counter() - beginn
             assert r.status_code in (200, 404), r.status_code
-            assert '<html lang="de">' in r.text
+            assert '<html lang="de" ' in r.text
             assert dauer < 0.5, (pfad, dauer)  # vorher mehrere Sekunden
 
 

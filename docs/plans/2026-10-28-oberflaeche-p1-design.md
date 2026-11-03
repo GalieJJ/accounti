@@ -2566,3 +2566,29 @@ Was beim Umsetzen gegenüber dem Plan anders kam, mit Grund. Abschnitt A = Schri
   Seiten ohne die REST-API; Dateien und Bilder (`/belege/…/datei`, `…/seite/{n}.png`,
   `…/download`) stehen als `ganze_seite` mit eigenem Grund. Die drei Tests sind Schutztests
   (grün mit dem Bestand).
+
+### Schritt 1 — Token und Grundstile
+
+- **Breakpoints ohne Überschneidung:** „schmaler als X“ steht als
+  `@media not all and (min-width: X)` statt `max-width`. Mit `max-width: 64rem` und
+  `min-width: 64rem` gälten bei genau 1024 px (iPad quer) beide Seiten zugleich. Der Test
+  `test_nur_drei_breakpoints` lässt nur `min-width` mit 40/64/90rem (auch verneint),
+  `max-height: 30rem`, `prefers-*`, `pointer: coarse` und `print` zu — auch in
+  `pruefen.css`. Dort wurde der Umbruch bei `60rem` deshalb zu „schmaler als 64rem“.
+- **`bestand` wörtlich, aber in der Skala:** Die alten Regeln stehen in `@layer bestand` auf den
+  neuen Token; außerdem sind ihre Schriftgrößen auf die Skala gelegt (0,85/0,9rem → `--gr-3`,
+  1,2rem → `--gr-5`) und `font-weight: 700` auf 600 (`.marke`, aktiver Reiter), damit
+  `test_schriftgroessen_nur_aus_der_skala` und `test_nur_gewichte_400_und_600` die ganze Datei
+  prüfen. `.hinweis` (alt) nutzt `--flaeche-2` statt `--hintergrund`, `iframe.beleg`
+  `--beleg-hintergrund` statt `#fff`.
+- **Maß-Token** stehen in einem eigenen `:root`-Block in `@layer token` (für beide Modi gleich);
+  `test_jeder_tokenverweis_definiert` zählt sie zu beiden Modi. Dazu `--schrift` (Schriftliste).
+- **`--papier`** (nur in den noch nicht freigegebenen Zeichenflächen) übernimmt P1 nicht;
+  `test_token_wie_leinwand` führt es mit Grund in `NICHT_UEBERNOMMEN`.
+- **Kontrastpaare:** zusätzlich zur Mindestschwelle prüft der Test 19 Werte aus L1 auf zwei
+  Stellen (`ERWARTET`); alle stimmen.
+- **Umgestellt:** `tests/test_api_sprache.py` (elf Stellen) und
+  `tests/test_betrieb_protokoll.py::test_lange_sprachangabe_haelt_den_server_nicht_an` prüfen
+  `'<html lang="de" '` statt `'<html lang="de">'` — `<html>` trägt jetzt `data-theme`
+  (dieselbe Absicht: die Sprache der Seite). Im Plan nicht vorhergesehen.
+- **Budget:** `accounti.css` 9 872 Bytes, `pruefen.css` 3 573 Bytes (zusammen 13 445 von 40 960).
