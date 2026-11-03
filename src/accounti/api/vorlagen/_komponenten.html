@@ -208,3 +208,10 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {%- set app = {"app": true, "wiederherstellung": false}[variante] -%}
 <div class="{{ _feldklasse(fehler, none) }} codefeld"><div class="codefeld-kopf">{{ _label(id, _("Code aus Ihrer Authenticator-App") if app else _("Wiederherstellungscode"), false) }}{% if wechsel_href %}<a class="codefeld-wechsel" href="{{ wechsel_href }}">{{ _("Wiederherstellungscode verwenden") if app else _("Code aus der App verwenden") }}</a>{% endif %}</div><input class="eingabe eingabe-code breite-mittel" id="{{ id }}" type="text" name="einmalcode" value=""{% if app %} autocomplete="one-time-code" inputmode="numeric"{% else %} autocomplete="off" inputmode="text" autocapitalize="off" spellcheck="false"{% endif %}{% if fehler %} aria-invalid="true" aria-describedby="{{ id }}-fehler"{% endif %}>{{ _meldungen(id, none, fehler) }}</div>
 {%- endmacro %}
+
+{#- Fehlerliste oben im Formular: role=alert, je Fehler ein Link auf das Feld. fehler:
+    (feldname, text); ids bildet den Feldnamen der Fachfunktion auf die id im Formular ab
+    (grund → grund-k). data-fokus: accounti.js setzt den Fokus darauf. -#}
+{% macro fehlerliste(fehler, ids={}) -%}
+<div class="hinweis hinweis-fehler fehlerliste" role="alert" tabindex="-1" data-fokus>{{ symbol("circle-x") }}<div class="hinweis-text"><p class="fehlerliste-titel"><strong class="hinweis-wort">{{ _("Bitte prüfen") }}</strong></p><ul>{% for feld, text in fehler %}<li>{% if feld %}<a href="#{{ ids.get(feld, feld) }}">{{ text | uebersetzt }}</a>{% else %}{{ text | uebersetzt }}{% endif %}</li>{% endfor %}</ul></div></div>
+{%- endmacro %}

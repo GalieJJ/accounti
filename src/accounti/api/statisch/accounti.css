@@ -627,6 +627,10 @@
   .codefeld-kopf { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--a-1) var(--a-4); width: 100%; max-width: 22rem; }
   .codefeld-wechsel { font-size: var(--gr-3); }
   .eingabe-code { min-height: 3rem; font-size: var(--gr-6); letter-spacing: 0.2em; }
+  /* Fehlerliste oben im Formular (ein Hinweis „Fehler“ mit Links auf die Felder) */
+  .fehlerliste-titel { margin: 0; }
+  .fehlerliste ul { margin: var(--a-1) 0 0; padding-left: var(--a-45); }
+  .fehlerliste a { font-weight: 600; color: var(--fehler); }
 }
 
 @layer hilfen {

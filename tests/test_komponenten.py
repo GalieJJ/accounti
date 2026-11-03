@@ -463,3 +463,21 @@ def test_codefeld_ein_feld_numerisch_und_variante():
     assert "Code aus der App verwenden</a>" in text
     with pytest.raises(TemplateError):
         render('{{ k.codefeld("sms") }}')
+
+
+def test_fehlerliste_alert_mit_links():
+    html = render(
+        "{{ k.fehlerliste([('grund', 'Bitte einen Grund angeben.'),"
+        " ('steuer', 'Steuer fehlt.'), (none, 'Allgemein')],"
+        " ids={'grund': 'grund-k'}) }}"
+    )
+    rahmen = nur(html, "div")[0]
+    assert (
+        'role="alert"' in rahmen
+        and "data-fokus" in rahmen
+        and 'tabindex="-1"' in rahmen
+    )
+    assert "hinweis-fehler" in rahmen and "Bitte prüfen" in html
+    assert '<a href="#grund-k">Bitte einen Grund angeben.</a>' in html
+    assert '<a href="#steuer">Steuer fehlt.</a>' in html
+    assert "<li>Allgemein</li>" in html
