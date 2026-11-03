@@ -715,8 +715,23 @@ def _neben_der_rechnung(
     )
 
 
+def _teil_der_rechnung(
+    x: Buchungssatz, rechnung: Buchungssatz, plan: Kontenplan
+) -> bool:
+    """Bucht ``x`` das Gegenkonto der Rechnungsbuchung auf deren Seite — ein Teil der
+    Rechnung auf zwei Gegenkonten („10001 an 1590“ neben „10001 an 8400“; g8w G8R-3)?"""
+    seite = sachseite_aus_konten(rechnung.soll_konto, rechnung.haben_konto, plan)
+    if seite == "haben":
+        return x.soll_konto == rechnung.soll_konto
+    return seite == "soll" and x.haben_konto == rechnung.haben_konto
+
+
 def _gegen_die_rechnung(
-    x: Buchungssatz, rechnung: Buchungssatz, plan: Kontenplan, kr: Kontenrahmen
+    x: Buchungssatz,
+    rechnung: Buchungssatz,
+    plan: Kontenplan,
+    kr: Kontenrahmen,
+    rechnungen: Sequence[Buchungssatz] = (),
 ) -> bool:
     """Zahlt, erstattet oder verrechnet ``x`` die Rechnungsbuchung? Sie bucht ein Geld-
     oder Personenkonto auf der Seite, auf der die Rechnung ihr Sachkonto bucht — der
@@ -728,17 +743,24 @@ def _gegen_die_rechnung(
 
     Bezug ist auch das Gegenkonto der Rechnung selbst, wenn es ein Verrechnungs- oder
     Transitkonto ist: „1200 an 1590“ zahlt „1590 an 8400“, „1590 an 1200“ zahlt „4930
-    an 1590“ — dieses Konto auf der Gegenseite (F Runde 2, gf-richtung GF-2)."""
+    an 1590“ — dieses Konto auf der Gegenseite (F Runde 2, gf-richtung GF-2). Das gilt
+    nicht für einen Teil einer anderen Rechnungsbuchung des Belegs (``rechnungen``,
+    ``_teil_der_rechnung``): „10001 an 1590“ neben „10001 an 8400“ und „1590 an 8400“
+    bleibt ein Teil der Rechnung wie in G8R-3 (F Runde 3, gf2-richtung GF2-3)."""
     seite = sachseite_aus_konten(rechnung.soll_konto, rechnung.haben_konto, plan)
     if seite is None:
         return False
     konto = x.soll_konto if seite == "soll" else x.haben_konto
     gegenkonto = rechnung.haben_konto if seite == "soll" else rechnung.soll_konto
     return (
-        (konto == gegenkonto and plan.ist_gegenkonto(gegenkonto))
-        or kr.ist_geldkonto(konto)
+        kr.ist_geldkonto(konto)
         or plan.ist_personenkonto(konto)
         or konto in plan.geldkonten
+        or (
+            konto == gegenkonto
+            and plan.ist_gegenkonto(gegenkonto)
+            and not any(_teil_der_rechnung(x, r, plan) for r in rechnungen)
+        )
     )
 
 
@@ -800,7 +822,7 @@ def richtungsbezug(
     ]
     neben = bool(rechnungen) and all(
         _neben_der_rechnung(x, plan, skonto)
-        and any(_gegen_die_rechnung(x, r, plan, kr) for r in rechnungen)
+        and any(_gegen_die_rechnung(x, r, plan, kr, rechnungen) for r in rechnungen)
         for x in (b, *frueher)
     )
     return Richtungsbezug(b, tuple(frueher), beleg, tuple(eigene), neben, skonto)

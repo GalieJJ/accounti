@@ -775,3 +775,62 @@ def test_obergrenze_ohne_minderung_ueber_die_cli(
     assert "weist 95,00 € Umsatzsteuer" in text, text
     text = cli("pruefen", "--regel", "beleg_ust_ohne_buchung")
     assert "1 Befunde" in text and "│ 95,00 │" in text, text
+
+
+# --- F Runde 3 (gf2-richtung GF2-3): Rechnungsteil neben einer Rechnung über 1590 -----
+
+# Ausgangsrechnung 1500 €: zweimal 500 € zu 19 %, 500 € Auslage ohne Umsatzsteuer
+DREI_TEILE = [
+    ("Ware", "500.00", "19", "95.00"),
+    ("Ware2", "500.00", "19", "95.00"),
+    ("Auslage", "500.00", None, None),
+]
+
+
+def _zwei_rechnungsbuchungen(make_session, teil, status):  # noqa: ANN001, ANN202
+    bel = _beleg("AR", netto="1500.00", steuer="190.00", positionen=DREI_TEILE)
+    r1 = _buchung(bel, "10001", "8400", 3, "95.00")
+    r2 = _buchung(bel, "1590", "8400", 3, "95.00")
+    z = _buchung(bel, *teil, netto="500.00", status=status)
+    anlegen(make_session, bel, r1, r2, z)
+    return bel, z
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize(
+    "ziel",
+    [("8736", "1590", 3), ("8200", "1590", None), ("4930", "1590", None)],
+    ids=["8736", "8200", "4930"],
+)
+def test_rechnungsteil_neben_rechnung_ueber_1590_ist_keine_nebenbuchung(
+    make_session, status, ziel
+):
+    """GF2-3 (n4_neben1590.py H2): Ausgangsrechnung mit „10001 an 8400, Schlüssel 3“,
+    „1590 an 8400, Schlüssel 3“ und dem Auslage-Teil „10001 an 1590“ (Form von G8R-3
+    N1). Der Teil bucht den Debitor auf derselben Seite wie die erste
+    Rechnungsbuchung — keine Zahlung, auch wenn er der zweiten über ihr Gegenkonto
+    1590 gegenübersteht. „→ 8736 an 1590 --steuer 3“ minderte sonst Kz 81 (8200 bzw.
+    4930 ins Soll ebenso); gesperrt über die Seite der Ausgangsrechnung wie a78e9b5."""
+    soll, haben, schluessel = ziel
+    bel, z = _zwei_rechnungsbuchungen(make_session, ("10001", "1590"), status)
+    assert not _nebenbuchung(make_session, z.id)
+    optionen = {"steuer": schluessel} if schluessel else {}
+    with pytest.raises(StornoError) as fehler:
+        _korrigiere(make_session, z.id, soll, haben, **optionen)
+    assert "die Ausgangsrechnung bucht ihr Erfolgskonto" in fehler.value.meldung
+    assert _kennziffern(make_session).get(81) == D("1000.00")
+    (akt,) = [x for x in _wirksam(make_session, bel.id) if x.id == z.id]
+    assert (akt.soll_konto, akt.haben_konto) == ("10001", "1590")
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+def test_zahlung_neben_rechnung_ueber_1590_bleibt_nebenbuchung(make_session, status):
+    """Gegenprobe zu GF2-3 (n4_neben1590.py H7, GF-2): Dieselbe Rechnung, aber die
+    Zahlung „1200 an 1590“ zur zweiten Rechnungsbuchung über 1590 — sie bucht kein
+    Gegenkonto einer Rechnungsbuchung auf deren Seite, bleibt Nebenbuchung, ihr Skonto
+    „8736 an 1590, Schlüssel 3“ geht."""
+    bel, z = _zwei_rechnungsbuchungen(make_session, ("1200", "1590"), status)
+    assert _nebenbuchung(make_session, z.id)
+    _korrigiere(make_session, z.id, "8736", "1590", steuer=3)
+    neu = [x for x in _wirksam(make_session, bel.id) if x.soll_konto == "8736"]
+    assert [(x.haben_konto, x.steuer_schluessel) for x in neu] == [("1590", 3)]
