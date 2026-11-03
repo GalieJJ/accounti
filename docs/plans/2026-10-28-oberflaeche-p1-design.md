@@ -2667,3 +2667,67 @@ Was beim Umsetzen gegenüber dem Plan anders kam, mit Grund. Abschnitt A = Schri
   (5 übersprungen), Fachtests mit i18n, Design und Symbolen 647 (4 übersprungen), Migrationen
   45 + 1 nach der Umstellung (4 übersprungen: PostgreSQL); `ruff` 0.16.2 und 0.17.1,
   `mypy src/` (strict laut `pyproject.toml`) ohne Befund.
+
+### Schritt 4 — Komponenten und Musterseite
+
+- **Commits:** je Komponente bzw. eng zusammengehöriger Gruppe ein Commit (Knopf/Linkknopf;
+  Status/Sicherheit; Zähler; Marke/Avatar mit Datentyp `Geruest`; Hinweis; leerer Zustand;
+  Karte; Aufklapper; Tabelle mit Zeile, Zelle, Spaltenkopf; Angaben; Betrag;
+  Feld/Auswahl/Textfeld; Feldgruppe/Optionen/Haken/Etikett; Optionskarte/Segment; Codefeld;
+  Fehlerliste; Reiter; Schritte; Bestätigung/Ladeanzeige; Brotkrumen/Seitenblättern;
+  Seitenleiste/untere Leiste; Aktionsleiste/Sammelleiste), danach „zwei Formen“ in `seite()`
+  und die Musterseite. Jede Komponente: Test angehängt und rot gesehen, dann Makro, Stile und
+  Texte, grün mit `test_komponenten.py`, `test_design_token.py`, `test_i18n_katalog.py` und
+  `test_symbole.py`. Beim Betrag war der erste rote Lauf ein fehlender Import im Test, nicht das
+  fehlende Makro; das Makro stand da schon (dieselbe Runde).
+- **Datentyp `Geruest`** kam mit der Marke (deren Test braucht `Marke`), nicht als eigener
+  Commit vorab. `NavEintrag` hat Standardwerte und `kurz` (Kurztitel, sonst Titel); die Titel
+  sind Katalogtexte, die Makros übersetzen sie.
+- **Schnittstelle ergänzt bzw. ausgelegt:**
+  - `knopf(…, taste=…)` zeigt nur `<kbd>`; `data-taste` (die Tastenbindung von `pruefen.js`)
+    geben Seiten weiter über `attribute`, damit `/muster` keine Taste bindet.
+  - `tabelle(…, summe=[…])` für die Summenzeile (`tfoot`), `Spalte(titel, zahl, sortierung,
+    href)` als Jinja-Global; `zeile(gewaehlt)` setzt nur die Klasse, kein `aria-selected`
+    (in einer `table` ohne `grid` nicht zulässig).
+  - `optionskarte(…, grund=…)`: `grund` ist der Grund, warum die Option nicht wählbar ist
+    (dann `disabled`, statt des Nebentexts gezeigt). `segment(…, id=…)` für eindeutige ids.
+  - `bestaetigung(…, art=…)` für den Knopf (gefährlich beim Storno).
+  - `aktionsleiste(beschriftung)`/`sammelleiste(beschriftung)` mit Standard „Aktionen“ bzw.
+    „Auswahl“ als `aria-label` der Region.
+  - `marke(…)`: Monogramm `aria-hidden`, der Name als versteckter Text — Screenreader lesen den
+    Namen, nicht „GD“.
+  - `seitenblaettern(seite, seiten, url)`: Fenster ±2 um die aktuelle Seite, dazu erste und
+    letzte; „Zurück“/„Weiter“ ohne eigenes `aria-label` (sonst wiche der Name vom sichtbaren
+    Text ab, WCAG 2.5.3).
+- **Alter Kopf:** Die Wortmarke in `basis.html` heißt jetzt `wortmarke` (vorher `marke`), sonst
+  träfe sie die neue Komponente; die Regel in `bestand` zieht mit.
+- **Hinweis-Komponente gegen alte `.hinweis`:** `display: flex` steht nur an `.hinweis-<art>`,
+  damit alte `<p class="hinweis">` mit Links im Text bis Schritt 12 nicht zu Flex-Zeilen werden;
+  `border: 0` nimmt ihnen den Balken — auch der rote Balken von `.sperre` ist bis Schritt 12 weg
+  (der Text „gesperrt“ bleibt).
+- **CSS verdichtet:** Regeln der Komponenten stehen auf einer Zeile, Abschnittsköpfe kurz
+  (eigener Commit, keine Wertänderung). **Budget knapp:** `accounti.css` 36 984 Bytes,
+  `pruefen.css` 3 573 Bytes, zusammen **40 557 von 40 960**. Ohne `bestand` und `pruefen.css`
+  liegt die Datei bei rund 34 KB — über dem Ziel 30 KB aus R-P1-3 (Grenze 40 KB eingehalten).
+- **Zwei Formen:** `pruefe_teilvorlage` (AST über `umgebung.parse`, Ergebnis je Umgebung und
+  Vorlage gemerkt) und `rendere_teil`; `seite(…, teil=…)` bleibt synchron (async kommt mit
+  Schritt 6). `basis.html` nimmt `data-theme` und `color-scheme` aus dem Kontext
+  (`darstellung`, `color_scheme`, Standard automatisch) — die Wahl am Benutzer verdrahtet
+  Schritt 7, `/muster?theme=` nutzt es schon.
+- **Musterseite:** Texte stehen in `muster.html` mit `_()` (nicht als Konstanten im Modul, außer
+  Farben, Themen und dem Beispiel-Gerüst als `N_()`); ein `%` im Text muss als `%%` stehen
+  (Newstyle-gettext formatiert immer). Zusätzlich zur Zeichenfläche: Kennfarben mit Monogramm,
+  eine Tabelle mit sortierbaren Spaltenköpfen, Symbole mit Beschriftung. `test_ids_eindeutig_trotz_zwei_rahmen`
+  prüft `for`, `aria-labelledby`, `aria-describedby` und Links der Fehlerliste. Im Test
+  `test_keine_daten_der_gesellschaft` zählt der Block der Musterseite (die alte Zeile
+  „Gesellschaft: …“ aus `basis.html` steht bis Schritt 7 noch im `main`).
+- **Ohne Browser geprüft:** Aussehen gegen die Leinwand, Kontrast im Browser, axe und der Fokus
+  nach dem Austausch (`accounti.js` kommt mit Schritt 9) stehen aus — Schritt 5 baut das
+  Werkzeug.
+- **Vorlagen-Scan:** `test_keine_inline_skripte_stile_oder_ereignisattribute` liest auch
+  Kommentare in den Vorlagen — ein Kommentar mit dem Wort „style=“ in `_komponenten.html`
+  ließ ihn scheitern; umformuliert. Wer Vorlagen kommentiert, meidet `style=`, `on…=`, `js:`.
+- **Tests am Ende von Schritt 4** (Gruppen über `schwer`): Web 392 + 2 (Vorlagen-Scan nach der
+  Korrektur grün; `test_langer_pfad_haelt_den_server_mit_keiner_methode_an[PATCH]` lag unter
+  Last bei 1,3 s statt < 0,5 s und lief einzeln grün — Zeitmessung, keine Änderung am Pfad),
+  übrige 628 (1 übersprungen), Migrationen 46 (4 übersprungen: PostgreSQL).
