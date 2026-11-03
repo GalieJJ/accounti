@@ -22,7 +22,7 @@ from accounti.integrationen.einstellungen import Integrationen
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE
 from accounti.steuer.oss import OSSEngine, OSSMeldung
-from accounti.steuer.umsatzsteuer import OSS_UST_KONTO_SKR03, oss_konto_land
+from accounti.steuer.umsatzsteuer import oss_konto_land, oss_ust_konto
 
 NULL = Decimal("0.00")
 
@@ -116,8 +116,11 @@ def steuerabgleich(
     meldung: OSSMeldung,
     firmen_land: str = "DE",
     einstellungen: Integrationen | None = None,
+    kontenrahmen: str = "SKR03",
 ) -> list[Steuerdifferenz]:
-    """Gebuchte OSS-Steuer des Quartals gegen die gemeldete, je OSS-Steuerkonto.
+    """Gebuchte OSS-Steuer des Quartals gegen die gemeldete, je OSS-Steuerkonto
+    (``integrationen.oss_ust_konto_fuer``; ohne Einstellungen das Konto des
+    Kontenrahmens, ``umsatzsteuer.oss_ust_konto``).
 
     Gebucht wird je Bestellung Brutto − Netto, gemeldet je Land und Satz die Steuer
     auf die Summe der Bemessungsgrundlagen; dazu kommen Korrekturen früherer
@@ -128,7 +131,7 @@ def steuerabgleich(
         land: (
             einstellungen.oss_ust_konto_fuer(land)
             if einstellungen is not None
-            else OSS_UST_KONTO_SKR03
+            else oss_ust_konto(kontenrahmen)
         )
         for land in EU_STEUERSAETZE
         if land != firmen_land

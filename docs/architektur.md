@@ -389,7 +389,8 @@ Vollständiges Umsatzsteuer-Modul mit vier Komponenten:
 - **`umsatzsteuer.py`** — Kern-Engine für USt/VSt-Berechnung:
   - Geschäftsvorfall-Bestimmung (Inland / EU-OSS / EU-B2B-RC / Drittland)
   - Netto ↔ Brutto-Umrechnung mit korrektem Steuersatz
-  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS-Sammelkonto 1767)
+  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS-Sammelkonto 1767; je
+    Kontenrahmen `oss_ust_konto`: SKR04 3817 — OPOS über `buchung.konten.erloeskonten`)
   - DATEV BU-Schlüssel und ELSTER-Kennziffern
   - Vorgabe der OSS-Erlöskonten (SKR03 8320–8327, SKR04 4320–4327 für acht Länder)
 

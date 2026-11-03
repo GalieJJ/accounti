@@ -106,6 +106,8 @@ OSS_ERLOES_KONTEN_SKR04: dict[str, str] = {
     "BE": "4327",
 }
 # Gegenstück zu SKR03 1767 (DATEV-Kontenrahmen § 4 Abs. 3 EStG 2026, gleich bezeichnet)
+# in den Steuerkonten 3800–3849 — nicht 1767/1777xx/1779 wie im SKR03: Die liegen im
+# SKR04 im Bank- und Zahlungsmittelbereich 1700–1889 (Merge Paket E, NACHARBEITEN)
 OSS_UST_KONTO_SKR04 = "3817"
 
 
@@ -114,6 +116,16 @@ def oss_erloeskonten(kontenrahmen: str = "SKR03") -> dict[str, str]:
     if kontenrahmen.upper() == "SKR04":
         return dict(OSS_ERLOES_KONTEN_SKR04)
     return dict(OSS_ERLOES_KONTEN_SKR03)
+
+
+def oss_ust_konto(kontenrahmen: str = "SKR03") -> str:
+    """DATEV-Sammelkonto „Umsatzsteuer aus im anderen EU-Land steuerpflichtigen
+    Lieferungen“ des Kontenrahmens (SKR03 1767, SKR04 3817) — Vorgabe für OPOS, den
+    Marktplatz (``integrationen.oss_ust_konto``) und den Steuerabgleich der
+    OSS-Meldung."""
+    if kontenrahmen.upper() == "SKR04":
+        return OSS_UST_KONTO_SKR04
+    return OSS_UST_KONTO_SKR03
 
 
 def oss_konto_land(kontenrahmen: str = "SKR03") -> dict[str, str]:

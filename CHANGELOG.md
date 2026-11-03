@@ -531,6 +531,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **SKR04: OSS-Umsatzsteuer im Bankbereich** (Merge Paket E mit main nach #36; g3w-fach/
+  g3w-merge N1): Eigene Rechnungen (OPOS) buchten die Steuer eines OSS-Fernverkaufs im SKR04
+  auf 177720/1779 bzw. 1767 — dort Bank- und Zahlungsmittelbereich (1700–1889). `abschluss
+  pruefen` meldete „Bankkonto … nicht eingerichtet“ und sperrte den Abschluss, die Zahlung an
+  das BZSt ließ sich nicht als Regel lernen („beide Geldkonten“). Jetzt DATEV SKR04 3817
+  „Umsatzsteuer aus im anderen EU-Land steuerpflichtigen Lieferungen“ (Gegenstück zu SKR03
+  1767, Steuerkonto, Anlage EÜR Zeile 140), wie beim Marktplatz-Import; der Steuerabgleich
+  der OSS-Meldung nimmt ohne Einstellungen das Konto des Kontenrahmens. Im SKR04 schon auf
+  1777xx gebuchte OSS-Steuer auf 3817 umbuchen.
 - **EU-Steuersätze veraltet** (Gesamttest Steuer B8): Die Tabelle führt je Land Stände mit
   `gueltig_ab`; maßgeblich ist der Satz am Tag der Leistung (Art. 63, 93 MwStSystRL).
   Berichtigt: Rumänien 21/11 % ab 01.08.2025 (vorher 19 % — OSS-Buchung und -Meldung nach

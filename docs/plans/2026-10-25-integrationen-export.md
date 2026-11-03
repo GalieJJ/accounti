@@ -323,10 +323,10 @@ DATEV-Übergabe:
   Summe) können centweise auseinanderliegen; die CLI zeigt die Differenz je Steuerkonto, eine
   Ausgleichsbuchung gibt es nicht.
 - OSS-Erlöskonten gibt es in `steuer/umsatzsteuer.py` nur für acht Länder (FR, IT, ES, NL, SE, PL,
-  AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuerkonten dort
-  sind sechsstellig (`1777xx`) und teilen sich teils ein Konto (FR/AT `177720`) — sie passen nicht
-  zur Sachkontenlänge 4 und werden im DATEV-Export als Befund gemeldet. `steuer/` ist gemeinsamer
-  Code und wurde hier nur im Vorzeichenfehler der OSS-Engine geändert.
+  AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuer geht seit
+  Steuer B6/B7 auf das Sammelkonto des Kontenrahmens (SKR03 1767, SKR04 3817; vorher sechsstellig
+  `1777xx`, die nicht zur Sachkontenlänge 4 passten), seit dem Merge mit main nach #36 auch bei
+  eigenen Rechnungen (OPOS).
 
 **DATEV**
 - Kein Import in ein echtes DATEV-Programm. Die Golden-Datei ist von accounti erzeugt und gegen die

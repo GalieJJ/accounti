@@ -883,9 +883,10 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 - Bucht auf **ein OSS-Erlöskonto je Bestimmungsland** (Vorgabe acht Länder im DATEV-Bereich
   SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`; eine
   eigene Rechnung in ein Land ohne eigenes Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die
-  Meldung erfasst sie nicht), die
-  Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem Land im Buchungstext — vierstellig,
-  passend zur Sachkontenlänge des DATEV-Stapels
+  Meldung erfasst sie nicht), die Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem
+  Land im Buchungstext — Marktplatz-Abrechnung und eigene Rechnungen (OPOS) gleich, vierstellig,
+  passend zur Sachkontenlänge des DATEV-Stapels; im SKR04 ein Steuerkonto (3800 ff.), nicht
+  1767/1777xx aus dem Bank- und Zahlungsmittelbereich
 - Nimmt den **Steuersatz am Tag der Lieferung** (`steuer/eu_steuersaetze.py` mit `gueltig_ab`)
 - Erstellt die **Quartalsmeldung** mit Aufschlüsselung nach Land und Steuersatz
 - Kennt die **Abgabefristen** (letzter Tag des Folgemonats)
