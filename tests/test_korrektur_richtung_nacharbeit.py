@@ -319,14 +319,13 @@ MARKT = [
 ]
 
 
-def _luecken_der_regel(make_session, buchhaltung=None) -> list[Any]:  # noqa: ANN001
+def _luecken_der_regel(make_session) -> list[Any]:  # noqa: ANN001
     from accounti.konfiguration import Buchhaltung
     from accounti.pruefung.einstellungen import PruefEinstellungen
     from accounti.pruefung.regeln import Kontext, fuehre_regeln_aus
 
-    bh = buchhaltung or Buchhaltung()
     with make_session() as s:
-        k = Kontext(s, PruefEinstellungen(), bh, date(2026, 10, 20))
+        k = Kontext(s, PruefEinstellungen(), Buchhaltung(), date(2026, 10, 20))
         return fuehre_regeln_aus(k, ["beleg_ust_ohne_buchung"]).befunde
 
 
@@ -835,144 +834,3 @@ def test_zahlung_neben_rechnung_ueber_1590_bleibt_nebenbuchung(make_session, sta
     _korrigiere(make_session, z.id, "8736", "1590", steuer=3)
     neu = [x for x in _wirksam(make_session, bel.id) if x.soll_konto == "8736"]
     assert [(x.haben_konto, x.steuer_schluessel) for x in neu] == [("1590", 3)]
-
-
-# --- Paket G (gf3-obergrenze GF3-2): Erstattung des Belegs neben einer Gebühr -------
-#
-# Auf einem Beleg ohne eindeutige Belegart hoben sich eine Erstattung, die er selbst
-# ausweist, und eine Gebühr desselben Satzes in ``_ausgewiesen`` (Summe der Positionen)
-# auf; die Obergrenze (Erlössteuer, seit F3 ohne negative Kette) zog die Erstattung
-# nicht mehr ab (o1_falsch.py, aus/faelle_o1.txt).
-
-KONTEN_GF3_2 = {  # Verkauf, Gebühr (Schlüssel 9) je Kontenrahmen
-    "SKR03": (("1361", "8400"), ("4930", "1361")),
-    "SKR04": (("1800", "4400"), ("6300", "1800")),
-}
-# (Kontenrahmen, Erstattung netto/Steuer, Konten der Erstattung, fehlt am Ende)
-ERSTATTUNGEN = {
-    "voll_8700": ("SKR03", ("500.00", "95.00"), ("8700", "1361"), None),
-    "voll_8400_soll": ("SKR03", ("500.00", "95.00"), ("8400", "1361"), None),
-    "voll_skr04": ("SKR04", ("500.00", "95.00"), ("4700", "1800"), None),
-    "teil_8700": ("SKR03", ("100.00", "19.00"), ("8700", "1361"), "76.00"),
-    "teil_8400_soll": ("SKR03", ("100.00", "19.00"), ("8400", "1361"), "76.00"),
-}
-
-
-def _abrechnung(netto: str, steuer: str):  # noqa: ANN202
-    """SONSTIGES (Marktplatz) mit Verkauf 500/95, Erstattung und Gebühr 100/19."""
-    positionen = [
-        ("Verkauf", "500.00", "19", "95.00"),
-        ("Erstattung", f"-{netto}", "19", f"-{steuer}"),
-        ("Verkaufsgebühr", "100.00", "19", "19.00"),
-    ]
-    return _beleg(
-        "S",
-        netto=str(D("600.00") - D(netto)),
-        steuer=str(D("114.00") - D(steuer)),
-        positionen=positionen,
-    )
-
-
-def _umgebung(rahmen: str) -> dict[str, Any]:
-    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
-    from accounti.konfiguration import Buchhaltung
-
-    if rahmen == "SKR03":
-        return {}
-    return {
-        "buchhaltung": Buchhaltung(kontenrahmen=rahmen, bank_konto="1800"),
-        "kontenrahmen": lade_kontenrahmen(rahmen),
-    }
-
-
-@pytest.mark.parametrize("fall", list(ERSTATTUNGEN))
-def test_erstattung_des_belegs_gleicht_den_stornierten_verkauf_aus(make_session, fall):
-    """GF3-2 (o1_falsch.py M_voll_*_EV, M04_voll_EV, M_teil_*_FEV): Marktplatzbeleg
-    mit Verkauf 500/95, Erstattung −500/−95 (bzw. −100/−19) und Gebühr 100/19,
-    gebucht „1361 an 8400“, „8700 an 1361“ (bzw. „8400 an 1361“), „4930 an 1361,
-    Schlüssel 9“; Erstattung und Verkauf storniert. Gemeldet wurden 19 € (die
-    Vorsteuer der Gebühr) bzw. 95 statt 76 € — die Erstattung, die der Beleg ausweist
-    und die nicht mehr gebucht ist, gleicht die Steuer des Verkaufs aus: bei voller
-    Erstattung fehlt nichts, bei Teil-Erstattung fehlen 76 € (auch SKR04)."""
-    rahmen, (netto, steuer), (soll, haben), fehlt = ERSTATTUNGEN[fall]
-    umgebung = _umgebung(rahmen)
-    (verkauf, gebuehr) = KONTEN_GF3_2[rahmen]
-    bel = _abrechnung(netto, steuer)
-    v = _buchung(bel, *verkauf, 3, "95.00")
-    e = _buchung(bel, soll, haben, 3, steuer, netto=netto)
-    f = _buchung(bel, *gebuehr, 9, "19.00", "100.00")
-    anlegen(make_session, bel, v, e, f)
-    bh = umgebung.get("buchhaltung")
-    assert _luecken_der_regel(make_session, bh) == []
-    assert not [w for w in _storniere(make_session, e.id, **umgebung) if "§ 14c" in w]
-    assert _luecken_der_regel(make_session, bh) == []
-    warnungen = [w for w in _storniere(make_session, v.id, **umgebung) if "§ 14c" in w]
-    if fehlt is None:
-        assert warnungen == [], warnungen
-        assert _luecken_der_regel(make_session, bh) == []
-    else:
-        (warnung,) = warnungen
-        assert f"weist {fehlt.replace('.', ',')} € Umsatzsteuer" in warnung, warnung
-        (befund,) = _luecken_der_regel(make_session, bh)
-        assert befund.betrag == D(fehlt), befund.text
-
-
-@pytest.mark.parametrize("zuerst", ["ruecksendung", "verkauf"])
-def test_ruecksendung_ohne_satz_mindert_die_obergrenze(make_session, zuerst):
-    """GF3-2 (o1_falsch.py Q_rueck_ohnesatz_EV): Quittung mit Verkauf 500/95 (19 %)
-    und Rücksendung −100/−19 ohne Satz, gebucht „1000 an 8400“ und „8700 an 1000“,
-    beide Schlüssel 3, beide storniert — gemeldet wurden 95 €, der Beleg weist 76 €
-    aus. Eine Position ohne Satz zählt als Minderung des Satzes, den ihre Steuer zum
-    Netto ergibt."""
-    positionen = [
-        ("Verkauf", "500.00", "19", "95.00"),
-        ("Rücksendung", "-100.00", None, "-19.00"),
-    ]
-    bel = _beleg("Q", netto="400.00", steuer="76.00", positionen=positionen)
-    v = _buchung(bel, "1000", "8400", 3, "95.00")
-    e = _buchung(bel, "8700", "1000", 3, "19.00", netto="100.00")
-    anlegen(make_session, bel, v, e)
-    if zuerst == "ruecksendung":
-        assert not [w for w in _storniere(make_session, e.id) if "§ 14c" in w]
-        assert _luecken_der_regel(make_session) == []
-        warnung = _warnung_14c(_storniere(make_session, v.id))
-    else:
-        _storniere(make_session, v.id)
-        warnung = _warnung_14c(_storniere(make_session, e.id))
-    assert "weist 76,00 € Umsatzsteuer" in warnung, warnung
-    (befund,) = _luecken_der_regel(make_session)
-    assert befund.betrag == D("76.00"), befund.text
-
-
-def test_erstattung_neben_gebuehr_ueber_die_cli(make_session, tmp_path, monkeypatch):
-    """GF3-2 über die echte CLI (o1_falsch.py M_voll_8700_EV): ``buchung storniere``
-    der Erstattung, dann des Verkaufs — keine § 14c-Warnung (vorher 19,00 €),
-    ``accounti pruefen --regel beleg_ust_ohne_buchung`` ohne Befund."""
-    from typer.testing import CliRunner
-
-    from accounti.cli import app
-    from tests.pruefung_hilfe import db_url, kurz
-
-    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
-    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.chdir(tmp_path)
-    url = db_url(tmp_path)
-    runner = CliRunner()
-
-    def cli(*argumente: str) -> str:
-        r = runner.invoke(app, [*argumente, "--db", url], env={"COLUMNS": "250"})
-        assert r.exit_code == 0, r.output
-        return " ".join(r.output.split())
-
-    bel = _abrechnung("500.00", "95.00")
-    v = _buchung(bel, "1361", "8400", 3, "95.00")
-    e = _buchung(bel, "8700", "1361", 3, "95.00")
-    f = _buchung(bel, "4930", "1361", 9, "19.00", "100.00")
-    anlegen(make_session, bel, v, e, f)
-    text = cli("buchung", "storniere", kurz(e.id), "--grund", "heben sich auf")
-    assert "Storniert:" in text and "§ 14c" not in text, text
-    text = cli("buchung", "storniere", kurz(v.id), "--grund", "heben sich auf")
-    assert "Storniert:" in text and "§ 14c" not in text, text
-    text = cli("pruefen", "--regel", "beleg_ust_ohne_buchung")
-    assert "keine Befunde" in text, text

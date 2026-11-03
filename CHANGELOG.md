@@ -771,16 +771,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Rechnungsteil „10001 an 1590“ neben „10001 an 8400“ und „1590 an 8400“ gilt nicht mehr als
   Zahlung (kein Skonto mit Umsatzsteuer daraus). betrieb.md beschreibt den Abstand zwischen
   Schlüsselwort und Wert jetzt so, wie die Schwärzung ihn hält.
-- **§ 14c-Lücke, Paket G** (Nachprüfung F Runde 3, gf3-obergrenze GF3-1, GF3-2): Auf einem
+- **§ 14c-Lücke, Paket G** (Nachprüfung F Runde 3, gf3-obergrenze GF3-1): Auf einem
   Beleg ohne Steuerzeile (Position „Gesamtbetrag“ ohne Satz) machte eine kleine, auch
   stornierte Erlösschmälerung oder Erstattung („8700 an 1000, Schlüssel 3“) die
   ausgewiesene Umsatzsteuer negativ — das Storno des Erlöses warnte nicht,
   `beleg_ust_ohne_buchung` meldete nichts, die Umsatzsteuer fehlte still (Quittung,
   Marktplatzabrechnung, Ausgangsrechnung). Jetzt zählt je Satz die höchste
-  Rechnungsbuchung. Eine Erstattung, die eine Marktplatzabrechnung oder Quittung selbst
-  ausweist, gleicht den stornierten Verkauf aus, wenn auch sie storniert ist: keine
-  Meldung über 19 € (die Vorsteuer der Gebühr) bei voller Erstattung, 76 statt 95 € bei
-  Teil-Erstattung bzw. Rücksendung ohne Satz.
+  Rechnungsbuchung.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

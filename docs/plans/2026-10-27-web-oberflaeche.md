@@ -1695,11 +1695,12 @@ Durchlaufs mit Markern in allen Fremddaten.
   Eine Erlösschmälerung („8700 an 1000, Schlüssel 3“) senkt die Obergrenze nicht, ob wirksam,
   storniert oder berichtigt (Untergrenze 0 je Kette; sonst hob sie den Erlös auf: Storno ohne
   Warnung bzw. 76 statt 95 €, F Runde 3, gf2-richtung GF2-1, GF2-2); eine Minderung, die der
-  Beleg selbst ausweist (Position Erstattung, Rücksendung; ohne Satz der, den ihre Steuer zum
-  Netto ergibt), mindert schon die ausgewiesene Steuer und, soweit keine wirksame Minderung
-  desselben Satzes sie bucht, auch die Obergrenze — sonst hob sie sich mit einer Gebühr
-  desselben Satzes auf (Verkauf, Erstattung und Gebühr, Erstattung und Verkauf storniert:
-  19 € statt nichts, Teil-Erstattung 95 statt 76 €; Paket G, gf3-obergrenze GF3-2). Nennt der
+  Beleg selbst ausweist (Position Rücksendung), mindert schon die ausgewiesene Steuer. Steht
+  sie neben einer Gebühr desselben Satzes und sind Erstattung und Verkauf storniert, heben
+  sich Erstattung und Gebühr in der ausgewiesenen Steuer auf: Die Lücke meldet dann zu viel
+  (19 € statt nichts, Teil-Erstattung 95 statt 76 €; gf3-obergrenze GF3-2) — eine Warnung zu
+  viel, nie eine fehlende; eine engere Obergrenze zog die Erstattung bei netto gebuchtem Erlös
+  doppelt ab und ließ Umsatzsteuer still fehlen (Paket G, gg GG-1). Nennt der
   Beleg keinen Satz und keine eindeutige Belegsteuer (Beleg ohne Steuerzeile: Position
   „Gesamtbetrag“ ohne Satz), weist er je Satz die höchste Steuer seiner Rechnungsbuchungen
   aus, auch einer stornierten — auch auf einer Ausgangsrechnung; eine Minderung ist keine
