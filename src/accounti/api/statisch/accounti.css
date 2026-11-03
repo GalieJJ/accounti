@@ -433,6 +433,39 @@
   .leer-aktion { margin-top: var(--a-1); font-weight: 600; }
   .leer-beleg { padding: var(--a-6); background-color: var(--flaeche); }
   .leer-beleg > .symbol { color: var(--text-2); }
+  /* Karte, Kennzahl, Kartenliste */
+  .karte {
+    display: flex;
+    flex-direction: column;
+    gap: var(--a-3);
+    min-width: 0;
+    padding: var(--a-45) var(--a-5);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie);
+    border-radius: var(--radius-karte);
+    box-shadow: var(--schatten);
+  }
+  .karte-kopf { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--a-2) var(--a-3); }
+  .karte-titel { margin: 0; font-size: var(--gr-5); line-height: 1.25; }
+  .karte-anzahl { font-weight: 400; color: var(--text-2); }
+  .karte-fuss { margin-top: auto; }
+  .karte-aktion { font-weight: 600; }
+  .kennzahl { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--a-2); margin: 0; }
+  .kennzahl-wert { font-size: var(--gr-9); font-weight: 600; line-height: 1; letter-spacing: -0.02em; }
+  .kennzahl-satz { color: var(--text-2); }
+  .karte-liste { margin: 0; padding: 0; list-style: none; }
+  .karte-liste > li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--a-3);
+    padding: var(--a-3) 0;
+    border-top: 1px solid var(--linie);
+  }
+  @media not all and (min-width: 40rem) {
+    .karte { padding: var(--a-4); }
+    .karte-fuss .knopf { width: 100%; min-height: 3rem; }
+  }
 }
 
 @layer hilfen {

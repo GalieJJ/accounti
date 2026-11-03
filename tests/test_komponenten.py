@@ -182,3 +182,36 @@ def test_leer_mit_satz_nebensatz_und_link_ohne_rolle():
     beleg = render('{{ k.leer("Kein Beleg.", symbol="file-text") }}')
     assert 'class="leer leer-beleg"' in beleg and "#file-text" in beleg
     assert "symbol-40" in beleg and "<a " not in beleg
+
+
+def test_karte_titel_anzahl_status_hauptaktion_kennzahl():
+    html = render(
+        '{% call k.karte("Prüfen", anzahl=12, status=("warn", "3 unsicher"),'
+        ' hauptaktion=("Durcharbeiten", "/pruefen", "primaer")) %}'
+        '<ul class="karte-liste"><li>Telekom</li></ul>{% endcall %}'
+    )
+    assert html.startswith('<section class="karte">')
+    assert (
+        '<h2 class="karte-titel">Prüfen <span class="karte-anzahl">12</span></h2>'
+        in html
+    )
+    assert 'class="status status-warn"' in html and "3 unsicher" in html
+    assert (
+        html.index("karte-titel")
+        < html.index("status-warn")
+        < html.index("karte-liste")
+    )
+    assert 'class="karte-fuss"><a class="knopf knopf-primaer" href="/pruefen">' in html
+    link = render(
+        '{% call k.karte("Belege", hauptaktion=("Alle", "/belege", "link"), ebene=3) %}'
+        "{% endcall %}"
+    )
+    assert '<h3 class="karte-titel">Belege</h3>' in link
+    assert '<a class="karte-aktion" href="/belege">Alle</a>' in link
+    kennzahl = render(
+        '{% call k.karte("Offene Posten", kennzahl=("4", "Rechnungen offen")) %}'
+        "{% endcall %}"
+    )
+    assert '<p class="kennzahl"><span class="kennzahl-wert">4</span>' in kennzahl
+    with pytest.raises(TemplateError):
+        render('{% call k.karte("x", ebene=1) %}{% endcall %}')
