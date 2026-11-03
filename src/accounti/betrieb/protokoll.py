@@ -228,6 +228,26 @@ def _hinter_zugangsdaten(vorn: str, hinten: str) -> str | None:
     return re.split(r"[/?#]", rechner, maxsplit=1)[0]
 
 
+# statt eines Rechners, wenn die Adresse zwei Lesarten hat (``rechner_der_adresse``)
+MEHRDEUTIGE_ADRESSE = (
+    "(Adresse nicht eindeutig – @ # ? / im Passwort prozentkodieren: %40 %23 %3F %2F)"
+)
+
+
+def _mehrdeutig(rest: str) -> bool:
+    """Zugangsdaten „benutzer:…@“ vor einem „#“ oder „?“ und dahinter (bis zum ersten
+    „/“) ein weiteres „@“: „alarm:Son@ne#x@rechner.example“ ist ein Passwort „Son“ mit
+    Rechner „ne“ und Fragment — oder ein Passwort „Son@ne#x“ mit Rechner
+    „rechner.example“. Welche Lesart gemeint ist, lässt sich nicht erkennen."""
+    bis_pfad = rest.split("/", 1)[0]
+    trenner = re.search(r"[?#]", bis_pfad)
+    if trenner is None:
+        return False
+    vorn, hinten = bis_pfad[: trenner.start()], bis_pfad[trenner.start() :]
+    zugang = vorn.rpartition("@")[0]
+    return ":" in zugang and "@" in hinten
+
+
 def rechner_der_adresse(adresse: str) -> str | None:
     """„schema://rechner[:port]“ einer Adresse — ohne Benutzer, Passwort, Pfad und
     Abfrage (die tragen oft ein Geheimnis). Zugangsdaten stehen vor dem ersten „/“, „?“
@@ -236,12 +256,16 @@ def rechner_der_adresse(adresse: str) -> str | None:
     gegen ein unkodiertes #, ? oder / im Passwort (``urlsplit`` machte dort den
     Passwortanfang zum Rechner und seine Ziffern zum Port, Runde 7, g6w B-2; Runde 8,
     g7w B7-2): ``_hinter_zugangsdaten``. Im Zweifel ohne Port. ``None``, wenn die
-    Adresse keinen Rechner erkennen lässt."""
+    Adresse keinen Rechner erkennen lässt; ``MEHRDEUTIGE_ADRESSE``, wenn sie zwei
+    Lesarten hat (``_mehrdeutig``) — dann nennt sie keinen geratenen Rechner, der ein
+    Teil des Passworts sein könnte (Folgepaket F, g8w B8-4)."""
     schema, trenner, rest = adresse.strip().partition("://")
     if not trenner or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.\-]*", schema):
         return None
     vorn = re.split(r"[/?#]", rest, maxsplit=1)[0]
     if "@" in vorn:
+        if _mehrdeutig(rest):
+            return MEHRDEUTIGE_ADRESSE
         vorn = vorn.rpartition("@")[2]
     elif (rechner := _hinter_zugangsdaten(vorn, rest[len(vorn) :])) is not None:
         vorn = rechner

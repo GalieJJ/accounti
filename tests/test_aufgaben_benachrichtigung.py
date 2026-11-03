@@ -645,3 +645,57 @@ def test_webhook_fehler_gespeichert_ohne_passwortziffern(
     assert all("https://hooks.example.invalid/…" in x for x in texte), texte
     for geheim in ("alarm", "4711", "Sonne"):
         assert not any(geheim in x for x in texte), geheim
+
+
+MEHRDEUTIG = [
+    "https://alarm:Son@ne#x@hooks.example.invalid/hook",
+    "https://alarm:Son@ne?x@hooks.example.invalid/hook",
+    "https://alarm:Son@ne#x@hooks.example.invalid",
+]
+
+
+@pytest.mark.parametrize("url", MEHRDEUTIG, ids=["raute", "frage", "ohne_pfad"])
+def test_mehrdeutige_adresse_nennt_keinen_geratenen_rechner(url):
+    """B8-4 (g8w): „@“ im Passwort vor „#“ bzw. „?“ — der Passwortteil „ne“ erschien
+    als Rechner („https://ne/…“). Eine solche Adresse ist nicht eindeutig zu lesen;
+    statt eines geratenen Rechners steht ein neutraler Hinweis da."""
+    ziel = WebhookKanal(url)._ziel()
+    assert "nicht eindeutig" in ziel and "prozentkodieren" in ziel, ziel
+    assert "://ne" not in ziel and "Son" not in ziel and "alarm" not in ziel
+
+
+def test_mehrdeutige_adresse_ohne_passwortteil_gespeichert(
+    make_session, fuenf_aufgaben, monkeypatch
+):
+    """B8-4: WARNUNG und ``aufgaben_benachrichtigungen`` (adresse, fehler) nennen den
+    Hinweis, nicht den Passwortteil."""
+    import logging
+    import urllib.error
+
+    from accounti.aufgaben import benachrichtigung
+
+    def urlopen(*_args, **_kw):  # noqa: ANN002, ANN003, ANN202
+        raise urllib.error.URLError("Temporary failure in name resolution")
+
+    monkeypatch.setattr(benachrichtigung.urllib.request, "urlopen", urlopen)
+    url = MEHRDEUTIG[0]
+    e = _einstellungen(kanaele=["webhook"], webhook={"url": url})
+    warnungen: list[str] = []
+
+    class Fang(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            warnungen.append(record.getMessage())
+
+    fang = Fang(logging.WARNING)
+    logging.getLogger().addHandler(fang)
+    try:
+        lauf = _versende(make_session, e, {"webhook": WebhookKanal(url, timeout=1)})
+    finally:
+        logging.getLogger().removeHandler(fang)
+    assert lauf.zustellungen and not any(z.erfolgreich for z in lauf.zustellungen)
+    with make_session() as s:
+        gespeichert = lade_benachrichtigungen(s)
+    texte = [str(x) for z in gespeichert for x in (z.adresse, z.fehler)] + warnungen
+    assert gespeichert and all("nicht eindeutig" in str(z.adresse) for z in gespeichert)
+    for geheim in ("://ne", "Son", "alarm"):
+        assert not any(geheim in x for x in texte), (geheim, texte)
