@@ -1645,10 +1645,16 @@ def test_einzahlung_vor_dem_fenster_mit_trotzdem(umgebung, bank_tag):
     with pytest.raises(ZuordnungError, match="vor dem Zeitfenster der Einzahlung") as f:
         ordne_zu(s, kontext, a.nummer, str(t.id)[:8], von="erika")
     assert "--trotzdem" in str(f.value) and "Auszahlung" not in str(f.value)
-    zuordnung = ordne_zu(s, kontext, a.nummer, str(t.id)[:8], von="erika", trotzdem=True)
+    zuordnung = ordne_zu(
+        s, kontext, a.nummer, str(t.id)[:8], von="erika", trotzdem=True
+    )
     assert zuordnung.transaktion is not None and zuordnung.transaktion.id == t.id
     (b,) = buchungen_zur_transaktion(s, t.id)
-    assert (b.soll_konto, b.haben_konto, b.betrag_netto) == ("1360", "1200", Decimal("50.00"))
+    assert (b.soll_konto, b.haben_konto, b.betrag_netto) == (
+        "1360",
+        "1200",
+        Decimal("50.00"),
+    )
 
 
 def test_bank_abgleich_bestaetigt_keinen_beleg_fuer_zurueckgehaltene_auszahlung(

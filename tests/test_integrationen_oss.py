@@ -714,7 +714,9 @@ def test_oss_konten_eindeutig_und_nur_eu(tmp_path):
     with pytest.raises(KonfigurationError, match="CH"):
         lade_integrationen(pfad)
     # ``LAND: null`` nimmt ein Land nur für den Marktplatz heraus
-    pfad.write_text("integrationen:\n  oss_erloes_konten: {BE: null}\n", encoding="utf-8")
+    pfad.write_text(
+        "integrationen:\n  oss_erloes_konten: {BE: null}\n", encoding="utf-8"
+    )
     e = lade_integrationen(pfad)
     assert "BE" not in e.oss_erloes_konten and e.oss_erloes_konten["FR"] == "8320"
 
@@ -728,7 +730,10 @@ def test_oss_konten_eindeutig_und_nur_eu(tmp_path):
         (
             "SKR03",
             '{AT: "8321", IT: "8326"}',
-            [("oss_erloes_konten.AT", "8321", "IT"), ("oss_erloes_konten.IT", "8326", "AT")],
+            [
+                ("oss_erloes_konten.AT", "8321", "IT"),
+                ("oss_erloes_konten.IT", "8326", "AT"),
+            ],
         ),
         ("SKR04", '{DK: "4327", BE: null}', [("oss_erloes_konten.DK", "4327", "BE")]),
         # im SKR04 sind auch die Altbestandskonten 8320–8327 Länderkonten
@@ -763,9 +768,17 @@ def test_oss_konto_eines_anderen_lands_abgelehnt(tmp_path, rahmen, abschnitt, fa
     ("abschnitt", "konto", "land"),
     [
         # IT herausgenommen, sein Konto als ermäßigtes für FR: IT 22 % als FR 5,5 %
-        ('oss_erloes_konten: {IT: null}\n  oss_erloes_ermaessigt: {FR: "8321"}', "8321", "IT"),
+        (
+            'oss_erloes_konten: {IT: null}\n  oss_erloes_ermaessigt: {FR: "8321"}',
+            "8321",
+            "IT",
+        ),
         # das Normalsatz-Konto des eigenen Lands als ermäßigtes
-        ('oss_erloes_konten: {FR: null}\n  oss_erloes_ermaessigt: {FR: "8320"}', "8320", "FR"),
+        (
+            'oss_erloes_konten: {FR: null}\n  oss_erloes_ermaessigt: {FR: "8320"}',
+            "8320",
+            "FR",
+        ),
     ],
 )
 def test_ermaessigtes_oss_konto_ist_kein_laenderkonto(tmp_path, abschnitt, konto, land):
