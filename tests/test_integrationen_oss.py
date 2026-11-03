@@ -376,6 +376,25 @@ def test_erstattung_mit_belegnummer_eines_anderen_lands_mindert_das_quartal():
     )
 
 
+def test_erstattung_zum_ermaessigten_satz_sucht_den_ursprung_im_selben_satz():
+    """Nachprüfung 10 E, G10-1: Eine Bestellung mit Teillieferungen — Q3 ein Artikel
+    zum Normalsatz, Q4 ein ermäßigter, in Q4 erstattet. Der Ursprung der Erstattung
+    ist der ermäßigte Verkauf in Q4, nicht der Normalsatz-Verkauf aus Q3: keine
+    Korrektur des Vorquartals zu 5,5 %."""
+    q3 = oss_buchung(date(2026, 8, 10), "100.00", beleg="302-0000001")
+    q4 = oss_buchung(date(2026, 10, 5), "50.00", konto="8329", beleg="302-0000001")
+    erstattung = oss_buchung(
+        date(2026, 10, 20), "50.00", konto="8329", beleg="302-0000001", erstattung=True
+    )
+    meldung = OSSEngine().erstelle_meldung(
+        [q3, q4, erstattung], 2026, 4, erloes_konten_ermaessigt={"FR": "8329"}
+    )
+    assert meldung.korrekturen == []
+    assert sum(
+        (x.bemessungsgrundlage_ermaessigt for x in meldung.laender), D("0")
+    ) == D("0")
+
+
 def test_erstattung_im_selben_quartal_mindert_die_laenderzeile():
     erloes = oss_buchung(date(2026, 10, 4), "80.00")
     erstattung = oss_buchung(date(2026, 10, 12), "50.00", erstattung=True)

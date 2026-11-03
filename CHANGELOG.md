@@ -540,7 +540,7 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   rät zu einem anderen Konto (z. B. 8328) und zum Umbuchen. `LAND: null` nimmt ein Land nur für
   den Marktplatz heraus, das Konto bleibt das Konto seines Lands. Eine Erstattung im
   Folgequartal auf einem anderen Konto desselben Lands (SKR04 8320 → 4320) berichtigt das
-  Ursprungsquartal statt das laufende zu mindern. Die Beispielkonfiguration setzt Kursdifferenz-
+  Ursprungsquartal statt das laufende zu mindern (je Land und Satzart). Die Beispielkonfiguration setzt Kursdifferenz-
   und OSS-Steuerkonto nicht mehr fest (auf SKR04 gestellt gingen Kursdifferenzen still auf die
   Privatkonten 2150/2660). `marktplatz zuordnen --trotzdem` nimmt eine Einzahlung auch vor dem
   Zeitfenster (die Bank bucht die Überweisung zuerst; die Meldung sprach von einer Auszahlung),

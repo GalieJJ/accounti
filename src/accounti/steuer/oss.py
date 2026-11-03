@@ -308,14 +308,17 @@ class OSSEngine:
         for code, konto in (erloes_konten_ermaessigt or {}).items():
             konto_zu_land[konto] = (code.upper(), True)
 
-        # Ursprung je Erlös: frühestes Datum je (Bestimmungsland, Belegnummer) — nicht
-        # je Konto: eine Erstattung kann auf einem anderen Konto desselben Lands stehen
-        # (SKR04: Marktplatz bis Paket E 8320, seither 4320; ein gewechseltes Konto
-        # aus ``integrationen.oss_erloes_konten``; Nachprüfung 9 E, N2)
-        ursprung: dict[tuple[str, str], date] = {}
+        # Ursprung je Erlös: frühestes Datum je (Bestimmungsland, Satzart, Belegnummer)
+        # — nicht je Konto: eine Erstattung kann auf einem anderen Konto desselben Lands
+        # stehen (SKR04: Marktplatz bis Paket E 8320, seither 4320; ein gewechseltes
+        # Konto aus ``integrationen.oss_erloes_konten``; Nachprüfung 9 E, N2). Die
+        # Satzart gehört dazu: Eine Bestellung mit Teillieferungen (Q3 Normalsatz, Q4
+        # ermäßigt, in Q4 erstattet) berichtigt sonst Q3 zum ermäßigten Satz
+        # (Nachprüfung 10 E, G10-1)
+        ursprung: dict[tuple[str, bool, str], date] = {}
         for b in buchungen:
             if b.beleg_nummer and b.haben_konto in konto_zu_land and b.datum <= bis:
-                schluessel = (konto_zu_land[b.haben_konto][0], b.beleg_nummer)
+                schluessel = (*konto_zu_land[b.haben_konto], b.beleg_nummer)
                 if schluessel not in ursprung or b.datum < ursprung[schluessel]:
                     ursprung[schluessel] = b.datum
 
@@ -338,7 +341,7 @@ class OSSEngine:
                 continue
             betrag = vorzeichen * abs(b.betrag_netto)
             frueher = (
-                ursprung.get((land_code, b.beleg_nummer))
+                ursprung.get((land_code, ermaessigt, b.beleg_nummer))
                 if vorzeichen < 0 and b.beleg_nummer
                 else None
             )
