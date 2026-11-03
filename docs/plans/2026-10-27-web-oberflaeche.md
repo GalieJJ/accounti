@@ -1695,7 +1695,17 @@ Durchlaufs mit Markern in allen Fremddaten.
   Eine Erlösschmälerung („8700 an 1000, Schlüssel 3“) senkt die Obergrenze nicht, ob wirksam,
   storniert oder berichtigt (Untergrenze 0 je Kette; sonst hob sie den Erlös auf: Storno ohne
   Warnung bzw. 76 statt 95 €, F Runde 3, gf2-richtung GF2-1, GF2-2); eine Minderung, die der
-  Beleg selbst ausweist (Position Rücksendung), mindert schon die ausgewiesene Steuer. Auswahl der Oberfläche,
+  Beleg selbst ausweist (Position Rücksendung), mindert schon die ausgewiesene Steuer. Steht
+  sie neben einer Gebühr desselben Satzes und sind Erstattung und Verkauf storniert, heben
+  sich Erstattung und Gebühr in der ausgewiesenen Steuer auf: Die Lücke meldet dann zu viel
+  (19 € statt nichts, Teil-Erstattung 95 statt 76 €; gf3-obergrenze GF3-2) — eine Warnung zu
+  viel, nie eine fehlende; eine engere Obergrenze zog die Erstattung bei netto gebuchtem Erlös
+  doppelt ab und ließ Umsatzsteuer still fehlen (Paket G, gg GG-1). Nennt der
+  Beleg keinen Satz und keine eindeutige Belegsteuer (Beleg ohne Steuerzeile: Position
+  „Gesamtbetrag“ ohne Satz), weist er je Satz die höchste Steuer seiner Rechnungsbuchungen
+  aus, auch einer stornierten — auch auf einer Ausgangsrechnung; eine Minderung ist keine
+  Rechnungsbuchung (als jüngste Buchung machte sie die ausgewiesene Steuer ≤ 0: Storno des
+  Erlöses ohne Warnung, Paket G, GF3-1). Auswahl der Oberfläche,
   Korrektur, Storno-Warnung und Prüfregel lesen dieselben Konten (mit
   `elster.steuerrelevante_konten` und `kennziffern_konten`; g8w G8R-2). Grenzen: Nennt der
   Beleg mehrere Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg
@@ -1705,7 +1715,15 @@ Durchlaufs mit Markern in allen Fremddaten.
   Aufwandskonto). Die Obergrenze der Lücke ist die höchste gebuchte Erlössteuer der Kette —
   war der Erlös mit zu wenig Steuer gebucht, meldet die Lücke nur diese. Bleibt neben dem
   stornierten Erlös eine Erlösschmälerung wirksam, die der Beleg nicht ausweist („8700 an
-  1000, Schlüssel 3“, Kz 81 −500), melden Storno und Prüfregel die ganzen 95 € (wie d36ac77). Wird ein Vorschlag
+  1000, Schlüssel 3“, Kz 81 −500), melden Storno und Prüfregel die ganzen 95 € (wie d36ac77).
+  Bleibt dagegen eine Erstattung gebucht, die der Beleg selbst ausweist, und wird nur der
+  Verkauf storniert, zählt die Summe der Positionen: Bei voller Erstattung meldet die Lücke
+  neben einer Gebühr desselben Satzes nur deren Vorsteuer (19 statt 95 €), ohne Gebühr
+  nichts, obwohl die Voranmeldung um die Erstattung mindert (beides wie bisher). Ohne
+  Steuerzeile kennt die Lücke den Betrag des Belegs nicht: Ist die Rechnung auf mehrere
+  Buchungen desselben Satzes verteilt, zählt nur die höchste (das Storno eines kleineren
+  Teils meldet nichts, wie bisher), und nach Storno und Neubuchung mit niedrigerem Betrag
+  meldet sie den Unterschied zur stornierten Buchung. Wird ein Vorschlag
   direkt (ohne Storno) auf ein Konto ohne Erlös umgebucht („1000 an 2700, Schlüssel 3“ ohne
   `elster.steuerrelevante_konten`) und dann storniert, kennt die Lücke den früheren Stand
   nicht (er steht nur im Journal; wie d36ac77); „→ 2700, dann ohne Steuer mit Grund“ bleibt
