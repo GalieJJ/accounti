@@ -623,6 +623,10 @@
     background-color: var(--akzent-flaeche);
     border: 2px solid var(--akzent);
   }
+  /* Codefeld: 48 px, große Ziffern mit Laufweite; der Wechsel steht beim Label */
+  .codefeld-kopf { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--a-1) var(--a-4); width: 100%; max-width: 22rem; }
+  .codefeld-wechsel { font-size: var(--gr-3); }
+  .eingabe-code { min-height: 3rem; font-size: var(--gr-6); letter-spacing: 0.2em; }
 }
 
 @layer hilfen {

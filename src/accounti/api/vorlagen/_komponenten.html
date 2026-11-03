@@ -201,3 +201,10 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {%- set id = id or name -%}
 <fieldset class="segment"><legend class="etikett">{{ legende }}</legend><div class="segment-wahl">{% for wert, text in optionen %}<label class="segment-pille" for="{{ id }}-{{ wert }}"><input type="radio" id="{{ id }}-{{ wert }}" name="{{ name }}" value="{{ wert }}"{% if wert == gewaehlt %} checked{% endif %}>{{ text }}</label>{% endfor %}</div></fieldset>
 {%- endmacro %}
+
+{#- Codefeld: ein Feld einmalcode; variante "app" (Ziffern) oder "wiederherstellung"
+    (Text). Der Wechsel steht beim Label, vor dem Feld (wechsel_href trägt weiter). -#}
+{% macro codefeld(variante="app", wechsel_href=none, fehler=none, id="einmalcode") -%}
+{%- set app = {"app": true, "wiederherstellung": false}[variante] -%}
+<div class="{{ _feldklasse(fehler, none) }} codefeld"><div class="codefeld-kopf">{{ _label(id, _("Code aus Ihrer Authenticator-App") if app else _("Wiederherstellungscode"), false) }}{% if wechsel_href %}<a class="codefeld-wechsel" href="{{ wechsel_href }}">{{ _("Wiederherstellungscode verwenden") if app else _("Code aus der App verwenden") }}</a>{% endif %}</div><input class="eingabe eingabe-code breite-mittel" id="{{ id }}" type="text" name="einmalcode" value=""{% if app %} autocomplete="one-time-code" inputmode="numeric"{% else %} autocomplete="off" inputmode="text" autocapitalize="off" spellcheck="false"{% endif %}{% if fehler %} aria-invalid="true" aria-describedby="{{ id }}-fehler"{% endif %}>{{ _meldungen(id, none, fehler) }}</div>
+{%- endmacro %}

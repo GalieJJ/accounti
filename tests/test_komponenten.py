@@ -428,3 +428,38 @@ def test_optionskarte_und_segment_ohne_skript():
     assert 'name="ust" value="quartal" checked>vierteljährlich' in segment
     for html in (karte, gesperrt, segment):
         assert re.search(r"\son[a-z]+=|style=|<script", html) is None
+
+
+def test_codefeld_ein_feld_numerisch_und_variante():
+    html = render(
+        "{{ k.codefeld(wechsel_href="
+        '"/anmelden?weiter=%2Fpruefen&code=wiederherstellung",'
+        ' id="einmalcode-lauf-3") }}'
+    )
+    assert len(nur(html, "input")) == 1
+    eingabe = nur(html, "input")[0]
+    assert 'id="einmalcode-lauf-3"' in eingabe and 'name="einmalcode"' in eingabe
+    assert (
+        'inputmode="numeric"' in eingabe and 'autocomplete="one-time-code"' in eingabe
+    )
+    assert "pattern" not in eingabe and "maxlength" not in eingabe
+    label = html.index(
+        '<label for="einmalcode-lauf-3">Code aus Ihrer Authenticator-App'
+    )
+    link = html.index(
+        '<a class="codefeld-wechsel" href="/anmelden?weiter=%2Fpruefen&amp;code='
+        'wiederherstellung">Wiederherstellungscode verwenden</a>'
+    )
+    assert label < link < html.index("<input")
+    text = render(
+        '{{ k.codefeld("wiederherstellung", wechsel_href="/anmelden",'
+        ' fehler="falsch") }}'
+    )
+    eingabe = nur(text, "input")[0]
+    assert 'inputmode="text"' in eingabe and 'autocapitalize="off"' in eingabe
+    assert 'spellcheck="false"' in eingabe and 'id="einmalcode"' in eingabe
+    assert 'aria-invalid="true" aria-describedby="einmalcode-fehler"' in eingabe
+    assert '<label for="einmalcode">Wiederherstellungscode</label>' in text
+    assert "Code aus der App verwenden</a>" in text
+    with pytest.raises(TemplateError):
+        render('{{ k.codefeld("sms") }}')
