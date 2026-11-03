@@ -6,6 +6,7 @@
 <h1>{{ _("Buchung") }} <code>{{ b.id | string | truncate(8, True, "") }}</code></h1>
 {% for meldung in aktion_meldungen %}<p class="meldung" role="status">{{ m.meldung_text(meldung) }}</p>{% endfor %}
 {{ m.fehlerkasten(aktion_fehler) }}
+{% if konfig_fehler %}{{ m.konfigurationsfehler(konfig_fehler) }}{% endif %}
 <div class="flaeche">
   <section class="links">
     <dl class="daten">

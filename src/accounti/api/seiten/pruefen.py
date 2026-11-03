@@ -239,23 +239,21 @@ def steuernamen() -> dict[int, str]:
     return {nr: r.bezeichnung for nr, r in STEUERSCHLUESSEL.items()}
 
 
-def _pruefeinstellungen(a: Angemeldet) -> Any:
-    from accounti.konfiguration import KonfigurationError
+def seitenkonfiguration(a: Angemeldet) -> tuple[Any, Any, str | None]:
+    """Prüfeinstellungen und Buchhaltung der Gesellschaft für eine Seite: (Prüfung,
+    Buchhaltung, Fehler). Ist die Konfiguration fehlerhaft (kaputtes YAML, andere
+    Kodierung als UTF-8, ungültiger Abschnitt), ``(None, None, Meldung)`` — die Seite
+    zeigt die Meldung und keine Entscheidung, statt still mit Standardwerten für Steuer
+    und Prüfregeln zu rechnen (Runde 8, g7w B7-4; Runde 6: 500, Runde 7: still
+    Standardwerte)."""
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.pruefung.einstellungen import lade_pruefung
 
+    pfad = a.gesellschaft.konfiguration
     try:
-        return lade_pruefung(a.gesellschaft.konfiguration)
-    except (KonfigurationError, ValueError):
-        return None
-
-
-def _buchhaltung(a: Angemeldet) -> Any:
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
-
-    try:
-        return lade_buchhaltung(a.gesellschaft.konfiguration)
-    except (KonfigurationError, ValueError):
-        return None
+        return lade_pruefung(pfad), lade_buchhaltung(pfad), None
+    except (KonfigurationError, ValueError) as fehler:
+        return None, None, str(fehler)
 
 
 def flaechenwerte(
@@ -272,9 +270,10 @@ def flaechenwerte(
 ) -> dict[str, Any]:
     from accounti.klassifikation.lernen import vorschlag_muster
 
+    pruefung, buchhaltung, konfig_fehler = seitenkonfiguration(a)
     try:
         e: Arbeitsflaeche = lade_eintrag(
-            s, buchung_id, pruefung=_pruefeinstellungen(a), buchhaltung=_buchhaltung(a)
+            s, buchung_id, pruefung=pruefung, buchhaltung=buchhaltung
         )
     except BuchungFehltError as f:
         raise HTTPException(404, Text("Buchung nicht gefunden")) from f
@@ -299,6 +298,7 @@ def flaechenwerte(
         "aktion_fehler": fehler,
         "aktion_meldungen": meldungen or [],
         "vorschau": vorschau,
+        "konfig_fehler": konfig_fehler,
         "muster_vorschlag": vorschlag_muster(e.umsatz) if e.umsatz else "",
         "darf_freigeben": a.darf(Recht.BUCHUNG_FREIGEBEN),
         "darf_buchen": a.darf(Recht.BUCHEN),

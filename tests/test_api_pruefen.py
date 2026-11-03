@@ -690,3 +690,75 @@ def test_keine_einmalcode_abfrage_in_der_queue(qw):
 
 def _unbenutzt() -> None:  # pragma: no cover
     Decimal  # noqa: B018
+
+
+@pytest.mark.parametrize("kaputt", ["yaml", "latin1"])
+def test_kaputte_konfiguration_zeigt_meldung_statt_standardwerten(qw, kaputt):
+    """B7-4 (g7w, Runde 7): Mit kaputter accounti.yaml zeigte die Arbeitsfläche still
+    eine Seite mit Standardwerten für Steuer und Prüfregeln (Runde 6: 500). Jetzt steht
+    die Meldung samt Datei auf der Seite, und es gibt keine Entscheidung; Freigeben
+    endet weiter mit 409, gebucht wird nichts."""
+    b = qw.unsicher()
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 2))
+    client = qw.web.angemeldet("jan")
+    stand = stand_aus(client.get(f"/pruefen/{b.id}").text)
+    assert (
+        f'action="/buchungen/{frei.id}/stornieren"'
+        in client.get(f"/buchungen/{frei.id}").text
+    )
+    pfad = qw.web.umgebung.config["a"]
+    roh = pfad.read_text(encoding="utf-8")
+    if kaputt == "yaml":
+        pfad.write_text(roh + "\nkaputt: [a, b\n", encoding="utf-8")
+        meldung = "kein gültiges YAML"
+    else:
+        pfad.write_bytes(roh.encode("utf-8") + "\n# Bürobedarf\n".encode("latin-1"))
+        meldung = "keine UTF-8-Datei"
+    seite = client.get(f"/pruefen/{b.id}")
+    assert seite.status_code == 200
+    assert "Konfiguration der Gesellschaft ist fehlerhaft" in seite.text
+    assert meldung in seite.text and str(pfad) in seite.text
+    for was in ("freigeben", "korrigieren", "zurueckstellen"):
+        assert f'action="/pruefen/{b.id}/{was}"' not in seite.text, was
+    r = client.post(
+        f"/pruefen/{b.id}/freigeben",
+        data={"csrf": csrf(client), "stand": stand, "ansicht": "offen"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 409 and meldung in r.text
+    assert status_von(qw, b.id)[0] == "pruefung"
+    # /buchungen: dieselbe Meldung, ohne Korrektur und Storno
+    seite = client.get(f"/buchungen/{frei.id}")
+    assert seite.status_code == 200
+    assert "Konfiguration der Gesellschaft ist fehlerhaft" in seite.text
+    for was in ("korrigieren", "stornieren"):
+        assert f'action="/buchungen/{frei.id}/{was}"' not in seite.text, was
+
+
+def test_steuerauswahl_erloes_auf_quittung(qw):
+    """R7-3 (g7w): Ein Erlös auf einer Quittung (eigener Kassenbon) bzw. einer
+    Marktplatzabrechnung (SONSTIGES) ist keine Eingangsbuchung — kein Schlüssel 9,
+    kein „ohne Steuer“ (§ 14c); ein Aufwand auf der Quittung bleibt Fehlschlüssel."""
+    client = qw.web.angemeldet("jan")
+
+    def optionen(b):  # noqa: ANN001, ANN202
+        seite = client.get(f"/pruefen/{b.id}").text
+        auswahl = re.search(r'<select id="steuer".*?</select>', seite, re.S).group(0)
+        return re.findall(r'<option value="([^"]*)"', auswahl), seite
+
+    for art, soll in ((Belegart.QUITTUNG, "1000"), (Belegart.SONSTIGES, "1590")):
+        beleg = qw.beleg(pdf(f"Beleg {art.value}"), belegart=art, belegnummer=None)
+        erloes = qw.buchung(
+            beleg_id=beleg.id, soll=soll, haben="8400", steuer_schluessel=3,
+            datum=date(2026, 10, 2),
+        )  # fmt: skip
+        werte, seite = optionen(erloes)
+        assert werte == ["", "3"], (art, werte)
+        assert "Fehlschlüssel" not in seite and "§ 14c" in seite
+    quittung = qw.beleg(pdf("Kassenbon"), belegart=Belegart.QUITTUNG, belegnummer="Q")
+    aufwand = qw.buchung(
+        beleg_id=quittung.id, soll="4930", haben="1000", steuer_schluessel=3,
+        datum=date(2026, 10, 3),
+    )  # fmt: skip
+    werte, seite = optionen(aufwand)
+    assert werte == ["", "3", "9", "ohne"] and "Fehlschlüssel" in seite

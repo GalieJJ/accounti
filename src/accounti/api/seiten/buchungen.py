@@ -81,14 +81,21 @@ def buchungswerte(
     mit_einmalcode: bool = True,
     formular: str | None = None,
 ) -> dict[str, Any]:
+    from accounti.api.seiten.pruefen import seitenkonfiguration
     from accounti.belege.zuordnung import beleg_zur_buchung
     from accounti.db.repo_pruefung import korrektur_zu
     from accounti.db.repository import lade_buchungen, lade_transaktion
     from accounti.pruefung.journal import lade_journal
     from accounti.pruefung.perioden import sperre_am
-    from accounti.pruefung.storno import VORSCHLAG, ist_freigegeben, steuer_optionen
+    from accounti.pruefung.storno import (
+        VORSCHLAG,
+        ist_freigegeben,
+        kontenplan,
+        steuer_optionen,
+    )
 
     b = _lade(s, buchung_id)
+    _, buchhaltung, konfig_fehler = seitenkonfiguration(a)
     korrektur = korrektur_zu(s, b.id)
     beteiligte: dict[str, Buchungssatz] = {}
     if korrektur is not None:
@@ -107,6 +114,7 @@ def buchungswerte(
         and b.storniert_durch is None
         and b.storno_von is None
         and a.darf(Recht.BUCHEN)
+        and konfig_fehler is None
     )
     konten = [b.soll_konto, b.haben_konto] + [
         k for x in beteiligte.values() for k in (x.soll_konto, x.haben_konto)
@@ -125,8 +133,11 @@ def buchungswerte(
         "umsatz": lade_transaktion(s, b.transaktion_id) if b.transaktion_id else None,
         "sperre": sperre_am(s, b.datum),
         "steuer": steuer_optionen(
-            b, beleg if beleg is not None and beleg.id == b.beleg_id else None
+            b,
+            beleg if beleg is not None and beleg.id == b.beleg_id else None,
+            kontenplan(s, buchhaltung, None) if buchhaltung is not None else None,
         ),
+        "konfig_fehler": konfig_fehler,
         "kontonamen": kontonamen(a, konten),
         "steuernamen": steuernamen(),
         "korrigierbar": korrigierbar,

@@ -1,5 +1,7 @@
 {% import "_makros.html" as m with context %}
-{% if not e.ist_vorschlag %}
+{% if konfig_fehler %}
+{{ m.konfigurationsfehler(konfig_fehler) }}
+{% elif not e.ist_vorschlag %}
 <p class="hinweis">{{ _("Diese Buchung ist nicht mehr in der Prüfung — Korrektur nur per Storno.") }} <a href="/buchungen/{{ b.id }}">{{ _("Zur Buchung") }}</a></p>
 {% elif e.sperre %}
 <p class="hinweis sperre">{% if e.sperre.art == "jahr" %}{{ _("Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.", jahr=e.sperre.zeitraum) }}{% else %}{{ _("Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.", monat=e.sperre.zeitraum) }}{% endif %}</p>
