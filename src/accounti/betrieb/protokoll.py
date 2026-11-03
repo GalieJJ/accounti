@@ -23,11 +23,12 @@ import sys
 from bisect import bisect_left, bisect_right
 from typing import IO
 
-# Ein Schema beginnt nach einem Zeichen, das kein Buchstabe ist, und ist höchstens 41
-# Zeichen lang: Ohne diese Grenzen probierte jedes Muster mit Schema jede Stelle einer
-# langen Zeichenfolge bis zu ihrem Ende — quadratisch, ein „GET /statisch/<15 000 ×
-# a>“ hielt den Server 5 s an (Runde 8, g7w DoS-1)
-_SCHEMA = r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9+.\-]{0,40}://"
+# Zugangsdaten stehen hinter „://“ — gleich, was davor steht: Die Muster beginnen an
+# „://“, nicht am Anfang des Schemas. Ein Schema-Anfang probierte jede Stelle einer
+# langen Zeichenfolge bis zu ihrem Ende (quadratisch, Runde 8, g7w DoS-1), begrenzt auf
+# 41 Buchstaben übersah es ein Schema hinter 42 Buchstaben ohne Trenner (Folgepaket F,
+# g8w B8-3)
+_SCHEMA = r"://"
 # Zeichen einer E-Mail-Adresse vor dem „@“ bzw. des Rests einer zerschnittenen Adresse
 _LOKAL = r"\w.+\-#?%!$&*=^~"
 # Leerraum zwischen Schlüsselwort und Wert („Passwort:  …“, „PIN\n4711“): begrenzt —

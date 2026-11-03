@@ -502,6 +502,38 @@ def test_schwaerzung_ohne_ueberschwaerzung(roh, erwartet):
 @pytest.mark.parametrize(
     "roh",
     [
+        "a" * 37 + "https://u:pw4711@h",
+        "Datenbankverbindungsfehlermeldungskontextpostgresql://u:pw4711@h/db",
+        "Datenbankverbindungsfehlermeldungskontextpostgresql://u:pw4711",
+        "x-" + "a" * 45 + "://u:pw4711@h",
+        "a" * 5000 + "https://u:pw4711@h",
+        "ä" * 50 + "https://u:pw4711/x@h",
+    ],
+    ids=[
+        "37_buchstaben",
+        "wort",
+        "wort_abgeschnitten",
+        "langes_schema",
+        "5000",
+        "pfad",
+    ],
+)
+def test_zugangsdaten_hinter_jedem_schema(roh):
+    """B8-3 (g8w): Ein Schema hinter 42 oder mehr Buchstaben ohne Trenner fand kein
+    Muster (``(?<![A-Za-z])…{0,40}://``) — die Zugangsdaten blieben stehen. Die Muster
+    beginnen jetzt an „://“, gleich, was davor steht; linear wie bisher."""
+    import time
+
+    assert "pw4711" not in schwaerze(roh)
+    text = "a" * 100_000 + "://u:pw4711@h"
+    beginn = time.perf_counter()
+    assert "pw4711" not in schwaerze(text)
+    assert time.perf_counter() - beginn < 0.25
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
         "Fehler https://alarm:4711?",
         "Fehler https://alarm:4711#\nSonne@hooks.example/x",
         "Fehler https://alarm:4711?#Sonne",
