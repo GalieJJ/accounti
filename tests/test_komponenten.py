@@ -402,3 +402,29 @@ def test_optionen_als_fieldset_mit_legend():
         '<label class="haken haken-ziel" for="r-1"><input type="checkbox" id="r-1"'
         ' name="regel" value="1" checked>Künftig immer so</label>'
     )
+
+
+def test_optionskarte_und_segment_ohne_skript():
+    karte = render(
+        '{{ k.optionskarte("konto", "4930", "Bürobedarf", nebentext="4930 · 19 %",'
+        ' gewaehlt=true, taste="1") }}'
+    )
+    assert karte.startswith('<label class="optionskarte" for="konto-4930">')
+    assert (
+        '<input type="radio" id="konto-4930" name="konto" value="4930" checked>'
+        in karte
+    )
+    assert "<kbd>1</kbd>" in karte and "4930 · 19 %" in karte
+    gesperrt = render('{{ k.optionskarte("k", "1", "X", grund="nur mit Beleg") }}')
+    assert " disabled" in gesperrt and "nur mit Beleg" in gesperrt
+    segment = render(
+        '{{ k.segment("ust", "Umsatzsteuer", [("monat", "monatlich"),'
+        ' ("quartal", "vierteljährlich")], gewaehlt="quartal") }}'
+    )
+    assert (
+        '<fieldset class="segment"><legend class="etikett">Umsatzsteuer</legend>'
+        in segment
+    )
+    assert 'name="ust" value="quartal" checked>vierteljährlich' in segment
+    for html in (karte, gesperrt, segment):
+        assert re.search(r"\son[a-z]+=|style=|<script", html) is None

@@ -187,3 +187,17 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {%- set id = id or name -%}
 <label class="haken haken-ziel" for="{{ id }}"><input type="checkbox" id="{{ id }}" name="{{ name }}" value="{{ wert }}"{% if gewaehlt %} checked{% endif %}>{{ beschriftung }}</label>
 {%- endmacro %}
+
+{#- Optionskarte: Optionsfeld im label, die Auswahl zeigt CSS über :has() — ohne Skript.
+    grund: warum die Option nicht wählbar ist (dann deaktiviert). -#}
+{% macro optionskarte(name, wert, titel, nebentext=none, grund=none, gewaehlt=false, taste=none, id=none) -%}
+{%- set id = id or name ~ "-" ~ wert -%}
+<label class="optionskarte" for="{{ id }}"><input type="radio" id="{{ id }}" name="{{ name }}" value="{{ wert }}"{% if gewaehlt %} checked{% endif %}{% if grund %} disabled{% endif %}><span class="optionskarte-text"><span class="optionskarte-titel">{{ titel }}</span>{% if nebentext or grund %}<span class="optionskarte-neben">{{ grund or nebentext }}</span>{% endif %}</span>{% if taste %}<kbd>{{ taste }}</kbd>{% endif %}</label>
+{%- endmacro %}
+
+{#- Segment (Wahlpillen): Optionsfelder als Pillen, mit Absendeknopf (kein Absenden bei
+    der Auswahl, WCAG 3.2.2). optionen: (wert, text). -#}
+{% macro segment(name, legende, optionen, gewaehlt=none, id=none) -%}
+{%- set id = id or name -%}
+<fieldset class="segment"><legend class="etikett">{{ legende }}</legend><div class="segment-wahl">{% for wert, text in optionen %}<label class="segment-pille" for="{{ id }}-{{ wert }}"><input type="radio" id="{{ id }}-{{ wert }}" name="{{ name }}" value="{{ wert }}"{% if wert == gewaehlt %} checked{% endif %}>{{ text }}</label>{% endfor %}</div></fieldset>
+{%- endmacro %}

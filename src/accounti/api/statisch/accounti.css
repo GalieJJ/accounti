@@ -580,6 +580,49 @@
   .haken input { flex: none; margin: 0; }
   .haken-ziel { min-width: 1.5rem; min-height: 1.5rem; cursor: pointer; }
   @media (pointer: coarse) { .haken-ziel { min-height: 2.75rem; } }
+  /* Optionskarte und Wahlpillen: die Auswahl zeigt :has() ohne Skript; der Innenabstand
+     wird beim 2-px-Rand um 1 px kleiner, damit nichts springt */
+  .optionskarte {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--a-3);
+    padding: var(--a-3) var(--a-4);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie-stark);
+    border-radius: var(--radius-m);
+    cursor: pointer;
+  }
+  .optionskarte:hover, .segment-pille:hover { background-image: linear-gradient(var(--schleier), var(--schleier)); }
+  .optionskarte input { flex: none; margin: var(--fein-1) 0 0; }
+  .optionskarte-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+  .optionskarte-titel { font-weight: 600; }
+  .optionskarte-neben { font-size: var(--gr-3); color: var(--text-2); }
+  .optionskarte:has(input:checked) {
+    padding: calc(var(--a-3) - 1px) calc(var(--a-4) - 1px);
+    background-color: var(--akzent-flaeche);
+    border: 2px solid var(--akzent);
+  }
+  .optionskarte:has(input:disabled) { background-color: var(--flaeche-2); cursor: not-allowed; }
+  .optionskarten { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(16rem, 100%), 1fr)); gap: var(--a-3); }
+  .segment-wahl { display: flex; flex-wrap: wrap; gap: var(--a-2); }
+  .segment-pille {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--a-2);
+    min-height: 2.75rem;
+    padding: 0 var(--a-4);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie-stark);
+    border-radius: var(--radius-rund);
+    cursor: pointer;
+  }
+  .segment-pille input { margin: 0; }
+  .segment-pille:has(input:checked) {
+    padding: 0 calc(var(--a-4) - 1px);
+    font-weight: 600;
+    background-color: var(--akzent-flaeche);
+    border: 2px solid var(--akzent);
+  }
 }
 
 @layer hilfen {
