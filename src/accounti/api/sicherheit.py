@@ -24,17 +24,23 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 ZUGRIFF = logging.getLogger("accounti.zugriff")
 FEHLER = logging.getLogger("accounti.api")
 UNBEKANNT = "(unbekannt)"
+# so viele Zeichen eines statischen Pfads stehen im Protokoll: h11 nimmt Pfade bis rund
+# 16 KB an, ein langer Pfad stand ganz im Protokoll, und seine Schwärzung hielt den
+# Event-Loop an (Runde 8, g7w DoS-1 — unangemeldet, schon auf main)
+PFAD_ZEICHEN = 200
 
 
 def protokollpfad(scope: Scope) -> str:
-    """Vorlage der Route; statische Dateien mit maskierten Steuerzeichen."""
+    """Vorlage der Route; statische Dateien mit maskierten Steuerzeichen, gekürzt auf
+    ``PFAD_ZEICHEN``."""
     route: Any = scope.get("route")
     vorlage = getattr(route, "path", None)
     if isinstance(vorlage, str) and vorlage:
         return vorlage
     pfad: str = scope.get("path", "")
     if pfad.startswith("/statisch/"):
-        return pfad.encode("unicode_escape").decode("ascii")
+        text = pfad[: PFAD_ZEICHEN + 1].encode("unicode_escape").decode("ascii")
+        return text if len(text) <= PFAD_ZEICHEN else text[:PFAD_ZEICHEN] + "…"
     return UNBEKANNT
 
 

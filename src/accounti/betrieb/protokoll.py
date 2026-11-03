@@ -22,7 +22,13 @@ import re
 import sys
 from typing import IO
 
-_SCHEMA = r"[A-Za-z][A-Za-z0-9+.\-]*://"
+# Ein Schema beginnt nach einem Zeichen, das kein Buchstabe ist, und ist höchstens 41
+# Zeichen lang: Ohne diese Grenzen probierte jedes Muster mit Schema jede Stelle einer
+# langen Zeichenfolge bis zu ihrem Ende — quadratisch, ein „GET /statisch/<15 000 ×
+# a>“ hielt den Server 5 s an (Runde 8, g7w DoS-1)
+_SCHEMA = r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9+.\-]{0,40}://"
+# Zeichen einer E-Mail-Adresse vor dem „@“ bzw. des Rests einer zerschnittenen Adresse
+_LOKAL = r"\w.+\-#?%!$&*=^~"
 _MUSTER: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"accounti_(?:api|wh)_[A-Za-z0-9_\-]+"), "[Token]"),
     # verbreitete Zugangstoken (GitHub, GitLab, Slack) — auch ohne „token=“
@@ -61,10 +67,11 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
     (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
     # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“, auch
-    # „benutzer:4711#Sonne@host“ ohne Schema)
+    # „benutzer:4711#Sonne@host“ ohne Schema); beginnt nur am Anfang einer solchen
+    # Zeichenfolge, nicht an jeder ihrer Stellen (DoS-1)
     (
         re.compile(
-            r"[\w.+\-#?%!$&*=^~]+(?::[\w.+\-#?%!$&*=^~]+)?@[\w\-]+(?:\.[\w\-]+)+"
+            rf"(?<![{_LOKAL}])[{_LOKAL}]+(?::[{_LOKAL}]+)?@[\w\-]+(?:\.[\w\-]+)+"
         ),
         "[E-Mail]",
     ),
@@ -75,7 +82,39 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
 ]
 
 
+# Zeilen über ZEILE_HOECHSTENS Zeichen verlieren vor den Mustern ihre Mitte (zweite
+# Ebene gegen DoS-1): höchstens RAND Zeichen vorn und hinten bleiben
+ZEILE_HOECHSTENS = 4000
+_RAND = 1500
+_LEER = re.compile(r"\s")
+# Anfang bzw. Rest einer an der Schnittstelle zerteilten IBAN (mit Leerzeichen das
+# einzige Geheimnis aus mehreren Wörtern, das ein Muster sonst nicht mehr erkennt)
+_IBAN_ANFANG = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{1,4}){0,8}$")
+_IBAN_REST = re.compile(r"^(?:[A-Z0-9]{1,4}(?:[ ]|$))+")
+
+
+def _ohne_mitte(zeile: str) -> str:
+    """Erst kürzen, dann schwärzen — ohne ein angeschnittenes Geheimnis stehen zu
+    lassen, dessen Rest kein Muster mehr erkennt (das Ende eines Tokens ohne „Bearer“
+    davor, „DE89 3704“): Der Anfang endet vor dem letzten Leerraum, das Ende beginnt
+    nach dem ersten, eine dort zerteilte IBAN fällt ganz weg. Die Mitte erscheint
+    nicht."""
+    kopf = zeile[:_RAND]
+    schnitt = max((m.start() for m in _LEER.finditer(kopf)), default=0)
+    kopf = _IBAN_ANFANG.sub("", kopf[:schnitt].rstrip())
+    ende = zeile[-_RAND:]
+    weiter = _LEER.search(ende)
+    ende = _IBAN_REST.sub("", ende[weiter.end() :].lstrip()) if weiter else ""
+    return f"{kopf} … [gekürzt] … {ende}".strip()
+
+
 def schwaerze(text: str) -> str:
+    """Der Text ohne erkennbare Geheimnisse und Personendaten; eine Zeile über
+    ``ZEILE_HOECHSTENS`` Zeichen ohne ihre Mitte (``_ohne_mitte``)."""
+    if len(text) > ZEILE_HOECHSTENS:
+        text = "\n".join(
+            _ohne_mitte(z) if len(z) > ZEILE_HOECHSTENS else z for z in text.split("\n")
+        )
     for muster, ersatz in _MUSTER:
         text = muster.sub(ersatz, text)
     return text

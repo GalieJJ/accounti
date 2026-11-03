@@ -344,3 +344,88 @@ def qw_tag():  # noqa: ANN201
     from datetime import date
 
     return date(2026, 10, 2)
+
+
+# --- Runde 8 (g7w): lange Eingaben, Überschwärzung, „/“ im Passwort ----------------
+
+
+@pytest.mark.parametrize("laenge", [15_000, 40_000])
+def test_langer_statischer_pfad_haelt_den_server_nicht_an(tmp_path, ausgabe, laenge):
+    """DoS-1 (g7w, schon auf main): ``GET /statisch/<15 000 Zeichen>`` ohne Anmeldung
+    schrieb den Pfad ganz ins Zugriffsprotokoll; die Schwärzung brauchte dafür im
+    Event-Loop 5 s (40 000 Zeichen: 36 s), jede andere Anfrage wartete. Jetzt steht der
+    Pfad gekürzt im Protokoll, und die Anfrage dauert nicht länger als sonst."""
+    import time
+
+    client = webwelt(tmp_path).client()
+    client.get("/statisch/accounti.css")
+    beginn = time.perf_counter()
+    r = client.get("/statisch/" + "a" * laenge)
+    dauer = time.perf_counter() - beginn
+    assert r.status_code == 404
+    (zeile,) = [z for z in ausgabe.getvalue().splitlines() if " 404 " in z]
+    assert "GET /statisch/aaaa" in zeile and "…" in zeile, zeile
+    assert len(zeile) < 400, len(zeile)
+    assert dauer < 0.5, dauer  # vorher 5 s bzw. 36 s
+
+
+@pytest.mark.parametrize(
+    "folge",
+    ["a", "a.", "#", "a%", "a@", "@a.", "a:", "a:a@", "a1", "https://a", "x://", "-"],
+)
+def test_schwaerzungsmuster_ohne_quadratische_laufzeit(folge):
+    """DoS-1: Die Muster probierten jede Stelle einer langen Zeichenfolge ohne Leerraum
+    und liefen dort bis zum Ende — quadratisch (15 000 × „a“: 5 s). Jedes Muster für
+    sich, ohne die Kürzung in ``schwaerze``: 100 000 Zeichen, ohne und mit „@“."""
+    import time
+
+    from accounti.betrieb.protokoll import _MUSTER
+
+    text = "GET /statisch/" + (folge * 100_000)[:100_000] + " 404 1 ms"
+    for muster, ersatz in _MUSTER:
+        beginn = time.perf_counter()
+        muster.sub(ersatz, text)
+        dauer = time.perf_counter() - beginn
+        assert dauer < 0.25, (muster.pattern, dauer)  # gemessen: ~10 ms
+
+
+def test_schwaerzung_kuerzt_ueberlange_zeilen_vor_den_mustern():
+    """Zweite Ebene gegen DoS-1: Eine Zeile über ``ZEILE_HOECHSTENS`` Zeichen verliert
+    ihre Mitte, bevor ein Muster sie sieht — Anfang und Ende bleiben, der Rest der
+    Meldung (andere Zeilen) auch."""
+    import time
+
+    from accounti.betrieb.protokoll import ZEILE_HOECHSTENS
+
+    lang = "Anfang " + "x" * 200_000 + " Ende"
+    beginn = time.perf_counter()
+    text = schwaerze(f"erste Zeile\n{lang}\nletzte Zeile an a@b.example")
+    assert time.perf_counter() - beginn < 0.5
+    erste, mitte, letzte = text.split("\n")
+    assert erste == "erste Zeile" and letzte == "letzte Zeile an [E-Mail]"
+    assert mitte.startswith("Anfang") and mitte.endswith("Ende"), mitte[:80]
+    assert "gekürzt" in mitte and len(mitte) <= ZEILE_HOECHSTENS
+
+
+@pytest.mark.parametrize(
+    ("geheimnis", "darf_nicht"),
+    [
+        (IBAN, "3704"),
+        ("Bearer " + "eyJ" + "k" * 3000, "kkkkkkkk"),
+        ("https://accounti:sehr-geheim@hooks.example/x", "sehr-geheim"),
+        ("passwort=hunter2", "hunter2"),
+        ("PIN: 12345", "12345"),
+    ],
+    ids=["iban", "bearer", "url", "parameter", "pin"],
+)
+def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis, darf_nicht):
+    """Erst kürzen, dann schwärzen: Ein Geheimnis an einer Schnittstelle fällt ganz weg
+    (sonst bliebe ein angeschnittener Rest stehen, den kein Muster mehr erkennt — etwa
+    „DE89 3704“ oder das Ende eines Tokens ohne „Bearer“ davor)."""
+    from accounti.betrieb.protokoll import ZEILE_HOECHSTENS
+
+    for stelle in range(0, ZEILE_HOECHSTENS + 1, 25):
+        zeile = "w " * (stelle // 2) + geheimnis + " z" * ZEILE_HOECHSTENS
+        assert darf_nicht not in schwaerze(zeile), stelle
+        zeile = "w " * ZEILE_HOECHSTENS + geheimnis + " z" * (stelle // 2)
+        assert darf_nicht not in schwaerze(zeile), stelle
