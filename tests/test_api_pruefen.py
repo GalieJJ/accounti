@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 
 from accounti.db.repo_kontierung import speichere_kontierungsgrund
-from accounti.models import BuchungStatus
+from accounti.models import Belegart, Belegrichtung, BuchungStatus
 from tests.api_hilfe import csrf
 from tests.auth_hilfe import billige_hashes
 from tests.pruefen_hilfe import LLM_BEGRUENDUNG, pdf, queuewelt, stand_aus
@@ -396,8 +396,12 @@ def test_korrigieren_braucht_buchen(qw):
 def test_steuerauswahl_aus_steuer_optionen(qw):
     beleg = qw.beleg(pdf())
     belegbuchung = qw.buchung(beleg_id=beleg.id)
+    ausgang = qw.beleg(
+        pdf("Rechnung AR-1 500,00"), belegart=Belegart.AUSGANGSRECHNUNG,
+        richtung=Belegrichtung.AUSGANG, belegnummer="AR-1",
+    )  # fmt: skip
     ust = qw.buchung(
-        beleg_id=beleg.id, soll="1200", haben="8400", steuer_schluessel=3,
+        beleg_id=ausgang.id, soll="1200", haben="8400", steuer_schluessel=3,
         datum=date(2026, 10, 2),
     )  # fmt: skip
     bank = qw.buchung(datum=date(2026, 10, 3))
@@ -411,6 +415,13 @@ def test_steuerauswahl_aus_steuer_optionen(qw):
     assert optionen(belegbuchung) == ["", "9", "ohne"]
     assert optionen(ust) == ["", "3"]  # § 14c: nicht „ohne Steuer“
     assert set(optionen(bank)) >= {"", "2", "3", "8", "9", "19", "94", "ohne"}
+    # Schlüssel 3 auf dem Eingangsbeleg: Fehlschlüssel, kein § 14c — wählbar sind der
+    # Schlüssel laut Beleg (19 % → 9) und „ohne Steuer“ (Runde 7, g6w N5)
+    fehl = qw.buchung(
+        beleg_id=beleg.id, soll="4930", haben="1200", steuer_schluessel=3,
+        datum=date(2026, 10, 4),
+    )  # fmt: skip
+    assert optionen(fehl) == ["", "3", "9", "ohne"]
 
 
 def test_sachkontowechsel_verlangt_steuerangabe_422(qw):

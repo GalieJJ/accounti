@@ -485,7 +485,7 @@ def lade_eintrag(
         aufgaben=aufgaben,
         zurueckgestellt=any(a.art == RUECKFRAGE for a in aufgaben),
         sperre=sperre_am(session, b.datum),
-        steuer=steuer_optionen(b),
+        steuer=steuer_optionen(b, beleg if beleg and beleg.id == b.beleg_id else None),
     )
     if tx is not None:
         flaeche.nachforderung = [

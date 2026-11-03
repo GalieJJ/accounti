@@ -111,6 +111,7 @@ def buchungswerte(
     konten = [b.soll_konto, b.haben_konto] + [
         k for x in beteiligte.values() for k in (x.soll_konto, x.haben_konto)
     ]
+    beleg = beleg_zur_buchung(s, b)
     return {
         "titel": N_("Buchung"),
         "b": b,
@@ -120,10 +121,12 @@ def buchungswerte(
         "korrektur": korrektur,
         "beteiligte": beteiligte,
         "journal": lade_journal(s, objekt_id=str(b.id)),
-        "beleg": beleg_zur_buchung(s, b),
+        "beleg": beleg,
         "umsatz": lade_transaktion(s, b.transaktion_id) if b.transaktion_id else None,
         "sperre": sperre_am(s, b.datum),
-        "steuer": steuer_optionen(b),
+        "steuer": steuer_optionen(
+            b, beleg if beleg is not None and beleg.id == b.beleg_id else None
+        ),
         "kontonamen": kontonamen(a, konten),
         "steuernamen": steuernamen(),
         "korrigierbar": korrigierbar,

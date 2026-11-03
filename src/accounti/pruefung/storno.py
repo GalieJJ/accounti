@@ -14,6 +14,7 @@ Sperre in ``ereignisse`` lässt andere Wege gar nicht erst zu.
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
@@ -44,7 +45,7 @@ from accounti.db.repository import (
 )
 from accounti.db.tabellen import BuchungssatzRow
 from accounti.konfiguration import Buchhaltung
-from accounti.models import Beleg, Buchungssatz, BuchungStatus
+from accounti.models import Beleg, Belegart, Belegrichtung, Buchungssatz, BuchungStatus
 from accounti.models.pruefung import Buchungskorrektur
 from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.ereignisse import gesperrt
@@ -132,30 +133,99 @@ class SteuerOptionen:
     ohne_steuer: bool  # „ohne Steuer“ wählbar
     ohne_nur_mit_grund: bool  # … dann nur mit Grund
     hinweis: str | None = None
+    laut_beleg: int | None = None  # Schlüssel, den der Beleg vorgibt (wählbar)
 
 
-def steuer_optionen(b: Buchungssatz) -> SteuerOptionen:
-    beleg = b.beleg_id is not None
-    ausgewiesen = beleg and b.steuer_schluessel in AUSGEWIESENE_UST
+# Schlüssel je Steuersatz eines Belegs: Vorsteuer beim Eingangs-, Umsatzsteuer beim
+# Ausgangsbeleg
+_SCHLUESSEL_JE_SATZ: dict[bool, dict[Decimal, int]] = {
+    True: {Decimal("19"): 9, Decimal("7"): 8},
+    False: {Decimal("19"): 3, Decimal("7"): 2},
+}
+
+
+def eingangsbeleg(beleg: Beleg | None) -> bool:
+    """Hat ein anderer den Beleg ausgestellt (Eingangsrechnung, Quittung)? § 14c UStG
+    betrifft nur Rechnungen, die der Unternehmer selbst ausstellt — auf einem
+    Eingangsbeleg ist ein Umsatzsteuerschlüssel (2, 3) ein Fehlschlüssel, keine
+    ausgewiesene Steuer (Gesamttest 10b-1, Runde 7: g6w N5)."""
+    return (
+        beleg is not None
+        and beleg.richtung is Belegrichtung.EINGANG
+        and beleg.belegart is not Belegart.AUSGANGSRECHNUNG
+    )
+
+
+def schluessel_laut_beleg(b: Buchungssatz, beleg: Beleg | None) -> int | None:
+    """Der Steuerschlüssel, den der Beleg vorgibt: sein einziger Steuersatz (der
+    Belegposition der Buchung bzw. aller Positionen) mit der Richtung des Belegs —
+    19 % auf einer Eingangsrechnung Schlüssel 9, 7 % Schlüssel 8, auf einer
+    Ausgangsrechnung 3 bzw. 2. Nennt keine Position einen Satz, zählt das Verhältnis
+    von Steuer zu Netto des Belegs. ``None``, wenn der Beleg keinen oder mehrere Sätze
+    nennt oder einen ohne Schlüssel (0 %, Durchschnittssätze)."""
+    if beleg is None:
+        return None
+    positionen = [
+        p
+        for p in beleg.positionen
+        if b.beleg_position_id is None or p.id == b.beleg_position_id
+    ]
+    saetze = {p.steuersatz for p in positionen if p.steuersatz is not None}
+    if not saetze and beleg.netto and beleg.steuer is not None:
+        quote = beleg.steuer / beleg.netto * 100
+        saetze = {s for s in _SCHLUESSEL_JE_SATZ[True] if abs(quote - s) < 1}
+    if len(saetze) != 1:
+        return None
+    return _SCHLUESSEL_JE_SATZ[eingangsbeleg(beleg)].get(next(iter(saetze)))
+
+
+def steuer_optionen(b: Buchungssatz, beleg: Beleg | None = None) -> SteuerOptionen:
+    """``beleg``: der Beleg der Buchung, sofern geladen — ohne ihn gilt jeder Beleg als
+    Ausgangsbeleg (§ 14c) und kein Schlüssel als laut Beleg."""
+    mit_beleg = b.beleg_id is not None
+    fehlschluessel = (
+        mit_beleg and b.steuer_schluessel in AUSGEWIESENE_UST and eingangsbeleg(beleg)
+    )
+    ausgewiesen = (
+        mit_beleg and b.steuer_schluessel in AUSGEWIESENE_UST and not fehlschluessel
+    )
+    passend = schluessel_laut_beleg(b, beleg) if mit_beleg else None
+    laut_beleg = (
+        f" — laut Beleg Schlüssel {passend}"
+        if passend is not None and passend != b.steuer_schluessel
+        else ""
+    )
     hinweis = None
-    if ausgewiesen:
+    if fehlschluessel:
+        hinweis = (
+            f"Schlüssel {b.steuer_schluessel} ist Umsatzsteuer — auf einem "
+            "Eingangsbeleg ein Fehlschlüssel (keine ausgewiesene Steuer nach § 14c "
+            f"UStG){laut_beleg}"
+        )
+    elif ausgewiesen:
         hinweis = (
             "Ausgewiesene Umsatzsteuer wird geschuldet, bis die Rechnung berichtigt "
-            "ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen"
+            f"ist (§ 14c Abs. 1 UStG) — die Berichtigung als neuen Beleg erfassen"
+            f"{laut_beleg}"
         )
     elif b.steuer_schluessel in SELBST_BERECHNET:
         hinweis = HINWEIS_SELBST_BERECHNET
-    elif beleg:
-        hinweis = "Die Steuer kommt aus dem Beleg — nur die Konten korrigieren"
+    elif mit_beleg:
+        hinweis = (
+            f"Die Steuer kommt aus dem Beleg — nur die Konten korrigieren{laut_beleg}"
+        )
     alle = tuple(sorted(STEUERSCHLUESSEL))
-    aktuell = (b.steuer_schluessel,) if b.steuer_schluessel is not None else ()
+    aktuell = {b.steuer_schluessel} if b.steuer_schluessel is not None else set()
+    if passend is not None:
+        aktuell.add(passend)
     return SteuerOptionen(
         aktuell=b.steuer_schluessel,
-        andere_schluessel=not beleg,
-        schluessel=aktuell if beleg else alle,
+        andere_schluessel=not mit_beleg,
+        schluessel=tuple(sorted(aktuell)) if mit_beleg else alle,
         ohne_steuer=not ausgewiesen,
-        ohne_nur_mit_grund=beleg or b.steuer_schluessel in SELBST_BERECHNET,
+        ohne_nur_mit_grund=mit_beleg or b.steuer_schluessel in SELBST_BERECHNET,
         hinweis=hinweis,
+        laut_beleg=passend,
     )
 
 
@@ -354,32 +424,226 @@ def _richtungswechsel(
     return None
 
 
-def _kennziffer_gedreht(
-    session: Session, b: Buchungssatz, kandidat: Buchungssatz, plan: Kontenplan
-) -> str | None:
-    """(d) Kehrt eine Kennziffer der Voranmeldung, die die Buchung vorher und nachher
-    bucht, ihr Vorzeichen um? Fängt, was (a), (b) und (e) nicht sehen: eigene
-    Funktionskonten (``elster.kennziffern_konten``) auf beiden Seiten getauscht. Allein
-    genügte das nicht — „4930 an 70001, Schlüssel 9 → 1700 an 4930“ lässt die
-    Voranmeldung gleich und bucht doch den Aufwand ins Haben."""
+_STAND = ("soll_konto", "haben_konto", "steuer_schluessel", "betrag_netto")
+
+
+def _stand(b: Buchungssatz, daten: dict[str, Any]) -> Buchungssatz | None:
+    """Ein früherer Stand der Buchung aus dem Journal (Konten, Schlüssel, Beträge)."""
+    if any(not daten.get(k) and k != "steuer_schluessel" for k in _STAND):
+        return None
+    steuer = daten.get("steuer_betrag")
+    try:
+        return b.model_copy(
+            update={
+                "soll_konto": str(daten["soll_konto"]),
+                "haben_konto": str(daten["haben_konto"]),
+                "steuer_schluessel": daten.get("steuer_schluessel"),
+                "betrag_netto": Decimal(str(daten["betrag_netto"])),
+                "steuer_betrag": Decimal(str(steuer)) if steuer is not None else None,
+            }
+        )
+    except (ArithmeticError, ValueError, TypeError):
+        return None
+
+
+def fruehere_staende(
+    session: Session, b: Buchungssatz, eigene: Sequence[Buchungssatz]
+) -> list[Buchungssatz]:
+    """Frühere Stände einer Buchung, jüngster zuerst: die Vorgänger ihrer
+    Korrekturkette (``buchungskorrekturen``: Neubuchung → Original, bis zur ersten
+    Buchung) und jeder Stand, den das Journal von ihnen und von ihr selbst kennt — ein
+    direkt korrigierter Vorschlag hat seinen ersten Stand nur dort. ``eigene``: die
+    Buchungen ihres Belegs (die Kette teilt den Beleg). Ohne den aktuellen Stand."""
+    from accounti.db.tabellen_pruefung import BuchungskorrekturRow, JournalRow
+    from accounti.pruefung.journal import journal_vorhanden
+
+    nach_id = {str(x.id): x for x in eigene}
+    kette = [b]
+    gesehen = {str(b.id)}
+    while True:
+        zeile = (
+            session.query(BuchungskorrekturRow.original_id)
+            .filter(BuchungskorrekturRow.neubuchung_id == str(kette[-1].id))
+            .first()
+        )
+        original = nach_id.get(zeile[0]) if zeile is not None else None
+        if original is None or str(original.id) in gesehen:
+            break
+        gesehen.add(str(original.id))
+        kette.append(original)
+    staende: list[Buchungssatz] = list(kette[1:])  # jüngster zuerst
+    if journal_vorhanden(session.connection()):
+        texte = (
+            session.query(JournalRow.vorher, JournalRow.nachher)
+            .filter(
+                JournalRow.objekt_typ == "buchung",
+                JournalRow.objekt_id.in_(sorted(gesehen)),
+            )
+            .order_by(JournalRow.nr.desc())
+        )
+        for vorher, nachher in texte:
+            for text in (nachher, vorher):
+                try:
+                    daten = json.loads(text) if text else None
+                except ValueError:
+                    daten = None
+                if isinstance(daten, dict) and (x := _stand(b, daten)) is not None:
+                    staende.append(x)
+    eindeutig: list[Buchungssatz] = []
+    schon = {_schluessel_des_stands(b)}
+    for x in staende:
+        if (s := _schluessel_des_stands(x)) not in schon:
+            schon.add(s)
+            eindeutig.append(x)
+    return eindeutig
+
+
+def _schluessel_des_stands(b: Buchungssatz) -> tuple[object, ...]:
+    return (
+        b.soll_konto,
+        b.haben_konto,
+        b.steuer_schluessel,
+        b.betrag_netto,
+        b.steuer_betrag,
+    )
+
+
+def _belegseite(beleg: Beleg | None) -> tuple[Seite, str, bool] | None:
+    """Seite des Sachkontos, die eine Rechnung bestimmt (Ausgangsrechnung: Erlös im
+    Haben, Eingangsrechnung: Aufwand im Soll; ein negativer Beleg — Gutschrift,
+    Rechnungskorrektur — dreht), ihr Name für die Meldung und ob sie eine Gutschrift
+    ist. ``None`` bei anderen Belegen (Quittung, Vertrag, unbekannt)."""
+    if beleg is None or beleg.belegart not in (
+        Belegart.AUSGANGSRECHNUNG,
+        Belegart.EINGANGSRECHNUNG,
+    ):
+        return None
+    ausgang = beleg.belegart is Belegart.AUSGANGSRECHNUNG
+    betrag = beleg.brutto if beleg.brutto is not None else beleg.netto
+    gutschrift = betrag is not None and betrag < 0
+    seite: Seite = "haben" if ausgang else "soll"
+    name = "Ausgangsrechnung" if ausgang else "Eingangsrechnung"
+    if gutschrift:
+        return _ANDERE[seite], f"{name} mit negativem Betrag (Gutschrift)", True
+    return seite, name, False
+
+
+@dataclass(frozen=True)
+class Richtungsbezug:
+    """Woran eine Korrektur die Richtung ihrer Belegbuchung misst (Gesamttest 10b-1,
+    Runde 7: g6w N1): die Buchung selbst, ihre früheren Stände (``fruehere_staende``)
+    und — bestimmt keiner von ihnen die Seite — der Beleg (``_belegseite``)."""
+
+    buchung: Buchungssatz
+    frueher: tuple[Buchungssatz, ...]
+    beleg: Beleg | None
+    eigene: tuple[Buchungssatz, ...]
+
+    @property
+    def staende(self) -> tuple[Buchungssatz, ...]:
+        return (self.buchung, *self.frueher)
+
+
+def richtungsbezug(session: Session, b: Buchungssatz) -> Richtungsbezug:
     from accounti.db.repository import lade_buchungen_zu
+
+    eigene = lade_buchungen_zu(session, beleg_id=b.beleg_id) if b.beleg_id else []
+    beleg = lade_beleg(session, b.beleg_id) if b.beleg_id else None
+    return Richtungsbezug(
+        b, tuple(fruehere_staende(session, b, eigene)), beleg, tuple(eigene)
+    )
+
+
+def _frueher_text(b: Buchungssatz) -> str:
+    return (
+        f" (gegenüber dem früheren Stand „{b.soll_konto} an {b.haben_konto}“ — die "
+        "Richtung gilt für die ganze Korrekturkette)"
+    )
+
+
+def _richtung_der_kette(
+    bezug: Richtungsbezug, soll: str, haben: str, plan: Kontenplan, kr: Kontenrahmen
+) -> str | None:
+    """``_richtungswechsel`` gegen jeden Stand der Kette, die Buchung selbst zuerst —
+    ein Zwischenschritt mit unbestimmter Seite („10001 an 1590“, „4931 an 4932“)
+    löscht die Richtung nicht (Runde 7, g6w N1: „10001 an 8125 → 10001 an 1590 →
+    8125 an 1200“ buchte Kz 41 −500). Bestimmt kein Stand eine Seite (weder Sach- noch
+    Erfolgsseite), gilt für das Erfolgskonto die Seite, die die Rechnung vorgibt
+    (Aufwand der Eingangsrechnung im Soll, Erlös der Ausgangsrechnung im Haben) —
+    außer bei einem Altfall „4900 an 4900“ (ohne Richtung, frei korrigierbar). Nur das
+    Erfolgskonto: Ein Bestandskonto gegenüber einem Gegenkonto („1800 an 1700“) sagt
+    über Rechnung oder Gutschrift nichts."""
+    for x in bezug.staende:
+        if kern := _richtungswechsel(x, soll, haben, plan, kr):
+            return kern if x is bezug.buchung else kern + _frueher_text(x)
+    belegseite = _belegseite(bezug.beleg)
+    if belegseite is None:
+        return None
+    for x in bezug.staende:
+        if (
+            x.soll_konto == x.haben_konto
+            or sachseite_aus_konten(x.soll_konto, x.haben_konto, plan) is not None
+            or _erfolgsseite(x.soll_konto, x.haben_konto, kr) is not None
+        ):
+            return None  # die Kette bestimmt die Seite selbst (oben geprüft)
+    seite, name, _ = belegseite
+    nachher = _erfolgsseite(soll, haben, kr)
+    if nachher is None or nachher == seite:
+        return None
+    neu = soll if nachher == "soll" else haben
+    return (
+        f"die {name} bucht ihr Erfolgskonto (Aufwand bzw. Erlös) im {_SEITE[seite]}, "
+        f"nach der Korrektur stünde das Erfolgskonto {neu} im {_SEITE[nachher]}"
+    )
+
+
+def _kennziffer_gedreht(
+    bezug: Richtungsbezug, kandidat: Buchungssatz, plan: Kontenplan
+) -> str | None:
+    """(d) Kehrt eine Kennziffer der Voranmeldung, die die Buchung vorher (in einem
+    Stand ihrer Kette) und nachher bucht, ihr Vorzeichen um? Fängt, was (a), (b) und
+    (e) nicht sehen: eigene Funktionskonten (``elster.kennziffern_konten``) auf beiden
+    Seiten getauscht. Allein genügte das nicht — „4930 an 70001, Schlüssel 9 → 1700 an
+    4930“ lässt die Voranmeldung gleich und bucht doch den Aufwand ins Haben.
+
+    Ebenso gesperrt: Eine Kennziffer entsteht erst durch die Korrektur und mit dem
+    Vorzeichen einer Gutschrift (negativ), obwohl kein Stand der Kette eine Kennziffer
+    negativ bucht und der Beleg keine Gutschrift ist (Runde 7, g6w N2: „10001 an 8125
+    → 8120 an 8125“ buchte Kz 43 −500)."""
     from accounti.steuer.kennziffern import kennziffern_der_buchung
 
-    andere = lade_buchungen_zu(session, beleg_id=b.beleg_id)
-    vorher = kennziffern_der_buchung(b, plan, andere)
-    nachher = kennziffern_der_buchung(kandidat, plan, andere)
-    gedreht = sorted(
-        kz for kz in vorher.keys() & nachher.keys() if vorher[kz] * nachher[kz] < 0
-    )
-    if not gedreht:
+    nachher = kennziffern_der_buchung(kandidat, plan, bezug.eigene)
+    alle_vorher = [
+        (x, kennziffern_der_buchung(x, plan, bezug.eigene)) for x in bezug.staende
+    ]
+    for x, vorher in alle_vorher:
+        gedreht = sorted(
+            kz for kz in vorher.keys() & nachher.keys() if vorher[kz] * nachher[kz] < 0
+        )
+        if gedreht:
+            kern = "die Voranmeldung kehrte " + ", ".join(
+                f"Kz {kz} um ({betrag_de(vorher[kz])} € → {betrag_de(nachher[kz])} €)"
+                for kz in gedreht
+            )
+            return kern if x is bezug.buchung else kern + _frueher_text(x)
+    belegseite = _belegseite(bezug.beleg)
+    gutschrift = belegseite is not None and belegseite[2]
+    if gutschrift or any(v < 0 for _, vorher in alle_vorher for v in vorher.values()):
         return None
-    return "die Voranmeldung kehrte " + ", ".join(
-        f"Kz {kz} um ({betrag_de(vorher[kz])} € → {betrag_de(nachher[kz])} €)"
-        for kz in gedreht
+    bekannt = {kz for _, vorher in alle_vorher for kz in vorher}
+    neu = sorted(kz for kz, v in nachher.items() if v < 0 and kz not in bekannt)
+    if not neu:
+        return None
+    return (
+        "die Voranmeldung buchte "
+        + ", ".join(f"Kz {kz} mit {betrag_de(nachher[kz])} €" for kz in neu)
+        + " — negativ wie eine Gutschrift, obwohl der Beleg keine ist"
     )
 
 
-def _richtung_fehler(b: Buchungssatz, kern: str) -> StornoError:
+def _richtung_fehler(
+    b: Buchungssatz, kern: str, beleg: Beleg | None = None
+) -> StornoError:
     """Bei einer Belegbuchung bestimmt der Beleg die Richtung: Eine Rechnung bucht ihr
     Sachkonto auf der einen Seite, eine Gutschrift bzw. Rechnungskorrektur auf der
     anderen. Eine Korrektur, die die Seiten vertauscht, buchte den Beleg als sein
@@ -397,7 +661,7 @@ def _richtung_fehler(b: Buchungssatz, kern: str) -> StornoError:
     „noch ein Vorschlag — direkt korrigieren statt stornieren“). Runde 5, g4w N1;
     Runde 6, g5w NEU-1/NEU-2."""
     k = _kurz(b)
-    if b.steuer_schluessel in AUSGEWIESENE_UST:
+    if b.steuer_schluessel in AUSGEWIESENE_UST and not eingangsbeleg(beleg):
         steuer = (
             f"die ausgewiesene Umsatzsteuer (Schlüssel {b.steuer_schluessel}) wird "
             "geschuldet, bis die Rechnung berichtigt ist (§ 14c Abs. 1 UStG); die "
@@ -446,6 +710,7 @@ def _steuer(
     ohne_steuer: bool,
     grund: str | None,
     beleg_mit_satz: bool = True,
+    beleg: Beleg | None = None,
 ) -> tuple[int | None, Decimal, Decimal | None]:
     """(Schlüssel, Netto, Steuer) nach der Korrektur — aus dem Brutto der Buchung.
 
@@ -454,7 +719,10 @@ def _steuer(
     ZUGFeRD MINIMUM: brutto gebucht) oder der Schlüssel § 13b bzw. ig. Erwerb ist —
     diese Steuer steht nie auf dem Beleg (§ 14a Abs. 5 UStG), der Empfänger
     berechnet sie selbst. Weist der Beleg Umsatzsteuer aus (Schlüssel 2, 3), ändert
-    keine Korrektur den Schlüssel (§ 14c Abs. 1 UStG)."""
+    keine Korrektur den Schlüssel (§ 14c Abs. 1 UStG). Immer erlaubt ist der Schlüssel,
+    den der Beleg vorgibt (``schluessel_laut_beleg``: Satz und Richtung des Belegs) —
+    auch ohne Grund; ein Umsatzsteuerschlüssel auf einem Eingangsbeleg ist keine
+    ausgewiesene Steuer (``eingangsbeleg``, Runde 7: g6w N5)."""
     if ohne_steuer and steuer is not None:
         raise StornoError(
             "Steuerschlüssel und „ohne Steuer“ schließen sich aus",
@@ -476,27 +744,42 @@ def _steuer(
     schluessel = None if ohne_steuer else steuer
     if schluessel == b.steuer_schluessel:
         return b.steuer_schluessel, b.betrag_netto, b.steuer_betrag
-    optionen = steuer_optionen(b)
+    optionen = steuer_optionen(b, beleg)
+    # der Schlüssel, den der Beleg vorgibt, berichtigt einen Fehlschlüssel (z. B.
+    # Schlüssel 3 auf einer Eingangsrechnung → 9) — er widerspricht dem Beleg nicht
+    # (Runde 7, g6w N5: sonst hing der Vorschlag fest)
+    laut_beleg = not ohne_steuer and schluessel == optionen.laut_beleg
     if (
         not ohne_steuer
+        and not laut_beleg
         and not optionen.andere_schluessel
         and beleg_mit_satz
         and schluessel not in SELBST_BERECHNET
     ):
         # Beleg mit Satz: die Steuer kommt aus ihm — § 13b bzw. ig. Erwerb nicht, der
         # Empfänger berechnet sie selbst (Gesamttest Paket C)
+        vorgabe = (
+            f"Schlüssel {optionen.laut_beleg} laut Beleg, "
+            if optionen.laut_beleg is not None
+            else ""
+        )
+        vorgabe_cli = (
+            f"--steuer {optionen.laut_beleg} laut Beleg, "
+            if optionen.laut_beleg is not None
+            else ""
+        )
         raise StornoError(
             "Die Buchung hat einen Beleg — ihre Steuer kommt aus dem Beleg bzw. aus "
-            "dem Ausgleich; nur Konten korrigieren, § 13b bzw. ig. Erwerb mit "
-            "Schlüssel 94/91/19/18 (oder die Vorsteuer mit „ohne Steuer“ und Grund "
-            "entfernen)",
+            f"dem Ausgleich; nur Konten korrigieren, {vorgabe}§ 13b bzw. ig. Erwerb "
+            "mit Schlüssel 94/91/19/18 (oder die Vorsteuer mit „ohne Steuer“ und "
+            "Grund entfernen)",
             feld="steuer",
             cli=f"Buchung {_kurz(b)} hat einen Beleg — ihre Steuer kommt aus dem Beleg "
-            "bzw. aus dem Ausgleich; nur Konten korrigieren, § 13b bzw. ig. Erwerb "
-            "mit --steuer 94/91/19/18 (oder die Vorsteuer mit --ohne-steuer --grund … "
-            "entfernen)",
+            f"bzw. aus dem Ausgleich; nur Konten korrigieren, {vorgabe_cli}§ 13b bzw. "
+            "ig. Erwerb mit --steuer 94/91/19/18 (oder die Vorsteuer mit --ohne-steuer "
+            "--grund … entfernen)",
         )
-    if not optionen.ohne_steuer:
+    if not optionen.ohne_steuer and not laut_beleg:
         # ausgewiesene USt (2, 3) einer Belegbuchung: jede Schlüsseländerung, nicht nur
         # „ohne Steuer“ — auch § 13b/ig. Erwerb und ein Beleg ohne Satz nehmen sie
         # nicht aus der Voranmeldung; sie wird geschuldet, bis die Rechnung berichtigt
@@ -522,7 +805,7 @@ def _steuer(
             f"ig. Erwerb vorliegt; {HINWEIS_SELBST_BERECHNET}. Mit Grund (steht im "
             'Journal): --ohne-steuer --grund "kein § 13b: …"',
         )
-    if b.beleg_id is not None and not (grund or "").strip():
+    if b.beleg_id is not None and not laut_beleg and not (grund or "").strip():
         if not ohne_steuer:
             raise StornoError(
                 f"Die Buchung hat einen Beleg — Steuerschlüssel {schluessel} setzt "
@@ -765,9 +1048,12 @@ def ust_luecken(
     Ein Beleg, der Steuer mindert (Gutschrift, negativer Betrag), fehlt nie: Fällt
     seine Buchung weg, steigt die Steuer. Die Sätze sind die der Rechnungsbuchungen
     des Belegs mit Schlüssel 2 oder 3 (ohne sie: keine ausgewiesene Steuer in accounti,
-    z. B. OSS)."""
+    z. B. OSS). Ein Eingangsbeleg weist keine Umsatzsteuer des Unternehmers aus
+    (``eingangsbeleg``)."""
     from accounti.steuer.kennziffern import sachseite
 
+    if eingangsbeleg(beleg):
+        return []  # ein Umsatzsteuerschlüssel dort ist ein Fehlschlüssel (g6w N5)
     eigene = list(buchungen)
     saetze: dict[Decimal, int] = {}
     for x in eigene:
@@ -934,12 +1220,22 @@ def korrigiere(
         session,
     )
     plan = kontenplan(session, buchhaltung, elster) if b.beleg_id else None
-    if plan is not None and (kern := _richtungswechsel(b, soll, haben, plan, kr)):
-        raise _richtung_fehler(b, kern)
+    bezug = richtungsbezug(session, b) if plan is not None else None
+    if (
+        plan is not None
+        and bezug is not None
+        and (kern := _richtung_der_kette(bezug, soll, haben, plan, kr))
+    ):
+        raise _richtung_fehler(b, kern, bezug.beleg)
     person = aktuelle_person(von)
     _pruefe_ausdruecklich(b, soll, haben, steuer, ohne_steuer, kr)
+    beleg = (
+        bezug.beleg
+        if bezug is not None
+        else (lade_beleg(session, b.beleg_id) if b.beleg_id else None)
+    )
     schluessel, netto, steuerbetrag = _steuer(
-        b, steuer, ohne_steuer, grund, _beleg_mit_satz(session, b)
+        b, steuer, ohne_steuer, grund, _beleg_mit_satz(session, b), beleg
     )
     aenderung = {
         "soll_konto": soll,
@@ -956,8 +1252,12 @@ def korrigiere(
         + (f", Schlüssel {schluessel}" if schluessel != b.steuer_schluessel else "")
     )
     kandidat = b.model_copy(update=aenderung)
-    if plan is not None and (kern := _kennziffer_gedreht(session, b, kandidat, plan)):
-        raise _richtung_fehler(b, kern)
+    if (
+        plan is not None
+        and bezug is not None
+        and (kern := _kennziffer_gedreht(bezug, kandidat, plan))
+    ):
+        raise _richtung_fehler(b, kern, bezug.beleg)
     _pruefe_steuerschluessel(session, kandidat, buchhaltung, einstellungen)
     if not ist_freigegeben(b):
         if datum is not None:
