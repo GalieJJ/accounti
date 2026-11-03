@@ -562,3 +562,216 @@ def test_skonto_zur_zahlung_ueber_das_gegenkonto_der_rechnung(
         *ziel,
         schluessel,
     )
+
+
+# --- F Runde 3 (gf2-richtung GF2-1, GF2-2): Obergrenze ohne Erlösschmälerungen -------
+
+
+def _rest_von_b2(make_session, beleg_id, b1_id) -> Any:  # noqa: ANN001
+    (rest,) = [x for x in _wirksam(make_session, beleg_id) if x.id != b1_id]
+    return rest
+
+
+def _warnung_14c(warnungen: list[str]) -> str:
+    (warnung,) = [w for w in warnungen if "§ 14c" in w]
+    return warnung
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize(("art", "geld"), [("Q", "1000"), ("S", "1200")])
+@pytest.mark.parametrize("weg", ["storno", "2700_ohne"])
+def test_berichtigte_erloesschmaelerung_senkt_die_obergrenze_nicht(
+    make_session, status, art, geld, weg
+):
+    """GF2-1 (n1_negkette.py, w1_negkette.py K1): Neben dem Erlös B1 „1000 an 8400,
+    Schlüssel 3“ (Quittung bzw. SONSTIGES 500/95) steht eine irrig als
+    Erlösschmälerung gebuchte Ausgabe B2 „8700 an 1000, Schlüssel 3“. B2 wird über
+    „8400 an 1000 --steuer 3“ zu „4530 an 1000 --steuer 9“ berichtigt (G8R-1), danach
+    B1 storniert (bzw. „→ 2700 --steuer 3“ und „ohne Steuer“). Die Kette von B2 zählte
+    in der Obergrenze mit ihrem höchsten Stand −95 und hob den Erlös auf: keine
+    Warnung, kein Befund, die 95 € fehlten still. Je Kette zählt nur ihr höchster
+    positiver Stand — wie ohne B2 (K0)."""
+    bel = _beleg(art)
+    b1 = _buchung(bel, geld, "8400", 3, "95.00")
+    b2 = _buchung(bel, "8700", geld, 3, "95.00", status=status)
+    anlegen(make_session, bel, b1, b2)
+    _korrigiere(make_session, b2.id, "8400", geld, steuer=3, grund=None)
+    zwischen = _rest_von_b2(make_session, bel.id, b1.id)
+    _korrigiere(make_session, zwischen.id, "4530", geld, steuer=9, grund=None)
+    rest = _rest_von_b2(make_session, bel.id, b1.id)
+    assert (rest.soll_konto, rest.steuer_schluessel) == ("4530", 9)
+    assert _luecken_der_regel(make_session) == []
+    if weg == "storno":
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+        assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+    else:
+        k = _korrigiere(make_session, b1.id, geld, "2700", steuer=3, grund=None)
+        assert k.neu is not None
+        _korrigiere(
+            make_session, k.neu.id, geld, "2700", ohne_steuer=True, grund="kein USt"
+        )
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+    assert _kennziffern(make_session) == {66: D("95.00")}
+
+
+@pytest.mark.parametrize(("art", "geld"), [("Q", "1000"), ("S", "1200")])
+@pytest.mark.parametrize(
+    "fall",
+    [
+        "K2_erst_minderung",
+        "K2r_erst_erloes",
+        "K2t_teilminderung",
+        "K3_minderung_bleibt",
+    ],
+)
+def test_stornierte_erloesschmaelerung_senkt_die_obergrenze_nicht(
+    make_session, art, geld, fall
+):
+    """GF2-2 (n1_negkette.py K2/K3, w1_k2_cli.py K2/K2r/K2t): B1 „1000 an 8400,
+    Schlüssel 3“ und B2 „8700 an 1000, Schlüssel 3“ (95 € bzw. Teilminderung 100/19),
+    beide freigegeben; B2 wird storniert (der Weg aus dem Plan), dann B1 — oder
+    umgekehrt, oder B2 bleibt. Die stornierte bzw. wirksame Minderung zählte in der
+    Obergrenze mit −95 (−19) und hob den Erlös auf: keine Warnung, kein Befund (bzw.
+    76 statt 95 €). Wie d36ac77 fehlen 95 €: Eine Minderung mindert die ausgewiesene
+    Steuer nicht, sie mindert nach § 17 UStG."""
+    bel = _beleg(art)
+    b1 = _buchung(bel, geld, "8400", 3, "95.00")
+    if fall.startswith("K2t"):
+        b2 = _buchung(bel, "8700", geld, 3, "19.00", netto="100.00")
+    else:
+        b2 = _buchung(bel, "8700", geld, 3, "95.00")
+    anlegen(make_session, bel, b1, b2)
+    if fall.startswith("K2r"):
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+        assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+        warnung = _warnung_14c(_storniere(make_session, b2.id))
+        assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+    elif fall.startswith("K3"):
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+        assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+        assert _kennziffern(make_session) == {81: D("-500.00")}
+    else:
+        assert not [w for w in _storniere(make_session, b2.id) if "§ 14c" in w]
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+        assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+        assert "76,00" not in warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+@pytest.mark.parametrize("weg", ["M2_storno", "V1_berichtigt"])
+def test_minderung_auf_dem_marktplatzbeleg_senkt_die_obergrenze_nicht(
+    make_session, weg
+):
+    """GF2-1/GF2-2 im Marktplatzfall (w2_markt_cli.py M2, n2_varianten.py V1):
+    SONSTIGES mit Verkauf 500/95 und Verkaufsgebühr 100/19; die Gebühr irrig als
+    „8700 an 1361, Schlüssel 3“ gebucht, dann storniert bzw. über 8400 zu „4930 an
+    1361 --steuer 9“ berichtigt. Das Storno des Verkaufs meldete 76 statt 95 €."""
+    bel = _beleg("S", netto="600.00", steuer="114.00", positionen=MARKT)
+    b1 = _buchung(bel, "1361", "8400", 3, "95.00")
+    b2 = _buchung(bel, "8700", "1361", 3, "19.00", netto="100.00")
+    anlegen(make_session, bel, b1, b2)
+    if weg.startswith("M2"):
+        assert not [w for w in _storniere(make_session, b2.id) if "§ 14c" in w]
+    else:
+        _korrigiere(make_session, b2.id, "8400", "1361", steuer=3, grund=None)
+        zwischen = _rest_von_b2(make_session, bel.id, b1.id)
+        _korrigiere(make_session, zwischen.id, "4930", "1361", steuer=9, grund=None)
+    warnung = _warnung_14c(_storniere(make_session, b1.id))
+    assert "weist 95,00 € Umsatzsteuer" in warnung and "76,00" not in warnung, warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+RUECKSENDUNG = [
+    ("Verkauf", "500.00", "19", "95.00"),
+    ("Rücksendung", "-100.00", "19", "-19.00"),
+]
+
+
+@pytest.mark.parametrize("zuerst", ["ruecksendung", "verkauf"])
+def test_ruecksendung_des_belegs_mindert_die_obergrenze_schon(make_session, zuerst):
+    """Gegenprobe zu GF2-1/GF2-2: Weist der Marktplatzbeleg die Minderung selbst aus
+    (Position Rücksendung −100/−19), mindert sie schon die ausgewiesene Steuer
+    (``_ausgewiesen``: 76 €). Ihre Buchung „8700 an 1361, Schlüssel 3“ storniert —
+    keine Lücke (95 € gebucht); beide storniert — es fehlen die 76 € des Belegs, nicht
+    mehr."""
+    bel = _beleg("S", netto="400.00", steuer="76.00", positionen=RUECKSENDUNG)
+    b1 = _buchung(bel, "1361", "8400", 3, "95.00")
+    b2 = _buchung(bel, "8700", "1361", 3, "19.00", netto="100.00")
+    anlegen(make_session, bel, b1, b2)
+    assert _luecken_der_regel(make_session) == []
+    if zuerst == "ruecksendung":
+        assert not [w for w in _storniere(make_session, b2.id) if "§ 14c" in w]
+        assert _luecken_der_regel(make_session) == []
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+    else:
+        warnung = _warnung_14c(_storniere(make_session, b1.id))
+        assert "weist 76,00 € Umsatzsteuer" in warnung, warnung
+        warnung = _warnung_14c(_storniere(make_session, b2.id))
+    assert "weist 76,00 € Umsatzsteuer" in warnung, warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("76.00"), befund.text
+
+
+def test_storno_einer_minderung_auf_negativem_beleg_fehlt_nie(make_session):
+    """Gegenprobe: Ein negativer Beleg (Rückgabe auf dem eigenen Kassenbon −500/−95)
+    mit „8700 an 1000, Schlüssel 3“ — sein Storno erhöht die Steuer, es fehlt nichts
+    (keine Warnung, kein Befund), auch nicht mit der neuen Untergrenze 0."""
+    bel = _beleg("Q", netto="-500.00", steuer="-95.00")
+    b = _buchung(bel, "8700", "1000", 3, "95.00")
+    anlegen(make_session, bel, b)
+    assert not [w for w in _storniere(make_session, b.id) if "§ 14c" in w]
+    assert _luecken_der_regel(make_session) == []
+
+
+@pytest.mark.parametrize("fall", ["K1_Q", "K1_S", "M2"])
+def test_obergrenze_ohne_minderung_ueber_die_cli(
+    make_session, tmp_path, monkeypatch, fall
+):
+    """GF2-1/GF2-2 über die echte CLI (n3_cli_kette.py, w2_markt_cli.py):
+    ``accounti korrigiere`` (B2 → 8400 → 4530 Schlüssel 9) bzw. ``buchung storniere``
+    der Gebühr, dann ``buchung storniere`` des Erlöses — die Ausgabe warnt mit 95,00 €,
+    ``accounti pruefen --regel beleg_ust_ohne_buchung`` meldet 95,00 €."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from tests.pruefung_hilfe import db_url, kurz
+
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(tmp_path / "fehlt.yaml"))
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.chdir(tmp_path)
+    url = db_url(tmp_path)
+    runner = CliRunner()
+
+    def cli(*argumente: str) -> str:
+        r = runner.invoke(app, [*argumente, "--db", url], env={"COLUMNS": "250"})
+        assert r.exit_code == 0, r.output
+        return " ".join(r.output.split())
+
+    if fall == "M2":
+        bel = _beleg("S", netto="600.00", steuer="114.00", positionen=MARKT)
+        geld = "1361"
+        b1 = _buchung(bel, geld, "8400", 3, "95.00")
+        b2 = _buchung(bel, "8700", geld, 3, "19.00", netto="100.00")
+    else:
+        bel = _beleg(fall[-1])
+        geld = {"Q": "1000", "S": "1200"}[fall[-1]]
+        b1 = _buchung(bel, geld, "8400", 3, "95.00")
+        b2 = _buchung(bel, "8700", geld, 3, "95.00")
+    anlegen(make_session, bel, b1, b2)
+    if fall == "M2":
+        text = cli("buchung", "storniere", kurz(b2.id), "--grund", "Gebühr falsch")
+        assert "weist" not in text, text
+    else:
+        cli("korrigiere", kurz(b2.id), "--soll", "8400", "--haben", geld,
+            "--steuer", "3")  # fmt: skip
+        zwischen = _rest_von_b2(make_session, bel.id, b1.id)
+        cli("korrigiere", kurz(zwischen.id), "--soll", "4530", "--haben", geld,
+            "--steuer", "9")  # fmt: skip
+    text = cli("buchung", "storniere", kurz(b1.id), "--grund", "doppelt erfasst")
+    assert "weist 95,00 € Umsatzsteuer" in text, text
+    text = cli("pruefen", "--regel", "beleg_ust_ohne_buchung")
+    assert "1 Befunde" in text and "│ 95,00 │" in text, text

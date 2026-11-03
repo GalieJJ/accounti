@@ -1329,9 +1329,16 @@ def _erloes_ust(
     """Umsatzsteuer je Satz, die die Erlösbuchungen eines Belegs ohne eindeutige
     Belegart gebucht haben (``_erloesbuchung``; ohne Stornos) — auch die inzwischen
     stornierten. Eine Korrekturkette (Original → Neubuchung → …, ``ersetzt``) zählt
-    einmal mit ihrem höchsten Stand je Satz, auch wenn ihr jüngster Stand kein Erlös
-    mehr ist: „1000 an 8400 → 1000 an 2700, Schlüssel 3“ und dann Storno ließ die
-    Obergrenze sonst auf 0 fallen (F Runde 2, gf-richtung GF-1b)."""
+    einmal mit ihrem höchsten positiven Stand je Satz (Untergrenze 0), auch wenn ihr
+    jüngster Stand kein Erlös mehr ist: „1000 an 8400 → 1000 an 2700, Schlüssel 3“ und
+    dann Storno ließ die Obergrenze sonst auf 0 fallen (F Runde 2, gf-richtung GF-1b).
+
+    Eine Erlösschmälerung (Stand auf der Gegenseite, „8700 an 1000, Schlüssel 3“)
+    senkt die Obergrenze nicht — wirksam, storniert oder berichtigt: Sie mindert nach
+    § 17 UStG, nicht die ausgewiesene Steuer, und hob sonst den Erlös auf (Storno
+    ohne Warnung, F Runde 3, gf2-richtung GF2-1, GF2-2). So zählt auch ``gebucht`` in
+    ``ust_luecken`` nur Steuer auf der Seite einer Rechnung; eine Minderung, die der
+    Beleg selbst ausweist (Position Rücksendung), mindert schon ``_ausgewiesen``."""
     from accounti.steuer.kennziffern import sachseite
 
     nach_id = {str(x.id): x for x in eigene}
@@ -1352,7 +1359,7 @@ def _erloes_ust(
                 vorzeichen = 1 if sachseite(glied, plan) == "haben" else -1
                 satz = _SATZ_DER_UST[glied.steuer_schluessel]
                 betrag = vorzeichen * (glied.steuer_betrag or NULL)
-                hoechst[satz] = max(hoechst.get(satz, betrag), betrag)
+                hoechst[satz] = max(hoechst.get(satz, NULL), betrag)
             naechste = nachfolger.get(str(glied.id))
             glied = nach_id.get(naechste) if naechste is not None else None
         for satz, betrag in hoechst.items():
@@ -1385,9 +1392,10 @@ def ust_luecken(
     Schlüssel 2/3 einen Erlös bucht (Runde 8, g7w R7-3: Kassenbon, Marktplatz). Ist er
     nur über seine Erlösbuchungen Ausgangsbeleg, weist er je Satz höchstens die
     Umsatzsteuer aus, die sie gebucht haben (``_erloes_ust``; ``ersetzt``: Original →
-    Neubuchung der Korrekturen, ``ersetzte_buchungen`` — je Kette ihr höchster Stand),
-    eine Gebühren- oder Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w
-    G8R-4; F Runde 2, gf-richtung GF-1b)."""
+    Neubuchung der Korrekturen, ``ersetzte_buchungen`` — je Kette ihr höchster
+    positiver Stand, eine Erlösschmälerung zählt nicht), eine Gebühren- oder
+    Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w G8R-4; F Runde 2,
+    gf-richtung GF-1b; F Runde 3, gf2-richtung GF2-1, GF2-2)."""
     from accounti.steuer.kennziffern import sachseite
 
     eigene = list(buchungen)
