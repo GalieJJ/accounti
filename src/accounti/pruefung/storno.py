@@ -1330,7 +1330,11 @@ def _ausgewiesen(
 ) -> dict[Decimal, tuple[Decimal, int]]:
     """Umsatzsteuer des Belegs je Satz (Betrag, Positionen) — aus seinen Positionen
     (ohne Steuerbetrag: Netto × Satz); nennen sie keinen der Sätze, die Belegsteuer
-    (ein Satz) bzw. die Steuer der jüngsten Rechnungsbuchung je Satz."""
+    (ein Satz) bzw. je Satz die höchste Steuer seiner Rechnungsbuchungen (Stand auf der
+    Seite einer Rechnung, auch storniert). Eine Minderung („8700 an 1000, Schlüssel 3“,
+    Erstattung „8400 an 1000“) ist keine Rechnungsbuchung: Als jüngste Buchung machte
+    sie die ausgewiesene Steuer eines Belegs ohne Steuerzeile negativ — das Storno des
+    Erlöses warnte nicht, die Prüfregel schwieg (Paket G, gf3-obergrenze GF3-1)."""
     je: dict[Decimal, tuple[Decimal, int]] = {}
     if beleg is not None:
         for p in beleg.positionen:
@@ -1347,13 +1351,13 @@ def _ausgewiesen(
     if not je:
         from accounti.steuer.kennziffern import sachseite
 
-        for x in sorted(eigene, key=lambda x: x.datum):
+        for x in eigene:
             if x.storno_von is None and x.steuer_schluessel in AUSGEWIESENE_UST:
                 vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
-                je[_SATZ_DER_UST[x.steuer_schluessel]] = (
-                    vorzeichen * (x.steuer_betrag or NULL),
-                    1,
-                )
+                betrag = vorzeichen * (x.steuer_betrag or NULL)
+                satz = _SATZ_DER_UST[x.steuer_schluessel]
+                if betrag > je.get(satz, (NULL, 0))[0]:
+                    je[satz] = (betrag, 1)
     return je
 
 
