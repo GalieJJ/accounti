@@ -232,6 +232,21 @@ def hilfe_pfad(aktiv: Bereich | None, pfad: str) -> str:
     return f"/hilfe/{aktiv.value}" if aktiv is not None else "/hilfe"
 
 
+def brotkrumen(
+    punkte: Sequence[Navigationspunkt], rechte: Collection[Recht], pfad: str
+) -> tuple[tuple[str, str | None], ...]:
+    """Unterhalb eines Bereichs (Pfad beginnt mit dem Pfad des Bereichs und „/“) der
+    Bereich als erster Eintrag; den Seitentitel hängt ``basis.html`` an (A7)."""
+    gewaehlt = bereichspunkte(punkte, rechte)
+    treffer = aktiver_punkt([p for p in punkte if p.erlaubt(rechte)], pfad)
+    if treffer is None or treffer.bereich not in gewaehlt:
+        return ()
+    bereich = gewaehlt[treffer.bereich]
+    if bereich.pfad == "/" or not pfad.startswith(bereich.pfad.rstrip("/") + "/"):
+        return ()
+    return ((bereich.titel, bereich.pfad),)
+
+
 def _aktiver_bereich(
     punkte: Sequence[Navigationspunkt], rechte: Collection[Recht], pfad: str
 ) -> Bereich | None:
@@ -264,6 +279,7 @@ async def geruest(
         bereiche=bereiche,
         einstellungen=einstellungen,
         unten=unten,
+        brotkrumen=brotkrumen(punkte, a.rechte, pfad),
         hilfe_pfad=hilfe_pfad(_aktiver_bereich(punkte, a.rechte, pfad), pfad),
         marke=alle_marken.get(a.gesellschaft.kuerzel),
         marken=alle_marken,

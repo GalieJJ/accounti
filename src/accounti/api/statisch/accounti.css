@@ -400,7 +400,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .kopf-rechts{display:flex;align-items:center;gap:var(--a-2);margin-left:auto}
 .kopf-hilfe, .kopf-konto, .benutzermenue-ausloeser{display:inline-flex;align-items:center;justify-content:center;gap:var(--fein-3);min-height:2.5rem;padding:0 var(--a-2);color:var(--text-2);text-decoration:none;border-radius:var(--radius-m)}
 a.kopf-gesellschaft:hover, .kopf-hilfe:hover, .benutzermenue-ausloeser:hover, .menue-eintrag:hover{background-image:linear-gradient(var(--schleier), var(--schleier))}
-.kopf-titel, .kopf-konto{display:none}
+.kopf-titel, .kopf-konto, .druckkopf{display:none}
 .benutzermenue{position:relative}
 .benutzermenue-ausloeser{gap:var(--a-2);padding:0 var(--a-2) 0 var(--a-1);color:var(--text);list-style:none;cursor:pointer}
 .benutzermenue-ausloeser::-webkit-details-marker{display:none}
@@ -485,5 +485,10 @@ Zeichenfläche „Bausteine“ */
 @media print {
 :root{color-scheme:light}
 body{color:#000;background:#fff}
+.kopfleiste, .seitenleiste, .untere-leiste, .sprunglink, .brotkrumen, form, .knopf, button{display:none}
+.druckkopf{display:block}
+#inhalt{max-width:none;padding:0}
+tr{break-inside:avoid}
+thead{display:table-header-group}
 }
 }

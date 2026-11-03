@@ -129,6 +129,30 @@ def test_genau_ein_h1(probe, alle):
     assert probe.web.client().get("/anmelden").text.count("<h1") == 1
 
 
+def test_brotkrumen_unterhalb_eines_bereichs(probe, alle):
+    vorschlag = probe.ids["vorschlag"]
+    for pfad, titel in (
+        (f"/pruefen/{vorschlag}", None),
+        ("/pruefen/regeln", "Gelernte Regeln"),
+    ):
+        html = _main(alle.get(pfad).text)
+        nav = re.search(
+            r'<nav class="brotkrumen" aria-label="Brotkrumen"><ol>(.*?)</ol></nav>',
+            html,
+        )
+        assert nav, pfad
+        assert '<a href="/pruefen">Prüfen</a>' in nav.group(1)
+        letzte = re.findall(r'<span aria-current="page">([^<]*)</span>', nav.group(1))
+        assert len(letzte) == 1 and letzte[0].strip(), pfad
+        if titel:
+            assert letzte[0] == titel
+    englisch = alle.get("/pruefen/regeln", headers=EN).text
+    assert '<nav class="brotkrumen" aria-label="Breadcrumbs">' in englisch
+    assert '<a href="/pruefen">Review</a>' in englisch
+    for pfad in ("/pruefen", "/", "/freigaben"):
+        assert 'class="brotkrumen"' not in alle.get(pfad).text, pfad
+
+
 def test_sprunglink_ist_erstes_ziel(welt):
     for client, pfad in ((welt.client(), "/anmelden"), (welt.angemeldet("jan"), "/")):
         html = client.get(pfad).text
@@ -281,6 +305,25 @@ def test_masse_des_geruests():
     # 64 px mit der Linie oben (L10: untere Leiste 64 px ohne Safe Area)
     ziel = _deklarationen(".leisten-ziel")["min-height"]
     assert ziel == "calc(var(--leistenhoehe) - 1px)"
+
+
+def test_druckkopf(welt):
+    html = welt.angemeldet("jan").get("/pruefen").text
+    druck = re.search(r'<div class="druckkopf">(.*?)</div>', html, re.S)
+    assert druck
+    text = druck.group(1)
+    assert "Alpha Papier GmbH" in text and "Prüfen" in text and "jan" in text
+    assert "20.10.2026" in text  # dienste.uhr() der Welt
+    gedruckt = _deklarationen(".druckkopf", "print")
+    assert gedruckt["display"] == "block"
+    assert _deklarationen(".druckkopf")["display"] == "none"
+
+
+def test_statusbereich_role_status(welt):
+    for client, pfad in ((welt.angemeldet("jan"), "/"), (welt.client(), "/anmelden")):
+        html = client.get(pfad).text
+        status = '<div id="status" role="status" aria-live="polite" class="unsichtbar">'
+        assert status + "</div>" in html, pfad
 
 
 def test_data_theme_aus_der_wahl(welt):

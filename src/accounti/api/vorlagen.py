@@ -364,6 +364,7 @@ async def seite(
         # überschreibt sie mit ?theme=
         "darstellung": g.darstellung,
         "color_scheme": g.color_scheme,
+        "brotkrumen": None,  # eigene Kette einer Seite: [(text, href), …]
     }
     kontext.update(werte or {})
     if teil is not None:

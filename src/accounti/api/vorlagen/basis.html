@@ -15,10 +15,13 @@
   {% block kopf %}{% endblock %}
 </head>
 <body class="{% block koerperklasse %}{% if angemeldet %}geruest mit-kopftitel{% else %}schlicht{% endif %}{% endblock %}" data-tastenkuerzel="{{ 'an' if geruest.tastenkuerzel else 'aus' }}" hx-history="false" hx-headers="{{ hx_kopf }}">
-  {% block kopfleiste %}{% if angemeldet %}{{ gr.kopfleiste(geruest, self.titel()) }}{% else %}{{ gr.kopf_schlicht(geruest.hilfe_pfad) }}{% endif %}{% endblock %}
+  {% block kopfleiste %}{% if angemeldet %}{{ gr.druckkopf(geruest, self.titel()) }}{{ gr.kopfleiste(geruest, self.titel()) }}{% else %}{{ gr.kopf_schlicht(geruest.hilfe_pfad) }}{% endif %}{% endblock %}
   <div class="geruest-rumpf">
     {% block seitenleiste %}{% if angemeldet %}{{ k.seitenleiste(geruest) }}{% endif %}{% endblock %}
     <main id="inhalt" tabindex="-1">
+      {%- if brotkrumen %}{{ k.brotkrumen(brotkrumen) }}
+      {%- elif geruest.brotkrumen %}{% set kette = [] %}{% for text, href in geruest.brotkrumen %}{% set _n = kette.append((_(text), href)) %}{% endfor %}{% set _n = kette.append((self.titel(), none)) %}{{ k.brotkrumen(kette) }}{% endif %}
+      <div id="status" role="status" aria-live="polite" class="unsichtbar"></div>
       <p id="netzhinweis" class="netzhinweis" role="alert" hidden>
         <span data-hinweis="allgemein">{{ _("Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.") }}</span>
         <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span>
