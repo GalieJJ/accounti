@@ -255,3 +255,18 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 <nav class="seitenblaettern" aria-label="{{ _("Seiten") }}">{% if seite > 1 %}{{ linkknopf(_("Zurück"), url ~ (seite - 1), groesse="klein", symbol="chevron-left") }}{% endif %}<ol>{% for n in range(1, seiten + 1) %}{% if n == 1 or n == seiten or (n - seite) | abs <= 2 %}<li>{% if n == seite %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}" aria-current="page">{{ n }}</a>{% else %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}">{{ n }}</a>{% endif %}</li>{% elif (n - seite) | abs == 3 %}<li aria-hidden="true">…</li>{% endif %}{% endfor %}</ol>{% if seite < seiten %}{{ linkknopf(_("Weiter"), url ~ (seite + 1), groesse="klein") }}{% endif %}</nav>
 {%- endif -%}
 {%- endmacro %}
+
+{#- Seitenleiste (breit): ein Eintrag je Bereich mit Symbol, Titel und Zähler; abgesetzt
+    „Einstellungen“. Arbeitet nur mit geruest.NavEintrag. -#}
+{%- macro _naveintrag(e) -%}
+<a class="nav-eintrag" href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ symbol(e.symbol) }}<span class="nav-titel">{{ _(e.titel) }}</span>{% if e.zaehler is not none %}{{ zaehler(e.zaehler, _("offen"), betont=e.betont) }}{% endif %}</a>
+{%- endmacro -%}
+
+{% macro seitenleiste(geruest) -%}
+<nav class="seitenleiste" aria-label="{{ _("Bereiche") }}"><ul class="nav-liste">{% for e in geruest.bereiche %}<li>{{ _naveintrag(e) }}</li>{% endfor %}</ul>{% if geruest.einstellungen %}<hr class="nav-trenner"><ul class="nav-liste"><li>{{ _naveintrag(geruest.einstellungen) }}</li></ul>{% endif %}</nav>
+{%- endmacro %}
+
+{#- Untere Leiste (schmal): höchstens fünf Ziele, der Zähler steht in der Beschriftung. -#}
+{% macro untere_leiste(geruest) -%}
+<nav class="untere-leiste" aria-label="{{ _("Bereiche") }}">{% for e in geruest.unten %}<a class="leisten-ziel" href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ symbol(e.symbol, groesse=22) }}<span class="leisten-titel">{{ _(e.kurz) }}{% if e.zaehler is not none %} <span class="leisten-zahl">{{ e.zaehler }}</span><span class="unsichtbar"> {{ _("offen") }}</span>{% endif %}</span></a>{% endfor %}</nav>
+{%- endmacro %}

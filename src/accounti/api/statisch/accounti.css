@@ -696,6 +696,45 @@
   .seitenblaettern { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-2); }
   .seitenblaettern ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-1); margin: 0; padding: 0; list-style: none; }
   .seitenblaettern [aria-current="page"] { color: var(--akzent); background-color: var(--akzent-flaeche); border-color: var(--akzent); }
+  /* Seitenleiste und untere Leiste (Lage und Sichtbarkeit je Breite: Gerüst, Schritt 7) */
+  .seitenleiste { padding: var(--a-45) var(--a-3); background-color: var(--grund); border-right: 1px solid var(--linie); }
+  .nav-liste { display: flex; flex-direction: column; gap: var(--a-1); margin: 0; padding: 0; list-style: none; }
+  .nav-eintrag {
+    display: flex;
+    align-items: center;
+    gap: var(--a-3);
+    min-height: 2.75rem;
+    padding: 0 var(--a-3);
+    color: var(--text);
+    text-decoration: none;
+    border-radius: var(--radius-m);
+  }
+  .nav-eintrag:hover { background-image: linear-gradient(var(--schleier), var(--schleier)); }
+  .nav-eintrag[aria-current="page"] { font-weight: 600; color: var(--akzent); background-color: var(--akzent-flaeche); }
+  .nav-trenner { margin: var(--a-3); border: 0; border-top: 1px solid var(--linie); }
+  .untere-leiste {
+    display: grid;
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    padding-bottom: env(safe-area-inset-bottom);
+    background-color: var(--flaeche);
+    border-top: 1px solid var(--linie);
+  }
+  .leisten-ziel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--fein-1);
+    min-height: var(--leistenhoehe);
+    padding: 0 var(--a-1);
+    font-size: var(--gr-1);
+    text-align: center;
+    color: var(--text-2);
+    text-decoration: none;
+  }
+  .leisten-ziel[aria-current="page"] { font-weight: 600; color: var(--akzent); }
+  .leisten-titel { overflow-wrap: anywhere; }
 }
 
 @layer hilfen {

@@ -547,3 +547,57 @@ def test_brotkrumen_und_seitenblaettern():
     assert 'href="/pruefen?seite=9"' not in blaettern and "…" in blaettern
     assert blaettern.count('aria-current="page"') == 1
     assert render('{{ k.seitenblaettern(1, 1, "/x?seite=") }}') == ""
+
+
+def beispielgeruest():  # noqa: ANN201
+    from accounti.api.geruest import Geruest, NavEintrag
+
+    return Geruest(
+        bereiche=(
+            NavEintrag("Übersicht", "/", "house"),
+            NavEintrag(
+                "Prüfen",
+                "/pruefen",
+                "square-check-big",
+                zaehler=12,
+                betont=True,
+                aktiv=True,
+            ),
+            NavEintrag("Freigaben", "/freigaben", "shield-check", zaehler=2),
+        ),
+        einstellungen=NavEintrag("Einstellungen", "/einstellungen", "settings"),
+        unten=(
+            NavEintrag("Übersicht", "/", "house"),
+            NavEintrag(
+                "Prüfen", "/pruefen", "square-check-big", zaehler=12, aktiv=True
+            ),
+            NavEintrag(
+                "Freigaben", "/freigaben", "shield-check", kurztitel="Frei", zaehler=2
+            ),
+            NavEintrag("Mehr", "/menue", "menu"),
+        ),
+    )
+
+
+def test_navigationsmakros_mit_beispielgeruest():
+    g = beispielgeruest()
+    seite = render("{{ k.seitenleiste(g) }}", g=g)
+    assert seite.startswith('<nav class="seitenleiste" aria-label="Bereiche">')
+    assert seite.count('class="nav-eintrag"') == 4  # drei Bereiche und Einstellungen
+    assert seite.count('aria-current="page"') == 1
+    assert '<a class="nav-eintrag" href="/pruefen" aria-current="page">' in seite
+    assert (
+        '<span class="zaehler zaehler-betont">12<span class="unsichtbar"> offen'
+        in seite
+    )
+    assert '<span class="zaehler">2<span class="unsichtbar"> offen' in seite
+    assert '<hr class="nav-trenner">' in seite and "#settings" in seite
+    unten = render("{{ k.untere_leiste(g) }}", g=g)
+    assert unten.count('class="leisten-ziel"') == 4 and "symbol-22" in unten
+    assert 'Prüfen <span class="leisten-zahl">12</span>' in unten
+    assert "Frei <span" in unten and ">Freigaben<" not in unten
+    assert unten.count('aria-current="page"') == 1 and unten.index(
+        "/menue"
+    ) > unten.index("/freigaben")
+    englisch = render("{{ k.seitenleiste(g) }}", g=g, sprache="en")
+    assert ">Overview<" in englisch and ">Review<" in englisch
