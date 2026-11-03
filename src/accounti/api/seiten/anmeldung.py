@@ -54,12 +54,12 @@ def sicheres_ziel(weiter: str | None) -> str:
     return weiter
 
 
-def _formular(
+async def _formular(
     request: Request, weiter: str, fehler: Text | None, status: int
 ) -> Response:
     dienste = dienste_von(request)
     wert = secrets.token_urlsafe(32)
-    antwort = seite(
+    antwort = await seite(
         request,
         "anmelden.html",
         {
@@ -84,7 +84,7 @@ def _formular(
 
 @router.get("/anmelden", response_class=HTMLResponse)
 async def anmelden_formular(request: Request, weiter: str = "/") -> Response:
-    return _formular(request, sicheres_ziel(weiter), None, 200)
+    return await _formular(request, sicheres_ziel(weiter), None, 200)
 
 
 async def _anmeldeplatz(dienste: Dienste) -> bool:
@@ -133,14 +133,14 @@ async def anmelden(request: Request) -> Response:
     cookie = request.cookies.get(anmelde_cookie(dienste), "")
     gesendet = felder.get("anmeldung", "")
     if not cookie or not hmac.compare_digest(cookie.encode(), gesendet.encode()):
-        return _formular(
+        return await _formular(
             request,
             weiter,
             Text("Das Formular ist abgelaufen — bitte erneut senden."),
             403,
         )
     if not await _anmeldeplatz(dienste):
-        antwort = _formular(
+        antwort = await _formular(
             request,
             weiter,
             Text("Gerade melden sich viele an — bitte gleich noch einmal versuchen."),
@@ -154,7 +154,7 @@ async def anmelden(request: Request) -> Response:
     finally:
         dienste.anmeldeplatz_frei()
     if token is None:
-        return _formular(request, weiter, Text("Anmeldung fehlgeschlagen."), 401)
+        return await _formular(request, weiter, Text("Anmeldung fehlgeschlagen."), 401)
     antwort = RedirectResponse(weiter, status_code=303)
     antwort.set_cookie(
         cookie_name(dienste),

@@ -109,8 +109,8 @@
 {{ k.schritte([_("Firma"), _("Konten"), _("Steuern"), _("Bank"), _("Belege"), _("Benutzer"), _("Fertig")], 3) }}
 {% call k.bestaetigung(_("Wirklich stornieren?"), _("Stornieren"), "#" ~ v ~ "-weitere", art="gefaehrlich") %}<p>{{ _("Die Buchung wird gegengebucht; beide bleiben im Journal.") }}</p>{% endcall %}
 <div class="htmx-request">{{ k.ladeanzeige() }}</div>
-<div class="muster-rahmen">{{ k.seitenleiste(geruest) }}</div>
-<div class="muster-rahmen">{{ k.untere_leiste(geruest) }}</div>
+<div class="muster-rahmen">{{ k.seitenleiste(beispiel_geruest) }}</div>
+<div class="muster-rahmen">{{ k.untere_leiste(beispiel_geruest) }}</div>
 <div class="muster-rahmen">{% call k.aktionsleiste(_("Aktionen der Prüfung")) %}{{ k.knopf(_("Passt – freigeben"), groesse="gross", taste="f", typ="button") }}{{ k.knopf(_("Anderes Konto"), art="sekundaer", groesse="gross", typ="button") }}{{ k.knopf(_("Später klären"), art="sekundaer", groesse="gross", typ="button") }}{% endcall %}</div>
 <div class="muster-rahmen">{% call k.sammelleiste() %}<p><strong>{{ _("2 ausgewählt") }}</strong> <span class="schrift-3">{{ _("zusammen 652,31 €") }}</span></p>{{ k.knopf(_("Auswahl aufheben"), art="still", typ="button") }}{{ k.knopf(_("Freigeben"), typ="button") }}{% endcall %}</div>
 <div class="muster-layouts">

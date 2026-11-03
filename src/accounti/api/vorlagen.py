@@ -1,14 +1,15 @@
 """Jinja2-Vorlagen der Oberfläche (``accounti/api/vorlagen/``), Autoescape an.
 
-``seite(request, "name.html", {...})`` rendert mit dem Grundlayout-Kontext:
-``angemeldet`` (Benutzer, Gesellschaft, Rechte), ``csrf``, ``navigation`` (nur die
-Punkte, die die Rolle darf), ``gesellschaften`` (für den Wechsel), ``version`` und
-``sprache``. Die Sprache wählt ``i18n.waehle_sprache`` (Benutzer → Browser →
-``server.sprache``); sie gilt während des Renderns als ``i18n.aktive_sprache`` und wird
-danach zurückgesetzt. Übersetzt wird mit ``{{ _("…") }}`` (``jinja2.ext.i18n``,
-Newstyle: Platzhalter werden escaped); Filter ``betrag``, ``datum``, ``euro``,
-``prozent``, ``monat`` formatieren je Sprache, ``uebersetzt`` übersetzt eine
-``i18n.Text``-Meldung, ``bezeichnung`` zeigt einen Statuswert (Enum) lesbar.
+``await seite(request, "name.html", {...})`` rendert mit dem Grundlayout-Kontext:
+``angemeldet`` (Benutzer, Gesellschaft, Rechte), ``csrf``, ``geruest`` (Navigation mit
+Zählern, ``api.geruest``), ``navigation`` (nur die Punkte, die die Rolle darf),
+``version`` und ``sprache``. Die Sprache wählt ``i18n.waehle_sprache`` (Benutzer →
+Browser → ``server.sprache``); sie gilt während des Renderns als
+``i18n.aktive_sprache`` und wird danach zurückgesetzt. Übersetzt wird mit
+``{{ _("…") }}`` (``jinja2.ext.i18n``, Newstyle: Platzhalter werden escaped); Filter
+``betrag``, ``datum``, ``euro``, ``prozent``, ``monat`` formatieren je Sprache,
+``uebersetzt`` übersetzt eine ``i18n.Text``-Meldung, ``bezeichnung`` zeigt einen
+Statuswert (Enum) lesbar.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
+from accounti.api.geruest import geruest
 from accounti.api.htmx import ist_htmx
 from accounti.api.registry import Navigationspunkt
 from accounti.api.symbole import symbol_klasse, symbol_url
@@ -323,25 +325,31 @@ def rendere_teil(
     return "".join(vorlage.blocks[teil](vorlage.new_context(kontext)))
 
 
-def seite(
+async def seite(
     request: Request,
     vorlage: str,
     werte: dict[str, Any] | None = None,
     status: int = 200,
     *,
+    zaehler: bool = True,
     teil: str | None = None,
 ) -> HTMLResponse:
-    """Seite mit dem Grundlayout-Kontext. Mit ``teil`` (neue Seiten ab Baustein 10c)
-    liefert eine htmx-Anfrage ohne Verlaufsabruf nur diesen Block als Fragment, sonst
-    die ganze Seite (eine Route, zwei Formen; AK58)."""
+    """Seite mit dem Grundlayout-Kontext und dem Gerüst (``geruest``). Mit ``teil``
+    (neue Seiten ab Baustein 10c) liefert eine htmx-Anfrage ohne Verlaufsabruf nur
+    diesen Block als Fragment, sonst die ganze Seite (eine Route, zwei Formen; AK58).
+    Die Zähler der Navigation gibt es nur für ganze Seiten mit Status < 400 ohne
+    ``HX-Request`` und mit ``zaehler`` (die Fehlerwege setzen ``zaehler=False``)."""
     a = getattr(request.state, "angemeldet", None)
     punkte: list[Navigationspunkt] = getattr(request.app.state, "navigation", [])
     sprache = sprache_der_anfrage(request)
     csrf = a.csrf if a else ""
+    fragment = ist_htmx(request)
+    g = await geruest(request, a, zaehler=zaehler and status < 400 and not fragment)
     kontext: dict[str, Any] = {
         "angemeldet": a,
         "csrf": csrf,
-        "navigation": [p for p in punkte if a is not None and a.darf(p.recht)],
+        "geruest": g,
+        "navigation": [p for p in punkte if a is not None and p.erlaubt(a.rechte)],
         "version": __version__,
         "titel": "accounti",
         "meldung": None,
@@ -362,7 +370,7 @@ def seite(
         pruefe_teilvorlage(UMGEBUNG, vorlage, teil)
     # Starlette rendert im Konstruktor — die Sprache gilt genau so lange
     with i18n.sprache_aktiv(sprache):
-        if teil is not None and ist_htmx(request):
+        if teil is not None and fragment:
             antwort = HTMLResponse(
                 rendere_teil(UMGEBUNG, vorlage, teil, {**kontext, "request": request}),
                 status_code=status,

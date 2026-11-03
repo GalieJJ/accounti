@@ -27,6 +27,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from accounti.api import rest, seiten
 from accounti.api.dienste import Dienste
 from accounti.api.htmx import aktueller_pfad
+from accounti.api.lesezugriff import Lesezugriff
 from accounti.api.registry import endpunkte, navigation, routermodule
 from accounti.api.seiten.anmeldung import sicheres_ziel
 from accounti.api.sicherheit import FEHLER, Sicherheit, protokollpfad
@@ -79,6 +80,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
     @asynccontextmanager
     async def lebenszeit(_: FastAPI) -> AsyncIterator[None]:
         yield
+        lesezugriff.schliesse()
         dienste.schliesse()
 
     app = FastAPI(
@@ -89,6 +91,9 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         lifespan=lebenszeit,
     )
     app.state.dienste = dienste
+    # Zähler der Navigation: nur lesend, eigene Fristen und eigener Pool (Plan P1, B14)
+    lesezugriff = Lesezugriff()
+    app.state.lesezugriff = lesezugriff
     seitenmodule = routermodule(seiten)
     app.state.navigation = navigation(seitenmodule)
     app.add_middleware(Sicherheit)
@@ -133,11 +138,12 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
                 headers=kopf,
             )
         await merke_benutzersprache(request)
-        antwort = seite(
+        antwort = await seite(
             request,
             "meldung.html",
             {"titel": N_("Fehler"), "fehler": fehlertext(fehler)},
             status=fehler.status_code,
+            zaehler=False,
         )
         antwort.headers.update(kopf)
         return antwort
@@ -151,7 +157,9 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         meldung = Text("Ungültige Angaben: %(felder)s", felder=felder)
         if _ist_api(request):
             return JSONResponse({"fehler": str(meldung)}, status_code=422)
-        return seite(request, "meldung.html", {"fehler": meldung}, status=422)
+        return await seite(
+            request, "meldung.html", {"fehler": meldung}, status=422, zaehler=False
+        )
 
     @app.exception_handler(OperationalError)
     async def beschaeftigt(request: Request, fehler: OperationalError) -> Response:
@@ -170,11 +178,12 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
             return JSONResponse(
                 {"fehler": str(BESCHAEFTIGT)}, status_code=503, headers=kopf
             )
-        antwort = seite(
+        antwort = await seite(
             request,
             "meldung.html",
             {"titel": N_("Fehler"), "fehler": BESCHAEFTIGT},
             status=503,
+            zaehler=False,
         )
         antwort.headers.update(kopf)
         return antwort

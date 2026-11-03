@@ -133,15 +133,15 @@ async def muster(request: Request, a: LeseDep, theme: str | None = None) -> Resp
         "farben": FARBEN,
         "marken": MARKEN,
         "beispiel": Beispiel(),
-        "geruest": GERUEST,
+        "beispiel_geruest": GERUEST,
     }
     if wahl is not None:
         werte |= {"darstellung": wahl, "color_scheme": DARSTELLUNGEN[wahl]}
-    return seite(request, "muster.html", werte, teil="inhalt")
+    return await seite(request, "muster.html", werte, teil="inhalt")
 
 
 @router.get("/muster/beispiel", response_class=HTMLResponse)
 async def beispiel(request: Request, a: LeseDep) -> Response:
     if not ist_htmx(request):
         return RedirectResponse("/muster#austausch", status_code=303)
-    return seite(request, "_muster_beispiel.html")
+    return await seite(request, "_muster_beispiel.html")

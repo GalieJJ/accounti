@@ -26,7 +26,7 @@ from accounti.anzeige import betrag_de
 from accounti.api.dienste import Dienste
 from accounti.api.einmalcode import bestaetige_einmalcode, freigabesperre
 from accounti.api.formular import formular
-from accounti.api.registry import Navigationspunkt
+from accounti.api.registry import Bereich, Navigationspunkt
 from accounti.api.sitzung import (
     Angemeldet,
     dienste_von,
@@ -34,14 +34,32 @@ from accounti.api.sitzung import (
     gesellschaft_db,
 )
 from accounti.api.vorlagen import seite
-from accounti.db.repo_zahlung import lade_laeufe, lade_lauf
+from accounti.db.repo_zahlung import anzahl_laeufe, lade_laeufe, lade_lauf
 from accounti.i18n import N_, Text
 from accounti.models.auth import Recht
 from accounti.models.zahlung import LaufStatus, Zahlungslauf
 from accounti.pruefung.person import geprueft_als
 
 router = APIRouter()
-NAVIGATION = [Navigationspunkt(N_("Freigaben"), "/freigaben", Recht.LESEN, 50)]
+
+
+def laeufe_im_entwurf(s: Session) -> int:
+    """Zähler der Navigation: Zahlungsläufe, die auf Freigabe warten (USt-VA: P2)."""
+    return anzahl_laeufe(s, [LaufStatus.ENTWURF])
+
+
+# sichtbar nur mit Freigaberecht (eines genügt); die Seite selbst lesen alle (LESEN)
+NAVIGATION = [
+    Navigationspunkt(
+        N_("Freigaben"),
+        "/freigaben",
+        Bereich.FREIGABEN,
+        "shield-check",
+        frozenset({Recht.ZAHLUNG_FREIGEBEN, Recht.STEUER_FREIGEBEN}),
+        50,
+        zaehler=laeufe_im_entwurf,
+    )
+]
 
 
 @router.get("/freigaben", response_class=HTMLResponse)
@@ -55,7 +73,7 @@ async def uebersicht(
     laeufe: list[Zahlungslauf] = await run_in_threadpool(
         lade_laeufe, s, [LaufStatus.ENTWURF]
     )
-    return seite(
+    return await seite(
         request,
         "freigaben.html",
         {
@@ -190,7 +208,9 @@ async def zahlungslauf_freigeben(
             return _zahlungslauf(dienste, a, s, lauf_nr, gesehen)
 
     text = await run_in_threadpool(abschliessen)
-    return seite(request, "meldung.html", {"meldung": text, "zurueck": "/freigaben"})
+    return await seite(
+        request, "meldung.html", {"meldung": text, "zurueck": "/freigaben"}
+    )
 
 
 def _ustva(
@@ -299,4 +319,4 @@ async def ustva_freigeben(
             return _ustva(a, s, zeitraum)
 
     werte = await run_in_threadpool(abschliessen)
-    return seite(request, "meldung.html", werte)
+    return await seite(request, "meldung.html", werte)

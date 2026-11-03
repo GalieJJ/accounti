@@ -162,7 +162,7 @@ async def buchung_seite(
     werte = await run_in_threadpool(
         lambda: buchungswerte(s, a, buchung_id, mit_einmalcode=code)
     )
-    return seite(request, "buchungen/buchung.html", werte)
+    return await seite(request, "buchungen/buchung.html", werte)
 
 
 def _wieder_offen(s: Session, transaktion_id: UUID) -> bool:
@@ -252,7 +252,9 @@ async def _storno_aktion(
         fehler = await run_in_threadpool(probe)
     if fehler is not None:
         werte = await run_in_threadpool(anzeige, fehler)
-        return seite(request, "buchungen/buchung.html", werte, status=fehler.status)
+        return await seite(
+            request, "buchungen/buchung.html", werte, status=fehler.status
+        )
 
     def lauf() -> tuple[list[Any], Fehlerbild | None]:
         with im_namen(a) as person:
@@ -279,7 +281,7 @@ async def _storno_aktion(
 
     meldungen, fehler = await run_in_threadpool(abschliessen)
     werte = await run_in_threadpool(anzeige, fehler, meldungen)
-    return seite(
+    return await seite(
         request,
         "buchungen/buchung.html",
         werte,

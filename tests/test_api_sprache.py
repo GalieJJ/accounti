@@ -31,7 +31,12 @@ def test_html_lang_und_navigation_englisch(welt):
     seite = client.get("/", headers=EN).text
     assert '<html lang="en" ' in seite
     assert "Company: <strong>Alpha Papier GmbH</strong>" in seite
-    assert ">Overview<" in seite and ">Approvals<" in seite and "Sign out" in seite
+    # umgestellt (Plan P1, B9): jan ist buchhalter — Freigaben sieht nur, wer freigeben
+    # darf; „Navigation englisch“ prüft Übersicht und Prüfen bzw. Freigaben für fritz
+    assert ">Overview<" in seite and ">Review<" in seite and "Sign out" in seite
+    assert ">Approvals<" not in seite
+    welt.person("fritz", Rolle.FREIGEBER)
+    assert ">Approvals<" in welt.angemeldet("fritz").get("/", headers=EN).text
     seite = client.get("/", headers=DE).text
     assert '<html lang="de" ' in seite
     assert "Gesellschaft: <strong>Alpha Papier GmbH</strong>" in seite
