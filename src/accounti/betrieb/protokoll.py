@@ -35,6 +35,11 @@ _LOKAL = r"\w.+\-#?%!$&*=^~"
 # (quadratisch), und die Kürzung langer Zeilen (``_VORLAUF``) braucht einen festen
 # Abstand (Folgepaket F, g8w B8-1)
 _ABSTAND = r"\s{0,40}"
+# Teil einer Adresse zwischen „://“ und „:“ (ohne Punkt: ``_RECHNERTEIL``) und ein Port
+# 1–65535 ohne führende Null
+_HOSTTEIL = r"[^/\s:@?#\[\]]"
+_RECHNERTEIL = r"[^/\s:@?#\[\].]"
+_PORT = r"(?:6553[0-5]|655[0-2]\d|65[0-4]\d\d|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3})"
 _MUSTER: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"accounti_(?:api|wh)_[A-Za-z0-9_\-]+"), "[Token]"),
     # verbreitete Zugangstoken (GitHub, GitLab, Slack) — auch ohne „token=“
@@ -54,13 +59,18 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # „@“ weiter hinten im Pfad bleiben Pfad)
     (re.compile(rf"({_SCHEMA})[^/\s@:]*:[^/\s@]*/[^/\s@]+@"), r"\1***@"),
     # … und abgeschnitten (Zeilenumbruch, kaputte Adresse): „scheme://benutzer:etwas“
-    # ohne @ — außer einem Port: Ziffern vor „/“, Leerraum, Ende, einer Abfrage („?x=1“,
-    # „?“) oder „#/“ (Runde 8, g7w B7-3); „:4711#Sonne“ und „:4711?Sonne“ sind ein
-    # Passwort (Runde 7, g6w B-2)
+    # ohne @ — außer einem Port: Ziffern bis 65535 hinter einem Rechner (mit Punkt —
+    # auch IPv4 — oder localhost) vor „/“, Leerraum, Ende, einer Abfrage („?x=1“, „?“)
+    # oder „#/“ (Runde 8, g7w B7-3). Ohne Rechner ist „alarm:4711?x=Sonne“ ein Passwort
+    # (Folgepaket F, g8w B8-2), ebenso „:4711#Sonne“ und „:4711?Sonne“ (Runde 7, g6w
+    # B-2). Die Gruppe ist atomar: Ein Port hinter einem Rechner fällt nicht auf die
+    # zweite Lesart zurück
     (
         re.compile(
-            rf"({_SCHEMA}[^/\s:@?#\[\]]+):"
-            r"(?!\d+(?:[/\s]|$|\?(?:[^\s#/=]*=|[\s#/]|$)|#(?:[/\s]|$)))[^/\s@]+"
+            rf"({_SCHEMA}(?>(?P<rechner>{_RECHNERTEIL}*\.{_HOSTTEIL}*|"
+            rf"(?i:localhost)(?=:))|{_HOSTTEIL}+)):"
+            rf"(?(rechner)(?!{_PORT}(?:[/\s]|$|\?(?:[^\s#/=]*=|[\s#/]|$)|#(?:[/\s]|$))))"
+            r"[^/\s@]+"
         ),
         r"\1:***",
     ),

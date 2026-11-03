@@ -478,11 +478,12 @@ def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
 @pytest.mark.parametrize(
     ("roh", "erwartet"),
     [
-        # Port vor einer Abfrage (Runde 7 machte Port und Abfrage zu „***“)
-        ("https://host:8443?x=1", "https://host:8443?x=1"),
+        # Port vor einer Abfrage (Runde 7 machte Port und Abfrage zu „***“) — hinter
+        # einem Rechner mit Punkt bzw. localhost (Folgepaket F, g8w B8-2)
+        ("https://rechner.example:8443?x=1", "https://rechner.example:8443?x=1"),
         ("http://localhost:8000?next=/", "http://localhost:8000?next=/"),
         ("http://localhost:8000?", "http://localhost:8000?"),
-        ("https://host:8443#/start", "https://host:8443#/start"),
+        ("https://rechner.example:8443#/start", "https://rechner.example:8443#/start"),
         # das Wort vor „:“ gehört nicht zur E-Mail-Adresse
         ("Empfänger:max@firma.de", "Empfänger:[E-Mail]"),
         ("Kontakt: mailto:info@galerie.example", "Kontakt: mailto:[E-Mail]"),
@@ -495,6 +496,48 @@ def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
 def test_schwaerzung_ohne_ueberschwaerzung(roh, erwartet):
     """B7-3 (g7w, Runde 7): Port und Abfrage verschwanden, ein Wort vor „:“ wurde Teil
     von [E-Mail]. Zugangsdaten bleiben geschwärzt (``test_schwaerzung``)."""
+    assert schwaerze(roh) == erwartet
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "Fehler https://alarm:4711?",
+        "Fehler https://alarm:4711#\nSonne@hooks.example/x",
+        "Fehler https://alarm:4711?#Sonne",
+        "Fehler https://alarm:4711?x=Sonne",
+        "Fehler https://alarm:4711? nicht zustellbar",
+        "Fehler https://alarm:4711#/",
+        "Fehler https://alarm:4711/",
+        "Fehler https://alarm:4711",
+        # Zahl über 65535 ist kein Port, auch hinter einem Rechner
+        "Fehler https://rechner.example:99999?x=1",
+        "Fehler https://localhost:0?",
+    ],
+)
+def test_port_nur_hinter_einem_rechner(roh):
+    """B8-2 (g8w): Die Port-Ausnahme (B7-3) ließ eine abgeschnittene Adresse mit
+    Ziffern-Passwort vor ?/# stehen. „:Ziffern“ ist jetzt nur ein Port, wenn der Teil
+    davor wie ein Rechner aussieht (Punkt, localhost, IPv4) und die Zahl höchstens
+    65535 ist — sonst ein Passwort: „alarm:***“ (Sicherheit vor Bequemlichkeit)."""
+    text = schwaerze(roh)
+    assert ":***" in text, text
+    assert "4711" not in text and "99999" not in text and "Sonne" not in text, text
+
+
+@pytest.mark.parametrize(
+    ("roh", "erwartet"),
+    [
+        ("https://rechner.example:8443?x=1", "https://rechner.example:8443?x=1"),
+        ("https://localhost:8443#/a", "https://localhost:8443#/a"),
+        ("http://127.0.0.1:8080?x=1", "http://127.0.0.1:8080?x=1"),
+        ("https://hooks.example:65535/x", "https://hooks.example:65535/x"),
+        # Grenze: ein Rechner ohne Punkt ist von „benutzer:4711“ nicht zu trennen
+        ("https://host:8443?x=1", "https://host:***"),
+        ("https://host:8443/pfad", "https://host:***/pfad"),
+    ],
+)
+def test_port_hinter_einem_rechner_bleibt_lesbar(roh, erwartet):
     assert schwaerze(roh) == erwartet
 
 
