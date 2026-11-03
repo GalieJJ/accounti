@@ -600,9 +600,12 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
   vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
   „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Zwischen Schlüsselwort
-  und Wert darf beliebig viel Leerraum stehen (geprüft in linearer Zeit). Eine Zeile über
-  4000 Zeichen kürzt er vorher auf Anfang und Ende (je höchstens 1500 Zeichen, geschnitten
-  an Leerraum). Jedes Stück schwärzt er zuvor mit 250 Zeichen über die Schnittkante hinaus
+  und Wert darf innerhalb einer Zeile beliebig viel Leerraum stehen (geprüft in linearer
+  Zeit); über einen Zeilenumbruch hinweg nur, solange keine der beiden Zeilen gekürzt wird
+  (Grenze: „PIN“, Tausende Leerzeichen und der Wert erst in der nächsten Zeile — die Kürzung
+  trennt sie, der Wert bleibt stehen). Eine Zeile über 4000 Zeichen kürzt er vorher auf
+  Anfang und Ende (je höchstens 1500 Zeichen, geschnitten an Leerraum), jede Zeile für
+  sich. Jedes Stück schwärzt er zuvor mit 250 Zeichen über die Schnittkante hinaus
   (das Ende auch über einen Abstand hinweg, in dem diese 250 Zeichen beginnen): Ein
   Geheimnis, das an der Kante beginnt, steht vorn geschwärzt da und fällt hinten ganz weg;
   ein Wert hinter der Kante verliert sein Schlüsselwort nicht. (Die Fassung vor dem

@@ -764,6 +764,13 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Skonto zur Zahlung einer Rechnung über ein Verrechnungskonto (1590, SKR04 1370) geht
   wieder. Ein Wert hinter mehr als 40 Leerraumzeichen nach „PIN“, „Passwort:“, „Bearer“ …
   wird wieder geschwärzt.
+- **Nacharbeit 10b-1, Runde 3** (Nachprüfung F Runde 2): Eine stornierte oder berichtigte
+  Erlösschmälerung („8700 an 1000, Schlüssel 3“) auf Quittung oder Marktplatzabrechnung
+  senkt die § 14c-Obergrenze nicht mehr — das Storno des Erlöses warnt wieder mit dem
+  ausgewiesenen Betrag (95 € statt keiner Warnung bzw. 76 €), die Prüfregel meldet ihn. Ein
+  Rechnungsteil „10001 an 1590“ neben „10001 an 8400“ und „1590 an 8400“ gilt nicht mehr als
+  Zahlung (kein Skonto mit Umsatzsteuer daraus). betrieb.md beschreibt den Abstand zwischen
+  Schlüsselwort und Wert jetzt so, wie die Schwärzung ihn hält.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

@@ -1690,8 +1690,12 @@ Durchlaufs mit Markern in allen Fremddaten.
   --steuer 9“ berichtigen (Folgepaket F, g8w G8R-1). Weist ein solcher Beleg Umsatzsteuer nur
   über seine Erlösbuchungen aus, zählt als ausgewiesen je Satz höchstens die Steuer dieser
   Buchungen (eine Gebührenposition desselben Satzes nicht; g8w G8R-4) — je Korrekturkette
-  ihr höchster Erlös-Stand, auch ein durch eine Neubuchung ersetztes Original („1000 an 8400
-  → 1000 an 2700, Schlüssel 3“, dann Storno: die Lücke bleibt 95 €; GF-1b). Auswahl der Oberfläche,
+  ihr höchster positiver Erlös-Stand, auch ein durch eine Neubuchung ersetztes Original
+  („1000 an 8400 → 1000 an 2700, Schlüssel 3“, dann Storno: die Lücke bleibt 95 €; GF-1b).
+  Eine Erlösschmälerung („8700 an 1000, Schlüssel 3“) senkt die Obergrenze nicht, ob wirksam,
+  storniert oder berichtigt (Untergrenze 0 je Kette; sonst hob sie den Erlös auf: Storno ohne
+  Warnung bzw. 76 statt 95 €, F Runde 3, gf2-richtung GF2-1, GF2-2); eine Minderung, die der
+  Beleg selbst ausweist (Position Rücksendung), mindert schon die ausgewiesene Steuer. Auswahl der Oberfläche,
   Korrektur, Storno-Warnung und Prüfregel lesen dieselben Konten (mit
   `elster.steuerrelevante_konten` und `kennziffern_konten`; g8w G8R-2). Grenzen: Nennt der
   Beleg mehrere Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg
@@ -1699,7 +1703,9 @@ Durchlaufs mit Markern in allen Fremddaten.
   Belegs ohne eindeutige Belegart gilt als eigene Minderung des Unternehmers (§ 14c, wie
   R7-3 X2), auch wenn sie in Wahrheit eine Gebühr ist (Weg: Storno bzw. Umbuchung über ein
   Aufwandskonto). Die Obergrenze der Lücke ist die höchste gebuchte Erlössteuer der Kette —
-  war der Erlös mit zu wenig Steuer gebucht, meldet die Lücke nur diese. Wird ein Vorschlag
+  war der Erlös mit zu wenig Steuer gebucht, meldet die Lücke nur diese. Bleibt neben dem
+  stornierten Erlös eine Erlösschmälerung wirksam, die der Beleg nicht ausweist („8700 an
+  1000, Schlüssel 3“, Kz 81 −500), melden Storno und Prüfregel die ganzen 95 € (wie d36ac77). Wird ein Vorschlag
   direkt (ohne Storno) auf ein Konto ohne Erlös umgebucht („1000 an 2700, Schlüssel 3“ ohne
   `elster.steuerrelevante_konten`) und dann storniert, kennt die Lücke den früheren Stand
   nicht (er steht nur im Journal; wie d36ac77); „→ 2700, dann ohne Steuer mit Grund“ bleibt
@@ -1734,7 +1740,10 @@ Durchlaufs mit Markern in allen Fremddaten.
   ein Verrechnungs- oder Transitkonto („1200 an 1590“ zu „1590 an 8400“, SKR04 1370; F Runde
   2, gf-richtung GF-2). Ein Teil der Rechnung auf zwei
   Gegenkonten („10001 an 1590“ neben „10001 an 8400“, Barverkauf „1000 an 1590“) bucht es
-  auf derselben Seite und ist keine Nebenbuchung; gibt eine Korrektur einer Nebenbuchung ein
+  auf derselben Seite und ist keine Nebenbuchung — auch nicht, wenn eine zweite
+  Rechnungsbuchung über dieses Gegenkonto läuft („1590 an 8400“ daneben: das Gegenkonto der
+  Rechnung zählt nur für eine Buchung, die kein Gegenkonto einer Rechnungsbuchung auf deren
+  Seite bucht; F Runde 3, gf2-richtung GF2-3); gibt eine Korrektur einer Nebenbuchung ein
   Erlös- bzw. Aufwandskonto mit Schlüssel, das kein Minderungskonto ist (Auszahlung einer
   Gutschrift „10001 an 1200 → 10001 an 8400, Schlüssel 3“), gelten Rückfall und (d) wieder
   (Folgepaket F, g8w G8R-3). (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht
@@ -1820,12 +1829,15 @@ Durchlaufs mit Markern in allen Fremddaten.
   strengen Abschnitt.
 - Die Schwärzung des Protokolls ist musterbasiert (Namen, kleingeschriebene IBANs erkennt sie
   nicht). Ihre Muster laufen linear und beginnen an „://“, gleich, was davor steht
-  (Folgepaket F, g8w B8-3); zwischen Schlüsselwort und Wert erkennen sie beliebig viel
-  Leerraum, possessiv (`\s*+`) und damit linear (g8w B8-1; die Grenze von 40 Zeichen aus F
-  ließ dahinter den Wert stehen, F Runde 2: gf-betrieb F-B2). Eine Zeile
+  (Folgepaket F, g8w B8-3); zwischen Schlüsselwort und Wert erkennen sie innerhalb einer
+  Zeile beliebig viel Leerraum, possessiv (`\s*+`) und damit linear (g8w B8-1; die Grenze von
+  40 Zeichen aus F ließ dahinter den Wert stehen, F Runde 2: gf-betrieb F-B2). Eine Zeile
   über 4000 Zeichen kürzt sie vorher auf Anfang und Ende (je höchstens 1500 Zeichen, an
-  Leerraum) und schwärzt jedes Stück zuvor mit 250 Zeichen über die Kante hinaus, das Ende
-  auch über einen Abstand hinweg, in dem diese beginnen — ein
+  Leerraum), jede Zeile für sich — Grenze: Reicht der Abstand über einen Zeilenumbruch und ist
+  eine der beiden Zeilen gekürzt („PIN“, 4100 Leerzeichen, „\n471147“), trennt die Kürzung
+  Schlüsselwort und Wert, der Wert bleibt stehen (wie d36ac77; F Runde 3, gf2-betrieb
+  GF2B-1: betrieb.md versprach mehr). Sie schwärzt jedes Stück zuvor mit 250 Zeichen über
+  die Kante hinaus, das Ende auch über einen Abstand hinweg, in dem diese beginnen — ein
   Geheimnis an der Kante steht vorn geschwärzt da und fällt hinten ganz weg (g8w B8-1: die
   Fassung aus Runde 8 schnitt zuerst und trennte hinten „Bearer“, „passwort:“, „PIN“ von
   ihrem Wert). Ein statischer Pfad steht gekürzt auf 200 Zeichen im Zugriffsprotokoll, andere
