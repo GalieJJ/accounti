@@ -13,12 +13,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.aufgaben.zustaendigkeit import Zustaendigkeitsregel
 from accounti.erechnung.versand import _ersetze_variablen
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 # Tage bis zur Fälligkeit, wenn der Erzeuger keine nennt. Zehn Tage für Vorgänge,
 # die die laufende Erfassung betreffen: GoBD Rz. 47 hält die Erfassung unbarer
@@ -184,7 +183,7 @@ def lade_aufgaben_einstellungen(
     pfad = Path(pfad)
     if not pfad.is_file():
         return AufgabenEinstellungen()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("aufgaben") if isinstance(daten, dict) else None
     if abschnitt is None:
         return AufgabenEinstellungen()

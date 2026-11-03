@@ -19,10 +19,9 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 UMGEBUNG_PRODUKT_ID = "ACCOUNTI_FINTS_PRODUKT_ID"
 _VARIABLE = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
@@ -129,7 +128,7 @@ def lade_bank_einstellungen(pfad: str | Path = STANDARD_PFAD) -> BankEinstellung
     pfad = Path(pfad)
     abschnitt: Any = None
     if pfad.is_file():
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(pfad)
         abschnitt = daten.get("bank") if isinstance(daten, dict) else None
     if abschnitt is not None and not isinstance(abschnitt, dict):
         msg = f"{pfad}: Abschnitt 'bank' muss eine Zuordnung sein"

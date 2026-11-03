@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import yaml
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -34,7 +33,7 @@ from sqlalchemy.orm import Session
 from accounti import __version__
 from accounti.anzeige import datum_de
 from accounti.betrieb.protokoll import rechner_der_adresse
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 from accounti.models.pruefung import Journaleintrag
 
 VORGANG = "verfahrensdoku_erstellt"
@@ -110,9 +109,11 @@ class _Doku:
             return None
 
     def roh(self) -> dict[str, Any]:
+        """Die Konfiguration roh — kaputtes YAML ist ein ``KonfigurationError`` (die
+        CLI meldet ihn, statt mit ParserError abzubrechen; Runde 7, g6w B-3)."""
         if not self.config.is_file():
             return {}
-        daten: Any = yaml.safe_load(self.config.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(self.config)
         return daten if isinstance(daten, dict) else {}
 
     def anzahl(self, tabelle: Any) -> int:

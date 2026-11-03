@@ -588,11 +588,14 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
   vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
   „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Fehlermeldungen nennen eine
-  Webhook-Adresse nur mit Rechner und Port.
+  Webhook-Adresse nur mit Schema, Rechner und Port — auch wenn im Passwort ein unkodiertes
+  `#`, `?` oder `/` steht (alles bis zum letzten `@` vor dem Pfad gilt als Zugangsdaten; im
+  Zweifel ohne Port); ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
   geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
-  Zeilenumbruch erzeugt, geschwärzt auf Stufe DEBUG); schlägt ein Schritt fehl, steht in der
-  Warnung auch der Grund
+  Zeilenumbruch erzeugt, ohne Rahmenzeichen, geschwärzt und je Zeile höchstens 1000 Zeichen
+  auf Stufe DEBUG; ein Traceback kommt von Python, nicht als Rich-Rahmen in Terminalbreite);
+  schlägt ein Schritt fehl, steht in der Warnung auch der Grund
   — die letzten Zeilen seiner Ausgabe, geschwärzt, höchstens 600 Zeichen (z. B. „bank lauf →
   1 (5 s): config/regeln.yaml: Regel telekom: unbekannter Schlüssel kommentar …“). Diese
   Meldung kann einen Namen enthalten, etwa den einer Regel oder Gegenpartei.
@@ -756,8 +759,8 @@ Reihenfolge der Datei — auch wenn ein zweiter Lauf (`--name`) weitere übernim
 prüft derselbe Lader wie für die Regeldatei (Kontonummern, Muster, Steuerschlüssel; ungültige
 nennt die Ausgabe mit Grund); eine Datei, die kein YAML, nicht UTF-8 oder keine Liste ist,
 meldet der Befehl vor dem Einmalcode. „Schon vorhanden (übersprungen)“ heißt: dieselbe Regel
-(Muster, Konten, Schlüssel, Feld; die Richtung, wenn der Eintrag sie nennt) steht schon in der
-Datenbank bzw. früher in derselben Datei. Trägt eine Regel der Datenbank den Namen mit anderem
+(Muster, Konten, Schlüssel, Feld, Buchungstext; die Richtung, wenn der Eintrag sie nennt) steht
+schon in der Datenbank bzw. früher in derselben Datei. Trägt eine Regel der Datenbank den Namen mit anderem
 Inhalt, ist der Eintrag ungültig („Regelname … ist schon vergeben … anderem Inhalt“) — in der
 Datei umbenennen, nicht löschen, sonst geht die Änderung verloren. **Andere Einträge bleiben in der Regeldatei** und greifen
 dort wie bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
@@ -786,3 +789,16 @@ der Korrektur holt alles nach. Eigene Bestandsdateien haben den neuen Kopfkommen
 mitgelieferten `config/regeln.yaml` nicht — vor dem Update auf Zusatzfelder durchsehen
 (Kommentare gehören hinter `#`). Im geplanten Lauf steht die Meldung im Protokoll
 (`docker compose logs lauf`).
+
+**Verhaltensänderung: Kontenlängen werden geprüft** (10b-1). `mandant.sachkonten_laenge`
+muss eine ganze Zahl von 4 bis 8 sein (DATEV) — sonst brechen `export datev`, `datev belege`
+und `datev stammdaten` mit einer Meldung ab. `4.0` gilt als 4; `4.5`, `9`, `true` oder `"abc"`
+nicht. Die Personenkontenbereiche (`buchhaltung.debitoren_von`/`_bis`,
+`kreditoren_von`/`_bis`) haben höchstens 9 Stellen: Eine **Untergrenze** mit mehr Stellen ist
+ein Fehler, jeder Befehl, der die Buchhaltung lädt, hält an (`classify`, `bank lauf`,
+`pruefen`, `export datev` …). Eine **Obergrenze** darüber (etwa `kreditoren_bis: 9999999999`
+als „offen“) gilt als 999999999 — die Befehle laufen, jeder nennt einen Hinweis (auch im
+Protokoll des geplanten Laufs); die Zeile in der Konfiguration berichtigen. `export datev`
+warnt je Personenkonto, dessen Länge nicht Sachkontenlänge + 1 ist. Die Konfiguration vor dem
+Update durchsehen. Kaputtes YAML in der Konfiguration meldet jeder Befehl mit Datei und Stelle
+(„… kein gültiges YAML (…)“, rc 1) statt mit einem Traceback.

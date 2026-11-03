@@ -40,14 +40,18 @@ def _konfig(tmp_path, text: str):  # noqa: ANN001, ANN202
 
 @pytest.mark.parametrize(
     ("wert", "erwartet"),
-    [("4", 4), ("5", 5), ("6", 6), ("7", 7), ("8", 8), ("'8 '", 8), ("'6'", 6)],
-)
+    [("4", 4), ("5", 5), ("6", 6), ("7", 7), ("8", 8), ("'8 '", 8), ("'6'", 6),
+     # Runde 7 (g6w B-5): eine ganze Zahl als Float galt bis Runde 5 — weiter gültig
+     ("4.0", 4), ("8.0", 8)],
+)  # fmt: skip
 def test_sachkontenlaenge_4_bis_8(tmp_path, wert, erwartet):
     pfad = _konfig(tmp_path, f"mandant:\n  sachkonten_laenge: {wert}\n")
     assert sachkontenlaenge(pfad) == erwartet
 
 
-@pytest.mark.parametrize("wert", ["0", "3", "9", "-1", "true", "4.0", "abc", "[8]"])
+@pytest.mark.parametrize(
+    "wert", ["0", "3", "9", "-1", "true", "4.5", "9.0", "'4.0'", "abc", "[8]"]
+)
 def test_sachkontenlaenge_ausserhalb_ist_konfigurationsfehler(tmp_path, wert):
     pfad = _konfig(tmp_path, f"mandant:\n  sachkonten_laenge: {wert}\n")
     with pytest.raises(KonfigurationError, match="4 bis 8"):
@@ -159,13 +163,44 @@ def test_cli_export_warnt_bei_laenge_6(cli_welt):
 # --- N3: Personenkontenbereiche -----------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "feld", ["debitoren_von", "debitoren_bis", "kreditoren_von", "kreditoren_bis"]
-)
+@pytest.mark.parametrize("feld", ["debitoren_von", "kreditoren_von"])
 def test_personenkontenbereich_hoechstens_neun_stellen(tmp_path, feld):
     pfad = _konfig(tmp_path, f"buchhaltung:\n  {feld}: 1000000000\n")
     with pytest.raises(KonfigurationError, match=f"{feld}.*9 Stellen"):
         lade_buchhaltung(pfad)
+
+
+@pytest.mark.parametrize("feld", ["debitoren_bis", "kreditoren_bis"])
+@pytest.mark.parametrize("wert", ["9999999999", "1000000000", "'99999999999'"])
+def test_offene_obergrenze_wird_begrenzt(tmp_path, caplog, feld, wert):
+    """g6w B-5 (Runde 7): „kreditoren_bis: 9999999999“ (offene Obergrenze) lief bis
+    Runde 5 und hielt seit Runde 6 jeden Befehl an. Jetzt gilt 999999999, mit Hinweis
+    — eine Untergrenze über 9 Stellen bleibt ein Fehler."""
+    import logging
+
+    pfad = _konfig(tmp_path, f"buchhaltung:\n  {feld}: {wert}\n")
+    with caplog.at_level(logging.WARNING, logger="accounti.konfiguration"):
+        b = lade_buchhaltung(pfad)
+        lade_buchhaltung(pfad)  # der Hinweis kommt je Datei und Feld einmal
+    assert getattr(b, feld) == 999_999_999
+    (hinweis,) = [r.getMessage() for r in caplog.records]
+    assert f"buchhaltung.{feld}" in hinweis and "999999999" in hinweis
+    assert "9 Stellen" in hinweis
+
+
+def test_cli_offene_obergrenze_laeuft(cli_welt):
+    """obergrenze.py: export datev mit kreditoren_bis 9999999999 endet mit rc 0."""
+    tmp_path, url = cli_welt
+    konfig = _konfig(tmp_path, "buchhaltung:\n  kreditoren_bis: 9999999999\n")
+    rc, text = _export(tmp_path, url, konfig)
+    assert rc == 0, text
+
+
+def test_cli_sachkontenlaenge_als_float_laeuft(cli_welt):
+    tmp_path, url = cli_welt
+    konfig = _konfig(tmp_path, "mandant:\n  sachkonten_laenge: 4.0\n")
+    rc, text = _export(tmp_path, url, konfig)
+    assert rc == 0, text
 
 
 def test_neunstellige_bereiche_erlaubt():

@@ -20,10 +20,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 
 class ServerEinstellungen(BaseModel):
@@ -74,7 +73,7 @@ def lade_server(pfad: str | Path = STANDARD_PFAD) -> ServerEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return ServerEinstellungen()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("server") if isinstance(daten, dict) else None
     if abschnitt is None:
         return ServerEinstellungen()

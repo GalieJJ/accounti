@@ -25,10 +25,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 from accounti.models.pruefung import Schwere
 
 # § 33 UStDV: Kleinbetragsrechnung bis 250 Euro (seit 01.01.2017)
@@ -131,7 +130,7 @@ def lade_pruefung(pfad: str | Path = STANDARD_PFAD) -> PruefEinstellungen:
     pfad = Path(pfad)
     abschnitt: Any = None
     if pfad.is_file():
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(pfad)
         abschnitt = daten.get("pruefung") if isinstance(daten, dict) else None
     if abschnitt is not None and not isinstance(abschnitt, dict):
         raise KonfigurationError(f"{pfad}: Abschnitt 'pruefung' ist keine Zuordnung")

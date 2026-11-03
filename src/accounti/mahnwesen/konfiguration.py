@@ -12,10 +12,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 from accounti.mahnwesen.basiszins import Basiszins, halbjahresende, tabelle
 
 PLATZHALTER = frozenset(
@@ -151,7 +150,7 @@ def lade_mahnwesen(pfad: str | Path = STANDARD_PFAD) -> MahnEinstellungen:
     pfad = Path(pfad)
     abschnitt: Any = None
     if pfad.is_file():
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(pfad)
         abschnitt = daten.get("mahnwesen") if isinstance(daten, dict) else None
     try:
         return MahnEinstellungen.model_validate(abschnitt or {})
