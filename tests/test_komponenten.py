@@ -295,3 +295,17 @@ def test_tabelle_in_karte_und_gewaehlte_zeile():
     assert 'class="tabelle-rahmen tabelle-in-karte"' in html
     assert '<tr role="row" class="zeile-gewaehlt">' in html
     assert "aria-selected" not in html
+
+
+def test_angaben_als_dl():
+    html = render(
+        '{% call k.angaben() %}{% call k.angabe("Verwendungszweck") %}RE 4711'
+        "{% endcall %}{% endcall %}"
+    )
+    assert html == (
+        '<dl class="angaben"><div class="angabe"><dt>Verwendungszweck</dt>'
+        "<dd>RE 4711</dd></div></dl>"
+    )
+    assert 'class="angaben angaben-klein"' in render(
+        "{% call k.angaben(klein=true) %}{% endcall %}"
+    )

@@ -525,6 +525,16 @@
     }
     .tabelle:not(.tabelle-kompakt) td::before { content: attr(data-label); content: attr(data-label) / ""; color: var(--text-2); }
   }
+  /* Angaben: Label-Spalte fit-content, Wert bricht um (I11); schmal Label über Wert */
+  .angaben { display: grid; grid-template-columns: fit-content(14rem) minmax(0, 1fr); gap: var(--a-3) var(--a-45); margin: 0; }
+  .angabe { display: contents; }
+  .angaben dt { color: var(--text-2); }
+  .angaben dd { margin: 0; overflow-wrap: anywhere; }
+  .angaben-klein { gap: var(--a-1) var(--a-4); font-size: var(--gr-3); }
+  @media not all and (min-width: 40rem) {
+    .angaben { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .angaben dd { margin-bottom: var(--a-3); }
+  }
 }
 
 @layer hilfen {
