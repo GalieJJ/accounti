@@ -169,3 +169,21 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
 <div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<textarea class="eingabe" id="{{ id }}" name="{{ name }}" rows="{{ zeilen | int }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ wert if wert is not none else "" }}</textarea>{{ _meldungen(id, hilfe, fehler) }}</div>
 {%- endmacro %}
+
+{#- Feldgruppe (Aufruf) mit Legende als Etikett. -#}
+{% macro feldgruppe(legende) -%}
+<fieldset class="feldgruppe"><legend class="etikett">{{ legende }}</legend>{{ caller() }}</fieldset>
+{%- endmacro %}
+
+{#- Optionsfelder in einem fieldset; auch an/aus als zwei Optionen (ein fehlendes Feld
+    heißt dann „unverändert“). optionen: (wert, text); id ergibt <id>-<wert>. -#}
+{% macro optionen(name, legende, optionen, gewaehlt=none, fehler=none, id=none) -%}
+{%- set id = id or name -%}
+<fieldset class="optionen{% if fehler %} feld-fehler{% endif %}"{% if fehler %} aria-describedby="{{ id }}-fehler"{% endif %}><legend>{{ legende }}</legend>{% for wert, text in optionen %}<label class="haken haken-ziel" for="{{ id }}-{{ wert }}"><input type="radio" id="{{ id }}-{{ wert }}" name="{{ name }}" value="{{ wert }}"{% if wert == gewaehlt %} checked{% endif %}>{{ text }}</label>{% endfor %}{{ _meldungen(id, none, fehler) }}</fieldset>
+{%- endmacro %}
+
+{#- Kontrollkästchen im label (Klickfläche ≥ 24 × 24, mit grobem Zeiger 44 × 44). -#}
+{% macro haken(name, beschriftung, gewaehlt=false, id=none, wert="1") -%}
+{%- set id = id or name -%}
+<label class="haken haken-ziel" for="{{ id }}"><input type="checkbox" id="{{ id }}" name="{{ name }}" value="{{ wert }}"{% if gewaehlt %} checked{% endif %}>{{ beschriftung }}</label>
+{%- endmacro %}

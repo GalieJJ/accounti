@@ -375,3 +375,30 @@ def test_feld_warnung_ohne_aria_invalid_und_bestaetigt():
     assert 'aria-describedby="ustid-warnung ustid-bestaetigt"' in eingabe
     assert "#triangle-alert" in html and "<strong>Achtung:</strong>" in html
     assert 'id="ustid-bestaetigt">' in html and "#check" in html
+
+
+def test_optionen_als_fieldset_mit_legend():
+    html = render(
+        '{% call k.feldgruppe("Anzeige") %}{{ k.optionen("darstellung", "Darstellung",'
+        ' [("auto", "automatisch"), ("hell", "hell")], gewaehlt="hell",'
+        ' fehler="Bitte wählen.", id="d-1") }}{% endcall %}'
+    )
+    assert (
+        '<fieldset class="feldgruppe"><legend class="etikett">Anzeige</legend>' in html
+    )
+    assert (
+        '<fieldset class="optionen feld-fehler" aria-describedby="d-1-fehler">' in html
+    )
+    assert "<legend>Darstellung</legend>" in html
+    assert (
+        '<label class="haken haken-ziel" for="d-1-hell"><input type="radio" '
+        'id="d-1-hell" name="darstellung" value="hell" checked>hell</label>'
+    ) in html
+    assert 'value="auto">automatisch' in html
+    haken = render(
+        '{{ k.haken("regel", "Künftig immer so", gewaehlt=true, id="r-1") }}'
+    )
+    assert haken == (
+        '<label class="haken haken-ziel" for="r-1"><input type="checkbox" id="r-1"'
+        ' name="regel" value="1" checked>Künftig immer so</label>'
+    )
