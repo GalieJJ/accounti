@@ -1,0 +1,11 @@
+{#- Komponenten der Oberfläche (Baustein 10c, Plan P1 L4): Makros, Stile in
+    statisch/accounti.css (@layer komponenten). Import mit Kontext — in Vorlagen mit
+    teil="inhalt" innerhalb des Blocks inhalt:
+    {% import "_komponenten.html" as k with context %}. Jede Komponente steht auf
+    /muster. -#}
+
+{#- Symbol aus statisch/symbole.svg; ohne Beschriftung dekorativ (aria-hidden), mit
+    Beschriftung role="img". Größe und Strich nur als Klasse. -#}
+{% macro symbol(name, beschriftung=none, groesse=18, kraeftig=false) -%}
+<svg class="{{ symbol_klasse(groesse, kraeftig) }}"{% if beschriftung %} role="img" aria-label="{{ beschriftung }}"{% else %} aria-hidden="true"{% endif %} focusable="false"><use href="{{ symbol_url(name) }}"></use></svg>
+{%- endmacro %}

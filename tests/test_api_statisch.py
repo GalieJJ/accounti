@@ -167,7 +167,11 @@ def test_eigene_dateien_mit_versionsanhang(welt):
         verweise = re.findall(r'(?:src|href)="(/statisch/[^"]+)"', text)
         assert verweise, "keine statischen Dateien eingebunden"
         for verweis in verweise:
-            assert verweis.endswith(f"?v={__version__}"), verweis
+            # Symbole: ``<use href="/statisch/symbole.svg?v=…#name">`` — versioniert ist
+            # der Teil vor dem Fragment (Plan P1, Schritt 2)
+            datei, _, fragment = verweis.partition("#")
+            assert datei.endswith(f"?v={__version__}"), verweis
+            assert not fragment or datei.startswith("/statisch/symbole.svg?"), verweis
         assert f"/statisch/accounti.css?v={__version__}" in text
 
 

@@ -2592,3 +2592,23 @@ Was beim Umsetzen gegenüber dem Plan anders kam, mit Grund. Abschnitt A = Schri
   `'<html lang="de" '` statt `'<html lang="de">'` — `<html>` trägt jetzt `data-theme`
   (dieselbe Absicht: die Sprache der Seite). Im Plan nicht vorhergesehen.
 - **Budget:** `accounti.css` 9 872 Bytes, `pruefen.css` 3 573 Bytes (zusammen 13 445 von 40 960).
+
+### Schritt 2 — Symbole
+
+- **Tarball** `lucide-static-1.55.0.tgz` am 03.11.2026 von `registry.npmjs.org` in einen eigenen,
+  leeren Ordner geladen (`.claude/arbeit/s/gesamttest/p1a/lucide-tarball/`, nicht eingecheckt);
+  SHA-512 (npm-Integrität), SHA-1 und SHA-256 stimmen mit der Recherche überein. Entpackt wurden
+  nur `package.json`, `LICENSE` und die 36 gewählten `icons/<name>.svg` in einen zweiten Ordner;
+  `scripts/symbole.py` lief mit `python -I` von außerhalb.
+- **Sprite 6 508 Bytes** (Plan: Probe 6 443 Bytes ohne Kopfkommentar); 22 Symbole aus dem
+  MIT-Teil (Feather), davon vier unter altem Namen — wie in L6.
+- **Erzeuger strenger als geplant:** `wandle` lässt nur einfache Formen (`path`, `circle`,
+  `ellipse`, `line`, `polyline`, `polygon`, `rect`) ohne `on…`, `style`, `href`, `class` und
+  `url(` durch und verlangt `viewBox="0 0 24 24"`; sonst `SymbolError`. Zusätzlich
+  `test_erzeuger_prueft_version_und_integritaet` und `test_sprite_wird_ausgeliefert`
+  (`image/svg+xml` aus `/statisch`). Der Erzeuger entstand vor seinem Test (rot gesehen wurden die
+  übrigen zehn Tests: Sprite, Lizenz, Makro, `symbol_url`).
+- **Größe als Klasse:** `api/symbole.symbol_klasse(groesse, kraeftig)` prüft die Größe
+  (14/16/18/22/28/40) und scheitert sonst; das Makro `symbol` setzt nur Klassen.
+- **Umgestellt** `test_api_statisch.py::test_eigene_dateien_mit_versionsanhang`: der Teil vor
+  `#` muss auf `?v=…` enden, ein Fragment ist nur am Sprite erlaubt.

@@ -27,6 +27,7 @@ from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
 from accounti.api.registry import Navigationspunkt
+from accounti.api.symbole import symbol_klasse, symbol_url
 from accounti.i18n import N_
 
 UMGEBUNG = Environment(
@@ -134,6 +135,8 @@ UMGEBUNG.tests["text"] = lambda wert: isinstance(wert, i18n.Text)
 UMGEBUNG.filters["iban"] = lambda wert: " ".join(
     str(wert)[i : i + 4] for i in range(0, len(str(wert)), 4)
 )
+UMGEBUNG.globals["symbol_url"] = symbol_url
+UMGEBUNG.globals["symbol_klasse"] = symbol_klasse
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)
 
 # htmx 2.0.11 ohne eval, ohne Skripte aus Antworten, ohne Indikatorstil (CSP), ohne
