@@ -135,3 +135,65 @@ def test_befehle_melden_kaputtes_yaml(welt, befehl):
     assert r.exception is None or isinstance(r.exception, SystemExit), repr(r.exception)
     assert MELDUNG in text, text
     assert not (ordner / "vd.md").exists()
+
+
+# --- Runde 8 (g7w B7-5): Registry-Datei nicht in UTF-8 ------------------------------
+LATIN1 = 'mandant:\n  name: "Bürobedarf GmbH"\n'.encode("latin-1")
+
+
+@pytest.mark.parametrize("lader", ["gesellschaften", "auth"])
+def test_registry_ohne_utf8_ist_ein_konfigurationsfehler(tmp_path, lader):
+    """``betrieb.gesellschaften.lies_yaml`` (eigener Lader der Registry) und
+    ``lade_auth`` fingen nur ``yaml.YAMLError`` — eine Datei in Latin-1 endete in
+    jedem Befehl, in ``serve`` und im Planer mit einem UnicodeDecodeError-Traceback."""
+    from accounti.auth.einstellungen import lade_auth
+    from accounti.betrieb.gesellschaften import lade_gesellschaften
+
+    datei = tmp_path / "accounti.yaml"
+    datei.write_bytes(LATIN1)
+    with pytest.raises(KonfigurationError) as fehler:
+        {"gesellschaften": lade_gesellschaften, "auth": lade_auth}[lader](datei)
+    assert str(fehler.value).startswith(f"{datei}: keine UTF-8-Datei"), fehler.value
+
+
+def test_registry_nicht_lesbar_ist_ein_konfigurationsfehler(tmp_path):
+    """Ebenso eine Registry-Datei, die sich nicht lesen lässt (fehlendes Leserecht:
+    ``PermissionError``, hier vorgetäuscht — die Tests laufen oft als root)."""
+    from unittest import mock
+
+    from accounti.betrieb.gesellschaften import lade_gesellschaften
+
+    datei = tmp_path / "accounti.yaml"
+    datei.write_text("gesellschaften: {}\n", encoding="utf-8")
+    with (
+        mock.patch.object(Path, "read_text", side_effect=PermissionError("verweigert")),
+        pytest.raises(KonfigurationError, match="nicht lesbar"),
+    ):
+        lade_gesellschaften(datei)
+
+
+@pytest.mark.parametrize(
+    "befehl",
+    [
+        ["pruefen"],
+        ["bank", "lauf"],
+        ["aufgaben", "lauf"],
+        ["classify"],
+        ["verfahrensdoku"],
+    ],
+    ids=["pruefen", "bank_lauf", "aufgaben_lauf", "classify", "verfahrensdoku"],
+)
+def test_befehle_melden_registry_ohne_utf8(tmp_path, monkeypatch, befehl):
+    """Die Registry (``ACCOUNTI_KONFIG``) in Latin-1: rc 1 mit Meldung samt Datei, kein
+    Traceback (g7w B7-5; ``--config`` woanders hin meldete das schon Runde 7)."""
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_EINMALCODE"):
+        monkeypatch.delenv(name, raising=False)
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_bytes(LATIN1)
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(konfig))
+    monkeypatch.chdir(tmp_path)
+    r = runner.invoke(app, [*befehl, "--db", db_url(tmp_path)], env={"COLUMNS": "300"})
+    text = " ".join(r.output.split())
+    assert r.exit_code == 1, text
+    assert r.exception is None or isinstance(r.exception, SystemExit), repr(r.exception)
+    assert f"{konfig}: keine UTF-8-Datei" in text, text

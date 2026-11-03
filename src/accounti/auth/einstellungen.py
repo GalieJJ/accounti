@@ -21,10 +21,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 
 class AuthEinstellungen(BaseModel):
@@ -69,11 +68,9 @@ def lade_auth(pfad: str | Path = STANDARD_PFAD) -> AuthEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return AuthEinstellungen()
-    try:
-        daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as fehler:
-        msg = f"{pfad}: kein gültiges YAML"
-        raise KonfigurationError(msg) from fehler
+    # über lies_yaml: auch eine Datei in anderer Kodierung als UTF-8 ist eine Meldung,
+    # kein Traceback (Runde 8, g7w B7-5)
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("auth") if isinstance(daten, dict) else None
     if abschnitt is None:
         return AuthEinstellungen()
