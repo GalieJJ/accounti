@@ -67,6 +67,7 @@ from accounti.pruefung.storno import (
     Korrektur,
     Korrekturumgebung,
     SteuerOptionen,
+    kontenplan,
     korrigiere,
     steuer_befunde,
     steuer_optionen,
@@ -450,7 +451,9 @@ def lade_eintrag(
     buchhaltung: Buchhaltung | None = None,
 ) -> Arbeitsflaeche:
     """Alles für die Entscheidung über eine Buchung. Mit ``buchhaltung`` auch die
-    Befunde der Prüfregel ``steuerschluessel_konto`` (``steuer_befunde``)."""
+    Befunde der Prüfregel ``steuerschluessel_konto`` (``steuer_befunde``) und die
+    Steuerauswahl nach den Konten der Gesellschaft (``steuer_optionen`` mit Kontenplan:
+    ein Erlös auf einer Quittung ist keine Eingangsbuchung; Runde 8, g7w R7-3)."""
     from accounti.aufgaben import aufgaben_zu
     from accounti.models.aufgaben import KommentarArt
     from accounti.pruefung.perioden import sperre_am
@@ -485,7 +488,11 @@ def lade_eintrag(
         aufgaben=aufgaben,
         zurueckgestellt=any(a.art == RUECKFRAGE for a in aufgaben),
         sperre=sperre_am(session, b.datum),
-        steuer=steuer_optionen(b, beleg if beleg and beleg.id == b.beleg_id else None),
+        steuer=steuer_optionen(
+            b,
+            beleg if beleg and beleg.id == b.beleg_id else None,
+            kontenplan(session, buchhaltung, None) if buchhaltung is not None else None,
+        ),
     )
     if tx is not None:
         flaeche.nachforderung = [
