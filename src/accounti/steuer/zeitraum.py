@@ -28,7 +28,8 @@ MONATSNAMEN = (
     "Dezember",
 )
 _ROEMISCH = ("I", "II", "III", "IV")
-_MUSTER = re.compile(r"^(\d{4})(?:-(?:(\d{2})|[Qq]([1-4])))?$")
+# nur ASCII-Ziffern (``\d`` läse „２０２６“ als 2026)
+_MUSTER = re.compile(r"([0-9]{4})(?:-(?:([0-9]{2})|[Qq]([1-4])))?")
 
 
 class ZeitraumError(ValueError):
@@ -43,11 +44,15 @@ class Zeitraum:
 
     @classmethod
     def lies(cls, text: str) -> Zeitraum:
-        treffer = _MUSTER.match(text.strip())
+        treffer = _MUSTER.fullmatch(text.strip())
         if treffer is None:
             msg = f"Zeitraum {text!r} unverständlich — erwartet z.B. 2026-08, 2026-Q3"
             raise ZeitraumError(msg)
         jahr = int(treffer.group(1))
+        if jahr == 0:
+            # date(0, …) gibt es nicht — sonst ValueError erst beim Rechnen (500 bzw.
+            # Traceback nach verbrauchtem Einmalcode; Runde 4, g3w-web N4)
+            raise ZeitraumError(f"Jahr 0 gibt es nicht ({text})")
         if treffer.group(2):
             monat = int(treffer.group(2))
             if not 1 <= monat <= 12:

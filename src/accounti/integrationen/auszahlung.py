@@ -168,6 +168,7 @@ from accounti.db.repo_integrationen import (
     setze_bank_transaktion,
     zugeordnete_bank_transaktionen,
 )
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     buchungen_zur_transaktion,
     gebuchte_transaktion_ids,
@@ -1972,45 +1973,71 @@ def _buche(
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     art = "Auszahlung" if t.betrag > 0 else "Einzahlung"
     erwartet = t.betrag if erwartet is None else erwartet
-    # (Betrag, Konto, Text, Seite): positiver Betrag — die Seite (Bank: Geld kommt
-    # auf die Bank; Gegenkonto: es bekam zu viel) im Soll
-    teile: list[tuple[Decimal, str, str, str]] = []
+    # (Betrag, Konto, Text, Seite, Grund): positiver Betrag — die Seite (Bank: Geld
+    # kommt auf die Bank; Gegenkonto: es bekam zu viel) im Soll; der Grund ist die
+    # Herkunft der Buchung für die Prüfung (Baustein 10b, Kontierungsgrund)
+    teile: list[tuple[Decimal, str, str, str, str]] = []
     tag, verschoben = t.datum, None
     if vorgebucht is not None:
         rest = vorgebucht - erwartet  # Haben-Überschuss auf dem Gegenkonto
         if rest:
             konto = e.kursdifferenz_ertrag if rest > 0 else e.kursdifferenz_aufwand
-            teile.append((rest, konto, f"{markt} Kursdifferenz {a.nummer}", gegen))
+            grund = (
+                f"{markt} Kursdifferenz {a.nummer}: der Umsatz steht mit "
+                f"{eur_text(vorgebucht)} € auf {gegen}, laut Abrechnung "
+                f"{eur_text(erwartet)} € — Umbuchung auf {konto}"
+            )
             ziel = _kurstag(session, t.datum, kontext)
             if ziel is None:  # _kandidaten und ordne_zu lassen es nicht so weit kommen
                 raise ZuordnungError(_gesperrt_text(session, kontext, a, t))
             if ziel != t.datum:
                 tag = verschoben = ziel
+                grund += f" am {ziel:%d.%m.%Y} (Umsatztag {t.datum:%d.%m.%Y} gesperrt)"
+            teile.append(
+                (rest, konto, f"{markt} Kursdifferenz {a.nummer}", gegen, grund)
+            )
     else:
         differenz = t.betrag - erwartet
-        teile.append((erwartet, gegen, f"{markt} {art} {a.nummer}", bank))
+        grund = f"{markt}-{art} {a.nummer} zur Abrechnung, gegen {gegen}"
+        teile.append((erwartet, gegen, f"{markt} {art} {a.nummer}", bank, grund))
         if differenz:
             konto = e.kursdifferenz_ertrag if differenz > 0 else e.kursdifferenz_aufwand
-            teile.append((differenz, konto, f"{markt} Kursdifferenz {a.nummer}", bank))
-    for betrag, konto, text, seite in teile:
+            grund = (
+                f"{markt} Kursdifferenz {a.nummer}: Bank {eur_text(t.betrag)} €, laut "
+                f"Abrechnung {eur_text(erwartet)} € — Differenz auf {konto}"
+            )
+            teile.append(
+                (differenz, konto, f"{markt} Kursdifferenz {a.nummer}", bank, grund)
+            )
+    abweichung = ""
+    if pruefen:
+        fehler = [b.text for b in a.offene_befunde][:3]
+        abweichung = " — Abrechnung mit Abweichung" + (
+            ": " + "; ".join(fehler) if fehler else ""
+        )
+    for betrag, konto, text, seite, grund in teile:
         soll, haben = (seite, konto) if betrag > 0 else (konto, seite)
-        speichere_buchung(
+        buchung = Buchungssatz(
+            # die Umbuchung einer Kursdifferenz berührt die Bank nicht
+            transaktion_id=t.id if seite == bank else None,
+            beleg_id=a.beleg_id,
+            datum=tag,
+            soll_konto=soll,
+            haben_konto=haben,
+            betrag_netto=abs(betrag),
+            buchungstext=text[:60],
+            beleg_nummer=a.nummer[:36],
+            status=BuchungStatus.ZUR_PRUEFUNG
+            if pruefen
+            else BuchungStatus.AUTO_GEBUCHT,
+            confidence=0.5 if pruefen else 1.0,
+        )
+        speichere_buchung(session, buchung)
+        speichere_kontierungsgrund(
             session,
-            Buchungssatz(
-                # die Umbuchung einer Kursdifferenz berührt die Bank nicht
-                transaktion_id=t.id if seite == bank else None,
-                beleg_id=a.beleg_id,
-                datum=tag,
-                soll_konto=soll,
-                haben_konto=haben,
-                betrag_netto=abs(betrag),
-                buchungstext=text[:60],
-                beleg_nummer=a.nummer[:36],
-                status=BuchungStatus.ZUR_PRUEFUNG
-                if pruefen
-                else BuchungStatus.AUTO_GEBUCHT,
-                confidence=0.5 if pruefen else 1.0,
-            ),
+            buchung.id,
+            quelle="marktplatz",
+            begruendung=grund + abweichung,
         )
     session.flush()
     return verschoben

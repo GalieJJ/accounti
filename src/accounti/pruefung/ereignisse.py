@@ -51,6 +51,7 @@ from accounti.db.tabellen import (
     VerrechnungRow,
 )
 from accounti.db.tabellen_abschluss import SPERRCACHE, VORAB_GEPRUEFT, ProtokollRow
+from accounti.db.tabellen_kontierung import KontierungsregelRow
 from accounti.db.tabellen_pruefung import sperrfehler
 from accounti.db.tabellen_zahlung import LaufProtokollRow, ZahlungslaufRow
 from accounti.pruefung.journal import (
@@ -249,7 +250,33 @@ def _abschlussprotokoll(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
     ]
 
 
+def _regel(v: Zeile | None, n: Zeile | None) -> list[Eintrag]:
+    """Gelernte Kontierungsregeln (Baustein 10b): Anlage und Deaktivierung."""
+    if v is None and n is not None:
+        art = (
+            "regel_uebernommen"
+            if n.get("herkunft") == "uebernahme"
+            else "regel_gelernt"
+        )
+        return [Eintrag(art, person=n.get("angelegt_von"))]
+    if n is None:
+        return [Eintrag("regel_geloescht")]
+    if v is not None and v.get("aktiv") and not n.get("aktiv"):
+        return [
+            Eintrag(
+                "regel_deaktiviert",
+                person=n.get("deaktiviert_von"),
+                grund=n.get("deaktiviert_grund"),
+            )
+        ]
+    return [Eintrag("regel_geaendert")]
+
+
 erfasse(BuchungssatzRow.__table__, Erfassung("buchung", _buchung))  # type: ignore[arg-type]
+erfasse(
+    KontierungsregelRow.__table__,  # type: ignore[arg-type]
+    Erfassung("kontierungsregel", _regel),
+)
 erfasse(BelegRow.__table__, Erfassung("beleg", _beleg))  # type: ignore[arg-type]
 erfasse(
     BelegEingangRow.__table__,  # type: ignore[arg-type]

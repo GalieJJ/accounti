@@ -8,7 +8,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, update
+from sqlalchemy import func, or_, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -186,6 +186,24 @@ def lade_buchungen(
     if status is not None:
         query = query.filter(BuchungssatzRow.status.in_([s.value for s in status]))
     return [_row_zu_buchung(r) for r in query.all()]
+
+
+def lade_buchungen_zu(
+    session: Session,
+    transaktion_id: UUID | None = None,
+    beleg_id: UUID | None = None,
+) -> list[Buchungssatz]:
+    """Buchungen zu einem Umsatz oder einem Beleg — gezielt, nicht über alle
+    Buchungen (Arbeitsfläche der Prüfschlange: Geschwister)."""
+    bedingungen = []
+    if transaktion_id is not None:
+        bedingungen.append(BuchungssatzRow.transaktion_id == str(transaktion_id))
+    if beleg_id is not None:
+        bedingungen.append(BuchungssatzRow.beleg_id == str(beleg_id))
+    if not bedingungen:
+        return []
+    rows = session.query(BuchungssatzRow).filter(or_(*bedingungen)).all()
+    return [_row_zu_buchung(r) for r in rows]
 
 
 def lade_pruefliste(

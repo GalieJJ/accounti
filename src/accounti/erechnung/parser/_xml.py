@@ -6,17 +6,36 @@ import re
 import xml.etree.ElementTree as ET
 from datetime import date
 from decimal import Decimal, InvalidOperation
+from xml.parsers import expat
 
 from accounti.erechnung.modell import ERechnungError
 
 _DTD = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)", re.IGNORECASE)
+_KEINE_DTD = "DTD/Entity-Deklarationen sind in E-Rechnungen nicht erlaubt"
+
+
+def _verbiete_dtd(*_: object) -> None:
+    raise ERechnungError(_KEINE_DTD)
+
+
+def _pruefe_ohne_dtd(xml: bytes) -> None:
+    """Im Parser selbst, in jeder Kodierung, die er liest — der Byte-Vergleich fände
+    „<!DOCTYPE“ in UTF-16 nicht (wie ``importers.camt``)."""
+    pruefer = expat.ParserCreate()
+    pruefer.StartDoctypeDeclHandler = _verbiete_dtd
+    pruefer.EntityDeclHandler = _verbiete_dtd
+    try:
+        pruefer.Parse(xml, True)
+    except expat.ExpatError as fehler:
+        msg = f"XML nicht wohlgeformt: {fehler}"
+        raise ERechnungError(msg) from fehler
 
 
 def parse_sicher(xml: bytes) -> ET.Element:
     """Parst eine E-Rechnung; DTDs und Entities werden grundsätzlich abgelehnt."""
     if _DTD.search(xml):
-        msg = "DTD/Entity-Deklarationen sind in E-Rechnungen nicht erlaubt"
-        raise ERechnungError(msg)
+        raise ERechnungError(_KEINE_DTD)
+    _pruefe_ohne_dtd(xml)
     try:
         return ET.fromstring(xml)
     except ET.ParseError as fehler:

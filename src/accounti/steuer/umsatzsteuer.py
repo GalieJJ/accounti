@@ -91,11 +91,43 @@ OSS_ERLOES_KONTEN_SKR03: dict[str, str] = {
     # mit Aufschlüsselung per Kostenstelle/Dimension
 }
 
-# dieselben Länder im SKR04 (4320–4329)
+# Erlöskonten für OSS (SKR04): DATEV SKR 04 4320 „Erlöse aus im anderen EU-Land
+# steuerpflichtigen Lieferungen“ (Gegenstück zu SKR03 8320) — je Bestimmungsland ein
+# Konto in derselben Gruppe wie im SKR03 (Konvention von accounti, Gesamttest 10b-1
+# Runde 3): Die OSS-Meldung (§ 18j UStG) ordnet die Erlöse über das Konto dem Land zu
 OSS_ERLOES_KONTEN_SKR04: dict[str, str] = {
-    land: str(int(konto) - 4000) for land, konto in OSS_ERLOES_KONTEN_SKR03.items()
+    "FR": "4320",
+    "IT": "4321",
+    "ES": "4322",
+    "NL": "4323",
+    "SE": "4324",
+    "PL": "4325",
+    "AT": "4326",
+    "BE": "4327",
 }
+# Gegenstück zu SKR03 1767 (DATEV-Kontenrahmen § 4 Abs. 3 EStG 2026, gleich bezeichnet)
 OSS_UST_KONTO_SKR04 = "3817"
+
+
+def oss_erloeskonten(kontenrahmen: str = "SKR03") -> dict[str, str]:
+    """Land → OSS-Erlöskonto des Kontenrahmens (Belegbuchung, OPOS)."""
+    if kontenrahmen.upper() == "SKR04":
+        return dict(OSS_ERLOES_KONTEN_SKR04)
+    return dict(OSS_ERLOES_KONTEN_SKR03)
+
+
+def oss_konto_land(kontenrahmen: str = "SKR03") -> dict[str, str]:
+    """OSS-Erlöskonto → Bestimmungsland, wie OSS-Meldung, Lieferschwelle und
+    Kennziffer 45 sie lesen. Im SKR04 dazu die SKR03-Konten 8320–8327: Dort buchte die
+    Marktplatz-Abrechnung (``integrationen``) bis Paket E, und dorthin legt sie, wer
+    ``integrationen.oss_erloes_konten`` so setzt — die Kontenklasse 8 steht im SKR04
+    zur freien Verfügung. Im SKR03 nie die SKR04-Konten (4320 ist dort
+    Gewerbesteuer)."""
+    konten = {konto: land for land, konto in OSS_ERLOES_KONTEN_SKR03.items()}
+    if kontenrahmen.upper() == "SKR04":
+        konten |= {konto: land for land, konto in OSS_ERLOES_KONTEN_SKR04.items()}
+    return konten
+
 
 # DATEV BU-Schlüssel für besondere Vorgänge
 DATEV_BU_SCHLUESSEL = {

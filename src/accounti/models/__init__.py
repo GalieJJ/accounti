@@ -610,6 +610,8 @@ class Klassifikationsergebnis(BaseModel):
         default=False,
         description="immer zur Prüfung (Regel mit pruefen, Gegenbuchung einer Regel)",
     )
+    regel: str | None = Field(default=None, description="Name der Regel (Regelwerk)")
+    modell: str | None = Field(default=None, description="LLM-Modell (Stufe 2)")
 
 
 # ---------------------------------------------------------------------------

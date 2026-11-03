@@ -89,7 +89,7 @@ def buchungsstapel(
     )
     from accounti.export.datev_format import DatevFormatError
     from accounti.export.datev_stammdaten import lade_datev_mandant
-    from accounti.konfiguration import KonfigurationError
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.models import BuchungStatus
     from accounti.models.auth import Recht
     from accounti.pruefung.storno import markiere_exportiert
@@ -147,12 +147,18 @@ def buchungsstapel(
             datev = lade_datev_mandant(
                 config, von_bis[0] if von_bis else buchungen[0].datum, berater, mandant
             )
+            bh = lade_buchhaltung(config)
             exporter = DATEVExporter(
                 DATEVConfig(
                     berater_nummer=str(datev.berater),
                     mandanten_nummer=str(datev.mandant),
                     wirtschaftsjahr_beginn=datev.wj_beginn,
                     sachkonten_laenge=datev.sachkontenlaenge,
+                    # Personenkonten eine Stelle länger (Runde 6, g5w-konten N2)
+                    personenkonten=(
+                        (bh.debitoren_von, bh.debitoren_bis),
+                        (bh.kreditoren_von, bh.kreditoren_bis),
+                    ),
                     datum_von=von_bis[0] if von_bis else None,
                     datum_bis=von_bis[1] if von_bis else None,
                     skr=datev.skr,

@@ -4,6 +4,8 @@ Jeder Endpunkt der App muss hier stehen — ein neuer Endpunkt ohne Eintrag läs
 ``test_jeder_endpunkt_steht_in_der_matrix`` scheitern.
 """
 
+from datetime import date
+
 import pytest
 from sqlalchemy import text
 
@@ -18,6 +20,11 @@ from tests.pdf_hilfe import pdf_mit_text
 OFFEN = "offen"  # ohne Anmeldung
 ANGEMELDET = "angemeldet"  # jede Rolle
 
+
+class EinesVon(frozenset):  # type: ignore[type-arg]
+    """Eines dieser Rechte genügt (Zurückstellen: buchen oder Buchungen freigeben)."""
+
+
 # Seiten: (Methode, Pfad) → nötiges Recht
 SEITEN: dict[tuple[str, str], object] = {
     ("GET", "/anmelden"): OFFEN,
@@ -28,6 +35,33 @@ SEITEN: dict[tuple[str, str], object] = {
     ("GET", "/freigaben"): Recht.LESEN,
     ("POST", "/freigaben/zahlungslauf/{nr}"): Recht.ZAHLUNG_FREIGEBEN,
     ("POST", "/freigaben/ustva"): Recht.STEUER_FREIGEBEN,
+    ("POST", "/einstellungen/sprache"): ANGEMELDET,
+    # Baustein 10b: Prüfen, Buchungen, Belege
+    ("GET", "/pruefen"): Recht.LESEN,
+    ("GET", "/pruefen/regeln"): Recht.LESEN,
+    ("GET", "/pruefen/{buchung_id:uuid}"): Recht.LESEN,
+    ("POST", "/pruefen/{buchung_id:uuid}/freigeben"): Recht.BUCHUNG_FREIGEBEN,
+    ("POST", "/pruefen/{buchung_id:uuid}/korrigieren"): Recht.BUCHEN,
+    ("POST", "/pruefen/{buchung_id:uuid}/regelvorschau"): Recht.REGELN_LERNEN,
+    ("POST", "/pruefen/{buchung_id:uuid}/zurueckstellen"): EinesVon(
+        {Recht.BUCHEN, Recht.BUCHUNG_FREIGEBEN}
+    ),
+    ("POST", "/pruefen/regeln/{regel_id:uuid}/deaktivieren"): Recht.REGELN_LERNEN,
+    ("GET", "/buchungen/{buchung_id:uuid}"): Recht.LESEN,
+    ("POST", "/buchungen/{buchung_id:uuid}/korrigieren"): Recht.BUCHEN,
+    ("POST", "/buchungen/{buchung_id:uuid}/stornieren"): Recht.BUCHEN,
+    ("GET", "/belege/{beleg_id:uuid}"): Recht.LESEN,
+    ("GET", "/belege/{beleg_id:uuid}/datei"): Recht.LESEN,
+    ("GET", "/belege/{beleg_id:uuid}/seite/{n}.png"): Recht.LESEN,
+    ("GET", "/belege/{beleg_id:uuid}/download"): Recht.LESEN,
+}
+# Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
+# Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)
+MIT_EINMALCODE = {
+    "/freigaben/zahlungslauf/{nr}",
+    "/freigaben/ustva",
+    "/buchungen/{buchung_id:uuid}/korrigieren",
+    "/buchungen/{buchung_id:uuid}/stornieren",
 }
 # REST: (Methode, Pfad) → nötiges Token-Recht (None: jedes gültige Token)
 REST: dict[tuple[str, str], TokenRecht | None] = {
@@ -52,7 +86,45 @@ def welt(tmp_path):
     for rolle in Rolle:
         w.person(rolle.value, rolle)
     zahlungslauf(w.umgebung, "a")
+    w.daten = fachdaten(w, tmp_path)  # type: ignore[attr-defined]
     return w
+
+
+def fachdaten(w, tmp_path) -> dict[str, str]:  # noqa: ANN001
+    """Vorschlag mit Umsatz und LLM-Grund, freigegebene Buchung, Belege (PDF, TIFF),
+    gelernte Regel — damit jeder Endpunkt etwas zu tun hat."""
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+    from accounti.klassifikation.lernen import lerne_regex
+    from accounti.models import BuchungStatus
+    from tests.pruefen_hilfe import Queuewelt, pdf, tiff
+
+    qw = Queuewelt(w, tmp_path)
+    tx = qw.umsatz()
+    vorschlag = qw.buchung(transaktion_id=tx.id)
+    frei = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 2))
+    beleg = qw.beleg(pdf())
+    bild = qw.beleg(tiff((4, 4)), ".tif", belegnummer="SCAN-1")
+    with qw.fabrik()() as s:
+        speichere_kontierungsgrund(s, vorschlag.id, quelle="llm", begruendung="x")
+        regel = lerne_regex(s, "telekom", "telekom", "4920", "1200", 9, "t")
+        s.commit()
+    return {
+        "vorschlag": str(vorschlag.id),
+        "frei": str(frei.id),
+        "beleg": str(beleg.id),
+        "bild": str(bild.id),
+        "regel": str(regel.id),
+    }
+
+
+def stand_in(welt, buchung_id: str) -> str:  # noqa: ANN001
+    from accounti.buchung.pruefschlange import stand
+
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:
+        wert = stand(s, buchung_id)
+    engine.dispose()
+    return wert
 
 
 def laufstatus(welt) -> str:
@@ -75,7 +147,9 @@ def test_jeder_endpunkt_steht_in_der_matrix(welt):
 def anfrage(welt, client, rolle, methode, pfad):
     """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode."""
     person = welt.personen[rolle.value]
-    daten = {"csrf": csrf(client), "einmalcode": person.codes.pop()}
+    daten = {"csrf": csrf(client)}
+    if pfad in MIT_EINMALCODE:
+        daten["einmalcode"] = person.codes.pop()
     if pfad == "/freigaben/zahlungslauf/{nr}":
         inhalt = freigabe_hash(client, 1)
         if inhalt is not None:  # nur wer freigeben darf, sieht das Formular
@@ -84,7 +158,30 @@ def anfrage(welt, client, rolle, methode, pfad):
         daten["zeitraum"] = "2026-09"
     if pfad == "/gesellschaft":
         daten["kuerzel"] = "a"
-    pfad = pfad.replace("{nr}", "1")
+    if pfad == "/einstellungen/sprache":
+        daten["sprache"] = ""
+    d = welt.daten
+    ziel = d["vorschlag"] if pfad.startswith("/pruefen/{buchung_id") else d["frei"]
+    if "{buchung_id:uuid}" in pfad and methode == "POST":
+        daten.update(
+            stand=stand_in(welt, ziel),
+            soll="4930",
+            haben="1200",
+            steuer="9",
+            text="Wofür?",
+            grund="Prüfung der Rechte",
+            muster="Bürobedarf",
+        )
+    if pfad.endswith("/deaktivieren"):
+        daten["grund"] = "Prüfung der Rechte"
+    beleg = d["bild"] if "/seite/" in pfad else d["beleg"]
+    pfad = (
+        pfad.replace("{nr}", "1")
+        .replace("{buchung_id:uuid}", ziel)
+        .replace("{beleg_id:uuid}", beleg)
+        .replace("{regel_id:uuid}", d["regel"])
+        .replace("{n:int}", "1")
+    )
     if methode == "GET":
         return client.get(pfad, follow_redirects=False)
     return client.post(pfad, data=daten, follow_redirects=False)
@@ -100,7 +197,10 @@ def test_jede_rolle_gegen_jeden_endpunkt(welt, rolle):
         if recht == OFFEN:
             continue
         r = anfrage(welt, client, rolle, methode, pfad)
-        erlaubt = recht == ANGEMELDET or recht in rechte
+        if isinstance(recht, EinesVon):
+            erlaubt = bool(recht & rechte)
+        else:
+            erlaubt = recht == ANGEMELDET or recht in rechte
         if erlaubt:
             assert r.status_code not in (401, 403), (rolle, pfad, r.status_code, r.text)
         else:

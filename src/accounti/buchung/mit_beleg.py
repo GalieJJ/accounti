@@ -14,6 +14,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from accounti.anzeige import betrag_de
+from accounti.buchung.konten import erloeskonten, kein_sachkonto
+from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.buchung.steuergruppe import SCHLUESSEL_FUER_STEUERFALL, Gruppe
 from accounti.klassifikation.engine import RegelwerkEngine
 from accounti.konfiguration import Buchhaltung
@@ -32,15 +35,21 @@ from accounti.models import (
 NULL = Decimal("0")
 _VST = {Decimal("19"): 9, Decimal("7"): 8}
 _UST = {Decimal("19"): 3, Decimal("7"): 2}
-_ERLOES = {Decimal("19"): "8400", Decimal("7"): "8300"}
-_ERLOES_UNBEKANNT = "8200"
 
 
 @dataclass(frozen=True)
 class Sachkonto:
     konto: str
     pruefen: bool
-    quelle: str
+    quelle: str  # „Kontakt …“, „Regel (Belegdaten)“, „Regel (Umsatz)“, „Standard“
+    regel: str | None = None  # Name der Regel, die das Konto lieferte
+
+    @property
+    def herkunft(self) -> str:
+        """Quelle für ``kontierungsgruende``: kontakt, regelwerk oder standard."""
+        if self.regel is not None:
+            return "regelwerk"
+        return "kontakt" if self.quelle.startswith("Kontakt") else "standard"
 
 
 def sachkonto_fuer_beleg(
@@ -51,9 +60,35 @@ def sachkonto_fuer_beleg(
     umsatz: Transaktion | None = None,
 ) -> Sachkonto:
     """Aufwandskonto: Kontakt-Vorschlag, Regelwerk auf die Belegdaten, Regelwerk auf
-    den Umsatz, sonst der Standardaufwand (zur Prüfung)."""
+    den Umsatz, sonst der Standardaufwand (zur Prüfung).
+
+    Liegt die Confidence der Regel unter der Schwelle des automatischen Buchens oder
+    verlangt die Regel die Prüfung (``pruefen``, z.B. Miete; gelernte Regeln mit
+    ``buchhaltung.gelernte_regeln: pruefen``), geht auch die Belegbuchung zur
+    Prüfung — der Schalter gilt für jede Buchung, die die Regel kontiert, nicht nur
+    für reine Umsätze.
+
+    Ein Zahlungsmittel, Personen- oder LuL-Konto ist kein Sachkonto eines Belegs
+    (``konten.kein_sachkonto``): Eine Regel „1210 an 1200“ (Umbuchung) oder „70001 an
+    1200“ (Zahlung an den Kreditor) und ein solches Konto am Kontakt werden übergangen
+    — sonst buchte die Belegbuchung „1210 an 1210“, OPOS „70001 an 70001“
+    (Gesamttest 10b-1, H-1); die Begründung nennt das übergangene Konto. Andere
+    Bestandskonten (Wertpapiere, Festgeld, Rückdeckung) bleiben zulässig (Runde 3)."""
     ungeprueft = kontakt is not None and kontakt.status is not KontaktStatus.GEPRUEFT
-    if kontakt is not None and kontakt.sachkonto:
+    weitere = (umsatz.sachkonto,) if umsatz is not None else ()
+    uebergangen: list[str] = []
+
+    def taugt(konto: str, woher: str) -> bool:
+        if kein_sachkonto(konto, einstellungen, weitere):
+            uebergangen.append(f"{konto} ({woher})")
+            return False
+        return True
+
+    if (
+        kontakt is not None
+        and kontakt.sachkonto
+        and taugt(kontakt.sachkonto, f"Kontakt {kontakt.name}")
+    ):
         return Sachkonto(kontakt.sachkonto, ungeprueft, f"Kontakt {kontakt.name}")
     if regelwerk is not None:
         name = beleg.lieferant_name or (kontakt.name if kontakt else None)
@@ -86,9 +121,30 @@ def sachkonto_fuer_beleg(
             if (
                 ergebnis is not None
                 and ergebnis.haben_konto == einstellungen.bank_konto
+                and taugt(ergebnis.soll_konto, f"Regel '{ergebnis.regel}'")
             ):
-                return Sachkonto(ergebnis.soll_konto, ungeprueft, f"Regel ({quelle})")
-    return Sachkonto(einstellungen.standard_aufwand, True, "Standard")
+                unsicher = ergebnis.pruefen or ergebnis.confidence < AUTO_SCHWELLE
+                regel = next(
+                    (r for r in regelwerk.regeln if r.name == ergebnis.regel), None
+                )
+                zusatz = ""
+                if unsicher:
+                    hinweis = regel.hinweis if regel is not None else None
+                    zusatz = f" — {hinweis or 'Regel zur Prüfung'}"
+                return Sachkonto(
+                    ergebnis.soll_konto,
+                    ungeprueft or unsicher,
+                    f"Regel '{ergebnis.regel}' ({quelle}){zusatz}",
+                    ergebnis.regel,
+                )
+    quelle = "Standard"
+    if uebergangen:
+        quelle += (
+            f" — übergangen: {', '.join(dict.fromkeys(uebergangen))} (Zahlungsmittel, "
+            "Personen-, Forderungs- oder Verbindlichkeitskonto ist kein Sachkonto "
+            "eines Belegs)"
+        )
+    return Sachkonto(einstellungen.standard_aufwand, True, quelle)
 
 
 def _saetze(beleg: Beleg) -> list[tuple[Decimal | None, Decimal, Decimal]]:
@@ -112,6 +168,16 @@ def _saetze(beleg: Beleg) -> list[tuple[Decimal | None, Decimal, Decimal]]:
     return [(None, beleg.brutto or NULL, NULL)]
 
 
+@dataclass
+class Belegkontierung:
+    """Buchungen aus dem Beleg samt Herkunft (für ``kontierungsgruende``)."""
+
+    buchungen: list[Buchungssatz]
+    quelle: str  # kontakt, regelwerk, standard (Eingang) bzw. beleg (Ausgang)
+    begruendung: str
+    regel: str | None = None
+
+
 def kontiere_mit_beleg(
     tx: Transaktion,
     beleg: Beleg,
@@ -120,6 +186,17 @@ def kontiere_mit_beleg(
     kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
 ) -> list[Buchungssatz]:
     """Bucht den Umsatz aus dem Beleg: je Steuersatz ein Buchungssatz."""
+    return kontiere_beleg(tx, beleg, einstellungen, regelwerk, kontakte).buchungen
+
+
+def kontiere_beleg(
+    tx: Transaktion,
+    beleg: Beleg,
+    einstellungen: Buchhaltung,
+    regelwerk: RegelwerkEngine | None = None,
+    kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
+) -> Belegkontierung:
+    """Wie ``kontiere_mit_beleg`` — dazu woher das Sachkonto kommt und warum."""
     eingang = beleg.richtung is Belegrichtung.EINGANG
     sachkonto = None
     if eingang:
@@ -131,6 +208,8 @@ def kontiere_mit_beleg(
         )
         sachkonto = sachkonto_fuer_beleg(beleg, kontakt, einstellungen, regelwerk, tx)
 
+    # Erlöskonten des Kontenrahmens der Buchhaltung (SKR04: 4400/4300/4200)
+    erloese = erloeskonten(einstellungen.kontenrahmen)
     gruppen: dict[tuple[str, int | None], Gruppe] = {}
     schluessel: int | None
     for satz, netto, steuer in _saetze(beleg):
@@ -143,10 +222,11 @@ def kontiere_mit_beleg(
             else:
                 schluessel = _VST.get(satz) if satz is not None else None
         else:
-            konto = _ERLOES.get(satz, _ERLOES_UNBEKANNT) if satz else _ERLOES_UNBEKANNT
+            unbekannt = erloese.unbekannt
+            konto = erloese.steuerpflichtig.get(satz, unbekannt) if satz else unbekannt
             schluessel, pruefen = (
                 (_UST.get(satz) if satz else None),
-                satz not in _ERLOES,
+                satz not in erloese.steuerpflichtig,
             )
         if schluessel is None and satz != 0:
             pruefen = True  # Steuersatz unbekannt: brutto buchen, Mensch entscheidet
@@ -173,6 +253,21 @@ def kontiere_mit_beleg(
     for g in gruppen.values():
         g.berechne_selbst()  # § 13b/ig. Erwerb: nicht im Zahlbetrag
     text = f"{beleg.lieferant_name or ''} {beleg.belegnummer or ''}".strip()
+    nummer = beleg.belegnummer or beleg.dateiname
+    if sachkonto is not None:
+        begruendung = (
+            f"Aus Beleg {nummer} ({beleg.lieferant_name or 'Lieferant unbekannt'}): "
+            f"Sachkonto {sachkonto.konto} — {sachkonto.quelle}"
+        )
+        quelle, regel = sachkonto.herkunft, sachkonto.regel
+    else:
+        begruendung = f"Aus Beleg {nummer}: Erlöskonto nach dem Steuersatz des Belegs"
+        quelle, regel = "beleg", None
+    if differenz:
+        begruendung += (
+            f"; Zahlbetrag weicht um {betrag_de(differenz)} € vom Beleg ab — "
+            "Differenz ohne Steuer, zur Prüfung"
+        )
     buchungen = []
     for g in gruppen.values():
         soll, haben = g.konto, tx.sachkonto or einstellungen.bank_konto
@@ -201,4 +296,4 @@ def kontiere_mit_beleg(
                 confidence=0.5 if g.pruefen else 1.0,
             )
         )
-    return buchungen
+    return Belegkontierung(buchungen, quelle, begruendung, regel)

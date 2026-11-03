@@ -202,7 +202,8 @@ def test_kontierung_nennt_richtung_pruefung_und_marktplatz(tmp_path, monkeypatch
     with fabrik() as s:
         text = erzeuge(s, config)
     for erwartet in (
-        "1 eigene Regeln",
+        "0 gelernte Regeln",
+        "1 eigenen Regeln",
         "5 Standardregeln im Kontenrahmen SKR04",
         "| Regel | Muster | Feld | Richtung | Soll | Haben | Schlüssel | Prüfen |",
         "| miete | miete | verwendungszweck | ausgabe | 6310 | 1800 | — | ja |",
@@ -341,6 +342,60 @@ def test_benutzer_bei_falscher_systemdatenbank_und_je_gesellschaft(
     assert "bob" not in text
 
 
+def test_gelernte_regeln_in_der_verfahrensdoku(tmp_path, monkeypatch):
+    """Baustein 10b: Regeldatei der Gesellschaft, gelernte Regeln aus der Datenbank
+    (aktiv, deaktiviert, Richtung, wer und wann) und der Schalter."""
+    from accounti.klassifikation.lernen import deaktiviere, lerne_regex
+    from accounti.models.kontierung import Richtung
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: miete\n  muster: miete\n  soll_konto: '4210'\n  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    config = tmp_path / "accounti.yaml"
+    config.write_text("buchhaltung:\n  gelernte_regeln: pruefen\n", encoding="utf-8")
+    with fabrik() as s:
+        lerne_regex(
+            s, "telekom", "telekom", "4920", "1200", 9, "jan", richtung=Richtung.AUSGABE
+        )
+        alt = lerne_regex(s, "aral", "aral", "4530", "1200", 9, "eva")
+        deaktiviere(s, alt.id, "chef", "Privatwagen")
+        s.commit()
+        text = erzeuge(s, config, db_url="sqlite:///x.db", stand=date(2026, 10, 21))
+    engine.dispose()
+    assert "1 gelernte Regeln" in text and "1 eigenen Regeln" in text
+    assert "gelernte_regeln: **pruefen**" in text
+    assert "| telekom | /telekom/ | ausgabe | 4920 | 1200 | 9 | jan, " in text
+    assert "deaktiviert (chef: Privatwagen)" in text
+    assert "Kontierungsregeln lernen" in text  # Recht in der Rechtetabelle
+
+
+def test_verfahrensdoku_nennt_regeln_ohne_richtung(tmp_path, monkeypatch):
+    """Nachbesserung M3: Die Verfahrensdoku behauptet nicht mehr pauschal, gelernte
+    Regeln gälten nur in ihrer Zahlungsrichtung — ``accounti lerne`` ohne
+    ``--richtung`` gilt für Ein- und Ausgänge, und die Doku zählt solche Regeln."""
+    from accounti.klassifikation.lernen import lerne_regex
+
+    monkeypatch.chdir(tmp_path)
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        lerne_regex(s, "telekom", "telekom", "4920", "1200", 9, "jan")
+        s.commit()
+        text = erzeuge(
+            s,
+            tmp_path / "fehlt.yaml",
+            db_url="sqlite:///x.db",
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    assert "nur in der Zahlungsrichtung ihres Quellumsatzes" not in text
+    assert "„beide“" in text and "aktiv sind 1 solche Regeln" in text
+    assert "| telekom | /telekom/ | beide |" in text
+
+
 def test_belegeingang_beschreibt_kanaele_und_dateipruefung_wie_sie_sind(tmp_path):
     """Gesamttest B03: Ordner → belege abholen (geprüft), Upload → belege import
     (Handimport, ungeprüft) — vorher vertauscht und „Prüfung je Kanal“ behauptet."""
@@ -402,3 +457,88 @@ def test_regelmuster_mit_senkrechtem_strich(tmp_path, monkeypatch):
     pdf = als_pdf(text, tmp_path / "doku.pdf")
     inhalt = "".join(seite.extract_text() for seite in PdfReader(pdf).pages)
     assert "PORTO|BRIEFMARKE" in inhalt and "PORTO\\|" not in inhalt
+
+
+def test_connector_adresse_ohne_zugangsdaten(tmp_path):
+    """g5w-konten N1 (Runde 6): die Verfahrensdokumentation nannte netloc der
+    ``basis_url`` — samt Benutzer und Passwort, wenn die Adresse sie trägt."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        "      basis_url: https://jan:sehr-geheim@portal.example:8443/api\n"
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert "portal.example:8443" in zeile
+    assert "sehr-geheim" not in text and "jan:" not in zeile
+
+
+@pytest.mark.parametrize(
+    ("basis", "erwartet", "darf_nicht"),
+    [
+        ("https://alarm:Kassel#2026@portal.example/api", "json: portal.example |",
+         "Kassel"),
+        ("https://alarm:Wint3r?Sonne@portal.example/api", "json: portal.example |",
+         "Wint3r"),
+        ("https://alarm:1234#abc@portal.example:8443/api", "portal.example:8443",
+         "1234"),
+        # Runde 8 (g7w B7-2, B7-1)
+        ("https://alarm:4711/Sonne@portal.example/api", "json: portal.example |",
+         "4711"),
+        ("https://portal.example?konto=rechnung@firma.example",
+         "json: portal.example |", "firma.example"),
+        ("https://bücher.example/api", "json: bücher.example |",
+         "basis_url fehlerhaft"),
+    ],
+    ids=["raute", "fragezeichen", "ziffern", "schraegstrich", "abfrage", "idn"],
+)  # fmt: skip
+def test_connector_adresse_mit_unkodiertem_passwort(
+    tmp_path, basis, erwartet, darf_nicht
+):
+    """g6w B-2 (Runde 7): „netloc.rpartition('@')“ nannte bei unkodiertem # oder ? im
+    Passwort Benutzer und Passwortanfang („json: alarm:Kassel“)."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        f'      basis_url: "{basis}"\n'
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert erwartet in zeile, zeile
+    assert darf_nicht not in text and "alarm" not in zeile
+
+
+def test_connector_mit_ungueltiger_adresse_bricht_nicht_ab(tmp_path):
+    """g6w B-4 (Runde 7): „https://[::1/api“ (Tippfehler) endete mit ValueError aus
+    urlsplit, es entstand kein Dokument. Jetzt steht der Fehler im Dokument."""
+    zusatz = (
+        "  connectoren:\n    - name: portal\n      typ: json\n"
+        '      basis_url: "https://[::1/api"\n'
+    )
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        text = erzeuge(
+            s,
+            _konfig(tmp_path / "accounti.yaml", zusatz_postfach=zusatz),
+            stand=date(2026, 10, 21),
+        )
+    engine.dispose()
+    zeile = next(z for z in text.splitlines() if z.startswith("| connector"))
+    assert "(Adresse fehlerhaft)" in zeile
+    assert (
+        "**Konfiguration belegkanaele.connectoren[portal].basis_url fehlerhaft:**"
+        in text
+    )
+    assert "## 3" in text  # das Dokument geht weiter

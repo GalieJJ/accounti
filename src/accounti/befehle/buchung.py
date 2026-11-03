@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import typer
 from rich.markup import escape
+from sqlalchemy.orm import Session
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    fachprobe,
+    handelnde_person,
+)
 from accounti.befehle._anlagen_abschluss import datum, ende, sitzung
 
 NAME = "buchung"
@@ -33,31 +40,53 @@ def storniere(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Freigegebene Buchung durch Gegenbuchung aufheben (ohne Neubuchung)."""
-    from accounti.abschluss.kontenrahmen import KontenrahmenError, lade_kontenrahmen
+    from accounti.abschluss.kontenrahmen import KontenrahmenError
+    from accounti.buchung.pruefschlange import PruefschlangeError, stornieren
     from accounti.db.tabellen import UnveraenderbarError
     from accounti.db.tabellen_abschluss import JahrGesperrtError
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.konfiguration import KonfigurationError
     from accounti.models.auth import Recht
-    from accounti.pruefung.storno import StornoError
-    from accounti.pruefung.storno import storniere as storno
+    from accounti.pruefung.person import aktuelle_person
+    from accounti.pruefung.storno import (
+        Korrektur,
+        StornoError,
+        lade_korrekturumgebung,
+    )
 
     try:
-        kr = lade_kontenrahmen(lade_buchhaltung(config).kontenrahmen)
+        # Kontenrahmen samt abschluss.kontenzuordnung der Gesellschaft (wie die SuSa
+        # und die Oberfläche)
+        umgebung = lade_korrekturumgebung(config)
     except (KonfigurationError, KontenrahmenError) as fehler:
         ende(str(fehler))
     am = datum(tag, "--datum") if tag else None
+    fachfehler = (
+        PruefschlangeError,
+        StornoError,
+        JahrGesperrtError,
+        UnveraenderbarError,
+    )
+
+    def ausfuehren(s: Session, wer: str) -> Korrektur:
+        return stornieren(s, buchung_id, grund, wer, None, umgebung, am)
+
     # mit Benutzern: buchen (buchhalter) und Einmalcode — das Storno ist eine
-    # freigegebene Gegenbuchung; buchen schließt laut Rollenmatrix das Freigeben ein
+    # freigegebene Gegenbuchung; buchen schließt laut Rollenmatrix das Freigeben ein.
+    # Erst die Fachprobe, dann der Code: ein Datum vor der Buchung verbraucht ihn nicht
+    probe = fachprobe(
+        sitzung(db),
+        lambda s: ausfuehren(s, aktuelle_person(von)),
+        fachfehler,
+        lambda f: ende(str(f)),
+    )
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
-            k = storno(
-                s, buchung_id, grund=grund, von=person, datum=am, kontenrahmen=kr
-            )
+            k = ausfuehren(s, aktuelle_person(person))
             s.commit()
-        except (StornoError, JahrGesperrtError, UnveraenderbarError) as fehler:
+        except fachfehler as fehler:
             ende(str(fehler))
     assert k.storno is not None
     console.print(

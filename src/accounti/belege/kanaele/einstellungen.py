@@ -15,7 +15,6 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -26,7 +25,7 @@ from pydantic import (
 )
 
 from accounti.belege.kanaele.pruefung import DATEITYPEN, Dateipruefung
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 ABSCHNITT = "belegkanaele"
 LOKALE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -208,7 +207,7 @@ def lade_belegkanaele(pfad: str | Path = STANDARD_PFAD) -> KanalEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return KanalEinstellungen()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get(ABSCHNITT) if isinstance(daten, dict) else None
     try:
         return KanalEinstellungen.model_validate(abschnitt or {})

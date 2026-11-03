@@ -26,14 +26,14 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-import yaml
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from accounti import __version__
 from accounti.anzeige import datum_de
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.betrieb.protokoll import rechner_der_adresse
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 from accounti.models.pruefung import Journaleintrag
 
 VORGANG = "verfahrensdoku_erstellt"
@@ -109,9 +109,11 @@ class _Doku:
             return None
 
     def roh(self) -> dict[str, Any]:
+        """Die Konfiguration roh — kaputtes YAML ist ein ``KonfigurationError`` (die
+        CLI meldet ihn, statt mit ParserError abzubrechen; Runde 7, g6w B-3)."""
         if not self.config.is_file():
             return {}
-        daten: Any = yaml.safe_load(self.config.read_text(encoding="utf-8")) or {}
+        daten: Any = lies_yaml(self.config)
         return daten if isinstance(daten, dict) else {}
 
     def anzahl(self, tabelle: Any) -> int:
@@ -220,10 +222,26 @@ def _belegeingang(d: _Doku) -> None:
         if "webhook" in (d.roh().get("belegkanaele") or {}):
             w = kanaele.webhook
             zeilen.append(["webhook", "—", f"{w.host}:{w.port}, Bearer-Token"])
+        fehlerhaft = []
         for c in kanaele.connectoren:
             basis = str(c.einstellungen().get("basis_url") or "")
-            zeilen.append(["connector", c.name, f"{c.typ}: {urlsplit(basis).netloc}"])
+            # Rechner und Port, ohne Benutzer und Passwort — auch mit unkodiertem #
+            # oder ? im Passwort (Runde 6, g5w-konten N1; Runde 7, g6w B-2); eine
+            # ungültige Adresse steht als Fehler im Dokument, statt es abzubrechen
+            # (g6w B-4: „https://[::1/api“ endete mit ValueError)
+            ziel = rechner_der_adresse(basis) if basis else ""
+            if ziel is None:
+                fehlerhaft.append(c.name)
+                ziel = "(Adresse fehlerhaft)"
+            rechner = ziel.partition("://")[2] if "://" in ziel else ziel
+            zeilen.append(["connector", c.name, f"{c.typ}: {rechner}"])
         d(*_tabelle(["Kanal", "Name", "Einstellung"], zeilen))
+        for name in fehlerhaft:
+            d(
+                f"> **Konfiguration belegkanaele.connectoren[{_zelle(name)}].basis_url "
+                "fehlerhaft:** keine gültige Adresse (Schema, Rechner, Port)",
+                "",
+            )
         d(
             "Dateiprüfung für E-Mail, Webhook, Connector und Ordner: höchstens "
             f"{kanaele.max_groesse_mb} MB, Typen {', '.join(kanaele.dateitypen)} (Typ "
@@ -292,14 +310,18 @@ def _bank(d: _Doku) -> None:
 
 
 def _kontierung(d: _Doku) -> None:
+    from accounti.betrieb.kontext import regeln_datei as regeldatei_der_gesellschaft
     from accounti.buchung.mapper import zu_buchungssatz
+    from accounti.db.repo_kontierung import lade_kontierungsregeln
     from accounti.klassifikation.engine import standard_regeln
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import Buchhaltung, lade_buchhaltung
 
     d("### 2.3 Kontierung", "")
-    regeln_datei = Path("config/regeln.yaml")  # wie classify: im Arbeitsverzeichnis
+    # wie classify: die Regeldatei der Gesellschaft (Registry regeln:), sonst
+    # config/regeln.yaml im Arbeitsverzeichnis
+    regeln_datei = Path(regeldatei_der_gesellschaft())
     try:
         eigene = lade_regeln(regeln_datei) if regeln_datei.is_file() else []
     except KonfigurationError as fehler:
@@ -312,12 +334,68 @@ def _kontierung(d: _Doku) -> None:
     standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
     schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
     llm = inspect.signature(LLMEngine).parameters
+    schalter = buchhaltung.gelernte_regeln
+    verbindung = d.s.connection()
+    gelernt = (
+        lade_kontierungsregeln(d.s)
+        if verbindung.dialect.has_table(verbindung, "kontierungsregeln")
+        else []
+    )
+    aktiv = [r for r in gelernt if r.aktiv]
+    ohne_richtung = sum(1 for r in aktiv if r.richtung is None)
     d(
         f"Reihenfolge: Beleg (Belegabgleich, offene Posten) → Regelwerk → LLM. "
-        f"Regelwerk: {len(eigene)} eigene Regeln ({_zelle(regeln_datei)}) vor "
-        f"{len(standard)} Standardregeln im Kontenrahmen {buchhaltung.kontenrahmen}.",
+        f"Regelwerk: {len(aktiv)} gelernte Regeln (Datenbank, neueste zuerst, aus "
+        "der Regeldatei übernommene dahinter) vor "
+        f"{len(eigene)} eigenen Regeln ({_zelle(regeln_datei)}) vor "
+        f"{len(standard)} Standardregeln im Kontenrahmen {buchhaltung.kontenrahmen} — "
+        "ein Regelmodell für alle drei (Richtung, Gegenbuchung, Prüfkennzeichen). "
+        "Gelernte Regeln entstehen aus einer Korrektur (Browser, accounti "
+        "korrigiere --lernen), per accounti lerne oder "
+        "als Übernahme alter Einträge der Regeldatei (accounti regeln uebernehmen) — "
+        "nur mit den Rechten „buchen und korrigieren“ und „Kontierungsregeln "
+        "lernen“. Jede gilt in der Richtung der Spalte „Richtung“: aus einer "
+        "Korrektur in der Zahlungsrichtung des Quellumsatzes, bei einer Übernahme in "
+        "der Richtung ihrer Bankseite; „beide“ (accounti lerne ohne --richtung, "
+        "Übernahme ohne erkennbare Bankseite) gilt für Ein- und Ausgänge — aktiv "
+        f"sind {ohne_richtung} solche Regeln. Gelernte Regeln werden nicht geändert, "
+        "nur deaktiviert, und stehen im Journal. Schalter "
+        f"buchhaltung.gelernte_regeln: **{schalter}** (automatisch: wie jede Regel; "
+        "pruefen: nur Vorschlag zur Prüfung, auch bei Belegbuchungen; aus: nicht "
+        "geladen).",
         "",
     )
+    if gelernt:
+        d(
+            *_tabelle(
+                [
+                    "Regel",
+                    "Muster",
+                    "Richtung",
+                    "Soll",
+                    "Haben",
+                    "Schlüssel",
+                    "Angelegt",
+                    "Stand",
+                ],
+                [
+                    [
+                        r.name,
+                        r.muster if r.ist_text else f"/{r.muster}/",
+                        r.richtung.value if r.richtung else "beide",
+                        r.soll_konto,
+                        r.haben_konto,
+                        r.steuer_schluessel,
+                        f"{r.angelegt_von}, {datum_de(r.angelegt_am.date())}",
+                        "aktiv"
+                        if r.aktiv
+                        else f"deaktiviert ({r.deaktiviert_von}: "
+                        f"{r.deaktiviert_grund or '—'})",
+                    ]
+                    for r in gelernt[:40]
+                ],
+            )
+        )
     if eigene:
         d(
             *_tabelle(
@@ -360,7 +438,12 @@ def _kontierung(d: _Doku) -> None:
         "oder auf keiner Seite. Marktplatz-Auszahlungen (Stichworte "
         "`integrationen.marktplaetze.<name>.bank_stichworte`, offene Auszahlungen "
         "importierter Abrechnungen) bucht die Kontierung nicht: Sie bleiben offen, "
-        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht.",
+        "bis der Abgleich mit der Abrechnung sie gegen das Verrechnungskonto bucht. "
+        "Eine Buchung mit demselben Konto im Soll und im Haben entsteht nie "
+        "automatisch — der Umsatz bleibt offen (meist eine Umbuchung zwischen eigenen "
+        "Geldkonten, die auf beiden Kontoauszügen steht); aus einer solchen Umbuchung "
+        "wird keine gelernte Regel, und die Prüfregel soll_gleich_haben meldet "
+        "Altfälle.",
         "",
     )
     d(

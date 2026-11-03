@@ -54,6 +54,36 @@ geldkonten:
 bankkonten:
   - {von: "1700", bis: "1889"}
 
+# Zahlungsmittel (Kasse, Bank, Geldtransit, Kreditkarte) — ohne Forderungen und
+# Verbindlichkeiten der Geldkonten oben: Zwischen zwei von ihnen gibt es nur
+# Umbuchungen. Daraus lernt accounti keine Kontierungsregel (eingerichtete Bank- und
+# Kartenkonten zählen dazu, ``bank verbinde``, ``kreditkarte einrichten``)
+zahlungsmittel:
+  - {von: "1460", bis: "1460"}   # Geldtransit
+  - {von: "1600", bis: "1889"}   # Kasse, Bank (ohne Finanzmittelanlagen 1890, 1895)
+  - {von: "3610", bis: "3610"}   # Kreditkartenabrechnung
+
+# Geldtransit: Zahlungsmittel ohne eigenen Kontoauszug — eine Regel „1460 an 1800“
+# bucht auf keinem Konto Soll = Haben und bleibt lernbar
+geldtransit:
+  - {von: "1460", bis: "1460"}
+
+# Forderungen und Verbindlichkeiten aus Lieferungen und Leistungen: wie Personenkonten
+# kein Sachkonto eines Belegs. Finanzmittelanlagen 1890 und Verbindlichkeiten ggü.
+# Kreditinstituten 1895 sind als Sachkonto eines Belegs zulässig (Runde 3), ebenso
+# (Runde 4, wie SKR03 1594/1596) die sonstigen Forderungen gegen verbundene
+# Unternehmen 1260–1269 und gegen Beteiligungsunternehmen 1280–1289 (Darlehen an die
+# Tochter, Besitzwechsel; § 266 Abs. 2 B II 2/3 HGB) und die eingeforderten Einlagen
+# bzw. Nachschüsse 1298/1299 — DATEV SKR 04 2026: 1200–1259 Forderungen aus LuL
+# (mit Wechseln, zweifelhaften Forderungen, Wertberichtigungen, gegen Gesellschafter,
+# Gegenkonten der Debitorenaufteilung), 1270–1279 bzw. 1290–1297 Forderungen aus LuL
+# gegen verbundene bzw. Beteiligungsunternehmen
+lul_konten:
+  - {von: "1200", bis: "1259"}   # Forderungen aus Lieferungen und Leistungen
+  - {von: "1270", bis: "1279"}   # … gegen verbundene Unternehmen
+  - {von: "1290", bis: "1297"}   # … gegen Beteiligungsunternehmen
+  - {von: "3300", bis: "3399"}   # Verbindlichkeiten aus Lieferungen und Leistungen
+
 vortragskonten: {sachkonten: "9000", debitoren: "9008", kreditoren: "9009"}
 
 # DATEV-BU-Schlüssel → Steuerkonto
@@ -379,6 +409,9 @@ namen:
   "3806": "Umsatzsteuer 19 %"
   "3820": "Umsatzsteuer-Vorauszahlungen"
   "3900": "Passive Rechnungsabgrenzung"
+  "4200": "Erlöse"
+  "4300": "Erlöse 7 % USt"
+  "4400": "Erlöse 19 % USt"
   "6220": "Abschreibungen auf Sachanlagen"
   "6260": "Sofortabschreibungen geringwertiger Wirtschaftsgüter"
   "6264": "Abschreibungen auf den Sammelposten Wirtschaftsgüter"

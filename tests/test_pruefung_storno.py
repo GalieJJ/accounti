@@ -780,6 +780,198 @@ def test_gleichzeitiges_storno_meldet_klar(make_session, monkeypatch):
         storniere(s, str(b.id), grund="doppelt", von="jan")
 
 
+# --- Baustein 10b: Meldung ohne CLI-Optionen, Feld, Steueroptionen -------------------
+
+
+def _fehler_faelle():  # noqa: ANN202
+    """(Name, Buchung, Aufruf) — je eine Stelle, an der korrigiere/storniere ablehnt."""
+    from uuid import uuid4 as neu
+
+    beleg = neu()
+    return [
+        ("sachkonto", buchung(soll="4900"), {"soll": "4360", "haben": "1200"}),
+        (
+            "beide",
+            buchung(),
+            {"soll": "4900", "haben": "1200", "steuer": 9, "ohne_steuer": True},
+        ),
+        (
+            "beleg_schluessel",
+            buchung(beleg_id=beleg),
+            {"soll": "4900", "haben": "1200", "steuer": 8},
+        ),
+        (
+            "beleg_ohne_grund",
+            buchung(beleg_id=beleg),
+            {"soll": "4900", "haben": "1200", "ohne_steuer": True},
+        ),
+        (
+            "selbst_ohne_grund",
+            buchung(schluessel=94, steuer="19.00"),
+            {"soll": "4900", "haben": "1200", "ohne_steuer": True},
+        ),
+        (
+            "datum_vorschlag",
+            buchung(),
+            {"soll": "4930", "haben": "1200", "steuer": 9, "datum": date(2026, 9, 1)},
+        ),
+        (
+            "automatik",
+            buchung(schluessel=None, steuer=None),
+            {"soll": "3400", "haben": "1200"},
+        ),
+    ]
+
+
+@pytest.mark.parametrize("fall", range(7))
+def test_meldung_ohne_cli_optionen(make_session, fall):
+    name, b, aufruf = _fehler_faelle()[fall]
+    anlegen(make_session, b)
+    with make_session() as s, pytest.raises(StornoError) as info:
+        korrigiere(
+            s,
+            str(b.id),
+            aufruf.pop("soll"),
+            aufruf.pop("haben"),
+            von="jan",
+            **aufruf,
+        )
+    e = info.value
+    assert "--" not in e.meldung, (name, e.meldung)
+    assert "accounti " not in e.meldung
+    # der Text der CLI bleibt wörtlich, mit den Optionen
+    assert str(e) == (e.cli or e.meldung)
+    assert "--" in str(e), name
+
+
+def test_meldung_ohne_cli_optionen_beim_storno(make_session):
+    b = buchung(status=BuchungStatus.GEPRUEFT, tag=date(2026, 3, 2))
+    anlegen(make_session, b)
+    with make_session() as s:
+        from accounti.pruefung.perioden import schliesse
+
+        schliesse(s, "2026-03", "erika")
+        s.commit()
+    with make_session() as s, pytest.raises(StornoError) as info:
+        storniere(s, str(b.id), grund="falsch", von="jan")
+    assert info.value.feld == "datum" and "--" not in info.value.meldung
+    assert "--datum" in str(info.value)
+    with make_session() as s, pytest.raises(StornoError) as info:
+        storniere(s, str(b.id), grund=" ", von="jan")
+    assert info.value.feld == "grund"
+
+
+def test_feld_bei_steuer_datum_grund(make_session):
+    felder = {}
+    for name, b, aufruf in _fehler_faelle():
+        anlegen(make_session, b)
+        with make_session() as s, pytest.raises(StornoError) as info:
+            korrigiere(s, str(b.id), aufruf.pop("soll"), aufruf.pop("haben"), **aufruf)
+        felder[name] = info.value.feld
+    assert felder == {
+        "sachkonto": "steuer",
+        "beide": "steuer",
+        "beleg_schluessel": "steuer",
+        "beleg_ohne_grund": "grund",
+        "selbst_ohne_grund": "grund",
+        "datum_vorschlag": "datum",
+        "automatik": "steuer",
+    }
+
+
+@pytest.mark.parametrize(
+    ("art", "werte"),
+    [
+        ("bank", {"schluessel": 9}),
+        ("ohne_schluessel", {"schluessel": None, "steuer": None}),
+        ("beleg_vorsteuer", {"schluessel": 9, "beleg": True}),
+        (
+            "beleg_ust",
+            {"schluessel": 3, "beleg": True, "soll": "1200", "haben": "8400"},
+        ),
+        ("bank_ust", {"schluessel": 3, "soll": "1200", "haben": "8400"}),
+        ("paragraph_13b", {"schluessel": 94}),
+    ],
+)
+def test_steuer_optionen_wie_korrigiere(make_session, art, werte):
+    """Was ``steuer_optionen`` anbietet, nimmt ``korrigiere`` an — und lehnt genau
+    das ab, was nicht angeboten wird (gleiche Konten, nur die Steuerangabe)."""
+    from uuid import uuid4 as neu
+
+    from accounti.pruefung.storno import SELBST_BERECHNET, _steuer, steuer_optionen
+
+    b = buchung(
+        soll=werte.get("soll", "4900"),
+        haben=werte.get("haben", "1200"),
+        schluessel=werte["schluessel"],
+        steuer=werte.get("steuer", "19.00"),
+        beleg_id=neu() if werte.get("beleg") else None,
+    )
+    o = steuer_optionen(b)
+    for schluessel in sorted({*o.schluessel, 2, 3, 8, 9, 18, 19, 91, 94}):
+        angeboten = schluessel in o.schluessel and (
+            o.andere_schluessel or schluessel == b.steuer_schluessel
+        )
+        for grund in (None, "doch § 13b"):
+            # mit Grund nimmt eine Belegbuchung zusätzlich § 13b bzw. ig. Erwerb an
+            # (Paket C; im Browser nicht angeboten, nur CLI) — nie, wenn der Beleg
+            # Umsatzsteuer ausweist (§ 14c Abs. 1 UStG; Runde 4: g3w-merge M1, bis
+            # dahin prüfte dieser Test nur ohne Grund)
+            erwartet = angeboten or (
+                grund is not None
+                and b.beleg_id is not None
+                and o.ohne_steuer
+                and schluessel in SELBST_BERECHNET
+            )
+            try:
+                _steuer(b, schluessel, False, grund)
+                angenommen = True
+            except StornoError:
+                angenommen = False
+            assert angenommen == erwartet, (art, schluessel, grund)
+    for grund in (None, "kein Vorsteuerabzug"):
+        angeboten = o.ohne_steuer and (bool(grund) or not o.ohne_nur_mit_grund)
+        if b.steuer_schluessel is None:
+            angeboten = True  # „ohne Steuer“ ändert dann nichts
+        try:
+            _steuer(b, None, True, grund)
+            angenommen = True
+        except StornoError:
+            angenommen = False
+        assert angenommen == angeboten, (art, "ohne", grund)
+    # und über korrigiere selbst: ein nicht angebotener Schlüssel scheitert
+    anlegen(make_session, b)
+    if not o.andere_schluessel:
+        with make_session() as s, pytest.raises(StornoError):
+            korrigiere(s, str(b.id), b.soll_konto, b.haben_konto, steuer=8)
+    if not o.ohne_steuer:
+        with make_session() as s, pytest.raises(StornoError, match="14c"):
+            korrigiere(
+                s, str(b.id), b.soll_konto, b.haben_konto, ohne_steuer=True, grund="x"
+            )
+
+
+def test_lade_korrekturumgebung_mit_kontenzuordnung(tmp_path):
+    from accounti.pruefung.storno import lade_korrekturumgebung
+
+    zuordnung = tmp_path / "kr.yaml"
+    zuordnung.write_text(
+        KR.model_dump_json().replace('"name":"SKR03"', '"name":"EIGEN"'),
+        encoding="utf-8",
+    )
+    konfig = tmp_path / "a.yaml"
+    konfig.write_text(
+        "buchhaltung:\n  bank_konto: '1210'\n"
+        f"abschluss:\n  kontenzuordnung: '{zuordnung}'\n"
+        "pruefung:\n  kleinbetrag_grenze: 200\n",
+        encoding="utf-8",
+    )
+    u = lade_korrekturumgebung(konfig)
+    assert u.kontenrahmen.name == "EIGEN"
+    assert u.buchhaltung.bank_konto == "1210"
+    assert u.pruefung.kleinbetrag_grenze == Decimal("200")
+
+
 def test_storno_und_korrektur_nie_vor_dem_original(make_session):
     """Gesamttest Abschluss B9: § 17 Abs. 1 Satz 7 UStG berichtigt im Zeitraum der
     Änderung, ein Buchungsirrtum im Zeitraum des Originals — nie davor."""

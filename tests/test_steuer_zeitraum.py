@@ -43,8 +43,12 @@ def test_februar_schaltjahr():
 
 
 @pytest.mark.parametrize(
-    "text", ["2026-13", "2026-Q5", "26-08", "August", "", "2026-00"]
-)
+    "text",
+    ["2026-13", "2026-Q5", "26-08", "August", "", "2026-00",
+     # Runde 4 (g3w-web N4): Jahr 0 gab date(0, …) → ValueError (500 bzw. Traceback
+     # nach verbrauchtem Code); Unicode-Ziffern las \d als 2026
+     "0000-01", "0000-Q1", "0000", "２０２６-01", "2026-０１"],
+)  # fmt: skip
 def test_unzulaessig(text):
     with pytest.raises(ZeitraumError):
         Zeitraum.lies(text)

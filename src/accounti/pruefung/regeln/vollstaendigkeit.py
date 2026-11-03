@@ -20,6 +20,7 @@ from accounti.export.kontoauszuege import pruefe_auszuege
 from accounti.models import (
     Belegart,
     Belegrichtung,
+    Buchungssatz,
     PostenRichtung,
     PostenStatus,
     Transaktion,
@@ -371,11 +372,99 @@ class KontoauszugLuecke:
         return befunde
 
 
+class BelegUstOhneBuchung:
+    """Ein Beleg, dessen ausgewiesene Umsatzsteuer nach einem Storno nicht mehr (ganz)
+    wirksam gebucht ist: Sie fehlt in der Voranmeldung, geschuldet wird sie, bis die
+    Rechnung berichtigt ist (§ 14c Abs. 1 UStG). ``beleg_unbearbeitet`` zählt jede
+    Buchung und jeden offenen Posten als „gebucht“ und sieht das deshalb nicht
+    (Runde 5, g4w N2). Gezählt wird je Satz die wirksam gebuchte Steuer gegen die des
+    Belegs (``storno.ust_luecken``): Eine Zahlung mit derselben ``beleg_id`` oder eine
+    Buchung zu einem anderen Satz deckt sie nicht, eine wegfallende Gutschrift fehlt
+    nicht, eine wirksam gebuchte Kopie derselben Rechnung deckt sie (Runde 6, g5w
+    NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos einer Buchung mit
+    ausgewiesener Umsatzsteuer (Schlüssel 2, 3 auf der Seite einer Rechnung) — dort
+    fehlt die Steuer; ein späteres Storno der Zahlung verschiebt die Meldung nicht
+    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal."""
+
+    name = "beleg_ust_ohne_buchung"
+    kategorie = Kategorie.VOLLSTAENDIGKEIT
+    schwere = Schwere.WARNUNG
+    beschreibung = (
+        "Beleg mit ausgewiesener USt, die nach einem Storno nicht mehr wirksam gebucht "
+        "ist (§ 14c UStG)"
+    )
+
+    class Parameter(BaseModel):
+        pass
+
+    def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
+        from accounti.belege.dubletten import kopien
+        from accounti.pruefung.storno import (
+            AUSGEWIESENE_UST,
+            hinweis_14c,
+            kontenplan,
+            ust_luecken,
+        )
+        from accounti.steuer.kennziffern import sachseite
+
+        je_beleg: dict[UUID, list[Buchungssatz]] = defaultdict(list)
+        for x in k.buchungen:
+            if x.beleg_id is not None:
+                je_beleg[x.beleg_id].append(x)
+        plan = kontenplan(k.session, k.buchhaltung, None)
+        gemeldet: set[UUID] = set()
+        befunde = []
+        for beleg_id, liste in je_beleg.items():
+            originale = {x.id: x for x in liste}
+            stornos = []
+            for x in liste:
+                if x.storno_von is None:
+                    continue
+                # das Storno hat Schlüssel und Beträge des Originals, die Seiten
+                # getauscht: eine Rechnungsbuchung mit Umsatzsteuer im Haben
+                original = originale.get(x.storno_von)
+                if original is not None:
+                    rechnung = sachseite(original, plan) == "haben"
+                else:
+                    rechnung = sachseite(x, plan) == "soll"
+                if x.steuer_schluessel in AUSGEWIESENE_UST and rechnung:
+                    stornos.append(x.datum)
+            if beleg_id in gemeldet or not stornos or not k.im_zeitraum(max(stornos)):
+                continue
+            b = k.belege.get(beleg_id)
+            gleiche = kopien(b, k.belege.values()) if b is not None else []
+            andere = [x for c in gleiche for x in je_beleg.get(c.id, [])]
+            luecken = ust_luecken(b, liste, plan, andere)
+            if not luecken:
+                continue
+            gemeldet |= {beleg_id, *(c.id for c in gleiche)}
+            fehlt = sum((x.fehlt for x in luecken), Decimal("0"))
+            name = (b.belegnummer or b.dateiname) if b else str(beleg_id)[:8]
+            befunde.append(
+                befund(
+                    self,
+                    "beleg",
+                    beleg_id,
+                    hinweis_14c(name, luecken, "nach dem Storno"),
+                    datum=max(stornos),
+                    betrag=fehlt,
+                    gegenpartei=b.lieferant_name if b else None,
+                    abhilfe=(
+                        "Beleg wieder buchen bzw. die Berichtigung als eigenen Beleg "
+                        "erfassen (accounti rechnung neu --korrektur-zu …); war die "
+                        "Steuer anders gebucht, bleibt der Befund mit Begründung"
+                    ),
+                )
+            )
+        return befunde
+
+
 for _regel in (
     UmsatzOhneBeleg(),
     BelegOhneZahlung(),
     NummernkreisLuecke(),
     KontoauszugLuecke(),
+    BelegUstOhneBuchung(),
 ):
     registriere_pruefregel(_regel)
 

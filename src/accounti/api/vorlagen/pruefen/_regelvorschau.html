@@ -1,0 +1,27 @@
+{% if vorschau_fehler is defined and vorschau_fehler %}
+<p class="fehler" role="alert">{{ vorschau_fehler.meldung | uebersetzt }}</p>
+{% elif vorschau %}
+{% set richtung = vorschau.entwurf.richtung.value if vorschau.entwurf.richtung else "" %}
+<div class="vorschau" role="status">
+  <p class="treffer">{% if richtung == "einnahme" %}{{ ngettext("Trifft %(num)s Einnahme in den letzten 24 Monaten", "Trifft %(num)s Einnahmen in den letzten 24 Monaten", vorschau.treffer) }}{% else %}{{ ngettext("Trifft %(num)s Ausgabe in den letzten 24 Monaten", "Trifft %(num)s Ausgaben in den letzten 24 Monaten", vorschau.treffer) }}{% endif %}
+  · {% if vorschau.greift_fuer_umsatz %}{{ _("greift für diesen Umsatz") }}{% else %}{{ _("greift für diesen Umsatz nicht") }}{% endif %}</p>
+  <p class="klein">{{ _("Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s", muster=vorschau.entwurf.muster, anzahl=vorschau.gegenrichtung, anders=vorschau.gegenrichtung_anders) }}</p>
+  {% if vorschau.verdraengt %}<p class="hinweis">{{ _("Verdrängt Regel %(name)s für diesen Umsatz.", name=vorschau.verdraengt) }}</p>{% endif %}
+  {% if vorschau.beispiele %}
+  <table class="liste klein">
+    <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Gegenpartei") }}</th><th class="zahl">{{ _("Betrag") }} (EUR)</th><th>{{ _("Bisher") }}</th></tr></thead>
+    <tbody>
+    {% for x in vorschau.beispiele %}
+      <tr><td>{{ x.datum | datum }}</td><td>{{ x.gegenkonto or "—" }}</td><td class="zahl">{{ x.betrag | betrag }}</td><td>{{ x.kontierung or _("offen") }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if vorschau.fremde %}<p class="hinweis">{% if vorschau.ohne_namen %}{{ _("Weitere Treffer, Gegenpartei nicht erkennbar:") }}{% else %}{{ _("Auch andere Gegenparteien:") }}{% endif %} <span lang="de">{{ vorschau.fremde | join(", ") }}</span></p>{% endif %}
+  {% if vorschau.warnungen %}<ul class="warnungen" lang="de">{% for w in vorschau.warnungen %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  {% if vorschau.bestaetigung_noetig %}
+  <label class="haken bestaetigen"><input type="checkbox" name="regel_bestaetigt" value="{{ vorschau.entwurf.muster }}"> {{ _("Regel trotzdem mit diesem Muster speichern") }}</label>
+  {% endif %}
+  <p class="klein" lang="de">{{ vorschau.hinweis }}</p>
+</div>
+{% endif %}

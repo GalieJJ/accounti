@@ -26,6 +26,7 @@ from starlette.concurrency import run_in_threadpool
 
 from accounti.api.dienste import Dienste
 from accounti.api.formular import formular
+from accounti.api.htmx import ist_htmx
 from accounti.auth.dienst import (
     gesellschaften_von,
     pruefe_sitzung,
@@ -33,6 +34,7 @@ from accounti.auth.dienst import (
     wechsle_gesellschaft,
 )
 from accounti.betrieb.gesellschaften import Gesellschaft
+from accounti.i18n import Text
 from accounti.models.auth import Benutzer, Recht, Sitzung
 
 SICHERE_METHODEN = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -108,11 +110,16 @@ async def pruefe_csrf(request: Request, erwartet: str) -> None:
     gesendet = request.headers.get(CSRF_KOPF) or (await formular(request)).get(
         CSRF_FELD, ""
     )
+    # im HTMX-Weg lädt der Browser die Seite neu (frisches Token) — die 403 der Rolle
+    # sieht sonst gleich aus und bekommt den Kopf nicht
+    kopf = {"HX-Refresh": "true"} if ist_htmx(request) else None
     if not gesendet or not hmac.compare_digest(gesendet.encode(), erwartet.encode()):
-        raise HTTPException(403, "CSRF-Token fehlt oder passt nicht — Seite neu laden")
+        raise HTTPException(
+            403, Text("CSRF-Token fehlt oder passt nicht — Seite neu laden"), kopf
+        )
     # zusätzlich: Browser melden fremde Absender (Fetch Metadata)
     if request.headers.get("sec-fetch-site", "") == "cross-site":
-        raise HTTPException(403, "Anfrage von einer fremden Seite abgewiesen")
+        raise HTTPException(403, Text("Anfrage von einer fremden Seite abgewiesen"))
 
 
 async def angemeldet(request: Request) -> Angemeldet:
@@ -123,6 +130,8 @@ async def angemeldet(request: Request) -> Angemeldet:
     a = await run_in_threadpool(_lade, dienste, token)
     if a is None:
         raise NichtAngemeldetError
+    # die Fehlerseiten der CSRF- und Formularprüfung (403, 413, 400) in seiner Sprache
+    request.state.benutzersprache = a.benutzer.sprache
     if request.method not in SICHERE_METHODEN:
         await pruefe_csrf(request, a.csrf)
     request.state.angemeldet = a
@@ -132,13 +141,34 @@ async def angemeldet(request: Request) -> Angemeldet:
 AngemeldetDep = Annotated[Angemeldet, Depends(angemeldet)]
 
 
+async def merke_benutzersprache(request: Request) -> None:
+    """Für Fehlerseiten, vor denen keine Abhängigkeit lief (404, 405 ohne passende
+    Route): die Sprache des angemeldeten Benutzers — er wird dabei nicht angemeldet."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    dienste = dienste_von(request)
+    token = request.cookies.get(cookie_name(dienste))
+    if not token or hasattr(request.state, "benutzersprache"):
+        return
+    try:
+        a = await run_in_threadpool(_lade, dienste, token)
+    except SQLAlchemyError:  # die Fehlerseite kommt auch ohne Datenbank
+        return
+    if a is not None:
+        request.state.benutzersprache = a.benutzer.sprache
+
+
 def erfordert(recht: Recht) -> Callable[..., Awaitable[Angemeldet]]:
     """Dependency: angemeldet **und** das Recht in der aktiven Gesellschaft."""
 
     async def abhaengigkeit(a: AngemeldetDep) -> Angemeldet:
         if not a.darf(recht):
             raise HTTPException(
-                403, f"Ihre Rolle in {a.gesellschaft.name} erlaubt das nicht"
+                403,
+                Text(
+                    "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
+                    gesellschaft=a.gesellschaft.name,
+                ),
             )
         return a
 

@@ -1,7 +1,8 @@
 """Beleg → Buchung auf ein Personenkonto + offener Posten.
 
 Eingang:  Aufwand an Kreditor (Vorsteuer per BU-Schlüssel)
-Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung)
+Ausgang:  Debitor an Erlös   (Erlöskonto nach Steuerkategorie der E-Rechnung, im
+          Kontenrahmen der Buchhaltung — ``buchung.konten.erloeskonten``)
 
 Beträge und Steuer kommen aus dem Beleg — gerechnet wird hier nur, was der Beleg
 nicht nennen darf: die Steuer bei § 13b UStG und beim ig. Erwerb (Steuerfall AE bzw. K,
@@ -61,13 +62,15 @@ from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
-from accounti.buchung.mit_beleg import sachkonto_fuer_beleg
+from accounti.buchung.konten import Erloeskonten, erloeskonten
+from accounti.buchung.mit_beleg import Sachkonto, sachkonto_fuer_beleg
 from accounti.buchung.steuergruppe import (
     SCHLUESSEL_FUER_STEUERFALL,
     SELBST_BERECHNET,
     Gruppe,
 )
 from accounti.db.repo_abschluss import ist_gesperrt
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import (
     lade_belege,
     lade_kontakte,
@@ -103,24 +106,18 @@ from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.eu_steuersaetze import ist_eu_land
 from accounti.steuer.kennziffern import VORSTEUER_FOLGEJAHR
 from accounti.steuer.leistungszeitpunkt import steuertag, steuertag_empfaenger
-from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03, OSS_UST_KONTO_SKR03
+from accounti.steuer.umsatzsteuer import OSS_UST_KONTO_SKR03
 from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0")
 CENT = Decimal("0.01")
 
-# Vorsteuer-BU-Schlüssel (Eingang) und Umsatzsteuer-BU-Schlüssel (Ausgang), SKR03
+# Vorsteuer-BU-Schlüssel (Eingang) und Umsatzsteuer-BU-Schlüssel (Ausgang)
 _VST_SCHLUESSEL = {Decimal("19"): 9, Decimal("7"): 8}
 _UST_SCHLUESSEL = {Decimal("19"): 3, Decimal("7"): 2}
-# Erlöskonten (SKR03) je EN-16931-Steuerkategorie
-_ERLOES_STEUERPFLICHTIG = {Decimal("19"): "8400", Decimal("7"): "8300"}
-_ERLOES_STEUERFREI = {
-    "AE": "8336",  # sonstige Leistung im EU-Ausland, Steuerschuld beim Empfänger
-    "K": "8125",  # steuerfreie innergemeinschaftliche Lieferung
-    "G": "8120",  # steuerfreie Ausfuhr
-    "E": "8100",  # steuerfreie Umsätze § 4 Nr. 8 ff.
-}
-_ERLOES_UNBEKANNT = "8200"
+# Erlöskonten je EN-16931-Steuerkategorie: buchung.konten.erloeskonten (SKR03 8400,
+# 8300, 8200, AE 8336, K 8125, G 8120, E 8100; SKR04 4400, 4300, 4200, 4336, 4125,
+# 4120, 4100 — Gesamttest 10b-1 nach dem Merge M-3, bisher im SKR04 SKR03-Konten)
 # Belegtypen, die eine Rechnung mindern oder berichtigen (§ 17 UStG: Monat der Änderung)
 _KORREKTUR_TYPEN = GUTSCHRIFT_TYPEN | {"384"}
 
@@ -199,10 +196,10 @@ def _sachkonto_eingang(
     treffer: KontaktTreffer,
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None,
-) -> tuple[str, bool]:
-    """(Sachkonto, zur Prüfung?) — Kontakt-Vorschlag, Regelwerk, Standard."""
-    s = sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
-    return s.konto, s.pruefen
+) -> Sachkonto:
+    """Sachkonto (mit „zur Prüfung?“ und Quelle) — Kontakt-Vorschlag, Regelwerk,
+    Standard."""
+    return sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
 
 
 def _gruppen(
@@ -214,15 +211,18 @@ def _gruppen(
     land: str,
     tag_fuer: Callable[[str | None], date],
     ustid_bestaetigt: bool = True,
+    erloese: Erloeskonten | None = None,
 ) -> list[_Gruppe]:
     """Buchungen je Konto, Steuerschlüssel und Buchungstag (``tag_fuer`` je
-    Steuerkategorie, im Eingang je Steuerfall AE/K)."""
+    Steuerkategorie, im Eingang je Steuerfall AE/K); ``erloese``: Erlöskonten des
+    Kontenrahmens (ohne: SKR03)."""
+    erloese = erloese or erloeskonten("SKR03")
     gruppen: dict[tuple[str, int | None, date], _Gruppe] = {}
     positionen = beleg.positionen or []
     kategorien = _kategorien(beleg, rechnung)
     if not positionen:
         # ohne Positionen: eine Gruppe über die Belegsummen (ohne Satz: brutto)
-        konto = sachkonto if eingang else _ERLOES_UNBEKANNT
+        konto = sachkonto if eingang else erloese.unbekannt
         g = _Gruppe(konto, None, True, tag=tag_fuer(None))
         if beleg.netto is not None:
             g.addiere(beleg.netto, beleg.steuer or NULL)
@@ -259,28 +259,53 @@ def _gruppen(
                 schluessel = _VST_SCHLUESSEL.get(satz) if satz is not None else None
                 # 0 % oder unbekannter Satz: steuerfrei, § 19 oder unklar → Mensch
                 pruefen = sachkonto_pruefen or schluessel is None
-        elif kategorie in _ERLOES_STEUERFREI:
-            konto, schluessel = _ERLOES_STEUERFREI[kategorie], None
+        elif kategorie in erloese.steuerfrei:
+            konto, schluessel = erloese.steuerfrei[kategorie], None
             # K/AE nur mit bestätigter USt-IdNr. des Käufers automatisch
             pruefen = kategorie in USTID_KATEGORIEN and not ustid_bestaetigt
-        elif satz in _ERLOES_STEUERPFLICHTIG and kategorie in ("S", None):
-            konto, schluessel = _ERLOES_STEUERPFLICHTIG[satz], _UST_SCHLUESSEL[satz]
+        elif satz in erloese.steuerpflichtig and kategorie in ("S", None):
+            konto, schluessel = erloese.steuerpflichtig[satz], _UST_SCHLUESSEL[satz]
             pruefen = False
         elif kategorie == "S" and satz:
-            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands) — Erlös netto,
-            # die ausländische Steuer auf das OSS-Umsatzsteuerkonto (1767, wie der
-            # Marktplatz-Import; vierstellig für den DATEV-Stapel, Steuer B6/B7)
-            erloes = OSS_ERLOES_KONTEN_SKR03.get(land, "8320")
+            # anderer Satz als 19/7 %: OSS (Satz des Bestimmungslands) — Erlös netto
+            # auf das Länderkonto des Kontenrahmens (ohne eines „Erlöse“, Hinweis
+            # ``_oss_ohne_konto``: ein Sammelkonto zählte die OSS-Meldung dem Land
+            # seines Kontos zu, 8320/4320: FR), die ausländische Steuer auf das
+            # OSS-Umsatzsteuerkonto (1767, wie der Marktplatz-Import; vierstellig für
+            # den DATEV-Stapel, Steuer B6/B7)
+            erloes = erloese.oss.get(land, erloese.unbekannt)
             gruppe(erloes, None, True, kategorie).addiere(p.netto, NULL)
             ust = OSS_UST_KONTO_SKR03
             gruppe(ust, None, True, kategorie).addiere(steuer, NULL)
             continue
         else:
-            konto, schluessel, pruefen = _ERLOES_UNBEKANNT, None, True
+            konto, schluessel, pruefen = erloese.unbekannt, None, True
         gruppe(konto, schluessel, pruefen, tag_nach).addiere(p.netto, steuer)
     for g in gruppen.values():
         g.berechne_selbst()
     return list(gruppen.values())
+
+
+def _oss_ohne_konto(
+    beleg: Beleg, rechnung: Rechnung | None, land: str, erloese: Erloeskonten
+) -> str | None:
+    """Hinweis, wenn ein OSS-Fernverkauf (Kategorie S, Satz des Bestimmungslands) in ein
+    Land ohne OSS-Erlöskonto geht — die OSS-Meldung (§ 18j UStG) ordnet Erlöse über
+    das Konto dem Land zu und erfasst ihn so nicht."""
+    if land in erloese.oss:
+        return None
+    for p, kategorie in zip(
+        beleg.positionen or [], _kategorien(beleg, rechnung), strict=True
+    ):
+        satz = _satz(p.steuersatz)
+        if kategorie == "S" and satz and satz not in erloese.steuerpflichtig:
+            return (
+                f"OSS-Fernverkauf nach {land or '—'} ({satz.normalize():f} %): kein "
+                f"OSS-Erlöskonto für {land or 'das Land'} — auf {erloese.unbekannt} "
+                "zur Prüfung; die OSS-Meldung (accounti marktplatz oss) erfasst ihn "
+                "nicht, selbst melden"
+            )
+    return None
 
 
 def _steuerhinweise(gruppen: list[_Gruppe], anlass: str, land: str) -> list[str]:
@@ -457,11 +482,12 @@ def verbuche_beleg(
     if personenkonto is None:  # pragma: no cover — kontakt_fuer vergibt immer eins
         raise VerbuchungError(f"{anlass}: kein Personenkonto")
 
-    sachkonto, sachkonto_pruefen = (
+    sk = (
         _sachkonto_eingang(beleg, treffer, einstellungen, regelwerk)
         if eingang
-        else ("", False)
+        else None
     )
+    sachkonto, sachkonto_pruefen = (sk.konto, sk.pruefen) if sk else ("", False)
     text = f"{treffer.kontakt.name} {beleg.belegnummer or ''}".strip()[:60]
 
     # Kontakt widerspricht dem Beleg (z. B. gleiche IBAN, anderer Name): zur Prüfung
@@ -500,6 +526,10 @@ def verbuche_beleg(
             or rechnung.kaeufer.anschrift.land
             or land
         )
+    # Erlöskonten des Kontenrahmens (SKR04: 4400/4300/4200, OSS 4320–4327)
+    erloese = erloeskonten(einstellungen.kontenrahmen)
+    if not eingang and (oss := _oss_ohne_konto(beleg, rechnung, land, erloese)):
+        hinweise.append(oss)
     empfaenger: dict[str, tuple[date, list[str]]] = {}
     if eingang:
         # § 13b / ig. Erwerb: zum Tag, an dem die Steuer entsteht
@@ -523,6 +553,7 @@ def verbuche_beleg(
         land,
         tag_fuer,
         ustid_bestaetigt,
+        erloese,
     )
     for fall, (_, texte) in empfaenger.items():
         if any(
@@ -630,6 +661,20 @@ def verbuche_beleg(
             abs(g.netto),
             g.schluessel,
             abs(g.steuer) if g.schluessel is not None else None,
+        )
+    grund = f"{anlass} von {treffer.kontakt.name} auf Personenkonto {personenkonto}"
+    grund += (
+        f": Sachkonto {sk.konto} — {sk.quelle}"
+        if sk is not None
+        else ": Erlöskonto nach der Steuerkategorie der Rechnung"
+    )
+    for buchung in buchungen:
+        speichere_kontierungsgrund(
+            session,
+            buchung.id,
+            quelle="opos",
+            regel=sk.regel if sk is not None else None,
+            begruendung="; ".join([grund, *hinweise]),
         )
 
     faellig, skonto_bis, skonto_prozent, skonto_betrag = _faelligkeit(

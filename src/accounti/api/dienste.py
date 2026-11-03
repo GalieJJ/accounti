@@ -26,8 +26,18 @@ from accounti.belege.pipeline import Erkenner
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.betrieb.kontext import Kontext
 from accounti.db import init_db, session_factory
+from accounti.i18n import Text
 from accounti.konfiguration import lade_eigene_firma
 from accounti.models.auth import STANDARD_GESELLSCHAFT
+
+
+class SchemaError(RuntimeError):
+    """Die Datenbank ist nicht auf dem Stand dieser Version (Migration fehlt)."""
+
+
+# Spalten, die ``init_db`` (create_all) in einer bestehenden Tabelle nicht anlegt —
+# ohne sie scheitert jede Anmeldung mit einem SQL-Fehler
+PFLICHTSPALTEN = {"auth_benutzer": ("sprache",)}
 
 
 @dataclass
@@ -66,6 +76,31 @@ class Dienste:
     def datenbank(self, kuerzel: str) -> Iterator[Session]:
         with self._fabrik(self.gesellschaften[kuerzel].datenbank)() as s:
             yield s
+
+    def pruefe_schema(self) -> None:
+        """Systemdatenbank auf dem Stand dieser Version? Sonst ``SchemaError`` mit
+        Hinweis (ohne URL). Neue Tabellen legt ``init_db`` selbst an, neue Spalten
+        nur die Migration."""
+        from sqlalchemy import inspect
+
+        with self.system() as s:
+            pruefer = inspect(s.connection())
+            for tabelle, spalten in PFLICHTSPALTEN.items():
+                vorhanden = {c["name"] for c in pruefer.get_columns(tabelle)}
+                fehlt = [sp for sp in spalten if sp not in vorhanden]
+                if fehlt:
+                    raise SchemaError(
+                        str(
+                            Text(
+                                "Die Systemdatenbank ist nicht auf dem Stand dieser "
+                                "Version (Spalte %(spalte)s fehlt) — vorher accounti "
+                                "db upgrade für die Systemdatenbank und jede "
+                                "Gesellschaftsdatenbank ausführen (siehe "
+                                "docs/betrieb.md, Upgrades)",
+                                spalte=f"{tabelle}.{fehlt[0]}",
+                            )
+                        )
+                    )
 
     def einlieferung(self, kuerzel: str) -> threading.Lock:
         """Belege einer Gesellschaft nacheinander aufnehmen (Dublettenprüfung) —

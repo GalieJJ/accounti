@@ -223,13 +223,16 @@ class OSSEngine:
         buchungen: list[Buchungssatz],
         jahr: int,
         erloes_konten: Mapping[str, str] | None = None,
+        kontenrahmen: str = "SKR03",
     ) -> tuple[bool, Decimal]:
         """Prüft ob die €10.000-Schwelle für EU-B2C-Fernverkäufe überschritten ist.
 
         Args:
             buchungen: Alle Buchungen des Jahres
             jahr: Prüfjahr
-            erloes_konten: Land → OSS-Erlöskonto (sonst die SKR03-Vorgabe)
+            erloes_konten: Land → OSS-Erlöskonto (``integrationen.oss_erloes_konten``)
+                zusätzlich zu den Länderkonten des Kontenrahmens
+            kontenrahmen: SKR03 oder SKR04 (``umsatzsteuer.oss_konto_land``)
 
         Returns:
             Tuple (schwelle_ueberschritten, summe_eu_b2c)
@@ -237,9 +240,10 @@ class OSSEngine:
         # TODO: Hier müsste man wissen, welche Buchungen EU-B2C sind.
         # Das erfordert Metadaten auf dem Buchungssatz (bestimmungsland, ist_b2b).
         # Für jetzt: Summe aller Buchungen auf OSS-Erlöskonten.
-        from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+        from accounti.steuer.umsatzsteuer import oss_konto_land
 
-        oss_konten = set((erloes_konten or OSS_ERLOES_KONTEN_SKR03).values())
+        oss_konten = set(oss_konto_land(kontenrahmen))
+        oss_konten |= set((erloes_konten or {}).values())
         summe = Decimal("0.00")
 
         for b in buchungen:
@@ -259,6 +263,7 @@ class OSSEngine:
         quartal_nr: int,
         erloes_konten_ermaessigt: Mapping[str, str] | None = None,
         erloes_konten: Mapping[str, str] | None = None,
+        kontenrahmen: str = "SKR03",
     ) -> OSSMeldung:
         """Erstellt eine OSS-Quartalsmeldung aus Buchungssätzen.
 
@@ -277,8 +282,12 @@ class OSSEngine:
             quartal_nr: Quartalsnummer (1-4)
             erloes_konten_ermaessigt: Land → Erlöskonto für Umsätze zum ermäßigten
                 Satz des Bestimmungslands
-            erloes_konten: Land → OSS-Erlöskonto zum Normalsatz (sonst die
-                SKR03-Vorgabe ``OSS_ERLOES_KONTEN_SKR03``)
+            erloes_konten: Land → OSS-Erlöskonto zum Normalsatz
+                (``integrationen.oss_erloes_konten``) — zusätzlich zu den Länderkonten
+                des Kontenrahmens, ein dort genanntes Konto gilt für dieses Land
+            kontenrahmen: SKR03 oder SKR04 — die OSS-Erlöskonten je Land
+                (``umsatzsteuer.oss_konto_land``; im SKR04 4320–4327, Gesamttest 10b-1
+                Runde 3: vorher fehlten die SKR04-Fernverkäufe in der Meldung)
 
         Returns:
             Vollständige OSSMeldung
@@ -288,12 +297,13 @@ class OSSEngine:
 
         # TODO: Bestimmungsland muss als Metadatum auf dem Buchungssatz sein.
         # Für jetzt: Ableitung aus dem Erlöskonto (ermäßigt: eigene Konten).
-        from accounti.steuer.umsatzsteuer import OSS_ERLOES_KONTEN_SKR03
+        from accounti.steuer.umsatzsteuer import oss_konto_land
 
         konto_zu_land: dict[str, tuple[str, bool]] = {
-            konto: (land.upper(), False)
-            for land, konto in (erloes_konten or OSS_ERLOES_KONTEN_SKR03).items()
+            konto: (land, False) for konto, land in oss_konto_land(kontenrahmen).items()
         }
+        for code, konto in (erloes_konten or {}).items():
+            konto_zu_land[konto] = (code.upper(), False)
         for code, konto in (erloes_konten_ermaessigt or {}).items():
             konto_zu_land[konto] = (code.upper(), True)
 

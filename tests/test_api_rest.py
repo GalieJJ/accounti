@@ -261,6 +261,7 @@ def test_laeufe_anstossen(welt):
         "mit_beleg",
         "offen",
         "marktplatz",
+        "umbuchung",  # 10b-1 H-1: offen, weil Soll = Haben
     }
     r = client.post("/api/v1/laeufe/aufgaben", headers=bearer(token))
     assert r.status_code == 200, r.text
@@ -343,3 +344,36 @@ def test_lauf_ueber_rest_steht_unter_dem_token_im_journal(welt, monkeypatch):
         ).scalar()
     engine.dispose()
     assert person == "API-Token erp"
+
+
+def test_bank_lauf_mit_gelernter_regel(welt):
+    """Baustein 10b: der REST-Lauf lädt die gelernten Regeln der Gesellschaft (vor
+    ihrer Regeldatei) — dieselbe Funktion wie die CLI."""
+    from accounti.buchung.pruefschlange import herkunft
+    from accounti.db.repository import lade_buchungen as alle_buchungen
+    from accounti.db.repository import speichere_transaktion
+    from accounti.klassifikation.lernen import entwurf_fuer, lerne
+    from accounti.konfiguration import Buchhaltung
+    from tests.pruefung_hilfe import umsatz
+
+    url = welt.umgebung.db["a"]
+    welt.umgebung.wurzel.joinpath("a-regeln.yaml").write_text(
+        "- name: buero_falsch\n  muster: 'b(ü|ue)ro'\n  feld: beide\n"
+        "  soll_konto: '4980'\n  haben_konto: '1200'\n  steuer_schluessel: 9\n",
+        encoding="utf-8",
+    )
+    tx = umsatz("-12.00", date(2026, 10, 9), "RE 4790", "Bürobedarf Müller GmbH")
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        lerne(s, entwurf_fuer(tx, "4930", "1200", 9, Buchhaltung()), "jan")
+        speichere_transaktion(s, tx)
+        s.commit()
+    token = welt.token("a", TokenRecht.LAEUFE_STARTEN)
+    r = welt.client().post("/api/v1/laeufe/bank", headers=bearer(token))
+    assert r.status_code == 200, r.text
+    with fabrik() as s:
+        (b,) = alle_buchungen(s)
+        h = herkunft(s, b)
+    engine.dispose()
+    assert (b.soll_konto, b.confidence) == ("4930", 1.0)
+    assert h.regel == "gelernt_bürobedarf_müller"

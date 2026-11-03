@@ -44,10 +44,7 @@ from uuid import UUID
 
 from accounti.models import Buchungssatz, BuchungStatus, Kontakt
 from accounti.steuer.eu_steuersaetze import ist_eu_land
-from accounti.steuer.umsatzsteuer import (
-    OSS_ERLOES_KONTEN_SKR03,
-    OSS_ERLOES_KONTEN_SKR04,
-)
+from accounti.steuer.umsatzsteuer import oss_konto_land
 from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art, UStVoranmeldung
 from accounti.steuer.zeitraum import Zeitraum
 
@@ -120,7 +117,7 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
         "8338": 45,  # Drittland steuerbar, im Inland nicht steuerbar
         "8339": 45,  # anderes EU-Land steuerbar, im Inland nicht steuerbar
         # OSS-Fernverkäufe: Nettoumsatz in Kz 45 (USt 1 E 2026, Zeile 36)
-        **dict.fromkeys(OSS_ERLOES_KONTEN_SKR03.values(), 45),
+        **dict.fromkeys(oss_konto_land("SKR03"), 45),
     },
     "SKR04": {
         "4125": 41,
@@ -131,9 +128,8 @@ KENNZIFFERN_KONTEN: dict[str, dict[str, int]] = {
         "4337": 60,
         "4338": 45,
         "4339": 45,
-        # OSS-Fernverkäufe (eigene Konten: integrationen.oss_erloes_konten, die
-        # lade_elster als Kz 45 ergänzt)
-        **dict.fromkeys(OSS_ERLOES_KONTEN_SKR04.values(), 45),
+        # OSS-Fernverkäufe (4320–4327, Marktplatz 8320–8327): Kz 45 wie im SKR03
+        **dict.fromkeys(oss_konto_land("SKR04"), 45),
     },
 }
 
@@ -356,20 +352,55 @@ def _andere(seite: Seite) -> Seite:
     return "haben" if seite == "soll" else "soll"
 
 
+def _seite_aus_konten(
+    soll: str, haben: str, plan: Kontenplan
+) -> tuple[Seite, bool] | None:
+    """Seite des Sachkontos, soweit die Konten sie bestimmen: gegenüber dem einzigen
+    Gegenkonto, sonst die des einzigen Erlöskontos (``True``: über das Erlöskonto) —
+    ``None`` bei zwei bzw. keinem Gegen- und Erlöskonto."""
+    soll_gegen = plan.ist_gegenkonto(soll)
+    haben_gegen = plan.ist_gegenkonto(haben)
+    if soll_gegen != haben_gegen:
+        return ("soll" if haben_gegen else "haben"), False
+    soll_erloes = plan.ist_erloeskonto(soll)
+    if soll_erloes != plan.ist_erloeskonto(haben):
+        return ("soll" if soll_erloes else "haben"), True
+    return None
+
+
 def _sachseite(
     b: Buchungssatz, plan: Kontenplan, normal: Seite, umsatzsteuer: bool
 ) -> Seite:
     """Seite des Sachkontos: gegenüber dem Gegenkonto — sonst entscheidet das
     Erlöskonto (Umsatzsteuer: das Erlöskonto selbst, Vorsteuer: die Gegenseite)."""
-    soll_gegen = plan.ist_gegenkonto(b.soll_konto)
-    haben_gegen = plan.ist_gegenkonto(b.haben_konto)
-    if soll_gegen != haben_gegen:
-        return "soll" if haben_gegen else "haben"
-    soll_erloes = plan.ist_erloeskonto(b.soll_konto)
-    if soll_erloes != plan.ist_erloeskonto(b.haben_konto):
-        erloes: Seite = "soll" if soll_erloes else "haben"
-        return erloes if umsatzsteuer else _andere(erloes)
-    return normal
+    seite = _seite_aus_konten(b.soll_konto, b.haben_konto, plan)
+    if seite is None:
+        return normal
+    sachseite, ueber_erloes = seite
+    return _andere(sachseite) if ueber_erloes and not umsatzsteuer else sachseite
+
+
+def sachseite_aus_konten(soll: str, haben: str, plan: Kontenplan) -> Seite | None:
+    """Seite des Sachkontos ohne Rückfall und ohne Schlüssel: gegenüber dem einzigen
+    Gegenkonto, sonst die des einzigen Erlöskontos. ``None``, wenn die Konten sie nicht
+    bestimmen (zwei Gegenkonten wie „1800 an 1200“, zwei Sachkonten ohne Erlös wie
+    „4120 an 1740“) — dort setzt die Voranmeldung die Seite des Schlüssels ein
+    (``sachseite``), ohne Schlüssel „Haben“; als Richtung einer Korrektur taugt das
+    nicht (Gesamttest 10b-1, Runde 6: g5w NEU-1)."""
+    seite = _seite_aus_konten(soll, haben, plan)
+    return seite[0] if seite is not None else None
+
+
+def sachseite(b: Buchungssatz, plan: Kontenplan) -> Seite:
+    """Seite, auf der die Voranmeldung das Sachkonto der Buchung liest — steht es nicht
+    auf der Seite seines Schlüssels (Umsatzsteuer im Haben, Vorsteuer im Soll), kehrt
+    sich das Vorzeichen um (Gutschrift, Storno). Ohne Schlüssel wie Umsatzsteuer: das
+    Erlöskonto ist die Sachseite. Für die Korrektur einer Belegbuchung
+    (``pruefung/storno.py``): Die Richtung bestimmt der Beleg (Runde 5, g4w N1)."""
+    s = b.steuer_schluessel
+    regel = STEUERSCHLUESSEL.get(s) if s is not None else None
+    normal: Seite = regel.seite if regel is not None else "haben"
+    return _sachseite(b, plan, normal, regel is None or s in _USTEUER_SCHLUESSEL)
 
 
 def _gegenkonto(b: Buchungssatz, sachseite: Seite) -> str:
@@ -681,6 +712,28 @@ class _Ermittler:
             self.e.ohne_kennziffer.append(
                 (b, f"Steuerschlüssel {schluessel} hat keine Kennziffer in accounti")
             )
+
+
+def kennziffern_der_buchung(
+    b: Buchungssatz, plan: Kontenplan, andere: Iterable[Buchungssatz] = ()
+) -> dict[int, Decimal]:
+    """Was die Voranmeldung aus dieser einen Buchung bucht (Kennziffer → Betrag, ohne
+    die berechnete Kz 83) — unabhängig von Status und Zeitraum. ``andere``: die übrigen
+    Buchungen desselben Belegs (eine Minderung liest die Kennziffer ihrer Rechnung).
+    Für die Richtungsprüfung einer Korrektur (Gesamttest 10b-1, Runde 6: g5w NEU-2)."""
+    ermittler = _Ermittler(
+        [*(x for x in andere if x.id != b.id), b],
+        Zeitraum.monat_von(b.datum),
+        plan,
+        (),
+        {},
+    )
+    ermittler(b)
+    summe: dict[int, Decimal] = {}
+    for zuordnung in ermittler.e.zugeordnet:
+        for beitrag in zuordnung.beitraege:
+            summe[beitrag.kz] = summe.get(beitrag.kz, NULL) + beitrag.betrag
+    return summe
 
 
 def ermittle(

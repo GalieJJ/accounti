@@ -7,6 +7,44 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+- **Web-Oberfläche: Supervisions-Queue, Korrektur → Regel, Deutsch/Englisch** (Baustein 10b,
+  Teil 1): `/pruefen` zeigt unsichere Buchungen mit dem Beleg links (PDF im Browser, PNG/JPEG,
+  TIFF als Seitenbilder, XRechnung und ZUGFeRD als lesbare Ansicht des strukturierten Teils;
+  ohne Beleg die offene Nachforderung bzw. die `belegfrei`-Regel; bei internen Buchungen wie
+  AfA Herkunft und Rechenweg) und dem Vorschlag rechts (Konten mit Bezeichnung,
+  Steuerschlüssel, Beträge, Confidence, Herkunft und Begründung, Aufgaben). Freigeben,
+  korrigieren und zurückstellen (Rückfrage als Aufgabe) in einem Schritt, per Tastatur
+  (`j k f e r z b ?`, abschaltbar) und mit HTMX ohne Seitenwechsel; ein Prüfstand in jedem
+  Formular verhindert, dass eine veraltete Ansicht storniert, Konflikte und Fachfehler
+  erscheinen als Meldung, ein neues Sachkonto verlangt die ausdrückliche Steuerangabe. Aus der
+  Korrektur eines Kontierungsvorschlags wird auf Wunsch eine Regel — Muster vorbelegt mit dem
+  ganzen Namen der Gegenpartei ohne Rechtsform, mit Vorschau (Treffer je Richtung, verdrängte
+  Regel, andere Gegenparteien, Zahlungsdienst, anders gebuchte Treffer; trifft das Muster andere
+  Gegenparteien oder jeden Kauf über einen Zahlungsdienst oder hat der Umsatz keinen Namen der
+  Gegenpartei, nur nach Bestätigung), nur mit dem neuen Recht `regeln_lernen` zusätzlich zu
+  `buchen` (anlegen: buchhalter; sehen, voranschauen und deaktivieren auch der verwalter), nur
+  in der Zahlungsrichtung des Umsatzes und nur aus Kontierungsvorschlägen (nicht aus
+  Kreditkarte, Anlagen, Marktplatz, offenen Posten), gespeichert in der Datenbank der
+  Gesellschaft, im Journal (samt Bestandsabgleich in
+  `journal pruefen`) und mit Vorrang vor eigenen und Standardregeln; `/pruefen/regeln` und
+  `accounti regeln liste|deaktivieren|uebernehmen`. `/buchungen/{id}` zeigt Storno-Kette, Korrektur und Journal
+  und korrigiert freigegebene oder exportierte Buchungen als Storno mit Neubuchung — mit
+  frischem Einmalcode. Oberfläche auf Deutsch und Englisch (Sprache je Benutzer, sonst nach
+  Browser; Zahlen und Daten je Sprache; Fachbegriffe wie „Buchungssatz“ bleiben deutsch).
+  Klassifikation, Kreditkarte, Anlagen, Marktplatz und offene Posten speichern jetzt zu jeder
+  Buchung Quelle, Regel und Begründung (`kontierungsgruende`) — beim Marktplatz auch die
+  Kursdifferenz einer Auszahlung und ihre Umbuchung nach „anderweitig gebucht“ (Beträge laut
+  Bank bzw. Gegenkonto und Abrechnung, verschobener Tag). HTMX 2.0.11 (0BSD) liegt lokal
+  unter `/statisch`. Neue Schlüssel `buchhaltung.gelernte_regeln`, `server.sprache`,
+  `server.max_vorschau_megapixel`. Gelernte Regeln teilen das Regelmodell der Regeldatei und
+  der Standardregeln (Richtung `ausgabe`/`einnahme`, gegen die Richtung nur als Gegenbuchung
+  zur Prüfung, Schranke des Mappers gegen die Bankseite) und greifen vor der Regeldatei und
+  den Standardregeln im Kontenrahmen der Buchhaltung; greift die Schranke, steht das in der
+  Begründung. Zwei Migrationen nach `a14acef69fae` (`d5a849692843`, `e7153706b43a`;
+  `SCHEMA_STAND` ist `e7153706b43a`) — **nach dem Update `accounti db upgrade`** für die
+  Systemdatenbank und jede Gesellschaft (erkennt auch einen Stand ohne Versionsvermerk vor
+  jeder der beiden); `serve` bricht ohne die Migration mit diesem Hinweis ab (Exit 2).
+  Auswertungen im Browser (BWA, Kontenblätter, CSV/PDF) folgen mit Teil 2.
 - **Belegvollständigkeit & Ordnungsmäßigkeit** (Baustein 7): Prüfregeln als Registry mit
   Schweregrad (`hinweis`, `warnung`, `fehler`) und Schwellen aus dem neuen, optionalen
   Abschnitt `pruefung` — Vollständigkeit (Umsatz ohne Beleg mit Betrag, Datum und
@@ -300,6 +338,51 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   an der Abrechnung; die Befunde des Abgleichs nennen den Befehl mit der Umsatz-ID
 
 ### Geändert
+- **Die Regeldatei wird streng geprüft** (Baustein 10b, Teil 1): Ein Eintrag mit einem Feld,
+  das der Lader nicht kennt (auch ein Zusatzfeld wie `kommentar:` oder `aktiv:`), einem
+  unbekannten Steuerschlüssel, einer Kontonummer außerhalb von 4–9 Ziffern oder einer
+  YAML-Zahlform wie `0x1340` hält die **ganze Regeldatei** an — `classify`, `bank lauf`
+  (samt Bankabruf), `opos verbuchen` und der REST-Lauf (409) melden den Fehler mit Datei,
+  Regel und Schlüssel, bis er berichtigt ist; bisher wurde ein solches Feld still ignoriert.
+  Bestandsdateien vor dem Update durchsehen (Kommentare hinter `#`), siehe
+  [docs/betrieb.md](docs/betrieb.md), „Upgrades“.
+- `accounti korrigiere --lernen` **und `accounti lerne`** speichern die Regel in der Datenbank
+  der Gesellschaft (Tabelle `kontierungsregeln`, mit Journal) statt sie an die Regeldatei
+  anzuhängen; accounti schreibt die Regeldatei nicht mehr. Gelernte Regeln haben Vorrang vor der
+  Regeldatei und den Standardregeln; aus einer Korrektur gelernte gelten nur in der
+  Zahlungsrichtung ihres Quellumsatzes, `lerne` ohne `--richtung` in beide. `korrigiere
+  --lernen`, `lerne` und `regeln uebernehmen` verlangen mit eingerichteten Benutzern die Rechte
+  `buchen` und `regeln_lernen` (ein Einmalcode), `regeln deaktivieren` nur `regeln_lernen`.
+  `korrigiere --lernen` schlägt als Muster den ganzen Namen der Gegenpartei ohne Rechtsform vor
+  (bisher das erste Wort; Rechtsformen wie „Co“ oder „AB“ kürzen nicht auf ein einzelnes Wort),
+  lernt nur aus Kontierungsvorschlägen (Altbuchungen ohne gespeicherte Herkunft weiterhin, aber
+  nicht aus dem Kassenbuch) und speichert ein Muster, das andere Gegenparteien oder jeden Kauf
+  über einen Zahlungsdienst träfe, nur mit `--trotz-warnung` — ebenso jede Regel aus einem
+  Umsatz ohne Namen der Gegenpartei (das Muster stammt dann aus dem Verwendungszweck). Früher
+  gelernte `gelernt_*`-Einträge übernimmt `accounti regeln uebernehmen` — mit der Richtung
+  ihrer Bankseite.
+- `accounti korrigiere` (und die Korrektur im Browser) behält das Finanzkonto eines
+  Bankumsatzes auf der Seite seiner Zahlungsrichtung (Ausgabe im Haben, Einnahme im Soll):
+  „4930 an 4980“, „4930 an 1000“ (Kasse) oder ein nicht eingerichtetes Bankkonto für einen
+  Umsatz auf 1200 wird abgelehnt — der Kontostand der Bücher passte sonst nicht mehr zum
+  Kontoauszug. Ein falsch zugeordnetes Finanzkonto (etwa `import bank` ohne `--konto`) lässt
+  sich auf ein anderes eingerichtetes Bankkonto umbuchen — mit Warnung und ohne Regel.
+- `accounti bestaetige` (und Freigeben im Browser) prüft die Prüfregel
+  `steuerschluessel_konto` wie eine Korrektur: Meldet sie einen Fehler (Vorsteuer auf einer
+  Privatentnahme, Automatikkonto ohne Schlüssel), wird nicht freigegeben.
+- Regeln in der Regeldatei dürfen ein optionales Feld `richtung: ausgabe|einnahme` tragen; ohne
+  Angabe gelten sie wie bisher in beide Richtungen.
+- `accounti classify`, `bank lauf` und `opos verbuchen` nehmen zur Regeldatei der Gesellschaft die
+  gelernten Regeln aus der Datenbank hinzu — wie die REST-Läufe; das Regelwerk wird erst nach der
+  Laufsperre geladen.
+- `accounti review` zeigt die Begründung und zurückgestellte Buchungen; `bestaetige` und
+  `korrigiere` schließen eine offene Rückfrage und die Aufgabe `kontierung_pruefen` zur Buchung.
+- `accounti korrigiere` und `buchung storniere` nutzen den Kontenrahmen samt
+  `abschluss.kontenzuordnung` — wie Summen- und Saldenliste und Abschluss.
+- Die Verfahrensdokumentation nennt die Regeldatei der Gesellschaft und die gelernten Regeln; der
+  Aufbewahrungsbericht führt Kontierungsgründe und -regeln.
+- Die Seiten aus Baustein 10a sind übersetzbar; das Layout trägt Sprachauswahl und HTMX; die
+  Einmalcode-Prüfung des Browsers liegt in `api/einmalcode.py`.
 - **Freigegebene Buchungen sind unveränderbar** (Baustein 7): Ab `auto`, `geprueft`,
   `korrigiert`, `exportiert` lehnt die Datenbankschicht jede Änderung außer
   `auto → geprueft`, `→ exportiert` und dem einmaligen Stornovermerk ab, Löschen immer;
@@ -478,7 +561,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Stapel entsteht aus denselben Bausteinen wie `datev belege`: 31 Kopffelder, Herkunft „RE“,
   Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),
   Belegfeld 1 im DATEV-Zeichenvorrat, Kostenstelle in KOST1 (Feld 37 statt Beleginfo);
-  Konten, die nicht zur Sachkontenlänge passen (z. B. 177721 bei Länge 4), meldet er
+  Konten, die nicht zur Sachkontenlänge passen (z. B. 177721 bei Länge 4), meldet er als
+  Warnung, ebenso ein Personenkonto, das kürzer ist als Sachkontenlänge + 1 (DATEV läse es als
+  Sachkonto); ein Konto, das in kein DATEV-Kontofeld passt (10 Stellen), hält den Export an
 - **OSS-Konten fest verdrahtet, sechsstellige Steuerkonten** (Gesamttest Steuer B6/B7):
   `integrationen.oss_erloes_konten` ordnet jedem EU-Land ein Erlöskonto zu (Vorgabe wie bisher
   acht Länder, SKR04 4320–4327; `LAND: null` nimmt eines heraus; ein Konto für zwei Länder ist
@@ -487,7 +572,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   statt die Freigabe zu sperren. Die OSS-Umsatzsteuer geht auf das DATEV-Sammelkonto 1767 (SKR04
   3817, `oss_ust_konto`, je Land `oss_ust_konten`) statt auf 177720–177725, die der Stapel mit
   Sachkontenlänge 4 nicht annahm; sie erscheint nicht als „Steuerkonto ohne Kennziffer“ in der
-  Voranmeldung. Wer schon auf 1777xx gebucht hat, stellt diese Konten in `oss_ust_konten` ein
+  Voranmeldung. Wer schon auf 1777xx gebucht hat, stellt diese Konten in `oss_ust_konten` ein.
+  OSS-Meldung, Lieferschwelle und Kz 45 lesen die Länderkonten des Kontenrahmens (OPOS, im SKR04
+  auch 8320–8327) und die eingestellten `oss_erloes_konten`; die Richtungsprüfung einer
+  Korrektur kennt dieselben OSS-Konten wie die Voranmeldung
 - **Korrektur nach Abgabe der Voranmeldung ohne Befund** (Gesamttest Steuer B5, Eingang B13,
   Ausgang): `storniere`/`korrigiere` warnen, wenn die Voranmeldung des Zeitraums schon
   abgegeben oder freigegeben ist; der Hinweis beim Storno in einen anderen Monat unterscheidet
@@ -704,6 +792,226 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (AM, gewährte Skonti), 3731/3736 (AV,
   erhaltene Skonti) — beide DATEV-Exporte lassen dort das BU-Feld
   leer, statt einen Steuerschlüssel zu setzen, den DATEV auf Automatikkonten nicht annimmt
+- **Nachbesserung Web-Oberfläche Teil 1** (Prüfberichte 10b-1): gelernte Regeln mit
+  `buchhaltung.gelernte_regeln: pruefen` legten Belegbuchungen und offene Posten trotzdem
+  automatisch an; übernommene Regeln ohne Richtung buchten Erstattungen als Geldabgang; ein
+  TIFF mit sehr vielen Seiten blockierte die Belegvorschau (Seiten werden jetzt nur bis zur
+  Höchstzahl gelesen); ein Einmalcode auf `/buchungen/{id}` war verbraucht, auch wenn die
+  Korrektur danach fachlich scheiterte (jetzt nur bei Erfolg); die Arbeitsfläche zeigte bei
+  Buchungen mit Beleg die Umsatzdaten nicht; Confidence-Werte wie 0,57 erschienen als „56 %“;
+  der Hinweis „Der Umsatz ist wieder offen“ erschien auch, wenn ein weiterer Buchungssatz am
+  Umsatz blieb; Grund und „an“ ohne Längengrenze auf dem Server; die Arbeitsfläche lud für
+  die Geschwister alle Buchungen. E-Rechnungen: DTD- und Entity-Deklarationen werden auch in
+  UTF-16 abgelehnt (bisher fand der Byte-Vergleich sie nicht, eine interne Entity wurde in der
+  Ansicht expandiert).
+- **Web-Oberfläche Teil 1 nach dem Zusammenführen** (Prüfberichte gw-web, gw-storno):
+  Erfolgsmeldungen der Prüfung, „nicht gefunden“/„Methode nicht erlaubt“ und „Formular zu
+  groß“ erscheinen in der Sprache der Oberfläche, Status, Belegart und Profil der E-Rechnung
+  lesbar statt als Rohwert („zur Prüfung“ statt `pruefung`), „Strg“ englisch „Ctrl“;
+  Unicode-Ziffern („²“, „٩“, „４９３０“) in Seite, Steuerschlüssel, Konten und Zeitraum der
+  USt-VA gaben 500 oder galten als Zahl bzw. Konto (jetzt nur ASCII-Ziffern, sonst 422);
+  Fehler und Eingaben des
+  Storno-Formulars landeten im Korrektur-Formular; die Sprachwahl auf einer Antwort auf ein
+  POST endete mit 405 (jetzt zurück zur Ansicht); eine fehlerhafte `abschluss.kontenzuordnung`
+  gab beim Freigeben, Korrigieren und Stornieren 500 statt 409 mit Meldung; ein Doppelklick
+  auf Stornieren/Korrigieren zählte einen Fehlversuch oder verbrauchte einen zweiten Code
+  (jetzt 409 „inzwischen geändert“). Die Regelseite nennt die Gegenbuchung zur Prüfung.
+- `korrigiere --lernen` und `lerne` hängten die Regel ans Ende der Regeldatei — hatte eine frühere
+  Regel falsch kontiert, griff die gelernte nie; dabei gingen die Kommentare der Datei verloren,
+  und im Container (schreibgeschütztes `config/`) brachen beide ab.
+- **Nachbesserung 10b-1 nach dem Zusammenführen mit main** (Prüfberichte gw-regeln,
+  gw-migration, gw-storno): Aus einer **Umbuchung zwischen eigenen Geldkonten** (Soll und
+  Haben Kasse, Bank, Kreditkarte, Geldtransit oder eingerichtete Konten — neuer Abschnitt
+  `zahlungsmittel` der Kontenrahmendateien, eine eigene Kontenzuordnung ohne ihn nimmt die
+  Bankkonten) wird keine Regel: `korrigiere --lernen` und `lerne` enden mit Meldung und
+  Exit 1, Queue und Regelvorschau mit 422 — bisher wurde aus „1200 an 1210“ auf dem Tagesgeld
+  die Regel „1200 an 1200“. **Eine Buchung mit Soll = Haben entsteht nie mehr automatisch**
+  (gelernte Regel, Regeldatei, Standardregel, Gegenbuchung, LLM, Beleg): `classify`, `bank
+  lauf` und der REST-Lauf lassen den Umsatz offen und nennen ihn (REST
+  `kontierung.umbuchung`); Belegbuchung und OPOS nehmen kein Geld-, Personen-, Forderungs- oder
+  Verbindlichkeitskonto als Sachkonto (sonst „70001 an 70001“). Neue Prüfregel
+  `soll_gleich_haben` (Fehler) meldet Altfälle. `regeln uebernehmen` stellt die übernommenen
+  Regeln hinter alle schon gelernten (bisher gewann ein alter Eintrag gegen eine neuere
+  Korrektur), lässt Einträge mit `pruefen`/`confidence` und Umbuchungen in der Regeldatei
+  (eine gelernte Regel hat kein Prüfkennzeichen und buchte sie automatisch), übernimmt mit
+  `--name` auch Einträge ohne Präfix `gelernt_` und nennt, was in der Datei bleibt. **SKR04:**
+  Belegbuchung und OPOS buchten Ausgangsbelege auf die SKR03-Erlöskonten 8400/8300/8200 (EÜR
+  „nicht zugeordnet“) — jetzt 4400/4300/4200, steuerfrei 4125/4120/4100/4336 (besteht auf
+  main). Die Regelvorschau zählt „davon heute anders gebucht“ der Gegenrichtung in deren
+  Richtung; eine Regeldatei mit ungültigem Muster, falschem `feld` oder kaputtem YAML ergibt
+  eine Meldung mit Regelname statt Traceback bzw. 500 (REST-Lauf: 409). `db upgrade` prüft nach der Migration
+  das Schema: Eine Datenbank vom Vorabstand von 10b-1 (Vermerk `e7153706b43a`, Migrationen von
+  main fehlen) meldet es mit dem verlustfreien Weg statt „0 Migration(en)“; `db upgrade
+  --aus-schema` holt die Migrationen nach. CLI-Befehle auf einer nicht migrierten Datenbank
+  nennen `accounti db upgrade` statt eines Tracebacks. Die CLI verbraucht den Einmalcode
+  (auch einen Wiederherstellungscode) bei `buchung storniere`, `korrigiere`, `lerne` und
+  `bestaetige` erst nach einer Fachprobe — ein fachlicher Fehler kostet ihn nicht mehr
+  (besteht auf main).
+- **Nachbesserung 10b-1, Runde 3** (Prüfberichte gw2-regeln, gw2-umbuchung, gw2-web,
+  gw2-betrieb, gw2-merge): **SKR04: OSS-Fernverkäufe** aus eigenen Rechnungen fehlten in der
+  OSS-Meldung (Sammelkonto 4320, die Meldung kannte nur 8320–8327) — jetzt Länderkonten
+  4320–4327 wie im SKR03; Meldung, Lieferschwelle, Kz 45 und Prüfregel lesen die Konten des
+  Kontenrahmens; ein Land ohne Länderkonto bucht auf „Erlöse“ zur Prüfung mit Hinweis (bisher
+  meldete die OSS-Meldung es als Frankreich). **Regeldatei:** ein leeres Konto (gebucht als
+  „None“), `soll_konto: 0420` ohne Anführungszeichen (YAML-Oktalzahl, gebucht auf 272), ein
+  leeres Muster (traf jeden Umsatz), ein Steuerschlüssel als Text, eine Datei, die nicht UTF-8
+  ist, oder ein Verzeichnis ergeben eine Meldung mit Regelname statt einer Fehlbuchung,
+  eines Tracebacks bzw. 500 (REST-Lauf 409); `0420` bleibt das Konto 0420; `feld:
+  gegenkonto_iban` ist wieder zulässig. `regeln uebernehmen` prüft die Einträge ebenso, meldet
+  eine kaputte Datei statt eines Tracebacks und hält die Reihenfolge der Datei auch über
+  mehrere Läufe (ein zweiter Lauf mit `--name` stellte seinen Eintrag vor die früher
+  übernommenen). **Belegbuchung und OPOS** übergingen Wertpapiere (1348), Festgeld (1290,
+  SKR04 1890), Rückdeckungsversicherung und Verrechnungskonten als Sachkonto — jetzt nur noch
+  Zahlungsmittel, Personenkonten und die Sammelkonten der Forderungen und Verbindlichkeiten aus
+  Lieferungen und Leistungen (Abschnitt `lul_konten`); die Begründung nennt ein übergangenes
+  Konto, und ein solches Konto wird nicht mehr als Sachkonto am Kontakt „gelernt“. Eine Regel
+  gegen Geldtransit (1360/1460, Abschnitt `geldtransit`) ist wieder lernbar; eine eigene
+  Kontenzuordnung ohne `zahlungsmittel` nimmt die mitgelieferten Zahlungsmittel (Kasse und
+  Karte galten sonst nicht als Geldkonto), und Regelvorschau und Speichern urteilen gleich.
+  `korrigiere --lernen` (bzw. der Haken „Regel“) aus einer Umbuchung korrigiert jetzt ohne
+  Regel mit Hinweis, statt auch die Korrektur zu verwerfen. **Soll = Haben von Hand** lehnt
+  accounti ab: Korrektur in Queue, `/buchungen/{id}`, CLI und REST, `kasse buchen --konto`
+  mit dem Kassenkonto; ein Altvorschlag „1210 an 1210“ lässt sich nicht freigeben. **Einmalcode:**
+  `regeln deaktivieren` (Tippfehler im Namen, schon deaktiviert), `regeln uebernehmen`
+  (kaputte Datei), `kasse …` und `periode schliessen/oeffnen` verbrauchen ihn erst nach einer
+  Fachprobe; im Browser prüft die Freigabe von USt-VA und Zahlungslauf erst Zeitraum und
+  Fachlogik (bisher war der Code bei „2026-13“ oder einem gesperrten Monat verbraucht), und ein
+  Doppelklick auf Freigeben bekommt 409 statt „Einmalcode falsch“ samt Fehlversuch. Zahlen
+  mit mehr als 4300 Ziffern bzw. ab 2^63 (Seite, Steuerschlüssel, Seitennummer der
+  Belegvorschau, Nummer des Zahlungslaufs) geben Seite 1, 422 bzw. 404 statt 500.
+- **Nachbesserung 10b-1, Runde 4** (Nachprüfung g3w-fach, g3w-merge, g3w-web): **§ 14c
+  UStG nach dem Zusammenführen:** Eine Belegbuchung mit ausgewiesener Umsatzsteuer (Schlüssel
+  3/2) ließ sich per `korrigiere --steuer 94/91/19/18 --grund …` (bei einem Beleg ohne
+  Positionssatz mit jedem Schlüssel) umschlüsseln, auch per POST im Browser — die USt fiel
+  still aus der Voranmeldung. Wie auf main sperrt wieder jede Schlüsseländerung (§ 14c Abs. 1
+  UStG: geschuldet bis zur Berichtigung); § 13b bzw. ig. Erwerb auf Belegen ohne ausgewiesene
+  USt (Paket C) bleibt möglich. **Regeldatei:** ein Steuerschlüssel ab 2^63 (REST-Lauf 500,
+  Traceback in `classify` und `regeln uebernehmen` nach dem Einmalcode) oder einer, den
+  accounti nicht kennt (0, −9, 99), unbekannte Schlüssel wie `prüfen` oder
+  `steuerschluessel` (still ignoriert: automatisch statt zur Prüfung bzw. ohne Vorsteuer) und
+  YAML-Zahlformen wie `0x1340`, `1:20:00`, `4_920` (gebucht auf 4928, 4800, 4920) ergeben eine
+  Meldung mit Regelname. **Kontonummern nur aus ASCII-Ziffern:** „１２００“ umging die Sperre
+  gegen Soll = Haben, galt als Bank und ließ `export datev` abbrechen (CLI `korrigiere`,
+  `lerne`, `kasse buchen`, Regeldatei). **`korrigiere --steuer`** und **`lerne --steuer`**
+  lehnen unbekannte Schlüssel (−1, 0, 4 …) ab wie der Browser. **Kassenbuch:** Gegenkonto
+  „abc“ bzw. „12“, ein Steuersatz außer 19/7 % (50 % buchte 5 € Vorsteuer aus 15 €), eine
+  Kombination, die die Prüfregel `steuerschluessel_konto` als Fehler einstuft (Vorsteuer auf
+  Erlös, USt auf Aufwand), und ein Vorgang im festgeschriebenen Monat werden abgelehnt.
+  **Einmalcode:** `ustva freigeben`, `zahlung freigeben` und `belege freigeben` prüfen vor dem
+  Code (Zeitraum, gesperrte USt-VA, unbekannter Lauf bzw. Beleg); `regeln uebernehmen` prüft
+  mit dem echten Lauf (zurückgerollt) und verbraucht keinen Code, wenn es nichts übernähme;
+  Namen, die erst nach 100 Zeichen verschieden sind, und zu lange Muster sind ungültig statt
+  ein Fehler beim Speichern. **Zeitraum mit Jahr 0000** gibt eine Meldung bzw. 422 statt
+  Traceback bzw. 500. **SKR04:** Forderungen gegen verbundene Unternehmen (1260–1269) bzw.
+  Beteiligungsunternehmen (1280–1289) sind wie im SKR03 (1594/1596) als Sachkonto eines Belegs
+  zulässig; gesperrt bleiben die Forderungen aus Lieferungen und Leistungen. Hilfe und
+  betrieb.md: übernommene Einträge erst nach allen Läufen mit `--name` aus der Regeldatei
+  löschen.
+- **Nachbesserung 10b-1, Runde 5** (Nachprüfung g4w): **§ 14c/§ 17 UStG beim Tausch von
+  Soll und Haben:** `korrigiere <id> --soll 8400 --haben 10001` auf „10001 an 8400, Schlüssel
+  3“ lief ohne Grund durch (auch im Browser über das normale Formular und in der Queue) — die
+  Voranmeldung zeigte danach Kz 81 −500 und Kz 83 −95 („Erstattung“) und ließ die Freigabe zu
+  (schon auf main). Bei einer Belegbuchung bestimmt jetzt der Beleg die Richtung: Eine
+  Korrektur, die die Sachseite umdreht, wird abgelehnt — bei jeder Belegbuchung, auch mit
+  Vorsteuer oder ohne Steuer; die Berichtigung ist ein eigener Beleg
+  (Gutschrift/Rechnungskorrektur). Konten derselben Seite bleiben korrigierbar.
+  **Storno ohne Neubuchung:** Hat ein Beleg mit ausgewiesener Umsatzsteuer danach keine
+  wirksame Buchung mehr, warnt das Storno (§ 14c Abs. 1 UStG), und die neue Prüfregel
+  `beleg_ust_ohne_buchung` meldet ihn. **Kontenrahmen-Datei:** Eine fehlende oder kaputte
+  `pruefung.kontenrahmen_datei` ergibt bei `kasse buchen --konto …` und `korrigiere` eine
+  Meldung (Exit 1) statt eines Tracebacks. **`regeln uebernehmen`:** Ein langer Name, der in
+  den ersten 100 Zeichen einer übernommenen Regel mit anderem Inhalt gleicht, ist ungültig
+  („Regelname … ist schon vergeben“) statt still „schon vorhanden“. **Neunstellige
+  Personenkonten** (DATEV-Sachkontenlänge 8): `korrigiere`, Queue, `lerne`, Regeldatei und
+  `kasse buchen --konto` nehmen Konten mit 4–9 Ziffern, der Kontenrahmen erkennt 9 Stellen
+  als Personenkonto, und `export datev` trägt die Sachkontenlänge aus
+  `mandant.sachkonten_laenge` in den Kopf (bisher immer 4) und warnt bei Konten, die nicht
+  dazu passen. **Regeldatei:** Steuerschlüssel 1 (umsatzsteuerfrei, Kennziffer aus dem Konto)
+  ist wieder zulässig. **Geplanter Lauf:** Schlägt ein Schritt fehl, steht der Grund (die
+  letzten Zeilen der Ausgabe, geschwärzt) mit im Protokoll statt nur „bank lauf → 1“.
+- **Nachbesserung 10b-1, Runde 6** (Nachprüfung g5w): **Richtungssperre:** Runde 5 sperrte
+  auch Korrekturen derselben Seite, wenn die Konten die Sachseite nicht bestimmen — „4360 an
+  1200 → 1800 an 1200“ (Privatanteil), Spende, Wertpapier 1348, Geldtransit, Lohn- und
+  sonstige Verbindlichkeit (SKR04 ebenso), in CLI, Queue und `/buchungen`; ein Vorschlag hing
+  fest (auch auf dem Automatikkonto 3400), und die Meldung behauptete einen Seitenwechsel.
+  Umgekehrt ging ein echter Tausch ohne Gegenkonto durch („1576 an 1548“ getauscht: Kz 66
+  kehrte still um; „10001 an 8125 → 8125 an 8120“; „4930 an 70001 → 1700 an 4930“). Gesperrt
+  ist jetzt, was die Seiten vertauscht: ein Konto wechselt die Seite, die aus den Konten
+  bestimmte Sachseite oder die Seite des Erfolgskontos dreht, oder eine Kennziffer der
+  Voranmeldung kehrt ihr Vorzeichen um. Die Meldung nennt die vertauschten Konten und beim
+  Vorschlag den Weg, der geht (freigeben, dann mit Grund stornieren). **§ 14c-Warnung und
+  `beleg_ust_ohne_buchung`:** gezählt wird je Satz die wirksam gebuchte ausgewiesene Steuer —
+  sie fehlen nicht mehr bei bezahlten Rechnungen (die Zahlung trägt dieselbe `beleg_id`) und
+  bei Belegen mit mehreren Sätzen; sie melden nicht mehr fälschlich beim Storno einer
+  Gutschrift („die -95,00 € fehlt“) und bei einer wirksam gebuchten Dublette derselben
+  Rechnung. **`regeln uebernehmen`:** Ein vergebener kurzer Name mit anderem Inhalt, eine nur
+  in der Richtung geänderte Regel und derselbe Name zweimal in einer Datei mit anderem Inhalt
+  sind ungültig („… anderem Inhalt … umbenennen“) statt still „schon vorhanden“.
+  **Protokoll:** Benutzer und Passwort einer Webhook-Adresse standen teilweise in der Warnung
+  des geplanten Laufs (Zeilenumbruch nach 80 Zeichen, Adresse samt Zugangsdaten in der
+  Meldung) — jetzt nur Rechner und Port, die Schritte laufen ohne Umbruch, und die Schwärzung
+  kennt die ganze userinfo jeder URL, zerschnittene Adressen, verbreitete Zugangstoken,
+  „Passwort: …“ und PIN/TAN; die Verfahrensdokumentation nennt Connector-Adressen ohne
+  Zugangsdaten. **DATEV:** `mandant.sachkonten_laenge` muss eine ganze Zahl 4–8 sein (bisher
+  standen 0, 3, 9, -1 oder true im Kopf), kaputtes YAML ist eine Meldung statt Traceback, und
+  `export datev` warnt je Personenkonto, das nicht Sachkontenlänge + 1 Stellen hat.
+  **Personenkontenbereiche** (`buchhaltung.debitoren_von` …) nehmen höchstens 9 Stellen.
+- **Nachbesserung 10b-1, Runde 7** (Nachprüfung g6w): **Richtungssperre über die
+  Korrekturkette:** Zwei Korrekturen hintereinander konnten die Seiten einer Belegbuchung
+  tauschen („10001 an 8125 → 10001 an 1590 → 8125 an 1200“ buchte Kz 41 −500; ebenso über
+  Aufwand, Privat, Verrechnung, SKR04 und als Vorschlag), weil nur mit der vorigen Buchung
+  verglichen wurde. Jetzt gilt jeder frühere Stand der Kette (Original, Neubuchungen,
+  direkt korrigierte Vorschläge laut Journal); bestimmt keiner die Seite, die der Rechnung
+  (Gutschrift dreht). Eine Kennziffer, die erst durch die Korrektur entsteht und negativ ist
+  wie bei einer Gutschrift („10001 an 8125 → 8120 an 8125“: Kz 43 −500), sperrt ebenso.
+  **Fehlschlüssel:** Ein Vorschlag „4930 an 1200, Schlüssel 3“ auf einer Eingangsrechnung hing
+  fest (keine Freigabe, keine Korrektur, kein Storno) — ein Umsatzsteuerschlüssel auf einem
+  Eingangsbeleg ist keine ausgewiesene Steuer (§ 14c gilt für eigene Rechnungen); der
+  Schlüssel, den der Beleg vorgibt (19 % → 9, 7 % → 8; Ausgang 3 bzw. 2), ist immer wählbar,
+  auch in Queue und `/buchungen`. **`beleg_ust_ohne_buchung`** meldet im Zeitraum des
+  Stornos der Umsatzsteuer, nicht in dem eines späteren Zahlungsstornos.
+  **`regeln uebernehmen`:** Ein geänderter Buchungstext bei gleichem Namen ist ungültig
+  („anderem Inhalt“) statt still übersprungen. **Geplanter Lauf:** Mit `COLUMNS=10000` (Runde
+  6) wurde ein Traceback eines Schritts 10 000 Zeichen breit (DEBUG-Protokoll 64-mal so
+  groß, Rahmen in der Warnung) — jetzt der Traceback von Python, ohne Rahmenzeichen, Zeilen
+  höchstens 1000 Zeichen. **Adressen:** Mit unkodiertem `#` oder `?` im Passwort nannten
+  Verfahrensdokumentation („json: alarm:Kassel“), Webhook-Warnung und
+  `aufgaben_benachrichtigungen` Benutzer bzw. Passwortziffern als Rechner und Port — jetzt
+  nur der Rechner hinter dem letzten `@`; die Schwärzung nimmt „:4711#Sonne“ nicht mehr als
+  Port. Eine ungültige Connector-`basis_url` bricht die Verfahrensdokumentation nicht mehr ab
+  (der Fehler steht im Dokument). **Kaputtes YAML** ergibt in jedem Befehl eine Meldung
+  (`datev stammdaten`, `datev belege`, `pruefen`, `verfahrensdoku` …) statt eines
+  Tracebacks. **Abwärtsverträglich:** Eine offene Obergrenze (`kreditoren_bis: 9999999999`)
+  gilt mit Hinweis als 999999999 statt jeden Befehl anzuhalten, `sachkonten_laenge: 4.0` als
+  4.
+- **Nachbesserung 10b-1, Runde 8** (Nachprüfung g7w): **Sicherheit — langer Pfad im
+  Zugriffsprotokoll:** Ein unangemeldetes `GET /statisch/<15 000 Zeichen>` hielt den
+  Webserver mehrere Sekunden an (40 000 Zeichen: 35 s; schon vor 10b-1, durch Runde 7
+  verschärft): Der Pfad stand ganz im Zugriffsprotokoll, und die Schwärzung lief im
+  Event-Loop mit quadratischer Laufzeit. Jetzt steht ein statischer Pfad gekürzt auf 200
+  Zeichen im Protokoll, die Schwärzung kürzt Zeilen über 4000 Zeichen vorher auf Anfang und
+  Ende (ohne ein angeschnittenes Geheimnis stehen zu lassen), und ihre Muster laufen linear
+  (100 000 Zeichen in Millisekunden); betrieb.md empfiehlt zusätzlich eine Grenze der
+  Anfragezeile im Proxy. **Altfälle:** Eine falsch herum gebuchte Belegbuchung, die vor der
+  Richtungssperre (main, Runde ≤ 4) umgedreht wurde, ist wieder korrigierbar (anderer
+  Debitor, Erlöskonto, ig. Lieferung → Ausfuhr, Aktivierung) — es zählt der berichtigte
+  Stand, nicht der Fehlstand davor. **Zahlungen zum Beleg:** Die Seite der Rechnung gilt nur
+  für ihre Buchung; „1200 an 70001 → 1200 an 4930“ (Erstattung als Preisnachlass) und „1590
+  an 10001 → 8730 an 10001“ (Skonto) gehen wieder, und Skonto, Rabatt, Bonus und Nachlass zur
+  gebuchten Rechnung dürfen eine Kennziffer negativ buchen („8736 an 10001, Schlüssel 3“).
+  **Erlöse auf Quittung, Marktplatzabrechnung und unbekanntem Beleg:** Umsatzsteuer auf
+  einem Erlöskonto ist dort ausgewiesene Steuer (§ 14c), kein Fehlschlüssel — kein Vorschlag
+  9, kein „ohne Steuer“, das Storno warnt wieder. **Adressen:** Ein `@` in Abfrage oder
+  Fragment („https://host?an=jan@firma.example“) machte den Teil dahinter zum Rechner, ein
+  Rechner mit Umlauten (IDN) galt als fehlerhaft, und ein unkodiertes `/` im Passwort hinter
+  Ziffern („https://alarm:4711/Sonne@…“) ließ „alarm:4711“ in Warnung,
+  `aufgaben_benachrichtigungen` und Verfahrensdokumentation stehen. **Schwärzung:** Port und
+  Abfrage („https://host:8443?x=1“) und das Wort vor einem „:“ („Empfänger:max@firma.de“)
+  verschwinden nicht mehr. **Prüfen und `/buchungen`:** Bei fehlerhafter Konfiguration der
+  Gesellschaft eine Meldung samt Datei statt still gerechneter Standardwerte; Freigeben,
+  Korrigieren und Stornieren erst nach der Berichtigung. **Registry in anderer Kodierung als
+  UTF-8** (oder unlesbar): eine Meldung statt eines Tracebacks in jedem Befehl, in `serve`
+  und im Planer.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur
@@ -1130,9 +1438,11 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **`db upgrade` meldete Erfolg, obwohl Spalten fehlten** (Nachprüfung Merge, N-2): Eine
   auf dem Zweig von Paket C mit `alembic upgrade head` migrierte Datenbank (Vermerk
   `46371a6681c2`, ohne `6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`) galt als
-  aktuell. Jetzt prüft `db upgrade` nach dem Lauf, ob vorhandenen Tabellen Spalten des
-  Codes fehlen, und nennt den verlustfreien Weg (`alembic stamp --purge ddc9a184ddb4`,
-  dann noch einmal `accounti db upgrade`; [Upgrades](docs/betrieb.md#upgrades))
+  aktuell. Jetzt prüft `db upgrade` das Schema gegen die Tabellen und Spalten des Codes
+  (dieselbe Prüfung wie für den Vorabstand von 10b-1, vor und nach dem Lauf) und nennt die
+  verlustfreien Wege (`accounti db upgrade --aus-schema` oder von Hand `alembic stamp
+  --purge ddc9a184ddb4`, dann noch einmal `accounti db upgrade`;
+  [Upgrades](docs/betrieb.md#upgrades))
 - **Nachlasszeile machte aus einer § 13b- bzw. Erwerbsrechnung eine Gutschrift**
   (Nachprüfung Runde 2): Jeder Nachlass einer E-Rechnung (BG-20) ist eine negative Zeile
   ohne Steuerausweis — accounti nahm die ganze Rechnung als Lieferanten-Gutschrift. Die

@@ -38,7 +38,7 @@ Tatsachen.
 | 7 | Belegvollständigkeit & Ordnungsmäßigkeit | `pruefung/` | ✅ fertig | [Spec](specs/2026-08-10-belegvollstaendigkeit-gobd.md) |
 | 8 | Aufgaben & Rückfragen | `aufgaben/` | ✅ fertig | [Spec](specs/2026-08-10-aufgaben-rueckfragen.md) |
 | 9 | Steuermeldungen & elektronische Übermittlung | `steuer/` `elster/` | 🟨 teilweise | [Spec](specs/2026-08-10-steuermeldungen-elster.md) |
-| 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` `betrieb/` | 🟨 teilweise | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
+| 10 | Supervision-Web-UI, Auth & Betrieb | `api/` `auth/` `betrieb/` `i18n/` | 🟨 teilweise | [Spec](specs/2026-08-10-web-ui-auth-betrieb.md) |
 | 11 | Integrationen & Export | `importers/` `export/` `api/` | 🟨 teilweise | [Spec](specs/2026-08-10-integrationen-export.md) |
 | 12 | Anlagenbuchhaltung & Jahresabschluss | `anlagen/` `abschluss/` | 🟨 teilweise | [Spec](specs/2026-08-10-anlagen-jahresabschluss.md) |
 
@@ -97,9 +97,10 @@ benannte Prüfregeln mit Schweregrad und Schwellen aus dem Abschnitt `pruefung`
 Ordnung), Nachforderung als Aufgabe über den Prüflauf `beleg_fehlt` (verstummt, sobald der
 Beleg abgeglichen ist), hash-verkettetes Journal über alle buchungsrelevanten Vorgänge mit
 Verlauf und Bestandsabgleich, Storno statt Änderung ab der Freigabe, Monatsabschluss neben der
-Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Mit Baustein 10a
-verzahnt: Erfassen, Freigabe, Korrektur, Storno, Festschreibung und Export nur mit Rolle und
-Einmalcode, das Öffnen eines festgeschriebenen Zeitraums nur durch die Rolle freigeber, im
+Jahressperre und eine aus dem Systemzustand erzeugte Verfahrensdokumentation. Mit Baustein 10
+verzahnt: Erfassen, Freigabe, Korrektur, Storno, Festschreibung und Export nur mit Rolle — in
+der CLI mit Einmalcode, im Browser in der Sitzung mit zweitem Faktor (Storno freigegebener
+Buchungen auch dort mit Einmalcode) —, das Öffnen eines festgeschriebenen Zeitraums nur durch die Rolle freigeber, im
 Journal der angemeldete Benutzer (andere Personen als „ungeprüft“), Sammelläufe unter der Laufsperre, Journal und Korrekturen in
 Sicherung und Aufbewahrungsbericht; Migration für bestehende Datenbanken. Offen: Generalumkehr im DATEV-Export,
 Historisierung von Stammdaten, Prüfbefunde in der Oberfläche (Baustein 10).
@@ -113,7 +114,8 @@ E-Mail oder Webhook. Die Bausteine 7 und 9 melden ihre Aufgaben über `accounti.
 Offen: Einhängen in `bank lauf` (bis dahin `accounti aufgaben lauf` im selben Cron-Eintrag),
 Benutzerkonten und Rechte (Baustein 10).
 
-**Baustein 10 ist teilweise fertig** ([Plan](plans/2026-10-26-auth-gesellschaften-betrieb-api.md)):
+**Baustein 10 ist teilweise fertig** ([Plan 10a](plans/2026-10-26-auth-gesellschaften-betrieb-api.md),
+[Plan 10b](plans/2026-10-27-web-oberflaeche.md)):
 Benutzer mit Passwort und zweitem Faktor (TOTP nach RFC 6238, Wiederherstellungscodes), Sperre,
 Sitzungen, Rollen `betrachter`/`buchhalter`/`freigeber`/`verwalter` je Gesellschaft — Freigaben
 von Zahlungsläufen und Steuermeldungen nur mit Rolle und Einmalcode, im Browser wie in der CLI
@@ -125,6 +127,14 @@ geplantem Lauf, verschlüsselte Sicherung mit Wiederherstellung, Aufbewahrungsbe
 Protokoll ohne Personenbezug ([Betrieb](betrieb.md)). Was fehlt, ist die Oberfläche selbst:
 Supervisions-Queue mit Belegansicht, Korrektur → Regel, Auswertungen und Zweisprachigkeit
 (Akzeptanz 1 und 2).
+Dazu aus 10b, Teil 1: die Supervisions-Queue mit Belegansicht (PDF, Bild, E-Rechnung),
+gespeicherter Herkunft und Begründung, Korrektur in einem Schritt und per Tastatur, Korrektur →
+Regel mit Vorschau und Vorrang (in der Datenbank, im Journal), Storno-Korrektur freigegebener
+Buchungen über Baustein 7 mit Einmalcode, Deutsch und Englisch. Offen (10b, Teil 2): BWA mit
+Vorjahresvergleich im Einklang mit der EÜR, Summen- und Saldenliste, Kontenblätter mit Absprung
+zum Beleg, OPOS-Auswertungen, CSV und PDF im Browser. Weitere Seiten des Spec-Baums (Belegliste,
+OPOS-Zuordnung, Zahlungsvorschlag, Aufgaben, Prüfbefunde und Periodenabschluss, Einstellungen)
+laufen weiter über die CLI.
 
 **Baustein 11 ist teilweise fertig,** weil Marktplatz-Abrechnungen (Amazon, eBay, PayPal,
 Shopify) mit Summenprobe, Auszahlungsabgleich und OSS-Zuordnung sowie die vollständige

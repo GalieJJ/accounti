@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from accounti.abschluss.konfiguration import KassenEinstellungen
 from accounti.abschluss.salden import FREIGEGEBEN
 from accounti.anzeige import betrag_de
+from accounti.buchung.konten import KontoError, pruefe_kontonummer
 from accounti.db.repo_abschluss import pruefe_jahr_offen
 from accounti.db.repo_kasse import (
     lade_kassenbuch,
@@ -40,12 +41,22 @@ from accounti.db.repository import (
     speichere_buchung,
     speichere_transaktion,
 )
+from accounti.db.tabellen_pruefung import sperrfehler
+from accounti.konfiguration import Buchhaltung
 from accounti.models import Buchungssatz, BuchungStatus, Transaktion, TransaktionQuelle
 from accounti.models.kasse import Kassenart, Kassenvorgang
 from accounti.models.pruefung import Buchungskorrektur
+from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.steuer.umsatzsteuer import DATEV_BU_SCHLUESSEL, UStBerechner
 
 NULL = Decimal("0")
+# hinterlegte Steuersätze (DATEV-BU ust_/vst_): 19 und 7 % — sonst fiel eine Ausgabe
+# mit 50 % auf BU 9 zurück und buchte 5 € Vorsteuer aus 15 € (Runde 4, g3w-web N6)
+STEUERSAETZE = frozenset(
+    Decimal(name.partition("_")[2])
+    for name in DATEV_BU_SCHLUESSEL
+    if name.partition("_")[0] in ("ust", "vst") and name.partition("_")[2].isdigit()
+)
 
 
 class KassenbuchError(ValueError):
@@ -174,13 +185,48 @@ def _buchung(
     )
 
 
+def _pruefe_gegenkonto(
+    session: Session,
+    buchung: Buchungssatz,
+    buchhaltung: Buchhaltung | None,
+    pruefung: PruefEinstellungen | None,
+) -> None:
+    """Die Prüfregel ``steuerschluessel_konto`` (Kontenrahmen) auf die Buchung, wie
+    bei der Korrektur: Ein Fehler dort (Vorsteuer auf einem Erlöskonto, Umsatzsteuer
+    auf Aufwand, Steuer auf einem Personenkonto) wird nicht sofort freigegeben gebucht
+    (Runde 4, g3w-web N6)."""
+    from accounti.models.pruefung import Schwere
+    from accounti.pruefung.regeln.richtigkeit import steuerschluessel_probleme
+
+    fehler = [
+        text
+        for schwere, text in steuerschluessel_probleme(
+            session, buchung, buchhaltung or Buchhaltung(), pruefung
+        )
+        if schwere is Schwere.FEHLER
+    ]
+    if fehler:
+        gruende = "; ".join(fehler)
+        raise KassenbuchError(
+            f"Steuersatz passt nicht zum Gegenkonto ({buchung.soll_konto} an "
+            f"{buchung.haben_konto}): {gruende} — anderes Gegenkonto oder anderen "
+            "Steuersatz angeben"
+        )
+
+
 def _speichere(
     session: Session,
     v: Kassenvorgang,
     einstellungen: KassenEinstellungen,
     umkehren: list[Buchungssatz] | None = None,
+    buchhaltung: Buchhaltung | None = None,
+    pruefung: PruefEinstellungen | None = None,
 ) -> Kassenvorgang:
     pruefe_jahr_offen(session, v.datum.year)
+    # auch ein festgeschriebener Monat: ein Vorgang ohne Gegenkonto ließe sich dort
+    # nie mehr buchen (classify), einer mit Gegenkonto scheiterte erst beim Speichern
+    if (gesperrt := sperrfehler(session.connection(), v.datum)) is not None:
+        raise gesperrt
     _pruefe_verlauf([*lade_kassenbuch(session), v])
     tx = Transaktion(
         datum=v.datum,
@@ -190,6 +236,18 @@ def _speichere(
         rohtext=f"Kassenbuch Nr. {v.nr}: {v.text}",
         sachkonto=einstellungen.konto,
     )
+    buchung: Buchungssatz | None = None
+    if not umkehren and v.gegenkonto:
+        buchung = _buchung(
+            tx,
+            einstellungen.konto,
+            v.gegenkonto,
+            v.steuersatz,
+            v.text,
+            v.belegnummer,
+            v.erfasst_von,
+        )
+        _pruefe_gegenkonto(session, buchung, buchhaltung, pruefung)
     speichere_transaktion(session, tx)
     buchungen: list[Buchungssatz] = []
     if umkehren:
@@ -224,16 +282,7 @@ def _speichere(
                 ),
             )
             buchungen.append(storno)
-    elif v.gegenkonto:
-        buchung = _buchung(
-            tx,
-            einstellungen.konto,
-            v.gegenkonto,
-            v.steuersatz,
-            v.text,
-            v.belegnummer,
-            v.erfasst_von,
-        )
+    elif buchung is not None:
         speichere_buchung(session, buchung)
         buchungen.append(buchung)
     v = v.model_copy(
@@ -256,13 +305,39 @@ def buche_kasse(
     gegenkonto: str | None = None,
     steuersatz: Decimal | None = None,
     von: str | None = None,
+    *,
+    buchhaltung: Buchhaltung | None = None,
+    pruefung: PruefEinstellungen | None = None,
 ) -> Kassenvorgang:
     """Einnahme (positiv) oder Ausgabe (negativ) — abgelehnt, wenn die Kasse ins Minus
-    fiele."""
+    fiele, in einem abgeschlossenen Jahr oder festgeschriebenen Monat, mit einem
+    Gegenkonto, das keine Kontonummer ist, einem Steuersatz, der nicht hinterlegt ist
+    (19, 7 %), oder einer Kombination, die die Prüfregel ``steuerschluessel_konto``
+    als Fehler einstuft (``buchhaltung``: Kontenrahmen, ``pruefung``: Kontenrahmen-
+    Datei der Prüfregeln)."""
     if betrag == 0:
         raise KassenbuchError("Ein Kassenvorgang über 0 € ist keiner")
     if not text.strip():
         raise KassenbuchError("Buchungstext fehlt")
+    if gegenkonto is not None:
+        try:
+            gegenkonto = pruefe_kontonummer(gegenkonto, "Gegenkonto")
+        except KontoError as fehler:
+            raise KassenbuchError(str(fehler)) from fehler
+    if steuersatz and steuersatz not in STEUERSAETZE:
+        saetze = " oder ".join(f"{s:g} %" for s in sorted(STEUERSAETZE, reverse=True))
+        raise KassenbuchError(
+            f"Steuersatz {steuersatz:g} % ist nicht hinterlegt — {saetze} (ohne "
+            "Steuer: weglassen)"
+        )
+    if gegenkonto is not None and gegenkonto == einstellungen.konto:
+        # „1000 an 1000“: die Bewegung fehlte im Kassenkonto, das Kassenbuch zeigte sie
+        # (§ 146 Abs. 1 AO, Gesamttest 10b-1, Runde 3)
+        raise KassenbuchError(
+            f"Gegenkonto {gegenkonto} ist das Kassenkonto — Soll und Haben wären "
+            "dasselbe Konto; das Gegenkonto der Kassenbewegung angeben (z. B. Bank "
+            "oder Geldtransit)"
+        )
     v = Kassenvorgang(
         nr=naechste_kassennummer(session),
         datum=datum or date.today(),
@@ -274,7 +349,9 @@ def buche_kasse(
         steuersatz=steuersatz,
         erfasst_von=von,
     )
-    return _speichere(session, v, einstellungen)
+    return _speichere(
+        session, v, einstellungen, buchhaltung=buchhaltung, pruefung=pruefung
+    )
 
 
 def _gueltige_buchung(

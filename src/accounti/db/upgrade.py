@@ -14,12 +14,18 @@ ergänzt (der Fall aus B2), zählt der Schritt als offen — seine Migration mus
 vorhandenen Tabellen umgehen (wie ``ddc9a184ddb4``). Schritte, die nur Daten oder
 Trigger ändern, lassen sich am Schema nicht erkennen (bisher gibt es keine).
 
-Nach dem Upgrade fehlt einer vorhandenen Tabelle keine Spalte des Codes — sonst passt
-der Vermerk nicht zum Schema (eine Datenbank, die auf einem Entwicklungszweig mit
-anderer Reihenfolge der Migrationen auf dessen Kopf kam, Nachprüfung Merge N-2), und
-``db upgrade`` bricht mit dem verlustfreien Weg ab: ``alembic stamp --purge`` auf den
-Stand, den das Schema zeigt, dann noch einmal ``db upgrade``. Fehlende Tabellen zählen
-nicht (``init_db`` legt Tabellen ohne Migration selbst an).
+Eine Schemaprüfung (``fehlendes_schema``) für alle Fälle: Vor dem Upgrade, wenn nichts
+offen ist, und nach ``upgrade head`` vergleicht ``aktualisiere`` das Schema mit den
+Tabellen und Spalten des Codes. Fehlt etwas, passt der Vermerk nicht zum Schema — eine
+Datenbank vom Vorabstand von 10b-1 (Vermerk e7153706b43a, die Migrationen von main
+fehlen; gw-migration N-1) oder von einem Zweig mit anderer Reihenfolge der Migrationen
+(Paket C: Vermerk 46371a6681c2 direkt hinter ddc9a184ddb4, Nachprüfung Merge N-2):
+Abbruch mit dem aus dem Schema abgeleiteten Stand und dem verlustfreien Weg.
+``aus_schema`` (``accounti db upgrade --aus-schema``) geht ihn: Stand aus dem Schema
+ableiten, ist er älter als der Vermerk, darauf stempeln (``alembic stamp --purge``),
+dann ``upgrade head`` — die Migrationen übernehmen schon vorhandene Tabellen und
+Spalten. Von Hand geht dasselbe mit ``alembic stamp --purge <Stand>`` und noch einmal
+``db upgrade``.
 """
 
 from __future__ import annotations
@@ -56,6 +62,7 @@ class Ergebnis:
     abgeleitet: bool
     nachher: str | None
     revisionen: list[str] = field(default_factory=list)
+    vermerk: str | None = None  # Vermerk vor dem Upgrade, wenn er neu gestempelt wurde
 
 
 def finde_alembic_ini(angabe: str | None = None) -> Path:
@@ -189,6 +196,82 @@ def _pruefe_datei(db: str) -> None:
     raise UpgradeError(msg)
 
 
+def fehlendes_schema(verbindung: Connection) -> list[str]:
+    """Tabellen und Spalten des Codes (``Base.metadata``), die der Datenbank fehlen —
+    erst die Tabellen, dann die Spalten vorhandener Tabellen; nach ``upgrade head``
+    ein Zeichen, dass der Versionsvermerk nicht zum Schema passt. Fehlende Tabellen
+    zählen mit: ``init_db`` legt sie zwar an, ihre Migration liefe aber nie mehr (im
+    Vorabstand fehlte so ``verrechnungen``)."""
+    from accounti.db import Base, registriere_tabellen
+
+    registriere_tabellen()
+    pruefer = inspect(verbindung)
+    vorhanden = set(pruefer.get_table_names())
+    tabellen: list[str] = []
+    spalten: list[str] = []
+    for name, tabelle in sorted(Base.metadata.tables.items()):
+        if name not in vorhanden:
+            tabellen.append(f"Tabelle {name}")
+            continue
+        da = {s["name"] for s in pruefer.get_columns(name)}
+        spalten += [
+            f"Spalte {name}.{s.name}" for s in tabelle.columns if s.name not in da
+        ]
+    return tabellen + spalten
+
+
+def _schema_passt_nicht(
+    verbindung: Connection,
+    ini: Path,
+    fehlt: list[str],
+    geaendert: bool,
+    vermerk: str | None = None,
+) -> str:
+    """Die eine Meldung für einen Vermerk, der nicht zum Schema passt — mit dem Stand,
+    den das Schema zeigt, und beiden verlustfreien Wegen (``--aus-schema`` bzw. von
+    Hand ``alembic stamp --purge``)."""
+    try:
+        abgeleitet = leite_stand_ab(verbindung, ini)
+    except UpgradeError:
+        abgeleitet = None
+    liste = ", ".join(fehlt[:8]) + (
+        f" und {len(fehlt) - 8} weitere" if len(fehlt) > 8 else ""
+    )
+    jetzt = _stand_von(verbindung)
+    vermerk = vermerk or jetzt
+    stand = f" (laut Schema {abgeleitet})" if abgeleitet else ""
+    nach = f", nach den Migrationen jetzt {jetzt}" if jetzt != vermerk else ""
+    hand = (
+        f"; von Hand: 'alembic stamp --purge {abgeleitet}' (der Stand, den das Schema "
+        "zeigt) und noch einmal 'accounti db upgrade'"
+        if abgeleitet
+        else ""
+    )
+    return (
+        f"Das Schema passt nicht zum Versionsvermerk {vermerk}{stand}{nach}: es "
+        f"fehlen {liste}. Meist eine Datenbank vom Vorabstand von 10b-1 oder von "
+        "einem Zweig mit anderer Reihenfolge der Migrationen. Verlustfrei: Sicherung "
+        "erstellen (accounti sicherung erstellen), dann 'accounti db upgrade "
+        "--aus-schema' — der Stand kommt aus dem Schema, die fehlenden Migrationen "
+        f"laufen nach{hand} (docs/betrieb.md, Upgrades)."
+        + ("" if geaendert else " Nichts geändert.")
+    )
+
+
+def _koepfe(verbindung: Connection) -> tuple[str, ...]:
+    """Alle Zeilen des Versionsvermerks (mehr als eine nach ``alembic upgrade heads``
+    mit zwei Köpfen)."""
+    from alembic.runtime.migration import MigrationContext
+
+    return tuple(MigrationContext.configure(verbindung).get_current_heads())
+
+
+def _stand_von(verbindung: Connection) -> str | None:
+    from alembic.runtime.migration import MigrationContext
+
+    return MigrationContext.configure(verbindung).get_current_revision()
+
+
 def _stand(engine: Engine) -> str | None:
     from alembic.runtime.migration import MigrationContext
 
@@ -203,16 +286,17 @@ def _stand_nach_fehler(engine: Engine) -> str:
         return "unbekannt (keine Verbindung)"
 
 
-def aktualisiere(db: str, ini: Path) -> Ergebnis:
+def aktualisiere(db: str, ini: Path, *, aus_schema: bool = False) -> Ergebnis:
     """Stand ermitteln (ohne Vermerk: aus dem Schema, dann gestempelt) und
     ``upgrade head``. Fehler der Datenbank werden zum ``UpgradeError`` mit dem
-    erreichten Stand (Nachprüfung N4: sonst ein Traceback)."""
+    erreichten Stand (Nachprüfung N4: sonst ein Traceback). Fehlen danach Tabellen
+    oder Spalten des Codes, ebenfalls ``UpgradeError`` mit dem verlustfreien Weg
+    (``aus_schema``: den Stand auch bei vorhandenem Vermerk aus dem Schema
+    ableiten)."""
     _pruefe_datei(db)
     engine = create_engine(db)
     try:
-        ergebnis = _aktualisiere(engine, ini)
-        _pruefe_spalten(engine, ini, ergebnis)
-        return ergebnis
+        return _aktualisiere(engine, ini, aus_schema)
     except SQLAlchemyError as fehler:
         ursache = getattr(fehler, "orig", None) or fehler
         grund = (str(ursache).strip().splitlines() or [type(ursache).__name__])[0]
@@ -228,70 +312,64 @@ def aktualisiere(db: str, ini: Path) -> Ergebnis:
         engine.dispose()
 
 
-def _aktualisiere(engine: Engine, ini: Path) -> Ergebnis:
-    from alembic import command
-    from alembic.runtime.migration import MigrationContext
-
-    with engine.connect() as v:
-        vorher = MigrationContext.configure(v).get_current_revision()
-        abgeleitet = vorher is None and bool(_struktur(_merkmale(v)))
-        if abgeleitet:
-            vorher = leite_stand_ab(v, ini)
+def _aktualisiere(engine: Engine, ini: Path, aus_schema: bool = False) -> Ergebnis:
     alle = _revisionen(ini)
-    offen = alle[alle.index(vorher) + 1 :] if vorher in alle else alle
+    vermerk: str | None = None
+    with engine.connect() as v:
+        koepfe = _koepfe(v)
+        if len(koepfe) > 1 and not aus_schema:
+            msg = (
+                f"Der Versionsvermerk nennt mehrere Stände ({', '.join(koepfe)}) — "
+                "meist ein 'alembic upgrade heads' mit zwei Köpfen. Verlustfrei: "
+                "Sicherung erstellen, dann 'accounti db upgrade --aus-schema' (der "
+                "Stand kommt aus dem Schema). Nichts geändert."
+            )
+            raise UpgradeError(msg)
+        vorher = koepfe[0] if len(koepfe) == 1 else None
+        abgeleitet = vorher is None and bool(_struktur(_merkmale(v)))
+        if len(koepfe) > 1:
+            # zwei Zeilen im Vermerk (Zweikopf-Zustand): der Stand nur aus dem Schema
+            vermerk, abgeleitet = ", ".join(koepfe), True
+            vorher = leite_stand_ab(v, ini)
+        elif abgeleitet:
+            vorher = leite_stand_ab(v, ini)
+        elif aus_schema and vorher in alle and _struktur(_merkmale(v)):
+            # nur zurück: ein jüngerer Stand laut Schema (init_db des neuen Codes vor
+            # der Migration) bliebe beim Vermerk — dessen Migrationen holen nach
+            schema = leite_stand_ab(v, ini)
+            if schema is not None and alle.index(schema) < alle.index(vorher):
+                vermerk, vorher, abgeleitet = vorher, schema, True
     if vorher is not None and vorher not in alle:
         msg = f"Unbekannter Stand {vorher} — passt die alembic.ini zum Code?"
         raise UpgradeError(msg)
+    return _lauf(engine, ini, alle, vorher, abgeleitet, vermerk)
+
+
+def _lauf(
+    engine: Engine,
+    ini: Path,
+    alle: list[str],
+    vorher: str | None,
+    abgeleitet: bool,
+    vermerk: str | None,
+) -> Ergebnis:
+    """Stempeln (abgeleitet; ``vermerk``: der alte Vermerk, ``--purge``), ``upgrade
+    head`` und die Schemaprüfung davor (nichts offen) und danach."""
+    from alembic import command
+
+    offen = alle[alle.index(vorher) + 1 :] if vorher in alle else alle
+    if vermerk is None:
+        with engine.connect() as v:
+            if not abgeleitet and not offen and (fehlt := fehlendes_schema(v)):
+                # nichts zu migrieren, aber Tabellen fehlen: vor jeder Änderung
+                raise UpgradeError(_schema_passt_nicht(v, ini, fehlt, False))
     with engine.begin() as v:
         if abgeleitet and vorher is not None:
-            command.stamp(_konfig(ini, v), vorher)
+            command.stamp(_konfig(ini, v), vorher, purge=vermerk is not None)
         command.upgrade(_konfig(ini, v), "head")
-    return Ergebnis(vorher, abgeleitet, _stand(engine), offen)
-
-
-def _fehlt(verbindung: Connection) -> tuple[list[str], list[str]]:
-    """(Spalten des Codes, die vorhandenen Tabellen fehlen; fehlende Tabellen) —
-    gemessen an ``Base.metadata``."""
-    from accounti.db import Base, registriere_tabellen
-
-    registriere_tabellen()
-    vorhanden = _merkmale(verbindung)
-    spalten, tabellen = [], []
-    for tabelle in Base.metadata.sorted_tables:
-        if ("tabelle", tabelle.name) not in vorhanden:
-            tabellen.append(tabelle.name)
-            continue
-        spalten += [
-            f"{tabelle.name}.{spalte.name}"
-            for spalte in tabelle.columns
-            if ("spalte", tabelle.name, spalte.name) not in vorhanden
-        ]
-    return spalten, tabellen
-
-
-def _pruefe_spalten(engine: Engine, ini: Path, ergebnis: Ergebnis) -> None:
-    """Vermerk und Schema passen zusammen — sonst ``UpgradeError`` mit dem Weg.
-    Fehlende Tabellen allein zählen nicht (``init_db`` legt sie an)."""
     with engine.connect() as v:
-        spalten, tabellen = _fehlt(v)
-        if not spalten:
-            return
-        stand = leite_stand_ab(v, ini)
-    liste = ", ".join(spalten[:8])
-    if len(spalten) > 8:
-        liste += f" und {len(spalten) - 8} weitere"
-    if tabellen:
-        liste += f" (Tabellen: {', '.join(tabellen[:8])})"
-    msg = (
-        f"Stand {ergebnis.nachher} laut Versionsvermerk, aber es fehlen Spalten: "
-        f"{liste} — der Vermerk passt nicht zum Schema (z. B. auf einem Zweig mit "
-        "anderer Reihenfolge der Migrationen migriert)."
-    )
-    if stand is not None and stand != ergebnis.nachher:
-        msg += (
-            f" Verlustfrei: Sicherung erstellen, dann 'alembic stamp --purge {stand}' "
-            "(der Stand, den das Schema zeigt) und noch einmal 'accounti db upgrade' — "
-            "Migrationen, deren Spalten es schon gibt, übernehmen sie "
-            "(docs/betrieb.md, Upgrades)"
-        )
-    raise UpgradeError(msg)
+        if fehlt := fehlendes_schema(v):
+            raise UpgradeError(
+                _schema_passt_nicht(v, ini, fehlt, bool(offen), vermerk or vorher)
+            )
+    return Ergebnis(vorher, abgeleitet, _stand(engine), offen, vermerk)

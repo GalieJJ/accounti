@@ -2,18 +2,46 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import date
+from typing import Any
 
 import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    fachprobe,
+    handelnde_person,
+)
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
 from accounti.db.tabellen_abschluss import JahrGesperrtError
 
 NAME = "kasse"
 befehl = typer.Typer(help="Kassenbuch: laufende Nummer, Bestand nie negativ, Storno.")
+
+
+def _fehler() -> tuple[type[Exception], ...]:
+    """Fachfehler des Kassenbuchs — dazu eine fehlende oder kaputte Kontenrahmen-Datei
+    der Prüfregeln (``pruefung.kontenrahmen_datei``, Gegenkonto mit ``--konto``): eine
+    Meldung mit Exit 1 statt Traceback (Runde 5, g4w N3)."""
+    from accounti.abschluss.kassenbuch import KassenbuchError
+    from accounti.konfiguration import KonfigurationError
+
+    return (KassenbuchError, JahrGesperrtError, KonfigurationError)
+
+
+def _probe(db: str, aktion: Callable[[Any], object]) -> Callable[[], None]:
+    """Fachprobe vor dem Einmalcode: ein Fachfehler des Kassenbuchs verbraucht ihn
+    nicht (wie ``buchung storniere``, gw-storno N3)."""
+    return fachprobe(sitzung(db), aktion, _fehler(), _melde)
+
+
+def _melde(fehler: Exception) -> None:
+    ende(str(fehler))
 
 
 def _kasse(config: str):  # type: ignore[no-untyped-def]
@@ -35,21 +63,23 @@ def anfangsbestand_befehl(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Ersten Bestand eines leeren Kassenbuchs erfassen (ohne Buchung)."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, anfangsbestand
+    from accounti.abschluss.kassenbuch import anfangsbestand
     from accounti.anzeige import betrag_de
     from accounti.models.auth import Recht
 
     kasse = _kasse(config)
     wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
     # mit Benutzern: buchen (buchhalter) und Einmalcode — das Kassenbuch ist eine
-    # Grundaufzeichnung, erfasst hat der Benutzer, nicht ein Freitext
+    # Grundaufzeichnung, erfasst hat der Benutzer, nicht ein Freitext. Erst die
+    # Fachprobe, dann der Code (gw-storno N3)
+    probe = _probe(db, lambda s: anfangsbestand(s, wert, tag, kasse, von))
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
             v = anfangsbestand(s, wert, tag, kasse, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+        except _fehler() as fehler:
             ende(str(fehler))
         s.commit()
     console.print(
@@ -83,24 +113,38 @@ def buchen(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Bargeschäft erfassen — abgelehnt, wenn die Kasse ins Minus fiele."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, bestand, buche_kasse
+    from accounti.abschluss.kassenbuch import bestand, buche_kasse
     from accounti.anzeige import betrag_de
     from accounti.db.repo_kasse import lade_kassenbuch
+    from accounti.konfiguration import lade_buchhaltung
     from accounti.models.auth import Recht
+    from accounti.pruefung.einstellungen import lade_pruefung
 
     kasse = _kasse(config)
+    # Kontenrahmen und Prüfregeln der Gesellschaft: das Gegenkonto wird wie bei der
+    # Korrektur geprüft (Runde 4, g3w-web N6)
+    buchhaltung, pruefung = lade(lade_buchhaltung, config), lade(lade_pruefung, config)
     satz = betrag(steuer, "--steuer") if steuer else None
     wert, tag = betrag(betrag_text), datum(datum_text, "--datum")
+
+    def ausfuehren(s: Any, wer: str | None) -> Any:
+        return buche_kasse(
+            s, wert, text, kasse, tag, beleg, konto, satz, wer,
+            buchhaltung=buchhaltung, pruefung=pruefung,
+        )  # fmt: skip
+
     # mit Benutzern: buchen (buchhalter) und Einmalcode. Mit --konto entsteht sofort
     # eine freigegebene Buchung (geprueft_von = Benutzer) — buchen schließt laut
-    # Rollenmatrix das Freigeben ein
+    # Rollenmatrix das Freigeben ein. Erst die Fachprobe (Bestand, Gegenkonto,
+    # Steuersatz, Jahr oder Monat gesperrt), dann der Code
+    probe = _probe(db, lambda s: ausfuehren(s, von))
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
-            v = buche_kasse(s, wert, text, kasse, tag, beleg, konto, satz, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+            v = ausfuehren(s, person)
+        except _fehler() as fehler:
             ende(str(fehler))
         stand = bestand(lade_kassenbuch(s))
         s.commit()
@@ -129,21 +173,22 @@ def storno(
     config: str = KONFIG_OPTION,
 ) -> None:
     """Kassenvorgang stornieren (Gegeneintrag; das Original bleibt stehen)."""
-    from accounti.abschluss.kassenbuch import KassenbuchError, storniere
+    from accounti.abschluss.kassenbuch import storniere
     from accounti.anzeige import betrag_de
     from accounti.models.auth import Recht
 
     kasse = _kasse(config)
     tag = datum(datum_text, "--datum") if datum_text else None
     # mit Benutzern: buchen (buchhalter) und Einmalcode; die Umkehrbuchung einer
-    # freigegebenen Buchung ist ein Storno (Baustein 7)
+    # freigegebenen Buchung ist ein Storno (Baustein 7). Erst die Fachprobe
+    probe = _probe(db, lambda s: storniere(s, nr, grund, kasse, tag, von))
     with (
-        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        handelnde_person(db, config, Recht.BUCHEN, von, vorab=probe) as person,
         sitzung(db)() as s,
     ):
         try:
             v = storniere(s, nr, grund, kasse, tag, person)
-        except (KassenbuchError, JahrGesperrtError) as fehler:
+        except _fehler() as fehler:
             ende(str(fehler))
         s.commit()
     console.print(

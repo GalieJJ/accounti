@@ -319,3 +319,26 @@ def test_wieder_geoeffneter_monat_laeuft_nicht_ab(tmp_path):
         zeilen = {z.bezeichnung: z for z in bericht(s, date(2030, 1, 1))}
     engine.dispose()
     assert zeilen["Buchungen"].aussonderbar == 1  # 2016 ja, 2015 (März offen) nicht
+
+
+def test_kontierungstabellen_im_bericht(tmp_path):
+    """Baustein 10b: Kontierungsgründe und gelernte Regeln sind Teil der Bücher bzw.
+    des Verfahrens (10 Jahre)."""
+    from accounti.db.repo_kontierung import speichere_kontierungsgrund
+    from accounti.db.repository import lade_buchungen
+    from accounti.klassifikation.lernen import lerne_regex
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'a.db'}")
+    init_db(engine)
+    with fabrik() as s:
+        _buchungen(s, date(2026, 6, 1))
+        (b,) = lade_buchungen(s)
+        speichere_kontierungsgrund(s, b.id, quelle="llm", begruendung="Strom")
+        lerne_regex(s, "telekom", "telekom", "4920", "1200", 9, "jan")
+        s.commit()
+        zeilen = {z.bezeichnung: z for z in bericht(s, date(2026, 10, 20))}
+    engine.dispose()
+    for name in ("Kontierungsgründe", "Gelernte Kontierungsregeln"):
+        assert zeilen[name].frist.unterlage is Unterlage.BUCH, name
+        assert zeilen[name].frist.jahre == 10, name
+        assert zeilen[name].gesamt == 1, name

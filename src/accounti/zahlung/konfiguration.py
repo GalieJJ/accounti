@@ -11,10 +11,9 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 from accounti.zahlung.iban import gueltig, normalisiere
 
 _BIC = re.compile(r"[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?")
@@ -92,7 +91,7 @@ def lade_zahlung(pfad: str | Path = STANDARD_PFAD) -> ZahlungEinstellungen:
     pfad = Path(pfad)
     daten: Any = {}
     if pfad.is_file():
-        daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+        daten = lies_yaml(pfad)
     if not isinstance(daten, dict):
         daten = {}
     abschnitt = daten.get("zahlung")

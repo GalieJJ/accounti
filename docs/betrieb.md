@@ -130,8 +130,9 @@ gesellschaften:
   `--config` **aller** Befehle. Ohne Option gilt `standard`; gibt es keinen und mehrere
   Gesellschaften, bricht ein Datenbefehl ab (die Hilfe, z. B. `accounti abschluss --help`,
   kommt ohne). `accounti gesellschaft liste|zeigen`.
-  `classify`, `bank lauf`, `opos verbuchen`, `lerne` und `korrigiere --lernen` nutzen die
-  Regeldatei der Gesellschaft (ohne Registry wie bisher `config/regeln.yaml`).
+  `classify`, `bank lauf` und `opos verbuchen` nutzen die Regeldatei der Gesellschaft (ohne
+  Registry wie bisher `config/regeln.yaml`) und davor deren gelernte Regeln; `lerne` und
+  `korrigiere --lernen` speichern in die Datenbank der Gesellschaft, nicht in die Datei.
 - Browser: Rollen gelten je Gesellschaft (`accounti -g tochter benutzer rolle eva --rolle
   buchhalter`); der Wechsler oben rechts schaltet alle Seiten um. Wer in einer Gesellschaft
   keine Rolle hat, sieht sie nicht.
@@ -266,17 +267,31 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   `/anmelden`).
 - **Sitzungen:** Cookie `__Host-accounti_sitzung` (Secure, HttpOnly, SameSite=Strict),
   30 Minuten Leerlauf, höchstens 8 Stunden; Abmelden, Passwortwechsel, `benutzer sperren`,
-  Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Jede Freigabe im
-  Browser verlangt zusätzlich einen frischen Einmalcode und gilt nur für den angezeigten
-  Inhalt (Empfänger, IBAN, Betrag, Verwendungszweck; hat sich der Entwurf seitdem
-  geändert, 409).
+  Rollenänderung und ein neuer zweiter Faktor beenden sie serverseitig. Freigaben mit
+  Außenwirkung und endgültige Korrekturen verlangen im Browser zusätzlich einen frischen
+  Einmalcode: Zahlungsläufe und USt-VA (gelten nur für den angezeigten Inhalt — Empfänger,
+  IBAN, Betrag, Verwendungszweck; hat sich der Entwurf seitdem geändert, 409) sowie Storno
+  und Korrektur freigegebener Buchungen (`/buchungen/…`). Vorschläge in der
+  Supervisions-Queue (`/pruefen`) entscheidet die angemeldete Sitzung ohne weiteren Code —
+  sie ist mit Passwort und zweitem Faktor entstanden und läuft nach 30 Minuten Leerlauf ab;
+  in der CLI verlangen dieselben Befehle den Einmalcode, weil sie keine Sitzung hat.
 - **CLI:** Ohne eingerichtete Benutzer prüft accounti nichts. Mit Benutzern verlangen
   `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist --freigeben` (Rolle
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
   (Buchungsfreigabe) den Einmalcode der handelnden Person (`--von` bzw.
   `ACCOUNTI_BENUTZER`, mit Vier-Augen der Anmeldename); ebenso `zahlung entfernen`,
   `sperre`, `iban-klaeren`, `abgleichen`, `sepa` und `stornieren` sowie die Befehle aus
-  Baustein 7 (siehe oben). Der Einmalcode lässt sich in
+  Baustein 7 (siehe oben). `buchung storniere`, `korrigiere`, `lerne`, `bestaetige`,
+  `regeln deaktivieren`, `regeln uebernehmen`, `kasse anfangsbestand/buchen/storno`,
+  `periode schliessen/oeffnen`, `ustva freigeben`, `zahlung freigeben` und `belege
+  freigeben` führen die Aktion nach der Rechteprüfung zuerst zur Probe aus (zurückgerollt)
+  und bestätigen den Code erst danach — ein fachlicher Fehler (Storno-Datum vor der Buchung,
+  Soll = Haben, ungültiges Muster, Prüfregel, unbekannte Regel, kaputte Regeldatei, Kasse im
+  Minus, Monat schon festgeschrieben, Zeitraum unverständlich, USt-VA gesperrt, unbekannter
+  Zahlungslauf oder Beleg) verbraucht ihn nicht, wie im Browser (dort auch bei der Freigabe
+  von Zahlungslauf und USt-VA); ein `regeln uebernehmen`, das nichts übernähme, endet vor dem
+  Code. Die übrigen Befehle prüfen nach dem Code (siehe Grenzen im Plan).
+  Der Einmalcode lässt sich in
   der CLI nicht abschalten: `auth`-Werte aus `--config`/`ACCOUNTI_KONFIG` wirken dort
   höchstens strenger als der Standard (`einmalcode_bestaetigung: false` gilt nur im
   Browser), Sperrwerte gar nicht.
@@ -410,6 +425,13 @@ server { listen 80; server_name accounti.example.de; return 301 https://$host$re
 Die Anwendung muss unter `/` liegen (das Cookie-Präfix `__Host-` verlangt `Path=/`). Die
 Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in den Proxy
 (z. B. `limit_req` für `/anmelden`).
+
+Zusätzlich die Länge der Anfragezeile im Proxy begrenzen: accounti braucht nur kurze Pfade,
+uvicorn (h11) nimmt bis rund 16 KB an. accounti kürzt lange Pfade im Zugriffsprotokoll selbst
+(höchstens 200 Zeichen) und schwärzt in linearer Zeit — bis Runde 8 hielt ein
+unangemeldetes `GET /statisch/<15 000 Zeichen>` den Server mehrere Sekunden an. Bei nginx
+z. B. `large_client_header_buffers 4 4k;` im `server`-Block (längere Anfragezeilen enden mit
+414; Standard 8k), bei Caddy die globale Option `servers { max_header_size 16KB }`.
 
 ## Sicherung und Wiederherstellung
 
@@ -570,10 +592,31 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   keinen Traceback, keine Meldung; Datenbank-Engines verbergen die SQL-Parameter
   (`hide_parameters`), Belegtexte und Namen erscheinen auch in Fehlermeldungen nicht.
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
-  Passwörter in URLs und Parameter wie `passwort=`, `token=`, `code=` — auch in Stacktraces.
+  verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
+  vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
+  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Eine Zeile über 4000
+  Zeichen kürzt er vorher auf Anfang und Ende (je höchstens 1500 Zeichen, ein Geheimnis an
+  der Schnittstelle fällt ganz weg). Fehlermeldungen nennen eine Webhook-Adresse nur mit
+  Schema, Rechner und Port; ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
+  Zugangsdaten stehen vor dem ersten `/`, `?` oder `#` und enden am letzten `@` dort — ein
+  `@` in Abfrage oder Fragment ist keine Zugangsangabe. Ein unkodiertes `#`, `?` oder `/` im
+  Passwort erkennt accounti, wenn das `@` im Abschnitt dahinter steht (bis zum nächsten
+  `/`; „https://alarm:4711#Sonne@rechner/…“, „https://alarm:4711/Sonne@rechner/…“). Nicht
+  erkennbar ist ein Passwort mit Ziffern vorn und zwei unkodierten `/`
+  („https://alarm:4711/a/b@rechner/…“ — Meldung und Schwärzung nennen „alarm:4711“ als
+  Rechner und Port), und mit Port und einem `@` in der Abfrage
+  („https://rechner:8443?an=jan@firma.example“) nennt die Meldung im Zweifel den Teil nach
+  dem `@`. Deshalb Sonderzeichen im Passwort einer Adresse prozentkodieren (`#` → `%23`, `?`
+  → `%3F`, `/` → `%2F`, `@` → `%40`): Sonst fragt die Bibliothek ohnehin einen anderen
+  Rechner an, als die Meldung nennt.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
-  geplante Lauf protokolliert nur Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle
-  geschwärzt auf Stufe DEBUG).
+  geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
+  Zeilenumbruch erzeugt, ohne Rahmenzeichen, geschwärzt und je Zeile höchstens 1000 Zeichen
+  auf Stufe DEBUG; ein Traceback kommt von Python, nicht als Rich-Rahmen in Terminalbreite);
+  schlägt ein Schritt fehl, steht in der Warnung auch der Grund
+  — die letzten Zeilen seiner Ausgabe, geschwärzt, höchstens 600 Zeichen (z. B. „bank lauf →
+  1 (5 s): config/regeln.yaml: Regel telekom: unbekannter Schlüssel kommentar …“). Diese
+  Meldung kann einen Namen enthalten, etwa den einer Regel oder Gegenpartei.
 - `ACCOUNTI_PROTOKOLL_FORMAT=json` für einen Log-Sammler; in Docker landet alles in
   `docker compose logs`.
 
@@ -625,6 +668,32 @@ bleibt gleichwertig für Datenbanken **mit** Versionsvermerk.
   `sicherung wiederherstellen` legt das Schema nach dem laufenden Code an und vermerkt
   dessen Stand — die Daten passen hinein, alte Spalten bleiben leer.
 
+**Vermerk passt nicht zum Schema** (eine Prüfung für alle Fälle): `db upgrade` vergleicht
+das Schema mit den Tabellen und Spalten des Codes — vor dem Upgrade, wenn nichts offen ist,
+und danach. Fehlt etwas, trägt die Datenbank einen Vermerk, dessen Migrationen sie nicht
+alle hat: meist ein Entwicklungszweig mit anderer Reihenfolge der Migrationen (Vorabstand von
+Baustein 10b: Vermerk `e7153706b43a` ohne die Migrationen von main; Zweig von Paket C:
+`46371a6681c2` direkt hinter `ddc9a184ddb4`; 10b-1 vor dem zweiten Zusammenführen:
+`e7153706b43a` ohne `belege.steuerkennzeichen`). Dann bricht `db upgrade` mit einer Meldung
+ab: die fehlenden Tabellen und Spalten, der Stand, den das Schema zeigt, und zwei
+verlustfreie Wege — die Daten seit dem Update bleiben, die Migrationen übernehmen Vorhandenes:
+
+```bash
+docker compose run --rm app -g muster sicherung erstellen --ziel /sicherungen/   # vorher sichern
+docker compose run --rm app -g muster db upgrade --aus-schema   # Stand aus dem Schema, Migrationen nach
+# oder von Hand, mit dem Stand aus der Meldung (hier der Zweig von Paket C):
+docker compose run --rm --entrypoint alembic app -c /app/alembic.ini stamp --purge ddc9a184ddb4
+docker compose run --rm app -g muster db upgrade
+```
+
+`--aus-schema` leitet den Stand auch bei vorhandenem Vermerk aus dem Schema ab, stempelt ihn,
+wenn er älter ist (`alembic stamp --purge`), und migriert bis zum Kopf; auch ein Vermerk mit
+zwei Zeilen (nach `alembic upgrade heads` mit zwei Köpfen) geht nur so. Im Quellbaum
+entsprechend `alembic stamp --purge …` mit einer ini-Kopie auf diese Datenbank und `accounti
+db upgrade --db …`; oder `sicherung erstellen` aus der alten Datenbank und `sicherung
+wiederherstellen` in eine leere (das Schema legt der laufende Code an). Fehlende Indizes oder
+Trigger erkennt die Prüfung nicht; `--aus-schema` stempelt nur zurück, nie vor.
+
 **Update Gesamttest Belege** (Migration `46371a6681c2` nach `a14acef69fae`: Spalte
 `belege.steuerkennzeichen`, der Steuerfall einer Rechnung ohne Steuerausweis): ohne die
 Migration scheitern Befehle an der neuen Spalte — die Datenbank wie oben mit `accounti db
@@ -632,29 +701,16 @@ upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Ohne
 Versionsvermerk erkennt `db upgrade` den Stand `a14acef69fae` an der fehlenden Spalte
 (`init_db` ergänzt keine Spalten an vorhandenen Tabellen).
 Eine Datenbank, die schon auf dem Entwicklungszweig von Paket C mit `alembic upgrade
-head` migriert wurde, trägt den Vermerk `46371a6681c2`, ihr fehlen aber die
-Migrationen von main dazwischen (`6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`: Tabelle
-`verrechnungen`, `ausgangsrechnungen.rechnungstyp`/`korrektur_zu`,
-`ausgangspositionen.elektronisch`, `anlagegueter.buchung_id`) — dort hing `46371a6681c2`
-noch an `ddc9a184ddb4`. `db upgrade` erkennt das (einer vorhandenen Tabelle fehlen
-Spalten des Codes), bricht ab und nennt den verlustfreien Weg:
-
-```bash
-docker compose run --rm app sicherung erstellen --ziel /arbeit/daten/sicherungen/
-docker compose run --rm --entrypoint alembic app -c /app/alembic.ini stamp --purge ddc9a184ddb4
-docker compose run --rm app db upgrade      # holt die vier Migrationen nach
-```
-
-Die Migration `46371a6681c2` übernimmt die schon vorhandene Spalte
-`belege.steuerkennzeichen` samt Inhalt. Im Quellbaum entsprechend `alembic stamp --purge
-ddc9a184ddb4` (Datenbank aus `ACCOUNTI_DB` bzw. `sqlalchemy.url`) und `accounti db
-upgrade --db …`. Allgemein nennt die Meldung den Stand, den das Schema zeigt; fehlende
-Tabellen allein lösen sie nicht aus (`init_db` legt Tabellen ohne Migration selbst an).
+head` migriert wurde (Vermerk `46371a6681c2`, dort an `ddc9a184ddb4`), fehlen die
+Migrationen von main dazwischen (`6d38d11fc348`, `2f7c7043043e`, `a14acef69fae`) — siehe
+„Vermerk passt nicht zum Schema“ oben (Stand laut Schema `ddc9a184ddb4`); die Migration
+`46371a6681c2` übernimmt die schon vorhandene Spalte samt Inhalt.
 
 **Update Gesamttest Debitoren** (Migration `a14acef69fae` nach `2f7c7043043e`: Tabelle
 `verrechnungen` mit SQLite-Triggern, Spalten `ausgangsrechnungen.rechnungstyp`/
 `korrektur_zu`, `ausgangspositionen.elektronisch`): ohne die Migration scheitern Befehle
-an den neuen Spalten (Datenbankfehler statt Meldung) — also die Datenbank wie oben mit
+an den neuen Spalten (die CLI meldet den Datenbankfehler mit dem Hinweis auf `accounti db
+upgrade`, wie für jede fehlende Tabelle oder Spalte) — also die Datenbank wie oben mit
 `accounti db upgrade` migrieren, bevor das neue Abbild den ersten Befehl ausführt. Hat
 ein Befehl des neuen Abbilds die Tabelle `verrechnungen` schon angelegt (`init_db`),
 übernimmt die Migration sie; ohne Versionsvermerk erkennt `db upgrade` den Stand
@@ -681,3 +737,86 @@ eingerichteten Benutzern braucht `journal uebernehmen` die Rolle `verwalter` und
 Einmalcode (z. B. `-e ACCOUNTI_BENUTZER=chef -e ACCOUNTI_EINMALCODE=…`). Hat ein Befehl
 des neuen Abbilds die neuen Tabellen vor der Migration schon angelegt (`init_db`),
 übernimmt die Migration sie und ergänzt nur, was fehlt.
+
+**Update auf Baustein 10b** (Migrationen `d5a849692843` und `e7153706b43a` nach
+`46371a6681c2`: `kontierungsgruende`, `kontierungsregeln` samt `rang`,
+`auth_benutzer.sprache`):
+`accounti db upgrade` migriert — bei mehreren Gesellschaften **jede** Datenbank einzeln, die
+Systemdatenbank zuerst (ohne `auth_benutzer.sprache` startet `serve` nicht: Exit 2 mit dem
+Hinweis auf `accounti db upgrade`). Ohne Versionsvermerk erkennt `db upgrade` den Stand vor
+jeder der beiden Migrationen (`46371a6681c2` an den fehlenden Tabellen der Kontierung,
+`d5a849692843` an der fehlenden Spalte `sprache`; hat ein Befehl des neuen Abbilds die
+Tabellen schon angelegt, zeigt die fehlende Spalte `belege.steuerkennzeichen` den Stand
+`a14acef69fae`, und alle drei Migrationen übernehmen das Vorhandene). Die URLs stehen in `.env` und werden auf dem Host
+eingesetzt — deshalb zuerst die `.env` in die Shell laden:
+
+```bash
+set -a; . ./.env; set +a
+docker compose run --rm app -g muster db upgrade --db "$ACCOUNTI_SYSTEM_DB"   # Systemdatenbank
+docker compose run --rm app -g muster db upgrade
+docker compose run --rm app -g tochter db upgrade
+docker compose run --rm app -g muster regeln uebernehmen --probe   # alte gelernt_*-Regeln ansehen, dann ohne --probe
+```
+
+Gleichwertig für Datenbanken **mit** Versionsvermerk: `docker compose run --rm -e
+ACCOUNTI_DB="$ACCOUNTI_SYSTEM_DB" --entrypoint alembic app -c /app/alembic.ini upgrade head`
+(je Datenbank). Eine Datenbank, die schon mit einem **Vorabstand von Baustein 10b** migriert
+wurde (die beiden Migrationen hingen dort an `ddc9a184ddb4` bzw. `a14acef69fae`), steht auf
+dem Kopf `e7153706b43a`, ohne Migrationen von main (`verrechnungen`,
+`anlagegueter.buchung_id`, `belege.steuerkennzeichen` …) oder ohne `kontierungsregeln.rang`
+— `db upgrade` bricht ab, `db upgrade --aus-schema` holt sie nach (siehe „Vermerk passt
+nicht zum Schema“ oben).
+
+Früher gelernte Regeln (`gelernt_*` am Ende der Regeldatei) übernimmt `regeln uebernehmen` in die
+Datenbank, mit der Richtung ihrer Bankseite (mit eingerichteten Benutzern mit den Rechten
+`buchen` und `regeln_lernen` — Rolle `buchhalter` — und Einmalcode, z. B.
+`-e ACCOUNTI_BENUTZER=eva -e ACCOUNTI_EINMALCODE=…`); Einträge ohne erkennbare Bankseite meldet
+der Befehl, sie gelten für Ein- und Ausgänge. Übernommene Regeln stehen hinter den schon in der
+Datenbank gelernten (eine Korrektur seit dem Update behält Vorrang), untereinander in der
+Reihenfolge der Datei — auch wenn ein zweiter Lauf (`--name`) weitere übernimmt. Die Einträge
+prüft derselbe Lader wie für die Regeldatei (Kontonummern, Muster, Steuerschlüssel; ungültige
+nennt die Ausgabe mit Grund); eine Datei, die kein YAML, nicht UTF-8 oder keine Liste ist,
+meldet der Befehl vor dem Einmalcode. „Schon vorhanden (übersprungen)“ heißt: dieselbe Regel
+(Muster, Konten, Schlüssel, Feld, Buchungstext; die Richtung, wenn der Eintrag sie nennt) steht
+schon in der Datenbank bzw. früher in derselben Datei. Trägt eine Regel der Datenbank den Namen mit anderem
+Inhalt, ist der Eintrag ungültig („Regelname … ist schon vergeben … anderem Inhalt“) — in der
+Datei umbenennen, nicht löschen, sonst geht die Änderung verloren. **Andere Einträge bleiben in der Regeldatei** und greifen
+dort wie bisher, nach den gelernten — die Ausgabe nennt sie: Regeln, die auf main mit `accounti lerne
+--name X` gelernt wurden (ohne Präfix `gelernt_`; mit `regeln uebernehmen --name X`
+übernehmen), Einträge mit `pruefen: true` oder `confidence` unter 1 (eine gelernte Regel hat
+kein eigenes Prüfkennzeichen — übernommen buchte sie automatisch; dauerhaft prüfen lässt
+sich nur über `buchhaltung.gelernte_regeln: pruefen` für alle) und Umbuchungen zwischen
+Geldkonten. Danach — erst nach allen Läufen, auch denen mit `--name` — die übernommenen
+Einträge von Hand aus der Datei löschen: Jeder Lauf ordnet nach der Stelle in der Datei zur
+Zeit des Laufs; wer vorher löscht und dann `--name` verwendet, rückt dessen Eintrag womöglich
+vor früher übernommene Regeln (`regeln liste` zeigt den Vorrang; bei Bedarf deaktivieren und
+neu lernen). Ein Lauf, der nichts übernähme (keine Datei, nur ungültige Einträge, nur
+unbekannte Namen), verbraucht keinen Einmalcode. Hat ein Befehl des neuen Abbilds die neuen
+Tabellen vor der Migration schon angelegt, übernimmt die Migration sie.
+
+**Verhaltensänderung: Die Regeldatei wird streng geprüft** (10b-1). Jeder Eintrag der
+Regeldatei (`config/regeln.yaml` bzw. die der Gesellschaft) muss gültig sein — sonst hält
+die **ganze Datei** an: `classify`, `bank lauf` (samt Bankabruf), `opos verbuchen` und der
+REST-Lauf (409) brechen mit einer Meldung ab (Datei, Regel, Schlüssel), bis der Eintrag
+berichtigt ist. Ein Fehler ist ein Feld, das der Lader nicht kennt (auch ein Zusatzfeld wie
+`kommentar:` oder `aktiv:`, ein Tippfehler wie `prüfen:` — es wirkte bisher still nicht),
+ein Steuerschlüssel, den accounti nicht kennt (0, 4, 40, 99 …; bekannt sind 1, 2, 3, 8, 9,
+18, 19, 91, 94), eine Kontonummer außerhalb von 4–9 ASCII-Ziffern und YAML-Zahlformen wie
+`0x1340`, `1:20:00` oder `4_920`. Gebucht wird dadurch nichts falsch; der erste Lauf nach
+der Korrektur holt alles nach. Eigene Bestandsdateien haben den neuen Kopfkommentar der
+mitgelieferten `config/regeln.yaml` nicht — vor dem Update auf Zusatzfelder durchsehen
+(Kommentare gehören hinter `#`). Im geplanten Lauf steht die Meldung im Protokoll
+(`docker compose logs lauf`).
+
+**Verhaltensänderung: Kontenlängen werden geprüft** (10b-1). `mandant.sachkonten_laenge`
+muss eine ganze Zahl von 4 bis 8 sein (DATEV) — sonst brechen `export datev`, `datev belege`
+und `datev stammdaten` mit einer Meldung ab. `4.0` gilt als 4; `4.5`, `9`, `true` oder `"abc"`
+nicht. Die Personenkontenbereiche (`buchhaltung.debitoren_von`/`_bis`,
+`kreditoren_von`/`_bis`) haben höchstens 9 Stellen: Eine **Untergrenze** mit mehr Stellen ist
+ein Fehler, jeder Befehl, der die Buchhaltung lädt, hält an (`classify`, `bank lauf`,
+`pruefen`, `export datev` …). Eine **Obergrenze** darüber (etwa `kreditoren_bis: 9999999999`
+als „offen“) gilt als 999999999 — die Befehle laufen, jeder nennt einen Hinweis (auch im
+Protokoll des geplanten Laufs); die Zeile in der Konfiguration berichtigen. `export datev`
+warnt je Personenkonto, dessen Länge nicht Sachkontenlänge + 1 ist. Die Konfiguration vor dem
+Update durchsehen. Kaputtes YAML in der Konfiguration meldet jeder Befehl mit Datei und Stelle
+(„… kein gültiges YAML (…)“, rc 1) statt mit einem Traceback.

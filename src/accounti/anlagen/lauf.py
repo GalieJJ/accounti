@@ -40,6 +40,7 @@ from accounti.db.repo_anlagen import (
     lade_anlagen,
     speichere_afa_vorgang,
 )
+from accounti.db.repo_kontierung import speichere_kontierungsgrund
 from accounti.db.repository import lade_buchungen, setze_status, speichere_buchung
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.models.anlagen import AfaArt, AfaVorgang, Anlagegut, sammelposten_objekt
@@ -221,6 +222,7 @@ def afa_lauf(
         )
         speichere_buchung(session, buchung)
         ergebnis.buchungen.append(buchung)
+        gruende = []
         for p in teile:
             begruendung = f"{p.bezeichnung}: {p.rechenweg}"
             if ab_monat > 1:
@@ -231,6 +233,7 @@ def afa_lauf(
                 begruendung += (
                     f"; Soll {betrag_de(p.soll)} − schon gebucht {betrag_de(p.gebucht)}"
                 )
+            gruende.append(begruendung)
             speichere_afa_vorgang(
                 session,
                 AfaVorgang(
@@ -243,6 +246,12 @@ def afa_lauf(
                     begruendung=begruendung,
                 ),
             )
+        speichere_kontierungsgrund(
+            session,
+            buchung.id,
+            quelle="anlagen",
+            begruendung=f"{art}: " + " | ".join(gruende),
+        )
     session.flush()
     return ergebnis
 

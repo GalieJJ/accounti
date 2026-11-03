@@ -93,7 +93,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Belegnachforderung** | Fehlende Belege werden Aufgaben mit Umsatz, Betrag und Gegenpartei, erinnern und verstummen, sobald der Beleg abgeglichen ist; Anfrage an den Lieferanten als Entwurf, gesendet nur auf Befehl |
 | ✅ | **Unveränderbares Journal** | Jede Buchung, Freigabe, Korrektur, jedes Storno, jeder Export, Beleg und Zahlungslauf hash-verkettet im Journal (`journal pruefen` findet Manipulationen, auch am Bestand vorbei); freigegebene Buchungen nur per Storno mit Neubuchung; Monate festschreiben; mit Benutzern nur mit Rolle und Einmalcode, im Journal steht der Benutzer; Verfahrensdokumentation aus dem eingerichteten System |
 | ✅ | **Aufgaben & Rückfragen** | Aufgaben mit Bezug auf Buchung, Beleg, Umsatz, Kontakt oder Bankkonto; Prüfläufe (unsichere Kontierung, Beleg fehlt, Beleg/Kontakt zur Prüfung, Bankfreigabe) idempotent und mit Selbstabschluss; Zuständigkeit an Person oder Rolle, sonst gemeinsame Liste; Rückfragen am Beleg; gebündelte Tagesübersicht per E-Mail oder Webhook |
-| 🔲 | **Supervisionsansicht** | Web-UI: Beleg links, Vorschlag rechts, Korrektur in einem Schritt |
+| ✅ | **Supervisionsansicht** | Prüfen im Browser: Beleg links (PDF, Bild, E-Rechnung lesbar), Vorschlag rechts mit Confidence und gespeicherter Herkunft und Begründung; freigeben, korrigieren, zurückstellen per Tastatur; aus einer Korrektur wird auf Wunsch eine Regel mit Vorschau — nur in der Zahlungsrichtung des Umsatzes, abschaltbar —, die beim nächsten Lauf Vorrang hat; freigegebene Buchungen nur per Storno mit Einmalcode |
 
 **Steuer & Abschluss**
 
@@ -118,7 +118,8 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | 🔲 | **Prüfungsdaten** | Datenüberlassung für die Betriebsprüfung |
 | ✅ | **REST-API** | `/api/v1` mit API-Token und Rechten (`opos:lesen`, `buchungen:lesen`, `belege:schreiben`, `laeufe:starten`): offene Posten und Buchungen abfragen, Belege einliefern (Pipeline wie der Webhook), `bank lauf` und `aufgaben lauf` anstoßen; Token nur als Hash gespeichert, ohne Recht 403 |
 | ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
-| 🟨 | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft, Freigaben nur mit Rolle und Einmalcode (Browser und CLI) — auch Buchungsfreigabe, Korrektur, Storno und Festschreibung —, Vier-Augen-Freigabe; DE/EN folgt |
+| ✅ | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft; Zahlungsläufe, Steuermeldungen und Storno freigegebener Buchungen nur mit Rolle und Einmalcode (Browser und CLI), in der CLI auch Buchungsfreigabe, Korrektur und Festschreibung; Vier-Augen-Freigabe |
+| ✅ | **Deutsch/Englisch** | Oberfläche zweisprachig, Sprache je Benutzer oder nach Browser; Fachbegriffe wie „Buchungssatz“ bleiben deutsch |
 | ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
 
 Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
@@ -600,7 +601,14 @@ accounti journal uebernehmen                   # einmal nach dem Update einer ä
 
 Ab der Freigabe (auch automatisch gebuchte Buchungen) ist eine Korrektur eine Stornobuchung
 mit Neubuchung; beide bleiben sichtbar und verweisen aufeinander. Ändert sich das Sachkonto,
-gehört `--steuer` oder `--ohne-steuer` dazu. Einen festgeschriebenen Monat öffnet nur, wer
+gehört `--steuer` oder `--ohne-steuer` dazu. Bei einer Buchung mit Beleg bestimmt der Beleg
+die Richtung: Soll und Haben tauschen lehnt `korrigiere` ab (§ 14c, § 17 UStG) — eine
+Gutschrift bzw. Rechnungskorrektur ist ein eigener Beleg (`rechnung neu --korrektur-zu`);
+Konten derselben Seite bleiben korrigierbar (etwa „4360 an 1200 → 1800 an 1200“ für einen
+Privatanteil). Die Richtung gilt für die ganze Korrekturkette, nicht nur gegenüber der
+vorigen Buchung. Ein Umsatzsteuerschlüssel auf einer Eingangsrechnung ist ein Fehlschlüssel:
+Die Korrektur auf den Schlüssel, den der Beleg vorgibt (19 % → 9, 7 % → 8), geht immer. Fehlt nach einem Storno ausgewiesene Umsatzsteuer eines Belegs in der
+Voranmeldung, warnt es (Prüfregel `beleg_ust_ohne_buchung`). Einen festgeschriebenen Monat öffnet nur, wer
 einen Grund angibt — protokolliert wie der Jahresabschluss. Nur die EB-Werte des
 Saldovortrags am 01.01. nimmt ein festgeschriebener Januar noch an; eine Eingangsrechnung zu
 einem festgeschriebenen Monat bucht `opos verbuchen --buchungsdatum` in einen offenen Monat —
@@ -650,6 +658,53 @@ accounti betrieb lauf --intervall-minuten 60       # bank lauf + aufgaben lauf j
 Mit eingerichteten Benutzern verlangen `zahlung freigeben` und `ustva freigeben` die Rolle
 `freigeber` und den Einmalcode der handelnden Person, Buchungsfreigabe, Korrektur, Storno und
 Festschreibung die Rollen aus dem Abschnitt oben; ohne Benutzer bleibt alles wie bisher.
+
+### Prüfen im Browser
+
+```bash
+accounti serve                          # dann https://…/pruefen (TLS über den Reverse-Proxy)
+accounti review                         # dieselbe Liste in der Konsole, mit Begründung
+accounti korrigiere 3f2a… --soll 4930 --haben 1200 --steuer 9 --lernen   # Regel in der Datenbank, mit Vorrang
+accounti lerne --name miete --muster 'miete\s+\d{4}' --soll 4210 --haben 1200   # Regex, ebenfalls in der Datenbank
+accounti regeln liste                   # gelernte Regeln, die neueste zuerst (--alle: auch deaktivierte)
+accounti regeln deaktivieren <ID> --grund "zu breit"
+accounti regeln uebernehmen --probe     # alte gelernt_*-Einträge aus der Regeldatei übernehmen
+accounti regeln uebernehmen --name telekom   # dazu einen Eintrag ohne Präfix (alte lerne --name)
+```
+
+Aus einer Korrektur gelernte Regeln gelten nur in der Zahlungsrichtung des Umsatzes, aus dem sie
+entstanden sind; `regeln uebernehmen` leitet die Richtung aus der Bankseite ab, `lerne` ohne
+`--richtung` gilt für Ein- und Ausgänge (Spalte „Richtung“ in `regeln liste`). Übernommene Regeln
+stehen hinter den schon gelernten, untereinander in der Reihenfolge der Datei — auch wenn sie in
+mehreren Läufen übernommen werden (übernommene Einträge erst nach allen Läufen mit `--name` aus
+der Datei löschen, siehe docs/betrieb.md); Einträge mit `pruefen`/`confidence`, Umbuchungen und Einträge
+ohne Präfix `gelernt_` (ohne `--name`) bleiben in der Regeldatei — die Ausgabe nennt sie. Gelernte
+Regeln haben Vorrang vor der Regeldatei und den Standardregeln des Kontenrahmens und folgen demselben
+Regelmodell: ein Umsatz gegen ihre Richtung wird höchstens als Gegenbuchung zur Prüfung
+vorgeschlagen, und die Schranke des Mappers (Bankkonto auf der falschen Seite) greift auch für
+sie. Als Muster schlägt
+accounti den ganzen Namen der Gegenpartei ohne Rechtsform vor („Deutsche Telekom“); träfe ein
+Muster auch andere Gegenparteien oder jeden Kauf über einen Zahlungsdienst wie PayPal, speichert
+accounti die Regel nur nach Bestätigung (Haken in der Regelvorschau, in der CLI
+`--trotz-warnung`). Hat der Umsatz keinen Namen der Gegenpartei (CSV ohne Namensspalte, MT940
+ohne `?32`), kommt das Muster aus dem Verwendungszweck, und die Bestätigung ist immer nötig.
+Regeln anlegen verlangt die Rechte buchen und Regeln lernen; deaktivieren darf auch der
+verwalter. Mit `buchhaltung.gelernte_regeln: pruefen` legen sie ihre Buchungen nur vor (auch
+Belegbuchungen), mit `aus` greifen sie gar nicht. Eine Korrektur behält das Finanzkonto des
+Umsatzes — nur der Wechsel auf ein anderes eingerichtetes Bankkonto (falsch zugeordneter Umsatz)
+geht, mit Warnung und ohne Regel —, und Freigeben prüft die Prüfregel `steuerschluessel_konto`
+wie eine Korrektur. Aus einer Umbuchung zwischen eigenen Konten mit Kontoauszug (Giro ↔ Tagesgeld,
+Bank ↔ Kasse oder Kreditkarte) wird keine Regel — `korrigiere --lernen` bzw. der Haken „Regel“
+korrigiert dann ohne Regel und sagt es; eine Regel gegen Geldtransit (1360/1460) bleibt lernbar.
+Eine Buchung mit demselben Konto im Soll und im Haben legt accounti nie an: automatisch bleibt
+der Umsatz offen und der Lauf nennt ihn, von Hand (Korrektur, `kasse buchen --konto`) lehnt
+accounti sie ab, und ein älterer Vorschlag dieser Art lässt sich nicht freigeben; `accounti
+pruefen` meldet ältere Fälle (Prüfregel `soll_gleich_haben`). Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
+`b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
+accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
+angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als
+Storno mit Neubuchung, mit frischem Einmalcode. Jede Aktion steht mit dem angemeldeten Benutzer im
+Journal.
 
 ---
 
@@ -826,7 +881,9 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 - Trackt die **€10.000-Schwelle** über alle EU-B2C-Verkäufe
 - Berechnet den **korrekten Steuersatz** je Bestimmungsland
 - Bucht auf **ein OSS-Erlöskonto je Bestimmungsland** (Vorgabe acht Länder im DATEV-Bereich
-  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`), die
+  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`; eine
+  eigene Rechnung in ein Land ohne eigenes Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die
+  Meldung erfasst sie nicht), die
   Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem Land im Buchungstext — vierstellig,
   passend zur Sachkontenlänge des DATEV-Stapels
 - Nimmt den **Steuersatz am Tag der Lieferung** (`steuer/eu_steuersaetze.py` mit `gueltig_ab`)
@@ -935,10 +992,11 @@ kontieren will, braucht nur v0.1.
 
 ### v0.5 — Oberfläche & Betrieb *(Bausteine 8, 10)*
 - [x] Aufgaben, Rückfragen am Beleg, Zuständigkeiten, Erinnerungen
-- [ ] Web-UI: Supervisions-Queue mit Belegansicht, BWA mit Vorjahresvergleich
+- [x] Web-UI: Supervisions-Queue mit Belegansicht, Korrektur → Regel
+- [ ] Web-UI: BWA mit Vorjahresvergleich, Kontenblätter, CSV/PDF
 - [x] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, mehrere Gesellschaften, REST-API
 - [x] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
-- [ ] DE/EN in der Oberfläche
+- [x] DE/EN in der Oberfläche
 
 ### v0.6 — Integrationen *(Baustein 11)*
 - [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal

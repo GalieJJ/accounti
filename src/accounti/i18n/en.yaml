@@ -1,0 +1,342 @@
+# accounti — englischer Katalog der Oberfläche (Baustein 10b)
+#
+# Schlüssel: der deutsche Text (Quellsprache). Mehrzahl als {one, other}. Platzhalter
+# %(name)s bleiben gleich (Test). Fehlt ein Eintrag, erscheint der deutsche Text.
+#
+# Glossar (Spec 4.5) — übersetzt, weil tragfähig:
+#   Soll/Haben → Debit/Credit · Summen- und Saldenliste → Trial balance ·
+#   Kontenblatt → Account ledger · offene Posten → Open items · Storno → Reversal ·
+#   Vorsteuer → Input VAT · Beleg → Document · Einmalcode → One-time code ·
+#   Gesellschaft → Company · Buchung → Booking · Prüfen → Review · Rückfrage → Query
+# Bleiben deutsch (Fachbegriffe ohne tragfähige Entsprechung, Test):
+#   Buchungssatz, BWA, Steuerschlüssel, GoBD, Festschreibung, USt-IdNr., USt-VA,
+#   SKR03/SKR04, DATEV, ELSTER, ZUGFeRD, XRechnung — dazu Kontenbezeichnungen.
+# Die englischen Texte hat niemand mit englischer Muttersprache durchgesehen.
+
+# --- Gerüst, Anmeldung ---------------------------------------------------------------
+Abmelden: Sign out
+Anmelden: Sign in
+Anmeldung fehlgeschlagen.: Sign-in failed.
+Benutzer: User
+Passwort: Password
+Einmalcode aus der App oder Wiederherstellungscode: One-time code from the app or recovery code
+Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — please submit it again.
+Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
+Gesellschaft: Company
+"Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
+Hauptmenü: Main menu
+Wechseln: Switch
+Sprache: Language
+automatisch: automatic
+Übernehmen: Apply
+Diese Sprache gibt es nicht: This language is not available
+Zurück: Back
+Fehler: Error
+Seite nicht gefunden: Page not found
+Diese Seite lässt sich so nicht aufrufen (Methode nicht erlaubt): This page cannot be opened this way (method not allowed)
+Ungültige Anfrage: Invalid request
+Die Anfrage ist fehlgeschlagen (HTTP %(status)s): The request failed (HTTP %(status)s)
+Formular zu groß: Form too large
+Formular nicht lesbar: Form cannot be read
+Übersicht: Overview
+Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.: The action failed — please reload the page and try again.
+Ein Lauf schreibt gerade — bitte gleich noch einmal: A run is currently writing — please try again in a moment
+"Ungültige Angaben: %(felder)s": "Invalid input: %(felder)s"
+CSRF-Token fehlt oder passt nicht — Seite neu laden: CSRF token missing or invalid — reload the page
+Anfrage von einer fremden Seite abgewiesen: Request from a foreign site rejected
+Ihre Rolle in %(gesellschaft)s erlaubt das nicht: Your role in %(gesellschaft)s does not allow this
+Kein Zugriff auf diese Gesellschaft: No access to this company
+Benutzer unbekannt: Unknown user
+Einmalcode falsch oder schon benutzt: One-time code wrong or already used
+Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md, Upgrades): The system database is not up to date for this version (column %(spalte)s is missing) — first run accounti db upgrade for the system database and every company database (see docs/betrieb.md, Upgrades)
+
+# --- Übersicht -------------------------------------------------------------------------
+Offene Posten: Open items
+Buchungen zur Prüfung: Bookings to review
+"%(num)s Buchung":
+  one: "%(num)s booking"
+  other: "%(num)s bookings"
+Belege zur Prüfung: Documents to review
+Zahlungsläufe im Entwurf: Payment runs in draft
+Fällige offene Posten: Open items due
+Fällig: Due
+Kontakt: Contact
+Beleg: Document
+Rest: Remaining
+
+# --- Freigaben (Baustein 10a) ----------------------------------------------------------
+Freigaben: Approvals
+Freigeben: Approve
+Nr.: No.
+Ausführung: Execution
+Zahlungen: Payments
+Summe: Total
+Angelegt von: Created by
+Einmalcode: One-time code
+Zahlungen in Lauf %(nr)s — freigegeben wird genau dieser Inhalt: Payments in run %(nr)s — exactly this content is approved
+Empfänger: Payee
+Betrag: Amount
+Verwendungszweck: Payment reference
+Kein Zahlungslauf wartet auf Freigabe.: No payment run is waiting for approval.
+Umsatzsteuer-Voranmeldung: VAT return (USt-VA)
+Zeitraum: Period
+Werte freigeben: Approve figures
+Zahlungslauf %(nr)s hat sich seit der Anzeige geändert — bitte neu laden und erneut prüfen: Payment run %(nr)s has changed since it was displayed — please reload and review again
+"Zahlungslauf %(nr)s freigegeben von %(person)s: %(anzahl)s Zahlungen über %(summe)s €.": "Payment run %(nr)s approved by %(person)s: %(anzahl)s payments totalling %(summe)s €."
+Erste Freigabe von %(person)s — das Vier-Augen-Prinzip verlangt eine zweite Person.: First approval by %(person)s — the four-eyes principle requires a second person.
+Umsatzsteuer-Voranmeldung %(zeitraum)s freigegeben von %(person)s — Kz 83 %(kz83)s €.: USt-VA %(zeitraum)s approved by %(person)s — box 83 %(kz83)s €.
+"Umsatzsteuer-Voranmeldung %(zeitraum)s ist mit genau diesen Werten schon freigegeben (von %(person)s) — nichts zu tun": "USt-VA %(zeitraum)s is already approved with exactly these figures (by %(person)s) — nothing to do"
+Zeitraum unverständlich — erwartet z.B. 2026-08, 2026-Q3: Period not understood — expected e.g. 2026-08, 2026-Q3
+
+# --- Monate ---------------------------------------------------------------------------
+Januar: January
+Februar: February
+März: March
+April: April
+Mai: May
+Juni: June
+Juli: July
+August: August
+September: September
+Oktober: October
+November: November
+Dezember: December
+
+
+# --- Prüfen (Supervisions-Queue, Baustein 10b) -----------------------------------------
+"Prüfen": "Review"
+"Ansichten": "Views"
+"Offen": "Open"
+"Zurückgestellt": "On hold"
+"Gelernte Regeln": "Learned rules"
+"Durcharbeiten": "Work through"
+"Datum": "Date"
+"Gegenpartei": "Counterparty"
+"Vorschlag": "Proposal"
+"Confidence": "Confidence"
+"Begründung": "Reasoning"
+"an": "to"
+"Seiten": "Pages"
+"Nichts zu prüfen — alles entschieden.": "Nothing to review — everything is decided."
+"Nichts zurückgestellt.": "Nothing on hold."
+"Keine Begründung gespeichert": "No reasoning stored"
+"Zur Liste": "Back to list"
+"%(nr)s von %(gesamt)s": "%(nr)s of %(gesamt)s"
+"Voriger": "Previous"
+"Nächster": "Next"
+"Buchung und Journal": "Booking and journal"
+"Die Aktion wurde nicht ausgeführt:": "The action was not carried out:"
+"Die Konfiguration der Gesellschaft ist fehlerhaft — Freigeben, Korrigieren und Stornieren sind erst nach ihrer Berichtigung möglich:": "The company's configuration is faulty — approving, correcting and reversing are only possible once it has been fixed:"
+"Buchung freigegeben.": "Booking approved."
+"Buchung korrigiert.": "Booking corrected."
+"Buchung zurückgestellt — die Rückfrage steht in den Aufgaben.": "Booking put on hold — the query is in the tasks."
+"Regel %(name)s gelernt — sie greift beim nächsten Lauf.": "Rule %(name)s learned — it applies from the next run."
+"Buchung nicht gefunden": "Booking not found"
+"Regel nicht gefunden": "Rule not found"
+"Eine Regel gibt es nur für Buchungen mit Umsatz": "Rules exist only for bookings with a bank transaction"
+# Herkunft
+"Herkunft": "Origin"
+"Regelwerk": "Rule set"
+"KI-Vorschlag (LLM)": "AI proposal (LLM)"
+"Kontakt": "Contact"
+"Standardkonto": "Default account"
+"Kreditkartenabgleich": "Credit card reconciliation"
+"Anlagen": "Fixed assets"
+"Marktplatz": "Marketplace"
+"Korrektur": "Correction"
+"Storno": "Reversal"
+"Regel %(name)s": "Rule %(name)s"
+"Modell %(name)s": "Model %(name)s"
+# Beleg links
+"Beleg in neuem Tab öffnen": "Open document in a new tab"
+"Herunterladen": "Download"
+"Umsatz ohne Beleg": "Transaction without document"
+"Belegfrei nach Regel %(name)s:": "No document needed under rule %(name)s:"
+"Beleg nachgefordert (Aufgabe #%(nr)s, %(status)s)": "Document requested (task #%(nr)s, %(status)s)"
+"zuständig: %(wer)s": "assigned to: %(wer)s"
+"fällig am %(tag)s": "due on %(tag)s"
+"Anfrage an den Lieferanten:": "Request to the supplier:"
+"Kein Beleg zugeordnet.": "No document assigned."
+"Interne Buchung": "Internal booking"
+"Weder Umsatz noch Beleg — belegfrei: interne Buchung.": "Neither transaction nor document — no document needed: internal booking."
+# Vorschlag rechts
+"Soll": "Debit"
+"Haben": "Credit"
+"Steuerschlüssel": "Steuerschlüssel (tax key)"
+"Netto": "Net"
+"Steuer": "Tax"
+"Brutto": "Gross"
+"Buchungstext": "Booking text"
+"automatisch gebucht ab %(schwelle)s": "booked automatically from %(schwelle)s"
+"Weitere Buchungen zu Umsatz bzw. Beleg": "Other bookings for the transaction or document"
+"Rückfragen": "Queries"
+"Aufgaben": "Tasks"
+# Aktionen
+"Diese Buchung ist nicht mehr in der Prüfung — Korrektur nur per Storno.": "This booking is no longer under review — corrections only by reversal."
+"Zur Buchung": "To the booking"
+"Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.": "Fiscal year %(jahr)s is closed — no decision is possible here."
+"Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.": "Month %(monat)s is locked (Festschreibung) — no decision is possible here."
+"Zurückgestellt — eine Rückfrage ist offen.": "On hold — a query is open."
+"Prüfregel Steuerschlüssel und Konto:": "Check rule Steuerschlüssel (tax key) and account:"
+"Fehler": "Error"
+"Freigeben erst nach einer Korrektur von Steuerschlüssel oder Konto.": "Approval only after correcting the Steuerschlüssel (tax key) or the account."
+"Zurückstellen mit Rückfrage": "Put on hold with a query"
+"Rückfrage": "Query"
+"an (Benutzer, optional)": "to (user, optional)"
+"Zurückstellen": "Put on hold"
+"Korrigieren": "Correct"
+"bitte wählen": "please choose"
+"unverändert": "unchanged"
+"ohne Steuer": "without tax"
+"Grund (steht im Journal)": "Reason (recorded in the journal)"
+"„Ohne Steuer“ nur mit Grund.": "“Without tax” only with a reason."
+"Regel daraus machen": "Make a rule from this"
+"Künftige Umsätze in dieser Zahlungsrichtung so kontieren": "Book future transactions in this payment direction the same way"
+"Muster (Text, nur ganze Wörter)": "Pattern (text, whole words only)"
+"Suchen in": "Search in"
+"Gegenpartei und Verwendungszweck": "Counterparty and payment reference"
+"Vorschau": "Preview"
+"Regelvorschau": "Rule preview"
+"Sachkonto am Kontakt lernen": "Learn the account for this contact"
+# Regelvorschau
+"Trifft %(num)s Ausgabe in den letzten 24 Monaten":
+  one: "Matches %(num)s payment out in the last 24 months"
+  other: "Matches %(num)s payments out in the last 24 months"
+"Trifft %(num)s Einnahme in den letzten 24 Monaten":
+  one: "Matches %(num)s payment in in the last 24 months"
+  other: "Matches %(num)s payments in in the last 24 months"
+"greift für diesen Umsatz": "applies to this transaction"
+"greift für diesen Umsatz nicht": "does not apply to this transaction"
+"Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s": "Pattern “%(muster)s”, opposite direction (at most as a counter-entry for review): %(anzahl)s, of the matches currently booked differently: %(anders)s"
+"Verdrängt Regel %(name)s für diesen Umsatz.": "Takes precedence over rule %(name)s for this transaction."
+"Bisher": "Current booking"
+"Auch andere Gegenparteien:": "Also other counterparties:"
+"Weitere Treffer, Gegenpartei nicht erkennbar:": "Further matches, counterparty not identifiable:"
+"Regel trotzdem mit diesem Muster speichern": "Save the rule with this pattern anyway"
+"offen": "open"
+# Tastenhilfe
+"Tastenkürzel": "Keyboard shortcuts"
+"nächster / voriger Eintrag": "next / previous entry"
+"freigeben": "approve"
+"korrigieren (Fokus auf Soll)": "correct (focus on debit)"
+"Regel daraus machen (an/aus)": "make a rule (on/off)"
+"zurückstellen (Fokus auf die Rückfrage)": "put on hold (focus on the query)"
+"Beleg in neuem Tab": "document in a new tab"
+"diese Hilfe": "this help"
+"im Eingabefeld: absenden / Feld verlassen": "in an input field: submit / leave the field"
+"Strg": "Ctrl"
+"Tastenkürzel aus (nur in diesem Browser)": "Keyboard shortcuts off (this browser only)"
+# Gelernte Regeln
+"Zurück zur Prüfung": "Back to review"
+"Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. A transaction in the opposite direction (such as a refund for a rule on payments out) is at most proposed as a counter-entry for review, never booked automatically. They are not edited, only deactivated and learned again."
+"Name": "Name"
+"Muster": "Pattern"
+"Richtung": "Direction"
+"Treffer": "Matches"
+"Angelegt": "Created"
+"Stand": "State"
+"Ausgabe": "Payment out"
+"Einnahme": "Payment in"
+"beide": "both"
+"Quelle": "Source"
+"aktiv": "active"
+"deaktiviert": "deactivated"
+"Grund": "Reason"
+"Deaktivieren": "Deactivate"
+"Noch keine gelernten Regeln.": "No learned rules yet."
+"Regel deaktiviert.": "Rule deactivated."
+
+# --- Belege --------------------------------------------------------------------------
+"Beleg nicht gefunden": "Document not found"
+"Die Belegdatei fehlt im Archiv": "The document file is missing from the archive"
+"Beleg im Archiv verändert — der Inhalt passt nicht zum gespeicherten Prüfwert": "Document changed in the archive — the content does not match the stored checksum"
+"Die Belegdatei ist zu groß": "The document file is too large"
+"Keine Vorschau für diesen Dateityp — bitte herunterladen": "No preview for this file type — please download"
+"Die Belegdatei fehlt im Archiv.": "The document file is missing from the archive."
+"Die Belegdatei im Archiv passt nicht zum gespeicherten Prüfwert.": "The document file in the archive does not match the stored checksum."
+"Die Belegdatei ist zu groß für die Vorschau.": "The document file is too large for the preview."
+"Die E-Rechnung ist nicht lesbar.": "The e-invoice cannot be read."
+"Keine Vorschau.": "No preview."
+"Beleg als PDF": "Document as PDF"
+"Beleg als Bild": "Document as image"
+"Beleg, Seite %(nr)s": "Document, page %(nr)s"
+"E-Rechnung (maßgeblich)": "E-invoice (authoritative)"
+"E-Rechnung": "E-invoice"
+"Keine Vorschau für diesen Dateityp — bitte herunterladen.": "No preview for this file type — please download."
+"Belegdaten weichen vom strukturierten Teil ab:": "Document fields differ from the structured part:"
+"Syntax / Profil": "Syntax / profile"
+"Rechnungsnummer": "Invoice number"
+"Rechnungsdatum": "Invoice date"
+"Rechnungsart": "Invoice type"
+"Leistungsdatum": "Date of supply"
+"Leistungszeitraum": "Period of supply"
+"Verkäufer": "Seller"
+"Käufer": "Buyer"
+"USt-IdNr.": "USt-IdNr. (VAT ID)"
+"Steuernummer": "Tax number"
+"Zahlungsbedingungen": "Payment terms"
+"Skonto %(prozent)s %% bei Zahlung in %(tage)s Tagen": "%(prozent)s %% early payment discount within %(tage)s days"
+"Positionen": "Line items"
+"Bezeichnung": "Description"
+"Menge": "Quantity"
+"Einzelpreis": "Unit price"
+"Zuschlag": "Charge"
+"Abschlag": "Allowance"
+"Steueraufschlüsselung": "Tax breakdown"
+"Kategorie": "Category"
+"Satz": "Rate"
+"Basis": "Base"
+"Zahlbetrag": "Amount due"
+"Eigene Darstellung des strukturierten Teils, keine KoSIT-Visualisierung und kein Prüfbericht; eingebettete Anlagen werden nicht angezeigt.": "accounti's own rendering of the structured part, not the KoSIT visualisation and not a validation report; embedded attachments are not shown."
+"In neuem Tab öffnen": "Open in a new tab"
+"Angaben": "Details"
+"Belegart": "Document type"
+"Belegdatum": "Document date"
+"Lieferant": "Supplier"
+"Eingang": "Received"
+"Status": "Status"
+"Buchungen": "Bookings"
+# Statuswerte (vorlagen.BEZEICHNUNGEN)
+"Entwurf": "Draft"
+"automatisch gebucht": "booked automatically"
+"zur Prüfung": "under review"
+"geprüft": "reviewed"
+"korrigiert": "corrected"
+"exportiert": "exported"
+"Eingangsrechnung": "Incoming invoice"
+"Ausgangsrechnung": "Outgoing invoice"
+"Quittung": "Receipt"
+"Kontoauszug": "Bank statement"
+"Vertrag": "Contract"
+"Sonstiges": "Other"
+"unbekannt": "unknown"
+"eingegangen": "received"
+"erfasst": "recorded"
+"in Arbeit": "in progress"
+"wartet": "waiting"
+"erledigt": "done"
+"hinfällig": "obsolete"
+
+# --- Buchung -------------------------------------------------------------------------
+"Buchung": "Booking"
+"Umsatz": "Transaction"
+"Storniert durch": "Reversed by"
+"Storno von": "Reversal of"
+"Original": "Original"
+"Neubuchung": "New booking"
+"Journal": "Journal"
+"Zeitpunkt": "Time"
+"Vorgang": "Event"
+"Person": "Person"
+"Keine Journaleinträge.": "No journal entries."
+"Diese Buchung ist ein Vorschlag — entscheiden in der Prüfung.": "This booking is a proposal — decide in the review."
+"Zur Prüfung": "To the review"
+"Korrigieren (Storno und Neubuchung)": "Correct (reversal and new booking)"
+"Datum für Storno und Neubuchung": "Date for reversal and new booking"
+"Pflicht — der Zeitraum der Buchung ist gesperrt": "required — the booking's period is locked"
+"Stornieren": "Reverse"
+"Grund (Pflicht, steht im Journal)": "Reason (required, recorded in the journal)"
+"Datum des Stornos": "Date of the reversal"
+"Storniert durch Storno %(storno)s, Neubuchung %(neu)s — Original, Storno und Neubuchung bleiben sichtbar.": "Reversed by reversal %(storno)s, new booking %(neu)s — original, reversal and new booking remain visible."
+"Storniert durch Storno %(storno)s — beide Buchungen bleiben sichtbar.": "Reversed by reversal %(storno)s — both bookings remain visible."
+"Der Umsatz ist wieder offen und wird beim nächsten Lauf neu kontiert (gegebenenfalls über eine gelernte Regel).": "The transaction is open again and will be booked anew in the next run (possibly by a learned rule)."

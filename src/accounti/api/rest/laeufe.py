@@ -30,19 +30,19 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
     from accounti.integrationen.einstellungen import lade_kontext
-    from accounti.klassifikation.engine import (
-        KlassifikationsEngine,
-        RegelwerkEngine,
-        standard_regeln,
-    )
-    from accounti.klassifikation.regeln_loader import lade_regeln
+    from accounti.klassifikation.engine import KlassifikationsEngine
+    from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.konfiguration import lade_buchhaltung
 
     g = zugang.gesellschaft
     buchhaltung = lade_buchhaltung(g.konfiguration)
-    standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
+    # gelernte Regeln der Gesellschaft → ihre Regeldatei → Standardregeln ihres
+    # Kontenrahmens (wie die CLI)
     engine = KlassifikationsEngine(
-        regelwerk=RegelwerkEngine(lade_regeln(g.regeln) + standard), llm=None
+        regelwerk=lade_regelwerk(
+            s, g.regeln, buchhaltung.gelernte_regeln, buchhaltung=buchhaltung
+        ),
+        llm=None,
     )
     ergebnis = bank_lauf(
         s,
@@ -79,6 +79,8 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
             "mit_beleg": k.mit_beleg,
             "offen": k.offen,
             "marktplatz": k.marktplatz,  # davon offen bis zum Marktplatz-Abgleich
+            # davon offen, weil die Kontierung Soll = Haben ergäbe (Umbuchung)
+            "umbuchung": len(k.umbuchungen),
         },
     }
 
@@ -137,13 +139,18 @@ def _gesperrt(
     lauf: Callable[[Zugang, Session], dict[str, Any]],
     s: Session,
 ) -> dict[str, Any]:
+    """Unter der Laufsperre; ein Lauf, der schon läuft, oder eine fehlerhafte
+    Konfiguration der Gesellschaft (z. B. Regeldatei) ergibt 409 mit Meldung."""
+    from accounti.konfiguration import KonfigurationError
+
     try:
         with (
             laufsperre(zugang.gesellschaft.datenbank, art),
             zugang.journal(),
         ):
             return lauf(zugang, s)
-    except LaufLaeuftError as fehler:
+    except (LaufLaeuftError, KonfigurationError) as fehler:
+        s.rollback()
         raise HTTPException(409, str(fehler)) from fehler
 
 

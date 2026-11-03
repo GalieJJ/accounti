@@ -13,6 +13,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator
@@ -38,6 +39,8 @@ class Recht(str, enum.Enum):
     ZAHLUNG_FREIGEBEN = "zahlung_freigeben"
     STEUER_FREIGEBEN = "steuer_freigeben"
     VERWALTEN = "verwalten"  # Benutzer, Token, Einstellungen
+    # gelernte Regeln buchen künftige Umsätze automatisch — eigenes Recht (Baustein 10b)
+    REGELN_LERNEN = "regeln_lernen"
 
 
 RECHT_TEXT: dict[Recht, str] = {
@@ -49,6 +52,7 @@ RECHT_TEXT: dict[Recht, str] = {
     Recht.ZAHLUNG_FREIGEBEN: "Zahlungsläufe freigeben",
     Recht.STEUER_FREIGEBEN: "Steuermeldungen freigeben",
     Recht.VERWALTEN: "Benutzer und Einstellungen verwalten",
+    Recht.REGELN_LERNEN: "Kontierungsregeln lernen",
 }
 
 ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
@@ -60,6 +64,7 @@ ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
             Recht.BELEGE_EINLIEFERN,
             Recht.LAEUFE_STARTEN,
             Recht.BUCHUNG_FREIGEBEN,
+            Recht.REGELN_LERNEN,
         }
     ),
     Rolle.FREIGEBER: frozenset(
@@ -70,7 +75,10 @@ ROLLEN_RECHTE: dict[Rolle, frozenset[Recht]] = {
             Recht.STEUER_FREIGEBEN,
         }
     ),
-    Rolle.VERWALTER: frozenset({Recht.LESEN, Recht.VERWALTEN}),
+    # der Verwalter sieht, prüft und deaktiviert gelernte Regeln (Einstellungen);
+    # anlegen kann er keine — Lernen aus einer Korrektur, accounti lerne und regeln
+    # uebernehmen verlangen zusätzlich BUCHEN, das ihm fehlt
+    Rolle.VERWALTER: frozenset({Recht.LESEN, Recht.VERWALTEN, Recht.REGELN_LERNEN}),
 }
 
 
@@ -112,6 +120,13 @@ FREIGABEWEGE: dict[Recht, tuple[str, ...]] = {
         "abschluss oeffnen",
     ),
     Recht.VERWALTEN: ("benutzer …", "token …", "journal uebernehmen"),
+    # Regeln anlegen zusätzlich mit BUCHEN (ein Einmalcode), deaktivieren ohne
+    Recht.REGELN_LERNEN: (
+        "lerne (dazu buchen)",
+        "korrigiere --lernen (dazu buchen)",
+        "regeln uebernehmen (dazu buchen)",
+        "regeln deaktivieren",
+    ),
 }
 
 
@@ -173,6 +188,8 @@ class Benutzer(BaseModel):
     angelegt_am: datetime = Field(default_factory=datetime.now)
     passwort_geaendert_am: datetime | None = None
     letzte_anmeldung_am: datetime | None = None
+    # Sprache der Oberfläche (Baustein 10b): de, en oder None = automatisch (Browser)
+    sprache: Literal["de", "en"] | None = None
 
     @field_validator("name")
     @classmethod

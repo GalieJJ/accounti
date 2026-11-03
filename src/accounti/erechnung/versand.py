@@ -18,7 +18,6 @@ from email.utils import format_datetime, make_msgid, parseaddr
 from pathlib import Path
 from typing import Any, Literal, Protocol
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.orm import Session
 
@@ -26,7 +25,7 @@ from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.db.repository import lade_ausgangsrechnung, speichere_versandprotokoll
 from accounti.erechnung import lies
-from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError, lies_yaml
 from accounti.models import Ausgangsrechnung, AusgangsrechnungStatus, Versandprotokoll
 
 Format = Literal["zugferd", "xrechnung"]
@@ -103,7 +102,7 @@ def lade_versand(pfad: str | Path = STANDARD_PFAD) -> VersandKonfiguration:
     if not pfad.is_file():
         msg = f"{pfad} fehlt — Vorlage: config/accounti.example.yaml"
         raise KonfigurationError(msg)
-    daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten = lies_yaml(pfad)
     versand = daten.get("versand") if isinstance(daten, dict) else None
     if not isinstance(versand, dict):
         msg = f"{pfad}: Abschnitt 'versand' fehlt (SMTP-Zugang für den E-Mail-Versand)"

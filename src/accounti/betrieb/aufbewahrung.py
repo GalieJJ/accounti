@@ -136,6 +136,10 @@ BESTAND: list[tuple[str, str, str, Unterlage]] = [
     ("journal", "zeitpunkt", "Journal", Unterlage.BUCH),
     ("buchungskorrekturen", "datum", "Buchungskorrekturen", Unterlage.BUCH),
     ("periodenabschluesse", "geschlossen_am", "Periodenabschlüsse", Unterlage.BUCH),
+    # Baustein 10b: Herkunft je Buchung (Teil der Buchung) und gelernte Regeln
+    # (Verfahren: bestimmen, wie automatisch gebucht wird)
+    ("kontierungsgruende", "erstellt_am", "Kontierungsgründe", Unterlage.BUCH),
+    ("kontierungsregeln", "angelegt_am", "Gelernte Kontierungsregeln", Unterlage.BUCH),
 ]
 
 

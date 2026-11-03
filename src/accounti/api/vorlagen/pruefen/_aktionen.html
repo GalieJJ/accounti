@@ -1,0 +1,44 @@
+{% import "_makros.html" as m with context %}
+{% if konfig_fehler %}
+{{ m.konfigurationsfehler(konfig_fehler) }}
+{% elif not e.ist_vorschlag %}
+<p class="hinweis">{{ _("Diese Buchung ist nicht mehr in der Prüfung — Korrektur nur per Storno.") }} <a href="/buchungen/{{ b.id }}">{{ _("Zur Buchung") }}</a></p>
+{% elif e.sperre %}
+<p class="hinweis sperre">{% if e.sperre.art == "jahr" %}{{ _("Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.", jahr=e.sperre.zeitraum) }}{% else %}{{ _("Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.", monat=e.sperre.zeitraum) }}{% endif %}</p>
+{% else %}
+{% if e.steuer_befunde %}
+<div class="hinweis pruefregel">
+  <p>{{ _("Prüfregel Steuerschlüssel und Konto:") }}</p>
+  <ul lang="de">{% for schwere, text in e.steuer_befunde %}<li>{% if schwere.value == "fehler" %}<strong>{{ _("Fehler") }}:</strong> {% endif %}{{ text }}</li>{% endfor %}</ul>
+  {% if e.freigabe_gesperrt %}<p>{{ _("Freigeben erst nach einer Korrektur von Steuerschlüssel oder Konto.") }}</p>{% endif %}
+</div>
+{% endif %}
+<div class="aktionen">
+  {% if darf_freigeben and not e.freigabe_gesperrt %}
+  <form method="post" action="/pruefen/{{ b.id }}/freigeben" hx-post="/pruefen/{{ b.id }}/freigeben" hx-target="#arbeitsflaeche" hx-disabled-elt="find button" class="freigeben">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="stand" value="{{ e.stand }}">
+    <input type="hidden" name="ansicht" value="{{ ansicht }}">
+    <button type="submit" data-taste="f">{{ _("Freigeben") }} <kbd>f</kbd></button>
+  </form>
+  {% endif %}
+  {% if darf_buchen %}{% include "pruefen/_korrektur.html" %}{% endif %}
+  {% if e.zurueckgestellt %}
+  <p class="hinweis">{{ _("Zurückgestellt — eine Rückfrage ist offen.") }}</p>
+  {% elif darf_zurueckstellen %}
+  <form method="post" action="/pruefen/{{ b.id }}/zurueckstellen" hx-post="/pruefen/{{ b.id }}/zurueckstellen" hx-target="#arbeitsflaeche" hx-disabled-elt="find button" class="zurueckstellen">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="stand" value="{{ e.stand }}">
+    <input type="hidden" name="ansicht" value="{{ ansicht }}">
+    <fieldset>
+      <legend>{{ _("Zurückstellen mit Rückfrage") }}</legend>
+      <label for="rueckfrage">{{ _("Rückfrage") }} <kbd>z</kbd></label>
+      <textarea id="rueckfrage" name="text" rows="2" required data-taste="z"{{ m.feldfehler(aktion_fehler, "text") }}>{{ eingaben.get("text", "") }}</textarea>
+      <label for="an">{{ _("an (Benutzer, optional)") }}</label>
+      <input id="an" name="an" value="{{ eingaben.get('an', '') }}"{{ m.feldfehler(aktion_fehler, "an") }}>
+      <button type="submit">{{ _("Zurückstellen") }}</button>
+    </fieldset>
+  </form>
+  {% endif %}
+</div>
+{% endif %}

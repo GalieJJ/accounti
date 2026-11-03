@@ -14,7 +14,7 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 __all__ = [
     "BUNDESLAENDER",
@@ -184,7 +184,7 @@ def lade_elster(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     pfad = Path(pfad)
     if not pfad.is_file():
         return ElsterEinstellungen()
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     abschnitt = daten.get("elster") if isinstance(daten, dict) else None
     try:
         einstellungen = ElsterEinstellungen.model_validate(abschnitt or {})
@@ -224,6 +224,39 @@ def _mit_oss_konten(
             ),
         }
     )
+
+
+def lade_elster_konten(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
+    """Nur ``elster.kennziffern_konten``, ``elster.steuerrelevante_konten`` und
+    ``elster.konten_ohne_kennziffer`` (sonst die Standards), ergänzt um die OSS-Konten
+    aus ``integrationen`` (``_mit_oss_konten``) — wie die Voranmeldung die Konten
+    liest, für die Richtungsprüfung einer Korrektur. Ein Fehler anderswo im Abschnitt
+    (Bundesland, ERiC …) hält die Korrektur nicht auf; ein Fehler in diesen Angaben
+    ist ein ``KonfigurationError`` wie bei ``lade_elster``."""
+    pfad = Path(pfad)
+    if not pfad.is_file():
+        return ElsterEinstellungen()
+    daten: Any = lies_yaml(pfad)
+    abschnitt = daten.get("elster") if isinstance(daten, dict) else None
+    teil = (
+        {
+            k: abschnitt[k]
+            for k in (
+                "kennziffern_konten",
+                "steuerrelevante_konten",
+                "konten_ohne_kennziffer",
+            )
+            if k in abschnitt
+        }
+        if isinstance(abschnitt, dict)
+        else {}
+    )
+    try:
+        einstellungen = ElsterEinstellungen.model_validate(teil)
+    except ValidationError as fehler:
+        msg = f"{pfad}: {_fehlertext(fehler)}"
+        raise KonfigurationError(msg) from fehler
+    return _mit_oss_konten(einstellungen, pfad)
 
 
 def lade_oss(pfad: str | Path = STANDARD_PFAD) -> bool:

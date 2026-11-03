@@ -20,21 +20,37 @@ from accounti.models import (
 # ---------------------------------------------------------------------------
 
 # Zahlungsrichtung einer Regel: Ausgabe (Betrag < 0, Bank im Haben) oder Einnahme
-# (Betrag > 0, Bank im Soll). Ohne Richtung („beide“) prüft der Mapper die Bankseite
-# gegen das Vorzeichen (``buchung.mapper.zu_buchungssatz``).
+# (Betrag > 0, Bank im Soll) — dieselben Werte wie ``models.kontierung.Richtung`` der
+# gelernten Regeln. Ohne Richtung („beide“) prüft der Mapper die Bankseite gegen das
+# Vorzeichen (``buchung.mapper.zu_buchungssatz``).
 RICHTUNGEN = ("ausgabe", "einnahme")
 
 
+def text_muster(text: str) -> str:
+    """Regulärer Ausdruck für ein Text-Muster: wörtlich (``re.escape``), nur als ganzes
+    Wort — „Müller“ trifft nicht „Müllerstraße“. Lookarounds statt ``\\b``: das
+    Muster darf auch mit Satzzeichen beginnen oder enden. Leerraum zwischen den
+    Wörtern darf im Umsatz auch mehrfach stehen („Deutsche  Telekom“) — ohne
+    verschachtelte Wiederholung, also ohne ReDoS."""
+    woerter = r"\s+".join(re.escape(w) for w in text.split())
+    return rf"(?<!\w){woerter}(?!\w)"
+
+
 class Regel:
-    """Eine deterministische Kontierungsregel.
+    """Eine deterministische Kontierungsregel — aus der Datenbank gelernt
+    (``klassifikation.lernen``), aus der Regeldatei oder eine Standardregel.
 
     ``richtung`` (``ausgabe``/``einnahme``): Die Regel gilt nur für Umsätze dieser
-    Richtung. Eine Erstattung auf eine Ausgaberegel ist keine zweite Ausgabe, sondern
-    mindert sie samt Vorsteuer (§ 17 Abs. 1 Satz 2 UStG) — sie bekommt die Regel nur
-    als Gegenbuchung zur Prüfung (``RegelwerkEngine.gegenrichtung``).
+    Richtung (Ausgabe: Betrag negativ); ohne Angabe in beide Richtungen. Eine
+    Erstattung auf eine Ausgaberegel ist keine zweite Ausgabe, sondern mindert sie
+    samt Vorsteuer (§ 17 Abs. 1 Satz 2 UStG) — sie bekommt die Regel nur als
+    Gegenbuchung zur Prüfung (``RegelwerkEngine.gegenrichtung``).
     ``pruefen``: Treffer immer zur Prüfung, z.B. Miete (steuerfrei nach § 4 Nr. 12
-    UStG, Vorsteuer nur bei Option nach § 9 UStG) oder § 13b-Leistungen.
-    ``confidence``: Sicherheit eines Treffers (Standard 1.0 = automatisch buchen).
+    UStG, Vorsteuer nur bei Option nach § 9 UStG), § 13b-Leistungen oder gelernte
+    Regeln mit ``buchhaltung.gelernte_regeln: pruefen``.
+    ``confidence``: Sicherheit eines Treffers (Standard 1.0 = automatisch buchen;
+    unter der Schwelle von ``buchung.mapper`` nur zur Prüfung).
+    ``hinweis``: Zusatz zur Begründung (z.B. „Einstellung: prüfen“).
     """
 
     def __init__(
@@ -49,6 +65,7 @@ class Regel:
         richtung: str | None = None,
         pruefen: bool = False,
         confidence: float = 1.0,
+        hinweis: str | None = None,
     ) -> None:
         if richtung == "beide":
             richtung = None
@@ -67,9 +84,24 @@ class Regel:
         self.richtung = richtung
         self.pruefen = pruefen
         self.confidence = confidence
+        self.hinweis = hinweis
 
-    def passt(self, transaktion: Transaktion) -> bool:
-        """Prüft ob die Regel auf die Transaktion zutrifft (Text, ohne Richtung).
+    @classmethod
+    def aus_text(
+        cls, name: str, text: str, soll_konto: str, haben_konto: str, **kw: object
+    ) -> Regel:
+        """Regel aus einem Text-Muster (kein regulärer Ausdruck, ganze Wörter)."""
+        return cls(name, text_muster(text), soll_konto, haben_konto, **kw)  # type: ignore[arg-type]
+
+    def passt_richtung(self, transaktion: Transaktion) -> bool:
+        """Vorzeichen des Umsatzes passt zur Richtung der Regel (ohne Richtung oder
+        ohne Betrag: ja)."""
+        if self.richtung is None or not transaktion.betrag:
+            return True
+        return (transaktion.betrag < 0) == (self.richtung == "ausgabe")
+
+    def passt_muster(self, transaktion: Transaktion) -> bool:
+        """Das Muster trifft den Text des Umsatzes (ohne Richtung).
 
         feld="beide" durchsucht Verwendungszweck UND Gegenkonto-Name —
         nützlich, weil Banken den Händlernamen mal hier, mal dort führen.
@@ -80,17 +112,17 @@ class Regel:
             text = getattr(transaktion, self.feld, "") or ""
         return bool(self.muster.search(text))
 
-    def passt_richtung(self, transaktion: Transaktion) -> bool:
-        """Vorzeichen des Umsatzes passt zur Richtung der Regel (ohne Richtung: ja)."""
-        if self.richtung is None or not transaktion.betrag:
-            return True
-        return (transaktion.betrag < 0) == (self.richtung == "ausgabe")
+    def passt(self, transaktion: Transaktion) -> bool:
+        """Prüft ob die Regel auf die Transaktion zutrifft (Muster und Richtung)."""
+        return self.passt_muster(transaktion) and self.passt_richtung(transaktion)
 
     def ergebnis(
         self, transaktion: Transaktion, gegenrichtung: bool = False
     ) -> Klassifikationsergebnis:
         soll, haben = self.soll_konto, self.haben_konto
         begruendung = f"Regel '{self.name}' greift auf Feld '{self.feld}'"
+        if self.hinweis:
+            begruendung += f" ({self.hinweis})"
         confidence = self.confidence
         if gegenrichtung:
             soll, haben = haben, soll
@@ -111,6 +143,7 @@ class Regel:
             begruendung=begruendung,
             quelle="regelwerk",
             pruefen=self.pruefen or gegenrichtung,
+            regel=self.name,
         )
 
 
@@ -222,7 +255,7 @@ class RegelwerkEngine:
         Returns None wenn keine Regel greift.
         """
         for regel in self.regeln:
-            if regel.passt(transaktion) and regel.passt_richtung(transaktion):
+            if regel.passt(transaktion):
                 return regel.ergebnis(transaktion)
         return None
 
@@ -230,7 +263,9 @@ class RegelwerkEngine:
         """Die erste Regel, deren Muster passt, aber nicht die Richtung — als
         Gegenbuchung (Soll und Haben getauscht), immer zur Prüfung."""
         for regel in self.regeln:
-            if regel.passt(transaktion) and not regel.passt_richtung(transaktion):
+            if regel.passt_muster(transaktion) and not regel.passt_richtung(
+                transaktion
+            ):
                 return regel.ergebnis(transaktion, gegenrichtung=True)
         return None
 

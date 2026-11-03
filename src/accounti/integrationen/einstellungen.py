@@ -24,7 +24,6 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
 from accounti.konfiguration import (
@@ -32,6 +31,7 @@ from accounti.konfiguration import (
     Buchhaltung,
     KonfigurationError,
     lade_buchhaltung,
+    lies_yaml,
 )
 from accounti.steuer.eu_steuersaetze import ist_oss_land
 from accounti.steuer.umsatzsteuer import (
@@ -269,7 +269,7 @@ def _fehlertext(fehler: ValidationError) -> str:
 def _abschnitt(pfad: Path, name: str) -> Any:
     if not pfad.is_file():
         return None
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
+    daten: Any = lies_yaml(pfad)
     return daten.get(name) if isinstance(daten, dict) else None
 
 

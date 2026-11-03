@@ -548,6 +548,121 @@ def test_eigene_person_eines_vorgangs_wird_auch_gekennzeichnet(welt):
     assert ("geprueft", "chef") in eintraege
 
 
+# --- Baustein 10b: Regeln lernen ----------------------------------------------------
+
+
+def test_korrigiere_lernen_braucht_regeln_lernen_ein_code(welt, monkeypatch):
+    """``korrigiere --lernen``: buchen **und** Regeln lernen, geprüft mit **einem**
+    Einmalcode. Der freigeber hat kein buchen; ohne Lernrecht scheitert auch der
+    buchhalter (Recht per monkeypatch entzogen) — und nichts ist geändert."""
+    url, config, b, p = welt
+    befehl = ["korrigiere", kurz(b.id), "--soll", "4930", "--haben", "1200"]
+    befehl += ["--steuer", "9", "--lernen"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["chef"].codes.pop())
+    r = _run(url, config, *befehl, "--von", "chef")
+    assert r.exit_code == 1 and "chef darf" in r.output and "buchen" in r.output
+    ohne = {**ROLLEN_RECHTE}
+    ohne[Rolle.BUCHHALTER] = ROLLEN_RECHTE[Rolle.BUCHHALTER] - {Recht.REGELN_LERNEN}
+    monkeypatch.setattr("accounti.models.auth.ROLLEN_RECHTE", ohne)
+    vorher = _journal(url, "nr", "hash")
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes[-1])
+    r = _run(url, config, *befehl, "--von", "eva")
+    assert r.exit_code == 1 and "Kontierungsregeln lernen" in r.output, r.output
+    assert _journal(url, "nr", "hash") == vorher
+    monkeypatch.setattr("accounti.models.auth.ROLLEN_RECHTE", ROLLEN_RECHTE)
+    # mit beiden Rechten genügt ein Wiederherstellungscode — eine zweite Prüfung
+    # scheiterte an dem dann schon verbrauchten Code
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, *befehl, "--von", "eva")
+    assert r.exit_code == 0, r.output
+    assert "Regel gelernt" in r.output
+    vorgaenge = {v: person for v, person in _journal(url, "vorgang", "person")}
+    assert vorgaenge["regel_gelernt"] == "eva"
+
+
+def test_lerne_und_regeln_mit_recht(welt, monkeypatch):
+    url, config, b, p = welt
+    lerne = ["lerne", "--muster", "telekom", "--soll", "4920", "--haben", "1200"]
+    lerne += ["--name", "telekom"]
+    monkeypatch.setenv(
+        "ACCOUNTI_EINMALCODE", p["jan"].codes.pop() if p["jan"].codes else "1"
+    )
+    r = _run(url, config, *lerne, "--von", "jan")
+    assert r.exit_code == 1 and "jan darf" in r.output
+    r = _run(url, config, *lerne, "--von", "chef")
+    assert r.exit_code == 1 and "chef darf" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(url, config, *lerne, "--von", "eva")
+    assert r.exit_code == 0, r.output
+    r = _run(
+        url, config, "regeln", "deaktivieren", "telekom", "--grund", "x", "--von", "jan"
+    )
+    assert r.exit_code == 1 and "jan darf" in r.output
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    r = _run(
+        url,
+        config,
+        "regeln",
+        "deaktivieren",
+        "telekom",
+        "--grund",
+        "falsch",
+        "--von",
+        "eva",
+    )
+    assert r.exit_code == 0, r.output
+    r = runner.invoke(
+        app, ["regeln", "liste", "--alle", "--db", url], env={"COLUMNS": "250"}
+    )
+    assert (
+        r.exit_code == 0 and "telekom" in r.output and "aus (eva: falsch)" in r.output
+    )
+    eintraege = _journal(url, "vorgang", "person")
+    assert ("regel_gelernt", "eva") in eintraege
+    assert ("regel_deaktiviert", "eva") in eintraege
+
+
+def test_verwalter_legt_keine_regeln_an_deaktiviert_aber(welt, monkeypatch, tmp_path):
+    """Nachbesserung Technik M1 / Fach N8 (Probe d): Eine Regel bucht künftige
+    Umsätze automatisch — ``lerne`` und ``regeln uebernehmen`` verlangen wie
+    ``korrigiere --lernen`` *buchen* und *Kontierungsregeln lernen*. Der verwalter
+    (ohne buchen) legt keine Regel an, deaktivieren darf er weiter."""
+    url, config, b, p = welt
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        p["vera"] = lege_person_an(s, "vera", Rolle.VERWALTER, jetzt=datetime.now())
+    engine.dispose()
+    lerne = ["lerne", "--muster", ".", "--soll", "4980", "--haben", "1200"]
+    lerne += ["--steuer", "9", "--name", "alles"]
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(url, config, *lerne, "--von", "vera")
+    assert r.exit_code == 1 and "vera darf" in r.output and "buchen" in r.output
+    (tmp_path / "config").mkdir(exist_ok=True)
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        "- name: gelernt_alles\n  muster: '.'\n  soll_konto: '4980'\n"
+        "  haben_konto: '1200'\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(url, config, "regeln", "uebernehmen", "--von", "vera")
+    assert r.exit_code == 1 and "vera darf" in r.output
+    engine, fabrik = session_factory(url)
+    with fabrik() as s:
+        from accounti.db.repo_kontierung import lade_kontierungsregeln
+
+        assert lade_kontierungsregeln(s) == []
+    engine.dispose()
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["eva"].codes.pop())
+    assert _run(url, config, *lerne, "--von", "eva").exit_code == 0
+    monkeypatch.setenv("ACCOUNTI_EINMALCODE", p["vera"].codes.pop())
+    r = _run(
+        url, config, "regeln", "deaktivieren", "alles", "--grund", "zu breit",
+        "--von", "vera",
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+
+
 def test_anlagen_mit_benutzer_im_journal(welt, monkeypatch):
     """Gesamttest Abschluss B8: Der Betrachter schied einen Pkw unwiderruflich aus;
     jetzt bucht nur, wer buchen darf — und im Journal steht der Benutzer."""

@@ -394,26 +394,42 @@ def freigeben(
         person = freigabe.person_fuer_freigabe(von, e)
     except freigabe.LaufError as fehler:
         raise _fehler(str(fehler)) from fehler
-    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10);
-    # wer den Lauf angelegt hat, gibt ihn dann nicht frei — in der CLI immer:
-    # zahlung.ersteller_darf_freigeben käme hier aus einer frei wählbaren Datei
-    # (--config, ACCOUNTI_KONFIG, eigene Registry) und gilt nur im Browser
-    benutzer = befehlsrecht_oder_ende(db, config, Recht.ZAHLUNG_FREIGEBEN, person)
-    with geprueft_als(benutzer.name if benutzer else None), _sitzung(db) as s:
+
+    def ausfuehren(s: Session, ersteller_ausgeschlossen: bool) -> Zahlungslauf:
         _lauf_oder_ende(s, nr)
         try:
-            lauf = freigabe.freigeben(
+            return freigabe.freigeben(
                 s,
                 nr,
                 person,
                 e,
                 date.today(),
-                ersteller_ausgeschlossen=benutzer is not None,
+                ersteller_ausgeschlossen=ersteller_ausgeschlossen,
             )
         except freigabe.LaufGesperrtError as fehler:
             raise _befunde(fehler.ergebnis.zeilen(), nr) from fehler
         except freigabe.LaufError as fehler:
             raise _fehler(str(fehler)) from fehler
+
+    def probe() -> None:
+        """Erst die Fachprüfung (Lauf vorhanden, prüfbar, freigebbar) zur Probe,
+        zurückgerollt — ein Fehler kostet den Einmalcode nicht (wie im Browser;
+        Runde 4, g3w-web N2). Die Probe läuft nur mit Benutzern."""
+        with _sitzung(db) as s:
+            try:
+                ausfuehren(s, True)
+            finally:
+                s.rollback()
+
+    # mit eingerichteten Benutzern: Rolle freigeber und Einmalcode (Baustein 10);
+    # wer den Lauf angelegt hat, gibt ihn dann nicht frei — in der CLI immer:
+    # zahlung.ersteller_darf_freigeben käme hier aus einer frei wählbaren Datei
+    # (--config, ACCOUNTI_KONFIG, eigene Registry) und gilt nur im Browser
+    benutzer = befehlsrecht_oder_ende(
+        db, config, Recht.ZAHLUNG_FREIGEBEN, person, vorab=probe
+    )
+    with geprueft_als(benutzer.name if benutzer else None), _sitzung(db) as s:
+        lauf = ausfuehren(s, benutzer is not None)
         s.commit()
     if lauf.status is LaufStatus.FREIGEGEBEN:
         _zeile(

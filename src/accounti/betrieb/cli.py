@@ -32,8 +32,43 @@ class Wurzelgruppe(TyperGroup):
     Betrieb B11)."""
 
     def invoke(self, ctx: Any) -> Any:
+        from sqlalchemy.exc import OperationalError, ProgrammingError
+
         ctx.meta[ARGUMENTE] = _rest(ctx)
-        return super().invoke(ctx)
+        try:
+            return super().invoke(ctx)
+        except (OperationalError, ProgrammingError) as fehler:
+            # eine Tabelle oder Spalte dieses Codes fehlt: die Datenbank ist nicht
+            # migriert — Hinweis statt Traceback, für jeden Befehl (gw-migration N-3)
+            grund = schema_fehlt(fehler)
+            if grund is None:
+                raise
+            console.print(
+                f"[red]Datenbankfehler: {escape(grund)} — die Datenbank ist nicht "
+                "auf dem Stand dieser Version: zuerst 'accounti db upgrade' (mit "
+                "derselben --db bzw. -g; docs/betrieb.md, Upgrades). Ist es nicht "
+                "die Datenbank von accounti, --db prüfen.[/red]",
+                soft_wrap=True,
+            )
+            raise typer.Exit(1) from fehler
+
+
+# SQLSTATE fehlende Spalte bzw. Tabelle (PostgreSQL)
+_SCHEMA_SQLSTATE = frozenset({"42703", "42P01"})
+
+
+def schema_fehlt(fehler: Exception) -> str | None:
+    """Die Meldung der Datenbank, wenn sie eine Tabelle oder Spalte nicht kennt
+    (SQLite „no such column/table“, PostgreSQL SQLSTATE 42703/42P01) — sonst
+    ``None``."""
+    ursache = getattr(fehler, "orig", None) or fehler
+    text = (str(ursache).strip().splitlines() or [""])[0]
+    zustand = getattr(ursache, "sqlstate", None) or getattr(ursache, "pgcode", None)
+    if zustand in _SCHEMA_SQLSTATE:
+        return text
+    if text.startswith(("no such column", "no such table")):
+        return text
+    return None
 
 
 def _rest(ctx: Any) -> list[str]:
