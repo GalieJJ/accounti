@@ -229,3 +229,83 @@ def test_pruefregel_kennt_die_elster_konten(make_session, tmp_path):
     )  # fmt: skip
     text = " ".join(r.output.split())
     assert "1 Befunde" in text and "│ 95,00 │" in text, text
+
+
+# --- G8R-3: Nebenbuchung nur für Zahlung, Erstattung, Verrechnung --------------------
+
+# Ausgangsrechnung 1000 €: 500 € zu 19 %, 500 € Auslage ohne Umsatzsteuer
+ZWEI_TEILE = [("Ware", "500.00", "19", "95.00"), ("Auslage", "500.00", None, None)]
+
+
+def _nebenbuchung(make_session, buchung_id) -> bool:  # noqa: ANN001
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+    from accounti.konfiguration import Buchhaltung
+
+    with make_session() as s:
+        b = st._lade(s, str(buchung_id))
+        plan = st.kontenplan(s, Buchhaltung(), None)
+        kr = st.mit_eingerichteten_konten(lade_kontenrahmen(), s)
+        return st.richtungsbezug(s, b, plan, kr, Buchhaltung()).nebenbuchung
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize(
+    ("rechnung", "teil", "ziel"),
+    [
+        # N1: zweiter Teil der Rechnung auf dem durchlaufenden Posten
+        (("10001", "8400"), ("10001", "1590"), ("8736", "1590")),
+        (("10001", "8400"), ("10001", "1590"), ("8200", "1590")),
+        # N3: Barverkauf, zweiter Teil auf 1590
+        (("1000", "8400"), ("1000", "1590"), ("8736", "1590")),
+    ],
+    ids=["N1_8736", "N1_8200", "N3_barverkauf"],
+)
+def test_rechnungsteil_auf_zwei_gegenkonten_ist_keine_nebenbuchung(
+    make_session, status, rechnung, teil, ziel
+):
+    """G8R-3 (t3_neben.py N1, N3): Ein Teil der Rechnung bucht Debitor bzw. Kasse auf
+    derselben Seite wie die Rechnungsbuchung — keine Zahlung. Aus ihm wird keine
+    Erlösschmälerung mit Umsatzsteuer: Die Seite der Ausgangsrechnung gilt (wie
+    Runde 7), Kz 81 bleibt."""
+    bel = _beleg("AR", netto="1000.00", positionen=ZWEI_TEILE)
+    r = _buchung(bel, *rechnung, 3, "95.00")
+    z = _buchung(bel, *teil, status=status)
+    anlegen(make_session, bel, r, z)
+    assert not _nebenbuchung(make_session, z.id)
+    optionen = {"steuer": 3} if ziel[0] == "8736" else {}
+    with pytest.raises(StornoError) as fehler:
+        _korrigiere(make_session, z.id, *ziel, **optionen)
+    assert "die Ausgangsrechnung bucht ihr Erfolgskonto" in fehler.value.meldung
+    assert _kennziffern(make_session).get(81) == D("500.00")
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize("ziel", [("10001", "8400"), ("1200", "8400")])
+def test_auszahlung_einer_gutschrift_wird_kein_erloes(make_session, status, ziel):
+    """G8R-3 (t3_neben.py N5): Die Auszahlung einer Gutschrift ist eine Nebenbuchung —
+    aber eine Korrektur, die ihr ein Erlöskonto mit Steuer gibt, das kein
+    Minderungskonto ist, misst weiter an der Gutschrift (Erlös im Soll)."""
+    bel = _beleg(
+        "AR", netto="-500.00", steuer="-95.00",
+        positionen=[("Gutschrift", "-500.00", "19", "-95.00")],
+    )  # fmt: skip
+    r = _buchung(bel, "8400", "10001", 3, "95.00")
+    z = _buchung(bel, "10001", "1200", netto="595.00", status=status)
+    anlegen(make_session, bel, r, z)
+    assert _nebenbuchung(make_session, z.id)
+    with pytest.raises(StornoError) as fehler:
+        _korrigiere(make_session, z.id, *ziel, steuer=3)
+    assert "Gutschrift" in fehler.value.meldung
+    assert _kennziffern(make_session) == {81: D("-500.00")}
+
+
+def test_zahlung_zur_eingangsrechnung_wird_erhaltenes_skonto(make_session):
+    """Gegenprobe (t3_neben.py N6, R7-2): „70001 an 1200 → 70001 an 3736, Schlüssel 9“
+    bleibt erlaubt — eine Zahlung steht auf der Gegenseite der Rechnung."""
+    bel = _beleg("ER")
+    r = _buchung(bel, "4930", "70001", 9, "95.00")
+    z = _buchung(bel, "70001", "1200", netto="595.00")
+    anlegen(make_session, bel, r, z)
+    assert _nebenbuchung(make_session, z.id)
+    k = _korrigiere(make_session, z.id, "70001", "3736", steuer=9)
+    assert k.neu is not None and k.neu.haben_konto == "3736"

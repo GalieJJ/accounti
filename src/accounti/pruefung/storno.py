@@ -16,7 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
@@ -691,6 +691,48 @@ def _neben_der_rechnung(
     )
 
 
+def _gegen_die_rechnung(
+    x: Buchungssatz, rechnung: Buchungssatz, plan: Kontenplan, kr: Kontenrahmen
+) -> bool:
+    """Zahlt, erstattet oder verrechnet ``x`` die Rechnungsbuchung? Sie bucht ein Geld-
+    oder Personenkonto auf der Seite, auf der die Rechnung ihr Sachkonto bucht — der
+    Gegenseite von deren Debitor, Kreditor bzw. Kasse („1200 an 10001“, „1590 an 10001“
+    zu „10001 an 8400“; „1200 an 70001“ zu „4930 an 70001“). Ein Teil der Rechnung auf
+    zwei Gegenkonten bucht es auf derselben Seite wie sie („10001 an 1590“ neben „10001
+    an 8400“, Barverkauf „1000 an 1590“ neben „1000 an 8400“) — keine Nebenbuchung
+    (Folgepaket F, g8w G8R-3)."""
+    seite = sachseite_aus_konten(rechnung.soll_konto, rechnung.haben_konto, plan)
+    if seite is None:
+        return False
+    konto = x.soll_konto if seite == "soll" else x.haben_konto
+    return (
+        kr.ist_geldkonto(konto)
+        or plan.ist_personenkonto(konto)
+        or konto in plan.geldkonten
+    )
+
+
+def _bleibt_nebenbuchung(
+    soll: str,
+    haben: str,
+    schluessel: int | None,
+    plan: Kontenplan,
+    skontokonten: frozenset[str],
+) -> bool:
+    """Bleibt eine Nebenbuchung nach der Korrektur Zahlung, Erstattung, Verrechnung oder
+    Minderung? Ein Erlös- bzw. Aufwandskonto mit Steuerschlüssel, das weder Gegen- noch
+    Minderungskonto ist, macht aus ihr eine Rechnungsbuchung — für sie gelten Beleg-
+    Rückfall und N2 wie für jede (g8w G8R-3, t3 N5: Auszahlung einer Gutschrift
+    „10001 an 1200 → 10001 an 8400, Schlüssel 3“). Ohne Schlüssel bleibt sie eine
+    Minderung („1200 an 70001 → 1200 an 4930“, Runde 8: g7w R7-2 C2)."""
+    if schluessel is None:
+        return True
+    return all(
+        plan.ist_gegenkonto(k) or _minderungskonto(k, plan, skontokonten)
+        for k in (soll, haben)
+    )
+
+
 def richtungsbezug(
     session: Session,
     b: Buchungssatz,
@@ -699,9 +741,11 @@ def richtungsbezug(
     buchhaltung: Buchhaltung | None = None,
 ) -> Richtungsbezug:
     """Mit ``plan`` und ``kr`` nur die Stände seit einem früheren Richtungswechsel
-    (``_seit_richtungswechsel``) und die Erkennung einer Nebenbuchung: Jeder Stand der
-    Kette ist ``_neben_der_rechnung``, und eine andere wirksame Buchung des Belegs bucht
-    die Rechnung — fehlt sie, kann die Buchung selbst die (geparkte) Rechnung sein."""
+    (``_seit_richtungswechsel``) und die Erkennung einer Nebenbuchung: Eine andere
+    wirksame Buchung des Belegs bucht die Rechnung, und jeder Stand der Kette ist
+    ``_neben_der_rechnung`` und zahlt, erstattet oder verrechnet sie
+    (``_gegen_die_rechnung``) — fehlt die Rechnungsbuchung, kann die Buchung selbst die
+    (geparkte) Rechnung sein, steht sie auf derselben Seite, ein Teil von ihr."""
     from accounti.db.repository import lade_buchungen_zu
 
     eigene = lade_buchungen_zu(session, beleg_id=b.beleg_id) if b.beleg_id else []
@@ -719,9 +763,15 @@ def richtungsbezug(
         if (s := _schluessel_des_stands(x)) not in schon:
             schon.add(s)
             frueher.append(x)
-    neben = all(_neben_der_rechnung(x, plan, skonto) for x in (b, *frueher)) and any(
-        ist_wirksam(x) and x.id != b.id and not _neben_der_rechnung(x, plan, skonto)
+    rechnungen = [
+        x
         for x in eigene
+        if ist_wirksam(x) and x.id != b.id and not _neben_der_rechnung(x, plan, skonto)
+    ]
+    neben = bool(rechnungen) and all(
+        _neben_der_rechnung(x, plan, skonto)
+        and any(_gegen_die_rechnung(x, r, plan, kr) for r in rechnungen)
+        for x in (b, *frueher)
     )
     return Richtungsbezug(b, tuple(frueher), beleg, tuple(eigene), neben, skonto)
 
@@ -1415,6 +1465,21 @@ def korrigiere(
     bezug = (
         richtungsbezug(session, b, plan, kr, buchhaltung) if plan is not None else None
     )
+    if (
+        plan is not None
+        and bezug is not None
+        and bezug.nebenbuchung
+        and not _bleibt_nebenbuchung(
+            soll,
+            haben,
+            None
+            if ohne_steuer
+            else (b.steuer_schluessel if steuer is None else steuer),
+            plan,
+            bezug.skontokonten,
+        )
+    ):
+        bezug = replace(bezug, nebenbuchung=False)
     if (
         plan is not None
         and bezug is not None
