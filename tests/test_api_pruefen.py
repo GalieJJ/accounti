@@ -762,3 +762,46 @@ def test_steuerauswahl_erloes_auf_quittung(qw):
     )  # fmt: skip
     werte, seite = optionen(aufwand)
     assert werte == ["", "3", "9", "ohne"] and "Fehlschlüssel" in seite
+
+
+@pytest.mark.parametrize(
+    ("bereiche", "erloes", "erwartet"),
+    [
+        # erweitert: 2700 ist Erlöskonto der Voranmeldung → § 14c, nur Schlüssel 3
+        ("['2700-2759', '8000-8959']", "2700", ["", "3"]),
+        # eingeschränkt: 8200 ist keines → Fehlschlüssel, laut Beleg 9, ohne Steuer
+        ("['8400-8499']", "8200", ["", "3", "9", "ohne"]),
+    ],
+    ids=["erweitert", "eingeschraenkt"],
+)
+def test_steuerauswahl_mit_den_elster_konten(qw, bereiche, erloes, erwartet):
+    """G8R-2 (g8w, t2_elster_auswahl.py): Queue und /buchungen bildeten den Kontenplan
+    ohne ``elster.steuerrelevante_konten`` — die Auswahl bot an, was die Korrektur
+    ablehnte (bzw. verbarg, was sie zuließ). Jetzt mit denselben Konten wie
+    ``korrigiere``."""
+    pfad = qw.web.umgebung.config["a"]
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8")
+        + f"elster:\n  steuerrelevante_konten: {bereiche}\n",
+        encoding="utf-8",
+    )
+    client = qw.web.angemeldet("jan")
+    beleg = qw.beleg(pdf("Kassenbon"), belegart=Belegart.QUITTUNG, belegnummer="Q")
+    vorschlag = qw.buchung(
+        beleg_id=beleg.id, soll="1000", haben=erloes, steuer_schluessel=3,
+        datum=date(2026, 10, 2),
+    )  # fmt: skip
+    frei = qw.buchung(
+        beleg_id=beleg.id, soll="1000", haben=erloes, steuer_schluessel=3,
+        datum=date(2026, 10, 3), status=BuchungStatus.GEPRUEFT,
+    )  # fmt: skip
+    for url in (f"/pruefen/{vorschlag.id}", f"/buchungen/{frei.id}"):
+        seite = client.get(url).text
+        auswahl = re.search(r'<select id="steuer".*?</select>', seite, re.S)
+        assert auswahl is not None, url
+        werte = re.findall(r'<option value="([^"]*)"', auswahl.group(0))
+        assert werte == erwartet, (url, werte)
+    # der Hinweis der Arbeitsfläche (/buchungen zeigt ihn nicht)
+    seite = client.get(f"/pruefen/{vorschlag.id}").text
+    assert ("Fehlschlüssel" in seite) == ("ohne" in erwartet)
+    assert ("§ 14c Abs. 1" in seite) == ("ohne" not in erwartet)

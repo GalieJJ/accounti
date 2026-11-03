@@ -192,3 +192,40 @@ def test_erloes_im_soll_eines_negativen_belegs_ist_ausgewiesen(make_session):
     with pytest.raises(StornoError):
         _korrigiere(make_session, b.id, "8400", "1000", ohne_steuer=True, grund="x")
     assert _wirksam(make_session, bel.id)[0].steuer_schluessel == 3
+
+
+# --- G8R-2: dieselben Konten in Auswahl, Korrektur, Storno und Prüfregel -------------
+
+
+def test_pruefregel_kennt_die_elster_konten(make_session, tmp_path):
+    """G8R-2 (t2b_regel.py): Mit ``elster.steuerrelevante_konten`` ['2700-2759',
+    '8000-8959'] ist „1000 an 2700, Schlüssel 3“ auf einer Quittung ein Erlös — das
+    Storno warnt nach § 14c, und ``accounti pruefen --regel beleg_ust_ohne_buchung``
+    mit derselben Konfiguration meldet denselben Betrag (vorher: keine Befunde)."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from tests.pruefung_hilfe import db_url
+
+    bereiche = ["2700-2759", "8000-8959"]
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        "buchhaltung:\n  kontenrahmen: SKR03\n"
+        f"elster:\n  steuerrelevante_konten: {bereiche}\n",
+        encoding="utf-8",
+    )
+    bel = _beleg("Q")
+    b = _buchung(bel, "1000", "2700", 3, "95.00")
+    anlegen(make_session, bel, b)
+    warnungen = _storniere(
+        make_session, b.id, elster=ElsterEinstellungen(steuerrelevante_konten=bereiche)
+    )
+    assert any("95,00 € Umsatzsteuer" in w for w in warnungen), warnungen
+    r = CliRunner().invoke(
+        app,
+        ["pruefen", "--db", db_url(tmp_path), "--config", str(konfig),
+         "--regel", "beleg_ust_ohne_buchung"],
+    )  # fmt: skip
+    text = " ".join(r.output.split())
+    assert "1 Befunde" in text and "│ 95,00 │" in text, text

@@ -26,7 +26,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from functools import cached_property
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from pydantic import BaseModel, ValidationError
@@ -45,6 +45,9 @@ from accounti.models import (
 )
 from accounti.models.pruefung import Befund, Kategorie, Schwere
 from accounti.pruefung.einstellungen import PruefEinstellungen
+
+if TYPE_CHECKING:
+    from accounti.elster.konfiguration import ElsterEinstellungen
 
 _ZEITRAUM = re.compile(r"^(\d{4})(?:-(0[1-9]|1[0-2]))?$")
 
@@ -103,6 +106,9 @@ class Kontext:
     firma_steuernummer: str | None = None
     archiv: BelegArchiv | None = None
     ocr: OCREngine | None = None
+    # Funktionskonten und steuerrelevante Konten der Voranmeldung (``elster``) — wie
+    # Korrektur und Storno (``storno.kontenplan``); None: die Standards
+    elster: ElsterEinstellungen | None = None
 
     def im_zeitraum(self, tag: date | None) -> bool:
         if tag is None:

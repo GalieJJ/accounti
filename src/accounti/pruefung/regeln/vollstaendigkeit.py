@@ -384,7 +384,8 @@ class BelegUstOhneBuchung:
     NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos einer Buchung mit
     ausgewiesener Umsatzsteuer (Schlüssel 2, 3 auf der Seite einer Rechnung) — dort
     fehlt die Steuer; ein späteres Storno der Zahlung verschiebt die Meldung nicht
-    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal."""
+    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal. Die Konten sind die der
+    Voranmeldung (``Kontext.elster``) wie beim Storno (Folgepaket F, g8w G8R-2)."""
 
     name = "beleg_ust_ohne_buchung"
     kategorie = Kategorie.VOLLSTAENDIGKEIT
@@ -411,7 +412,7 @@ class BelegUstOhneBuchung:
         for x in k.buchungen:
             if x.beleg_id is not None:
                 je_beleg[x.beleg_id].append(x)
-        plan = kontenplan(k.session, k.buchhaltung, None)
+        plan = kontenplan(k.session, k.buchhaltung, k.elster)
         gemeldet: set[UUID] = set()
         befunde = []
         for beleg_id, liste in je_beleg.items():
