@@ -228,3 +228,17 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {% macro schritte(schritte, aktuell) -%}
 <nav class="schritte" aria-label="{{ _("Schritte") }}"><p class="schritte-stand">{{ _("Schritt %(n)s von %(m)s", n=aktuell, m=schritte | length) }}</p><progress class="fortschritt" value="{{ aktuell }}" max="{{ schritte | length }}" aria-hidden="true"></progress><ol class="schritte-liste">{% for titel in schritte %}{% if loop.index < aktuell %}<li class="schritt schritt-erledigt">{{ symbol("check") }}{{ titel }}<span class="unsichtbar"> ({{ _("erledigt") }})</span></li>{% elif loop.index == aktuell %}<li class="schritt schritt-aktuell" aria-current="step"><span class="schritt-ring" aria-hidden="true"></span>{{ titel }}</li>{% else %}<li class="schritt schritt-offen"><span class="schritt-kreis" aria-hidden="true"></span>{{ titel }}</li>{% endif %}{% endfor %}</ol></nav>
 {%- endmacro %}
+
+{#- Bestätigung (Aufruf) vor einer folgenreichen Aktion: Titel, Inhalt, Knopf und
+    Abbrechen; steht in einem Formular des Aufrufers. -#}
+{% macro bestaetigung(titel, knopf, abbrechen_href, art="primaer") -%}
+<div class="bestaetigung" role="group" aria-label="{{ titel }}"><p class="bestaetigung-titel"><strong>{{ titel }}</strong></p>{{ caller() }}<div class="knopfreihe">{{ _knopf_von_bestaetigung(knopf, art) }}{{ linkknopf(_("Abbrechen"), abbrechen_href, art="still") }}</div></div>
+{%- endmacro %}
+
+{%- macro _knopf_von_bestaetigung(text, art) -%}{{ knopf(text, art=art) }}{%- endmacro -%}
+
+{#- Ladeanzeige: Text mit stehendem Symbol, sichtbar während einer htmx-Anfrage
+    (htmx-request am Ziel oder Vorfahren), eingeblendet über die Deckkraft. -#}
+{% macro ladeanzeige(text=none) -%}
+<p class="ladeanzeige">{{ symbol("loader-circle", groesse=16) }}{{ text or _("Wird geladen …") }}</p>
+{%- endmacro %}

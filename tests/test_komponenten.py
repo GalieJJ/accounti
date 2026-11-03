@@ -510,3 +510,19 @@ def test_schritte_mit_progress_und_aria_current_step():
     assert html.count("schritt-erledigt") == 2 and html.count("schritt-offen") == 1
     assert "(erledigt)" in html
     assert "Step 1 of 2" in render('{{ k.schritte(["a", "b"], 1) }}', sprache="en")
+
+
+def test_bestaetigung_und_ladeanzeige():
+    html = render(
+        '{% call k.bestaetigung("Wirklich stornieren?", "Stornieren", "/buchungen/1",'
+        ' art="gefaehrlich") %}<p>Die Buchung wird gegengebucht.</p>{% endcall %}'
+    )
+    assert 'role="group" aria-label="Wirklich stornieren?"' in html
+    assert (
+        '<button type="submit" class="knopf knopf-gefaehrlich">Stornieren</button>'
+        in html
+    )
+    assert '<a class="knopf knopf-still" href="/buchungen/1">Abbrechen</a>' in html
+    lade = render("{{ k.ladeanzeige() }}")
+    assert lade.startswith('<p class="ladeanzeige">') and "#loader-circle" in lade
+    assert "Wird geladen …" in lade and "role=" not in lade

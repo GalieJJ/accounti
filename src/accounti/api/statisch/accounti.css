@@ -674,6 +674,20 @@
   .schritt-ring, .schritt-kreis { flex: none; width: 1.125rem; height: 1.125rem; border-radius: var(--radius-rund); }
   .schritt-ring { border: 5px solid var(--akzent); }
   .schritt-kreis { border: 2px solid var(--linie-stark); }
+  /* Bestätigung und Ladeanzeige (steht still, A100) */
+  .bestaetigung {
+    display: flex;
+    flex-direction: column;
+    gap: var(--a-3);
+    padding: var(--a-4);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie-stark);
+    border-radius: var(--radius-karte);
+  }
+  .bestaetigung-titel { margin: 0; }
+  .knopfreihe { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-3); }
+  .ladeanzeige { display: inline-flex; align-items: center; gap: var(--a-2); margin: 0; color: var(--text-2); opacity: 0; transition: opacity 120ms; }
+  .htmx-request .ladeanzeige, .htmx-request.ladeanzeige { opacity: 1; }
 }
 
 @layer hilfen {
