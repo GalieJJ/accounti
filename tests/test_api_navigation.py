@@ -3,6 +3,7 @@ Rolle aus der Registry, Zähler über den Lesezugriff — nur für ganze Seiten.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -265,3 +266,80 @@ def test_keine_zaehler_auf_fehlerseiten(welt):
     assert aufrufe == []
     assert client.get("/").status_code == 200
     assert aufrufe == [1]
+
+
+# --- /menue (Plan P1, Schritt 8) ---------------------------------------------------
+
+
+def _gruppen(html: str) -> list[tuple[str, str]]:
+    """(Etikett, Inhalt der Gruppenliste) je Abschnitt von /menue."""
+    inhalt = html[html.index('<main id="inhalt"') : html.index("</main>")]
+    return [
+        (m.group(1).strip(), m.group(2))
+        for m in re.finditer(
+            r'<h2 class="etikett"[^>]*>(.*?)</h2>\s*'
+            r'<ul class="gruppenliste[^"]*">(.*?)</ul>',
+            inhalt,
+            re.S,
+        )
+    ]
+
+
+def test_menue_ohne_js(qw):
+    qw.web.rolle("fritz", "b", Rolle.BETRACHTER)
+    html = qw.web.angemeldet("fritz").get("/menue").text
+    (_, bereiche), (_, gesellschaften), (_, konto) = _gruppen(html)
+    assert re.findall(r'<a href="([^"]+)"', bereiche) == ["/", "/pruefen", "/freigaben"]
+    assert ">2<" in bereiche and ">1<" in bereiche  # Zähler Prüfen, Freigaben
+    assert 'aria-current="page"' not in bereiche  # /menue ist kein Bereich
+    assert gesellschaften.count('action="/gesellschaft"') == 1  # die andere
+    assert (
+        'name="csrf"' in gesellschaften and 'name="kuerzel" value="b"' in gesellschaften
+    )
+    assert "aktiv" in gesellschaften
+    assert 'id="konto"' in html
+    assert 'href="/konto"' in konto and "Hilfe" in konto
+    assert 'action="/abmelden"' in konto and "Abmelden" in konto
+    assert "<script" not in html[html.index("<body") :]
+
+
+def test_menue_einstellungen_und_freigaben_nur_mit_recht(welt):
+    stub = Navigationspunkt(
+        N_("Einstellungen"),
+        "/einstellungen",
+        Bereich.EINSTELLUNGEN,
+        "settings",
+        Recht.VERWALTEN,
+    )
+    for name, freigaben, einstellungen in (
+        ("verwalter", False, True),
+        ("freigeber", True, False),
+        ("buchhalter", False, False),
+    ):
+        client = welt.client()
+        client.app.state.navigation = [*client.app.state.navigation, stub]
+        welt.anmelden(client, name)
+        (_, bereiche), *_ = _gruppen(client.get("/menue").text)
+        assert ('href="/freigaben"' in bereiche) is freigaben, name
+        assert ('href="/einstellungen"' in bereiche) is einstellungen, name
+
+
+def test_menue_fragment_mit_hx_request(welt):
+    client = welt.angemeldet("buchhalter")
+    teil = client.get("/menue", headers={"HX-Request": "true"})
+    assert teil.status_code == 200 and "<html" not in teil.text
+    assert 'id="konto"' in teil.text and 'class="kopfleiste' not in teil.text
+    assert "<html" in client.get("/menue").text
+
+
+def test_menue_gruppen_wie_leinwand(qw):
+    qw.web.rolle("fritz", "b", Rolle.BETRACHTER)
+    html = qw.web.angemeldet("fritz").get("/menue").text
+    etiketten = [e for e, _ in _gruppen(html)]
+    assert etiketten[0] == "Bereiche" and etiketten[1] == "Gesellschaft"
+    assert etiketten[2].startswith("Mein Konto") and "fritz" in etiketten[2]
+    (_, _), (_, gesellschaften), _ = _gruppen(html)
+    marke = r'class="marke marke-[1-6] marke-klein"[^>]*>.*?>([A-Z0-9]{2})<'
+    marken = re.findall(marke, gesellschaften)
+    assert marken == ["AP", "BR"]
+    assert "chevron-right" in html

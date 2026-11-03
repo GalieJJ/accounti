@@ -57,6 +57,9 @@ SEITEN: dict[tuple[str, str], object] = {
     # Baustein 10c P1: Musterseite
     ("GET", "/muster"): Recht.LESEN,
     ("GET", "/muster/beispiel"): Recht.LESEN,
+    # Schritt 8: „Mehr“ und Gesellschaft wechseln
+    ("GET", "/menue"): ANGEMELDET,
+    ("GET", "/gesellschaft"): ANGEMELDET,
 }
 # Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
 # Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)

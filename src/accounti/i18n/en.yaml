@@ -24,6 +24,16 @@ Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — p
 Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
 "Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
 "Gesellschaft wechseln:": "Switch company:"
+Gesellschaft: Company
+Gesellschaft wechseln: Switch company
+"Die aktive Gesellschaft gilt für alle Seiten. Die Zahlen zeigen offene Vorschläge und Freigaben, soweit Ihre Rolle dort sie sieht.": "The active company applies to every page. The numbers show open proposals and approvals, as far as your role there can see them."
+Wechseln zu: Switch to
+aktiv: active
+nicht erreichbar: not reachable
+"%(anzahl)s zu prüfen": "%(anzahl)s to review"
+"%(num)s Freigabe":
+  one: "%(num)s approval"
+  other: "%(num)s approvals"
 Zum Inhalt springen: Skip to content
 Hilfe: Help
 Mein Konto: My account

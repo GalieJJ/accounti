@@ -1,0 +1,10 @@
+{#- Gesellschaft wechseln (/gesellschaft): alle Gesellschaften mit Rolle, mit Zählern. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _("Gesellschaft wechseln") }}{% endblock %}
+{% block inhalt %}
+<div class="menue">
+<h1>{{ _("Gesellschaft wechseln") }}</h1>
+<p class="menue-hinweis">{{ _("Die aktive Gesellschaft gilt für alle Seiten. Die Zahlen zeigen offene Vorschläge und Freigaben, soweit Ihre Rolle dort sie sieht.") }}</p>
+{% include "_gesellschaften_liste.html" %}
+</div>
+{% endblock %}

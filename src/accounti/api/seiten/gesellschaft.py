@@ -1,17 +1,30 @@
-"""Gesellschaft wechseln — die Sitzung trägt die aktive Gesellschaft."""
+"""Gesellschaft wechseln — die Sitzung trägt die aktive Gesellschaft.
+
+``GET /gesellschaft`` (Baustein 10c, Plan P1 Schritt 8) zeigt die Gesellschaften mit
+Rolle samt Marke und Zählern (über den Lesezugriff, mit Frist; eine nicht erreichbare
+steht als „nicht erreichbar“ da); gewechselt wird mit ``POST /gesellschaft``."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from accounti.api.formular import formular
+from accounti.api.geruest import gesellschaften_mit_zaehlern
 from accounti.api.sitzung import AngemeldetDep, dienste_von
+from accounti.api.vorlagen import seite
 from accounti.auth.dienst import ereignis, wechsle_gesellschaft
-from accounti.i18n import Text
+from accounti.i18n import N_, Text
 
 router = APIRouter()
+
+
+@router.get("/gesellschaft", response_class=HTMLResponse)
+async def liste(request: Request, a: AngemeldetDep) -> HTMLResponse:
+    zeilen = await gesellschaften_mit_zaehlern(request, a)
+    werte = {"titel": N_("Gesellschaft wechseln"), "zeilen": zeilen}
+    return await seite(request, "gesellschaften.html", werte, teil="inhalt")
 
 
 @router.post("/gesellschaft")

@@ -146,11 +146,11 @@ async def zaehle(
     lesezugriff: Lesezugriff,
     url: str,
     funktionen: Mapping[str, Zaehler],
-    frist: float = FRIST,
+    frist: float | None = None,
 ) -> dict[str, int] | None:
     """Alle ``funktionen`` mit **einer** Sitzung in **einem** Aufruf des Pools.
-    ``None``: Datenbank nicht erreichbar oder Frist abgelaufen; ein einzelner Zähler,
-    der scheitert, fehlt nur im Ergebnis."""
+    ``None``: Datenbank nicht erreichbar oder Frist abgelaufen (Standard ``FRIST``);
+    ein einzelner Zähler, der scheitert, fehlt nur im Ergebnis."""
 
     def lauf() -> dict[str, int]:
         ergebnis: dict[str, int] = {}
@@ -166,7 +166,9 @@ async def zaehle(
         return ergebnis
 
     try:
-        return await asyncio.wait_for(lesezugriff.ausfuehren(lauf), frist)
+        return await asyncio.wait_for(
+            lesezugriff.ausfuehren(lauf), FRIST if frist is None else frist
+        )
     except TimeoutError:
         FEHLER.warning("Zähler nicht verfügbar (Zeitüberschreitung)")
     except Exception as fehler:  # noqa: BLE001 - nur die Zahlen fehlen

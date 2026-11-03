@@ -50,6 +50,7 @@ def test_akzeptanz_5_wechsel_aendert_alle_ansichten(welt):
         in (start.text)
     )
     assert "Beta Rahmen KG" not in start.text
+    assert "Beta Rahmen KG" in client.get("/gesellschaft").text  # dort die Auswahl
     r = client.post(
         "/gesellschaft",
         data={"csrf": csrf(client), "kuerzel": "b"},
@@ -144,3 +145,153 @@ def test_eigene_konfiguration_je_gesellschaft(welt):
         r = client.post("/freigaben/zahlungslauf/1", data=daten)
         assert r.status_code == 200, r.text
         assert erwartet in r.text, kuerzel
+
+
+# --- /gesellschaft (Plan P1, Schritt 8) -------------------------------------------
+
+
+def _zeilen(html: str) -> dict[str, str]:
+    """Kürzel → HTML der Zeile in der Liste der Gesellschaften."""
+    import re
+
+    liste = html[html.index('<ul class="gruppenliste gesellschaften"') :]
+    liste = liste[: liste.index("</ul>")]
+    return {
+        m.group(1): m.group(0)
+        for m in re.finditer(
+            r'<li data-gesellschaft="([a-z0-9_-]+)">.*?</li>', liste, re.S
+        )
+    }
+
+
+def _vorschlaege(welt, kuerzel: str, anzahl: int) -> None:  # noqa: ANN001
+    from datetime import date
+
+    from tests.pruefen_hilfe import Queuewelt
+
+    qw = Queuewelt(welt, welt.umgebung.wurzel)
+    for tag in range(1, anzahl + 1):
+        qw.buchung(kuerzel=kuerzel, datum=date(2026, 10, tag))
+
+
+def test_gesellschaftsseite_nur_mit_rolle(welt):
+    jan = welt.angemeldet("jan")
+    zeilen = _zeilen(jan.get("/gesellschaft").text)
+    assert set(zeilen) == {"a", "b"}
+    assert "aktiv" in zeilen["a"] and 'action="/gesellschaft"' in zeilen["b"]
+    assert 'name="kuerzel" value="b"' in zeilen["b"]
+    ole = welt.angemeldet("ole")
+    html = ole.get("/gesellschaft").text
+    assert set(_zeilen(html)) == {"a"} and "Beta Rahmen KG" not in html
+    assert welt.client().get("/gesellschaft", follow_redirects=False).status_code == 303
+
+
+def test_zaehler_je_gesellschaft(welt):
+    _vorschlaege(welt, "a", 2)
+    _vorschlaege(welt, "b", 3)
+    zeilen = _zeilen(welt.angemeldet("jan").get("/gesellschaft").text)
+    assert "2 zu prüfen" in zeilen["a"] and "3 zu prüfen" in zeilen["b"]
+
+
+def test_freigaben_zahl_nur_mit_freigaberecht(welt):
+    from tests.gesellschaft_hilfe import zahlungslauf
+
+    zahlungslauf(welt.umgebung, "a")
+    zahlungslauf(welt.umgebung, "b")
+    welt.rolle("ole", "b", Rolle.BETRACHTER)  # in b ohne Freigaberecht
+    zeilen = _zeilen(welt.angemeldet("ole").get("/gesellschaft").text)
+    assert "1 Freigabe" in zeilen["a"] and "Freigabe" not in zeilen["b"]
+    assert "0 zu prüfen" in zeilen["b"]
+    jan = _zeilen(welt.angemeldet("jan").get("/gesellschaft").text)
+    assert "Freigabe" not in jan["a"] + jan["b"]
+
+
+def test_nicht_erreichbare_gesellschaft_bricht_die_seite_nicht(
+    welt, monkeypatch, caplog
+):
+    from accounti.api import geruest
+
+    echte = geruest.zaehle
+
+    async def kaputt(lesezugriff, url, funktionen, frist=None):  # noqa: ANN001, ANN202
+        if url == welt.umgebung.db["b"]:
+            raise RuntimeError("geheim-4711")
+        return await echte(lesezugriff, url, funktionen, frist)
+
+    monkeypatch.setattr(geruest, "zaehle", kaputt)
+    r = welt.angemeldet("jan").get("/gesellschaft")
+    assert r.status_code == 200
+    zeilen = _zeilen(r.text)
+    assert "nicht erreichbar" in zeilen["b"] and "nicht erreichbar" not in zeilen["a"]
+    assert "geheim-4711" not in caplog.text
+
+
+def test_haengende_gesellschaft_haelt_die_seite_nicht_auf(welt, monkeypatch):
+    import threading
+    import time
+
+    from accounti.api import lesezugriff
+    from accounti.buchung import pruefschlange
+
+    frei = threading.Event()
+    echte = pruefschlange.anzahl_offen
+
+    def haengt(s):  # noqa: ANN001, ANN202
+        if "b.db" in str(s.get_bind().url):
+            frei.wait(10)
+        return echte(s)
+
+    monkeypatch.setattr(lesezugriff, "FRIST", 0.5)
+    jan = welt.angemeldet("jan")
+    jan.app.state.navigation = [
+        p if p.zaehler is not pruefschlange.anzahl_offen else _mit(p, haengt)
+        for p in jan.app.state.navigation
+    ]
+    try:
+        beginn = time.monotonic()
+        r = jan.get("/gesellschaft")
+        dauer = time.monotonic() - beginn
+    finally:
+        frei.set()
+    assert r.status_code == 200 and dauer < 3
+    zeilen = _zeilen(r.text)
+    assert "nicht erreichbar" in zeilen["b"] and "0 zu prüfen" in zeilen["a"]
+
+
+def _mit(punkt, zaehler):  # noqa: ANN001, ANN202
+    from dataclasses import replace
+
+    return replace(punkt, zaehler=zaehler)
+
+
+def test_fehlende_datenbankdatei_wird_nicht_angelegt(welt):
+    from pathlib import Path
+
+    datei = Path(welt.umgebung.db["b"].removeprefix("sqlite:///"))
+    datei.unlink()
+    r = welt.angemeldet("jan").get("/gesellschaft")
+    assert r.status_code == 200
+    assert "nicht erreichbar" in _zeilen(r.text)["b"]
+    assert not datei.exists()
+
+
+def test_gesellschaft_fragment_mit_hx_request(welt):
+    jan = welt.angemeldet("jan")
+    teil = jan.get("/gesellschaft", headers={"HX-Request": "true"})
+    assert teil.status_code == 200 and "<html" not in teil.text
+    assert "<h1>" in teil.text and 'class="gruppenliste gesellschaften"' in teil.text
+    assert "<html" in jan.get("/gesellschaft").text
+
+
+def test_wechsel_per_post(welt):
+    jan = welt.angemeldet("jan")
+    r = jan.post(
+        "/gesellschaft",
+        data={"csrf": csrf(jan), "kuerzel": "b"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    assert 'data-gesellschaft="b"' in jan.get("/").text
+    fremd = welt.angemeldet("ole")
+    r = fremd.post("/gesellschaft", data={"csrf": csrf(fremd), "kuerzel": "b"})
+    assert r.status_code == 403

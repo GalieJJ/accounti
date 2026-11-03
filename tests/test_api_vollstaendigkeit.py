@@ -121,6 +121,8 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     # Baustein 10c P1
     ("GET", "/muster"): ("fragment", "neue Seite: Block inhalt"),
     ("GET", "/muster/beispiel"): ("fragment", "Austausch; ohne htmx 303"),
+    ("GET", "/menue"): ("fragment", "neue Seite: Block inhalt"),
+    ("GET", "/gesellschaft"): ("fragment", "neue Seite: Block inhalt"),
 }
 
 

@@ -418,3 +418,42 @@ def test_marken_aus_registry(welt):
         "b": ("Beta Rahmen KG", "BR"),
     }
     assert alle["a"].farbe != alle["b"].farbe
+
+
+def _marke_im_kopf(html: str) -> tuple[str, str]:
+    m = re.search(
+        r'class="kopf-gesellschaft"[^>]*><span class="marke (marke-[1-6])"'
+        r' aria-hidden="true">([A-Z0-9ÄÖÜ]{2})<',
+        html,
+    )
+    assert m
+    return m.group(1), m.group(2)
+
+
+def _marke_in_liste(html: str, kuerzel: str) -> tuple[str, str]:
+    zeile = html[html.index(f'<li data-gesellschaft="{kuerzel}">') :]
+    m = re.search(
+        r'class="marke (marke-[1-6]) marke-klein"[^>]*>'
+        r'<span class="marke-monogramm" aria-hidden="true">([A-Z0-9ÄÖÜ]{2})<',
+        zeile,
+    )
+    assert m
+    return m.group(1), m.group(2)
+
+
+def test_kennfarbe_gleich_fuer_alle_benutzer(welt):
+    """Zwei Benutzer mit Rollen in verschiedenen Gesellschaften sehen die gemeinsame
+    Gesellschaft b in derselben Farbe (die Farben rechnen über die ganze Registry)."""
+    welt.rolle("jan", "b", Rolle.BUCHHALTER)
+    welt.person("bea", Rolle.BETRACHTER, gesellschaft="b")  # nur b
+    bea = _marke_im_kopf(welt.angemeldet("bea").get("/").text)
+    jan = _marke_in_liste(welt.angemeldet("jan").get("/gesellschaft").text, "b")
+    assert bea[0] == jan[0]
+
+
+def test_monogramm_gleich_fuer_alle_benutzer(welt):
+    welt.rolle("jan", "b", Rolle.BUCHHALTER)
+    welt.person("bea", Rolle.BETRACHTER, gesellschaft="b")
+    bea = _marke_im_kopf(welt.angemeldet("bea").get("/").text)
+    jan = _marke_in_liste(welt.angemeldet("jan").get("/menue").text, "b")
+    assert bea[1] == jan[1] == "BR"

@@ -1,6 +1,5 @@
-/* accounti — Design-System (Baustein 10c P1), eine Datei ohne Build-Schritt; Werte nach
-der Design-Leinwand (docs/design/2026-10-26-leinwand/, Plan P1 L1–L6). Farben nur über
-Token, Breiten nur 40/64/90rem („schmaler als“: not all and (min-width: …)). */
+/* accounti — Design-System (10c P1), ohne Build-Schritt; Werte: Leinwand und Plan P1 L1–L6.
+Farben nur über Token, Breiten nur 40/64/90rem (schmaler: not all and (min-width: …)). */
 @layer token, basis, layout, bestand, komponenten, seiten, hilfen, druck;
 
 @layer token {
@@ -37,8 +36,7 @@ color-scheme:dark;--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#
 --marke-4:#f0a46a;--marke-5:#f08fb0;--marke-6:#b5c25a;--beleg-hintergrund:#ffffff;
 }
 }
-/* Maße für beide Modi: Schrift (L2), Abstände auf dem 4-px-Raster mit Zwischen- und
-Feinstufen, Radien und feste Maße (L3) */
+/* Maße beider Modi (L2, L3) */
 :root {
 --schrift:system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
 --gr-1:0.75rem;--gr-2:0.8125rem;--gr-3:0.875rem;--gr-4:1rem;--gr-5:1.125rem;
@@ -110,9 +108,7 @@ html{scroll-padding-block-end:calc(var(--leistenhoehe) + env(safe-area-inset-bot
 }
 }
 
-/* Die alten Regeln der Seiten aus 10a/10b, auf die neuen Token umgeschrieben. Schritt 12
-leert die Ebene Seite für Seite; vor „komponenten“, damit gleichnamige Komponenten
-gewinnen. */
+/* Alte Regeln aus 10a/10b auf neuen Token; Schritt 12 leert die Ebene */
 @layer bestand {
 .meldung{padding:0.6rem;border-left:4px solid var(--ok);background:var(--flaeche)}
 .fehler{padding:0.6rem;border-left:4px solid var(--fehler);background:var(--flaeche)}
@@ -299,7 +295,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .haken input{flex:none;margin:0}
 .haken-ziel{min-width:1.5rem;min-height:1.5rem;cursor:pointer}
 @media (pointer: coarse) { .haken-ziel { min-height: 2.75rem; } }
-/* Optionskarte, Wahlpillen: Auswahl über :has(), beim 2-px-Rand 1 px weniger Innenabstand */
+/* Optionskarte, Wahlpillen: Auswahl über :has() */
 .optionskarte{display:flex;align-items:flex-start;gap:var(--a-3);padding:var(--a-3) var(--a-4);background-color:var(--flaeche);border:1px solid var(--linie-stark);border-radius:var(--radius-m);cursor:pointer}
 .optionskarte:hover, .segment-pille:hover{background-image:linear-gradient(var(--schleier), var(--schleier))}
 .optionskarte input{flex:none;margin:var(--fein-1) 0 0}
@@ -358,7 +354,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .seitenblaettern{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-2)}
 .seitenblaettern ol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-1);margin:0;padding:0;list-style:none}
 .seitenblaettern [aria-current="page"]{color:var(--akzent);background-color:var(--akzent-flaeche);border-color:var(--akzent)}
-/* Seitenleiste, untere Leiste (Lage je Breite: Schritt 7) */
+/* Seitenleiste, untere Leiste */
 .seitenleiste{padding:var(--a-45) var(--a-3);background-color:var(--grund);border-right:1px solid var(--linie)}
 .nav-liste{display:flex;flex-direction:column;gap:var(--a-1);margin:0;padding:0;list-style:none}
 .nav-eintrag{display:flex;align-items:center;gap:var(--a-3);min-height:2.75rem;padding:0 var(--a-3);color:var(--text);text-decoration:none;border-radius:var(--radius-m)}
@@ -377,8 +373,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 @media not all and (min-width: 64rem) {
 .sammelleiste{bottom:calc(var(--leistenhoehe) + env(safe-area-inset-bottom));padding:var(--a-3) var(--a-4)}
 }
-/* CSS-Muster ohne eigenes Makro: Seitenkopf, Gruppenliste, Unternavigation, Fokus auf
-/muster */
+/* Muster ohne Makro: Seitenkopf, Gruppenliste, Unternavigation, Fokus */
 .seitenkopf{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--a-1) var(--a-4)}
 .seitenkopf h1{margin:0}
 .seitenkopf p{margin:var(--a-1) 0 0;color:var(--text-2)}
@@ -386,6 +381,15 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .gruppenliste > li + li{border-top:1px solid var(--linie)}
 .gruppenliste a, .gruppenliste button{display:flex;align-items:center;gap:var(--a-3);width:100%;min-height:3rem;padding:0 var(--a-4);color:var(--text);text-align:left;text-decoration:none;background:transparent;border:0;border-radius:var(--radius-karte)}
 .gruppenliste a:hover, .gruppenliste button:hover{background-image:linear-gradient(var(--schleier), var(--schleier))}
+.gruppenliste form{margin:0}
+.gruppenliste-aktiv{display:flex;align-items:center;gap:var(--a-3);min-height:3rem;padding:0 var(--a-4)}
+.gruppenliste-text{flex:1;min-width:0}
+.gruppenliste-aktiv .gruppenliste-text{font-weight:600}
+.gruppenliste-neben{font-size:var(--gr-3);color:var(--text-2)}
+.gruppenliste .gruppenliste-abmelden{font-weight:600;color:var(--akzent)}
+.menue{display:flex;flex-direction:column;gap:var(--a-5)}
+.menue h1, .menue p{margin:0}
+.menue .etikett{margin-bottom:var(--a-2)}
 .unternavigation{display:flex;flex-direction:column;gap:var(--a-1);margin:0;padding:0;list-style:none}
 .unternavigation a{display:flex;align-items:center;gap:var(--a-2);min-height:2.5rem;padding:0 var(--a-3);color:var(--text);text-decoration:none;border:1px solid transparent;border-radius:var(--radius)}
 .unternavigation a[aria-current="true"]{font-weight:600;background-color:var(--flaeche);border-color:var(--linie)}
@@ -432,8 +436,7 @@ body.geruest{padding-bottom:0}
 }
 
 @layer seiten {
-/* Musterseite /muster (L9): zwei Themenrahmen nebeneinander, Abschnitte wie die
-Zeichenfläche „Bausteine“ */
+/* Musterseite /muster (L9) */
 .muster{display:flex;flex-direction:column;gap:var(--a-5)}
 .muster-kopf{display:flex;flex-direction:column;gap:var(--a-1);max-width:56.25rem}
 .muster-kopf h1{margin:0}

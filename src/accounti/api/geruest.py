@@ -9,6 +9,7 @@ Zählern über den Lesezugriff (``api.lesezugriff``).
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import re
 from collections.abc import Collection, Iterable, Mapping, Sequence
@@ -16,8 +17,12 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING
 
+from starlette.concurrency import run_in_threadpool
+
 from accounti.api.lesezugriff import Zaehler, zaehle
 from accounti.api.registry import UNTEN, Bereich, Navigationspunkt
+from accounti.api.sicherheit import FEHLER
+from accounti.auth.dienst import rechte_in
 from accounti.i18n import N_
 from accounti.models.auth import Recht
 
@@ -291,3 +296,58 @@ async def geruest(
         druck_datum=dienste.uhr().date(),
         initialen=initialen(b.anzeigename or b.name),
     )
+
+
+@dataclass(frozen=True)
+class GesellschaftsZeile:
+    """Eine Gesellschaft des Benutzers mit Marke und Zählern (``/gesellschaft``,
+    ``/menue``; P2: „In anderen Gesellschaften“). Zähler nur mit dem Recht des Zählers
+    in dieser Gesellschaft; ``erreichbar`` falsch, wenn ihre Datenbank nicht innerhalb
+    der Frist antwortet oder fehlt."""
+
+    gesellschaft: Gesellschaft
+    marke: Marke
+    pruefen: int | None
+    freigaben: int | None
+    erreichbar: bool
+    aktiv: bool
+
+
+async def gesellschaften_mit_zaehlern(
+    request: Request, a: Angemeldet
+) -> list[GesellschaftsZeile]:
+    """Je Gesellschaft mit Rolle die Zähler aus der Registry — parallel über den
+    Lesezugriff (ohne ``init_db``, nur lesend, mit Frist); eine nicht erreichbare oder
+    hängende Gesellschaft hält die anderen nicht auf und entsteht nicht neu."""
+    dienste = request.app.state.dienste
+    punkte: Sequence[Navigationspunkt] = getattr(request.app.state, "navigation", [])
+    lesezugriff = request.app.state.lesezugriff
+
+    def rechte_lesen() -> dict[str, frozenset[Recht]]:
+        with dienste.system() as s:
+            return {
+                g.kuerzel: frozenset(rechte_in(s, a.benutzer.id, g.kuerzel))
+                for g in a.gesellschaften
+            }
+
+    rechte = await run_in_threadpool(rechte_lesen)
+    alle = marken(dienste.gesellschaften)
+
+    async def zeile(g: Gesellschaft) -> GesellschaftsZeile:
+        funktionen = zaehlfunktionen(punkte, rechte[g.kuerzel])
+        zahlen: dict[str, int] | None
+        try:
+            zahlen = await zaehle(lesezugriff, g.datenbank, funktionen)
+        except Exception as fehler:  # noqa: BLE001 - die Seite bleibt, nur die Zahlen fehlen
+            FEHLER.warning("Zähler nicht verfügbar (%s)", type(fehler).__name__)
+            zahlen = None
+        return GesellschaftsZeile(
+            gesellschaft=g,
+            marke=alle[g.kuerzel],
+            pruefen=(zahlen or {}).get(Bereich.PRUEFEN.value),
+            freigaben=(zahlen or {}).get(Bereich.FREIGABEN.value),
+            erreichbar=zahlen is not None,
+            aktiv=g.kuerzel == a.gesellschaft.kuerzel,
+        )
+
+    return list(await asyncio.gather(*(zeile(g) for g in a.gesellschaften)))

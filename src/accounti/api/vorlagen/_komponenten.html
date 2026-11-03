@@ -44,10 +44,11 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- endmacro %}
 
 {#- Marke einer Gesellschaft: Kennfarbe (marke-1 … marke-6) und Monogramm; der Name steht
-    als versteckter Text daneben, nie als aria-label auf einem span. Mit href ein Link. -#}
-{% macro marke(marke, klein=false, href=none) -%}
+    als versteckter Text daneben, nie als aria-label auf einem span. Mit href ein Link;
+    mit_name=false, wenn der Name gleich daneben sichtbar steht (Listen). -#}
+{% macro marke(marke, klein=false, href=none, mit_name=true) -%}
 {%- set klasse = "marke marke-" ~ {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}[marke.farbe] ~ (" marke-klein" if klein else "") -%}
-<{{ "a" if href else "span" }} class="{{ klasse }}"{% if href %} href="{{ href }}"{% endif %} data-gesellschaft="{{ marke.kuerzel }}"><span class="marke-monogramm" aria-hidden="true">{{ marke.monogramm }}</span><span class="unsichtbar">{{ marke.name }}</span></{{ "a" if href else "span" }}>
+<{{ "a" if href else "span" }} class="{{ klasse }}"{% if href %} href="{{ href }}"{% endif %} data-gesellschaft="{{ marke.kuerzel }}"><span class="marke-monogramm" aria-hidden="true">{{ marke.monogramm }}</span>{% if mit_name %}<span class="unsichtbar">{{ marke.name }}</span>{% endif %}</{{ "a" if href else "span" }}>
 {%- endmacro %}
 
 {#- Avatar mit Initialen (dekorativ; den Namen nennt der Auslöser daneben). -#}
