@@ -409,3 +409,29 @@ def test_skonto_ist_keine_luecke(make_session):
         korrigiere(s, str(b.id), "10002", "8400", von="erika")
         s.commit()
     assert _pruefe(make_session) == []
+
+
+def test_zahlungsstorno_verschiebt_die_meldung_nicht(make_session):
+    """g6w N3 (T15, Runde 7): Rechnung im Oktober storniert, die Zahlung mit derselben
+    beleg_id im Dezember — die Meldung blieb nicht im Oktober (wo die Umsatzsteuer
+    fehlt), sondern wanderte in den Monat des Zahlungsstornos. Den Zeitraum bestimmt
+    nur das Storno einer Buchung mit ausgewiesener Umsatzsteuer."""
+    from tests.pruefung_hilfe import umsatz
+
+    ar = _rechnung(nummer="AR-15")
+    b = _erloes(ar)
+    tx = umsatz(betrag="595.00", tag=date(2026, 10, 10), zweck="AR-15")
+    zahlung = buchung(
+        tx, status=BuchungStatus.GEPRUEFT, soll="1200", haben="10001",
+        netto="595.00", steuer=None, schluessel=None, beleg_id=ar.id,
+        tag=date(2026, 10, 10),
+    )  # fmt: skip
+    anlegen(make_session, ar, b, tx, zahlung)
+    with make_session() as s:
+        storniere(s, str(b.id), grund="Test", von="erika", datum=date(2026, 10, 20))
+        storniere(s, str(zahlung.id), grund="umgeordnet", datum=date(2026, 12, 2))
+        s.commit()
+    (befund,) = _pruefe(make_session, "2026-10")
+    assert befund.objekt_id == str(ar.id) and befund.datum == date(2026, 10, 20)
+    assert _pruefe(make_session, "2026-12") == []
+    assert len(_pruefe(make_session, None)) == 1

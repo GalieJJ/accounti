@@ -381,8 +381,10 @@ class BelegUstOhneBuchung:
     Belegs (``storno.ust_luecken``): Eine Zahlung mit derselben ``beleg_id`` oder eine
     Buchung zu einem anderen Satz deckt sie nicht, eine wegfallende Gutschrift fehlt
     nicht, eine wirksam gebuchte Kopie derselben Rechnung deckt sie (Runde 6, g5w
-    NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos — dort fehlt die Steuer;
-    für Kopien derselben Rechnung einmal."""
+    NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos einer Buchung mit
+    ausgewiesener Umsatzsteuer (Schlüssel 2, 3 auf der Seite einer Rechnung) — dort
+    fehlt die Steuer; ein späteres Storno der Zahlung verschiebt die Meldung nicht
+    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal."""
 
     name = "beleg_ust_ohne_buchung"
     kategorie = Kategorie.VOLLSTAENDIGKEIT
@@ -397,7 +399,13 @@ class BelegUstOhneBuchung:
 
     def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
         from accounti.belege.dubletten import kopien
-        from accounti.pruefung.storno import hinweis_14c, kontenplan, ust_luecken
+        from accounti.pruefung.storno import (
+            AUSGEWIESENE_UST,
+            hinweis_14c,
+            kontenplan,
+            ust_luecken,
+        )
+        from accounti.steuer.kennziffern import sachseite
 
         je_beleg: dict[UUID, list[Buchungssatz]] = defaultdict(list)
         for x in k.buchungen:
@@ -407,7 +415,20 @@ class BelegUstOhneBuchung:
         gemeldet: set[UUID] = set()
         befunde = []
         for beleg_id, liste in je_beleg.items():
-            stornos = [x.datum for x in liste if x.storno_von is not None]
+            originale = {x.id: x for x in liste}
+            stornos = []
+            for x in liste:
+                if x.storno_von is None:
+                    continue
+                # das Storno hat Schlüssel und Beträge des Originals, die Seiten
+                # getauscht: eine Rechnungsbuchung mit Umsatzsteuer im Haben
+                original = originale.get(x.storno_von)
+                if original is not None:
+                    rechnung = sachseite(original, plan) == "haben"
+                else:
+                    rechnung = sachseite(x, plan) == "soll"
+                if x.steuer_schluessel in AUSGEWIESENE_UST and rechnung:
+                    stornos.append(x.datum)
             if beleg_id in gemeldet or not stornos or not k.im_zeitraum(max(stornos)):
                 continue
             b = k.belege.get(beleg_id)
