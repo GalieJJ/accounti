@@ -601,6 +601,25 @@ def test_rechnungsbuchungen_einer_ausgangsrechnung_ohne_steuerzeile(make_session
     assert befund.betrag == D("95.00"), befund.text
 
 
+def test_kleine_spaetere_rechnungsbuchung_ohne_steuerzeile(make_session):
+    """GF3-1, dieselbe Form mit einer positiven Buchung: Kassenbon ohne Steuerzeile
+    (606,90), Ware „1000 an 8400, Schlüssel 3, 500/95“ (01.10.) und Versand 10/1,90
+    (02.10.); die Ware storniert. Die jüngste Rechnungsbuchung (1,90) deckte sich mit
+    der gebuchten Steuer — keine Warnung. Es zählt die höchste: 95 € ausgewiesen, 1,90 €
+    gebucht."""
+    bel = _ohne_steuerzeile("Q", brutto="606.90")
+    ware = _am(bel, "1000", "8400", "95.00")
+    versand = _am(bel, "1000", "8400", "1.90", netto="10.00", tag=T2)
+    anlegen(make_session, bel, ware, versand)
+    with make_session() as s:
+        k = storniere(s, str(ware.id), grund="doppelt erfasst", von="erika")
+        s.commit()
+    (hinweis,) = _hinweis(k.warnungen)
+    assert "weist 95,00 € Umsatzsteuer" in hinweis and "nur 1,90 €" in hinweis, hinweis
+    (befund,) = _pruefe(make_session, None)
+    assert befund.betrag == D("93.10"), befund.text
+
+
 @pytest.mark.parametrize("art", ["Q", "S"])
 def test_cli_storno_der_minderung_dann_des_erloeses_ohne_steuerzeile(
     tmp_path, monkeypatch, art
