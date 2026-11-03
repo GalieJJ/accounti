@@ -707,6 +707,34 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Tracebacks. **Abwärtsverträglich:** Eine offene Obergrenze (`kreditoren_bis: 9999999999`)
   gilt mit Hinweis als 999999999 statt jeden Befehl anzuhalten, `sachkonten_laenge: 4.0` als
   4.
+- **Nachbesserung 10b-1, Runde 8** (Nachprüfung g7w): **Sicherheit — langer Pfad im
+  Zugriffsprotokoll:** Ein unangemeldetes `GET /statisch/<15 000 Zeichen>` hielt den
+  Webserver mehrere Sekunden an (40 000 Zeichen: 35 s; schon vor 10b-1, durch Runde 7
+  verschärft): Der Pfad stand ganz im Zugriffsprotokoll, und die Schwärzung lief im
+  Event-Loop mit quadratischer Laufzeit. Jetzt steht ein statischer Pfad gekürzt auf 200
+  Zeichen im Protokoll, die Schwärzung kürzt Zeilen über 4000 Zeichen vorher auf Anfang und
+  Ende (ohne ein angeschnittenes Geheimnis stehen zu lassen), und ihre Muster laufen linear
+  (100 000 Zeichen in Millisekunden); betrieb.md empfiehlt zusätzlich eine Grenze der
+  Anfragezeile im Proxy. **Altfälle:** Eine falsch herum gebuchte Belegbuchung, die vor der
+  Richtungssperre (main, Runde ≤ 4) umgedreht wurde, ist wieder korrigierbar (anderer
+  Debitor, Erlöskonto, ig. Lieferung → Ausfuhr, Aktivierung) — es zählt der berichtigte
+  Stand, nicht der Fehlstand davor. **Zahlungen zum Beleg:** Die Seite der Rechnung gilt nur
+  für ihre Buchung; „1200 an 70001 → 1200 an 4930“ (Erstattung als Preisnachlass) und „1590
+  an 10001 → 8730 an 10001“ (Skonto) gehen wieder, und Skonto, Rabatt, Bonus und Nachlass zur
+  gebuchten Rechnung dürfen eine Kennziffer negativ buchen („8736 an 10001, Schlüssel 3“).
+  **Erlöse auf Quittung, Marktplatzabrechnung und unbekanntem Beleg:** Umsatzsteuer auf
+  einem Erlöskonto ist dort ausgewiesene Steuer (§ 14c), kein Fehlschlüssel — kein Vorschlag
+  9, kein „ohne Steuer“, das Storno warnt wieder. **Adressen:** Ein `@` in Abfrage oder
+  Fragment („https://host?an=jan@firma.example“) machte den Teil dahinter zum Rechner, ein
+  Rechner mit Umlauten (IDN) galt als fehlerhaft, und ein unkodiertes `/` im Passwort hinter
+  Ziffern („https://alarm:4711/Sonne@…“) ließ „alarm:4711“ in Warnung,
+  `aufgaben_benachrichtigungen` und Verfahrensdokumentation stehen. **Schwärzung:** Port und
+  Abfrage („https://host:8443?x=1“) und das Wort vor einem „:“ („Empfänger:max@firma.de“)
+  verschwinden nicht mehr. **Prüfen und `/buchungen`:** Bei fehlerhafter Konfiguration der
+  Gesellschaft eine Meldung samt Datei statt still gerechneter Standardwerte; Freigeben,
+  Korrigieren und Stornieren erst nach der Berichtigung. **Registry in anderer Kodierung als
+  UTF-8** (oder unlesbar): eine Meldung statt eines Tracebacks in jedem Befehl, in `serve`
+  und im Planer.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

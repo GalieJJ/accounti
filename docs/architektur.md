@@ -290,10 +290,12 @@ Die Mechanik hinter den Prinzipien 6 und 7.
   Erfolgskontos dreht, eine Kennziffer der Voranmeldung kehrt um —
   `kennziffern.kennziffern_der_buchung`, auch eine neue negative), lehnt `korrigiere` ab
   (§ 14c, § 17 UStG — Berichtigung als eigener Beleg) — gegen jeden früheren Stand der
-  Korrekturkette (`fruehere_staende`: `buchungskorrekturen` und Journal), ohne bestimmte
-  Seite gegen die der Rechnung. Den Schlüssel, den der Beleg vorgibt
-  (`schluessel_laut_beleg`), nimmt jede Korrektur an; auf einem Eingangsbeleg ist ein
-  Umsatzsteuerschlüssel ein Fehlschlüssel (`eingangsbeleg`); ein Storno ohne Neubuchung, nach dem ausgewiesene USt
+  Korrekturkette (`fruehere_staende`: `buchungskorrekturen` und Journal; ein Altbestand
+  zählt ab seinem Richtungswechsel), ohne bestimmte Seite gegen die der Rechnung (nicht bei
+  Zahlung, Erstattung, Verrechnung, Skonto zur gebuchten Rechnung). Den Schlüssel, den der
+  Beleg vorgibt (`schluessel_laut_beleg`), nimmt jede Korrektur an; auf einem Eingangsbeleg
+  ist ein Umsatzsteuerschlüssel ein Fehlschlüssel (`eingangsbeleg` — ohne eindeutige
+  Belegart entscheidet die Buchung: ein Erlös ist kein Eingang); ein Storno ohne Neubuchung, nach dem ausgewiesene USt
   eines Belegs je Satz nicht mehr wirksam gebucht ist (`ust_luecken`), warnt (Prüfregel
   `beleg_ust_ohne_buchung`). *(vorhanden)*
 - `perioden.py` — Monatsabschluss (`periodenabschluesse`) neben der Jahressperre aus

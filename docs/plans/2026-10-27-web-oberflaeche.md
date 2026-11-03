@@ -731,7 +731,7 @@ stornieren(s, buchung_id, grund="…", datum=None, person="jan", stand=e.stand, 
 
 # pruefung/storno.py (aus 7, ergänzt)
 u = lade_korrekturumgebung(pfad)   # Korrekturumgebung(kontenrahmen mit Kontenzuordnung, buchhaltung, pruefung)
-steuer_optionen(buchung) -> SteuerOptionen   # andere_schluessel, ohne_steuer, ohne_nur_mit_grund, hinweis
+steuer_optionen(buchung, beleg=None, plan=None) -> SteuerOptionen   # andere_schluessel, ohne_steuer, ohne_nur_mit_grund, hinweis, laut_beleg; plan: ein Erlös ohne eindeutige Belegart ist kein Eingang (Runde 8)
 StornoError(meldung, *, feld=None, cli=None)  # str() wie bisher: meldung + CLI-Hinweis
 
 # klassifikation/lernen.py
@@ -1676,9 +1676,13 @@ Durchlaufs mit Markern in allen Fremddaten.
   als neuer Beleg; Runde 4). Ein Umsatzsteuerschlüssel auf einem Eingangsbeleg (`richtung`
   Eingang, nicht Ausgangsrechnung) ist ein Fehlschlüssel, keine ausgewiesene Steuer: „ohne
   Steuer“ mit Grund und der Schlüssel laut Beleg gehen, § 14c-Warnung und
-  `beleg_ust_ohne_buchung` zählen ihn nicht. Grenze: Nennt der Beleg mehrere Sätze und die
-  Buchung keine Position, gibt es keinen Schlüssel laut Beleg (Weg: „ohne Steuer“ mit Grund
-  bzw. Storno).
+  `beleg_ust_ohne_buchung` zählen ihn nicht. Ohne eindeutige Belegart (Quittung,
+  Marktplatzabrechnung als `SONSTIGES`, unbekannt) zählt die Buchung: Bucht sie ein
+  Erlöskonto (Erlöse, Erlösschmälerungen), gilt der Beleg wie ein Ausgangsbeleg — § 14c,
+  kein Hinweis „Fehlschlüssel“, kein Schlüssel 9, kein „ohne Steuer“, Storno-Warnung und
+  `beleg_ust_ohne_buchung` zählen ihn (Runde 8, g7w R7-3). Grenze: Nennt der Beleg mehrere
+  Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg (Weg: „ohne
+  Steuer“ mit Grund bzw. Storno).
 - Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1; Runde 6, g5w
   NEU-1/NEU-2): `korrigiere` lehnt eine Korrektur ab, die die Seiten vertauscht — für jede
   Belegbuchung, nicht nur bei ausgewiesener USt: (a) ein Konto wechselt die Seite (neues Soll
@@ -1695,18 +1699,33 @@ Durchlaufs mit Markern in allen Fremddaten.
   sonstige Verbindlichkeit. Die Regeln gelten gegen jeden früheren Stand der Korrekturkette,
   nicht nur gegen die vorige Buchung (Runde 7, g6w N1: „10001 an 8125 → 10001 an 1590 → 8125
   an 1200“ buchte Kz 41 −500): Original und Neubuchungen über `buchungskorrekturen`, direkt
-  korrigierte Vorschläge über das Journal (`storno.fruehere_staende`). Bestimmt kein Stand eine
-  Seite, gilt für das Erfolgskonto die Seite der Rechnung (Eingangsrechnung: Aufwand im Soll,
-  Ausgangsrechnung: Erlös im Haben; negativer Beleg dreht) — außer bei einem Altfall „4900 an
-  4900“. (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht und negativ ist
-  (Vorzeichen einer Gutschrift), wenn kein Stand der Kette eine Kennziffer negativ bucht und
-  der Beleg keine Gutschrift ist („10001 an 8125 → 8120 an 8125“: Kz 43 −500; g6w N2).
+  korrigierte Vorschläge über das Journal (`storno.fruehere_staende`). Bricht ein späterer
+  Stand mit der Richtung eines früheren (Altbestand: main bzw. Runde ≤ 4 korrigierten ohne
+  Sperre), zählt der frühere nicht mehr — es gilt der berichtigte Stand (Runde 8, g7w R7-1:
+  nach „8400 an 10001 → 10001 an 8400“ auf main war jede Korrektur gesperrt). Bestimmt kein
+  Stand eine Seite, gilt für das Erfolgskonto die Seite der Rechnung (Eingangsrechnung:
+  Aufwand im Soll, Ausgangsrechnung: Erlös im Haben; negativer Beleg dreht) — außer bei einem
+  Altfall „4900 an 4900“ und bei einer Zahlung, Erstattung, Verrechnung oder einem Skonto zur
+  gebuchten Rechnung (jeder Stand nur Geld-, Personen- und Verrechnungskonten bzw. ein
+  Minderungskonto dagegen, und eine andere wirksame Buchung des Belegs bucht die Rechnung;
+  Runde 8, g7w R7-2). (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht
+  und negativ ist (Vorzeichen einer Gutschrift), wenn kein Stand der Kette eine Kennziffer
+  negativ bucht und der Beleg keine Gutschrift ist („10001 an 8125 → 8120 an 8125“: Kz 43
+  −500; g6w N2) — nicht bei Skonto, Rabatt, Bonus oder Nachlass zur gebuchten Rechnung
+  (Erlösschmälerungen, erhaltene Nachlässe 37xx bzw. 57xx, Skontokonten der Buchhaltung:
+  „1590 an 10001 → 8736 an 10001, Schlüssel 3“).
   Grenzen: Werden beide Konten ersetzt, ohne dass eine dieser Regeln greift (z. B. „0420 an
   1700 → 1701 an 0421“: Bestandskonten ohne Gegenkonto, ohne Erfolgskonto, ohne Kennziffer),
   erkennt die Sperre den Tausch nicht. Ohne Journal (Datenbank von vor Baustein 7) kennt sie
   den ersten Stand eines direkt korrigierten Vorschlags nicht. Eine Belegbuchung, die nach
   Storno ohne Neubuchung neu entsteht (`classify`, OPOS), beginnt eine neue Kette. Ein
-  Belegtyp außer Eingangs- und Ausgangsrechnung (Quittung, unbekannt) gibt keine Seite vor. Das Vorzeichen der
+  Belegtyp außer Eingangs- und Ausgangsrechnung (Quittung, unbekannt) gibt keine Seite vor.
+  Bei einem Altbestand mit Richtungswechsel gilt der jüngere Stand, auch wenn er der falsche
+  ist (dann das Storno). Eine Zahlung zum Beleg erkennt die Sperre an den Konten; ist die
+  Rechnung nicht als eigene Buchung gebucht (geparkt auf zwei Gegenkonten), misst sie an der
+  Seite der Rechnung. Die Anzahlungsverrechnung auf einer Schlussrechnung („1590 an 10001 →
+  1718 an 10001, Schlüssel 3“, Kz 81 −) sperrt (d) weiter (wie Runde 6 über den Schlüssel:
+  Storno bzw. Buchung über OPOS). Das Vorzeichen der
   Kennziffern allein genügt nicht: „4930 an 70001, Schlüssel 9 → 1700 an 4930“ lässt die
   Voranmeldung gleich und bucht den Aufwand ins Haben. Ist die Belegbuchung selbst falsch
   herum gebucht, bleibt das Storno mit Grund (ein Vorschlag wird dafür erst freigegeben);
@@ -1761,18 +1780,35 @@ Durchlaufs mit Markern in allen Fremddaten.
   fehlenden Indizes oder Triggern; `--aus-schema` stempelt nur zurück, nie vor.
 - Kaputtes YAML der Konfiguration ist in jedem strengen Lader ein `KonfigurationError`
   („… kein gültiges YAML (…)“, `konfiguration.lies_yaml`; Runde 7, g6w B-3 — auch
-  `lade_pruefung` und `lade_elster`, bisher Grenze). Roh lesen weiter nur die nachsichtig
+  `lade_pruefung` und `lade_elster`, bisher Grenze), ebenso eine Datei in anderer Kodierung
+  als UTF-8 — auch die Registry (`betrieb.gesellschaften.lies_yaml`, dort auch eine unlesbare
+  Datei) und `lade_auth` (Runde 8, g7w B7-5). Die Prüfen-Arbeitsfläche und `/buchungen/{id}`
+  zeigen den Fehler samt Datei und keine Entscheidung, statt mit Standardwerten zu rechnen
+  (`seiten.pruefen.seitenkonfiguration`; Runde 8, g7w B7-4); die Regelvorschau rechnet bei
+  fehlerhafter Regeldatei weiter ohne sie („verdrängt Regel …“ bleibt offen). Roh lesen weiter nur die nachsichtig
   gelesenen Angaben (`lade_eigene_firma`, `lade_oss`, `lade_mandant`, die Anzeige des
   Wirtschaftsjahrs in `gesellschaft liste`); jeder Befehl, der sie nutzt, lädt vorher einen
   strengen Abschnitt.
 - Die Schwärzung des Protokolls ist musterbasiert (Namen, kleingeschriebene IBANs erkennt sie
-  nicht). Adressen nennt accounti in Meldungen nur über `betrieb.protokoll.rechner_der_adresse`
-  (Schema, Rechner, Port; Zugangsdaten bis zum letzten `@` vor dem Pfad, auch mit unkodiertem
-  `#`, `?` oder `/` im Passwort; Runde 7, g6w B-2). Steht ein `@` nur im Pfad, gilt der Teil
-  davor als Rechner; ein `@` in der Abfrage („?an=jan@firma“) ändert nichts. Mit unkodiertem
-  `#` oder `?` im Passwort verbindet sich urllib trotzdem mit dem Teil davor (Fehlkonfiguration;
-  die Meldung nennt den gemeinten Rechner, nicht den angefragten) — Zugangsdaten in einer
-  Adresse prozentkodieren (`%23`, `%3F`). Der geplante Lauf
+  nicht). Ihre Muster laufen linear; eine Zeile über 4000 Zeichen kürzt sie vorher auf Anfang
+  und Ende (je höchstens 1500 Zeichen, ein Geheimnis an der Schnittstelle fällt ganz weg),
+  ein statischer Pfad steht gekürzt auf 200 Zeichen im Zugriffsprotokoll (Runde 8, g7w
+  DoS-1). Das Wort vor einem „:“ gehört nicht zur E-Mail-Adresse, außer ein Passwortzeichen
+  folgt („alarm:4711#Sonne@rechner“ ohne Schema); ein Port vor einer Abfrage bleibt, vor „#“
+  mit Text dahinter („https://rechner:8443#anker“) gilt er als Passwort (abgeschnittene
+  Adresse „https://alarm:4711#Sonne“; Runde 8, g7w B7-3). Adressen nennt accounti in
+  Meldungen nur über `betrieb.protokoll.rechner_der_adresse` (Schema, Rechner, Port; auch IDN):
+  Zugangsdaten stehen vor dem ersten `/`, `?` oder `#` und enden am letzten `@` dort, ein `@`
+  in Abfrage oder Fragment ist keine Zugangsangabe (Runde 8, g7w B7-1). Ein unkodiertes `#`,
+  `?` oder `/` im Passwort erkennt sie, wenn hinter „benutzer:…“ im Abschnitt bis zum nächsten
+  `/` ein `@` steht (Runde 7, g6w B-2; Runde 8, g7w B7-2); ein `@` am Anfang oder weiter
+  hinten im Pfad bleibt Pfad. Grenzen: Ein Passwort mit Ziffern vorn und zwei unkodierten `/`
+  („https://alarm:4711/a/b@rechner“) erscheint als „alarm:4711“; mit Port und `@` in der
+  Abfrage („https://rechner:8443?an=jan@firma.example“) nennt die Meldung den Teil nach dem
+  `@`; ein Benutzer ohne Passwort mit unkodiertem `#`/`?` erscheint als Rechner. Mit
+  unkodiertem `#`, `?` oder `/` im Passwort verbindet sich urllib ohnehin mit dem Teil davor
+  (Fehlkonfiguration; die Meldung nennt den gemeinten Rechner, nicht den angefragten) —
+  Zugangsdaten in einer Adresse prozentkodieren (`%23`, `%3F`, `%2F`, `%40`). Der geplante Lauf
   schreibt die Ausgabe der Schritte ohne Rahmenzeichen, je Zeile höchstens 1000 Zeichen
   (DEBUG), Tracebacks von Python statt Rich (g6w B-1).
 

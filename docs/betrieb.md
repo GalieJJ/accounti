@@ -426,6 +426,13 @@ Die Anwendung muss unter `/` liegen (das Cookie-Präfix `__Host-` verlangt `Path
 Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in den Proxy
 (z. B. `limit_req` für `/anmelden`).
 
+Zusätzlich die Länge der Anfragezeile im Proxy begrenzen: accounti braucht nur kurze Pfade,
+uvicorn (h11) nimmt bis rund 16 KB an. accounti kürzt lange Pfade im Zugriffsprotokoll selbst
+(höchstens 200 Zeichen) und schwärzt in linearer Zeit — bis Runde 8 hielt ein
+unangemeldetes `GET /statisch/<15 000 Zeichen>` den Server mehrere Sekunden an. Bei nginx
+z. B. `large_client_header_buffers 4 4k;` im `server`-Block (längere Anfragezeilen enden mit
+414; Standard 8k), bei Caddy die globale Option `servers { max_header_size 16KB }`.
+
 ## Sicherung und Wiederherstellung
 
 ```bash
@@ -587,12 +594,21 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
   verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
   vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
-  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Fehlermeldungen nennen eine
-  Webhook-Adresse nur mit Schema, Rechner und Port — auch wenn im Passwort ein unkodiertes
-  `#`, `?` oder `/` steht (alles bis zum letzten `@` vor dem Pfad gilt als Zugangsdaten; im
-  Zweifel ohne Port); ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
-  Sonderzeichen im Passwort einer Adresse prozentkodieren (`#` → `%23`, `?` → `%3F`): Sonst
-  fragt die Bibliothek einen anderen Rechner an, als die Meldung nennt.
+  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Eine Zeile über 4000
+  Zeichen kürzt er vorher auf Anfang und Ende (je höchstens 1500 Zeichen, ein Geheimnis an
+  der Schnittstelle fällt ganz weg). Fehlermeldungen nennen eine Webhook-Adresse nur mit
+  Schema, Rechner und Port; ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
+  Zugangsdaten stehen vor dem ersten `/`, `?` oder `#` und enden am letzten `@` dort — ein
+  `@` in Abfrage oder Fragment ist keine Zugangsangabe. Ein unkodiertes `#`, `?` oder `/` im
+  Passwort erkennt accounti, wenn das `@` im Abschnitt dahinter steht (bis zum nächsten
+  `/`; „https://alarm:4711#Sonne@rechner/…“, „https://alarm:4711/Sonne@rechner/…“). Nicht
+  erkennbar ist ein Passwort mit Ziffern vorn und zwei unkodierten `/`
+  („https://alarm:4711/a/b@rechner/…“ — Meldung und Schwärzung nennen „alarm:4711“ als
+  Rechner und Port), und mit Port und einem `@` in der Abfrage
+  („https://rechner:8443?an=jan@firma.example“) nennt die Meldung im Zweifel den Teil nach
+  dem `@`. Deshalb Sonderzeichen im Passwort einer Adresse prozentkodieren (`#` → `%23`, `?`
+  → `%3F`, `/` → `%2F`, `@` → `%40`): Sonst fragt die Bibliothek ohnehin einen anderen
+  Rechner an, als die Meldung nennt.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
   geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
   Zeilenumbruch erzeugt, ohne Rahmenzeichen, geschwärzt und je Zeile höchstens 1000 Zeichen
