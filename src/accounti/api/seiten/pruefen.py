@@ -239,21 +239,29 @@ def steuernamen() -> dict[int, str]:
     return {nr: r.bezeichnung for nr, r in STEUERSCHLUESSEL.items()}
 
 
-def seitenkonfiguration(a: Angemeldet) -> tuple[Any, Any, str | None]:
-    """Prüfeinstellungen und Buchhaltung der Gesellschaft für eine Seite: (Prüfung,
-    Buchhaltung, Fehler). Ist die Konfiguration fehlerhaft (kaputtes YAML, andere
-    Kodierung als UTF-8, ungültiger Abschnitt), ``(None, None, Meldung)`` — die Seite
-    zeigt die Meldung und keine Entscheidung, statt still mit Standardwerten für Steuer
-    und Prüfregeln zu rechnen (Runde 8, g7w B7-4; Runde 6: 500, Runde 7: still
-    Standardwerte)."""
+def seitenkonfiguration(a: Angemeldet) -> tuple[Any, Any, Any, str | None]:
+    """Prüfeinstellungen, Buchhaltung und die Konten der Voranmeldung (``elster``:
+    steuerrelevante Konten, Funktionskonten — wie ``lade_korrekturumgebung``) der
+    Gesellschaft für eine Seite: (Prüfung, Buchhaltung, Elster, Fehler). Ist die
+    Konfiguration fehlerhaft (kaputtes YAML, andere Kodierung als UTF-8, ungültiger
+    Abschnitt), ``(None, None, None, Meldung)`` — die Seite zeigt die Meldung und keine
+    Entscheidung, statt still mit Standardwerten für Steuer und Prüfregeln zu rechnen
+    (Runde 8, g7w B7-4; Runde 6: 500, Runde 7: still Standardwerte). Die Steuerauswahl
+    rechnet mit denselben Konten wie die Korrektur (Folgepaket F, g8w G8R-2)."""
+    from accounti.elster.konfiguration import lade_elster_konten
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
     from accounti.pruefung.einstellungen import lade_pruefung
 
     pfad = a.gesellschaft.konfiguration
     try:
-        return lade_pruefung(pfad), lade_buchhaltung(pfad), None
+        return (
+            lade_pruefung(pfad),
+            lade_buchhaltung(pfad),
+            lade_elster_konten(pfad),
+            None,
+        )
     except (KonfigurationError, ValueError) as fehler:
-        return None, None, str(fehler)
+        return None, None, None, str(fehler)
 
 
 def flaechenwerte(
@@ -270,10 +278,10 @@ def flaechenwerte(
 ) -> dict[str, Any]:
     from accounti.klassifikation.lernen import vorschlag_muster
 
-    pruefung, buchhaltung, konfig_fehler = seitenkonfiguration(a)
+    pruefung, buchhaltung, elster, konfig_fehler = seitenkonfiguration(a)
     try:
         e: Arbeitsflaeche = lade_eintrag(
-            s, buchung_id, pruefung=pruefung, buchhaltung=buchhaltung
+            s, buchung_id, pruefung=pruefung, buchhaltung=buchhaltung, elster=elster
         )
     except BuchungFehltError as f:
         raise HTTPException(404, Text("Buchung nicht gefunden")) from f

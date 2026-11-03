@@ -129,8 +129,12 @@ def sprache_aktiv(sprache: str) -> Iterator[str]:
 
 # --- Sprachwahl -------------------------------------------------------------------
 
+# Leerraum possessiv (``\s*+``): Mit ``\s*`` probierte ein Teil mit langer
+# Leerraumfolge vor einem Fehler jede Aufteilung der Folge — quadratisch, für jede
+# Seite im Event-Loop, ohne Anmeldung (Folgepaket F, Runde 2, wie gf-betrieb F-B1)
 _ACCEPT = re.compile(
-    r"^\s*([A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*|\*)\s*(?:;\s*q\s*=\s*([0-9.]+))?\s*$"
+    r"^\s*+([A-Za-z]{1,8}(?:-[A-Za-z0-9]{1,8})*|\*)\s*+"
+    r"(?:;\s*+q\s*+=\s*+([0-9.]+))?\s*+$"
 )
 
 

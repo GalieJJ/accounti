@@ -30,6 +30,30 @@ def test_accept_language_mit_q_werten():
     assert aus_accept_language("fr, it") is None
     assert aus_accept_language("") is None and aus_accept_language(None) is None
     assert aus_accept_language("en;q=kaputt, de") == "de"
+    # Leerraum um Trenner und q-Wert
+    assert aus_accept_language("  de ; q = 0.5 ,\ten\t;\tq=0.9  ") == "en"
+
+
+def test_accept_language_ohne_quadratische_laufzeit():
+    """Gefunden bei der Suche nach Stellen wie F-B1 (Folgepaket F, Runde 2): Ein Teil
+    mit langer Leerraumfolge vor einem Fehler („de“ + 16 000 Leerzeichen + „;q=1 x“)
+    brauchte 1,2 s — jede Aufteilung der Folge auf zwei ``\\s*``. Jetzt linear."""
+    import time
+
+    for kopf, erwartet in (
+        ("de" + " " * 60_000 + ";q=1 x", None),
+        ("a" + " " * 60_000 + "x", None),
+        ("en" + "\t" * 60_000 + "x", None),
+        ("de;q=1" + " " * 60_000 + "x", None),
+        ("de; q=" + "1" * 60_000 + "x", None),
+        ("fr" + " " * 60_000 + ";q=1 x,en", "en"),
+        ("en" + " " * 60_000 + ";q=0.5" + " " * 60_000, "en"),
+    ):
+        beginn = time.perf_counter()
+        ergebnis = aus_accept_language(kopf)
+        dauer = time.perf_counter() - beginn
+        assert dauer < 0.25, (kopf[:8], dauer)  # vorher 16 s (60 000 Zeichen)
+        assert ergebnis == erwartet, kopf[:8]
 
 
 def test_benutzersprache_gewinnt():

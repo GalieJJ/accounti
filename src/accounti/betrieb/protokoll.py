@@ -20,15 +20,27 @@ import logging
 import os
 import re
 import sys
+from bisect import bisect_left, bisect_right
 from typing import IO
 
-# Ein Schema beginnt nach einem Zeichen, das kein Buchstabe ist, und ist höchstens 41
-# Zeichen lang: Ohne diese Grenzen probierte jedes Muster mit Schema jede Stelle einer
-# langen Zeichenfolge bis zu ihrem Ende — quadratisch, ein „GET /statisch/<15 000 ×
-# a>“ hielt den Server 5 s an (Runde 8, g7w DoS-1)
-_SCHEMA = r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9+.\-]{0,40}://"
+# Zugangsdaten stehen hinter „://“ — gleich, was davor steht: Die Muster beginnen an
+# „://“, nicht am Anfang des Schemas. Ein Schema-Anfang probierte jede Stelle einer
+# langen Zeichenfolge bis zu ihrem Ende (quadratisch, Runde 8, g7w DoS-1), begrenzt auf
+# 41 Buchstaben übersah es ein Schema hinter 42 Buchstaben ohne Trenner (Folgepaket F,
+# g8w B8-3)
+_SCHEMA = r"://"
 # Zeichen einer E-Mail-Adresse vor dem „@“ bzw. des Rests einer zerschnittenen Adresse
 _LOKAL = r"\w.+\-#?%!$&*=^~"
+# Leerraum zwischen Schlüsselwort und Wert („Passwort:  …“, „PIN\n4711“), possessiv:
+# Mit ``\s*`` probierte das PIN-Muster jede Aufteilung einer langen Leerraumfolge
+# (quadratisch, Folgepaket F, g8w B8-1), begrenzt auf 40 Zeichen blieb ein Wert
+# dahinter ungeschwärzt (F Runde 2, gf-betrieb F-B2) — ``\s*+`` gibt nichts zurück
+_ABSTAND = r"\s*+"
+# Teil einer Adresse zwischen „://“ und „:“ (ohne Punkt: ``_RECHNERTEIL``) und ein Port
+# 1–65535 ohne führende Null
+_HOSTTEIL = r"[^/\s:@?#\[\]]"
+_RECHNERTEIL = r"[^/\s:@?#\[\].]"
+_PORT = r"(?:6553[0-5]|655[0-2]\d|65[0-4]\d\d|6[0-4]\d{3}|[1-5]\d{4}|[1-9]\d{0,3})"
 _MUSTER: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"accounti_(?:api|wh)_[A-Za-z0-9_\-]+"), "[Token]"),
     # verbreitete Zugangstoken (GitHub, GitLab, Slack) — auch ohne „token=“
@@ -39,7 +51,7 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
         ),
         "[Token]",
     ),
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
+    (re.compile(r"(?i)\bbearer\s++[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
     # Zugangsdaten jeder URL (scheme://benutzer:passwort@): die ganze userinfo, auch
     # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
     (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
@@ -48,13 +60,18 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # „@“ weiter hinten im Pfad bleiben Pfad)
     (re.compile(rf"({_SCHEMA})[^/\s@:]*:[^/\s@]*/[^/\s@]+@"), r"\1***@"),
     # … und abgeschnitten (Zeilenumbruch, kaputte Adresse): „scheme://benutzer:etwas“
-    # ohne @ — außer einem Port: Ziffern vor „/“, Leerraum, Ende, einer Abfrage („?x=1“,
-    # „?“) oder „#/“ (Runde 8, g7w B7-3); „:4711#Sonne“ und „:4711?Sonne“ sind ein
-    # Passwort (Runde 7, g6w B-2)
+    # ohne @ — außer einem Port: Ziffern bis 65535 hinter einem Rechner (mit Punkt —
+    # auch IPv4 — oder localhost) vor „/“, Leerraum, Ende, einer Abfrage („?x=1“, „?“)
+    # oder „#/“ (Runde 8, g7w B7-3). Ohne Rechner ist „alarm:4711?x=Sonne“ ein Passwort
+    # (Folgepaket F, g8w B8-2), ebenso „:4711#Sonne“ und „:4711?Sonne“ (Runde 7, g6w
+    # B-2). Die Gruppe ist atomar: Ein Port hinter einem Rechner fällt nicht auf die
+    # zweite Lesart zurück
     (
         re.compile(
-            rf"({_SCHEMA}[^/\s:@?#\[\]]+):"
-            r"(?!\d+(?:[/\s]|$|\?(?:[^\s#/=]*=|[\s#/]|$)|#(?:[/\s]|$)))[^/\s@]+"
+            rf"({_SCHEMA}(?>(?P<rechner>{_RECHNERTEIL}*\.{_HOSTTEIL}*|"
+            rf"(?i:localhost)(?=:))|{_HOSTTEIL}+)):"
+            rf"(?(rechner)(?!{_PORT}(?:[/\s]|$|\?(?:[^\s#/=]*=|[\s#/]|$)|#(?:[/\s]|$))))"
+            r"[^/\s@]+"
         ),
         r"\1:***",
     ),
@@ -68,12 +85,16 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # „Passwort: …“, „Kennwort = …“ (Text statt Parameter)
     (
         re.compile(
-            r"(?i)\b(passwor[td]|kennwort|secret|geheimnis)(\s*[:=]\s*)[^\s\"',;]+"
+            rf"(?i)\b(passwor[td]|kennwort|secret|geheimnis)({_ABSTAND}[:=]{_ABSTAND})"
+            r"[^\s\"',;]+"
         ),
         r"\1\2***",
     ),
     # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
-    (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
+    (
+        re.compile(rf"(?i)\b(pin|tan)({_ABSTAND}(?:[:=]{_ABSTAND})?)\d{{4,8}}\b"),
+        r"\1\2***",
+    ),
     # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“); beginnt nur
     # am Anfang einer solchen Zeichenfolge, nicht an jeder ihrer Stellen (DoS-1). Ein
     # „wort:“ davor gehört nur dazu, wenn ein Passwortzeichen folgt
@@ -94,28 +115,66 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
 
 
 # Zeilen über ZEILE_HOECHSTENS Zeichen verlieren vor den Mustern ihre Mitte (zweite
-# Ebene gegen DoS-1): höchstens RAND Zeichen vorn und hinten bleiben
+# Ebene gegen DoS-1): höchstens RAND Zeichen vorn und hinten bleiben. Geschwärzt wird
+# jedes Stück mit VORLAUF Zeichen über die Schnittkante hinaus, erst danach wird an ihr
+# geschnitten — ein Schlüsselwort vor der Kante findet so seinen Wert dahinter
+# (Folgepaket F, g8w B8-1)
 ZEILE_HOECHSTENS = 4000
 _RAND = 1500
+_VORLAUF = 250
 _LEER = re.compile(r"\s")
-# Anfang bzw. Rest einer an der Schnittstelle zerteilten IBAN (mit Leerzeichen das
-# einzige Geheimnis aus mehreren Wörtern, das ein Muster sonst nicht mehr erkennt)
-_IBAN_ANFANG = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{1,4}){0,8}$")
-_IBAN_REST = re.compile(r"^(?:[A-Z0-9]{1,4}(?:[ ]|$))+")
+
+
+def _mit_herkunft(text: str) -> tuple[str, list[int]]:
+    """``text`` geschwärzt (``_MUSTER``) — und je Zeichen des Ergebnisses die Stelle in
+    ``text``, aus der es stammt (die eines Ersatzes: der Anfang seines Treffers; die
+    Folge steigt nie)."""
+    herkunft = list(range(len(text)))
+    for muster, ersatz in _MUSTER:
+        teile: list[str] = []
+        neu: list[int] = []
+        pos = 0
+        for treffer in muster.finditer(text):
+            anfang, ende = treffer.span()
+            geschwaerzt = treffer.expand(ersatz)
+            teile += [text[pos:anfang], geschwaerzt]
+            neu += herkunft[pos:anfang] + [herkunft[anfang]] * len(geschwaerzt)
+            pos = ende
+        if teile:
+            text = "".join([*teile, text[pos:]])
+            herkunft = neu + herkunft[pos:]
+    return text, herkunft
+
+
+def _vor_dem_abstand(zeile: str, stelle: int) -> int:
+    """Anfang der Folge aus Leerraum, „:“ und „=“, die bis ``stelle`` reicht (sonst
+    ``stelle``) — dort, wo ein Abstand (``_ABSTAND``) sein Schlüsselwort hat."""
+    while stelle > 0 and (zeile[stelle - 1].isspace() or zeile[stelle - 1] in ":="):
+        stelle -= 1
+    return stelle
 
 
 def _ohne_mitte(zeile: str) -> str:
-    """Erst kürzen, dann schwärzen — ohne ein angeschnittenes Geheimnis stehen zu
-    lassen, dessen Rest kein Muster mehr erkennt (das Ende eines Tokens ohne „Bearer“
-    davor, „DE89 3704“): Der Anfang endet vor dem letzten Leerraum, das Ende beginnt
-    nach dem ersten, eine dort zerteilte IBAN fällt ganz weg. Die Mitte erscheint
-    nicht."""
-    kopf = zeile[:_RAND]
-    schnitt = max((m.start() for m in _LEER.finditer(kopf)), default=0)
-    kopf = _IBAN_ANFANG.sub("", kopf[:schnitt].rstrip())
-    ende = zeile[-_RAND:]
-    weiter = _LEER.search(ende)
-    ende = _IBAN_REST.sub("", ende[weiter.end() :].lstrip()) if weiter else ""
+    """Kürzen ohne ein angeschnittenes Geheimnis stehen zu lassen: Die Schnittkanten
+    liegen auf Leerraum (der Anfang endet vor dem letzten in den ersten ``_RAND``
+    Zeichen, das Ende beginnt nach dem ersten in den letzten). Jedes Stück wird mit
+    ``_VORLAUF`` Zeichen über seine Kante hinaus geschwärzt und erst dann geschnitten:
+    Ein Treffer, der vor der Kante beginnt, bleibt vorn geschwärzt stehen und fällt
+    hinten ganz weg — ein Wert hinter der Kante verliert nie sein Schlüsselwort
+    („Bearer“, „passwort:“, „PIN“, eine IBAN mit Leerzeichen). Der Vorlauf des Endes
+    reicht über einen Abstand (Leerraum, „:“, „=“ — beliebig lang), in dem er beginnt,
+    bis ``_VORLAUF`` Zeichen vor diesen (F Runde 2, gf-betrieb F-B2: „PIN“, 300
+    Leerzeichen, Wert hinter der Kante). Die Mitte erscheint nicht."""
+    kante = max((m.start() for m in _LEER.finditer(zeile, 0, _RAND)), default=0)
+    text, herkunft = _mit_herkunft(zeile[: kante + _VORLAUF])
+    kopf = text[: bisect_left(herkunft, kante)].rstrip()
+    weiter = _LEER.search(zeile, len(zeile) - _RAND)
+    ende = ""
+    if weiter is not None:
+        start = max(weiter.start() - _VORLAUF, 0)
+        start = max(_vor_dem_abstand(zeile, start) - _VORLAUF, 0)
+        text, herkunft = _mit_herkunft(zeile[start:])
+        ende = text[bisect_right(herkunft, weiter.start() - start) :].lstrip()
     return f"{kopf} … [gekürzt] … {ende}".strip()
 
 
@@ -180,6 +239,26 @@ def _hinter_zugangsdaten(vorn: str, hinten: str) -> str | None:
     return re.split(r"[/?#]", rechner, maxsplit=1)[0]
 
 
+# statt eines Rechners, wenn die Adresse zwei Lesarten hat (``rechner_der_adresse``)
+MEHRDEUTIGE_ADRESSE = (
+    "(Adresse nicht eindeutig – @ # ? / im Passwort prozentkodieren: %40 %23 %3F %2F)"
+)
+
+
+def _mehrdeutig(rest: str) -> bool:
+    """Zugangsdaten „benutzer:…@“ vor einem „#“ oder „?“ und dahinter (bis zum ersten
+    „/“) ein weiteres „@“: „alarm:Son@ne#x@rechner.example“ ist ein Passwort „Son“ mit
+    Rechner „ne“ und Fragment — oder ein Passwort „Son@ne#x“ mit Rechner
+    „rechner.example“. Welche Lesart gemeint ist, lässt sich nicht erkennen."""
+    bis_pfad = rest.split("/", 1)[0]
+    trenner = re.search(r"[?#]", bis_pfad)
+    if trenner is None:
+        return False
+    vorn, hinten = bis_pfad[: trenner.start()], bis_pfad[trenner.start() :]
+    zugang = vorn.rpartition("@")[0]
+    return ":" in zugang and "@" in hinten
+
+
 def rechner_der_adresse(adresse: str) -> str | None:
     """„schema://rechner[:port]“ einer Adresse — ohne Benutzer, Passwort, Pfad und
     Abfrage (die tragen oft ein Geheimnis). Zugangsdaten stehen vor dem ersten „/“, „?“
@@ -188,12 +267,16 @@ def rechner_der_adresse(adresse: str) -> str | None:
     gegen ein unkodiertes #, ? oder / im Passwort (``urlsplit`` machte dort den
     Passwortanfang zum Rechner und seine Ziffern zum Port, Runde 7, g6w B-2; Runde 8,
     g7w B7-2): ``_hinter_zugangsdaten``. Im Zweifel ohne Port. ``None``, wenn die
-    Adresse keinen Rechner erkennen lässt."""
+    Adresse keinen Rechner erkennen lässt; ``MEHRDEUTIGE_ADRESSE``, wenn sie zwei
+    Lesarten hat (``_mehrdeutig``) — dann nennt sie keinen geratenen Rechner, der ein
+    Teil des Passworts sein könnte (Folgepaket F, g8w B8-4)."""
     schema, trenner, rest = adresse.strip().partition("://")
     if not trenner or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.\-]*", schema):
         return None
     vorn = re.split(r"[/?#]", rest, maxsplit=1)[0]
     if "@" in vorn:
+        if _mehrdeutig(rest):
+            return MEHRDEUTIGE_ADRESSE
         vorn = vorn.rpartition("@")[2]
     elif (rechner := _hinter_zugangsdaten(vorn, rest[len(vorn) :])) is not None:
         vorn = rechner
