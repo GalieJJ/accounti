@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Belege auf dem Handy – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--info:#1f5fa8;--info-flaeche:#e6eef9;--marke-gd:#7b3fa0;--papier:#fbfaf7}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--info:#8db8f0;--info-flaeche:#172436;--marke-gd:#c79ae6;--papier:#d9d6cf}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a .nw{white-space:nowrap}
+</style>
+</helmet>
+<div class="a {{theme}}" style="width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden">
+
+<header style="flex: none; display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 16px; background: var(--flaeche); border-bottom: 1px solid var(--linie)">
+<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 600">GD</span>
+<h1 style="margin: 0; flex: 1 1 auto; font-size: 18px; font-weight: 600">Belege</h1>
+<a href="#suche" aria-label="Suchen" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: var(--text)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg></a>
+</header>
+
+<main style="flex: 1 1 auto; overflow: hidden; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px">
+<a href="#foto" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.5"></circle></svg>Beleg fotografieren</a>
+<p style="margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-2)"><span style="color: var(--ok); font-weight: 600">✓</span>Mit paperless verbunden · Abruf heute 06:00</p>
+<div style="display: flex; gap: 6px">
+<a href="#alle" aria-current="true" class="nw" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 999px; background: var(--akzent); color: var(--akzent-text); font-weight: 600; text-decoration: none">Alle</a>
+<a href="#pruefung" class="nw" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 999px; color: var(--text); text-decoration: none">Zur Prüfung 3</a>
+<a href="#ohne" class="nw" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 999px; color: var(--text); text-decoration: none">Ohne Zahlung 5</a>
+</div>
+<div role="list" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+<sc-for list="{{belege}}" as="b" hint-placeholder-count="4">
+<a role="listitem" href="#beleg" style="display: flex; flex-direction: column; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; overflow: hidden; color: var(--text); text-decoration: none">
+<span aria-hidden="true" style="display: flex; justify-content: center; padding-top: 12px; height: 104px; box-sizing: border-box; background: var(--flaeche-2); overflow: hidden">
+<span style="display: flex; flex-direction: column; gap: 5px; width: 72px; height: 104px; padding: 10px 8px; box-sizing: border-box; background: var(--papier); border-radius: 2px 2px 0 0; box-shadow: 0 1px 3px rgba(0,0,0,.18)">
+<span style="height: 5px; width: 32px; border-radius: 2px; background: #2b3138; opacity: .75"></span>
+<span style="height: 3px; width: 50px; border-radius: 2px; background: #9aa1a8"></span>
+<span style="height: 3px; width: 42px; border-radius: 2px; background: #c6cacd; margin-top: 6px"></span>
+<span style="height: 3px; width: 54px; border-radius: 2px; background: #c6cacd"></span>
+</span>
+</span>
+<span style="display: flex; flex-direction: column; gap: 1px; padding: 8px 10px 10px">
+<span style="font-weight: 600; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{b.name}}</span>
+<span class="nw" style="font-size: 14px; color: var(--text-2)">{{b.datum}} · {{b.betrag}}</span>
+<span class="nw" style="font-size: 13px; font-weight: 600; color: {{b.farbe}}">{{b.zeichen}} {{b.status}}</span>
+</span>
+</a>
+</sc-for>
+</div>
+</main>
+
+<nav aria-label="Bereiche" style="flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 64px; background: var(--flaeche); border-top: 1px solid var(--linie)">
+<a href="Handy-Uebersicht.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>Übersicht</a>
+<a href="Handy-Pruefen.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>Prüfen 12</a>
+<a href="Handy-Belege.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--akzent); font-size: 12px; font-weight: 600; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>Belege 3</a>
+<a href="Handy-Freigaben.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>Freigaben 2</a>
+<a href="Handy-Mehr.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>Mehr</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      theme: this.props.dunkel ? 'dunkel' : '',
+      belege: [
+        { name: 'Deutsche Telekom AG', datum: '26.10.', betrag: '39,99 €', status: 'gebucht', zeichen: '✓', farbe: 'var(--ok)' },
+        { name: 'eBay Sarl', datum: '25.10.', betrag: '780,25 €', status: 'zur Prüfung', zeichen: '!', farbe: 'var(--warn)' },
+        { name: 'Staples Deutschland', datum: '21.10.', betrag: '412,37 €', status: 'gebucht', zeichen: '✓', farbe: 'var(--ok)' },
+        { name: 'Deutsche Bahn', datum: '19.10.', betrag: '128,90 €', status: 'ohne Zahlung', zeichen: 'i', farbe: 'var(--info)' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

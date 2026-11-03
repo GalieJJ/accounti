@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Einstellungen: Firma und Steuern – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--info:#1f5fa8;--info-flaeche:#e6eef9;--marke-gd:#7b3fa0;--marke-2:#1f6fa8;--marke-3:#2f7d5b;--marke-4:#a8551f;--marke-5:#a8244f;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--info:#8db8f0;--info-flaeche:#172436;--marke-gd:#c79ae6;--marke-2:#8db8f0;--marke-3:#7fd1ad;--marke-4:#f0a46a;--marke-5:#f08fb0;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a input,.a select{font:inherit;color:var(--text)}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<a href="Main.dc.html" style="font-size: 19px; font-weight: 600; color: var(--text); text-decoration: none">accounti</a>
+<button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px 0 6px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche); color: var(--text)"><span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 700">GD</span><span style="font-weight: 600">Galerie Demo GmbH</span></button>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span>Jan Hansen</span>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+
+<nav aria-label="Bereiche" style="flex: 1 1 232px; padding: 20px 12px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Übersicht</a>
+<a href="Pruefen-Liste.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Prüfen<span style="margin-left: auto; min-width: 28px; padding: 0 8px; border-radius: 11px; background: var(--akzent); color: var(--akzent-text); font-size: 13px; font-weight: 600; line-height: 22px; text-align: center">12</span></a>
+<a href="#belege" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Belege</a>
+<a href="#steuern" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Steuern</a>
+<a href="#auswertungen" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Auswertungen</a>
+<a href="Handy-Freigaben.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Freigaben</a>
+<div style="height: 1px; margin: 12px 12px; background: var(--linie)"></div>
+<a href="Einstellungen-Firma.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Einstellungen</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 48px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<p style="margin: 0; font-size: 14px; color: var(--text-2)"><a href="#einstellungen">Einstellungen</a> › Firma &amp; Steuern</p>
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Firma &amp; Steuern</h1>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start">
+<nav aria-label="Abschnitte" style="flex: 1 1 220px; max-width: 260px; display: flex; flex-direction: column; gap: 2px">
+<a href="#firma" aria-current="true" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; border-radius: 6px; background: var(--flaeche); border: 1px solid var(--linie); color: var(--text); font-weight: 600; text-decoration: none">Firmendaten</a>
+<a href="#steuern-meldungen" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: var(--text); text-decoration: none">Steuern &amp; Meldungen</a>
+<a href="#buchhaltung" style="display: flex; align-items: center; justify-content: space-between; min-height: 40px; padding: 0 12px; color: var(--text); text-decoration: none">Buchhaltung<span style="display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--warn); font-weight: 600"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg>Hinweis</span></a>
+<a href="#abschluss" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: var(--text); text-decoration: none">Abschluss</a>
+<a href="#anlagen" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: var(--text); text-decoration: none">Anlagen <span style="margin-left: 8px; font-size: 13px; color: var(--text-2)">Experte</span></a>
+<a href="#ustid" style="display: flex; align-items: center; min-height: 40px; padding: 0 12px; color: var(--text); text-decoration: none">USt-IdNr.-Prüfung</a>
+</nav>
+
+<div style="flex: 999 1 520px; min-width: 0; max-width: 820px; display: flex; flex-direction: column; gap: 20px">
+
+<section id="firma" style="display: flex; flex-direction: column; gap: 18px; padding: 24px 26px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Firmendaten</h2>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Gespeichert in der Datenbank · Version 4 vom 21.10.2026 von Jan Hansen · <a href="#verlauf">Verlauf</a></p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="name" style="font-weight: 600">Name <span style="font-weight: 400; color: var(--text-2)">(Pflicht)</span></label>
+<input id="name" value="Galerie Demo GmbH" autocomplete="organization" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 20px 28px">
+<div style="display: flex; flex-direction: column; gap: 6px; flex: 0 1 14rem">
+<label for="rf" style="font-weight: 600">Rechtsform</label>
+<select id="rf" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>GmbH</option></select>
+</div>
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px">
+<legend style="padding: 0; margin-bottom: 6px; font-weight: 600">Kennfarbe</legend>
+<div style="display: flex; gap: 8px">
+<label style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; border: 2px solid var(--text)"><input type="radio" name="farbe" checked aria-label="Violett" style="position: absolute; opacity: 0"><span style="width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd)"></span></label>
+<label style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--linie)"><input type="radio" name="farbe" aria-label="Blau" style="position: absolute; opacity: 0"><span style="width: 26px; height: 26px; border-radius: 6px; background: var(--marke-2)"></span></label>
+<label style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--linie)"><input type="radio" name="farbe" aria-label="Grün" style="position: absolute; opacity: 0"><span style="width: 26px; height: 26px; border-radius: 6px; background: var(--marke-3)"></span></label>
+<label style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--linie)"><input type="radio" name="farbe" aria-label="Orange" style="position: absolute; opacity: 0"><span style="width: 26px; height: 26px; border-radius: 6px; background: var(--marke-4)"></span></label>
+<label style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--linie)"><input type="radio" name="farbe" aria-label="Rot" style="position: absolute; opacity: 0"><span style="width: 26px; height: 26px; border-radius: 6px; background: var(--marke-5)"></span></label>
+</div>
+</fieldset>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="str" style="font-weight: 600">Straße und Hausnummer</label>
+<input id="str" value="Musterstraße 1" autocomplete="street-address" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 6px; flex: 0 0 8rem">
+<label for="plz" style="font-weight: 600">PLZ</label>
+<input id="plz" value="12345" autocomplete="postal-code" inputmode="numeric" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; flex: 1 1 14rem">
+<label for="ort" style="font-weight: 600">Ort</label>
+<input id="ort" value="Musterstadt" autocomplete="address-level2" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="mail" style="font-weight: 600">E-Mail für Rechnungen</label>
+<input id="mail" value="rechnung@meine-firma.example" autocomplete="email" aria-describedby="mail-h" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+<p id="mail-h" style="margin: 0; font-size: 14px; color: var(--text-2)">Steht auf jeder Ausgangsrechnung (E-Rechnung, Feld BT-34).</p>
+</div>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Weiter unten: Ansprechpartner, Rechnungsnummern, Zahlungsziel, Bankverbindung.</p>
+<div><button type="button" style="min-height: 44px; padding: 0 22px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Firmendaten speichern</button></div>
+</section>
+
+<section id="steuern-meldungen" style="display: flex; flex-direction: column; gap: 18px; padding: 24px 26px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Steuern &amp; Meldungen</h2>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">ELSTER-Angaben aus der Datei config/accounti.yaml (noch nicht im Browser geändert) · Firmenangaben aus der Datenbank, Version 4 · <a href="#verlauf">Verlauf</a></p>
+</div>
+<div role="note" style="display: flex; gap: 12px; padding: 12px 14px; border-radius: 8px; background: var(--warn-flaeche)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+<div><strong style="font-weight: 600">Achtung, steuerrelevant:</strong> Änderungen brauchen einen Grund und den Code aus Ihrer Authenticator-App. Danach geht es 10 Minuten ohne neuen Code.</div>
+</div>
+<div style="overflow-x: auto; border: 1px solid var(--linie); border-radius: 8px">
+<table style="width: 100%; min-width: 520px; border-collapse: collapse">
+<caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Steuerwerte je Jahr</caption>
+<thead><tr style="background: var(--flaeche-2); font-size: 14px; color: var(--text-2)"><th scope="col" style="padding: 8px 14px; text-align: left; font-weight: 600">Jahr</th><th scope="col" style="padding: 8px 14px; text-align: left; font-weight: 600">Voranmeldung</th><th scope="col" style="padding: 8px 14px; text-align: left; font-weight: 600">Dauerfristverlängerung</th><th scope="col" style="padding: 8px 14px; text-align: left; font-weight: 600">Stand</th></tr></thead>
+<tbody>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding: 12px 14px">2026</td><td style="padding: 12px 14px">monatlich</td><td style="padding: 12px 14px">ja</td><td style="padding: 12px 14px"><span style="display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text-2)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>gesperrt – Januar bis August übermittelt</span></td></tr>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding: 8px 14px">ab 2027</td><td style="padding: 8px 14px"><select aria-label="Voranmeldung ab 2027" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>vierteljährlich</option></select></td><td style="padding: 8px 14px"><input type="checkbox" checked aria-label="Dauerfristverlängerung ab 2027" style="width: 18px; height: 18px; accent-color: var(--akzent)"></td><td style="padding: 8px 14px; font-size: 14px; color: var(--warn); font-weight: 600">geändert</td></tr>
+</tbody>
+</table>
+</div>
+<button type="button" style="align-self: flex-start; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Weiteres Jahr hinzufügen</button>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 14px 16px; border: 1px solid var(--linie); border-radius: 8px">
+<label style="display: flex; align-items: center; gap: 10px; font-weight: 600"><input type="checkbox" disabled style="width: 18px; height: 18px">Vier-Augen für Steuermeldungen</label>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">USt-VA und Dauerfristantrag brauchen dann zwei Freigaben verschiedener Personen. Dafür braucht es zwei Personen mit Freigaberecht – derzeit ist es eine. <a href="#einladen">Mitarbeitende einladen</a></p>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="grund" style="font-weight: 600">Grund der Änderung <span style="font-weight: 400; color: var(--text-2)">(Pflicht)</span></label>
+<input id="grund" value="Bescheid des Finanzamts vom 12.10.2026: ab 2027 vierteljährlich" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px; max-width: 14rem">
+<label for="code" style="font-weight: 600">Code aus der App <span style="font-weight: 400; color: var(--text-2)">(Pflicht)</span></label>
+<input id="code" inputmode="numeric" autocomplete="one-time-code" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); letter-spacing: 0.2em">
+</div>
+<div><button type="button" style="min-height: 44px; padding: 0 22px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Steuern &amp; Meldungen speichern</button></div>
+</section>
+
+<section id="buchhaltung" style="display: flex; flex-direction: column; gap: 14px; padding: 24px 26px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Buchhaltung</h2>
+<dl style="margin: 0; display: grid; grid-template-columns: 14rem 1fr; gap: 10px 20px">
+<dt style="color: var(--text-2)">Kontenrahmen</dt><dd style="margin: 0">SKR03 <span style="color: var(--text-2)">– gesperrt, es gibt bereits Buchungen</span></dd>
+<dt style="color: var(--text-2)">Wirtschaftsjahr beginnt</dt><dd style="margin: 0">01.01. <span style="color: var(--text-2)">– gesperrt, es gibt bereits Buchungen</span></dd>
+</dl>
+</section>
+
+</div>
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":1320}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>

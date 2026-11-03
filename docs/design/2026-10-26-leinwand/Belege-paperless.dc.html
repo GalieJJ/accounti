@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Belege – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--info:#1f5fa8;--info-flaeche:#e6eef9;--marke-gd:#7b3fa0;--papier:#fbfaf7;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--info:#8db8f0;--info-flaeche:#172436;--marke-gd:#c79ae6;--papier:#d9d6cf;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a input,.a select{font:inherit;color:var(--text)}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a .nw{white-space:nowrap}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<a href="Main.dc.html" style="font-size: 19px; font-weight: 600; color: var(--text); text-decoration: none">accounti</a>
+<button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px 0 6px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche); color: var(--text)"><span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 600">GD</span><span style="font-weight: 600">Galerie Demo GmbH</span></button>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span>Jan Hansen</span>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+
+<nav aria-label="Bereiche" style="flex: 1 1 232px; padding: 20px 12px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Übersicht</a>
+<a href="Pruefen-Liste.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Prüfen<span style="margin-left: auto; min-width: 28px; padding: 0 8px; border-radius: 11px; background: var(--akzent); color: var(--akzent-text); font-size: 13px; font-weight: 600; line-height: 22px; text-align: center">12</span></a>
+<a href="Belege-paperless.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Belege<span style="margin-left: auto; min-width: 28px; padding: 0 8px; border-radius: 11px; background: var(--flaeche); color: var(--akzent); font-size: 13px; font-weight: 600; line-height: 22px; text-align: center">3</span></a>
+<a href="Bank-Umsaetze.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Bank &amp; Zahlungen</a>
+<a href="Rechnungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Rechnungen &amp; Kontakte</a>
+<a href="Buchungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Buchungen</a>
+<a href="Anlagen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Anlagen</a>
+<a href="#steuern" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Steuern</a>
+<a href="#auswertungen" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Auswertungen</a>
+<div style="height: 1px; margin: 12px 12px; background: var(--linie)"></div>
+<a href="Einstellungen-Firma.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Einstellungen</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 40px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Belege</h1>
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<a href="#hochladen" style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600; text-decoration: none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21V9M7 14l5-5 5 5M5 3h14"></path></svg>Beleg hochladen</a>
+</div>
+</div>
+
+<div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 16px; border-radius: 10px; background: var(--flaeche); border: 1px solid var(--linie)">
+<span style="display: inline-flex; align-items: center; gap: 8px; font-weight: 600"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Mit paperless verbunden</span>
+<span style="color: var(--text-2)">Schlagwort „accounti“ · letzter Abruf heute 06:00 · 4 neue Belege übernommen</span>
+<span style="flex: 1 1 auto"></span>
+<a href="#paperless-einstellungen" style="font-weight: 600">Anbindung</a>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+<aside aria-label="Filter" style="flex: 1 1 200px; max-width: 220px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="volltext" style="font-size: 14px; font-weight: 600">Volltext</label>
+<input id="volltext" type="search" placeholder="Name, Nummer, Text" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+<span style="font-size: 13px; color: var(--text-2)">durchsucht auch den Text aus paperless</span>
+</div>
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 2px">
+<legend style="padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: 600">Status</legend>
+<a href="#alle" aria-current="true" style="display: flex; justify-content: space-between; min-height: 36px; align-items: center; padding: 0 10px; border-radius: 6px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Alle<span>214</span></a>
+<a href="#pruefung" style="display: flex; justify-content: space-between; min-height: 36px; align-items: center; padding: 0 10px; color: var(--text); text-decoration: none">Zur Prüfung<span style="color: var(--text-2)">3</span></a>
+<a href="#ohnezahlung" style="display: flex; justify-content: space-between; min-height: 36px; align-items: center; padding: 0 10px; color: var(--text); text-decoration: none">Ohne Zahlung<span style="color: var(--text-2)">5</span></a>
+<a href="#gebucht" style="display: flex; justify-content: space-between; min-height: 36px; align-items: center; padding: 0 10px; color: var(--text); text-decoration: none">Gebucht<span style="color: var(--text-2)">206</span></a>
+</fieldset>
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 6px">
+<legend style="padding: 0; margin-bottom: 6px; font-size: 14px; font-weight: 600">Belegart</legend>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: var(--akzent)">Rechnung</label>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: var(--akzent)">Quittung</label>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: var(--akzent)">Abrechnung</label>
+<label style="display: flex; gap: 8px; align-items: center"><input type="checkbox" checked style="width: 18px; height: 18px; accent-color: var(--akzent)">Gutschrift</label>
+</fieldset>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<label for="herkunft" style="font-size: 14px; font-weight: 600">Herkunft</label>
+<select id="herkunft" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>Alle Kanäle</option></select>
+</div>
+</aside>
+
+<section aria-label="Belegliste" style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+<span style="color: var(--text-2)">Oktober 2026 · 6 von 214</span>
+<div role="group" aria-label="Darstellung" style="display: inline-flex; border: 1px solid var(--linie-stark); border-radius: 6px; overflow: hidden">
+<button type="button" aria-pressed="{{istKacheln}}" onClick="{{zeigeKacheln}}" style="min-height: 36px; padding: 0 14px; border: 0; background: {{kachelGrund}}; color: {{kachelText}}; font-weight: 600">Kacheln</button>
+<button type="button" aria-pressed="{{istListe}}" onClick="{{zeigeListe}}" style="min-height: 36px; padding: 0 14px; border: 0; border-left: 1px solid var(--linie-stark); background: {{listeGrund}}; color: {{listeText}}; font-weight: 600">Liste</button>
+</div>
+</div>
+
+<sc-if value="{{istKacheln}}" hint-placeholder-val="{{ true }}">
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 14px">
+<sc-for list="{{belege}}" as="b" hint-placeholder-count="6">
+<button type="button" onClick="{{b.waehlen}}" style="display: flex; flex-direction: column; gap: 0; padding: 0; text-align: left; background: var(--flaeche); color: var(--text); border: {{b.rand}}; border-radius: 10px; overflow: hidden; box-shadow: var(--schatten)">
+<span aria-hidden="true" style="display: flex; justify-content: center; padding: 16px 0 0; height: 150px; box-sizing: border-box; background: var(--flaeche-2); overflow: hidden">
+<span style="display: flex; flex-direction: column; gap: 6px; width: 104px; height: 150px; padding: 14px 12px; box-sizing: border-box; background: var(--papier); border-radius: 3px 3px 0 0; box-shadow: 0 1px 3px rgba(0,0,0,.18)">
+<span style="height: 6px; width: 46px; border-radius: 2px; background: #2b3138; opacity: .75"></span>
+<span style="height: 3px; width: 70px; border-radius: 2px; background: #9aa1a8"></span>
+<span style="height: 3px; width: 58px; border-radius: 2px; background: #9aa1a8"></span>
+<span style="height: 3px; width: 76px; border-radius: 2px; background: #c6cacd; margin-top: 8px"></span>
+<span style="height: 3px; width: 76px; border-radius: 2px; background: #c6cacd"></span>
+<span style="height: 3px; width: 64px; border-radius: 2px; background: #c6cacd"></span>
+<span style="height: 5px; width: 34px; border-radius: 2px; background: #2b3138; opacity: .6; margin-top: 10px; align-self: flex-end"></span>
+</span>
+</span>
+<span style="display: flex; flex-direction: column; gap: 2px; padding: 12px 14px 14px; border-top: 1px solid var(--linie)">
+<span style="display: flex; justify-content: space-between; gap: 8px"><span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{b.name}}</span><span class="nw" style="font-weight: 600">{{b.betrag}}</span></span>
+<span style="font-size: 14px; color: var(--text-2)">{{b.art}} · {{b.datum}}</span>
+<span class="nw" style="align-self: flex-start; margin-top: 6px; display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: {{b.flaeche}}; color: {{b.farbe}}; font-size: 13px; font-weight: 600">{{b.zeichen}} {{b.status}}</span>
+</span>
+</button>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{istListe}}" hint-placeholder-val="{{ false }}">
+<div style="overflow-x: auto; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<table style="width: 100%; border-collapse: collapse">
+<caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Belege Oktober 2026</caption>
+<thead><tr style="background: var(--flaeche-2); font-size: 14px; color: var(--text-2)"><th scope="col" style="padding: 10px 14px; text-align: left; font-weight: 600">Datum</th><th scope="col" style="padding: 10px 14px; text-align: left; font-weight: 600">Aussteller</th><th scope="col" style="padding: 10px 14px; text-align: left; font-weight: 600">Belegart</th><th scope="col" style="padding: 10px 14px; text-align: right; font-weight: 600">Brutto</th><th scope="col" style="padding: 10px 14px; text-align: left; font-weight: 600">Status</th></tr></thead>
+<tbody>
+<sc-for list="{{belege}}" as="b" hint-placeholder-count="6">
+<tr style="border-top: 1px solid var(--linie); background: {{b.zeile}}">
+<td class="nw" style="padding: 12px 14px">{{b.datum}}</td>
+<td style="padding: 12px 14px"><button type="button" onClick="{{b.waehlen}}" style="padding: 0; border: 0; background: transparent; color: var(--akzent); font-weight: 600; text-align: left">{{b.name}}</button></td>
+<td style="padding: 12px 14px">{{b.art}}</td>
+<td class="nw" style="padding: 12px 14px; text-align: right; font-weight: 600">{{b.betrag}}</td>
+<td style="padding: 12px 14px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: {{b.flaeche}}; color: {{b.farbe}}; font-size: 13px; font-weight: 600">{{b.zeichen}} {{b.status}}</span></td>
+</tr>
+</sc-for>
+</tbody>
+</table>
+</div>
+</sc-if>
+</section>
+
+<aside aria-label="Ausgewählter Beleg" style="flex: 1 1 300px; max-width: 340px; display: flex; flex-direction: column; gap: 14px; padding: 18px 20px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600; line-height: 1.25">{{sel.name}}</h2>
+<span style="color: var(--text-2)">{{sel.art}} {{sel.nummer}} · {{sel.datum}}</span>
+</div>
+<span class="nw" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: {{sel.flaeche}}; color: {{sel.farbe}}; font-size: 13px; font-weight: 600">{{sel.zeichen}} {{sel.status}}</span>
+<dl style="margin: 0; display: grid; grid-template-columns: 7rem 1fr; gap: 6px 12px; font-size: 15px">
+<dt style="color: var(--text-2)">Brutto</dt><dd style="margin: 0; font-weight: 600">{{sel.betrag}}</dd>
+<dt style="color: var(--text-2)">Steuer</dt><dd style="margin: 0">{{sel.steuer}}</dd>
+<dt style="color: var(--text-2)">Buchung</dt><dd style="margin: 0">{{sel.buchung}}</dd>
+<dt style="color: var(--text-2)">Zahlung</dt><dd style="margin: 0">{{sel.zahlung}}</dd>
+<dt style="color: var(--text-2)">Herkunft</dt><dd style="margin: 0">paperless Nr. {{sel.pid}}</dd>
+<dt style="color: var(--text-2)">Schlagwörter</dt><dd style="margin: 0">{{sel.tags}}</dd>
+</dl>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a href="#paperless" style="display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 1px solid var(--linie-stark); border-radius: 6px; color: var(--text); font-weight: 600; text-decoration: none">In paperless öffnen<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+<a href="#original" style="display: inline-flex; align-items: center; justify-content: center; min-height: 44px; color: var(--akzent); font-weight: 600">Original aus dem Archiv</a>
+</div>
+<p style="margin: 0; font-size: 13px; color: var(--text-2)">Das Original liegt unveränderbar im accounti-Archiv (GoBD). Nach dem Buchen schreibt accounti „gebucht“ und die Buchungsnummer an paperless zurück.</p>
+</aside>
+
+</div>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { ansicht: 'kacheln', wahl: 'b2' };
+  }
+  renderVals() {
+    const ok = { status: 'gebucht', zeichen: '✓', farbe: 'var(--ok)', flaeche: 'var(--ok-flaeche)' };
+    const pr = { status: 'zur Prüfung', zeichen: '!', farbe: 'var(--warn)', flaeche: 'var(--warn-flaeche)' };
+    const oz = { status: 'ohne Zahlung', zeichen: 'i', farbe: 'var(--info)', flaeche: 'var(--info-flaeche)' };
+    const daten = [
+      { id: 'b1', name: 'Deutsche Telekom AG', art: 'Rechnung', nummer: '2026-10-4471', datum: '26.10.2026', betrag: '39,99 €', steuer: '6,38 € (19 %)', buchung: 'Telefon (4920) · B-2026-0981', zahlung: 'Geschäftskonto, 26.10.', pid: '2381', tags: 'accounti, Telefon', ...ok },
+      { id: 'b2', name: 'Hahnemühle FineArt GmbH', art: 'Rechnung', nummer: 'RE 2026-4471', datum: '10.04.2026', betrag: '1.229,49 €', steuer: '196,30 € (19 %)', buchung: 'Vorschlag: Wareneingang (3400)', zahlung: 'Geschäftskonto, − 1.204,90 € (Skonto?)', pid: '2377', tags: 'accounti, Material', ...pr },
+      { id: 'b3', name: 'eBay Sarl', art: 'Abrechnung', nummer: '6009990003', datum: '25.10.2026', betrag: '780,25 €', steuer: 'Gebühren mit 19 %', buchung: 'Vorschlag: Verrechnung eBay (1362)', zahlung: 'Geschäftskonto, 25.10.', pid: '2380', tags: 'accounti, Marktplatz', ...pr },
+      { id: 'b4', name: 'Staples Deutschland', art: 'Quittung', nummer: '10-88231', datum: '21.10.2026', betrag: '412,37 €', steuer: '65,84 € (19 %)', buchung: 'Bürobedarf (4930) · B-2026-0975', zahlung: 'Kreditkarte, 21.10.', pid: '2374', tags: 'accounti', ...ok },
+      { id: 'b5', name: 'Deutsche Bahn', art: 'Rechnung', nummer: '0812 4471 9921', datum: '19.10.2026', betrag: '128,90 €', steuer: '8,43 € (7 %)', buchung: 'noch keine', zahlung: 'noch nicht auf dem Konto', pid: '2371', tags: 'accounti, Reise', ...oz },
+      { id: 'b6', name: 'Hotel Adler', art: 'Rechnung', nummer: 'unsicher erkannt', datum: '17.10.2026', betrag: '236,00 €', steuer: 'unklar (7 % und 19 %?)', buchung: 'Erkennung unsicher', zahlung: 'Kreditkarte, 18.10.', pid: '2369', tags: 'accounti, Reise', ...pr }
+    ];
+    const s = this.state;
+    const sel = daten.find((d) => d.id === s.wahl) || daten[0];
+    const kacheln = s.ansicht === 'kacheln';
+    return {
+      theme: this.props.dunkel ? 'dunkel' : '',
+      istKacheln: kacheln,
+      istListe: !kacheln,
+      kachelGrund: kacheln ? 'var(--akzent)' : 'var(--flaeche)',
+      kachelText: kacheln ? 'var(--akzent-text)' : 'var(--text)',
+      listeGrund: kacheln ? 'var(--flaeche)' : 'var(--akzent)',
+      listeText: kacheln ? 'var(--text)' : 'var(--akzent-text)',
+      zeigeKacheln: () => this.setState({ ansicht: 'kacheln' }),
+      zeigeListe: () => this.setState({ ansicht: 'liste' }),
+      sel: sel,
+      belege: daten.map((d) => ({
+        ...d,
+        rand: d.id === sel.id ? '2px solid var(--akzent)' : '1px solid var(--linie)',
+        zeile: d.id === sel.id ? 'var(--akzent-flaeche)' : 'transparent',
+        waehlen: () => this.setState({ wahl: d.id })
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

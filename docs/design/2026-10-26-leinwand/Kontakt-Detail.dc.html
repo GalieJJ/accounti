@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Kontakt Helga Meier – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--fehler:#a8241f;--fehler-flaeche:#fbe7e5;--marke-gd:#7b3fa0;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--fehler:#ff9a92;--fehler-flaeche:#341a19;--marke-gd:#c79ae6;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a .nw{white-space:nowrap}
+.a td{padding:11px 12px;vertical-align:top}
+.a th{padding:9px 12px;text-align:left;font-weight:600}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<a href="Main.dc.html" style="font-size: 19px; font-weight: 600; color: var(--text); text-decoration: none">accounti</a>
+<button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px 0 6px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche); color: var(--text)"><span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 600">GD</span><span style="font-weight: 600">Galerie Demo GmbH</span></button>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span>Jan Hansen</span>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<nav aria-label="Bereiche" style="flex: 1 1 232px; padding: 20px 12px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Übersicht</a>
+<a href="Pruefen-Liste.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Prüfen</a>
+<a href="Belege-paperless.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Belege</a>
+<a href="Bank-Umsaetze.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Bank &amp; Zahlungen</a>
+<a href="Rechnungen.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Rechnungen &amp; Kontakte</a>
+<a href="Buchungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Buchungen</a>
+<a href="Anlagen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Anlagen</a>
+<a href="#steuern" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Steuern</a>
+<a href="#auswertungen" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Auswertungen</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 40px; display: flex; flex-direction: column; gap: 20px">
+<p style="margin: 0; font-size: 14px; color: var(--text-2)"><a href="Rechnungen.dc.html">Rechnungen &amp; Kontakte</a> › <a href="#kontakte">Kontakte</a> › Helga Meier</p>
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Helga Meier</h1>
+<span style="color: var(--text-2)">Kundin · Privatperson · Personenkonto 10023</span>
+</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<a href="#bearbeiten" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600; text-decoration: none">Bearbeiten</a>
+<a href="#neu" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600; text-decoration: none">Rechnung schreiben</a>
+</div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 16px; align-items: start">
+<section style="display: flex; flex-direction: column; gap: 10px; padding: 20px 22px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Kontaktdaten</h2>
+<dl style="margin: 0; display: grid; grid-template-columns: 8rem 1fr; gap: 6px 12px">
+<dt style="color: var(--text-2)">Anschrift</dt><dd style="margin: 0">Seestraße 12<br>88131 Lindau</dd>
+<dt style="color: var(--text-2)">E-Mail</dt><dd style="margin: 0">helga.meier@example.org</dd>
+<dt style="color: var(--text-2)">IBAN</dt><dd class="nw" style="margin: 0">DE21 7335 0000 0123 4567 89</dd>
+<dt style="color: var(--text-2)">Zahlungsziel</dt><dd style="margin: 0">14 Tage</dd>
+</dl>
+</section>
+<section style="display: flex; flex-direction: column; gap: 8px; padding: 20px 22px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Personenkonto</h2>
+<div class="nw" style="font-size: 28px; font-weight: 600">595,00 €</div>
+<div style="color: var(--text-2)">offen · stimmt mit den offenen Posten überein</div>
+<span class="nw" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; background: var(--fehler-flaeche); color: var(--fehler); font-size: 13px; font-weight: 600">! 1 Posten überfällig</span>
+</section>
+</div>
+
+<section aria-labelledby="op" style="display: flex; flex-direction: column; gap: 10px">
+<h2 id="op" style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Offene Posten</h2>
+<div style="overflow-x: auto; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<table style="width: 100%; border-collapse: collapse">
+<thead><tr style="background: var(--flaeche-2); font-size: 14px; color: var(--text-2)"><th scope="col" style="padding-left: 18px">Rechnung</th><th scope="col">Datum</th><th scope="col">Fällig</th><th scope="col" style="text-align: right">Offen</th><th scope="col" style="padding-right: 18px">Status</th></tr></thead>
+<tbody>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding-left: 18px"><a href="#r141" style="font-weight: 600">2026-0141</a></td><td class="nw">18.09.2026</td><td class="nw">02.10.2026</td><td class="nw" style="text-align: right; font-weight: 600">595,00 €</td><td style="padding-right: 18px"><span class="nw" style="color: var(--fehler); font-weight: 600">! überfällig seit 24 Tagen</span> · <a href="#mahnen">Zahlungserinnerung</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section aria-labelledby="verlauf" style="display: flex; flex-direction: column; gap: 10px">
+<h2 id="verlauf" style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Verlauf</h2>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 18px"><span><strong style="font-weight: 600">Zahlung erhalten</strong> · RE 2026-0147 ausgeglichen</span><span class="nw" style="color: var(--text-2)">22.10. · + 476,00 €</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--linie)"><span><strong style="font-weight: 600">Rechnung 2026-0147</strong> gesendet an helga.meier@example.org</span><span class="nw" style="color: var(--text-2)">05.10. · 476,00 €</span></li>
+<li style="display: flex; justify-content: space-between; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--linie)"><span><strong style="font-weight: 600">Rechnung 2026-0141</strong> gesendet</span><span class="nw" style="color: var(--text-2)">18.09. · 595,00 €</span></li>
+</ol>
+</section>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>

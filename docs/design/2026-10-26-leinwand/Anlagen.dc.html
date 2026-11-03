@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Anlagen – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--marke-gd:#7b3fa0;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--marke-gd:#c79ae6;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a .nw{white-space:nowrap}
+.a td{padding:12px;vertical-align:top}
+.a th{padding:10px 12px;text-align:left;font-weight:600}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<a href="Main.dc.html" style="font-size: 19px; font-weight: 600; color: var(--text); text-decoration: none">accounti</a>
+<span style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px 0 6px; border: 1px solid var(--linie); border-radius: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 600">GD</span><span style="font-weight: 600">Galerie Demo GmbH</span></span>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span>Jan Hansen</span>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<nav aria-label="Bereiche" style="flex: 1 1 232px; padding: 20px 12px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Übersicht</a>
+<a href="Pruefen-Liste.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Prüfen</a>
+<a href="Belege-paperless.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Belege</a>
+<a href="Bank-Umsaetze.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Bank &amp; Zahlungen</a>
+<a href="Rechnungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Rechnungen &amp; Kontakte</a>
+<a href="Buchungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Buchungen</a>
+<a href="Anlagen.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Anlagen</a>
+<a href="#steuern" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Steuern</a>
+<a href="#auswertungen" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Auswertungen</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 40px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Anlagen</h1>
+<p style="margin: 0; color: var(--text-2)">Anlagenverzeichnis mit Abschreibung (AfA). Geschäftsjahr 2026.</p>
+</div>
+<a href="#zugang" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 18px; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600; text-decoration: none">Zugang erfassen</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px">
+<div style="padding: 14px 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px"><div style="font-size: 14px; color: var(--text-2)">Anlagegüter</div><div style="font-size: 22px; font-weight: 600">7</div><div style="font-size: 14px; color: var(--text-2)">davon 1 Sammelposten</div></div>
+<div style="padding: 14px 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px"><div style="font-size: 14px; color: var(--text-2)">Buchwert 31.12.2026</div><div class="nw" style="font-size: 22px; font-weight: 600">18.642,00 €</div><div style="font-size: 14px; color: var(--text-2)">voraussichtlich</div></div>
+<div style="padding: 14px 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px"><div style="font-size: 14px; color: var(--text-2)">AfA 2026</div><div class="nw" style="font-size: 22px; font-weight: 600">6.214,33 €</div><div style="font-size: 14px; color: var(--text-2)">gebucht bis September</div></div>
+</div>
+
+<div style="overflow-x: auto; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<table style="width: 100%; border-collapse: collapse">
+<caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Anlagenverzeichnis 2026</caption>
+<thead><tr style="background: var(--flaeche-2); font-size: 14px; color: var(--text-2)"><th scope="col" style="padding-left: 18px">Anlagegut</th><th scope="col">Angeschafft</th><th scope="col" style="text-align: right">Anschaffungskosten</th><th scope="col">Abschreibung</th><th scope="col" style="text-align: right">AfA 2026</th><th scope="col" style="text-align: right; padding-right: 18px">Restbuchwert</th></tr></thead>
+<tbody>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding-left: 18px"><a href="#a1" style="font-weight: 600">Großformatdrucker Epson SC-P9500</a><div style="font-size: 14px; color: var(--text-2)">Betriebs- und Geschäftsausstattung (0490)</div></td><td class="nw">14.03.2025</td><td class="nw" style="text-align: right">9.800,00 €</td><td>linear, 7 Jahre</td><td class="nw" style="text-align: right">1.400,00 €</td><td class="nw" style="text-align: right; padding-right: 18px; font-weight: 600">7.233,33 €</td></tr>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding-left: 18px"><a href="#a2" style="font-weight: 600">Firmenwagen VW ID.4</a><div style="font-size: 14px; color: var(--text-2)">Pkw (0320)</div></td><td class="nw">02.01.2024</td><td class="nw" style="text-align: right">38.900,00 €</td><td>linear, 6 Jahre</td><td class="nw" style="text-align: right">4.322,22 €</td><td class="nw" style="text-align: right; padding-right: 18px; font-weight: 600">9.364,02 €</td></tr>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding-left: 18px"><a href="#a3" style="font-weight: 600">Notebook Lenovo ThinkPad</a><div style="font-size: 14px; color: var(--text-2)">EDV (0480)</div></td><td class="nw">08.07.2026</td><td class="nw" style="text-align: right">1.380,00 €</td><td>1 Jahr (digitale Wirtschaftsgüter)</td><td class="nw" style="text-align: right">1.380,00 €</td><td class="nw" style="text-align: right; padding-right: 18px; font-weight: 600">0,00 €</td></tr>
+<tr style="border-top: 1px solid var(--linie)"><td style="padding-left: 18px"><a href="#a4" style="font-weight: 600">Sammelposten 2026</a><div style="font-size: 14px; color: var(--text-2)">3 Wirtschaftsgüter 250–1.000 € (0485)</div></td><td class="nw">2026</td><td class="nw" style="text-align: right">1.560,00 €</td><td>Sammelposten, 5 Jahre</td><td class="nw" style="text-align: right">312,00 €</td><td class="nw" style="text-align: right; padding-right: 18px; font-weight: 600">1.248,00 €</td></tr>
+<tr style="border-top: 1px solid var(--linie); color: var(--text-2)"><td style="padding-left: 18px"><a href="#a5" style="font-weight: 600">Bilderrahmen-Schneidegerät</a><div style="font-size: 14px">Abgang am 30.06.2026 · Verkauf</div></td><td class="nw">01.02.2019</td><td class="nw" style="text-align: right">2.400,00 €</td><td>linear, 8 Jahre</td><td class="nw" style="text-align: right">125,00 €</td><td class="nw" style="text-align: right; padding-right: 18px">–</td></tr>
+</tbody>
+<tfoot><tr style="border-top: 2px solid var(--linie-stark); font-weight: 600"><td colspan="4" style="padding-left: 18px">Summe</td><td class="nw" style="text-align: right">6.214,33 €</td><td class="nw" style="text-align: right; padding-right: 18px">18.642,00 €</td></tr></tfoot>
+</table>
+</div>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Die AfA für Oktober bis Dezember bucht der Jahresabschluss. Zugang, Abgang und Änderungen stehen im Verlauf.</p>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Buchungen – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--fehler:#a8241f;--fehler-flaeche:#fbe7e5;--marke-gd:#7b3fa0;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--fehler:#ff9a92;--fehler-flaeche:#341a19;--marke-gd:#c79ae6;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a input,.a select{font:inherit;color:var(--text)}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a .nw{white-space:nowrap}
+.a td{padding:11px 12px;vertical-align:top}
+.a th{padding:10px 12px;text-align:left;font-weight:600}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 16px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<a href="Main.dc.html" style="font-size: 19px; font-weight: 600; color: var(--text); text-decoration: none">accounti</a>
+<button type="button" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px 0 6px; border: 1px solid var(--linie); border-radius: 8px; background: var(--flaeche); color: var(--text)"><span style="display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 600">GD</span><span style="font-weight: 600">Galerie Demo GmbH</span></button>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+<span style="display: inline-flex; align-items: center; gap: 8px"><span style="display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span>Jan Hansen</span>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+<nav aria-label="Bereiche" style="flex: 1 1 232px; padding: 20px 12px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 2px">
+<a href="Main.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Übersicht</a>
+<a href="Pruefen-Liste.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Prüfen<span style="margin-left: auto; min-width: 28px; padding: 0 8px; border-radius: 11px; background: var(--akzent); color: var(--akzent-text); font-size: 13px; font-weight: 600; line-height: 22px; text-align: center">12</span></a>
+<a href="Belege-paperless.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Belege</a>
+<a href="Bank-Umsaetze.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Bank &amp; Zahlungen</a>
+<a href="Rechnungen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Rechnungen &amp; Kontakte</a>
+<a href="Buchungen.dc.html" aria-current="page" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600; text-decoration: none">Buchungen</a>
+<a href="Anlagen.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Anlagen</a>
+<a href="#steuern" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Steuern</a>
+<a href="#auswertungen" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Auswertungen</a>
+<div style="height: 1px; margin: 12px 12px; background: var(--linie)"></div>
+<a href="Einstellungen-Firma.dc.html" style="display: flex; align-items: center; min-height: 44px; padding: 0 12px; border-radius: 8px; color: var(--text); text-decoration: none">Einstellungen</a>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 28px 40px 40px; display: flex; flex-direction: column; gap: 18px">
+<div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Buchungen</h1>
+<p style="margin: 0; color: var(--text-2)">Alle Buchungen in zeitlicher Folge. Geändert wird nur per Storno und Neubuchung, jede Änderung steht im Verlauf.</p>
+</div>
+<div style="display: flex; gap: 10px; flex-wrap: wrap">
+<a href="#datev" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600; text-decoration: none">DATEV-Export</a>
+<a href="#neu" style="display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600; text-decoration: none">Buchung erfassen</a>
+</div>
+</div>
+
+<form style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 16px; padding: 14px 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<div style="display: flex; flex-direction: column; gap: 4px"><label for="zr" style="font-size: 14px; font-weight: 600">Zeitraum</label><select id="zr" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>Oktober 2026</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 4px; flex: 1 1 12rem"><label for="kto" style="font-size: 14px; font-weight: 600">Konto</label><input id="kto" type="search" placeholder="z. B. 4920 oder Telefon" style="min-height: 40px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><label for="st" style="font-size: 14px; font-weight: 600">Status</label><select id="st" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>Alle</option></select></div>
+<div style="display: flex; flex-direction: column; gap: 4px"><label for="hk" style="font-size: 14px; font-weight: 600">Herkunft</label><select id="hk" style="min-height: 40px; padding: 0 10px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>Alle</option></select></div>
+<button type="submit" style="min-height: 40px; padding: 0 16px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600">Anzeigen</button>
+</form>
+
+<div style="overflow-x: auto; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+<table style="width: 100%; border-collapse: collapse">
+<caption style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Buchungen Oktober 2026</caption>
+<thead><tr style="background: var(--flaeche-2); font-size: 14px; color: var(--text-2)">
+<th scope="col" style="padding-left: 18px">Datum</th><th scope="col">Nr.</th><th scope="col">Buchungstext</th><th scope="col">Soll</th><th scope="col">Haben</th><th scope="col" style="text-align: right">Betrag</th><th scope="col">Steuer</th><th scope="col" style="padding-right: 18px">Status</th>
+</tr></thead>
+<tbody>
+<tr style="border-top: 1px solid var(--linie)">
+<td class="nw" style="padding-left: 18px">26.10.</td><td class="nw"><a href="#b981">B-0981</a></td>
+<td>Deutsche Telekom AG<div style="font-size: 14px; color: var(--text-2)">Bank · Beleg RE 2026-10-4471</div></td>
+<td>Telefon<div style="font-size: 14px; color: var(--text-2)">4920</div></td><td>Bank<div style="font-size: 14px; color: var(--text-2)">1200</div></td>
+<td class="nw" style="text-align: right; font-weight: 600">39,99 €</td><td class="nw">19 % Vorsteuer</td>
+<td style="padding-right: 18px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--ok-flaeche); color: var(--ok); font-size: 13px; font-weight: 600">✓ freigegeben</span></td>
+</tr>
+<tr style="border-top: 1px solid var(--linie)">
+<td class="nw" style="padding-left: 18px">24.10.</td><td class="nw"><a href="#b979">B-0979</a></td>
+<td>Hahnemühle FineArt GmbH<div style="font-size: 14px; color: var(--text-2)">Bank · Vorschlag der KI</div></td>
+<td>Wareneingang 19 %<div style="font-size: 14px; color: var(--text-2)">3400</div></td><td>Bank<div style="font-size: 14px; color: var(--text-2)">1200</div></td>
+<td class="nw" style="text-align: right; font-weight: 600">1.204,90 €</td><td class="nw">19 % Vorsteuer</td>
+<td style="padding-right: 18px"><a href="Pruefen-Arbeitsflaeche.dc.html" class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--warn-flaeche); color: var(--warn); font-size: 13px; font-weight: 600; text-decoration: none">! zur Prüfung</a></td>
+</tr>
+<tr style="border-top: 1px solid var(--linie)">
+<td class="nw" style="padding-left: 18px">22.10.</td><td class="nw"><a href="#b977">B-0977</a></td>
+<td>Helga Meier · Zahlung RE 2026-0147<div style="font-size: 14px; color: var(--text-2)">Bank · Ausgleich offener Posten</div></td>
+<td>Bank<div style="font-size: 14px; color: var(--text-2)">1200</div></td><td>Helga Meier<div style="font-size: 14px; color: var(--text-2)">10023</div></td>
+<td class="nw" style="text-align: right; font-weight: 600">476,00 €</td><td class="nw" style="color: var(--text-2)">–</td>
+<td style="padding-right: 18px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--ok-flaeche); color: var(--ok); font-size: 13px; font-weight: 600">✓ freigegeben</span></td>
+</tr>
+<tr style="border-top: 1px solid var(--linie); color: var(--text-2)">
+<td class="nw" style="padding-left: 18px">15.10.</td><td class="nw"><a href="#b961">B-0961</a></td>
+<td><span style="text-decoration: line-through">Büro Möller · Druckerpapier</span><div style="font-size: 14px">Kasse · storniert am 18.10. durch B-0970</div></td>
+<td>Bürobedarf<div style="font-size: 14px">4930</div></td><td>Kasse<div style="font-size: 14px">1000</div></td>
+<td class="nw" style="text-align: right">23,80 €</td><td class="nw">19 % Vorsteuer</td>
+<td style="padding-right: 18px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--flaeche-2); color: var(--text); font-size: 13px; font-weight: 600">↺ storniert</span></td>
+</tr>
+<tr style="border-top: 1px solid var(--linie)">
+<td class="nw" style="padding-left: 18px">18.10.</td><td class="nw"><a href="#b970">B-0970</a></td>
+<td>Storno zu B-0961<div style="font-size: 14px; color: var(--text-2)">Grund: doppelt erfasst · Jan Hansen</div></td>
+<td>Kasse<div style="font-size: 14px; color: var(--text-2)">1000</div></td><td>Bürobedarf<div style="font-size: 14px; color: var(--text-2)">4930</div></td>
+<td class="nw" style="text-align: right; font-weight: 600">23,80 €</td><td class="nw">19 % Vorsteuer</td>
+<td style="padding-right: 18px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--ok-flaeche); color: var(--ok); font-size: 13px; font-weight: 600">✓ freigegeben</span></td>
+</tr>
+<tr style="border-top: 1px solid var(--linie)">
+<td class="nw" style="padding-left: 18px">05.10.</td><td class="nw"><a href="#b944">B-0944</a></td>
+<td>RE 2026-0147 an Helga Meier<div style="font-size: 14px; color: var(--text-2)">Ausgangsrechnung</div></td>
+<td>Helga Meier<div style="font-size: 14px; color: var(--text-2)">10023</div></td><td>Erlöse 19 % USt<div style="font-size: 14px; color: var(--text-2)">8400</div></td>
+<td class="nw" style="text-align: right; font-weight: 600">476,00 €</td><td class="nw">19 % Umsatzsteuer</td>
+<td style="padding-right: 18px"><span class="nw" style="display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px; background: var(--ok-flaeche); color: var(--ok); font-size: 13px; font-weight: 600">✓ freigegeben</span></td>
+</tr>
+</tbody>
+<tfoot><tr style="border-top: 2px solid var(--linie-stark); font-weight: 600">
+<td colspan="5" style="padding-left: 18px">Oktober 2026 · 146 Buchungen</td><td class="nw" style="text-align: right">31.512,30 €</td><td colspan="2" style="padding-right: 18px; color: var(--text-2); font-weight: 400">Soll = Haben</td>
+</tr></tfoot>
+</table>
+</div>
+<nav aria-label="Seiten" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; color: var(--text-2)"><span>1–6 von 146</span><a href="#weiter" style="min-height: 44px; display: inline-flex; align-items: center; font-weight: 600">Weitere Buchungen</a></nav>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>
