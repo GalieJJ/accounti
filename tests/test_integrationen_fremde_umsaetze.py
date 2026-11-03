@@ -1220,7 +1220,61 @@ def test_kundenzahlung_mit_stichwort_und_rechnung_ist_ein_hinweis(umgebung):
     assert [b.code for b in _befunde(s, "11223344556", hinweise=True)] == [
         "auszahlung_rechnung"
     ]
+    # Nachprüfung 9 E, N9-2: der Posten ist jetzt ausgeglichen — der Text nennt ihn
+    # nicht „offen“ und bleibt derselbe (Regel 7)
+    (danach,) = _befunde(s, "11223344556", hinweise=True)
+    assert danach.text == hinweis.text and "offen" not in danach.text
     assert not _ustva_warnungen(s, "2026-09")
+
+
+def test_auszahlung_nennt_bezahlte_rechnung_gleicher_hoehe(umgebung):
+    """Nachprüfung 9 E, N9-2 (g9 r3): Die Auszahlung K nennt „RE 2026-0042“, eine
+    längst bezahlte Forderung über denselben Betrag. K ist kein Kandidat, opos bucht
+    ihn aber nicht — der Hinweis nannte den Posten „offen“ und sagte, er gelte als
+    dessen Zahlung (opos). Jetzt: schon bezahlt, opos bucht nicht, zuordnen ist der
+    Ausweg (ohne erst eine Zahlung in opos zu lösen)."""
+    from accounti.models import PostenStatus
+
+    s, archiv, kontext = umgebung
+    kunde = Kontakt(name="Galerie Nord GmbH", debitor_konto="10001")
+    speichere_kontakt(s, kunde)
+    speichere_posten(
+        s,
+        OffenerPosten(
+            kontakt_id=kunde.id,
+            beleg_id=uuid4(),
+            richtung=PostenRichtung.FORDERUNG,
+            belegnummer="RE-2026-0042",
+            belegdatum=date(2026, 3, 1),
+            betrag=Decimal("209.85"),
+            restbetrag=Decimal("0"),
+            faellig_am=date(2026, 3, 15),
+            status=PostenStatus.AUSGEGLICHEN,
+        ),
+    )
+    s.flush()
+    _amazon_september(s, archiv, kontext)
+    k = bank(
+        s,
+        date(2026, 9, 3),
+        "209.85",
+        "AMAZON PAYMENTS EUROPE RE 2026-0042",
+        "Amazon Payments Europe S.C.A.",
+    )
+    lauf = _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    assert not lauf.zuordnung.gebucht and k.id not in _zugeordnet(s, "11223344556")
+    (hinweis,) = _befunde(s, "11223344556", hinweise=True)
+    assert hinweis.code == "auszahlung_rechnung", hinweis.text
+    assert "schon bezahlten Postens" in hinweis.text and "opos bucht ihn nicht" in (
+        hinweis.text
+    )
+    assert "offen" not in hinweis.text and "in opos lösen" not in hinweis.text
+    assert f"marktplatz zuordnen 11223344556 {str(k.id)[:8]}" in hinweis.text
+    _bank_lauf_mit_regel(s, kontext, r"AMAZON")
+    (danach,) = _befunde(s, "11223344556", hinweise=True)
+    assert danach.text == hinweis.text
+    ergebnis = ordne_zu(s, kontext, "11223344556", str(k.id)[:8], von="erika")
+    assert ergebnis.transaktion is not None and ergebnis.transaktion.id == k.id
 
 
 # --- Nachprüfung 7 E, N1: fremdes Stichwort, Datum als Shopify-Nummer --------------

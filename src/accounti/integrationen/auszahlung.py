@@ -1851,7 +1851,10 @@ def _rechnung_befund(
     Stichwort des Marktplatzes und dem Betrag der Auszahlung bezahlt die Rechnung
     eines Postens (Belegnummer, Richtung, Betrag — etwa eine Kundenzahlung über Amazon
     Pay) und ist deshalb kein Kandidat; opos gleicht den Posten aus. Der Text hängt
-    nicht davon ab, ob opos schon gebucht hat (Regel 7: derselbe Hinweis bleibt)."""
+    nicht davon ab, ob opos schon gebucht hat (Regel 7: derselbe Hinweis bleibt).
+    War der Posten schon vorher bezahlt (ausgeglichen, der Umsatz ist nicht seine
+    Zahlung in opos), bucht opos ihn nicht — dann sagt der Text das und nennt den
+    Posten nicht „offen“ (Nachprüfung 9 E, N9-2)."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     teile = "; ".join(
         f"vom {t.datum:%d.%m.%Y} über {eur_text(t.betrag)} € ({str(t.id)[:8]}, "
@@ -1862,17 +1865,37 @@ def _rechnung_befund(
         _zuordnen_befehl(a.nummer, str(t.id)[:8], a=a, p=p) for t in umsaetze
     )
     wer = "Der Bankumsatz" if len(umsaetze) == 1 else f"{len(umsaetze)} Bankumsätze"
-    return Befund(
-        code=RECHNUNG,
-        schweregrad=Schweregrad.HINWEIS,
-        text=(
-            f"{markt} {a.nummer}: {wer} {teile} trägt das Stichwort von {markt} und "
-            "den Betrag der Auszahlung, nennt aber die Rechnung eines offenen Postens "
+    kopf = f"{markt} {a.nummer}: {wer} {teile} trägt das Stichwort von {markt} und "
+    if all(_schon_bezahlt(lauf, t) for t in umsaetze):
+        text = (
+            f"{kopf}den Betrag der Auszahlung, nennt aber die Rechnung eines schon "
+            "bezahlten Postens über denselben Betrag — der Abgleich nimmt ihn deshalb "
+            "nicht als Auszahlung, und opos bucht ihn nicht (der Posten ist "
+            f"ausgeglichen). Ist er die Auszahlung: {befehle}; sonst (eine weitere "
+            "Zahlung der Rechnung) von Hand klären"
+        )
+    else:
+        text = (
+            f"{kopf}den Betrag der Auszahlung, nennt aber die Rechnung eines Postens "
             "über denselben Betrag — er gilt als deren Zahlung (opos), nicht als "
             "Auszahlung. Ist er doch die Auszahlung: erst die Zahlung in opos lösen, "
             f"dann {befehle}"
-        ),
+        )
+    return Befund(
+        code=RECHNUNG,
+        schweregrad=Schweregrad.HINWEIS,
+        text=text,
         posten_nr=p.nr,
+    )
+
+
+def _schon_bezahlt(lauf: _Lauf, t: Transaktion) -> bool:
+    """Sind alle Posten, deren Rechnung der Umsatz nennt, ausgeglichen, ohne dass
+    opos ihn als ihre Zahlung gebucht hat? Dann gleicht opos mit ihm nichts aus."""
+    from accounti.models import PostenStatus
+
+    return not _opos_zahlung(lauf, t) and all(
+        x.status is PostenStatus.AUSGEGLICHEN for x in _rechnungen(lauf, t)
     )
 
 
