@@ -20,10 +20,13 @@ Sitzungen (sonst könnte jeder, der den Namen kennt, den Freigeber hinauswerfen)
 
 from __future__ import annotations
 
+import enum
 import hashlib
 import secrets
 from collections.abc import Iterable
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -144,16 +147,58 @@ def aendere_passwort(
     return b
 
 
-def setze_sprache(s: Session, benutzer_id: UUID, sprache: str | None) -> None:
-    """Sprache der Oberfläche (``de``, ``en`` oder ``None`` = automatisch)."""
+class _Unveraendert(enum.Enum):
+    UNVERAENDERT = "unverändert"
+
+
+UNVERAENDERT = _Unveraendert.UNVERAENDERT
+DARSTELLUNGEN = ("auto", "hell", "dunkel")
+
+
+@dataclass(frozen=True)
+class Vorlieben:
+    """Anzeige-Vorlieben eines Benutzers (Baustein 10c, A87). ``UNVERAENDERT`` heißt:
+    das Feld kam nicht mit (Teilformular) und bleibt, wie es ist. ``sprache=None``
+    folgt dem Browser."""
+
+    sprache: Literal["de", "en"] | None | _Unveraendert = UNVERAENDERT
+    darstellung: Literal["auto", "hell", "dunkel"] | _Unveraendert = UNVERAENDERT
+    fachansicht: bool | _Unveraendert = UNVERAENDERT
+    betraege_verbergen: bool | _Unveraendert = UNVERAENDERT
+    tastenkuerzel: bool | _Unveraendert = UNVERAENDERT
+
+    def gesetzt(self) -> dict[str, object]:
+        werte = {f.name: getattr(self, f.name) for f in fields(self)}
+        return {n: w for n, w in werte.items() if w is not UNVERAENDERT}
+
+
+def setze_vorlieben(s: Session, benutzer_id: UUID, vorlieben: Vorlieben) -> None:
+    """Nur die gesetzten Vorlieben ändern — als gezieltes ``UPDATE`` der Zeile, nie
+    über ``speichere_benutzer`` (kein verlorenes Update neben einer Anmeldung). Reine
+    Anzeige-Vorlieben: kein Ereignis, kein Journal (A113)."""
+    from sqlalchemy import select, update
+
     from accounti.db.tabellen_auth import BenutzerRow
 
-    if sprache not in (None, "de", "en"):
-        raise AuthError(f"Sprache {sprache!r} gibt es nicht (de, en)")
-    zeile = s.get(BenutzerRow, str(benutzer_id))
-    if zeile is None:
+    werte = vorlieben.gesetzt()
+    if "sprache" in werte and werte["sprache"] not in (None, "de", "en"):
+        raise AuthError(f"Sprache {werte['sprache']!r} gibt es nicht (de, en)")
+    if "darstellung" in werte and werte["darstellung"] not in DARSTELLUNGEN:
+        raise AuthError(
+            f"Darstellung {werte['darstellung']!r} gibt es nicht (auto, hell, dunkel)"
+        )
+    for name in ("fachansicht", "betraege_verbergen", "tastenkuerzel"):
+        if name in werte and not isinstance(werte[name], bool):
+            raise AuthError(f"{name} ist an oder aus, nicht {werte[name]!r}")
+    if not werte:
+        if s.scalar(select(BenutzerRow.id).where(BenutzerRow.id == str(benutzer_id))):
+            return
         raise AuthError("Benutzer unbekannt")
-    zeile.sprache = sprache
+    ergebnis = s.execute(
+        update(BenutzerRow).where(BenutzerRow.id == str(benutzer_id)).values(**werte)
+    )
+    if getattr(ergebnis, "rowcount", 0) != 1:
+        raise AuthError("Benutzer unbekannt")
     s.flush()
 
 

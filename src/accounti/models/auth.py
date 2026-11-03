@@ -190,6 +190,12 @@ class Benutzer(BaseModel):
     letzte_anmeldung_am: datetime | None = None
     # Sprache der Oberfläche (Baustein 10b): de, en oder None = automatisch (Browser)
     sprache: Literal["de", "en"] | None = None
+    # Anzeige-Vorlieben (Baustein 10c P1), gelten auf jedem Gerät; ändern nur über
+    # auth.dienst.setze_vorlieben (speichere_benutzer schreibt sie nur beim Anlegen)
+    darstellung: Literal["auto", "hell", "dunkel"] = "auto"
+    fachansicht: bool = False
+    betraege_verbergen: bool = False
+    tastenkuerzel: bool = True
 
     @field_validator("name")
     @classmethod

@@ -48,7 +48,7 @@ Ihre Rolle in %(gesellschaft)s erlaubt das nicht: Your role in %(gesellschaft)s 
 Kein Zugriff auf diese Gesellschaft: No access to this company
 Benutzer unbekannt: Unknown user
 Einmalcode falsch oder schon benutzt: One-time code wrong or already used
-Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md, Upgrades): The system database is not up to date for this version (column %(spalte)s is missing) — first run accounti db upgrade for the system database and every company database (see docs/betrieb.md, Upgrades)
+"Die Systemdatenbank ist nicht auf dem Stand dieser Version (es fehlen: %(spalten)s) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen; bei Datenbanken mit Versionsvermerk geht gleichwertig alembic upgrade head (siehe docs/betrieb.md, Upgrades)": "The system database is not up to date for this version (missing: %(spalten)s) — first run accounti db upgrade for the system database and every company database; for databases with a version stamp, alembic upgrade head is equivalent (see docs/betrieb.md, Upgrades)"
 
 # --- Übersicht -------------------------------------------------------------------------
 Offene Posten: Open items

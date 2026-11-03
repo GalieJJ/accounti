@@ -827,3 +827,72 @@ def test_kontierung_im_rundlauf(tmp_path):
 @mit_postgresql
 def test_kontierung_im_rundlauf_postgresql(tmp_path, pg_datenbank):
     _kontierung_rundlauf(tmp_path, pg_datenbank(), pg_datenbank())
+
+
+def _vorlieben_in(db: str) -> list[tuple]:
+    engine, _ = session_factory(db)
+    with engine.connect() as v:
+        zeilen = v.execute(
+            text(
+                "SELECT name, sprache, darstellung, fachansicht, betraege_verbergen, "
+                "tastenkuerzel FROM auth_benutzer ORDER BY name"
+            )
+        ).all()
+        vermerk = v.execute(text("SELECT version_num FROM alembic_version")).all()
+    engine.dispose()
+    return [tuple(z) for z in zeilen] + [tuple(z[0] for z in vermerk)]
+
+
+def test_rundlauf_mit_vorlieben(tmp_path):
+    """Baustein 10c P1: Die Vorlieben kommen generisch über die Metadaten mit; eine
+    Sicherung von vor der Migration (ohne die Spalten) lässt sich einspielen — das Ziel
+    legt ``init_db`` nach dem neuen Code an, vermerkt ``SCHEMA_STAND``, und die Zeilen
+    bekommen die Standardwerte."""
+    from accounti.auth.dienst import Vorlieben, setze_vorlieben
+    from accounti.db import SCHEMA_STAND
+    from tests.test_migration_web import VOR, alembic, ok
+
+    db = url(tmp_path / "system.db")
+    engine, fabrik = session_factory(db)
+    init_db(engine)
+    with fabrik() as s:
+        jan = lege_person_an(s, "jan", Rolle.BUCHHALTER)
+        setze_vorlieben(
+            s,
+            jan.benutzer.id,
+            Vorlieben(
+                sprache="en",
+                darstellung="dunkel",
+                fachansicht=True,
+                tastenkuerzel=False,
+            ),
+        )
+        s.commit()
+    engine.dispose()
+    ziel = tmp_path / "neu.accounti"
+    erstelle(db, None, ziel, SCHLUESSEL, system=True)
+    neu = url(tmp_path / "zurueck.db")
+    stelle_wieder_her(ziel, neu, None, SCHLUESSEL, system=True)
+    assert _vorlieben_in(neu) == [
+        ("jan", "en", "dunkel", 1, 0, 0),
+        (SCHEMA_STAND,),
+    ]
+
+    alt = tmp_path / "alt.db"
+    ok(alembic(alt, "upgrade", VOR))
+    import sqlite3
+
+    with sqlite3.connect(alt) as v:
+        v.execute(
+            "INSERT INTO auth_benutzer (id, name, passwort_hash, totp_aktiv, "
+            "fehlversuche, cli_fehlversuche, aktiv, angelegt_am, sprache) VALUES "
+            f"('{uuid4()}', 'leo', 'h', 0, 0, 0, 1, '2026-10-01 09:00:00', 'de')"
+        )
+    alt_ziel = tmp_path / "alt.accounti"
+    erstelle(url(alt), None, alt_ziel, SCHLUESSEL, system=True)
+    aus_alt = url(tmp_path / "aus-alt.db")
+    stelle_wieder_her(alt_ziel, aus_alt, None, SCHLUESSEL, system=True)
+    assert _vorlieben_in(aus_alt) == [
+        ("leo", "de", "auto", 0, 0, 1),
+        (SCHEMA_STAND,),
+    ]

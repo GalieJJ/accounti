@@ -134,7 +134,7 @@ def registriere_ereignisse() -> None:
 # Alembic-Revision, deren Schema ``init_db`` anlegt — der Kopf der Migrationen
 # (tests/test_db_upgrade.py hält beides gleich; beim Zusammenführen neuer Migrationen
 # hier nachziehen)
-SCHEMA_STAND = "e7153706b43a"
+SCHEMA_STAND = "1dd2f6b7c6c8"
 ALEMBIC_VERSION = "alembic_version"
 
 

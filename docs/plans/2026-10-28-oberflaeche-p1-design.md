@@ -2612,3 +2612,58 @@ Was beim Umsetzen gegenüber dem Plan anders kam, mit Grund. Abschnitt A = Schri
   (14/16/18/22/28/40) und scheitert sonst; das Makro `symbol` setzt nur Klassen.
 - **Umgestellt** `test_api_statisch.py::test_eigene_dateien_mit_versionsanhang`: der Teil vor
   `#` muss auf `?v=…` enden, ein Fragment ist nur am Sprite erlaubt.
+
+### Schritt 3 — Vorlieben am Benutzer
+
+- **Migration `1dd2f6b7c6c8_add_benutzer_vorlieben`**, `down_revision = K = e7153706b43a`,
+  `db.SCHEMA_STAND = "1dd2f6b7c6c8"` im selben Commit. Je Spalte nur, wenn sie fehlt
+  (`batch_alter_table`), `server_default` `'auto'`, `sa.false()`, `sa.false()`, `sa.true()`;
+  die Spalten entstehen in einer Funktion je Aufruf (kein `Column.copy()`, in SQLAlchemy 2
+  veraltet). Von Hand gegen eine Wegwerf-SQLite mit eigener ini-Kopie
+  (`.claude/arbeit/s/gesamttest/p1a/mig/`): `upgrade head` → `check` leer → `downgrade -1` →
+  `e7153706b43a` → `upgrade head` → `check` leer. PostgreSQL lokal nicht geprüft (kein Dienst;
+  `test_postgresql_rundlauf` läuft mit `ACCOUNTI_TEST_PG`).
+- **`setze_vorlieben`** prüft Werte selbst (Sprache, Darstellung, an/aus nur als `bool`) und
+  meldet einen unbekannten Benutzer auch, wenn nichts gesetzt ist; `setze_sprache` entfällt,
+  `seiten/sprache.py` ruft `setze_vorlieben(…, Vorlieben(sprache=…))` (Route bleibt bis
+  Schritt 9). `speichere_benutzer` schreibt `sprache` und die Vorlieben nur beim Anlegen
+  (`_NUR_BEIM_ANLEGEN`).
+- **Kopfannahmen umgestellt** (Liste aus Schritt 0, AK49):
+  - `test_migration_web.py::test_ein_kopf_nach_den_verrechnungen` (im Plan noch
+    `test_ein_kopf_nach_ddc9a184ddb4`): Reihenfolge der Vorfahren von `VORLIEBEN` statt
+    „`SPRACHE` ist Kopf“; `count("(head)") == 1` bleibt.
+  - `::test_downgrade_und_wieder_hinauf`: zuerst auf `VOR`, dann `_vorher(SPRACHE)` und
+    `_vorher(KONTIERUNG)`; `::test_postgresql_rundlauf` zusätzlich zurück auf `VOR`.
+  - `test_db_upgrade.py`: `[SCHEMA_STAND] == [SPRACHE]` → `[SCHEMA_STAND]` (drei Stellen),
+    `_nach(VERRECHNUNGEN)` nur noch mit den ersten drei Revisionen und der Zahl aus `_nach`.
+  - Paket A (`VOR_TOKEN`) und F waren schon auf ausdrückliche Revisionen umgestellt — Schutz.
+- **Wächter** `tests/test_migration_regeln.py::test_kein_migrationstest_haengt_am_kopf`: rot
+  gegen den Stand aus Schritt 0 (`test_migration_web.py:96`, `… -> SPRACHE (head)`), dazu
+  `::test_waechter_erkennt_kopfannahmen`. Verboten sind relative Up-/Downgrades,
+  `get_current_head()` und jede Aussage über `(head)` außer `.count("(head)") == 1`.
+- **Startmeldung** (`dienste.pruefe_schema`): nennt alle fehlenden Spalten
+  („es fehlen: auth_benutzer.darstellung, …“), `accounti db upgrade` und
+  `alembic upgrade head` als Gleichwert für Datenbanken mit Vermerk; neue msgid, die alte
+  entfällt. Der Schutztest prüft weiter `auth_benutzer.sprache` und `accounti db upgrade`, dazu
+  jetzt `alembic upgrade head` und die Vorlieben (Meldung über Zeilenumbrüche hinweg gelesen).
+- **Sicherung:** `test_rundlauf_mit_vorlieben` sichert und spielt eine **Systemdatenbank**
+  zurück (`system=True`); eine Sicherung vom Stand `VOR` (ohne die Spalten, erzeugt mit dem
+  neuen Code) ergibt im Ziel die Standardwerte und den Vermerk `SCHEMA_STAND`. Kein Code nötig.
+- **Reihenfolge TDD:** Die Tests der Vorlieben (`ImportError`), der Migration (Revision fehlt —
+  gezeigt durch vorübergehendes Entfernen der Datei), des Wächters und der Startmeldung waren
+  vor der Umsetzung rot; die Sicherung und `db upgrade` ohne Vermerk brauchten keinen Code
+  (generisch).
+- **Versteckte Kopfannahme gefunden:** `test_db_upgrade.py::test_db_upgrade_erkennt_den_vorabstand_und_bricht_mit_weg_ab`
+  setzte den Vermerk auf `SPRACHE` und erwartete „nichts geändert“. Das galt nur, solange
+  `SPRACHE` der Kopf war: `db upgrade` prüft das Schema **vor** einer Änderung nur, wenn nichts
+  offen ist; liegen Migrationen über dem Vermerk, laufen sie zuerst, und die Meldung nennt „nach
+  den Migrationen jetzt …“ (so in `db/upgrade.py` angelegt). Der Test prüft jetzt beides ohne
+  Kopfannahme (der Wächter erkennt solche Fälle nicht). **Offen für Paket A:** Ob `db upgrade`
+  einen Vermerk, den das Schema nicht trägt, schon vor den offenen Migrationen erkennen soll
+  (etwa über `leite_stand_ab`), ist eine Frage an dessen Eigentümer — P1 ändert
+  `db/upgrade.py` nicht. `--aus-schema` holt auch nach diesem Lauf verlustfrei nach (die
+  Vorlieben-Migration übernimmt vorhandene Spalten).
+- **Tests am Ende von Schritt 3** (Gruppen über `schwer`): Web 376, Auth/CLI/Sicherung 246
+  (5 übersprungen), Fachtests mit i18n, Design und Symbolen 647 (4 übersprungen), Migrationen
+  45 + 1 nach der Umstellung (4 übersprungen: PostgreSQL); `ruff` 0.16.2 und 0.17.1,
+  `mypy src/` (strict laut `pyproject.toml`) ohne Befund.

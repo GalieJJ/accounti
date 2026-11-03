@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
@@ -13,7 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.formular import formular
 from accounti.api.seiten.anmeldung import sicheres_ziel
 from accounti.api.sitzung import AngemeldetDep, dienste_von
-from accounti.auth.dienst import setze_sprache
+from accounti.auth.dienst import Vorlieben, setze_vorlieben
 from accounti.i18n import SPRACHEN, Text
 
 router = APIRouter()
@@ -25,11 +27,14 @@ async def sprache_waehlen(request: Request, a: AngemeldetDep) -> Response:
     wahl = felder.get("sprache", "")
     if wahl not in ("", *SPRACHEN):
         raise HTTPException(422, Text("Diese Sprache gibt es nicht"))
+    sprache: Literal["de", "en"] | None = (
+        "de" if wahl == "de" else "en" if wahl == "en" else None
+    )
     dienste = dienste_von(request)
 
     def speichern() -> None:
         with dienste.system() as s:
-            setze_sprache(s, a.benutzer.id, wahl or None)
+            setze_vorlieben(s, a.benutzer.id, Vorlieben(sprache=sprache))
             s.commit()
 
     await run_in_threadpool(speichern)
