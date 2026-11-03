@@ -20,6 +20,7 @@ import logging
 import os
 import re
 import sys
+from bisect import bisect_left, bisect_right
 from typing import IO
 
 # Ein Schema beginnt nach einem Zeichen, das kein Buchstabe ist, und ist höchstens 41
@@ -29,6 +30,11 @@ from typing import IO
 _SCHEMA = r"(?<![A-Za-z])[A-Za-z][A-Za-z0-9+.\-]{0,40}://"
 # Zeichen einer E-Mail-Adresse vor dem „@“ bzw. des Rests einer zerschnittenen Adresse
 _LOKAL = r"\w.+\-#?%!$&*=^~"
+# Leerraum zwischen Schlüsselwort und Wert („Passwort:  …“, „PIN\n4711“): begrenzt —
+# sonst probierte das PIN-Muster jede Aufteilung einer langen Leerraumfolge
+# (quadratisch), und die Kürzung langer Zeilen (``_VORLAUF``) braucht einen festen
+# Abstand (Folgepaket F, g8w B8-1)
+_ABSTAND = r"\s{0,40}"
 _MUSTER: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"accounti_(?:api|wh)_[A-Za-z0-9_\-]+"), "[Token]"),
     # verbreitete Zugangstoken (GitHub, GitLab, Slack) — auch ohne „token=“
@@ -39,7 +45,7 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
         ),
         "[Token]",
     ),
-    (re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
+    (re.compile(r"(?i)\bbearer\s{1,40}[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
     # Zugangsdaten jeder URL (scheme://benutzer:passwort@): die ganze userinfo, auch
     # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
     (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
@@ -68,12 +74,16 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # „Passwort: …“, „Kennwort = …“ (Text statt Parameter)
     (
         re.compile(
-            r"(?i)\b(passwor[td]|kennwort|secret|geheimnis)(\s*[:=]\s*)[^\s\"',;]+"
+            rf"(?i)\b(passwor[td]|kennwort|secret|geheimnis)({_ABSTAND}[:=]{_ABSTAND})"
+            r"[^\s\"',;]+"
         ),
         r"\1\2***",
     ),
     # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
-    (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
+    (
+        re.compile(rf"(?i)\b(pin|tan)({_ABSTAND}(?:[:=]{_ABSTAND})?)\d{{4,8}}\b"),
+        r"\1\2***",
+    ),
     # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“); beginnt nur
     # am Anfang einer solchen Zeichenfolge, nicht an jeder ihrer Stellen (DoS-1). Ein
     # „wort:“ davor gehört nur dazu, wenn ein Passwortzeichen folgt
@@ -94,28 +104,55 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
 
 
 # Zeilen über ZEILE_HOECHSTENS Zeichen verlieren vor den Mustern ihre Mitte (zweite
-# Ebene gegen DoS-1): höchstens RAND Zeichen vorn und hinten bleiben
+# Ebene gegen DoS-1): höchstens RAND Zeichen vorn und hinten bleiben. Geschwärzt wird
+# jedes Stück mit VORLAUF Zeichen über die Schnittkante hinaus, erst danach wird an ihr
+# geschnitten — ein Schlüsselwort vor der Kante findet so seinen Wert dahinter
+# (Folgepaket F, g8w B8-1)
 ZEILE_HOECHSTENS = 4000
 _RAND = 1500
+_VORLAUF = 250
 _LEER = re.compile(r"\s")
-# Anfang bzw. Rest einer an der Schnittstelle zerteilten IBAN (mit Leerzeichen das
-# einzige Geheimnis aus mehreren Wörtern, das ein Muster sonst nicht mehr erkennt)
-_IBAN_ANFANG = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]{1,4}){0,8}$")
-_IBAN_REST = re.compile(r"^(?:[A-Z0-9]{1,4}(?:[ ]|$))+")
+
+
+def _mit_herkunft(text: str) -> tuple[str, list[int]]:
+    """``text`` geschwärzt (``_MUSTER``) — und je Zeichen des Ergebnisses die Stelle in
+    ``text``, aus der es stammt (die eines Ersatzes: der Anfang seines Treffers; die
+    Folge steigt nie)."""
+    herkunft = list(range(len(text)))
+    for muster, ersatz in _MUSTER:
+        teile: list[str] = []
+        neu: list[int] = []
+        pos = 0
+        for treffer in muster.finditer(text):
+            anfang, ende = treffer.span()
+            geschwaerzt = treffer.expand(ersatz)
+            teile += [text[pos:anfang], geschwaerzt]
+            neu += herkunft[pos:anfang] + [herkunft[anfang]] * len(geschwaerzt)
+            pos = ende
+        if teile:
+            text = "".join([*teile, text[pos:]])
+            herkunft = neu + herkunft[pos:]
+    return text, herkunft
 
 
 def _ohne_mitte(zeile: str) -> str:
-    """Erst kürzen, dann schwärzen — ohne ein angeschnittenes Geheimnis stehen zu
-    lassen, dessen Rest kein Muster mehr erkennt (das Ende eines Tokens ohne „Bearer“
-    davor, „DE89 3704“): Der Anfang endet vor dem letzten Leerraum, das Ende beginnt
-    nach dem ersten, eine dort zerteilte IBAN fällt ganz weg. Die Mitte erscheint
+    """Kürzen ohne ein angeschnittenes Geheimnis stehen zu lassen: Die Schnittkanten
+    liegen auf Leerraum (der Anfang endet vor dem letzten in den ersten ``_RAND``
+    Zeichen, das Ende beginnt nach dem ersten in den letzten). Jedes Stück wird mit
+    ``_VORLAUF`` Zeichen über seine Kante hinaus geschwärzt und erst dann geschnitten:
+    Ein Treffer, der vor der Kante beginnt, bleibt vorn geschwärzt stehen und fällt
+    hinten ganz weg — ein Wert hinter der Kante verliert nie sein Schlüsselwort
+    („Bearer“, „passwort:“, „PIN“, eine IBAN mit Leerzeichen). Die Mitte erscheint
     nicht."""
-    kopf = zeile[:_RAND]
-    schnitt = max((m.start() for m in _LEER.finditer(kopf)), default=0)
-    kopf = _IBAN_ANFANG.sub("", kopf[:schnitt].rstrip())
-    ende = zeile[-_RAND:]
-    weiter = _LEER.search(ende)
-    ende = _IBAN_REST.sub("", ende[weiter.end() :].lstrip()) if weiter else ""
+    kante = max((m.start() for m in _LEER.finditer(zeile, 0, _RAND)), default=0)
+    text, herkunft = _mit_herkunft(zeile[: kante + _VORLAUF])
+    kopf = text[: bisect_left(herkunft, kante)].rstrip()
+    weiter = _LEER.search(zeile, len(zeile) - _RAND)
+    ende = ""
+    if weiter is not None:
+        start = max(weiter.start() - _VORLAUF, 0)
+        text, herkunft = _mit_herkunft(zeile[start:])
+        ende = text[bisect_right(herkunft, weiter.start() - start) :].lstrip()
     return f"{kopf} … [gekürzt] … {ende}".strip()
 
 

@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import re
 
 import pytest
 
@@ -407,28 +408,71 @@ def test_schwaerzung_kuerzt_ueberlange_zeilen_vor_den_mustern():
     assert "gekürzt" in mitte and len(mitte) <= ZEILE_HOECHSTENS
 
 
-@pytest.mark.parametrize(
-    ("geheimnis", "darf_nicht"),
-    [
-        (IBAN, "3704"),
-        ("Bearer " + "eyJ" + "k" * 3000, "kkkkkkkk"),
-        ("https://accounti:sehr-geheim@hooks.example/x", "sehr-geheim"),
-        ("passwort=hunter2", "hunter2"),
-        ("PIN: 12345", "12345"),
-    ],
-    ids=["iban", "bearer", "url", "parameter", "pin"],
-)
-def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis, darf_nicht):
-    """Erst kürzen, dann schwärzen: Ein Geheimnis an einer Schnittstelle fällt ganz weg
-    (sonst bliebe ein angeschnittener Rest stehen, den kein Muster mehr erkennt — etwa
-    „DE89 3704“ oder das Ende eines Tokens ohne „Bearer“ davor)."""
-    from accounti.betrieb.protokoll import ZEILE_HOECHSTENS
+# Geheimnisse mit kurzen Werten — jeder Wert enthält Ziffern, der Fülltext keine
+KANTE = [
+    ("bearer", "Authorization: Bearer eyJtok4711geheim"),
+    ("passwort", "passwort: hunter4711"),
+    ("kennwort", "Kennwort = Sonne4711"),
+    ("pin", "PIN: 471147"),
+    ("tan", "TAN 123456"),
+    ("secret", "secret: s3cr3t4711"),
+    ("iban", IBAN),
+    ("url", "https://accounti:sehr4711@hooks.example/x"),
+]
 
-    for stelle in range(0, ZEILE_HOECHSTENS + 1, 25):
-        zeile = "w " * (stelle // 2) + geheimnis + " z" * ZEILE_HOECHSTENS
-        assert darf_nicht not in schwaerze(zeile), stelle
-        zeile = "w " * ZEILE_HOECHSTENS + geheimnis + " z" * (stelle // 2)
-        assert darf_nicht not in schwaerze(zeile), stelle
+
+@pytest.mark.parametrize("geheimnis", [g for _, g in KANTE], ids=[n for n, _ in KANTE])
+def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis):
+    """Erst kürzen, dann schwärzen: Ein Geheimnis an einer Schnittkante fällt ganz weg
+    oder erscheint geschwärzt — an **jeder** Lage der vorderen und der hinteren Kante,
+    Zeichen für Zeichen (Folgepaket F, g8w B8-1: Die hintere Kante trennte „Bearer“,
+    „passwort:“, „PIN“ … von ihrem Wert, der dann ungeschwärzt stand; der Test ging in
+    Schritten von 25 und mit einem 3000 Zeichen langen Token vor)."""
+    from accounti.betrieb.protokoll import _RAND
+
+    lage = range(-len(geheimnis) - 40, len(geheimnis) + 40)
+    for versatz in lage:
+        # vordere Kante: das Geheimnis beginnt um „versatz“ vor bzw. hinter ihr
+        zeile = ("w " * _RAND)[: _RAND + versatz] + " " + geheimnis + " z" * 3000
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("vorn", versatz, text[1300:1700])
+        # hintere Kante: ebenso von hinten gezählt
+        zeile = "w " * 2500 + geheimnis + (" z" * _RAND)[: _RAND - versatz]
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("hinten", versatz, text[-1700:-1300])
+    assert "accounti:" not in schwaerze("w " * 2500 + KANTE[-1][1] + " z" * 700)
+
+
+@pytest.mark.parametrize("wort", ["PIN", "TAN", "passwort", "Kennwort", "Bearer"])
+@pytest.mark.parametrize("leer", ["\n", " ", "\t"])
+def test_schluesselwort_mit_langer_leerraumfolge_ohne_quadratische_laufzeit(wort, leer):
+    """B8-1 (Hinweis g8w): „PIN“ und 8000 Zeilenumbrüche brauchten 0,71 s — das
+    PIN/TAN-Muster probierte jede Aufteilung der Leerraumfolge auf zwei ``\\s*``. Der
+    Abstand zwischen Schlüsselwort und Wert ist jetzt begrenzt, jedes Muster linear."""
+    import time
+
+    from accounti.betrieb.protokoll import _MUSTER
+
+    for text in (wort + leer * 20_000, wort + ":" + leer * 20_000 + "4711"):
+        for muster, ersatz in _MUSTER:
+            beginn = time.perf_counter()
+            muster.sub(ersatz, text)
+            dauer = time.perf_counter() - beginn
+            assert dauer < 0.25, (muster.pattern, dauer)  # vorher 4–5 s (PIN, TAN)
+
+
+def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
+    """Der begrenzte Abstand reicht für übliche Schreibweisen (Tabulator, Ausrichtung
+    mit Leerzeichen, Zeilenumbruch)."""
+    for roh in (
+        "passwort:\t\thunter4711",
+        "Kennwort      =      Sonne4711",
+        "PIN\n471147",
+        "TAN :  123456",
+        "Authorization: Bearer\n  eyJtok4711",
+        "secret:" + " " * 30 + "s3cr3t4711",
+    ):
+        assert not re.search(r"\d", schwaerze(roh)), roh
 
 
 @pytest.mark.parametrize(
