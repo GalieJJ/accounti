@@ -541,6 +541,33 @@
   .betrag-richtung { font-size: var(--gr-3); color: var(--text-2); }
   .betrag-mittel .betrag-wert { font-size: var(--gr-6); }
   .betrag-gross .betrag-wert { font-size: var(--gr-8); letter-spacing: -0.01em; }
+  /* Formularfeld: Label oben, Eingabe 44 px, Meldungen darunter */
+  .feld { display: flex; flex-direction: column; align-items: flex-start; gap: var(--fein-3); }
+  .feld > label, .codefeld-kopf > label { font-weight: 600; }
+  .feld-pflicht { font-weight: 400; color: var(--text-2); }
+  .eingabe {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0 var(--a-3);
+    font: inherit;
+    color: var(--text);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie-stark);
+    border-radius: var(--radius);
+  }
+  textarea.eingabe { padding: var(--a-2) var(--a-3); }
+  .eingabe:disabled { color: var(--text-2); background-color: var(--flaeche-2); }
+  .breite-schmal { max-width: 8rem; }
+  .breite-mittel { max-width: 14rem; }
+  .breite-breit { max-width: 22rem; }
+  .feld-fehler > .eingabe { padding: 0 calc(var(--a-3) - 1px); border: 2px solid var(--fehler); }
+  .feld-warnung > .eingabe { padding: 0 calc(var(--a-3) - 1px); border: 2px solid var(--warn); }
+  .feld-hilfe { margin: 0; font-size: var(--gr-3); color: var(--text-2); }
+  .feld-meldung { display: flex; align-items: flex-start; gap: var(--fein-3); margin: 0; font-size: var(--gr-3); }
+  .feld-meldung > .symbol { margin-top: var(--fein-1); }
+  .feld-meldung-fehler { font-weight: 600; color: var(--fehler); }
+  .feld-meldung-warn { color: var(--warn); }
+  .feld-meldung-ok { color: var(--ok); }
 }
 
 @layer hilfen {

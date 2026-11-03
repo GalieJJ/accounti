@@ -126,3 +126,46 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- set worte = {"einnahme": _("Einnahme"), "ausgabe": _("Ausgabe")} -%}
 <span class="betrag{{ {none: "", "mittel": " betrag-mittel", "gross": " betrag-gross"}[groesse] }}"><span class="betrag-wert">{{ wert | betrag_anzeige(richtung) }}</span>{% if richtung %}<span class="betrag-richtung">{{ worte[richtung] }}</span>{% endif %}</span>
 {%- endmacro %}
+
+{#- Formularfeld: Label oben, Hilfe und Meldungen darunter, verknüpft über
+    aria-describedby; id (Standard: name) ergibt for, <id>-hilfe, <id>-fehler. Fehler mit
+    aria-invalid; Warnung („Achtung:“) und bestätigt ohne. -#}
+{%- macro _beschreibung(id, hilfe, fehler, warnung, bestaetigt) -%}
+{{ (([id ~ "-hilfe"] if hilfe else []) + ([id ~ "-fehler"] if fehler else []) + ([id ~ "-warnung"] if warnung else []) + ([id ~ "-bestaetigt"] if bestaetigt else [])) | join(" ") }}
+{%- endmacro -%}
+
+{%- macro _meldungen(id, hilfe, fehler, warnung=none, bestaetigt=none) -%}
+{% if hilfe %}<p class="feld-hilfe" id="{{ id }}-hilfe">{{ hilfe | uebersetzt }}</p>{% endif %}{% if fehler %}<p class="feld-meldung feld-meldung-fehler" id="{{ id }}-fehler">{{ symbol("circle-x", groesse=14, kraeftig=true) }}<strong>{{ _("Fehler:") }}</strong> {{ fehler | uebersetzt }}</p>{% endif %}{% if warnung %}<p class="feld-meldung feld-meldung-warn" id="{{ id }}-warnung">{{ symbol("triangle-alert", groesse=14, kraeftig=true) }}<strong>{{ _("Achtung:") }}</strong> {{ warnung | uebersetzt }}</p>{% endif %}{% if bestaetigt %}<p class="feld-meldung feld-meldung-ok" id="{{ id }}-bestaetigt">{{ symbol("check", groesse=16) }}{{ bestaetigt | uebersetzt }}</p>{% endif %}
+{%- endmacro -%}
+
+{%- macro _label(id, beschriftung, pflicht) -%}
+<label for="{{ id }}">{{ beschriftung }}{% if pflicht %} <span class="feld-pflicht">{{ _("(Pflicht)") }}</span>{% endif %}</label>
+{%- endmacro -%}
+
+{%- macro _feldklasse(fehler, warnung) -%}
+feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
+{%- endmacro -%}
+
+{%- macro _breite(breite) -%}
+{{ {none: "", "schmal": " breite-schmal", "mittel": " breite-mittel", "breit": " breite-breit"}[breite] }}
+{%- endmacro -%}
+
+{% macro feld(name, beschriftung, wert="", typ="text", hilfe=none, fehler=none, warnung=none, bestaetigt=none, pflicht=false, autocomplete=none, inputmode=none, breite=none, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, warnung, bestaetigt) -%}
+<div class="{{ _feldklasse(fehler, warnung) }}">{{ _label(id, beschriftung, pflicht) }}<input class="eingabe{{ _breite(breite) }}" id="{{ id }}" type="{{ {"text": "text", "email": "email", "tel": "tel", "url": "url", "password": "password", "date": "date", "number": "number", "search": "search"}[typ] }}" name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, hilfe, fehler, warnung, bestaetigt) }}</div>
+{%- endmacro %}
+
+{#- Auswahlliste; optionen: (wert, text). -#}
+{% macro auswahl(name, beschriftung, optionen, gewaehlt=none, hilfe=none, fehler=none, pflicht=false, breite=none, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<select class="eingabe{{ _breite(breite) }}" id="{{ id }}" name="{{ name }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{% for wert, text in optionen %}<option value="{{ wert }}"{% if wert == gewaehlt %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{{ _meldungen(id, hilfe, fehler) }}</div>
+{%- endmacro %}
+
+{#- Mehrzeiliges Textfeld. -#}
+{% macro textfeld(name, beschriftung, wert="", hilfe=none, fehler=none, pflicht=false, zeilen=3, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<textarea class="eingabe" id="{{ id }}" name="{{ name }}" rows="{{ zeilen | int }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ wert if wert is not none else "" }}</textarea>{{ _meldungen(id, hilfe, fehler) }}</div>
+{%- endmacro %}

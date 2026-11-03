@@ -328,3 +328,50 @@ def test_betrag_vorzeichen_und_richtung_als_text():
     assert "− €5.00" in en and "Payment out" in en
     with pytest.raises((ValueError, TemplateError)):
         render("{{ k.betrag(w, 'ueberweisung') }}", w=Decimal("1"))
+
+
+def test_feld_label_hilfe_fehler_aria():
+    html = render(
+        '{{ k.feld("grund", "Grund", wert="x\\"y", hilfe="Wofür?",'
+        ' fehler="Bitte einen Grund angeben.", pflicht=true, id="grund-k",'
+        ' autocomplete="off", breite="breit") }}'
+    )
+    assert (
+        '<label for="grund-k">Grund <span class="feld-pflicht">(Pflicht)</span>' in html
+    )
+    eingabe = nur(html, "input")[0]
+    assert 'id="grund-k"' in eingabe and 'name="grund" value="x&#34;y"' in eingabe
+    assert 'aria-invalid="true"' in eingabe and 'aria-required="true"' in eingabe
+    assert 'aria-describedby="grund-k-hilfe grund-k-fehler"' in eingabe
+    assert 'class="eingabe breite-breit"' in eingabe and 'autocomplete="off"' in eingabe
+    assert '<p class="feld-hilfe" id="grund-k-hilfe">Wofür?</p>' in html
+    assert 'id="grund-k-fehler"' in html and "#circle-x" in html
+    assert "<strong>Fehler:</strong> Bitte einen Grund angeben." in html
+    assert html.startswith('<div class="feld feld-fehler">')
+    ohne = render('{{ k.feld("iban", "IBAN") }}')
+    assert "aria-describedby" not in ohne and "aria-invalid" not in ohne
+    assert 'id="iban"' in ohne and '<label for="iban">IBAN</label>' in ohne
+    auswahl = render(
+        '{{ k.auswahl("art", "Rechtsform", [("gmbh", "GmbH"), ("ug", "UG")],'
+        ' gewaehlt="ug", fehler="x", id="art-1") }}'
+    )
+    assert '<select class="eingabe" id="art-1" name="art"' in auswahl
+    assert '<option value="ug" selected>UG</option>' in auswahl
+    assert 'aria-describedby="art-1-fehler"' in auswahl
+    text = render('{{ k.textfeld("notiz", "Notiz", wert="<b>", hilfe="kurz") }}')
+    assert "&lt;b&gt;</textarea>" in text and 'aria-describedby="notiz-hilfe"' in text
+    with pytest.raises(TemplateError):
+        render('{{ k.feld("x", "X", typ="file") }}')
+
+
+def test_feld_warnung_ohne_aria_invalid_und_bestaetigt():
+    html = render(
+        '{{ k.feld("ustid", "USt-IdNr.", warnung="Prüfen Sie die Ländervorsilbe.",'
+        ' bestaetigt="Format passt") }}'
+    )
+    assert html.startswith('<div class="feld feld-warnung">')
+    eingabe = nur(html, "input")[0]
+    assert "aria-invalid" not in eingabe
+    assert 'aria-describedby="ustid-warnung ustid-bestaetigt"' in eingabe
+    assert "#triangle-alert" in html and "<strong>Achtung:</strong>" in html
+    assert 'id="ustid-bestaetigt">' in html and "#check" in html
