@@ -9,3 +9,20 @@
 {% macro symbol(name, beschriftung=none, groesse=18, kraeftig=false) -%}
 <svg class="{{ symbol_klasse(groesse, kraeftig) }}"{% if beschriftung %} role="img" aria-label="{{ beschriftung }}"{% else %} aria-hidden="true"{% endif %} focusable="false"><use href="{{ symbol_url(name) }}"></use></svg>
 {%- endmacro %}
+{#- Knopf und Linkknopf: Art primaer, sekundaer, still, gefaehrlich; Größe klein, normal,
+    gross; breit = volle Breite. Unbekannte Werte lassen das Rendern scheitern. -#}
+{%- macro _knopfklasse(art, groesse, breit) -%}
+knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still", "gefaehrlich": "gefaehrlich"}[art] }}{{ {"normal": "", "klein": " knopf-klein", "gross": " knopf-gross"}[groesse] }}{% if breit %} knopf-breit{% endif %}
+{%- endmacro -%}
+
+{%- macro _knopfinhalt(text, zeichen, taste, laedt) -%}
+{% if laedt %}{{ symbol("loader-circle", groesse=14) }}{% elif zeichen %}{{ symbol(zeichen) }}{% endif %}{{ text }}{% if taste %}<kbd>{{ taste }}</kbd>{% endif %}
+{%- endmacro -%}
+
+{% macro knopf(text, art="primaer", symbol=none, groesse="normal", breit=false, typ="submit", name=none, wert=none, taste=none, deaktiviert=false, laedt=false, attribute={}) -%}
+<button type="{{ {"submit": "submit", "button": "button", "reset": "reset"}[typ] }}" class="{{ _knopfklasse(art, groesse, breit) }}"{% if name %} name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% endif %}{% if deaktiviert %} disabled{% endif %}{% if laedt %} aria-busy="true"{% endif %}{{ zusatzattribute(attribute) }}>{{ _knopfinhalt(text, symbol, taste, laedt) }}</button>
+{%- endmacro %}
+
+{% macro linkknopf(text, href, art="sekundaer", symbol=none, groesse="normal", breit=false, taste=none, attribute={}) -%}
+<a class="{{ _knopfklasse(art, groesse, breit) }}" href="{{ href }}"{{ zusatzattribute(attribute) }}>{{ _knopfinhalt(text, symbol, taste, false) }}</a>
+{%- endmacro %}

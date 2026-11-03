@@ -280,6 +280,46 @@
     border: 1px solid var(--linie);
     border-radius: var(--radius-s);
   }
+  /* Knopf und Linkknopf (L4): mindestens 44 px, Hover mit dem Schleier, der Fokusring
+     liegt mit 2 px Abstand auf der Fläche (Grundstile) */
+  .knopf {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--a-2);
+    min-height: 2.75rem;
+    margin: 0;
+    padding: 0 var(--a-45);
+    font: inherit;
+    font-weight: 600;
+    line-height: 1.25;
+    text-align: center;
+    text-decoration: none;
+    color: var(--text);
+    background-color: var(--flaeche);
+    border: 1px solid var(--linie-stark);
+    border-radius: var(--radius);
+    opacity: 1;
+    cursor: pointer;
+  }
+  .knopf:hover { background-image: linear-gradient(var(--schleier), var(--schleier)); }
+  .knopf-primaer { color: var(--akzent-text); background-color: var(--akzent); border-color: var(--akzent); }
+  .knopf-still { padding: 0 var(--a-3); color: var(--akzent); background-color: transparent; border-color: transparent; }
+  .knopf-gefaehrlich { color: var(--fehler-text); background-color: var(--fehler); border-color: var(--fehler); }
+  .knopf:disabled {
+    color: var(--text-2);
+    background-color: var(--flaeche-2);
+    background-image: none;
+    border-color: var(--flaeche-2);
+    cursor: not-allowed;
+  }
+  .knopf[aria-busy="true"] { cursor: progress; }
+  .knopf-klein { min-height: 2.25rem; padding: 0 var(--a-4); font-size: var(--gr-3); }
+  .knopf-gross { min-height: 3rem; padding: 0 var(--a-5); }
+  .knopf-breit { display: flex; width: 100%; }
+  .knopf kbd { margin-left: var(--a-1); }
+  .knopf-primaer kbd, .knopf-gefaehrlich kbd { color: currentColor; border-color: currentColor; }
+  @media (pointer: coarse) { .knopf-klein { min-height: 2.75rem; } }
 }
 
 @layer hilfen {

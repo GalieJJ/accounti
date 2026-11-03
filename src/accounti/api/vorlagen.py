@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import enum
 import json
+import re
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import Request
@@ -22,6 +24,7 @@ from fastapi.responses import HTMLResponse
 from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
 from jinja2.runtime import Context
 from jinja2.utils import pass_context
+from markupsafe import Markup, escape
 from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
@@ -135,6 +138,30 @@ UMGEBUNG.tests["text"] = lambda wert: isinstance(wert, i18n.Text)
 UMGEBUNG.filters["iban"] = lambda wert: " ".join(
     str(wert)[i : i + 4] for i in range(0, len(str(wert)), 4)
 )
+# Attribute, die Seiten an Komponenten weitergeben (htmx, data-, aria-): nur Namen aus
+# dieser Positivliste, die Werte escaped — unabhängig von der Jinja-Fassung, deren
+# ``xmlattr`` Schlüssel erst ab 3.1.3/3.1.4 prüft (Plan P1, Entscheidung „Komponenten“)
+ERLAUBTE_ATTRIBUTE = re.compile(
+    r"hx-(get|post|target|swap|select|push-url|disabled-elt|indicator|vals|confirm)"
+    r"|data-[a-z][a-z-]*|aria-[a-z]+|form|formaction|formnovalidate|autofocus"
+)
+
+
+def zusatzattribute(zuordnung: Mapping[str, object] | None) -> Markup:
+    """`` name="wert"`` je Eintrag; ``True`` schreibt nur den Namen, ``None`` und
+    ``False`` nichts. Ein Name außerhalb der Positivliste lässt das Rendern
+    scheitern."""
+    teile = []
+    for name, wert in (zuordnung or {}).items():
+        if not isinstance(name, str) or not ERLAUBTE_ATTRIBUTE.fullmatch(name):
+            raise ValueError(f"Attribut {name!r} ist für Komponenten nicht erlaubt")
+        if wert is None or wert is False:
+            continue
+        teile.append(f" {name}" if wert is True else f' {name}="{escape(str(wert))}"')
+    return Markup("".join(teile))
+
+
+UMGEBUNG.globals["zusatzattribute"] = zusatzattribute
 UMGEBUNG.globals["symbol_url"] = symbol_url
 UMGEBUNG.globals["symbol_klasse"] = symbol_klasse
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)
