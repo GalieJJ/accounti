@@ -144,10 +144,32 @@ _SCHLUESSEL_JE_SATZ: dict[bool, dict[Decimal, int]] = {
 }
 
 
-def _erloesbuchung(b: Buchungssatz, plan: Kontenplan) -> bool:
-    """Bucht die Buchung ein Erlöskonto (Erlöse, Erlösschmälerungen —
-    ``Kontenplan.ist_erloeskonto``)?"""
-    return plan.ist_erloeskonto(b.soll_konto) or plan.ist_erloeskonto(b.haben_konto)
+def _negativer_beleg(beleg: Beleg | None) -> bool:
+    """Gutschrift bzw. Rechnungskorrektur: Brutto (sonst Netto) des Belegs negativ."""
+    if beleg is None:
+        return False
+    betrag = beleg.brutto if beleg.brutto is not None else beleg.netto
+    return betrag is not None and betrag < 0
+
+
+def _erloesbuchung(b: Buchungssatz, plan: Kontenplan, beleg: Beleg | None) -> bool:
+    """Bucht die Buchung ein Erlöskonto (``Kontenplan.ist_erloeskonto``) auf der Seite
+    einer Rechnung des Unternehmers — einen Erlös im Haben, eine Erlösschmälerung (seine
+    Minderung, Gutschrift) im Soll; ein negativer Beleg spiegelt beides. Ein Erlös im
+    Soll eines positiven Belegs ist eine Erstattung bzw. eine falsch kontierte Ausgabe
+    („8400 an 1000, Schlüssel 3“ statt „4530 an 1000, Schlüssel 9“), keine ausgewiesene
+    Steuer des Unternehmers (Folgepaket F, g8w G8R-1: Runde 8 fragte beide Seiten)."""
+    gespiegelt = _negativer_beleg(beleg)
+
+    def auf_rechnungsseite(konto: str, seite: Seite) -> bool:
+        if not plan.ist_erloeskonto(konto):
+            return False
+        regel: Seite = "soll" if plan.ist_erloesschmaelerung(konto) else "haben"
+        return (seite == regel) != gespiegelt
+
+    return auf_rechnungsseite(b.haben_konto, "haben") or auf_rechnungsseite(
+        b.soll_konto, "soll"
+    )
 
 
 def eingangsbeleg(
@@ -161,10 +183,11 @@ def eingangsbeleg(
     ausgewiesene Steuer (Gesamttest 10b-1, Runde 7: g6w N5).
 
     Ohne eindeutige Belegart (Quittung, Marktplatzabrechnung als ``SONSTIGES``,
-    unbekannt) zählt mit ``b`` und ``plan`` die Buchung: Bucht sie einen Erlös, ist der
-    Beleg kein Eingangsbeleg — § 14c-Schutz, kein Hinweis „Fehlschlüssel“, kein
-    Vorschlag 9 (Runde 8, g7w R7-3: ein Kassenbon „1000 an 8400, Schlüssel 3“ verlor
-    sonst mit „ohne Steuer“ seine Umsatzsteuer)."""
+    unbekannt) zählt mit ``b`` und ``plan`` die Buchung: Bucht sie einen Erlös auf der
+    Seite einer Rechnung (``_erloesbuchung``), ist der Beleg kein Eingangsbeleg —
+    § 14c-Schutz, kein Hinweis „Fehlschlüssel“, kein Vorschlag 9 (Runde 8, g7w R7-3: ein
+    Kassenbon „1000 an 8400, Schlüssel 3“ verlor sonst mit „ohne Steuer“ seine
+    Umsatzsteuer)."""
     if (
         beleg is None
         or beleg.richtung is not Belegrichtung.EINGANG
@@ -173,7 +196,7 @@ def eingangsbeleg(
         return False
     if beleg.belegart is Belegart.EINGANGSRECHNUNG or b is None or plan is None:
         return True
-    return not _erloesbuchung(b, plan)
+    return not _erloesbuchung(b, plan, beleg)
 
 
 def schluessel_laut_beleg(
