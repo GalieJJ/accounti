@@ -61,3 +61,12 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- set zeichen = {"info": "info", "ok": "check", "warn": "triangle-alert", "fehler": "circle-x"} -%}
 <div class="hinweis hinweis-{{ art }}"{% if neu %} role="{{ "alert" if art == "fehler" else "status" }}"{% endif %}>{{ symbol(zeichen[art]) }}<div class="hinweis-text"><strong class="hinweis-wort">{{ titel or worte[art] }}</strong> {{ caller() }}</div></div>
 {%- endmacro %}
+
+{#- Leerer Zustand: Satz, Nebensatz und ein Link zur nächsten Aktion; ohne role (kein
+    neues Ereignis). symbol="file-text" ist die Variante „fehlender Beleg“. -#}
+{% macro leer(satz, nebensatz=none, aktion_text=none, aktion_href=none, symbol="check") -%}
+{%- set beleg = symbol == "file-text" -%}
+<div class="leer{% if beleg %} leer-beleg{% endif %}">{{ _symbol_von_leer(symbol, 40 if beleg else 28) }}<p class="leer-satz">{{ satz }}</p>{% if nebensatz %}<p class="leer-neben">{{ nebensatz }}</p>{% endif %}{% if aktion_text and aktion_href %}<a class="leer-aktion" href="{{ aktion_href }}">{{ aktion_text }}</a>{% endif %}</div>
+{%- endmacro %}
+
+{%- macro _symbol_von_leer(name, groesse) -%}{{ symbol(name, groesse=groesse) }}{%- endmacro -%}

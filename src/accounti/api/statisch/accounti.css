@@ -415,6 +415,24 @@
   .hinweis-ok > .symbol, .hinweis-ok .hinweis-wort { color: var(--ok); }
   .hinweis-warn > .symbol, .hinweis-warn .hinweis-wort { color: var(--warn); }
   .hinweis-fehler > .symbol, .hinweis-fehler .hinweis-wort { color: var(--fehler); }
+  /* Leerer Zustand: gestrichelter Rahmen, Satz, Nebensatz, Link zur nächsten Aktion */
+  .leer {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--fein-3);
+    padding: var(--a-5);
+    text-align: center;
+    border: 1px dashed var(--linie-stark);
+    border-radius: var(--radius-karte);
+  }
+  .leer > .symbol { color: var(--ok); }
+  .leer p { margin: 0; }
+  .leer-satz { font-weight: 600; }
+  .leer-neben { font-size: var(--gr-3); color: var(--text-2); }
+  .leer-aktion { margin-top: var(--a-1); font-weight: 600; }
+  .leer-beleg { padding: var(--a-6); background-color: var(--flaeche); }
+  .leer-beleg > .symbol { color: var(--text-2); }
 }
 
 @layer hilfen {

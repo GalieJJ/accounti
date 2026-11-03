@@ -164,3 +164,21 @@ def test_hinweis_mit_symbol_und_wort():
     assert ">Note:</strong>" in render(
         '{% call k.hinweis("info") %}x{% endcall %}', sprache="en"
     )
+
+
+def test_leer_mit_satz_nebensatz_und_link_ohne_rolle():
+    html = render(
+        '{{ k.leer("Nichts zu prüfen.", "Nächster Bankabruf: heute 14:00.",'
+        ' "So entsteht ein Zahlungslauf", "/hilfe/freigaben#zahlungslauf") }}'
+    )
+    assert html.startswith('<div class="leer">') and "role=" not in html
+    assert "#check" in html and "symbol-28" in html
+    assert '<p class="leer-satz">Nichts zu prüfen.</p>' in html
+    assert '<p class="leer-neben">Nächster Bankabruf: heute 14:00.</p>' in html
+    assert (
+        '<a class="leer-aktion" href="/hilfe/freigaben#zahlungslauf">'
+        "So entsteht ein Zahlungslauf</a>"
+    ) in html
+    beleg = render('{{ k.leer("Kein Beleg.", symbol="file-text") }}')
+    assert 'class="leer leer-beleg"' in beleg and "#file-text" in beleg
+    assert "symbol-40" in beleg and "<a " not in beleg
