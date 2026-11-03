@@ -4,6 +4,13 @@ Ein Lauf ist idempotent: Derselbe Bericht wird am Datei-Hash und an der
 Abrechnungsnummer erkannt und nicht zweimal gebucht; PayPal-Zeilen eines überlappenden
 Exports erkennt der Transaktionscode. Buchung und Abgleich passieren im selben Lauf,
 damit ``classify`` die Auszahlung nicht vorher per Regel als Erlös bucht.
+
+Liegen zu buchende Posten in einem abgeschlossenen Zeitraum (Jahr oder
+festgeschriebener Monat), wird vor dem Ablegen abgebrochen — oder mit
+``buchungsdatum`` (``offen`` oder ein Tag) in einen offenen Zeitraum desselben
+Geschäftsjahrs gebucht, das Belegdatum bleibt. Scheitert der Lauf nach dem Ablegen,
+wird die eben abgelegte Datei wieder entfernt (die Datenbank rollt zurück, kein Beleg
+verweist auf sie).
 """
 
 from __future__ import annotations
@@ -11,9 +18,12 @@ from __future__ import annotations
 import hashlib
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
+from sqlalchemy import Connection
 from sqlalchemy.orm import Session
 
 from accounti.belege.archiv import BelegArchiv
@@ -30,6 +40,8 @@ from accounti.db.repo_integrationen import (
     vorhandene_referenzen,
 )
 from accounti.db.repository import speichere_buchung, speichere_transaktion
+from accounti.db.tabellen_abschluss import jahressperre
+from accounti.db.tabellen_pruefung import erster_offener_tag, sperrfehler
 from accounti.importers.marktplatz import MARKTPLATZ_IMPORTER
 from accounti.importers.paypal import FruehereUmsaetze, PaypalImporter
 from accounti.integrationen.auszahlung import (
@@ -66,12 +78,14 @@ from accounti.models.integrationen import (
     Postenart,
     Schweregrad,
 )
-from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
+from accounti.steuer.eu_steuersaetze import ist_eu_land, steuersatz_fuer_land
 from accounti.steuer.umsatzsteuer import UStBerechner
 
 __all__ = ["IntegrationError", "Importergebnis", "Kontext", "importiere"]
 
 NULL = Decimal("0")
+# Buchungsdatum für Posten in abgeschlossenen Zeiträumen: erster offener Tag oder fest
+Buchungsdatum = Literal["offen"] | date
 
 
 class IntegrationError(RuntimeError):
@@ -136,7 +150,6 @@ def eu_fernverkaeufe(
     (``integrationen.eu_fernverkaeufe_sonstige``).
     """
     berechner = UStBerechner(firmen_land=firmen_land)
-    satz = EU_STEUERSAETZE[firmen_land].normal
     summen: dict[int, Decimal] = defaultdict(lambda: NULL)
     for jahr, betrag in (sonstige or {}).items():
         summen[jahr] += betrag
@@ -153,6 +166,7 @@ def eu_fernverkaeufe(
                 betrag = p.betrag
                 if a.waehrung != "EUR" and a.kurs:
                     betrag = betrag / a.kurs
+                satz = steuersatz_fuer_land(firmen_land, p.datum).normal
                 netto = berechner.brutto_zu_netto(abs(betrag), satz)
                 summen[p.datum.year] += netto if betrag > 0 else -netto
     return dict(summen)
@@ -266,6 +280,8 @@ def _nachtrag(
     bericht: Abrechnung,
     beleg_id: UUID | None,
     auszahlung: Decimal | None,
+    buchungsdatum: Buchungsdatum | None = None,
+    berichtsnummern: frozenset[tuple[str, str]] = frozenset(),
 ) -> Importergebnis:
     """Ergänzt eine bekannte Abrechnung um die Posten, die sie noch nicht hat.
 
@@ -341,6 +357,7 @@ def _nachtrag(
     )
     gebucht = buche_abrechnung(teil, _buchungskontext(session, kontext))
     a.befunde.extend(gebucht.befunde)
+    a.befunde.extend(_verschiebe(session, gebucht.buchungen, buchungsdatum))
     setze_auszahlung_eur(a)
     a.status = status_von(a)
     aktualisiere_abrechnung(session, a)
@@ -348,7 +365,7 @@ def _nachtrag(
         speichere_buchung(session, buchung)
         _grund(session, gebucht, buchung)
     session.flush()
-    abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
+    abgleich = gleiche_auszahlungen_ab(session, kontext, [a], berichtsnummern)
     return Importergebnis(
         a,
         neu=False,
@@ -398,9 +415,11 @@ def importiere(
     laender: dict[str, Laenderangabe] | None = None,
     kurs: Decimal | None = None,
     auszahlung: Decimal | None = None,
+    buchungsdatum: Buchungsdatum | None = None,
 ) -> list[Importergebnis]:
     """Liest einen Marktplatzbericht, bucht neue Abrechnungen und Nachträge zu
-    bekannten, und gleicht ab."""
+    bekannten, und gleicht ab. ``buchungsdatum``: Posten in abgeschlossenen
+    Zeiträumen dorthin buchen (sonst Abbruch vor dem Ablegen)."""
     importer = MARKTPLATZ_IMPORTER.get(markt)
     if importer is None:
         bekannt = ", ".join(sorted(MARKTPLATZ_IMPORTER))
@@ -424,7 +443,43 @@ def importiere(
             if alt is not None:
                 vorhandene[a.nummer] = alt
     _pruefe_kurs(abrechnungen, vorhandene, kurs)
+    _pruefe_sperre(session, markt, abrechnungen, vorhandene, buchungsdatum)
 
+    datei_hash = hashlib.sha256(inhalt).hexdigest()
+    schon_im_archiv = archiv.enthaelt(datei_hash)
+    try:
+        return _importiere(
+            session,
+            archiv,
+            kontext,
+            markt,
+            inhalt,
+            dateiname,
+            abrechnungen,
+            vorhandene,
+            kurs,
+            auszahlung,
+            buchungsdatum,
+        )
+    except BaseException:
+        if not schon_im_archiv:
+            _verwirf_abgelegte(archiv, datei_hash)
+        raise
+
+
+def _importiere(
+    session: Session,
+    archiv: BelegArchiv,
+    kontext: Kontext,
+    markt: str,
+    inhalt: bytes,
+    dateiname: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+    kurs: Decimal | None,
+    auszahlung: Decimal | None,
+    buchungsdatum: Buchungsdatum | None,
+) -> list[Importergebnis]:
     eingang = nimm_auf(
         session,
         archiv,
@@ -438,6 +493,10 @@ def importiere(
     )
     beleg_id = eingang.beleg_id
     konten = kontext.einstellungen.marktplatz(markt)
+    # die Nummern aller Abrechnungen des Berichts zählen beim Abgleich schon, bevor
+    # sie gespeichert sind: ein Umsatz mit einer davon gehört nicht zur ersten
+    # (Nachprüfung 3 E, M2 — ein Transaktionsbericht mit mehreren Auszahlungen)
+    berichtsnummern = frozenset((x.marktplatz, x.nummer) for x in abrechnungen)
     ergebnisse = []
     for a in abrechnungen:
         if eingang.ergebnis is Eingangsergebnis.DUBLETTE:
@@ -446,7 +505,14 @@ def importiere(
         if a.nummer in vorhandene:
             ergebnisse.append(
                 _nachtrag(
-                    session, kontext, vorhandene[a.nummer], a, beleg_id, auszahlung
+                    session,
+                    kontext,
+                    vorhandene[a.nummer],
+                    a,
+                    beleg_id,
+                    auszahlung,
+                    buchungsdatum,
+                    berichtsnummern,
                 )
             )
             continue
@@ -469,23 +535,193 @@ def importiere(
         ergaenze_auszahlung(a)
         gebucht = buche_abrechnung(a, _buchungskontext(session, kontext), umsaetze)
         a.befunde.extend(gebucht.befunde)
+        if not any(w.strip() for w in konten.bank_stichworte):
+            a.befunde.append(_ohne_stichworte(markt))
+        a.befunde.extend(_verschiebe(session, gebucht.buchungen, buchungsdatum))
         a.status = status_von(a)
         speichere_abrechnung(session, a)
         for b in gebucht.buchungen:
             speichere_buchung(session, b)
             _grund(session, gebucht, b)
         session.flush()
-        abgleich = gleiche_auszahlungen_ab(session, kontext, [a])
         ergebnisse.append(
             Importergebnis(
                 a,
                 neu=True,
                 buchungen=len(gebucht.buchungen),
                 umsaetze=neue_umsaetze,
-                abgleich=abgleich,
             )
         )
+    # erst abgleichen, wenn alle Abrechnungen des Berichts gespeichert sind: sonst
+    # nähme die erste einen Umsatz, der genauso der einzige Kandidat der zweiten ist
+    # (Regel 5, Nachprüfung 5 E)
+    neue = [e for e in ergebnisse if e.neu]
+    if neue:
+        abgleich = gleiche_auszahlungen_ab(
+            session, kontext, [e.abrechnung for e in neue], berichtsnummern
+        )
+        for e in neue:
+            e.abgleich = [x for x in abgleich if x.abrechnung.id == e.abrechnung.id]
     return ergebnisse
+
+
+def _ohne_stichworte(markt: str) -> Befund:
+    """WARNUNG: ohne ``bank_stichworte`` erkennt der Abgleich eine Auszahlung, deren
+    Verwendungszweck die Nummer nicht nennt, in Fremdwährung gar nicht (in Euro nur
+    am exakten Betrag) — und die Kontierung lässt sie nicht offen, sondern bucht sie
+    nach den Regeln, der Erlös stünde doppelt (Nachprüfung 5 E, Grenze)."""
+    return Befund(
+        code="bank_stichworte_leer",
+        schweregrad=Schweregrad.WARNUNG,
+        text=(
+            f"integrationen.marktplaetze.{markt}.bank_stichworte ist leer — eine "
+            "Auszahlung ohne die Nummer im Verwendungszweck erkennt der Abgleich in "
+            "Fremdwährung nicht, und die Kontierung bucht sie nach den Regeln (Erlös "
+            "doppelt). Ein Stichwort des Bankeingangs eintragen; leer nur ohne "
+            "Marktplatz-Import"
+        ),
+    )
+
+
+def _zu_buchende_tage(
+    session: Session,
+    markt: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+) -> set[date]:
+    """Tage, an denen der Import buchen wird: die neuen Posten (Nachtrag: nur die
+    fehlenden, PayPal: nur unbekannte Transaktionscodes; die Auszahlung bucht erst der
+    Bankabgleich) und das Ende des Zeitraums (Sammelgebühren)."""
+    paypal = markt == "paypal"
+    schon_da = vorhandene_referenzen(session, "paypal") if paypal else set()
+    tage: set[date] = set()
+    for a in abrechnungen:
+        alt = vorhandene.get(a.nummer)
+        posten = neue_posten(alt.posten, a.posten) if alt is not None else a.posten
+        posten = [
+            p
+            for p in posten
+            if (paypal or p.art is not Postenart.AUSZAHLUNG)
+            and not (paypal and p.referenz in schon_da)
+        ]
+        if posten:
+            tage |= {p.datum for p in posten} | {a.bis}
+    return tage
+
+
+def _pruefe_sperre(
+    session: Session,
+    markt: str,
+    abrechnungen: list[Abrechnung],
+    vorhandene: dict[str, Abrechnung],
+    buchungsdatum: Buchungsdatum | None,
+) -> None:
+    """Vor dem Ablegen: Posten in einem abgeschlossenen Zeitraum brechen ab — mit
+    klarer Meldung statt eines Fehlers beim Schreiben (und einer verwaisten Datei);
+    mit ``buchungsdatum`` muss jeder dieser Posten ein Ziel im selben Geschäftsjahr
+    haben (``_zieltag``)."""
+    verbindung = session.connection()
+    if isinstance(buchungsdatum, date):
+        fehler = sperrfehler(verbindung, buchungsdatum)
+        if fehler is not None:
+            msg = f"--buchungsdatum {buchungsdatum:%d.%m.%Y}: {fehler}"
+            raise IntegrationError(msg)
+    gesperrt: dict[str, str] = {}
+    for tag in sorted(_zu_buchende_tage(session, markt, abrechnungen, vorhandene)):
+        fehler = sperrfehler(verbindung, tag)
+        if fehler is None:
+            continue
+        if buchungsdatum is not None:
+            _zieltag(verbindung, tag, buchungsdatum)
+        gesperrt.setdefault(f"{tag:%Y-%m}", str(fehler))
+    if not gesperrt or buchungsdatum is not None:
+        return
+    monate = ", ".join(gesperrt)
+    msg = (
+        f"Der Bericht hat Posten in einem abgeschlossenen Zeitraum ({monate}: "
+        f"{next(iter(gesperrt.values()))}) — nichts importiert. Entweder den "
+        "Zeitraum öffnen (accounti periode oeffnen JJJJ-MM --grund …) oder mit "
+        "--buchungsdatum offen (bzw. JJJJ-MM-TT) in einen offenen Zeitraum buchen; "
+        "umsatzsteuerlich gehören die Umsätze trotzdem in ihren Monat (berichtigte "
+        "Voranmeldung, § 18 Abs. 1 UStG)"
+    )
+    raise IntegrationError(msg)
+
+
+def _verschiebe(
+    session: Session,
+    buchungen: list[Buchungssatz],
+    buchungsdatum: Buchungsdatum | None,
+) -> list[Befund]:
+    """Buchungen in abgeschlossenen Zeiträumen auf das Buchungsdatum legen (wie
+    ``opos verbuchen --buchungsdatum``); das Belegdatum bleibt am Beleg. Ein Befund
+    sagt, dass accounti die Umsätze damit im Buchungsmonat zählt, obwohl sie
+    umsatzsteuerlich in den Monat der Leistung gehören."""
+    if buchungsdatum is None:
+        return []
+    verbindung = session.connection()
+    monate: set[str] = set()
+    tage: set[date] = set()
+    for i, b in enumerate(buchungen):
+        if sperrfehler(verbindung, b.datum) is None:
+            continue
+        tag = _zieltag(verbindung, b.datum, buchungsdatum)
+        monate.add(f"{b.datum:%Y-%m}")
+        tage.add(tag)
+        buchungen[i] = b.model_copy(update={"datum": tag})
+    if not monate:
+        return []
+    liste = ", ".join(sorted(monate))
+    text = (
+        f"Posten aus abgeschlossenem Zeitraum ({liste}) am "
+        f"{', '.join(f'{t:%d.%m.%Y}' for t in sorted(tage))} gebucht (Belegdatum "
+        "unverändert) — accounti zählt sie damit in der Voranmeldung (und "
+        "OSS-Meldung) des Buchungsmonats; umsatzsteuerlich gehören sie in den Monat "
+        "der Leistung (§ 13 Abs. 1 Nr. 1 Buchst. a, § 18 Abs. 1 UStG). Wer die "
+        f"abgegebene Voranmeldung für {liste} zusätzlich von Hand berichtigt "
+        "(§ 153 Abs. 1 AO), meldet sie doppelt — richtig ist dann: den Monat öffnen "
+        f"(accounti periode oeffnen {min(monate)} --grund …), ohne --buchungsdatum "
+        "importieren und die berichtigte Voranmeldung aus accounti abgeben"
+    )
+    return [Befund(code="buchungsdatum", schweregrad=Schweregrad.WARNUNG, text=text)]
+
+
+def _zieltag(verbindung: Connection, tag: date, buchungsdatum: Buchungsdatum) -> date:
+    """Buchungsdatum für einen Posten vom ``tag`` in einem abgeschlossenen Zeitraum —
+    nie davor und, wie bei ``opos verbuchen``, nie in einem anderen Geschäftsjahr:
+    der Erlös gehört ins Geschäftsjahr der Leistung (§ 252 Abs. 1 Nr. 5 HGB, GoBD
+    Rz. 51)."""
+    if buchungsdatum == "offen":
+        ziel = erster_offener_tag(verbindung, tag)
+    else:
+        ziel = buchungsdatum
+    if ziel < tag:
+        msg = (
+            f"--buchungsdatum {ziel:%d.%m.%Y} liegt vor dem Posten vom {tag:%d.%m.%Y}"
+            " — nichts importiert"
+        )
+        raise IntegrationError(msg)
+    if ziel.year != tag.year:
+        oeffnen = (
+            f"das Geschäftsjahr öffnen (accounti abschluss oeffnen --jahr {tag.year})"
+            if jahressperre(verbindung, tag.year) is not None
+            else f"den Monat öffnen (accounti periode oeffnen {tag:%Y-%m} --grund …)"
+        )
+        msg = (
+            f"Der Posten vom {tag:%d.%m.%Y} gehört ins Geschäftsjahr {tag.year}; "
+            f"gebucht am {ziel:%d.%m.%Y} stünde er im Geschäftsjahr {ziel.year} "
+            "(§ 252 Abs. 1 Nr. 5 HGB, GoBD Rz. 51) — nichts importiert. "
+            f"{oeffnen[0].upper()}{oeffnen[1:]} und ohne --buchungsdatum importieren"
+        )
+        raise IntegrationError(msg)
+    return ziel
+
+
+def _verwirf_abgelegte(archiv: BelegArchiv, datei_hash: str) -> None:
+    """Die eben in diesem Lauf abgelegte Datei wieder entfernen — die Datenbank rollt
+    zurück, kein Beleg verweist auf sie. Archivierte Belege löscht accounti nie."""
+    if archiv.enthaelt(datei_hash):
+        archiv.pfad(datei_hash).unlink(missing_ok=True)
 
 
 def _pruefe_kurs(

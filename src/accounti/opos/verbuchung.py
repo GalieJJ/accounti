@@ -106,7 +106,6 @@ from accounti.opos.verrechnung import VerrechnungError, verrechne_posten
 from accounti.steuer.eu_steuersaetze import ist_eu_land
 from accounti.steuer.kennziffern import VORSTEUER_FOLGEJAHR
 from accounti.steuer.leistungszeitpunkt import steuertag, steuertag_empfaenger
-from accounti.steuer.umsatzsteuer import OSS_UST_KONTEN_SKR03
 from accounti.steuer.zeitraum import Zeitraum
 
 NULL = Decimal("0")
@@ -271,10 +270,12 @@ def _gruppen(
             # auf das Länderkonto des Kontenrahmens (ohne eines „Erlöse“, Hinweis
             # ``_oss_ohne_konto``: ein Sammelkonto zählte die OSS-Meldung dem Land
             # seines Kontos zu, 8320/4320: FR), die ausländische Steuer auf das
-            # OSS-Steuerkonto des Landes
+            # OSS-Umsatzsteuerkonto des Kontenrahmens (SKR03 1767, SKR04 3817 — wie
+            # der Marktplatz-Import; vierstellig für den DATEV-Stapel, Steuer B6/B7;
+            # im SKR04 nie 1767/1777xx, die liegen dort im Bankbereich)
             erloes = erloese.oss.get(land, erloese.unbekannt)
             gruppe(erloes, None, True, kategorie).addiere(p.netto, NULL)
-            ust = OSS_UST_KONTEN_SKR03.get(land, "1779")
+            ust = erloese.oss_ust
             gruppe(ust, None, True, kategorie).addiere(steuer, NULL)
             continue
         else:

@@ -2072,8 +2072,12 @@ def opos_zuordnen(
     if posten:
         console.print("[red]--posten nur zusammen mit --transaktion[/red]")
         raise typer.Exit(1)
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
+
     try:
         einstellungen = lade_buchhaltung(config)
+        kontext = lade_kontext(config)
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
@@ -2082,7 +2086,15 @@ def opos_zuordnen(
     engine, make_session = session_factory(db)
     init_db(engine)
     with laufsperre_oder_ende(db), make_session() as s:
-        lauf = zuordne_zahlungen(s, einstellungen, zeitraum=period)
+        # wie bank lauf: eine Auszahlung, über die der Marktplatz-Abgleich einen
+        # Befund hätte, ist nie die Zahlung einer Forderung (Nachprüfung 6 E, Mb;
+        # 7 E, Mb-Rest — opos zuordnen gleicht selbst nicht ab)
+        lauf = zuordne_zahlungen(
+            s,
+            einstellungen,
+            zeitraum=period,
+            auslassen=umsaetze_ohne_abgleich(s, kontext),
+        )
         s.commit()
 
     def anteile_text(vorschlag: "Zuordnungsvorschlag") -> str:
@@ -2382,6 +2394,7 @@ def _beleg_text(b: "Beleg") -> str:
 def bank_abgleich(
     period: str | None = typer.Option(None, help="Nur Umsätze dieses Monats (JJJJ-MM)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Umsätze mit Quittungen und sonstigen Belegen abgleichen — vor 'classify'."""
     from rich.markup import escape
@@ -2389,11 +2402,23 @@ def bank_abgleich(
     from accounti.bank.abgleichslauf import gleiche_belege_ab
     from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.konfiguration import KonfigurationError
 
+    try:
+        kontext = lade_kontext(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
     with laufsperre_oder_ende(db), make_session() as s:
-        ergebnis = gleiche_belege_ab(s, zeitraum=period)
+        # wie bank lauf: für eine Auszahlung mit Abgleichsbefund keinen Beleg
+        # bestätigen (Nachprüfung 7 E, Abläufe N3)
+        ergebnis = gleiche_belege_ab(
+            s, zeitraum=period, auslassen=umsaetze_ohne_abgleich(s, kontext)
+        )
         s.commit()
     for k in ergebnis.automatisch:
         console.print(
@@ -2750,7 +2775,7 @@ def bank_lauf_befehl(
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.betrieb.kontext import regeln_datei
     from accounti.db import init_db, session_factory
-    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.einstellungen import lade_kontext
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
@@ -2759,7 +2784,7 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
-        integrationen = lade_integrationen(config)
+        marktplatz = lade_kontext(config)  # Auszahlungen vor dem Kontieren abgleichen
         # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
         # — vor dem Lauf geprüft, geladen unter der Laufsperre
         lade_regeln(regeln_datei())
@@ -2786,7 +2811,7 @@ def bank_lauf_befehl(
                 llm=LLMEngine() if llm else None,
             )
             ergebnis = bank_lauf(
-                s, engine, einstellungen, sichern=s.commit, integrationen=integrationen
+                s, engine, einstellungen, sichern=s.commit, marktplatz=marktplatz
             )
             s.commit()
     except LaufLaeuftError as fehler:
@@ -2801,6 +2826,20 @@ def bank_lauf_befehl(
         f"{len(a.vorschlaege)} vorgeschlagen · Kontierung: {k.kontiert} kontiert "
         f"(davon {k.mit_beleg} mit Beleg), {k.offen} offen"
     )
+    abgeglichen = [m for m in ergebnis.marktplatz if m.transaktion is not None]
+    offen = [
+        m
+        for m in ergebnis.marktplatz
+        if m.transaktion is None and m.posten.bank_transaktion_id is None
+    ]
+    if ergebnis.marktplatz:
+        console.print(
+            f"Marktplatz: {len(abgeglichen)} Auszahlungen abgeglichen, "
+            f"{len(offen)} offen"
+        )
+    for m in ergebnis.marktplatz:
+        for b in [m.befund, *m.hinweise] if m.befund is not None else []:
+            console.print(f"  [yellow]{b.code}: {escape(b.text)}[/yellow]")
     _marktplatz_hinweis(k)
 
 
@@ -2819,7 +2858,8 @@ def classify(
     from accounti.betrieb.kontext import regeln_datei
     from accounti.buchung.kontierung import kontiere_umsaetze
     from accounti.db import init_db, session_factory
-    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
+    from accounti.integrationen.einstellungen import lade_kontext
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
@@ -2828,7 +2868,7 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
-        integrationen = lade_integrationen(config)
+        kontext = lade_kontext(config)
         lade_regeln(regeln_datei())  # prüft die Regeldatei vor dem Lauf
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -2853,8 +2893,16 @@ def classify(
             llm=LLMEngine() if llm else None,
         )
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
-        # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand).
-        lauf = kontiere_umsaetze(s, engine, einstellungen, integrationen)
+        # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand) — und wie in bank
+        # lauf, was der Marktplatz-Abgleich als Auszahlung mit Befund sähe
+        # (Nachprüfung 6 E, N-g; classify selbst gleicht nicht ab)
+        lauf = kontiere_umsaetze(
+            s,
+            engine,
+            einstellungen,
+            kontext.einstellungen,
+            auslassen=umsaetze_ohne_abgleich(s, kontext),
+        )
         s.commit()
     console.print(
         f"[green]{lauf.kontiert}[/green] kontiert (davon {lauf.mit_beleg} mit Beleg), "
@@ -2903,82 +2951,40 @@ app.add_typer(export_app, name="export")
 @export_app.command("datev")
 def export_datev(
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
-    berater: str = typer.Option(..., help="DATEV Beraternummer"),
-    mandant: str = typer.Option(..., help="DATEV Mandantennummer"),
+    period: str | None = typer.Option(
+        None,
+        "--period",
+        help="Monat JJJJ-MM; ohne: alle noch nicht exportierten Buchungen eines "
+        "Wirtschaftsjahrs",
+    ),
+    berater: str | None = typer.Option(
+        None, help="DATEV-Beraternummer (sonst datev.berater_nummer)"
+    ),
+    mandant: str | None = typer.Option(
+        None, help="DATEV-Mandantennummer (sonst datev.mandanten_nummer)"
+    ),
     output: str = typer.Option("./export", help="Ausgabeverzeichnis"),
     alle: bool = typer.Option(
         False, "--alle", help="Auch ungeprüfte Buchungen exportieren"
     ),
+    erneut: bool = typer.Option(
+        False, "--erneut", help="Auch schon exportierte Buchungen noch einmal"
+    ),
     config: str = KONFIG_OPTION,
 ) -> None:
     """DATEV-konformen Buchungsstapel exportieren (nur freigegebene Buchungen)."""
-    from rich.markup import escape
+    from accounti.befehle.export import buchungsstapel
 
-    from accounti.befehle.export import automatikkonten_aus
-    from accounti.db import session_factory
-    from accounti.db.repository import lade_buchungen
-    from accounti.export.datev import DATEVConfig, DATEVExporter
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
-    from accounti.models import BuchungStatus
-
-    freigegeben = (
-        None
-        if alle
-        else {
-            BuchungStatus.AUTO_GEBUCHT,
-            BuchungStatus.GEPRUEFT,
-            BuchungStatus.KORRIGIERT,
-            BuchungStatus.EXPORTIERT,
-        }
+    buchungsstapel(
+        period=period,
+        berater=berater,
+        mandant=mandant,
+        output=output,
+        alle=alle,
+        erneut=erneut,
+        db=db,
+        config=config,
     )
-    from accounti.befehle import handelnde_person
-    from accounti.export.datev_stammdaten import sachkontenlaenge
-    from accounti.models.auth import Recht
-    from accounti.pruefung.storno import markiere_exportiert
-
-    try:
-        automatik = automatikkonten_aus(config)
-        laenge = sachkontenlaenge(config)  # Personenkonten eine Stelle länger
-        bh = lade_buchhaltung(config)
-    except KonfigurationError as fehler:
-        console.print(f"[red]{escape(str(fehler))}[/red]")
-        raise typer.Exit(1) from fehler
-    _, make_session = session_factory(db)
-    # Übergabe an den Steuerberater, vermerkt die Buchungen als exportiert: Buchungen
-    # freigeben (buchhalter, freigeber) und Einmalcode
-    with (
-        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
-        make_session() as s,
-    ):
-        buchungen = lade_buchungen(s, status=freigegeben)
-        cfg = DATEVConfig(
-            berater_nummer=berater,
-            mandanten_nummer=mandant,
-            automatikkonten=automatik,
-            sachkonten_laenge=laenge,
-            personenkonten=(
-                (bh.debitoren_von, bh.debitoren_bis),
-                (bh.kreditoren_von, bh.kreditoren_bis),
-            ),
-        )
-        exporter = DATEVExporter(cfg)
-        datei = exporter.exportiere(buchungen, output)
-        # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
-        markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
-        s.commit()
-    console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
-    for warnung in exporter.warnungen:
-        console.print(f"[yellow]{escape(warnung)}[/yellow]")
-    if markiert or gesperrt:
-        console.print(
-            f"[dim]{markiert} als exportiert vermerkt"
-            + (
-                f", {gesperrt} in abgeschlossenen Zeiträumen unverändert"
-                if gesperrt
-                else ""
-            )
-            + "[/dim]"
-        )
 
 
 @app.command()

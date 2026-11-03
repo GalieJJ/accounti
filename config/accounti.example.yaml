@@ -40,7 +40,8 @@ datev:
                                          # EStG) z.B. "2025-07-01": abschluss --jahr 2026
                                          # = 01.07.2025–30.06.2026 (Jahr des WJ-Endes)
 
-# Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03)
+# Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03;
+# OSS- und Kursdifferenzkonten folgen buchhaltung.kontenrahmen)
 integrationen:
   erloes_inland: { "19": "8400", "7": "8300" }
   bu_inland: { "19": 3, "7": 2 }
@@ -49,11 +50,29 @@ integrationen:
   erloes_unbekannt: "8200"      # Bestimmungsland fehlt (zur Prüfung)
   geldtransit_konto: "1360"
   auszahlung_toleranz_tage: 10  # Bankeingang bis so viele Tage nach dem Auszahlungsdatum
+  auszahlung_toleranz_prozent: 2   # Fremdwährung: Bankbetrag darf so weit von der umgerechneten
+                                # Auszahlung abweichen (Stichwort/Abrechnungsnummer nötig);
+                                # die Differenz geht auf die Kursdifferenzkonten
+  # kursdifferenz_aufwand: "2150" # Aufwand und Ertrag aus der Währungsumrechnung; ohne Angabe
+  # kursdifferenz_ertrag: "2660"  # nach buchhaltung.kontenrahmen (SKR03 2150/2660, SKR04 6880/4840)
   ermaessigte_artikel: []       # SKUs mit ermäßigtem Satz
-  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8328" } (anlegen)
+  oss_erloes_konten: {}         # Land → OSS-Erlöskonto zum Normalsatz, ergänzt die Vorgabe
+                                # FR 8320, IT 8321, ES 8322, NL 8323, SE 8324, PL 8325,
+                                # AT 8326, BE 8327 (SKR04 4320–4327), z.B. { DK: "8328" }.
+                                # Ohne Konto geht ein Fernverkauf zur Prüfung und nicht in
+                                # die OSS-Meldung; { BE: null } nimmt ein Land so nur für den
+                                # Marktplatz heraus — sein Konto bleibt das Konto seines Lands
+                                # (eigene Rechnungen bucht OPOS dort) und lässt sich keinem
+                                # anderen Land geben, auch nicht als ermäßigtes Konto.
+  oss_erloes_ermaessigt: {}     # Land → Erlöskonto für ermäßigte OSS-Umsätze, z.B. { FR: "8329" } (anlegen)
                                 # OSS-Erlöse im DATEV-Bereich 8320–8329 (SKR04 4320–4329);
                                 # 8330/4330 sind im Kontenrahmen 2026 reserviert,
-                                # 8331/4331 nur für elektronische Dienstleistungen
+                                # 8331/4331 nur für elektronische Dienstleistungen;
+                                # die OSS-Erlöskonten zählen in der UStVA zu Kz 45
+  # oss_ust_konto: "1767"       # USt aus im anderen EU-Land steuerpflichtigen Lieferungen
+                                # (DATEV-Sammelkonto, Land im Buchungstext); ohne Angabe nach
+                                # buchhaltung.kontenrahmen (SKR03 1767, SKR04 3817)
+  oss_ust_konten: {}            # Land → eigenes OSS-Umsatzsteuerkonto (Sachkontenlänge beachten)
   eu_fernverkaeufe_sonstige: {} # Jahr → EU-Fernverkäufe netto außerhalb der Marktplätze, z.B. { 2025: 12000 }
   paypal_kontobezeichnung: "PPLXLULL/PAYPAL"   # Feld :25: im MT940 des PayPal-Kontos
   marktplaetze:                 # nur Abweichungen angeben; Konten 1361–1363/1210 anlegen

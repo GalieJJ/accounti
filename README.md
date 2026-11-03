@@ -101,7 +101,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 |--------|---------|-------------|
 | ✅ | **Umsatzsteuer** | USt/VSt-Berechnung, Steuerautomatik, Geschäftsvorfall-Bestimmung |
 | ✅ | **OSS-Verfahren** | EU-weite MwSt (27 Länder), Schwellenwertprüfung, Quartalsmeldung |
-| ✅ | **USt-Voranmeldung** | Kennziffern nach Vordruck 2026 aus den Buchungen (Steuerschlüssel + Automatikkonten), volle Euro wie ELSTER, Plausibilisierung (ohne Steuerschlüssel, unbestätigte USt-IdNr., Verprobung, Vormonatsvergleich), Freigabe durch den Menschen |
+| ✅ | **USt-Voranmeldung** | Kennziffern nach Vordruck 2026 aus den Buchungen (Steuerschlüssel + Automatikkonten), volle Euro wie ELSTER, Plausibilisierung (ohne Steuerschlüssel, unbestätigte USt-IdNr., Verprobung, Vormonatsvergleich, Prüfregeln des Zeitraums, offene Marktplatz-Befunde, Abweichung von der abgegebenen Anmeldung, Zeitraum noch nicht abgelaufen), Freigabe durch den Menschen; nach der Abgabe wird das Festschreiben angeboten |
 | 🟨 | **Elektronische Übermittlung** | ELSTER-Datensatz UStVA/Dauerfristverlängerung, Testmodus ohne Abgabe, ERiC-Anbindung über ctypes (mit eigener Hersteller-ID und Zertifikat), unveränderbares Protokoll, Zahllast als offener Posten beim Finanzamt; Zusammenfassende Meldung als Portaldatei |
 | ✅ | **Fristenkalender** | UStVA, Dauerfristverlängerung, Sondervorauszahlung, ZM, OSS — verschoben nach § 108 Abs. 3 AO mit Feiertagen des Bundeslands |
 | ✅ | **BWA** | Betriebswirtschaftliche Auswertung nach DATEV-Schema |
@@ -175,13 +175,13 @@ accounti serve
 # Banktransaktionen importieren
 accounti import bank ./meine-umsaetze.csv --format sparkasse
 
-# KI-Kontierung starten
-accounti classify --period 2026-04
+# KI-Kontierung starten (alle noch nicht gebuchten Umsätze)
+accounti classify
 
 # BWA generieren
 accounti bwa --period 2026-04
 
-# DATEV-Export
+# DATEV-Export (ein Monat; Berater/Mandant sonst aus datev.berater_nummer/mandanten_nummer)
 accounti export datev --period 2026-04 --berater 23426 --mandant 40005
 ```
 
@@ -448,6 +448,7 @@ accounti marktplatz import paypal ./aktivitaeten.csv     # PayPal ist ein eigene
 accounti marktplatz import shopify ./auszahlung.csv --laender ./bestellungen.csv
 accounti marktplatz liste                                # Status und Befunde je Abrechnung
 accounti marktplatz abgleichen                           # Auszahlungen ↔ Bankumsätze
+accounti marktplatz zuordnen 11223344556 3f21e8e4        # Bankumsatz von Hand zuordnen
 accounti marktplatz oss --quartal 2026-Q3                # OSS-Quartalsmeldung
 
 accounti datev stammdaten --ausgabe ./export             # Debitoren/Kreditoren
@@ -468,7 +469,31 @@ Posten nach, die noch fehlen; bringt er eine zweite Auszahlungszeile, wird nicht
 Eine PayPal-Rückzahlung mindert den Erlös nur, wenn ihre Zahlung ein Checkout-Verkauf war.
 Als Länderdatei für Amazon den USt-Transaktionsbericht nehmen: Nur
 er kennt das Abgangsland (FBA-Lager) und die USt-IdNr. des Käufers; mit dem Bestellbericht gehen
-FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`.
+FBA-Verkäufe zur Prüfung, bis `lager_nur_inland` eingestellt ist. Fremdwährung braucht `--kurs`;
+die Bank darf bis `auszahlung_toleranz_prozent` abweichen (Differenz auf die Kursdifferenzkonten).
+Hat eine Regel die Auszahlung schon als Erlös gebucht, nennt der Befund den Befehl zur
+Korrektur; danach gleicht `marktplatz abgleichen` (oder `bank lauf`) sie ab. Ohne Stichwort und
+Nummer ist ein gebuchter Umsatz mit genau dem Betrag nur „vielleicht“ die Auszahlung — ein
+Befund ohne Befehl, der Mensch prüft (es kann eine Kundenzahlung sein). Kassenbuch- und
+Kartenumsätze sind nie eine Auszahlung, ebenso wenig ein Umsatz mit dem Stichwort oder einer
+Abrechnungsnummer eines anderen Marktplatzes (PayPal: nur, wenn PayPal den Betrag erwartet) oder
+die Zahlung einer Rechnung (Belegnummer, Richtung und Betrag passen; ein Datum wie 03.09.2026
+nennt die Monatsrechnung 09/2026 nicht). Die Nummer im
+Verwendungszweck geht dem Betrag vor: Nennt ein Umsatz die eigene, zählt nur er; nennt er die
+einer anderen Abrechnung, gehört er zu ihr — einen Transaktionsbericht mit mehreren
+Auszahlungen daher vor der Korrektur ganz importieren. Eine unbekannte Zahl, die wie eine
+Auszahlungsnummer desselben Marktplatzes aussieht (gleiche Länge, gleicher Anfang), hält den
+Umsatz zurück; ohne Nummer ist die Zuordnung geraten (Hinweis, bei PayPal ohne Stichwort), und
+passt ein Umsatz zu zwei Abrechnungen, bekommt ihn keine (außer er nennt die Nummer einer). Wo
+der Abgleich nicht entscheidet, ordnet `marktplatz zuordnen <Nummer> <Umsatz>` ausdrücklich zu
+(die Befunde nennen den Befehl mit der Umsatz-ID; eine bisherige Zuordnung wird dabei storniert,
+`--loesen` löst nur; nach dem Zeitfenster nur mit `--trotzdem`, eine Einzahlung auch davor —
+die Bank bucht die Überweisung vor der Gutschrift —, mit offenem opos-Vorschlag erst nach
+`opos ablehnen`).
+Liegen Posten in einem festgeschriebenen Monat, bricht der Import vor dem Archivieren ab — oder
+bucht sie mit `--buchungsdatum offen|JJJJ-MM-TT` in einen offenen Zeitraum desselben
+Geschäftsjahrs; accounti zählt sie dann im Buchungsmonat (sauberer: den Monat öffnen und ohne
+`--buchungsdatum` importieren). `bank lauf` gleicht Auszahlungen vor dem Kontieren ab.
 `datev belege` schreibt Belegpaket (für DATEV Belegtransfer, nicht entpacken) und Buchungsstapel
 mit Beleglink; beide zusammen importieren. Kontoauszüge werden beim Erstellen festgeschrieben.
 
@@ -856,7 +881,15 @@ Seit Juli 2021 müssen B2C-Fernverkäufe in andere EU-Länder über €10.000 p.
 
 - Trackt die **€10.000-Schwelle** über alle EU-B2C-Verkäufe
 - Berechnet den **korrekten Steuersatz** je Bestimmungsland
-- Bucht auf **separate OSS-Erlöskonten** je Bestimmungsland (SKR03: 8320–8327, SKR04: 4320–4327; ein Land ohne eigenes Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die Meldung erfasst es nicht)
+- Bucht auf **ein OSS-Erlöskonto je Bestimmungsland** (Vorgabe acht Länder im DATEV-Bereich
+  SKR03 8320–8329 bzw. SKR04 4320–4329; weitere mit `integrationen.oss_erloes_konten`, die
+  Länderkonten der Vorgabe bleiben ihrem Land; eine eigene Rechnung in ein Land ohne eigenes
+  Konto auf „Erlöse“ zur Prüfung, mit Hinweis — die
+  Meldung erfasst sie nicht), die Steuer auf das DATEV-Sammelkonto 1767 (SKR04 3817) mit dem
+  Land im Buchungstext — Marktplatz-Abrechnung und eigene Rechnungen (OPOS) gleich, vierstellig,
+  passend zur Sachkontenlänge des DATEV-Stapels; im SKR04 ein Steuerkonto (3800 ff.), nicht
+  1767/1777xx aus dem Bank- und Zahlungsmittelbereich
+- Nimmt den **Steuersatz am Tag der Lieferung** (`steuer/eu_steuersaetze.py` mit `gueltig_ab`)
 - Erstellt die **Quartalsmeldung** mit Aufschlüsselung nach Land und Steuersatz
 - Kennt die **Abgabefristen** (letzter Tag des Folgemonats)
 - Meldet OSS-Umsätze in der USt-Voranmeldung **nur als Nettoumsatz in Kz 45** (Anleitung 2026, Zeile 36) — die Steuer läuft über die OSS-Meldung
@@ -880,9 +913,20 @@ accounti berechnet alle ELSTER-Kennziffern:
 
 accounti erzeugt DATEV-konforme ASCII-Dateien nach dem Format "Buchungsstapel" (Header-Version 700+):
 
-- **EXTF Buchungsstapel**: Alle Buchungssätze eines Zeitraums
+- **EXTF Buchungsstapel** (`accounti export datev --period JJJJ-MM`): die freigegebenen,
+  noch nicht exportierten Buchungssätze eines Monats; ohne `--period` alle noch nicht
+  exportierten, solange sie in einem Wirtschaftsjahr liegen (sonst Abbruch — ein Stapel
+  gehört zu genau einem Wirtschaftsjahr, das Belegdatum steht nur als TTMM). Schon
+  exportierte Buchungen kommen nur mit `--erneut` noch einmal; ungeprüfte nur mit `--alle`
+  (sie gelten danach als übergeben; `korrigiere` warnt, wenn einer danach noch geändert
+  wird, und nennt die Stapel des Monats und den Ersatzstapel mit `--erneut --alle`). Ein weiterer Export desselben Zeitraums schreibt eine neue Datei
+  (`EXTF_Buchungsstapel_JJJJMMTT_JJJJMMTT_2.csv` …), nie unter dem Namen eines früheren
+  Stapels — auch wenn der Ordner nach dem Hochladen geräumt ist (die Namen stehen im Journal).
+  Kopf und Datensätze wie `datev belege` (31 Kopffelder, Herkunft „RE“, Textfelder maskiert,
+  Kostenstelle in KOST1); Konten, die nicht zur Sachkontenlänge passen, meldet der Export.
 - **EXTF Debitoren/Kreditoren**: Stammdaten
-- Berater-Nr., Mandanten-Nr., Wirtschaftsjahr, Sachkonten-Länge — alles konfigurierbar
+- Berater-Nr., Mandanten-Nr., Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`),
+  Sachkonten-Länge (`mandant.sachkonten_laenge`) — alles konfigurierbar
 
 ---
 

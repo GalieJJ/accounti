@@ -384,3 +384,63 @@ def test_cli_sichert_je_konto(tmp_path, monkeypatch, befehl):
     r = CliRunner().invoke(app, [*befehl, "--db", url])
     assert r.exit_code == 0, r.output
     assert len(aufrufe) == 1 and callable(aufrufe[0].get("sichern"))
+
+
+def test_bank_lauf_gleicht_marktplatz_auszahlung_vor_dem_kontieren_ab(
+    make_session, tmp_path
+):
+    """Gesamttest Steuer B2: die Amazon-Auszahlung kommt mit dem geplanten Lauf —
+    vorher buchte die Regel ``amazon_auszahlung`` sie als Erlös 19 % (Kz 81 doppelt).
+    Mit der importierten Abrechnung bucht der Lauf „Bank an Verrechnungskonto“."""
+    from pathlib import Path
+
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.importers.marktplatz import lies_laenderdatei
+    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.lauf import Kontext, importiere
+    from accounti.klassifikation.engine import Regel
+
+    fixtures = Path(__file__).resolve().parents[1] / "examples" / "marktplatz"
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
+        buchhaltung=EINSTELLUNGEN,
+        oss_registriert=True,
+    )
+    with make_session() as s:
+        importiere(
+            s,
+            BelegArchiv(tmp_path / "archiv"),
+            kontext,
+            "amazon",
+            (fixtures / "amazon_abrechnung_v2.txt").read_bytes(),
+            "a.txt",
+            laender=lies_laenderdatei(
+                (fixtures / "amazon_bestellungen.txt").read_bytes()
+            ),
+        )
+        s.commit()
+    _konto(make_session)
+    auszahlung = umsatz(
+        betrag="209.85",
+        verwendungszweck="AMAZON PAYMENTS EUROPE 11223344556",
+        gegenkonto_name="Amazon Payments Europe S.C.A.",
+        datum=date(2026, 8, 17),
+    )
+    Attrappe.antworten["DE12"] = Abruf([auszahlung])
+    erloes = Regel(
+        name="amazon_auszahlung",
+        muster=r"AMAZON PAYMENTS",
+        soll_konto="1200",
+        haben_konto="8400",
+        steuer_schluessel=3,
+    )
+    engine = KlassifikationsEngine(regelwerk=RegelwerkEngine([erloes]))
+    with make_session() as s:
+        ergebnis = bank_lauf(s, engine, EINSTELLUNGEN, SCHLUESSEL, marktplatz=kontext)
+        s.commit()
+        buchungen = [b for b in lade_buchungen(s) if b.transaktion_id is not None]
+    (abgleich,) = ergebnis.marktplatz
+    assert abgleich.transaktion is not None
+    assert ergebnis.kontierung.kontiert == 0
+    (b,) = buchungen
+    assert (b.soll_konto, b.haben_konto, b.steuer_schluessel) == ("1200", "1361", None)

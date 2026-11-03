@@ -340,13 +340,36 @@ def erledige_befunde(session: Session, befund_ids: list[UUID]) -> None:
 
 
 def setze_bank_transaktion(
-    session: Session, posten_id: UUID, transaktion_id: UUID
+    session: Session, posten_id: UUID, transaktion_id: UUID | None
 ) -> None:
+    """Bankumsatz eines Aus- oder Einzahlungspostens (``None``: Zuordnung gelöst)."""
     row = session.get(MarktplatzPostenRow, str(posten_id))
     if row is None:
         raise ValueError(f"Posten {posten_id} nicht gefunden")
-    row.bank_transaktion_id = str(transaktion_id)
+    row.bank_transaktion_id = str(transaktion_id) if transaktion_id else None
     session.flush()
+
+
+def abrechnungsnummern(session: Session) -> dict[str, set[str]]:
+    """Nummern der gespeicherten Abrechnungen je Marktplatz (ohne Posten zu laden)."""
+    nummern: dict[str, set[str]] = {}
+    rows = session.query(
+        MarktplatzAbrechnungRow.marktplatz, MarktplatzAbrechnungRow.nummer
+    ).all()
+    for marktplatz, nummer in rows:
+        nummern.setdefault(marktplatz, set()).add(nummer)
+    return nummern
+
+
+def zugeordnete_bank_transaktionen(session: Session) -> set[UUID]:
+    """Bankumsätze, die schon einem Marktplatzposten (Auszahlung, Einzahlung)
+    zugeordnet sind."""
+    rows = (
+        session.query(MarktplatzPostenRow.bank_transaktion_id)
+        .filter(MarktplatzPostenRow.bank_transaktion_id.is_not(None))
+        .all()
+    )
+    return {UUID(ident) for (ident,) in rows if ident}
 
 
 def setze_abrechnungsstatus(

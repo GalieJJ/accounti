@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal
 from functools import cached_property
 from importlib import resources
@@ -31,7 +32,7 @@ from accounti.models import (
 from accounti.models.pruefung import Befund, Kategorie, Schwere
 from accounti.pruefung.einstellungen import PruefEinstellungen
 from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
-from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE, ist_eu_land
+from accounti.steuer.eu_steuersaetze import ist_eu_land, steuersatz_oder_none
 from accounti.steuer.kennziffern import (
     KENNZIFFERN_KONTEN,
     STEUERSCHLUESSEL,
@@ -801,12 +802,12 @@ def steuerschluessel_probleme(
 # --- Steuersatz zum Land ------------------------------------------------------------
 
 
-def _erlaubt(land: str) -> set[Decimal] | None:
-    info = EU_STEUERSAETZE.get(land)
+def _erlaubt(land: str, tag: date | None = None) -> set[Decimal] | None:
+    """Sätze des Landes am Tag der Leistung (Stand ``tag``, ohne: heute)."""
+    info = steuersatz_oder_none(land, tag)
     if info is None:
         return None
-    saetze = {info.normal, info.ermaessigt, info.ermaessigt_2, info.super_ermaessigt}
-    return {s.normalize() for s in saetze if s is not None} | {NULL}
+    return {s.normalize() for s in info.saetze} | {NULL}
 
 
 class SteuersatzLand:
@@ -843,8 +844,9 @@ class SteuersatzLand:
         if not eingang and land and land != "DE":
             laender.append(land)  # OSS: Satz des Bestimmungslands
         erlaubt: set[Decimal] = set()
+        tag = b.leistungsdatum or b.belegdatum
         for x in laender:
-            erlaubt |= _erlaubt(x) or set()
+            erlaubt |= _erlaubt(x, tag) or set()
         if not erlaubt:
             return None
         fremd = sorted(saetze - erlaubt)

@@ -248,6 +248,8 @@ def baue_rechnung(
             ermaessigt=p.ermaessigt,
             ist_sonstige_leistung=p.sonstige_leistung,
             ist_elektronisch=p.elektronisch,
+            # Satz am Tag der Leistung (OSS: Satz des Bestimmungslands an diesem Tag)
+            stichtag=entwurf.leistungsdatum or rechnungsdatum,
         )
 
     # Eine Gutschrift weist die Minderung positiv aus: als negative Menge erfasst,

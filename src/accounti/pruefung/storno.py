@@ -15,9 +15,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -417,8 +418,8 @@ def kontenplan(
     elster: ElsterEinstellungen | None,
 ) -> Kontenplan:
     """Konten, wie die Voranmeldung sie liest (``elster.ustva.kontenplan``): Bereiche
-    der Buchhaltung, eingerichtete Bankkonten, ``elster.steuerrelevante_konten`` und
-    ``elster.kennziffern_konten``."""
+    der Buchhaltung, eingerichtete Bankkonten, ``elster.steuerrelevante_konten``,
+    ``elster.kennziffern_konten`` und ``elster.konten_ohne_kennziffer``."""
     from accounti.db.repository import lade_bankkonten
     from accounti.elster.konfiguration import bereiche
 
@@ -432,6 +433,9 @@ def kontenplan(
         ),
         steuerrelevant=bereiche(elster.steuerrelevante_konten) if elster else None,
         kennziffern_konten=dict(elster.kennziffern_konten) if elster else {},
+        ohne_kennziffer=(
+            frozenset(elster.konten_ohne_kennziffer) if elster else frozenset()
+        ),
     )
 
 
@@ -1239,24 +1243,59 @@ def _storno(
         neu,
         storno,
         korrektur,
-        _warnungen(b, tag),
+        _warnungen(session, b, tag, kr),
     )
 
 
-def _warnungen(b: Buchungssatz, tag: date) -> list[str]:
-    """Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort."""
-    if b.steuer_schluessel is None or (tag.year, tag.month) == (
-        b.datum.year,
-        b.datum.month,
-    ):
+def _umsatzsteuerlich(b: Buchungssatz, kr: Kontenrahmen) -> bool:
+    """Wirkt die Buchung auf die Voranmeldung (Schlüssel, Steuer, Erlöskonto)?"""
+    from accounti.steuer.kennziffern import Kontenplan
+
+    if b.steuer_schluessel is not None or b.steuer_betrag:
+        return True
+    plan = Kontenplan(kontenrahmen=kr.name.upper())
+    return any(
+        k in plan.funktionskonten or plan.ist_erloeskonto(k) or plan.ist_steuerkonto(k)
+        for k in (b.soll_konto, b.haben_konto)
+    )
+
+
+def _warnungen(
+    session: Session, b: Buchungssatz, tag: date, kr: Kontenrahmen
+) -> list[str]:
+    """Hinweise zur Umsatzsteuer-Voranmeldung (§ 18 Abs. 1 UStG, § 153 Abs. 1 AO).
+
+    * Ist die Voranmeldung des Zeitraums, in dem das Storno liegt, schon abgegeben
+      oder freigegeben, ändert die Korrektur ihre Werte — berichtigte Anmeldung
+      (``meldungen_im_zeitraum``; die Abweichung meldet ``ustva`` als
+      ``abgegeben_abweichend``).
+    * Storno in einem anderen Monat: die Umsatzsteuer ändert sich dort, die
+      Voranmeldung des Originals bleibt, wie sie ist (keine Warnung „berichtigte
+      Anmeldung“ für sie — das widerspräche dem Folgenden). Das ist nur bei einer
+      Änderung der Bemessungsgrundlage richtig (§ 17 Abs. 1 S. 7 UStG: Berichtigung
+      im Zeitraum der Änderung). Eine Fehlbuchung wird im Originalzeitraum
+      berichtigt — dann den Monat öffnen und dort stornieren, statt die
+      Voranmeldung zusätzlich von Hand zu berichtigen (sonst doppelt).
+    """
+    if not _umsatzsteuerlich(b, kr):
         return []
-    return [
-        f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum als "
-        f"das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im Zeitraum "
-        f"des Stornos — ist die Voranmeldung für {b.datum:%m/%Y} schon abgegeben "
-        "und war sie falsch, ist eine berichtigte Voranmeldung für diesen Zeitraum "
-        "abzugeben"
-    ]
+    from accounti.pruefung.perioden import meldungen_im_zeitraum
+
+    warnungen = meldungen_im_zeitraum(session, tag, tag)
+    anders = (tag.year, tag.month) != (b.datum.year, b.datum.month)
+    if anders:
+        warnungen.append(
+            f"Storno am {datum_de(tag)} liegt in einem anderen Voranmeldungszeitraum "
+            f"als das Original ({b.datum:%m/%Y}): Die Umsatzsteuer ändert sich im "
+            f"Zeitraum des Stornos ({tag:%m/%Y}). Richtig ist das bei einer Änderung "
+            "der Bemessungsgrundlage (§ 17 Abs. 1 S. 7 UStG: Berichtigung im Zeitraum "
+            "der Änderung). War die Buchung ein Fehler, gehört die Berichtigung in "
+            f"{b.datum:%m/%Y}: den Monat öffnen (accounti periode oeffnen "
+            f"{b.datum:%Y-%m} --grund …), dort stornieren und die berichtigte "
+            f"Voranmeldung aus accounti abgeben — {tag:%m/%Y} dann nicht zusätzlich "
+            "von Hand berichtigen, sonst wirkt die Korrektur doppelt"
+        )
+    return warnungen
 
 
 def ist_wirksam(b: Buchungssatz) -> bool:
@@ -1671,7 +1710,8 @@ def korrigiere(
                 session, str(b.id), b.model_copy(update=aenderung)
             )
             session.flush()
-        return Korrektur(b, neu, warnungen=_warnung_selbst(b, ohne_steuer))
+        warnungen = _warnung_selbst(b, ohne_steuer) + _warnung_uebergeben(session, b)
+        return Korrektur(b, neu, warnungen=warnungen)
     if all(
         getattr(b, k) == v
         for k, v in aenderung.items()
@@ -1689,6 +1729,57 @@ def korrigiere(
     k = _storno(session, b, person, text, datum, kr, neu)
     k.warnungen.extend(_warnung_selbst(b, ohne_steuer))
     return k
+
+
+_STAPEL_ZEITRAUM = re.compile(r"_(\d{8})_(\d{8})(?:_\d+)?\.csv$")
+
+
+def _warnung_uebergeben(session: Session, b: Buchungssatz) -> list[str]:
+    """Ein Vorschlag, der ungeprüft mit ``export datev --alle`` übergeben wurde, gilt
+    als exportiert (Journal ``ungeprueft``) — die direkte Korrektur kommt mit dem
+    nächsten Export nicht nach DATEV, dort steht weiter das alte Konto.
+
+    Der Ersatzstapel braucht ``--alle`` wie der alte, sonst fehlen ihm dessen übrige
+    ungeprüfte Vorschläge (wer ihn in DATEV ersetzt, verlöre sie). Er enthält alle
+    Buchungen des Monats — die Warnung nennt deshalb jeden Stapel, der laut Journal
+    Buchungen des Monats übergab (wer nur einen ersetzt, hat die übrigen doppelt);
+    reichte einer davon (ohne ``--period``) über den Monat hinaus oder deckte ihn
+    nicht ganz, sagt sie, dass dort nur die Buchungen des Monats zu ersetzen sind."""
+    from accounti.export.datev import schon_exportiert, stapel_des_monats
+
+    if b.id not in schon_exportiert(session):
+        return []
+    monat = f"{b.datum:%Y-%m}"
+    erster = b.datum.replace(day=1)
+    letzter = (erster + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    dateien = stapel_des_monats(session, erster, letzter)
+    if len(dateien) > 1:
+        stapel = f"die Stapel {', '.join(dateien[:-1])} und {dateien[-1]}"
+    else:
+        stapel = f"den Stapel {dateien[0]}" if dateien else "den Stapel"
+    text = (
+        f"Buchung {_kurz(b)} ging schon an DATEV (export datev --alle) — dort steht "
+        f"weiter {b.soll_konto} an {b.haben_konto}, der nächste Export bringt die "
+        f"Korrektur nicht. In DATEV von Hand korrigieren oder {stapel} dort ersetzen: "
+        f"accounti export datev --period {monat} --erneut --alle"
+    )
+    if len(dateien) > 1:
+        text += (
+            f" — der neue Stapel enthält alle Buchungen von {monat}: jeden der "
+            "genannten ersetzen, sonst stehen sie in DATEV doppelt"
+        )
+    monatsstapel = (f"{erster:%Y%m%d}", f"{letzter:%Y%m%d}")
+    if not dateien or any(
+        (zeitraum := _STAPEL_ZEITRAUM.search(d)) is None
+        or zeitraum.groups() != monatsstapel
+        for d in dateien
+    ):
+        alte = "der alte nicht" if len(dateien) < 2 else "nicht jeder alte"
+        text += (
+            f" — der neue Stapel umfasst den ganzen Monat {monat}, {alte}: in DATEV "
+            f"nur die Buchungen von {monat} ersetzen"
+        )
+    return [text]
 
 
 def _beleg_mit_satz(session: Session, b: Buchungssatz) -> bool:
@@ -1827,17 +1918,23 @@ def markiere_exportiert(
     """Freigegebene, exportierte Buchungen → ``exportiert``; Journal ``export``.
 
     Buchungen in abgeschlossenen Zeiträumen bleiben, wie sie sind (die Sperre nimmt
-    keinen Statuswechsel an); sie stehen im Journaleintrag. Ergebnis: (markiert,
-    gesperrt). Die Zeilen werden blockweise geladen und in einem Flush geschrieben —
-    nicht je Buchung (jeder Zwischen-Flush kostete Sperrabfragen und Journal).
+    keinen Statuswechsel an); sie stehen im Journaleintrag. Ungeprüfte Buchungen
+    (``--alle``) behalten ihren Status — ``exportiert`` hieße freigegeben — und
+    stehen als ``ungeprueft`` im Journaleintrag: auch sie sind übergeben, nach der
+    Freigabe kämen sie sonst ein zweites Mal nach DATEV (``schon_exportiert``).
+    Ergebnis: (markiert, gesperrt). Die Zeilen werden blockweise geladen und in
+    einem Flush geschrieben — nicht je Buchung (jeder Zwischen-Flush kostete
+    Sperrabfragen und Journal).
     """
     verbindung = session.connection()
     sperren: dict[str, Any] = {}  # gesperrte Jahre/Monate, einmal gelesen
-    offen, gesperrt_ids = [], []
+    offen, gesperrt_ids, ungeprueft = [], [], []
     for b in buchungen:
-        if b.status not in FREIGEGEBEN - {BuchungStatus.EXPORTIERT}:
+        if b.status is BuchungStatus.EXPORTIERT:
             continue
-        if gesperrt(verbindung, b.datum, sperren):
+        if b.status not in FREIGEGEBEN:
+            ungeprueft.append(str(b.id))
+        elif gesperrt(verbindung, b.datum, sperren):
             gesperrt_ids.append(str(b.id))
         else:
             offen.append(str(b.id))
@@ -1863,6 +1960,7 @@ def markiere_exportiert(
             "anzahl": len(buchungen),
             "markiert": sorted(markiert),
             "gesperrt": sorted(gesperrt_ids),
+            "ungeprueft": sorted(ungeprueft),
         },
     )
     return len(markiert), len(gesperrt_ids)

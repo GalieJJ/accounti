@@ -185,9 +185,11 @@ _GEGENKONTEN: dict[str, Bereiche] = {
 }
 # Vorsteuer- und Umsatzsteuerkonten, deren Buchung ohne Kennziffer auffallen soll —
 # ohne Vorauszahlungen, Sondervorauszahlung und USt laufendes Jahr/Vorjahr
+# — ohne die Umsatzsteuer des anderen EU-Lands (OSS, § 18j UStG: SKR03 1767/1768,
+# SKR04 3817/3818), die nicht in die deutsche Voranmeldung gehört
 STEUERKONTEN: dict[str, Bereiche] = {
     "SKR03": ((1570, 1588), (1770, 1779), (1782, 1788)),
-    "SKR04": ((1400, 1433), (3800, 3819), (3832, 3837)),
+    "SKR04": ((1400, 1433), (3800, 3816), (3819, 3819), (3832, 3837)),
 }
 # Vorsteuer im Folgejahr abziehbar (Bilanz) und die Vorsteuerkonten, auf die sie im
 # Zeitraum des Rechnungseingangs umgebucht wird — diese Umbuchung ist die Vorsteuer
@@ -205,6 +207,10 @@ _NICHT_STEUERBAR_EU: dict[str, tuple[frozenset[str], str]] = {
 }
 
 EU_ARTEN = {41: "L", 42: "D", 21: "S"}  # Art der Leistung in der ZM
+
+# Saldenvortragskonten (SKR03 und SKR04, Klasse 9): Eröffnungsbuchungen sind keine
+# Umsätze — ein Vorsteuer- oder Umsatzsteuerkonto gegen sie gehört in keine Kennziffer
+SALDENVORTRAG = frozenset({"9000", "9008", "9009"})
 
 # Vorsteuerfelder: ein Zugang steht im Soll
 _VORSTEUER_KZ = frozenset({66, 61, 62, 67, 63, 59, 64})
@@ -247,6 +253,8 @@ class Kontenplan:
     )  # zusätzlich, z. B. eingerichtete Bankkonten
     steuerrelevant: tuple[tuple[int, int], ...] | None = None  # None: je Kontenrahmen
     kennziffern_konten: Mapping[str, int] = field(default_factory=dict)  # Ergänzungen
+    # Steuerkonten außerhalb der deutschen Voranmeldung (z.B. eigene OSS-Konten)
+    ohne_kennziffer: frozenset[str] = frozenset()
 
     @property
     def funktionskonten(self) -> dict[str, int]:
@@ -285,6 +293,8 @@ class Kontenplan:
         return self.ist_steuerrelevant(konto) or self.ist_erloesschmaelerung(konto)
 
     def ist_steuerkonto(self, konto: str) -> bool:
+        if konto in self.ohne_kennziffer:
+            return False
         return _im_bereich(konto, STEUERKONTEN.get(self.kontenrahmen, ()))
 
 
@@ -663,7 +673,9 @@ class _Ermittler:
                     continue
                 beitraege.append((ergebnis, seite))
                 regeln.append(f"Konto {konto} mindert die Rechnung (Kz {ergebnis.kz})")
-            elif self.plan.ist_steuerkonto(konto):
+            elif self.plan.ist_steuerkonto(konto) and not (
+                {b.soll_konto, b.haben_konto} & SALDENVORTRAG
+            ):
                 self._steuerkonto(b, konto)
         if gruende:
             self.e.ohne_kennziffer.append((b, "; ".join(gruende)))

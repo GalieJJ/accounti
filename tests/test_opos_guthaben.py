@@ -368,6 +368,43 @@ def test_referenz_ohne_erkannten_zahler_bleibt_automatisch():
     assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
 
 
+@pytest.mark.parametrize(
+    "zweck",
+    [
+        "AMAZON PAYMENTS EUROPE AUSZAHLUNG VOM 03.09.2026",
+        "AUSZAHLUNG 3.9.2026",
+        "AUSZAHLUNG 03-09-2026",
+        "Zahlung 03/09/2026",
+        "AMAZON PAYMENTS EUROPE 2026-09-03",
+        "Gutschrift 2026/09/03",
+    ],
+)
+def test_teil_eines_datums_ist_keine_referenz(zweck):
+    # Nachprüfung 7 E, M1 (d12): „AUSZAHLUNG VOM 03.09.2026“ ergab die Wörter 03 09
+    # 2026 — „09 2026“ las opos als Referenz auf die Monatsrechnung 09/2026 eines
+    # Kunden und buchte die Amazon-Auszahlung automatisch als Teilzahlung; ebenso
+    # „2026-09“ in „2026-09-03“. Ein Teil eines Datums nennt keine Belegnummer
+    monat = op("09/2026", "500.00", kontakt=Y)
+    iso = op("2026-09", "500.00", kontakt=Y)
+    v = ordne_zu(tx("209.85", zweck, "Amazon Payments Europe"), [monat, iso], KONTAKTE)
+    assert v is None, (zweck, v)
+
+
+def test_nummer_neben_einem_datum_bleibt_referenz():
+    # Gegenprobe: steht die Nummer selbst im Zweck, bleibt sie eine Referenz — auch
+    # wenn dasselbe Datum ihre Ziffern noch einmal enthält
+    monat = op("09/2026", "500.00", kontakt=Y)
+    v = ordne_zu(
+        tx("209.85", "RE 09/2026 VOM 03.09.2026", "Unbekannt"), [monat], KONTAKTE
+    )
+    assert (v.stufe, v.automatisch) == (Stufe.TEIL, True)
+    iso = op("2026-09", "40.00", kontakt=Y)
+    v = ordne_zu(
+        tx("40.00", "Wartung 2026-09 vom 2026-09-03", "Unbekannt"), [iso], KONTAKTE
+    )
+    assert (v.stufe, v.automatisch) == (Stufe.REFERENZ, True)
+
+
 # --- Ausgleich: Guthaben bleibt als Posten (B4) ------------------------------------
 
 

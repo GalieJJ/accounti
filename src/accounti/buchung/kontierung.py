@@ -20,7 +20,9 @@ ab (§ 239 Abs. 2 HGB, § 146 Abs. 1 AO). Der Umsatz bleibt offen, der Lauf nenn
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -85,9 +87,12 @@ def kontiere_umsaetze(
     engine: KlassifikationsEngine,
     einstellungen: Buchhaltung,
     integrationen: Integrationen | None = None,
+    auslassen: Mapping[UUID, str] | None = None,
 ) -> Kontierungslauf:
     """``integrationen``: Stichworte und Konten der Marktplätze (Standard ohne
-    Konfiguration) — Auszahlungen bleiben offen, bis die Abrechnung sie abgleicht."""
+    Konfiguration) — Auszahlungen bleiben offen, bis die Abrechnung sie abgleicht.
+    ``auslassen``: Umsatz → Marktplatz, über den der Marktplatz-Abgleich desselben
+    Laufs einen Befund hat (``bank lauf``) — offen, auch mit Beleg."""
     lauf = Kontierungslauf()
     markt = Marktplatzauszahlungen(
         session, integrationen or Integrationen(), einstellungen.bank_konto
@@ -99,6 +104,12 @@ def kontiere_umsaetze(
     belege = {b.id: b for b in lade_belege(session)} if abgleiche else {}
     kontakte = lade_kontakte(session) if abgleiche else []
     for tx in offene_transaktionen(session, fuer_kontierung=True):
+        if auslassen and tx.id in auslassen:
+            # der Abgleich weiß, dass er eine Auszahlung ist (Nachprüfung 5 E, M4 a)
+            lauf.offen += 1
+            lauf.marktplatz += 1
+            lauf.marktplaetze.add(auslassen[tx.id])
+            continue
         kandidaten: list[_Kandidat]
         abgleich = abgleiche.get(tx.id)
         mit_beleg = abgleich is not None and abgleich.beleg_id in belege

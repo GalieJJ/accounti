@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounti.erechnung.modell import Profil, Rechnung
-from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE
+from accounti.steuer.eu_steuersaetze import steuersatz_oder_none
 
 CENT = Decimal("0.01")
 NULL = Decimal("0")
@@ -275,21 +275,18 @@ class _Pruefung:
             self.warnung("BR-S-09", f"{text} (Rundungsdifferenz)")
 
     def _satz_zum_land(self, satz: Decimal) -> None:
+        # Sätze am Tag der Leistung (sonst Rechnungsdatum, sonst heute)
+        tag = self.r.leistungsdatum or self.r.leistungszeitraum_bis or self.r.datum
         land = (self.r.verkaeufer.anschrift.land or "").upper()
-        info = EU_STEUERSAETZE.get(land)
+        info = steuersatz_oder_none(land, tag)
         if info is None:
             return
         # Im OSS-Verfahren gilt der Satz des Bestimmungslands.
         laender = [info]
-        ziel = EU_STEUERSAETZE.get((self.r.kaeufer.anschrift.land or "").upper())
+        ziel = steuersatz_oder_none((self.r.kaeufer.anschrift.land or "").upper(), tag)
         if ziel is not None and ziel is not info:
             laender.append(ziel)
-        erlaubt = {
-            _satz(s)
-            for i in laender
-            for s in (i.normal, i.ermaessigt, i.ermaessigt_2, i.super_ermaessigt)
-            if s is not None
-        }
+        erlaubt = {_satz(s) for i in laender for s in i.saetze}
         if _satz(satz) not in erlaubt:
             saetze = ", ".join(
                 f"{s} %" for s in sorted(s for s in erlaubt if s is not None)

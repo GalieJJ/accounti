@@ -346,7 +346,7 @@ def test_export_und_belege_mit_automatikkonten(umgebung, monkeypatch):
     ausgabe = tmp_path / "ex"
     r = runner.invoke(
         app,
-        ["export", "datev", "--berater", "1", "--mandant", "2"]
+        ["export", "datev", "--berater", "1001", "--mandant", "2"]
         + ["--output", str(ausgabe), *basis],
     )
     assert r.exit_code == 0, r.output
@@ -390,3 +390,366 @@ def test_export_mit_kaputter_kontenrahmen_datei(umgebung):
     _, make = session_factory(basis[1])
     with make() as s:
         assert all(b.status is not BuchungStatus.EXPORTIERT for b in lade_buchungen(s))
+
+
+# --- Gesamttest Abschluss B1, Betrieb B6, Eingang B11: export datev --period ---------
+
+
+def _export(basis, ausgabe, *extra):
+    return runner.invoke(
+        app, ["export", "datev", "--output", str(ausgabe), *extra, *basis]
+    )
+
+
+def _kopf(datei):
+    return datei.read_bytes().decode("cp1252").split("\r\n")[0].split(";")
+
+
+def test_export_datev_period_wie_im_readme(umgebung):
+    """README: ``export datev --period 2026-04 --berater … --mandant …``."""
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-4", tag=15, monat=4)
+        _buchung(s, "R-9", tag=1, monat=9)
+        s.commit()
+    r = _export(basis, tmp_path / "ex", "--period", "2026-04", "--berater", "23426")
+    assert r.exit_code == 0, r.output
+    (datei,) = (tmp_path / "ex").glob("EXTF_*.csv")
+    assert datei.name == "EXTF_Buchungsstapel_20260401_20260430.csv"
+    kopf = _kopf(datei)
+    assert kopf[10:16] == ["23426", "42", "20260101", "4", "20260401", "20260430"]
+    inhalt = datei.read_bytes().decode("cp1252")
+    assert "R-4" in inhalt and "R-9" not in inhalt and "R-1" not in inhalt
+    assert "1 Buchungen" in _text(r)
+
+
+def test_export_datev_nur_einmal_ausser_mit_erneut(umgebung):
+    """Betrieb B6: ein zweiter Export liefert dieselben Buchungen nicht noch einmal."""
+    tmp_path, basis, _ = umgebung
+    assert _export(basis, tmp_path / "a").exit_code == 0
+    r = _export(basis, tmp_path / "b")
+    assert r.exit_code == 0, r.output
+    assert "Keine Buchungen zu exportieren" in _text(r) and "--erneut" in _text(r)
+    assert not (tmp_path / "b").exists()
+    r = _export(basis, tmp_path / "c", "--erneut")
+    assert r.exit_code == 0, r.output
+    assert "1 Buchungen" in _text(r)
+
+
+def test_export_datev_ueber_den_jahreswechsel_abgelehnt(umgebung):
+    """Abschluss B1: ohne Zeitraum 2026 und 2027 in einem Stapel — Abbruch, nichts
+    als exportiert vermerkt; je Monat geht es."""
+    from accounti.db.repository import lade_buchungen
+    from accounti.models import BuchungStatus
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-27", tag=2, monat=2, datum=date(2027, 2, 2))
+        s.commit()
+    r = _export(basis, tmp_path / "ex")
+    assert r.exit_code == 1 and "Wirtschaftsjahr" in _text(r), r.output
+    assert "--period" in _text(r)
+    with make() as s:
+        assert all(b.status is not BuchungStatus.EXPORTIERT for b in lade_buchungen(s))
+    r = _export(basis, tmp_path / "ex", "--period", "2027-02")
+    assert r.exit_code == 0, r.output
+    (datei,) = (tmp_path / "ex").glob("EXTF_*20270201_20270228.csv")
+    assert _kopf(datei)[12] == "20270101"
+
+
+def test_export_datev_abweichendes_wirtschaftsjahr_aus_der_konfiguration(umgebung):
+    """Betrieb B6: datev.wirtschaftsjahr_beginn bestimmt Feld 13 des Kopfs."""
+    tmp_path, basis, _ = umgebung
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        konfig.read_text(encoding="utf-8").replace("2026-01-01", "2025-07-01"),
+        encoding="utf-8",
+    )
+    r = _export(basis, tmp_path / "ex", "--period", "2026-08")
+    assert r.exit_code == 0, r.output
+    (datei,) = (tmp_path / "ex").glob("EXTF_*.csv")
+    assert _kopf(datei)[12] == "20260701"
+
+
+def test_export_datev_im_festgeschriebenen_monat_nur_einmal(umgebung):
+    """Im festgeschriebenen Monat nimmt die Buchung den Status ``exportiert`` nicht
+    mehr an — der Journalvermerk des ersten Exports zählt trotzdem."""
+    tmp_path, basis, _ = umgebung
+    r = runner.invoke(app, ["periode", "schliessen", "2026-08", "--von", "t", *basis])
+    assert r.exit_code == 0, r.output
+    r = _export(basis, tmp_path / "a")
+    assert r.exit_code == 0 and "1 Buchungen" in _text(r), r.output
+    r = _export(basis, tmp_path / "b")
+    assert "Keine Buchungen zu exportieren" in _text(r), r.output
+
+
+# --- Gesamttest Abschluss B3: Automatikkonten in pruefung/skr03.yaml ------------------
+
+
+def test_automatikkonten_aus_anlagen_und_skonto_vollstaendig():
+    """Konten, die accounti selbst mit Steuerschlüssel bebucht, sind in DATEV
+    Automatikkonten (SKR03 2026: AM 8801/8820, S/AM 8731/8736, S/AV 3731/3736) —
+    dort bleibt das BU-Feld leer."""
+    from accounti.anlagen.konfiguration import STANDARDS
+    from accounti.konfiguration import Buchhaltung
+    from accounti.pruefung.regeln.richtigkeit import automatikkonten
+
+    automatik = automatikkonten(Buchhaltung())
+    konten = STANDARDS["SKR03"]["konten"]
+    for name in ("erloes_buchverlust", "erloes_buchgewinn"):
+        assert automatik.get(konten[name]) == 3, name
+    b = Buchhaltung()
+    erwartet = {"19": 9, "7": 8}
+    for satz, konto in b.skonto_erhalten.items():
+        if satz != "0":
+            assert automatik.get(konto) == erwartet[satz], konto
+    erwartet = {"19": 3, "7": 2}
+    for satz, konto in b.skonto_gewaehrt.items():
+        if satz != "0":
+            assert automatik.get(konto) == erwartet[satz], konto
+
+
+def test_export_ohne_bu_auf_anlagenverkauf_und_skonto(umgebung):
+    from accounti.db.repository import speichere_buchung
+    from accounti.models import Buchungssatz, BuchungStatus
+
+    tmp_path, basis, archiv = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        for soll, haben, schluessel, steuer in (
+            ("1360", "8820", 3, "285.00"),
+            ("70001", "3736", 9, "0.38"),
+            ("70001", "3731", 8, "0.07"),
+        ):
+            speichere_buchung(
+                s,
+                Buchungssatz(
+                    datum=date(2026, 8, 20),
+                    soll_konto=soll,
+                    haben_konto=haben,
+                    betrag_netto=Decimal("10.00"),
+                    steuer_schluessel=schluessel,
+                    steuer_betrag=Decimal(steuer),
+                    buchungstext="Automatik",
+                    status=BuchungStatus.GEPRUEFT,
+                ),
+            )
+        s.commit()
+    r = _export(basis, tmp_path / "ex")
+    assert r.exit_code == 0, r.output
+    (datei,) = (tmp_path / "ex").glob("EXTF_*.csv")
+    bu = _bu_spalte(datei)
+    assert [
+        bu[k] for k in (("1360", "8820"), ("70001", "3736"), ("70001", "3731"))
+    ] == [
+        "",
+        "",
+        "",
+    ]
+    ziel = tmp_path / "aus" / "b.zip"
+    r = runner.invoke(
+        app,
+        ["datev", "belege", "--period", "2026-08", "--ausgabe", str(ziel)]
+        + ["--archiv", str(archiv), *basis],
+    )
+    assert r.exit_code == 0, r.output
+    bu = _bu_spalte(
+        tmp_path / "aus" / "EXTF_Buchungsstapel_20260801_20260831_Beleglink.csv"
+    )
+    assert bu[("1360", "8820")] == "" and bu[("70001", "3736")] == ""
+
+
+# --- Nachprüfung Paket E: N1 (Stapel nie überschreiben), N3 (--alle nicht doppelt) ---
+
+
+def test_export_datev_zweiter_stapel_ueberschreibt_den_ersten_nicht(umgebung):
+    """N1: Der zweite Export desselben Monats bringt nur die neue Buchung — früher
+    unter demselben Dateinamen, der erste Stapel war weg und der SHA-256 im Journal
+    verwies ins Leere. Jetzt eine eigene Datei; jeder Journaleintrag passt zu seiner."""
+    import hashlib
+    import json
+
+    from accounti.pruefung.journal import lade_journal
+
+    tmp_path, basis, _ = umgebung
+    ex = tmp_path / "ex"
+    assert _export(basis, ex, "--period", "2026-08").exit_code == 0
+    (erste,) = ex.glob("EXTF_*.csv")
+    vorher = erste.read_bytes()
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-2", tag=20)
+        s.commit()
+    r = _export(basis, ex, "--period", "2026-08")
+    assert r.exit_code == 0 and "1 Buchungen" in _text(r), r.output
+    assert erste.read_bytes() == vorher
+    (zweite,) = [d for d in ex.glob("EXTF_*.csv") if d != erste]
+    assert zweite.name == "EXTF_Buchungsstapel_20260801_20260831_2.csv"
+    assert "R-2" in zweite.read_bytes().decode("cp1252")
+    assert "R-1" not in zweite.read_bytes().decode("cp1252")
+    with make() as s:
+        exporte = [json.loads(e.nachher) for e in lade_journal(s, vorgang="export")]
+    assert [e["datei"] for e in exporte] == [erste.name, zweite.name]
+    for e in exporte:
+        inhalt = (ex / e["datei"]).read_bytes()
+        assert hashlib.sha256(inhalt).hexdigest() == e["sha256"]
+
+
+def test_export_datev_nummer_zaehlt_die_namen_im_journal(umgebung):
+    """Nachprüfung 2 E, L2: Den ersten Stapel nach dem Hochladen aus dem Ordner
+    geschoben — der nächste Export hieß wieder ``…_20260831.csv``. Zwei
+    Journaleinträge mit demselben Namen und verschiedenem SHA-256; im selben
+    Archivordner überschriebe die neue Datei die erste. Die laufende Nummer
+    überspringt jetzt auch die Namen, die das Journal schon kennt."""
+    import json
+
+    from accounti.pruefung.journal import lade_journal
+
+    tmp_path, basis, _ = umgebung
+    ex = tmp_path / "ex"
+    assert _export(basis, ex, "--period", "2026-08").exit_code == 0
+    (erste,) = ex.glob("EXTF_*.csv")
+    erste.rename(tmp_path / erste.name)  # hochgeladen und weggeräumt
+    _, make = session_factory(basis[1])
+    with make() as s:
+        _buchung(s, "R-2", tag=20)
+        s.commit()
+    r = _export(basis, ex, "--period", "2026-08")
+    assert r.exit_code == 0 and "1 Buchungen" in _text(r), r.output
+    (zweite,) = ex.glob("EXTF_*.csv")
+    assert zweite.name == "EXTF_Buchungsstapel_20260801_20260831_2.csv"
+    with make() as s:
+        namen = [
+            json.loads(e.nachher)["datei"] for e in lade_journal(s, vorgang="export")
+        ]
+    assert namen == [erste.name, zweite.name]
+
+
+def test_export_datev_alle_ungepruefte_nach_der_freigabe_nicht_noch_einmal(umgebung):
+    """N3: ``--alle`` nimmt ungeprüfte Buchungen in den Stapel. Sie wechseln den
+    Status nicht (exportiert hieße freigegeben), standen aber auch nicht im Journal —
+    nach der Freigabe kamen sie ein zweites Mal nach DATEV."""
+    import json
+
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.journal import lade_journal
+    from accounti.pruefung.storno import freigeben
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        offen = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "a", "--alle")
+    assert r.exit_code == 0 and "2 Buchungen" in _text(r), r.output
+    assert "ungeprüft" in _text(r)
+    with make() as s:
+        (eintrag,) = lade_journal(s, vorgang="export")
+        assert json.loads(eintrag.nachher)["ungeprueft"] == [str(offen.id)]
+        assert freigeben(s, str(offen.id), von="Erika")[1]
+        s.commit()
+    r = _export(basis, tmp_path / "b")
+    assert r.exit_code == 0, r.output
+    assert "Keine Buchungen zu exportieren" in _text(r)
+    assert not (tmp_path / "b").exists()
+
+
+def test_korrigiere_warnt_wenn_der_vorschlag_schon_bei_datev_ist(umgebung):
+    """Nachprüfung 2 E, L3: Ein Vorschlag aus ``export datev --alle`` gilt als
+    übergeben. Wird er danach direkt korrigiert (ohne Storno), kommt er nie mehr nach
+    DATEV — dort steht das alte Konto, ohne Hinweis beim Korrigieren. Jetzt warnt
+    ``korrigiere`` und nennt den Weg (``--erneut``); ein nicht übergebener
+    Vorschlag bleibt ohne Warnung."""
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.storno import korrigiere
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    with make() as s:
+        offen = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    assert _export(basis, tmp_path / "a", "--alle").exit_code == 0
+    r = runner.invoke(
+        app,
+        [
+            "korrigiere",
+            str(offen.id)[:8],
+            "--soll",
+            "4940",
+            "--haben",
+            "70001",
+            "--steuer",
+            "9",
+            "--von",
+            "Erika",
+            *basis,
+        ],
+    )
+    assert r.exit_code == 0, r.output
+    text = _text(r)
+    assert "schon an DATEV" in text and "4930 an 70001" in text, r.output
+    # Nachprüfung 3 E, L-c: der Stapel kam aus --alle — ohne --alle fehlten im
+    # neuen Stapel die übrigen ungeprüften Vorschläge, wer ihn in DATEV ersetzt,
+    # verlöre sie; der Stapel reichte nicht über den ganzen Monat (ohne --period)
+    assert "export datev --period 2026-08 --erneut --alle" in text, r.output
+    (stapel,) = (tmp_path / "a").glob("EXTF_*.csv")
+    assert stapel.name in text, r.output
+    assert "nur die Buchungen von 2026-08 ersetzen" in text, r.output
+    with make() as s:
+        neu = _buchung(s, "R-9", tag=9, status=BuchungStatus.ZUR_PRUEFUNG)
+        k = korrigiere(s, str(neu.id), "4940", "70001", steuer=9, von="Erika")
+        assert not [w for w in k.warnungen if "DATEV" in w]
+        s.commit()
+    # Nachprüfung 4 E, L-d: der Monatsstapel (--period) allein ist nicht alles — auch
+    # der erste Stapel (ganzes Wirtschaftsjahr) übergab Buchungen von 2026-08 (R-1),
+    # die der neue Monatsstapel wieder enthält: beide nennen, im ersten nur den Monat
+    # ersetzen (zwei reine Monatsstapel: test_korrigiere_nennt_alle_stapel_des_monats)
+    with make() as s:
+        monat = _buchung(s, "R-10", tag=10, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "m", "--alle", "--period", "2026-08")
+    assert r.exit_code == 0, r.output
+    with make() as s:
+        k = korrigiere(s, str(monat.id), "4940", "70002", steuer=9, von="Erika")
+        (warnung,) = [w for w in k.warnungen if "DATEV" in w]
+        assert "EXTF_Buchungsstapel_20260801_20260831" in warnung, warnung
+        assert stapel.name in warnung, warnung
+        assert "--erneut --alle" in warnung, warnung
+        assert "nur die Buchungen von 2026-08 ersetzen" in warnung, warnung
+
+
+def test_korrigiere_nennt_alle_stapel_des_monats(umgebung):
+    """Nachprüfung 4 E, L-d (Fall lc): ``export datev --period 2026-08`` übergab die
+    freigegebene Buchung R-1, ``--alle`` danach den Vorschlag R-7 in einem zweiten
+    Stapel (…_2.csv). Die Warnung von ``korrigiere`` nannte nur den zweiten —
+    ``--erneut --alle`` exportiert aber alle Buchungen des Monats, wer nur …_2
+    ersetzt, hat R-1 in DATEV doppelt. Jetzt nennt sie jeden Stapel des Monats aus
+    dem Journal; zwei Monatsstapel sind ganz ersetzbar, ohne Zusatz."""
+    from accounti.models import BuchungStatus
+    from accounti.pruefung.storno import korrigiere
+
+    tmp_path, basis, _ = umgebung
+    _, make = session_factory(basis[1])
+    assert _export(basis, tmp_path / "ex", "--period", "2026-08").exit_code == 0
+    with make() as s:
+        vorschlag = _buchung(s, "R-7", tag=7, status=BuchungStatus.ZUR_PRUEFUNG)
+        s.commit()
+    r = _export(basis, tmp_path / "ex", "--period", "2026-08", "--alle")
+    assert r.exit_code == 0, r.output
+    erster, zweiter = sorted(p.name for p in (tmp_path / "ex").glob("EXTF_*.csv"))
+    assert zweiter.endswith("_2.csv"), (erster, zweiter)
+    with make() as s:
+        k = korrigiere(s, str(vorschlag.id), "4940", "70001", steuer=9, von="Erika")
+        (warnung,) = [w for w in k.warnungen if "DATEV" in w]
+        s.commit()
+    assert erster in warnung and zweiter in warnung, warnung
+    assert "export datev --period 2026-08 --erneut --alle" in warnung, warnung
+    assert "nur die Buchungen" not in warnung, warnung
+    # der Ersatzstapel bringt beide — R-1 und die Korrektur von R-7
+    r = _export(basis, tmp_path / "neu", "--period", "2026-08", "--erneut", "--alle")
+    assert r.exit_code == 0, r.output
+    (ersatz,) = (tmp_path / "neu").glob("EXTF_*.csv")
+    inhalt = ersatz.read_bytes().decode("cp1252")
+    assert "R-1" in inhalt and "R-7" in inhalt
