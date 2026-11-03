@@ -470,3 +470,95 @@ def test_obergrenze_zaehlt_jede_korrekturkette_einmal(make_session):
     assert "weist 190,00 € Umsatzsteuer" in warnung and "nur 95,00 €" in warnung
     (befund,) = _luecken_der_regel(make_session)
     assert befund.betrag == D("95.00"), befund.text
+
+
+# --- F Runde 2 (gf-richtung GF-2): Zahlung über das Gegenkonto der Rechnung ----------
+
+
+def _nebenbuchung_in(make_session, buchung_id, rahmen: str) -> bool:  # noqa: ANN001
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+    from accounti.konfiguration import Buchhaltung
+
+    bh = Buchhaltung(
+        kontenrahmen=rahmen, bank_konto="1800" if rahmen == "SKR04" else "1200"
+    )
+    with make_session() as s:
+        b = st._lade(s, str(buchung_id))
+        plan = st.kontenplan(s, bh, None)
+        kr = st.mit_eingerichteten_konten(lade_kontenrahmen(rahmen), s)
+        return st.richtungsbezug(s, b, plan, kr, bh).nebenbuchung
+
+
+SKONTO_UEBER_VERRECHNUNG = [
+    # Z1: Ausgangsrechnung über den durchlaufenden Posten, Zahlung „1200 an 1590“
+    (
+        "Z1_ar_1590",
+        "SKR03",
+        "AR",
+        ("1590", "8400", 3),
+        ("1200", "1590"),
+        ("8736", "1590"),
+    ),
+    # Z3: Eingangsrechnung über 1590, Zahlung „1590 an 1200“ → erhaltenes Skonto
+    (
+        "Z3_er_1590",
+        "SKR03",
+        "ER",
+        ("4930", "1590", 9),
+        ("1590", "1200"),
+        ("1590", "3736"),
+    ),
+    (
+        "Z1_ar_1370",
+        "SKR04",
+        "AR",
+        ("1370", "4400", 3),
+        ("1800", "1370"),
+        ("4736", "1370"),
+    ),
+    (
+        "Z3_er_1370",
+        "SKR04",
+        "ER",
+        ("6815", "1370", 9),
+        ("1370", "1800"),
+        ("1370", "5736"),
+    ),
+]
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize(
+    ("rahmen", "art", "rechnung", "zahlung", "ziel"),
+    [f[1:] for f in SKONTO_UEBER_VERRECHNUNG],
+    ids=[f[0] for f in SKONTO_UEBER_VERRECHNUNG],
+)
+def test_skonto_zur_zahlung_ueber_das_gegenkonto_der_rechnung(
+    make_session, status, rahmen, art, rechnung, zahlung, ziel
+):
+    """GF-2 (gf2_neben.py Z1, Z3; aus F c72072c): Steht die Rechnung auf einem
+    Verrechnungskonto (1590 bzw. SKR04 1370) statt auf einem Personenkonto, ist die
+    Zahlung „1200 an 1590“ dieses Gegenkonto auf der Gegenseite — eine Nebenbuchung,
+    ihr Skonto („8736 an 1590, Schlüssel 3“ bzw. „1590 an 3736, Schlüssel 9“) geht
+    wieder wie d36ac77 (G8R-3 sperrte es)."""
+    from accounti.abschluss.kontenrahmen import lade_kontenrahmen
+    from accounti.konfiguration import Buchhaltung
+
+    soll, haben, schluessel = rechnung
+    bel = _beleg(art)
+    r = _buchung(bel, soll, haben, schluessel, "95.00")
+    z = _buchung(bel, *zahlung, netto="595.00", status=status)
+    anlegen(make_session, bel, r, z)
+    assert _nebenbuchung_in(make_session, z.id, rahmen)
+    umgebung: dict[str, Any] = {}
+    if rahmen == "SKR04":
+        umgebung = {
+            "buchhaltung": Buchhaltung(kontenrahmen="SKR04", bank_konto="1800"),
+            "kontenrahmen": lade_kontenrahmen("SKR04"),
+        }
+    _korrigiere(make_session, z.id, *ziel, steuer=schluessel, **umgebung)
+    (neu,) = [x for x in _wirksam(make_session, bel.id) if x.id != r.id]
+    assert (neu.soll_konto, neu.haben_konto, neu.steuer_schluessel) == (
+        *ziel,
+        schluessel,
+    )

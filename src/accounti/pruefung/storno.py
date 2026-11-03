@@ -724,13 +724,19 @@ def _gegen_die_rechnung(
     zu „10001 an 8400“; „1200 an 70001“ zu „4930 an 70001“). Ein Teil der Rechnung auf
     zwei Gegenkonten bucht es auf derselben Seite wie sie („10001 an 1590“ neben „10001
     an 8400“, Barverkauf „1000 an 1590“ neben „1000 an 8400“) — keine Nebenbuchung
-    (Folgepaket F, g8w G8R-3)."""
+    (Folgepaket F, g8w G8R-3).
+
+    Bezug ist auch das Gegenkonto der Rechnung selbst, wenn es ein Verrechnungs- oder
+    Transitkonto ist: „1200 an 1590“ zahlt „1590 an 8400“, „1590 an 1200“ zahlt „4930
+    an 1590“ — dieses Konto auf der Gegenseite (F Runde 2, gf-richtung GF-2)."""
     seite = sachseite_aus_konten(rechnung.soll_konto, rechnung.haben_konto, plan)
     if seite is None:
         return False
     konto = x.soll_konto if seite == "soll" else x.haben_konto
+    gegenkonto = rechnung.haben_konto if seite == "soll" else rechnung.soll_konto
     return (
-        kr.ist_geldkonto(konto)
+        (konto == gegenkonto and plan.ist_gegenkonto(gegenkonto))
+        or kr.ist_geldkonto(konto)
         or plan.ist_personenkonto(konto)
         or konto in plan.geldkonten
     )
