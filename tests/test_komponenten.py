@@ -601,3 +601,21 @@ def test_navigationsmakros_mit_beispielgeruest():
     ) > unten.index("/freigaben")
     englisch = render("{{ k.seitenleiste(g) }}", g=g, sprache="en")
     assert ">Overview<" in englisch and ">Review<" in englisch
+
+
+def test_sammelleiste_und_aktionsleiste():
+    sammel = render(
+        "{% call k.sammelleiste() %}<strong>2 ausgewählt</strong>{% endcall %}"
+    )
+    assert sammel == (
+        '<div class="sammelleiste" role="region" aria-label="Auswahl">'
+        "<strong>2 ausgewählt</strong></div>"
+    )
+    aktion = render(
+        '{% call k.aktionsleiste("Aktionen der Prüfung") %}'
+        '{{ k.knopf("Passt – freigeben", breit=true, groesse="gross") }}{% endcall %}'
+    )
+    assert aktion.startswith(
+        '<div class="aktionsleiste" role="region" aria-label="Aktionen der Prüfung">'
+    )
+    assert "knopf-gross knopf-breit" in aktion

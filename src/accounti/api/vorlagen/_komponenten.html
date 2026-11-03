@@ -270,3 +270,13 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {% macro untere_leiste(geruest) -%}
 <nav class="untere-leiste" aria-label="{{ _("Bereiche") }}">{% for e in geruest.unten %}<a class="leisten-ziel" href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ symbol(e.symbol, groesse=22) }}<span class="leisten-titel">{{ _(e.kurz) }}{% if e.zaehler is not none %} <span class="leisten-zahl">{{ e.zaehler }}</span><span class="unsichtbar"> {{ _("offen") }}</span>{% endif %}</span></a>{% endfor %}</nav>
 {%- endmacro %}
+
+{#- Aktionsleiste (Aufruf): ersetzt unter 64rem die untere Leiste (P3, P7). -#}
+{% macro aktionsleiste(beschriftung=none) -%}
+<div class="aktionsleiste" role="region" aria-label="{{ beschriftung or _("Aktionen") }}">{{ caller() }}</div>
+{%- endmacro %}
+
+{#- Sammelleiste (Aufruf): klebt unten im Inhalt, über der unteren Leiste (P3). -#}
+{% macro sammelleiste(beschriftung=none) -%}
+<div class="sammelleiste" role="region" aria-label="{{ beschriftung or _("Auswahl") }}">{{ caller() }}</div>
+{%- endmacro %}

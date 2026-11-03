@@ -735,6 +735,31 @@
   }
   .leisten-ziel[aria-current="page"] { font-weight: 600; color: var(--akzent); }
   .leisten-titel { overflow-wrap: anywhere; }
+  /* Aktionsleiste (ersetzt unter 64rem die untere Leiste) und Sammelleiste (klebt unten) */
+  .aktionsleiste {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--a-2);
+    padding: var(--a-3) var(--a-4) calc(var(--a-4) + env(safe-area-inset-bottom));
+    background-color: var(--flaeche);
+    border-top: 1px solid var(--linie-stark);
+  }
+  .aktionsleiste > :first-child { grid-column: 1 / -1; }
+  .aktionsleiste .knopf { width: 100%; min-height: 3rem; }
+  .sammelleiste {
+    position: sticky;
+    bottom: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--a-3) var(--a-5);
+    padding: var(--a-4) var(--a-65);
+    background-color: var(--flaeche);
+    border-top: 1px solid var(--linie-stark);
+  }
+  @media not all and (min-width: 64rem) {
+    .sammelleiste { bottom: calc(var(--leistenhoehe) + env(safe-area-inset-bottom)); padding: var(--a-3) var(--a-4); }
+  }
 }
 
 @layer hilfen {
