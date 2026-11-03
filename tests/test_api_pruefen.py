@@ -805,3 +805,45 @@ def test_steuerauswahl_mit_den_elster_konten(qw, bereiche, erloes, erwartet):
     seite = client.get(f"/pruefen/{vorschlag.id}").text
     assert ("Fehlschlüssel" in seite) == ("ohne" in erwartet)
     assert ("§ 14c Abs. 1" in seite) == ("ohne" not in erwartet)
+
+
+def test_erloesschmaelerung_im_haben_im_browser_bleibt_ausgewiesen(qw):
+    """GF-1a (F Runde 2, gf-richtung test_gf6_web.py): Kassenbon „1000 an 8400,
+    Schlüssel 3“ → in der Queue „1000 an 8700“ mit Schlüssel 3 (303), danach bot
+    ``/buchungen`` „9“ und „ohne“ an, und „ohne Steuer“ mit Grund buchte die
+    Umsatzsteuer aus (200). Jetzt bleibt die Auswahl ``3`` (§ 14c), der POST 422."""
+    from tests.api_hilfe import formularwert
+
+    client = qw.web.angemeldet("jan")
+    beleg = qw.beleg(pdf("Kassenbon"), belegart=Belegart.QUITTUNG, belegnummer="Q")
+    b = qw.buchung(
+        beleg_id=beleg.id, soll="1000", haben="8400", steuer_schluessel=3,
+        datum=date(2026, 10, 2),
+    )  # fmt: skip
+    r = aktion(client, b.id, "korrigieren", soll="1000", haben="8700", steuer="3")
+    assert r.status_code == 303, r.text
+    seite = client.get(f"/buchungen/{b.id}").text
+    auswahl = re.search(r'<select id="steuer".*?</select>', seite, re.S)
+    assert auswahl is not None
+    assert re.findall(r'<option value="([^"]*)"', auswahl.group(0)) == ["", "3"]
+    daten = {
+        "csrf": csrf(client),
+        "stand": formularwert(seite, "stand"),
+        "einmalcode": qw.web.personen["jan"].codes.pop(),
+        "soll": "1000",
+        "haben": "8700",
+        "steuer": "ohne",
+        "grund": "kein USt-Beleg",
+    }
+    r = client.post(
+        f"/buchungen/{b.id}/korrigieren", data=daten, follow_redirects=False
+    )
+    assert r.status_code == 422, r.status_code
+    assert "§ 14c" in r.text
+    wirksam = qw.sql(
+        "SELECT haben_konto, steuer_schluessel FROM buchungssaetze WHERE beleg_id = :i "
+        "AND storniert_durch IS NULL AND storno_von IS NULL",
+        "a",
+        i=str(beleg.id),
+    )
+    assert [tuple(z) for z in wirksam] == [("8700", 3)]

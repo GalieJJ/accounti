@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -56,8 +56,10 @@ from accounti.steuer.kennziffern import (
     Kontenplan,
     Seite,
     sachseite_aus_konten,
+    zugangsseite,
 )
 from accounti.steuer.umsatzsteuer import UStBerechner
+from accounti.steuer.voranmeldung import KENNZIFFERN_2026, Art
 
 if TYPE_CHECKING:
     from accounti.elster.konfiguration import ElsterEinstellungen
@@ -152,13 +154,27 @@ def _negativer_beleg(beleg: Beleg | None) -> bool:
     return betrag is not None and betrag < 0
 
 
+def _umsatz_kennziffer(kz: int) -> bool:
+    """Bemessungsgrundlage eines Umsatzes (Abschnitte A, B, E: Zugang im Haben)."""
+    k = KENNZIFFERN_2026.get(kz)
+    return k is not None and k.art is Art.BMG and zugangsseite(kz) == "haben"
+
+
 def _erloesbuchung(b: Buchungssatz, plan: Kontenplan, beleg: Beleg | None) -> bool:
     """Bucht die Buchung ein Erlöskonto (``Kontenplan.ist_erloeskonto``) auf der Seite
     einer Rechnung des Unternehmers — einen Erlös im Haben, eine Erlösschmälerung (seine
     Minderung, Gutschrift) im Soll; ein negativer Beleg spiegelt beides. Ein Erlös im
     Soll eines positiven Belegs ist eine Erstattung bzw. eine falsch kontierte Ausgabe
     („8400 an 1000, Schlüssel 3“ statt „4530 an 1000, Schlüssel 9“), keine ausgewiesene
-    Steuer des Unternehmers (Folgepaket F, g8w G8R-1: Runde 8 fragte beide Seiten)."""
+    Steuer des Unternehmers (Folgepaket F, g8w G8R-1: Runde 8 fragte beide Seiten).
+
+    Nicht Konto und Seite allein: Bucht die Voranmeldung aus der Buchung mit einem
+    Erlöskonto einen Umsatz (``_umsatz_kennziffer``) mit dem Vorzeichen einer Rechnung
+    — positiv, bei negativem Beleg negativ —, ist sie ebenso Rechnungsseite. So auch
+    eine Erlösschmälerung im Haben („1000 an 8700, Schlüssel 3“ bucht Kz 81 +500 wie
+    „1000 an 8400“; F Runde 2, gf-richtung GF-1a)."""
+    from accounti.steuer.kennziffern import kennziffern_der_buchung
+
     gespiegelt = _negativer_beleg(beleg)
 
     def auf_rechnungsseite(konto: str, seite: Seite) -> bool:
@@ -167,8 +183,16 @@ def _erloesbuchung(b: Buchungssatz, plan: Kontenplan, beleg: Beleg | None) -> bo
         regel: Seite = "soll" if plan.ist_erloesschmaelerung(konto) else "haben"
         return (seite == regel) != gespiegelt
 
-    return auf_rechnungsseite(b.haben_konto, "haben") or auf_rechnungsseite(
+    if auf_rechnungsseite(b.haben_konto, "haben") or auf_rechnungsseite(
         b.soll_konto, "soll"
+    ):
+        return True
+    if not (plan.ist_erloeskonto(b.soll_konto) or plan.ist_erloeskonto(b.haben_konto)):
+        return False
+    return any(
+        betrag != 0 and (betrag < 0) == gespiegelt
+        for kz, betrag in kennziffern_der_buchung(b, plan).items()
+        if _umsatz_kennziffer(kz)
     )
 
 
@@ -1268,51 +1292,65 @@ def _ausgewiesen(
 
 def ersetzte_buchungen(
     session: Session, buchungen: Iterable[Buchungssatz] | None = None
-) -> frozenset[str]:
-    """Ids der Buchungen, die eine Korrektur durch eine Neubuchung ersetzt hat
-    (``buchungskorrekturen`` mit Neubuchung) — von ``buchungen`` bzw. aller. In einer
-    Korrekturkette zählt so nur der jüngste Stand (``ust_luecken``)."""
+) -> dict[str, str]:
+    """Buchungen, die eine Korrektur durch eine Neubuchung ersetzt hat
+    (``buchungskorrekturen`` mit Neubuchung): Id des Originals → Id der Neubuchung —
+    von ``buchungen`` bzw. aller. Daraus liest ``ust_luecken`` die Korrekturketten."""
     from accounti.db.tabellen_pruefung import BuchungskorrekturRow
 
-    abfrage = session.query(BuchungskorrekturRow.original_id).filter(
-        BuchungskorrekturRow.neubuchung_id.isnot(None)
-    )
+    abfrage = session.query(
+        BuchungskorrekturRow.original_id, BuchungskorrekturRow.neubuchung_id
+    ).filter(BuchungskorrekturRow.neubuchung_id.isnot(None))
     if buchungen is None:
-        return frozenset(str(z[0]) for z in abfrage)
+        return {str(o): str(n) for o, n in abfrage}
     ids = sorted({str(x.id) for x in buchungen if x.storniert_durch is not None})
-    ersetzt: set[str] = set()
+    ersetzt: dict[str, str] = {}
     for start in range(0, len(ids), _JE_ABFRAGE):
         teil = ids[start : start + _JE_ABFRAGE]
-        ersetzt |= {
-            str(z[0])
-            for z in abfrage.filter(BuchungskorrekturRow.original_id.in_(teil))
-        }
-    return frozenset(ersetzt)
+        ersetzt.update(
+            (str(o), str(n))
+            for o, n in abfrage.filter(BuchungskorrekturRow.original_id.in_(teil))
+        )
+    return ersetzt
 
 
 def _erloes_ust(
     beleg: Beleg | None,
     eigene: list[Buchungssatz],
     plan: Kontenplan,
-    ersetzt: frozenset[str],
+    ersetzt: Mapping[str, str],
 ) -> dict[Decimal, Decimal]:
     """Umsatzsteuer je Satz, die die Erlösbuchungen eines Belegs ohne eindeutige
-    Belegart gebucht haben (``_erloesbuchung``; ohne Stornos, eine durch eine
-    Neubuchung ersetzte Buchung nur über diese) — auch die inzwischen stornierten."""
+    Belegart gebucht haben (``_erloesbuchung``; ohne Stornos) — auch die inzwischen
+    stornierten. Eine Korrekturkette (Original → Neubuchung → …, ``ersetzt``) zählt
+    einmal mit ihrem höchsten Stand je Satz, auch wenn ihr jüngster Stand kein Erlös
+    mehr ist: „1000 an 8400 → 1000 an 2700, Schlüssel 3“ und dann Storno ließ die
+    Obergrenze sonst auf 0 fallen (F Runde 2, gf-richtung GF-1b)."""
     from accounti.steuer.kennziffern import sachseite
 
+    nach_id = {str(x.id): x for x in eigene}
+    nachfolger = {i: ersetzt[i] for i in nach_id if i in ersetzt}
+    neubuchungen = set(nachfolger.values())
     je: dict[Decimal, Decimal] = {}
-    for x in eigene:
-        if (
-            x.storno_von is not None
-            or x.steuer_schluessel not in AUSGEWIESENE_UST
-            or str(x.id) in ersetzt
-            or eingangsbeleg(beleg, x, plan)
-        ):
-            continue
-        vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
-        satz = _SATZ_DER_UST[x.steuer_schluessel]
-        je[satz] = je.get(satz, NULL) + vorzeichen * (x.steuer_betrag or NULL)
+    for anfang in eigene:
+        if anfang.storno_von is not None or str(anfang.id) in neubuchungen:
+            continue  # Stornobuchung bzw. Glied einer Kette (zählt über ihr Original)
+        hoechst: dict[Decimal, Decimal] = {}
+        glied: Buchungssatz | None = anfang
+        gesehen: set[str] = set()
+        while glied is not None and str(glied.id) not in gesehen:
+            gesehen.add(str(glied.id))
+            if glied.steuer_schluessel in AUSGEWIESENE_UST and not eingangsbeleg(
+                beleg, glied, plan
+            ):
+                vorzeichen = 1 if sachseite(glied, plan) == "haben" else -1
+                satz = _SATZ_DER_UST[glied.steuer_schluessel]
+                betrag = vorzeichen * (glied.steuer_betrag or NULL)
+                hoechst[satz] = max(hoechst.get(satz, betrag), betrag)
+            naechste = nachfolger.get(str(glied.id))
+            glied = nach_id.get(naechste) if naechste is not None else None
+        for satz, betrag in hoechst.items():
+            je[satz] = je.get(satz, NULL) + betrag
     return je
 
 
@@ -1321,7 +1359,7 @@ def ust_luecken(
     buchungen: Iterable[Buchungssatz],
     plan: Kontenplan,
     kopien: Iterable[Buchungssatz] = (),
-    ersetzt: frozenset[str] = frozenset(),
+    ersetzt: Mapping[str, str] | None = None,
 ) -> list[UstLuecke]:
     """Ausgewiesene Umsatzsteuer des Belegs, die nicht wirksam gebucht ist — je Satz
     die wirksam gebuchte Steuer (Schlüssel 2, 3, auf der Seite einer Rechnung) gegen
@@ -1340,9 +1378,10 @@ def ust_luecken(
     (``eingangsbeleg``) — ohne eindeutige Belegart nur, wenn keine seiner Buchungen mit
     Schlüssel 2/3 einen Erlös bucht (Runde 8, g7w R7-3: Kassenbon, Marktplatz). Ist er
     nur über seine Erlösbuchungen Ausgangsbeleg, weist er je Satz höchstens die
-    Umsatzsteuer aus, die sie gebucht haben (``_erloes_ust``; ``ersetzt``: die durch
-    eine Neubuchung ersetzten Buchungen, ``ersetzte_buchungen``) — eine Gebühren- oder
-    Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w G8R-4)."""
+    Umsatzsteuer aus, die sie gebucht haben (``_erloes_ust``; ``ersetzt``: Original →
+    Neubuchung der Korrekturen, ``ersetzte_buchungen`` — je Kette ihr höchster Stand),
+    eine Gebühren- oder Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w
+    G8R-4; F Runde 2, gf-richtung GF-1b)."""
     from accounti.steuer.kennziffern import sachseite
 
     eigene = list(buchungen)
@@ -1360,7 +1399,7 @@ def ust_luecken(
         return []
     ausgewiesen = _ausgewiesen(beleg, saetze, eigene, plan)
     if eingangsbeleg(beleg):  # nur über seine Erlösbuchungen Ausgangsbeleg
-        erloes = _erloes_ust(beleg, eigene, plan, ersetzt)
+        erloes = _erloes_ust(beleg, eigene, plan, ersetzt or {})
         ausgewiesen = {
             satz: (min(betrag, erloes.get(satz, NULL)), anzahl)
             for satz, (betrag, anzahl) in ausgewiesen.items()

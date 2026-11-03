@@ -378,3 +378,95 @@ def test_ausgangsrechnung_zaehlt_weiter_alle_positionen(make_session):
     anlegen(make_session, bel, b)
     (warnung,) = [w for w in _storniere(make_session, b.id) if "§ 14c" in w]
     assert "weist 114,00 € Umsatzsteuer" in warnung
+
+
+# --- F Runde 2 (gf-richtung GF-1): Erlös in der ganzen Korrekturkette ----------------
+
+
+@pytest.mark.parametrize("status", [G, P], ids=["freigegeben", "vorschlag"])
+@pytest.mark.parametrize(("art", "geld"), [("Q", "1000"), ("S", "1200")])
+@pytest.mark.parametrize("minderung", ["8700", "8736"])
+def test_erloesschmaelerung_im_haben_bleibt_ausgewiesen(
+    make_session, status, art, geld, minderung
+):
+    """GF-1a (gf1_erloes_umweg.py A/A2/A9, v1_gf1.py A): „1000 an 8400, Schlüssel 3“
+    auf Quittung bzw. SONSTIGES → „1000 an 8700 --steuer 3“ ließ die Umsatzsteuer als
+    „Fehlschlüssel“ erscheinen, „ohne Steuer“ mit Grund ging (Kz 81 500 → leer). Eine
+    Erlösschmälerung im Haben eines positiven Belegs bucht Kz 81 positiv wie ein Erlös
+    — maßgeblich ist die Kennziffer: § 14c, nur Schlüssel 3, wie d36ac77 (R7-3)."""
+    bel = _beleg(art)
+    b = _buchung(bel, geld, "8400", 3, "95.00", status=status)
+    anlegen(make_session, bel, b)
+    _korrigiere(make_session, b.id, geld, minderung, steuer=3, grund=None)
+    (akt,) = _wirksam(make_session, bel.id)
+    assert (akt.haben_konto, akt.steuer_schluessel) == (minderung, 3)
+    optionen = steuer_optionen(akt, bel, Kontenplan())
+    assert optionen.schluessel == (3,) and not optionen.ohne_steuer, optionen
+    hinweis = optionen.hinweis or ""
+    assert "§ 14c Abs. 1" in hinweis and "Fehlschlüssel" not in hinweis, hinweis
+    with pytest.raises(StornoError):
+        _korrigiere(make_session, akt.id, geld, minderung, steuer=9)
+    with pytest.raises(StornoError) as fehler:
+        _korrigiere(
+            make_session, akt.id, geld, minderung, ohne_steuer=True, grund="kein USt"
+        )
+    assert "§ 14c" in fehler.value.meldung, fehler.value.meldung
+    assert _kennziffern(make_session) == {81: D("500.00")}
+
+
+@pytest.mark.parametrize(("art", "geld"), [("Q", "1000"), ("S", "1200")])
+@pytest.mark.parametrize("ziel", ["2700", "8736"])
+def test_storno_nach_kontowechsel_meldet_die_luecke(make_session, art, geld, ziel):
+    """GF-1b (gf1_erloes_umweg.py B/C, v1_gf1.py B/C): Freigegeben „1000 an 8400,
+    Schlüssel 3“ → „1000 an 2700 --steuer 3“ (bzw. 8736), dann Storno: Die ersetzte
+    Original-Erlösbuchung zählte für die Obergrenze der Lücke nicht mehr — keine
+    Warnung, kein Befund, obwohl die 95 € in der Voranmeldung fehlen. Die Obergrenze
+    ist jetzt die höchste Erlös-Umsatzsteuer je Satz über die ganze Korrekturkette."""
+    bel = _beleg(art)
+    b = _buchung(bel, geld, "8400", 3, "95.00")
+    anlegen(make_session, bel, b)
+    k = _korrigiere(make_session, b.id, geld, ziel, steuer=3, grund=None)
+    assert k.neu is not None
+    (warnung,) = [w for w in _storniere(make_session, k.neu.id) if "§ 14c" in w]
+    assert "weist 95,00 € Umsatzsteuer" in warnung, warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+    assert _kennziffern(make_session) == {}
+
+
+@pytest.mark.parametrize(("art", "geld"), [("Q", "1000"), ("S", "1200")])
+def test_ohne_steuer_nach_kontowechsel_meldet_die_luecke(make_session, art, geld):
+    """GF-1b (Grenze 5 aus F, gf1_erloes_umweg.py B2): „→ 2700 --steuer 3“, dann
+    „--ohne-steuer --grund“ — die Prüfregel meldet die fehlenden 95 € wie d36ac77."""
+    bel = _beleg(art)
+    b = _buchung(bel, geld, "8400", 3, "95.00")
+    anlegen(make_session, bel, b)
+    k = _korrigiere(make_session, b.id, geld, "2700", steuer=3, grund=None)
+    assert k.neu is not None
+    _korrigiere(make_session, k.neu.id, geld, "2700", ohne_steuer=True, grund="kein")
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+def test_obergrenze_zaehlt_jede_korrekturkette_einmal(make_session):
+    """Zwei Verkäufe zu 19 % auf einem Marktplatzbeleg (SONSTIGES), je eine
+    Erlösbuchung: Der erste wird über eine Neubuchung auf 2700 umgebucht, der zweite
+    storniert — es fehlen 95 € (die Obergrenze summiert die Ketten: 95 + 95), und
+    eine zweimal korrigierte Kette zählt nur einmal (keine Lücke über 190 €)."""
+    zwei = [
+        ("Verkauf A", "500.00", "19", "95.00"),
+        ("Verkauf B", "500.00", "19", "95.00"),
+    ]
+    bel = _beleg("S", netto="1000.00", steuer="190.00", positionen=zwei)
+    a = _buchung(bel, "1200", "8400", 3, "95.00")
+    b = _buchung(bel, "1200", "8400", 3, "95.00")
+    anlegen(make_session, bel, a, b)
+    k1 = _korrigiere(make_session, a.id, "1360", "8400")
+    assert k1.neu is not None
+    k2 = _korrigiere(make_session, k1.neu.id, "1360", "2700", steuer=3, grund=None)
+    assert k2.neu is not None
+    assert _luecken_der_regel(make_session) == []
+    (warnung,) = [w for w in _storniere(make_session, b.id) if "§ 14c" in w]
+    assert "weist 190,00 € Umsatzsteuer" in warnung and "nur 95,00 €" in warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
