@@ -222,3 +222,9 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {% macro reiter(beschriftung, eintraege, aktiv, geteilt=false) -%}
 <nav class="reiter{% if geteilt %} reiter-geteilt{% endif %}" aria-label="{{ beschriftung }}">{% for e in eintraege %}<a href="{{ e[2] }}"{% if e[0] == aktiv %} aria-current="page"{% endif %}>{{ e[1] }}{% if e | length > 3 and e[3] is not none %} <span class="reiter-anzahl">{{ e[3] }}</span>{% endif %}</a>{% endfor %}</nav>
 {%- endmacro %}
+
+{#- Schritte eines Ablaufs mit Fortschritt (<progress>: die Breite ohne style=). schritte:
+    Titel; aktuell: Nummer ab 1. -#}
+{% macro schritte(schritte, aktuell) -%}
+<nav class="schritte" aria-label="{{ _("Schritte") }}"><p class="schritte-stand">{{ _("Schritt %(n)s von %(m)s", n=aktuell, m=schritte | length) }}</p><progress class="fortschritt" value="{{ aktuell }}" max="{{ schritte | length }}" aria-hidden="true"></progress><ol class="schritte-liste">{% for titel in schritte %}{% if loop.index < aktuell %}<li class="schritt schritt-erledigt">{{ symbol("check") }}{{ titel }}<span class="unsichtbar"> ({{ _("erledigt") }})</span></li>{% elif loop.index == aktuell %}<li class="schritt schritt-aktuell" aria-current="step"><span class="schritt-ring" aria-hidden="true"></span>{{ titel }}</li>{% else %}<li class="schritt schritt-offen"><span class="schritt-kreis" aria-hidden="true"></span>{{ titel }}</li>{% endif %}{% endfor %}</ol></nav>
+{%- endmacro %}

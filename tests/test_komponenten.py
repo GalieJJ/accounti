@@ -499,3 +499,14 @@ def test_reiter_als_nav_mit_aria_current():
     assert 'class="reiter reiter-geteilt"' in render(
         '{{ k.reiter("x", [("a", "A", "/a")], "a", geteilt=true) }}'
     )
+
+
+def test_schritte_mit_progress_und_aria_current_step():
+    html = render('{{ k.schritte(["Firma", "Konten", "Steuern", "Bank"], 3) }}')
+    assert "Schritt 3 von 4" in html
+    assert '<progress class="fortschritt" value="3" max="4" aria-hidden="true">' in html
+    assert html.count('aria-current="step"') == 1
+    assert '<li class="schritt schritt-aktuell" aria-current="step">' in html
+    assert html.count("schritt-erledigt") == 2 and html.count("schritt-offen") == 1
+    assert "(erledigt)" in html
+    assert "Step 1 of 2" in render('{{ k.schritte(["a", "b"], 1) }}', sprache="en")
