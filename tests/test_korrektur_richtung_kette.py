@@ -569,3 +569,29 @@ def test_web_queue_dann_buchungen_tauscht_nicht(qw):
         "WHERE storno_von IS NULL AND storniert_durch IS NULL"
     )
     assert wirksam == [("10001", "1590")]
+
+
+def test_schluessel_aus_steuer_und_netto_verlangt_grund(make_session):
+    """Nennt keine Position den Satz (ZUGFeRD MINIMUM), leitet ihn ``laut_beleg`` aus
+    Steuer und Netto ab — wählbar, aber nur mit Grund (Gesamttest B05)."""
+    bel, b = _welt("4930", "1200", None, None, status=P)
+    bel = bel.model_copy(
+        update={
+            "steuer": D("95.00"),
+            "brutto": D("595.00"),
+            "positionen": [
+                p.model_copy(update={"steuersatz": None, "steuer_betrag": None})
+                for p in bel.positionen
+            ],
+        }
+    )
+    anlegen(make_session, bel, b)
+    assert steuer_optionen(b, bel).laut_beleg == 9
+    with make_session() as s, pytest.raises(StornoError, match="Grund"):
+        korrigiere(s, str(b.id), "4930", "1200", von="erika", steuer=9)
+    with make_session() as s:
+        k = korrigiere(
+            s, str(b.id), "4930", "1200", von="erika", steuer=9, grund="PDF 19 %"
+        )
+        s.commit()
+    assert k.neu is not None and k.neu.steuer_schluessel == 9

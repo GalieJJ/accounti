@@ -721,8 +721,8 @@ def _steuer(
     berechnet sie selbst. Weist der Beleg Umsatzsteuer aus (Schlüssel 2, 3), ändert
     keine Korrektur den Schlüssel (§ 14c Abs. 1 UStG). Immer erlaubt ist der Schlüssel,
     den der Beleg vorgibt (``schluessel_laut_beleg``: Satz und Richtung des Belegs) —
-    auch ohne Grund; ein Umsatzsteuerschlüssel auf einem Eingangsbeleg ist keine
-    ausgewiesene Steuer (``eingangsbeleg``, Runde 7: g6w N5)."""
+    ohne Grund, wenn eine Position den Satz nennt; ein Umsatzsteuerschlüssel auf einem
+    Eingangsbeleg ist keine ausgewiesene Steuer (``eingangsbeleg``, Runde 7: g6w N5)."""
     if ohne_steuer and steuer is not None:
         raise StornoError(
             "Steuerschlüssel und „ohne Steuer“ schließen sich aus",
@@ -805,7 +805,13 @@ def _steuer(
             f"ig. Erwerb vorliegt; {HINWEIS_SELBST_BERECHNET}. Mit Grund (steht im "
             'Journal): --ohne-steuer --grund "kein § 13b: …"',
         )
-    if b.beleg_id is not None and not laut_beleg and not (grund or "").strip():
+    # ohne Grund nur, wenn der Beleg den Satz selbst nennt — aus Steuer/Netto
+    # abgeleitet (ZUGFeRD MINIMUM) bleibt der Grund Pflicht (Gesamttest B05)
+    if (
+        b.beleg_id is not None
+        and not (laut_beleg and beleg_mit_satz)
+        and not (grund or "").strip()
+    ):
         if not ohne_steuer:
             raise StornoError(
                 f"Die Buchung hat einen Beleg — Steuerschlüssel {schluessel} setzt "

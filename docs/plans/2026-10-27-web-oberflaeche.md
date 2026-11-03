@@ -1670,7 +1670,7 @@ Durchlaufs mit Markern in allen Fremddaten.
 - Im Browser bietet die Korrektur einer Belegbuchung den bisherigen Schlüssel und den, den der
   Beleg vorgibt (`steuer_optionen(b, beleg).laut_beleg`: sein einziger Satz mit seiner
   Richtung — 19 % Eingang 9, 7 % 8, Ausgang 3 bzw. 2; ohne Satz in den Positionen das
-  Verhältnis Steuer/Netto; Runde 7, g6w N5); § 13b bzw. ig. Erwerb auf einer Belegbuchung
+  Verhältnis Steuer/Netto, dann nur mit Grund wie in Gesamttest B05; Runde 7, g6w N5); § 13b bzw. ig. Erwerb auf einer Belegbuchung
   (Paket C) setzt die CLI (`korrigiere … --steuer 94 --grund …`) — nie auf einer Belegbuchung
   mit ausgewiesener Umsatzsteuer (2/3 auf einem Ausgangsbeleg, § 14c Abs. 1 UStG: Berichtigung
   als neuer Beleg; Runde 4). Ein Umsatzsteuerschlüssel auf einem Eingangsbeleg (`richtung`
