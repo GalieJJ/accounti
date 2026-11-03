@@ -322,6 +322,60 @@ def test_erstattung_aus_vorquartal_ist_korrektur_des_ursprungsquartals():
     assert "2026-Q3;FR;20%;-50.00;-10.00;1" in zeilen
 
 
+def test_erstattung_auf_anderem_konto_desselben_lands_ist_korrektur():
+    """Nachprüfung 9 E, N2: Der Ursprung einer Erstattung wurde je Konto gesucht — im
+    SKR04 buchte der Marktplatz bis Paket E auf 8320, seither auf 4320: Die Erstattung
+    im Folgequartal minderte das laufende Quartal statt das Ursprungsquartal zu
+    berichtigen (ebenso nach dem Wechsel eines eingestellten Kontos, FR → 8330)."""
+    q3 = oss_buchung(date(2026, 8, 10), "50.00", beleg="302-0000001")
+    q4 = oss_buchung(date(2026, 10, 20), "500.00", konto="4320", beleg="302-0000002")
+    erstattung = oss_buchung(
+        date(2026, 10, 5), "50.00", konto="4320", beleg="302-0000001", erstattung=True
+    )
+    meldung = OSSEngine().erstelle_meldung(
+        [q3, q4, erstattung], 2026, 4, kontenrahmen="SKR04"
+    )
+    (fr,) = meldung.laender
+    assert (fr.bemessungsgrundlage_normal, fr.steuer_normal) == (
+        D("500.00"),
+        D("100.00"),
+    )
+    (k,) = meldung.korrekturen
+    assert (k.land_code, k.zeitraum, k.bemessungsgrundlage, k.steuer) == (
+        "FR",
+        "2026-Q3",
+        D("-50.00"),
+        D("-10.00"),
+    )
+    # SKR03 nach dem Wechsel FR 8320 → 8330
+    erstattung = oss_buchung(
+        date(2026, 10, 5), "50.00", konto="8330", beleg="302-0000001", erstattung=True
+    )
+    meldung = OSSEngine().erstelle_meldung(
+        [q3, erstattung], 2026, 4, erloes_konten={"FR": "8330"}
+    )
+    assert meldung.laender == []
+    (k,) = meldung.korrekturen
+    assert (k.land_code, k.zeitraum, k.steuer) == ("FR", "2026-Q3", D("-10.00"))
+
+
+def test_erstattung_mit_belegnummer_eines_anderen_lands_mindert_das_quartal():
+    """Gleiche Belegnummer, anderes Land: kein Ursprung — die Erstattung nach IT
+    berichtigt nicht den FR-Umsatz des Vorquartals."""
+    q3 = oss_buchung(date(2026, 8, 10), "50.00", beleg="R-7")
+    erstattung = oss_buchung(
+        date(2026, 10, 5), "50.00", konto="8321", beleg="R-7", erstattung=True
+    )
+    meldung = OSSEngine().erstelle_meldung([q3, erstattung], 2026, 4)
+    assert meldung.korrekturen == []
+    (it,) = meldung.laender
+    assert (it.land_code, it.bemessungsgrundlage_normal, it.steuer_normal) == (
+        "IT",
+        D("-50.00"),
+        D("-11.00"),
+    )
+
+
 def test_erstattung_im_selben_quartal_mindert_die_laenderzeile():
     erloes = oss_buchung(date(2026, 10, 4), "80.00")
     erstattung = oss_buchung(date(2026, 10, 12), "50.00", erstattung=True)

@@ -272,8 +272,9 @@ class OSSEngine:
         Bemessungsgrundlagen gerundet. Maßgeblich ist der Satz am Tag der Lieferung
         (Art. 63, 93 MwStSystRL) — ändert ein Land ihn im Quartal, hat es zwei
         Zeilen. Eine Erlösminderung (OSS-Erlöskonto im Soll), deren Erlös mit
-        derselben Belegnummer in einem früheren Quartal liegt, wird als Korrektur
-        dieses Quartals ausgewiesen, mit dem Satz des ursprünglichen Umsatzes.
+        derselben Belegnummer im selben Land (auf einem seiner Erlöskonten) in einem
+        früheren Quartal liegt, wird als Korrektur dieses Quartals ausgewiesen, mit
+        dem Satz des ursprünglichen Umsatzes.
 
         Args:
             buchungen: Alle Buchungen bis Quartalsende (frühere für die Zuordnung
@@ -307,11 +308,14 @@ class OSSEngine:
         for code, konto in (erloes_konten_ermaessigt or {}).items():
             konto_zu_land[konto] = (code.upper(), True)
 
-        # Ursprung je Erlös: frühestes Datum je (Erlöskonto, Belegnummer)
+        # Ursprung je Erlös: frühestes Datum je (Bestimmungsland, Belegnummer) — nicht
+        # je Konto: eine Erstattung kann auf einem anderen Konto desselben Lands stehen
+        # (SKR04: Marktplatz bis Paket E 8320, seither 4320; ein gewechseltes Konto
+        # aus ``integrationen.oss_erloes_konten``; Nachprüfung 9 E, N2)
         ursprung: dict[tuple[str, str], date] = {}
         for b in buchungen:
             if b.beleg_nummer and b.haben_konto in konto_zu_land and b.datum <= bis:
-                schluessel = (b.haben_konto, b.beleg_nummer)
+                schluessel = (konto_zu_land[b.haben_konto][0], b.beleg_nummer)
                 if schluessel not in ursprung or b.datum < ursprung[schluessel]:
                     ursprung[schluessel] = b.datum
 
@@ -334,7 +338,7 @@ class OSSEngine:
                 continue
             betrag = vorzeichen * abs(b.betrag_netto)
             frueher = (
-                ursprung.get((konto, b.beleg_nummer))
+                ursprung.get((land_code, b.beleg_nummer))
                 if vorzeichen < 0 and b.beleg_nummer
                 else None
             )
