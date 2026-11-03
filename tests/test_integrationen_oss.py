@@ -677,6 +677,28 @@ def test_oss_vorgaben_folgen_dem_kontenrahmen(tmp_path):
     assert plan.ist_steuerkonto("3806")
 
 
+@pytest.mark.parametrize(
+    ("rahmen", "konten"),
+    [("SKR03", ("1767", "2150", "2660")), ("SKR04", ("3817", "6880", "4840"))],
+)
+def test_vorlage_folgt_dem_kontenrahmen(tmp_path, rahmen, konten):
+    """Nachprüfung 9 E, N4: Die Beispielkonfiguration setzte die SKR03-Werte
+    ausdrücklich — auf SKR04 gestellt (wie der Kommentar bei ``buchhaltung`` sagt),
+    gingen Kursdifferenzen still auf die Privatkonten 2150/2660 und die OSS-Steuer
+    auf das Geldkonto 1767. Ohne eigene Wahl gilt die Vorgabe des Kontenrahmens."""
+    vorlage = Path(__file__).resolve().parents[1] / "config" / "accounti.example.yaml"
+    text = vorlage.read_text(encoding="utf-8")
+    assert "  kontenrahmen: SKR03 " in text
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        text.replace("  kontenrahmen: SKR03 ", f"  kontenrahmen: {rahmen} "),
+        encoding="utf-8",
+    )
+    e = lade_integrationen(pfad)
+    assert (e.oss_ust_konto, e.kursdifferenz_aufwand, e.kursdifferenz_ertrag) == konten
+    assert e.oss_erloes_konten["FR"] == ("4320" if rahmen == "SKR04" else "8320")
+
+
 def test_oss_konten_eindeutig_und_nur_eu(tmp_path):
     from accounti.konfiguration import KonfigurationError
 
