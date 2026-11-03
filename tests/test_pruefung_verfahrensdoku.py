@@ -495,8 +495,12 @@ def test_connector_adresse_ohne_zugangsdaten(tmp_path):
          "json: portal.example |", "firma.example"),
         ("https://bücher.example/api", "json: bücher.example |",
          "basis_url fehlerhaft"),
+        # Folgepaket F (g8w B8-4): „@“ im Passwort vor „#“ — nicht eindeutig
+        ("https://alarm:Qz7@Lm#x@portal.example/api",
+         "json: (Adresse nicht eindeutig", "Qz7"),
     ],
-    ids=["raute", "fragezeichen", "ziffern", "schraegstrich", "abfrage", "idn"],
+    ids=["raute", "fragezeichen", "ziffern", "schraegstrich", "abfrage", "idn",
+         "mehrdeutig"],
 )  # fmt: skip
 def test_connector_adresse_mit_unkodiertem_passwort(
     tmp_path, basis, erwartet, darf_nicht

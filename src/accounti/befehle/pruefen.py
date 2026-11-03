@@ -43,6 +43,7 @@ def pruefen(
     if ctx.invoked_subcommand is not None:
         return
     from accounti.belege.archiv import BelegArchiv
+    from accounti.elster.konfiguration import lade_elster_konten
     from accounti.konfiguration import (
         KonfigurationError,
         lade_buchhaltung,
@@ -60,6 +61,7 @@ def pruefen(
         einstellungen = lade_pruefung(config)
         buchhaltung = lade_buchhaltung(config)
         firma = lade_eigene_firma(config)
+        elster = lade_elster_konten(config)
         von, bis = zeitraum(period)
     except (KonfigurationError, PruefungError) as fehler:
         ende(str(fehler))
@@ -81,6 +83,7 @@ def pruefen(
             firma=firma,
             archiv=BelegArchiv(ordner) if ordner.is_dir() else None,
             ocr=engine,
+            elster=elster,
         )
         try:
             bericht = fuehre_regeln_aus(k, regel or None)

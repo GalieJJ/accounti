@@ -39,7 +39,7 @@ from accounti.aufgaben.anbindung import lade_anbindungen
 from accounti.aufgaben.einstellungen import AufgabenEinstellungen
 from accounti.aufgaben.erinnerung import Erinnerung, faellige_erinnerungen
 from accounti.aufgaben.zustaendigkeit import GEMEINSAM
-from accounti.betrieb.protokoll import rechner_der_adresse
+from accounti.betrieb.protokoll import MEHRDEUTIGE_ADRESSE, rechner_der_adresse
 from accounti.db.repo_aufgaben import (
     AufgabeVeraltetError,
     aktualisiere_aufgabe,
@@ -309,7 +309,9 @@ class WebhookKanal:
         Benutzer zum Rechner und die Ziffern des Passworts zum Port — in WARNUNG und
         ``aufgaben_benachrichtigungen`` (Runde 7, g6w B-2; ``rechner_der_adresse``)."""
         ziel = rechner_der_adresse(self.url)
-        return f"{ziel}/…" if ziel is not None else "(ungültige Adresse)"
+        if ziel is None:
+            return "(ungültige Adresse)"
+        return ziel if ziel == MEHRDEUTIGE_ADRESSE else f"{ziel}/…"
 
     def adresse(self, uebersicht: Tagesuebersicht) -> str | None:
         return self._ziel()

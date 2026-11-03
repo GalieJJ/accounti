@@ -95,7 +95,7 @@ def buchungswerte(
     )
 
     b = _lade(s, buchung_id)
-    _, buchhaltung, konfig_fehler = seitenkonfiguration(a)
+    _, buchhaltung, elster, konfig_fehler = seitenkonfiguration(a)
     korrektur = korrektur_zu(s, b.id)
     beteiligte: dict[str, Buchungssatz] = {}
     if korrektur is not None:
@@ -135,7 +135,7 @@ def buchungswerte(
         "steuer": steuer_optionen(
             b,
             beleg if beleg is not None and beleg.id == b.beleg_id else None,
-            kontenplan(s, buchhaltung, None) if buchhaltung is not None else None,
+            kontenplan(s, buchhaltung, elster) if buchhaltung is not None else None,
         ),
         "konfig_fehler": konfig_fehler,
         "kontonamen": kontonamen(a, konten),

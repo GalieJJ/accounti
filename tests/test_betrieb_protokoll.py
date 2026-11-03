@@ -3,6 +3,7 @@
 import io
 import json
 import logging
+import re
 
 import pytest
 
@@ -369,6 +370,95 @@ def test_langer_statischer_pfad_haelt_den_server_nicht_an(tmp_path, ausgabe, lae
     assert dauer < 0.5, dauer  # vorher 5 s bzw. 36 s
 
 
+# --- Folgepaket F, Runde 2 (gf-betrieb F-B1): langer Pfad mit jeder Methode ---------
+
+
+def _scope(app, methode: str, pfad: str, route=None):  # noqa: ANN001, ANN202
+    scope = {
+        "type": "http",
+        "method": methode,
+        "path": pfad,
+        "raw_path": pfad.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [],
+        "app": app,
+        "scheme": "http",
+        "server": ("accounti.test", 80),
+    }
+    if route is not None:
+        scope["route"] = route
+    return scope
+
+
+def test_ansichtspfad_eines_langen_pfads_ohne_quadratische_laufzeit(tmp_path):
+    """F-B1 (gf-betrieb, schon auf main): Nach einem POST suchte ``ansichtspfad`` für
+    jeden Abschnitt des Pfads alle Routen ab und baute den Pfad neu — quadratisch, im
+    Event-Loop, auch für die 404-Seite (8000 Abschnitte: 1 s). Ohne Route (404) gilt
+    gleich „/“, mit Route höchstens ``ABSCHNITTE`` Abschnitte; der Weg einer Route
+    nach oben bleibt (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``)."""
+    import time
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from starlette.requests import Request
+
+    from accounti.api.vorlagen import ansichtspfad
+
+    app = webwelt(tmp_path).client().app
+    # wie ``scope["route"]`` beim Bearbeiten der Anfrage (gefundene Route)
+    route = SimpleNamespace(path="/pruefen/{buchung_id:uuid}/korrigieren")
+    for pfad, mit in (("/x" * 20_000, None), ("/pruefen/1" + "/x" * 20_000, route)):
+        beginn = time.perf_counter()
+        assert ansichtspfad(Request(_scope(app, "POST", pfad, mit))) == "/"
+        dauer = time.perf_counter() - beginn
+        assert dauer < 0.01, dauer  # vorher mehrere Sekunden
+    nr = uuid4()
+    anfrage = Request(_scope(app, "POST", f"/pruefen/{nr}/korrigieren", route))
+    assert ansichtspfad(anfrage) == f"/pruefen/{nr}"
+    assert ansichtspfad(Request(_scope(app, "GET", "/x" * 20_000))) == "/x" * 20_000
+
+
+@pytest.mark.parametrize(
+    "methode", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "PROPFIND", "GET", "HEAD"]
+)
+def test_langer_pfad_haelt_den_server_mit_keiner_methode_an(tmp_path, methode):
+    """F-B1: ``POST /x/x/…`` (40 000 Zeichen) ohne Anmeldung hielt den Server an —
+    die 404-Seite rechnete ``ansichtspfad`` quadratisch (echter serve: jede andere
+    Anfrage wartete 3,7 s). Jede Methode außer GET war betroffen; jetzt sind alle so
+    schnell wie GET, angemeldet wie unangemeldet."""
+    import time
+
+    welt = webwelt(tmp_path)
+    welt.person("jan", Rolle.BUCHHALTER)
+    for client in (welt.client(), welt.angemeldet("jan")):
+        client.get("/anmelden")
+        beginn = time.perf_counter()
+        r = client.request(methode, "/x" * 20_000)
+        dauer = time.perf_counter() - beginn
+        assert r.status_code == 404, r.status_code
+        assert dauer < 0.5, dauer  # vorher mehrere Sekunden
+
+
+def test_lange_sprachangabe_haelt_den_server_nicht_an(tmp_path):
+    """Gefunden bei der Suche nach weiteren Stellen wie F-B1 (schon auf main): Das
+    Muster für ``Accept-Language`` probierte für jeden Teil jede Aufteilung einer
+    Leerraumfolge (16 000 Leerzeichen: 1,2 s, im Event-Loop) — jede Seite, auch
+    ``/anmelden`` und die 404-Seite ohne Anmeldung, liest den Kopf."""
+    import time
+
+    client = webwelt(tmp_path).client()
+    client.get("/anmelden")
+    for pfad in ("/anmelden", "/gibt/es/nicht"):
+        for kopf in ("de" + " " * 40_000 + ";q=1 x", "en" + "\t" * 40_000 + "x"):
+            beginn = time.perf_counter()
+            r = client.get(pfad, headers={"Accept-Language": kopf})
+            dauer = time.perf_counter() - beginn
+            assert r.status_code in (200, 404), r.status_code
+            assert '<html lang="de">' in r.text
+            assert dauer < 0.5, (pfad, dauer)  # vorher mehrere Sekunden
+
+
 @pytest.mark.parametrize(
     "folge",
     ["a", "a.", "#", "a%", "a@", "@a.", "a:", "a:a@", "a1", "https://a", "x://", "-"],
@@ -407,38 +497,129 @@ def test_schwaerzung_kuerzt_ueberlange_zeilen_vor_den_mustern():
     assert "gekürzt" in mitte and len(mitte) <= ZEILE_HOECHSTENS
 
 
-@pytest.mark.parametrize(
-    ("geheimnis", "darf_nicht"),
-    [
-        (IBAN, "3704"),
-        ("Bearer " + "eyJ" + "k" * 3000, "kkkkkkkk"),
-        ("https://accounti:sehr-geheim@hooks.example/x", "sehr-geheim"),
-        ("passwort=hunter2", "hunter2"),
-        ("PIN: 12345", "12345"),
-    ],
-    ids=["iban", "bearer", "url", "parameter", "pin"],
-)
-def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis, darf_nicht):
-    """Erst kürzen, dann schwärzen: Ein Geheimnis an einer Schnittstelle fällt ganz weg
-    (sonst bliebe ein angeschnittener Rest stehen, den kein Muster mehr erkennt — etwa
-    „DE89 3704“ oder das Ende eines Tokens ohne „Bearer“ davor)."""
-    from accounti.betrieb.protokoll import ZEILE_HOECHSTENS
+# Geheimnisse mit kurzen Werten — jeder Wert enthält Ziffern, der Fülltext keine
+KANTE = [
+    ("bearer", "Authorization: Bearer eyJtok4711geheim"),
+    ("passwort", "passwort: hunter4711"),
+    ("kennwort", "Kennwort = Sonne4711"),
+    ("pin", "PIN: 471147"),
+    ("tan", "TAN 123456"),
+    ("secret", "secret: s3cr3t4711"),
+    ("iban", IBAN),
+    ("url", "https://accounti:sehr4711@hooks.example/x"),
+]
 
-    for stelle in range(0, ZEILE_HOECHSTENS + 1, 25):
-        zeile = "w " * (stelle // 2) + geheimnis + " z" * ZEILE_HOECHSTENS
-        assert darf_nicht not in schwaerze(zeile), stelle
-        zeile = "w " * ZEILE_HOECHSTENS + geheimnis + " z" * (stelle // 2)
-        assert darf_nicht not in schwaerze(zeile), stelle
+
+@pytest.mark.parametrize("geheimnis", [g for _, g in KANTE], ids=[n for n, _ in KANTE])
+def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis):
+    """Erst kürzen, dann schwärzen: Ein Geheimnis an einer Schnittkante fällt ganz weg
+    oder erscheint geschwärzt — an **jeder** Lage der vorderen und der hinteren Kante,
+    Zeichen für Zeichen (Folgepaket F, g8w B8-1: Die hintere Kante trennte „Bearer“,
+    „passwort:“, „PIN“ … von ihrem Wert, der dann ungeschwärzt stand; der Test ging in
+    Schritten von 25 und mit einem 3000 Zeichen langen Token vor)."""
+    from accounti.betrieb.protokoll import _RAND
+
+    lage = range(-len(geheimnis) - 40, len(geheimnis) + 40)
+    for versatz in lage:
+        # vordere Kante: das Geheimnis beginnt um „versatz“ vor bzw. hinter ihr
+        zeile = ("w " * _RAND)[: _RAND + versatz] + " " + geheimnis + " z" * 3000
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("vorn", versatz, text[1300:1700])
+        # hintere Kante: ebenso von hinten gezählt
+        zeile = "w " * 2500 + geheimnis + (" z" * _RAND)[: _RAND - versatz]
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("hinten", versatz, text[-1700:-1300])
+    assert "accounti:" not in schwaerze("w " * 2500 + KANTE[-1][1] + " z" * 700)
+
+
+@pytest.mark.parametrize("wort", ["PIN", "TAN", "passwort", "Kennwort", "Bearer"])
+@pytest.mark.parametrize("leer", ["\n", " ", "\t"])
+def test_schluesselwort_mit_langer_leerraumfolge_ohne_quadratische_laufzeit(wort, leer):
+    """B8-1 (Hinweis g8w): „PIN“ und 8000 Zeilenumbrüche brauchten 0,71 s — das
+    PIN/TAN-Muster probierte jede Aufteilung der Leerraumfolge auf zwei ``\\s*``. Der
+    Abstand zwischen Schlüsselwort und Wert ist possessiv (``\\s*+``, F Runde 2:
+    F-B2), jedes Muster linear — 100 000 Zeichen, auch „PIN “ davor."""
+    import time
+
+    from accounti.betrieb.protokoll import _MUSTER
+
+    for text in (
+        wort + leer * 100_000,
+        wort + ":" + leer * 100_000 + "4711",
+        "PIN " + leer * 100_000,
+        wort + leer * 100_000 + "4711",
+    ):
+        for muster, ersatz in _MUSTER:
+            beginn = time.perf_counter()
+            muster.sub(ersatz, text)
+            dauer = time.perf_counter() - beginn
+            assert dauer < 0.25, (muster.pattern, dauer)  # vorher 4–5 s (PIN, TAN)
+
+
+def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
+    """Übliche Schreibweisen (Tabulator, Ausrichtung mit Leerzeichen,
+    Zeilenumbruch)."""
+    for roh in (
+        "passwort:\t\thunter4711",
+        "Kennwort      =      Sonne4711",
+        "PIN\n471147",
+        "TAN :  123456",
+        "Authorization: Bearer\n  eyJtok4711",
+        "secret:" + " " * 30 + "s3cr3t4711",
+    ):
+        assert not re.search(r"\d", schwaerze(roh)), roh
+
+
+@pytest.mark.parametrize("anzahl", [41, 300, 5000])
+def test_schluesselwort_und_wert_mit_langem_abstand_bleiben_geschwaerzt(anzahl):
+    """F-B2 (gf-betrieb k3_port.py, aus F 61e2a5d): Hinter mehr als 40
+    Leerraumzeichen zwischen Schlüsselwort und Wert erkannte kein Muster den Wert mehr
+    („PIN“ + 41 Leerzeichen + Zahl, „Passwort:“ + 41 Tabs, „Bearer“ + 41 × „\\n“, „TAN“
+    + 40 × „\\r\\n“) — d36ac77 schwärzte sie. Jetzt beliebig lang, auch wenn die Zeile
+    dadurch gekürzt wird (5000 Leerzeichen)."""
+    for roh in (
+        "PIN" + " " * anzahl + "471147",
+        "Passwort:" + "\t" * anzahl + "hunter4711",
+        "Authorization: Bearer" + "\n" * anzahl + "eyJtok4711",
+        "TAN" + "\r\n" * anzahl + "123456",
+        "Kennwort" + " " * anzahl + "=" + " " * anzahl + "Sonne4711",
+        "PIN:" + " " * anzahl + "4711",
+    ):
+        text = schwaerze(roh)
+        assert not re.search(r"\d", text), (roh[:12], text[-40:])
+
+
+@pytest.mark.parametrize("anzahl", [41, 260, 600, 1600])
+@pytest.mark.parametrize(
+    "wort",
+    ["PIN", "Passwort:", "Bearer", "Kennwort ="],
+    ids=["pin", "pw", "bearer", "kw"],
+)
+def test_langer_abstand_an_der_schnittkante_bleibt_geschwaerzt(wort, anzahl):
+    """F-B2 mit der Kürzung langer Zeilen: Ein Abstand über die hintere bzw. vordere
+    Kante hinaus trennt den Wert nicht von seinem Schlüsselwort — der Vorlauf des
+    Endes reicht über den ganzen Abstand (Lage um die Kante in Schritten von 7)."""
+    from accounti.betrieb.protokoll import _RAND
+
+    geheim = wort + " " * anzahl + ("471147" if wort == "PIN" else "hunter4711")
+    for versatz in range(-len(geheim) - 30, 40, 7):
+        zeile = "w " * 2500 + geheim + (" z" * _RAND)[: _RAND - versatz]
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("hinten", versatz, text[-300:])
+        zeile = ("w " * _RAND)[: _RAND + versatz] + " " + geheim + " z" * 3000
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("vorn", versatz, text[1300:1800])
 
 
 @pytest.mark.parametrize(
     ("roh", "erwartet"),
     [
-        # Port vor einer Abfrage (Runde 7 machte Port und Abfrage zu „***“)
-        ("https://host:8443?x=1", "https://host:8443?x=1"),
+        # Port vor einer Abfrage (Runde 7 machte Port und Abfrage zu „***“) — hinter
+        # einem Rechner mit Punkt bzw. localhost (Folgepaket F, g8w B8-2)
+        ("https://rechner.example:8443?x=1", "https://rechner.example:8443?x=1"),
         ("http://localhost:8000?next=/", "http://localhost:8000?next=/"),
         ("http://localhost:8000?", "http://localhost:8000?"),
-        ("https://host:8443#/start", "https://host:8443#/start"),
+        ("https://rechner.example:8443#/start", "https://rechner.example:8443#/start"),
         # das Wort vor „:“ gehört nicht zur E-Mail-Adresse
         ("Empfänger:max@firma.de", "Empfänger:[E-Mail]"),
         ("Kontakt: mailto:info@galerie.example", "Kontakt: mailto:[E-Mail]"),
@@ -451,6 +632,80 @@ def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis, darf_nicht):
 def test_schwaerzung_ohne_ueberschwaerzung(roh, erwartet):
     """B7-3 (g7w, Runde 7): Port und Abfrage verschwanden, ein Wort vor „:“ wurde Teil
     von [E-Mail]. Zugangsdaten bleiben geschwärzt (``test_schwaerzung``)."""
+    assert schwaerze(roh) == erwartet
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "a" * 37 + "https://u:pw4711@h",
+        "Datenbankverbindungsfehlermeldungskontextpostgresql://u:pw4711@h/db",
+        "Datenbankverbindungsfehlermeldungskontextpostgresql://u:pw4711",
+        "x-" + "a" * 45 + "://u:pw4711@h",
+        "a" * 5000 + "https://u:pw4711@h",
+        "ä" * 50 + "https://u:pw4711/x@h",
+    ],
+    ids=[
+        "37_buchstaben",
+        "wort",
+        "wort_abgeschnitten",
+        "langes_schema",
+        "5000",
+        "pfad",
+    ],
+)
+def test_zugangsdaten_hinter_jedem_schema(roh):
+    """B8-3 (g8w): Ein Schema hinter 42 oder mehr Buchstaben ohne Trenner fand kein
+    Muster (``(?<![A-Za-z])…{0,40}://``) — die Zugangsdaten blieben stehen. Die Muster
+    beginnen jetzt an „://“, gleich, was davor steht; linear wie bisher."""
+    import time
+
+    assert "pw4711" not in schwaerze(roh)
+    text = "a" * 100_000 + "://u:pw4711@h"
+    beginn = time.perf_counter()
+    assert "pw4711" not in schwaerze(text)
+    assert time.perf_counter() - beginn < 0.25
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "Fehler https://alarm:4711?",
+        "Fehler https://alarm:4711#\nSonne@hooks.example/x",
+        "Fehler https://alarm:4711?#Sonne",
+        "Fehler https://alarm:4711?x=Sonne",
+        "Fehler https://alarm:4711? nicht zustellbar",
+        "Fehler https://alarm:4711#/",
+        "Fehler https://alarm:4711/",
+        "Fehler https://alarm:4711",
+        # Zahl über 65535 ist kein Port, auch hinter einem Rechner
+        "Fehler https://rechner.example:99999?x=1",
+        "Fehler https://localhost:0?",
+    ],
+)
+def test_port_nur_hinter_einem_rechner(roh):
+    """B8-2 (g8w): Die Port-Ausnahme (B7-3) ließ eine abgeschnittene Adresse mit
+    Ziffern-Passwort vor ?/# stehen. „:Ziffern“ ist jetzt nur ein Port, wenn der Teil
+    davor wie ein Rechner aussieht (Punkt, localhost, IPv4) und die Zahl höchstens
+    65535 ist — sonst ein Passwort: „alarm:***“ (Sicherheit vor Bequemlichkeit)."""
+    text = schwaerze(roh)
+    assert ":***" in text, text
+    assert "4711" not in text and "99999" not in text and "Sonne" not in text, text
+
+
+@pytest.mark.parametrize(
+    ("roh", "erwartet"),
+    [
+        ("https://rechner.example:8443?x=1", "https://rechner.example:8443?x=1"),
+        ("https://localhost:8443#/a", "https://localhost:8443#/a"),
+        ("http://127.0.0.1:8080?x=1", "http://127.0.0.1:8080?x=1"),
+        ("https://hooks.example:65535/x", "https://hooks.example:65535/x"),
+        # Grenze: ein Rechner ohne Punkt ist von „benutzer:4711“ nicht zu trennen
+        ("https://host:8443?x=1", "https://host:***"),
+        ("https://host:8443/pfad", "https://host:***/pfad"),
+    ],
+)
+def test_port_hinter_einem_rechner_bleibt_lesbar(roh, erwartet):
     assert schwaerze(roh) == erwartet
 
 

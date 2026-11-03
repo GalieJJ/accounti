@@ -76,6 +76,7 @@ from accounti.pruefung.storno import (
 from accounti.pruefung.storno import freigeben as storno_freigeben
 
 if TYPE_CHECKING:
+    from accounti.elster.konfiguration import ElsterEinstellungen
     from accounti.models.kontierung import Feld, Kontierungsregel
     from accounti.pruefung.einstellungen import BelegfreiRegel, PruefEinstellungen
     from accounti.pruefung.perioden import Sperre
@@ -449,11 +450,14 @@ def lade_eintrag(
     *,
     pruefung: PruefEinstellungen | None = None,
     buchhaltung: Buchhaltung | None = None,
+    elster: ElsterEinstellungen | None = None,
 ) -> Arbeitsflaeche:
     """Alles für die Entscheidung über eine Buchung. Mit ``buchhaltung`` auch die
     Befunde der Prüfregel ``steuerschluessel_konto`` (``steuer_befunde``) und die
     Steuerauswahl nach den Konten der Gesellschaft (``steuer_optionen`` mit Kontenplan:
-    ein Erlös auf einer Quittung ist keine Eingangsbuchung; Runde 8, g7w R7-3)."""
+    ein Erlös auf einer Quittung ist keine Eingangsbuchung; Runde 8, g7w R7-3) — mit
+    ``elster`` (steuerrelevante Konten, Funktionskonten) wie ``korrigiere``
+    (Folgepaket F, g8w G8R-2)."""
     from accounti.aufgaben import aufgaben_zu
     from accounti.models.aufgaben import KommentarArt
     from accounti.pruefung.perioden import sperre_am
@@ -491,7 +495,9 @@ def lade_eintrag(
         steuer=steuer_optionen(
             b,
             beleg if beleg and beleg.id == b.beleg_id else None,
-            kontenplan(session, buchhaltung, None) if buchhaltung is not None else None,
+            kontenplan(session, buchhaltung, elster)
+            if buchhaltung is not None
+            else None,
         ),
     )
     if tx is not None:

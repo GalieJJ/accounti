@@ -384,7 +384,8 @@ class BelegUstOhneBuchung:
     NEU-3, NEU-4). Gemeldet im Zeitraum des letzten Stornos einer Buchung mit
     ausgewiesener Umsatzsteuer (Schlüssel 2, 3 auf der Seite einer Rechnung) — dort
     fehlt die Steuer; ein späteres Storno der Zahlung verschiebt die Meldung nicht
-    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal."""
+    (Runde 7, g6w N3). Für Kopien derselben Rechnung einmal. Die Konten sind die der
+    Voranmeldung (``Kontext.elster``) wie beim Storno (Folgepaket F, g8w G8R-2)."""
 
     name = "beleg_ust_ohne_buchung"
     kategorie = Kategorie.VOLLSTAENDIGKEIT
@@ -401,6 +402,7 @@ class BelegUstOhneBuchung:
         from accounti.belege.dubletten import kopien
         from accounti.pruefung.storno import (
             AUSGEWIESENE_UST,
+            ersetzte_buchungen,
             hinweis_14c,
             kontenplan,
             ust_luecken,
@@ -411,7 +413,8 @@ class BelegUstOhneBuchung:
         for x in k.buchungen:
             if x.beleg_id is not None:
                 je_beleg[x.beleg_id].append(x)
-        plan = kontenplan(k.session, k.buchhaltung, None)
+        plan = kontenplan(k.session, k.buchhaltung, k.elster)
+        ersetzt = ersetzte_buchungen(k.session)
         gemeldet: set[UUID] = set()
         befunde = []
         for beleg_id, liste in je_beleg.items():
@@ -434,7 +437,7 @@ class BelegUstOhneBuchung:
             b = k.belege.get(beleg_id)
             gleiche = kopien(b, k.belege.values()) if b is not None else []
             andere = [x for c in gleiche for x in je_beleg.get(c.id, [])]
-            luecken = ust_luecken(b, liste, plan, andere)
+            luecken = ust_luecken(b, liste, plan, andere, ersetzt)
             if not luecken:
                 continue
             gemeldet |= {beleg_id, *(c.id for c in gleiche)}
