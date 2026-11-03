@@ -320,6 +320,29 @@
   .knopf kbd { margin-left: var(--a-1); }
   .knopf-primaer kbd, .knopf-gefaehrlich kbd { color: currentColor; border-color: currentColor; }
   @media (pointer: coarse) { .knopf-klein { min-height: 2.75rem; } }
+  /* Status-Pille und Sicherheitsanzeige */
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fein-3);
+    padding: var(--fein-1) var(--fein-5);
+    font-size: var(--gr-2);
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    border-radius: var(--radius-rund);
+  }
+  .status-ok { color: var(--ok); background-color: var(--ok-flaeche); }
+  .status-info { color: var(--info); background-color: var(--info-flaeche); }
+  .status-warn { color: var(--warn); background-color: var(--warn-flaeche); }
+  .status-fehler { color: var(--fehler); background-color: var(--fehler-flaeche); }
+  .sicherheit { display: inline-flex; align-items: center; gap: var(--a-2); font-size: var(--gr-3); color: var(--text-2); }
+  .sicherheit-kaestchen { display: inline-flex; gap: var(--fein-1); }
+  .sicherheit-kaestchen span { width: 0.625rem; height: 0.625rem; background-color: var(--linie); border-radius: var(--radius-xs); }
+  .sicherheit-klein .sicherheit-kaestchen span { width: 0.5rem; height: 0.5rem; }
+  .sicherheit-niedrig .sicherheit-kaestchen span:first-child { background-color: var(--fehler); }
+  .sicherheit-mittel .sicherheit-kaestchen span:nth-child(-n+2) { background-color: var(--warn); }
+  .sicherheit-hoch .sicherheit-kaestchen span { background-color: var(--ok); }
 }
 
 @layer hilfen {

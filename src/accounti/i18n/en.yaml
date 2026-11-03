@@ -340,3 +340,9 @@ Dezember: December
 "Storniert durch Storno %(storno)s, Neubuchung %(neu)s — Original, Storno und Neubuchung bleiben sichtbar.": "Reversed by reversal %(storno)s, new booking %(neu)s — original, reversal and new booking remain visible."
 "Storniert durch Storno %(storno)s — beide Buchungen bleiben sichtbar.": "Reversed by reversal %(storno)s — both bookings remain visible."
 "Der Umsatz ist wieder offen und wird beim nächsten Lauf neu kontiert (gegebenenfalls über eine gelernte Regel).": "The transaction is open again and will be booked anew in the next run (possibly by a learned rule)."
+
+# --- Komponenten (Baustein 10c P1) --------------------------------------------
+niedrig: low
+mittel: medium
+hoch: high
+'Sicherheit: %(stufe)s': 'Confidence: %(stufe)s'

@@ -73,3 +73,32 @@ def test_name_direkt_vor_value():
     html = render('{{ k.knopf("Speichern", name="aktion", wert="weiter") }}')
     assert 'name="aktion" value="weiter"' in html
     assert 'name="leer" value=""' in render('{{ k.knopf("x", name="leer") }}')
+
+
+# --- Status und Sicherheit ----------------------------------------------------------
+
+
+def test_status_und_sicherheit_wort_und_symbol():
+    zeichen = {
+        "ok": "check",
+        "info": "info",
+        "warn": "triangle-alert",
+        "fehler": "triangle-alert",
+    }
+    for art, symbol in zeichen.items():
+        html = render(f'{{{{ k.status("{art}", "Wort") }}}}')
+        assert html.startswith(f'<span class="status status-{art}">'), art
+        assert f"#{symbol}" in html and "symbol-14 symbol-kraeftig" in html
+        assert html.endswith("Wort</span>")
+    with pytest.raises(TemplateError):
+        render('{{ k.status("bunt", "x") }}')
+    for stufe in ("niedrig", "mittel", "hoch"):
+        html = render(f'{{{{ k.sicherheit("{stufe}") }}}}')
+        assert f"sicherheit-{stufe}" in html
+        assert f"Sicherheit: {stufe}" in html
+        kaestchen = re.search(r'<span class="sicherheit-kaestchen"[^>]*>', html)
+        assert kaestchen and 'aria-hidden="true"' in kaestchen.group(0)
+        assert html.count("<span></span>") == 3
+    assert "Sicherheit: mittel · KI" in render('{{ k.sicherheit("mittel", "KI") }}')
+    assert "sicherheit-klein" in render('{{ k.sicherheit("hoch", klein=true) }}')
+    assert "Confidence: high" in render('{{ k.sicherheit("hoch") }}', sprache="en")

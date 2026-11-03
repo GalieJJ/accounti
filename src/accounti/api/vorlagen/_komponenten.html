@@ -26,3 +26,14 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {% macro linkknopf(text, href, art="sekundaer", symbol=none, groesse="normal", breit=false, taste=none, attribute={}) -%}
 <a class="{{ _knopfklasse(art, groesse, breit) }}" href="{{ href }}"{{ zusatzattribute(attribute) }}>{{ _knopfinhalt(text, symbol, taste, false) }}</a>
 {%- endmacro %}
+
+{#- Status-Pille: immer Symbol und Wort (Farbe trägt nie allein Bedeutung). -#}
+{% macro status(art, wort) -%}
+<span class="status status-{{ art }}">{{ symbol({"ok": "check", "info": "info", "warn": "triangle-alert", "fehler": "triangle-alert"}[art], groesse=14, kraeftig=true) }}{{ wort }}</span>
+{%- endmacro %}
+
+{#- Sicherheitsanzeige: drei Kästchen (aria-hidden), die Bedeutung trägt das Wort. -#}
+{% macro sicherheit(stufe, zusatz=none, klein=false) -%}
+{%- set worte = {"niedrig": _("niedrig"), "mittel": _("mittel"), "hoch": _("hoch")} -%}
+<span class="sicherheit sicherheit-{{ stufe }}{% if klein %} sicherheit-klein{% endif %}"><span class="sicherheit-kaestchen" aria-hidden="true"><span></span><span></span><span></span></span><span class="sicherheit-wort">{{ _("Sicherheit: %(stufe)s", stufe=worte[stufe]) }}{% if zusatz %} · {{ zusatz }}{% endif %}</span></span>
+{%- endmacro %}
