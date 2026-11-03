@@ -242,3 +242,16 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {% macro ladeanzeige(text=none) -%}
 <p class="ladeanzeige">{{ symbol("loader-circle", groesse=16) }}{{ text or _("Wird geladen …") }}</p>
 {%- endmacro %}
+
+{#- Brotkrumen: teile = (text, href); der letzte Eintrag ohne href mit aria-current. -#}
+{% macro brotkrumen(teile) -%}
+<nav class="brotkrumen" aria-label="{{ _("Brotkrumen") }}"><ol>{% for text, href in teile %}<li>{% if loop.last %}<span aria-current="page">{{ text }}</span>{% else %}<a href="{{ href }}">{{ text }}</a><span class="brotkrumen-trenner" aria-hidden="true">›</span>{% endif %}</li>{% endfor %}</ol></nav>
+{%- endmacro %}
+
+{#- Seitenblättern: url ist der Anfang des Verweises, die Seitennummer wird angehängt
+    (/pruefen?ansicht=offen&seite=). Fenster um die aktuelle Seite, dazu erste und letzte. -#}
+{% macro seitenblaettern(seite, seiten, url) -%}
+{%- if seiten > 1 -%}
+<nav class="seitenblaettern" aria-label="{{ _("Seiten") }}">{% if seite > 1 %}{{ linkknopf(_("Zurück"), url ~ (seite - 1), groesse="klein", symbol="chevron-left") }}{% endif %}<ol>{% for n in range(1, seiten + 1) %}{% if n == 1 or n == seiten or (n - seite) | abs <= 2 %}<li>{% if n == seite %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}" aria-current="page">{{ n }}</a>{% else %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}">{{ n }}</a>{% endif %}</li>{% elif (n - seite) | abs == 3 %}<li aria-hidden="true">…</li>{% endif %}{% endfor %}</ol>{% if seite < seiten %}{{ linkknopf(_("Weiter"), url ~ (seite + 1), groesse="klein") }}{% endif %}</nav>
+{%- endif -%}
+{%- endmacro %}

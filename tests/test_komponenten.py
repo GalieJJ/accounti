@@ -526,3 +526,24 @@ def test_bestaetigung_und_ladeanzeige():
     lade = render("{{ k.ladeanzeige() }}")
     assert lade.startswith('<p class="ladeanzeige">') and "#loader-circle" in lade
     assert "Wird geladen …" in lade and "role=" not in lade
+
+
+def test_brotkrumen_und_seitenblaettern():
+    html = render('{{ k.brotkrumen([("Prüfen", "/pruefen"), ("Telekom", none)]) }}')
+    assert html.startswith('<nav class="brotkrumen" aria-label="Brotkrumen"><ol>')
+    assert '<a href="/pruefen">Prüfen</a>' in html
+    assert '<span aria-current="page">Telekom</span>' in html
+    assert '<span class="brotkrumen-trenner" aria-hidden="true">›</span>' in html
+    assert 'aria-label="Breadcrumbs"' in render(
+        '{{ k.brotkrumen([("a", none)]) }}', sprache="en"
+    )
+    blaettern = render('{{ k.seitenblaettern(5, 12, "/pruefen?seite=") }}')
+    assert 'aria-label="Seiten"' in blaettern
+    assert 'href="/pruefen?seite=5" aria-current="page">5</a>' in blaettern
+    assert (
+        'href="/pruefen?seite=4"' in blaettern
+        and 'href="/pruefen?seite=12"' in blaettern
+    )
+    assert 'href="/pruefen?seite=9"' not in blaettern and "…" in blaettern
+    assert blaettern.count('aria-current="page"') == 1
+    assert render('{{ k.seitenblaettern(1, 1, "/x?seite=") }}') == ""

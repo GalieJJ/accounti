@@ -688,6 +688,14 @@
   .knopfreihe { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-3); }
   .ladeanzeige { display: inline-flex; align-items: center; gap: var(--a-2); margin: 0; color: var(--text-2); opacity: 0; transition: opacity 120ms; }
   .htmx-request .ladeanzeige, .htmx-request.ladeanzeige { opacity: 1; }
+  /* Brotkrumen und Seitenblättern */
+  .brotkrumen ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-2); margin: 0; padding: 0; list-style: none; font-size: var(--gr-3); color: var(--text-2); }
+  .brotkrumen li { display: inline-flex; align-items: center; gap: var(--a-2); }
+  .brotkrumen a { color: var(--text-2); }
+  .brotkrumen [aria-current="page"] { color: var(--text); }
+  .seitenblaettern { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-2); }
+  .seitenblaettern ol { display: flex; flex-wrap: wrap; align-items: center; gap: var(--a-1); margin: 0; padding: 0; list-style: none; }
+  .seitenblaettern [aria-current="page"] { color: var(--akzent); background-color: var(--akzent-flaeche); border-color: var(--akzent); }
 }
 
 @layer hilfen {
