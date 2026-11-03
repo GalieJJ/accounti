@@ -591,6 +591,8 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   Webhook-Adresse nur mit Schema, Rechner und Port — auch wenn im Passwort ein unkodiertes
   `#`, `?` oder `/` steht (alles bis zum letzten `@` vor dem Pfad gilt als Zugangsdaten; im
   Zweifel ohne Port); ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
+  Sonderzeichen im Passwort einer Adresse prozentkodieren (`#` → `%23`, `?` → `%3F`): Sonst
+  fragt die Bibliothek einen anderen Rechner an, als die Meldung nennt.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
   geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
   Zeilenumbruch erzeugt, ohne Rahmenzeichen, geschwärzt und je Zeile höchstens 1000 Zeichen

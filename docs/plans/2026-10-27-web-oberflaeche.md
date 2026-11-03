@@ -1769,7 +1769,10 @@ Durchlaufs mit Markern in allen Fremddaten.
   nicht). Adressen nennt accounti in Meldungen nur über `betrieb.protokoll.rechner_der_adresse`
   (Schema, Rechner, Port; Zugangsdaten bis zum letzten `@` vor dem Pfad, auch mit unkodiertem
   `#`, `?` oder `/` im Passwort; Runde 7, g6w B-2). Steht ein `@` nur im Pfad, gilt der Teil
-  davor als Rechner; ein `@` in der Abfrage („?an=jan@firma“) ändert nichts. Der geplante Lauf
+  davor als Rechner; ein `@` in der Abfrage („?an=jan@firma“) ändert nichts. Mit unkodiertem
+  `#` oder `?` im Passwort verbindet sich urllib trotzdem mit dem Teil davor (Fehlkonfiguration;
+  die Meldung nennt den gemeinten Rechner, nicht den angefragten) — Zugangsdaten in einer
+  Adresse prozentkodieren (`%23`, `%3F`). Der geplante Lauf
   schreibt die Ausgabe der Schritte ohne Rahmenzeichen, je Zeile höchstens 1000 Zeichen
   (DEBUG), Tracebacks von Python statt Rich (g6w B-1).
 
