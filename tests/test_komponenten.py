@@ -231,3 +231,67 @@ def test_aufklapper_details_summary():
     assert "aufklappen" in karte and "zuklappen" in karte and "#chevron-down" in karte
     with pytest.raises(TemplateError):
         render('{% call k.aufklapper("x", art="kasten") %}{% endcall %}')
+
+
+TABELLE = (
+    '{% call k.tabelle("Konten", [Spalte("Konto"), Spalte("Betrag", zahl=true)],'
+    ' summe=["Summe", "652,31 €"]) %}'
+    '{% call k.zeile() %}{% call k.zelle("Konto") %}Telefon (4920){% endcall %}'
+    '{% call k.zelle("Betrag", zahl=true) %}239,94 €{% endcall %}{% endcall %}'
+    "{% call k.zeile(gewaehlt=true) %}"
+    '{% call k.zelle("Konto") %}Bürobedarf{% endcall %}'
+    '{% call k.zelle("Betrag", zahl=true) %}412,37 €{% endcall %}{% endcall %}'
+    "{% endcall %}"
+)
+
+
+def test_tabelle_caption_pflicht_und_rollen():
+    html = render(TABELLE)
+    assert "<caption>Konten</caption>" in html
+    assert '<table class="tabelle" role="table">' in html
+    assert '<thead role="rowgroup">' in html and '<tbody role="rowgroup">' in html
+    assert html.count('role="row"') == 4  # Kopf, zwei Zeilen, Summe
+    assert '<th role="columnheader" scope="col">Konto</th>' in html
+    assert '<th role="columnheader" scope="col" class="zahl">Betrag</th>' in html
+    assert '<td role="cell" data-label="Konto">Telefon (4920)</td>' in html
+    assert '<td role="cell" data-label="Betrag" class="zahl">239,94 €</td>' in html
+    assert '<tfoot role="rowgroup"><tr role="row" class="summenzeile">' in html
+    assert '<td role="cell" class="zahl" data-label="Betrag">652,31 €</td>' in html
+    versteckt = render(
+        '{% call k.tabelle("Konten", [Spalte("Konto")], sichtbar=false) %}{% endcall %}'
+    )
+    assert '<caption class="unsichtbar">Konten</caption>' in versteckt
+    breit = render(
+        '{% call k.tabelle("Monate", [Spalte("Monat")], kompakt=true) %}{% endcall %}'
+    )
+    rahmen = nur(breit, "div")[0]
+    assert 'tabindex="0"' in rahmen and 'role="region"' in rahmen
+    assert 'aria-label="Monate"' in rahmen and "tabelle-kompakt" in breit
+    with pytest.raises(TemplateError):  # caption ist Pflicht
+        render("{% call k.tabelle(spalten=[]) %}{% endcall %}")
+
+
+def test_spaltenkopf_aria_sort():
+    for sortierung, aria, symbol in (
+        ("aufsteigend", "ascending", "arrow-up"),
+        ("absteigend", "descending", "arrow-down"),
+        ("keine", "none", "arrow-up-down"),
+    ):
+        html = render(
+            "{{ k.spaltenkopf(Spalte('Datum', sortierung=s, href='/x?sort=datum')) }}",
+            s=sortierung,
+        )
+        assert f'aria-sort="{aria}"' in html and f"#{symbol}" in html
+        assert '<a class="spalte-sortieren" href="/x?sort=datum">Datum' in html
+    assert "aria-sort" not in render("{{ k.spaltenkopf(Spalte('Datum')) }}")
+
+
+def test_tabelle_in_karte_und_gewaehlte_zeile():
+    html = render(
+        '{% call k.tabelle("Jahre", [Spalte("Jahr")], in_karte=true) %}'
+        '{% call k.zeile(gewaehlt=true) %}{% call k.zelle("Jahr") %}2026{% endcall %}'
+        "{% endcall %}{% endcall %}"
+    )
+    assert 'class="tabelle-rahmen tabelle-in-karte"' in html
+    assert '<tr role="row" class="zeile-gewaehlt">' in html
+    assert "aria-selected" not in html

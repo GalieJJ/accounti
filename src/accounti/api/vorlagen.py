@@ -17,6 +17,7 @@ import enum
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from fastapi import Request
@@ -161,7 +162,20 @@ def zusatzattribute(zuordnung: Mapping[str, object] | None) -> Markup:
     return Markup("".join(teile))
 
 
+@dataclass(frozen=True)
+class Spalte:
+    """Spaltenkopf der Komponente ``tabelle`` (in Vorlagen ``Spalte(…)``); sortierung
+    ``aufsteigend``, ``absteigend`` oder ``keine`` setzt ``aria-sort``, ``href`` den
+    Link zum Umsortieren."""
+
+    titel: str
+    zahl: bool = False
+    sortierung: str | None = None
+    href: str | None = None
+
+
 UMGEBUNG.globals["zusatzattribute"] = zusatzattribute
+UMGEBUNG.globals["Spalte"] = Spalte
 UMGEBUNG.globals["symbol_url"] = symbol_url
 UMGEBUNG.globals["symbol_klasse"] = symbol_klasse
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)

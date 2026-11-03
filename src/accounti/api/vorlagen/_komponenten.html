@@ -86,3 +86,26 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {% macro aufklapper(titel, art="linie", offen=false) -%}
 <details class="aufklapper aufklapper-{{ {"linie": "linie", "karte": "karte"}[art] }}"{% if offen %} open{% endif %}><summary>{{ titel }}{% if art == "karte" %}<span class="aufklapper-zustand" aria-hidden="true"><span class="aufklapper-zu">{{ _("aufklappen") }}</span><span class="aufklapper-auf">{{ _("zuklappen") }}</span>{{ symbol("chevron-down", groesse=16) }}</span>{% endif %}</summary><div class="aufklapper-inhalt">{{ caller() }}</div></details>
 {%- endmacro %}
+
+{#- Tabelle (Aufruf): caption Pflicht (sichtbar=false versteckt sie), Rollen ausdrücklich,
+    damit die Kartenform unter 40rem die Semantik behält. spalten: Spalte(…) (Jinja-Global);
+    summe: Werte der Summenzeile je Spalte (None leer). kompakt: breite Tabelle im
+    scrollbaren Rahmen mit tabindex und role=region. -#}
+{% macro tabelle(beschriftung, spalten, kompakt=false, sichtbar=true, in_karte=false, summe=none) -%}
+<div class="tabelle-rahmen{% if in_karte %} tabelle-in-karte{% endif %}{% if kompakt %} tabelle-breit{% endif %}"{% if kompakt %} tabindex="0" role="region" aria-label="{{ beschriftung }}"{% endif %}><table class="tabelle{% if kompakt %} tabelle-kompakt{% endif %}" role="table"><caption{% if not sichtbar %} class="unsichtbar"{% endif %}>{{ beschriftung }}</caption><thead role="rowgroup"><tr role="row">{% for s in spalten %}{{ spaltenkopf(s) }}{% endfor %}</tr></thead><tbody role="rowgroup">{{ caller() }}</tbody>{% if summe %}<tfoot role="rowgroup"><tr role="row" class="summenzeile">{% for wert in summe %}<td role="cell"{% if spalten[loop.index0].zahl %} class="zahl"{% endif %} data-label="{{ spalten[loop.index0].titel }}">{{ wert if wert is not none else "" }}</td>{% endfor %}</tr></tfoot>{% endif %}</table></div>
+{%- endmacro %}
+
+{% macro zeile(gewaehlt=false) -%}
+<tr role="row"{% if gewaehlt %} class="zeile-gewaehlt"{% endif %}>{{ caller() }}</tr>
+{%- endmacro %}
+
+{#- Zelle (Aufruf): label wiederholt den Spaltenkopf für die Kartenform (data-label). -#}
+{% macro zelle(label, zahl=false) -%}
+<td role="cell" data-label="{{ label }}"{% if zahl %} class="zahl"{% endif %}>{{ caller() }}</td>
+{%- endmacro %}
+
+{#- Spaltenkopf; mit sortierung (aufsteigend, absteigend, keine) aria-sort und ein Link. -#}
+{% macro spaltenkopf(spalte) -%}
+{%- set sortierung = {"aufsteigend": "ascending", "absteigend": "descending", "keine": "none"} -%}
+<th role="columnheader" scope="col"{% if spalte.zahl %} class="zahl"{% endif %}{% if spalte.sortierung %} aria-sort="{{ sortierung[spalte.sortierung] }}"{% endif %}>{% if spalte.href %}<a class="spalte-sortieren" href="{{ spalte.href }}">{{ spalte.titel }}{{ symbol({"aufsteigend": "arrow-up", "absteigend": "arrow-down", "keine": "arrow-up-down"}[spalte.sortierung or "keine"], groesse=14) }}</a>{% else %}{{ spalte.titel }}{% endif %}</th>
+{%- endmacro %}
