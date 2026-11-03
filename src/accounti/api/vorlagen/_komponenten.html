@@ -42,3 +42,15 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {% macro zaehler(anzahl, beschriftung, betont=false) -%}
 <span class="zaehler{% if betont %} zaehler-betont{% endif %}">{{ anzahl }}<span class="unsichtbar"> {{ beschriftung }}</span></span>
 {%- endmacro %}
+
+{#- Marke einer Gesellschaft: Kennfarbe (marke-1 … marke-6) und Monogramm; der Name steht
+    als versteckter Text daneben, nie als aria-label auf einem span. Mit href ein Link. -#}
+{% macro marke(marke, klein=false, href=none) -%}
+{%- set klasse = "marke marke-" ~ {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}[marke.farbe] ~ (" marke-klein" if klein else "") -%}
+<{{ "a" if href else "span" }} class="{{ klasse }}"{% if href %} href="{{ href }}"{% endif %} data-gesellschaft="{{ marke.kuerzel }}"><span class="marke-monogramm" aria-hidden="true">{{ marke.monogramm }}</span><span class="unsichtbar">{{ marke.name }}</span></{{ "a" if href else "span" }}>
+{%- endmacro %}
+
+{#- Avatar mit Initialen (dekorativ; den Namen nennt der Auslöser daneben). -#}
+{% macro avatar(initialen) -%}
+<span class="avatar" aria-hidden="true">{{ initialen }}</span>
+{%- endmacro %}

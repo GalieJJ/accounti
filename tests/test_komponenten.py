@@ -112,3 +112,23 @@ def test_zaehler_betont_und_beschriftung():
     assert 'class="zaehler zaehler-betont"' in render(
         '{{ k.zaehler(3, "x", betont=true) }}'
     )
+
+
+def test_marke_monogramm_ohne_aria_label_auf_span():
+    from accounti.api.geruest import Marke
+
+    m = Marke(kuerzel="muster", name="Galerie Demo GmbH", farbe=3, monogramm="GD")
+    html = render("{{ k.marke(m) }}", m=m)
+    assert html.startswith('<span class="marke marke-3" data-gesellschaft="muster">')
+    assert '<span class="marke-monogramm" aria-hidden="true">GD</span>' in html
+    assert '<span class="unsichtbar">Galerie Demo GmbH</span>' in html
+    assert "aria-label" not in html
+    link = render('{{ k.marke(m, klein=true, href="/gesellschaft") }}', m=m)
+    assert link.startswith('<a class="marke marke-3 marke-klein" href="/gesellschaft"')
+    assert link.endswith("</a>")
+    for farbe in (0, 7):
+        with pytest.raises(TemplateError):
+            render("{{ k.marke(m) }}", m=Marke("x", "X", farbe, "XX"))
+    assert render('{{ k.avatar("JH") }}') == (
+        '<span class="avatar" aria-hidden="true">JH</span>'
+    )

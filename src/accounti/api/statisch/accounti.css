@@ -242,7 +242,7 @@
     display: flex; flex-wrap: wrap; gap: 1rem; align-items: center;
     padding: 0.6rem 1rem; background: var(--flaeche); border-bottom: 1px solid var(--linie);
   }
-  .marke { font-weight: 600; text-decoration: none; color: var(--text); }
+  .wortmarke { font-weight: 600; text-decoration: none; color: var(--text); }
   .navigation { display: flex; flex-wrap: wrap; gap: 0.8rem; flex: 1; }
   .sitzung { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
   .sitzung form { display: flex; gap: 0.4rem; align-items: center; margin: 0; }
@@ -359,6 +359,42 @@
     border-radius: var(--radius-rund);
   }
   .zaehler-betont { color: var(--akzent-text); background-color: var(--akzent); }
+  /* Marke (Kennfarbe + Monogramm) und Avatar */
+  .marke {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: var(--gr-1);
+    font-weight: 600;
+    line-height: 1;
+    color: var(--flaeche);
+    text-decoration: none;
+    border-radius: var(--radius);
+  }
+  .marke-klein { width: 1.5rem; height: 1.5rem; border-radius: var(--radius-s); }
+  .marke-1 { background-color: var(--marke-1); }
+  .marke-2 { background-color: var(--marke-2); }
+  .marke-3 { background-color: var(--marke-3); }
+  .marke-4 { background-color: var(--marke-4); }
+  .marke-5 { background-color: var(--marke-5); }
+  .marke-6 { background-color: var(--marke-6); }
+  a.marke:hover { background-image: linear-gradient(var(--schleier), var(--schleier)); }
+  .avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    font-size: var(--gr-2);
+    font-weight: 600;
+    color: var(--akzent);
+    background-color: var(--akzent-flaeche);
+    border-radius: var(--radius-rund);
+  }
 }
 
 @layer hilfen {
