@@ -1678,11 +1678,23 @@ Durchlaufs mit Markern in allen Fremddaten.
   Steuer“ mit Grund und der Schlüssel laut Beleg gehen, § 14c-Warnung und
   `beleg_ust_ohne_buchung` zählen ihn nicht. Ohne eindeutige Belegart (Quittung,
   Marktplatzabrechnung als `SONSTIGES`, unbekannt) zählt die Buchung: Bucht sie ein
-  Erlöskonto (Erlöse, Erlösschmälerungen), gilt der Beleg wie ein Ausgangsbeleg — § 14c,
-  kein Hinweis „Fehlschlüssel“, kein Schlüssel 9, kein „ohne Steuer“, Storno-Warnung und
-  `beleg_ust_ohne_buchung` zählen ihn (Runde 8, g7w R7-3). Grenze: Nennt der Beleg mehrere
-  Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg (Weg: „ohne
-  Steuer“ mit Grund bzw. Storno).
+  Erlöskonto auf der Seite einer Rechnung (Erlös im Haben, Erlösschmälerung im Soll; ein
+  negativer Beleg spiegelt), gilt der Beleg wie ein Ausgangsbeleg — § 14c, kein Hinweis
+  „Fehlschlüssel“, kein Schlüssel 9, kein „ohne Steuer“, Storno-Warnung und
+  `beleg_ust_ohne_buchung` zählen ihn (Runde 8, g7w R7-3). Ein Erlös im Soll eines positiven
+  Belegs („8400 an 1000, Schlüssel 3“ auf einer Tankquittung) ist eine Erstattung bzw. eine
+  falsch kontierte Ausgabe und lässt sich direkt auf „4530 an 1000 --steuer 9“ berichtigen
+  (Folgepaket F, g8w G8R-1). Weist ein solcher Beleg Umsatzsteuer nur über seine
+  Erlösbuchungen aus, zählt als ausgewiesen je Satz höchstens die Steuer dieser Buchungen
+  (eine Gebührenposition desselben Satzes nicht; g8w G8R-4). Auswahl der Oberfläche,
+  Korrektur, Storno-Warnung und Prüfregel lesen dieselben Konten (mit
+  `elster.steuerrelevante_konten` und `kennziffern_konten`; g8w G8R-2). Grenzen: Nennt der
+  Beleg mehrere Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg
+  (Weg: „ohne Steuer“ mit Grund bzw. Storno). Eine Erlösschmälerung im Soll eines positiven
+  Belegs ohne eindeutige Belegart gilt als eigene Minderung des Unternehmers (§ 14c, wie
+  R7-3 X2), auch wenn sie in Wahrheit eine Gebühr ist (Weg: Storno bzw. Umbuchung über ein
+  Aufwandskonto). Die Obergrenze der Lücke ist die gebuchte Erlössteuer — war der Erlös mit
+  zu wenig Steuer gebucht, meldet die Lücke nur diese.
 - Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1; Runde 6, g5w
   NEU-1/NEU-2): `korrigiere` lehnt eine Korrektur ab, die die Seiten vertauscht — für jede
   Belegbuchung, nicht nur bei ausgewiesener USt: (a) ein Konto wechselt die Seite (neues Soll
@@ -1708,7 +1720,13 @@ Durchlaufs mit Markern in allen Fremddaten.
   Altfall „4900 an 4900“ und bei einer Zahlung, Erstattung, Verrechnung oder einem Skonto zur
   gebuchten Rechnung (jeder Stand nur Geld-, Personen- und Verrechnungskonten bzw. ein
   Minderungskonto dagegen, und eine andere wirksame Buchung des Belegs bucht die Rechnung;
-  Runde 8, g7w R7-2). (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht
+  Runde 8, g7w R7-2) — sie bucht ein Geld- oder Personenkonto auf der Gegenseite der
+  Rechnungsbuchung („1200 an 10001“ zu „10001 an 8400“). Ein Teil der Rechnung auf zwei
+  Gegenkonten („10001 an 1590“ neben „10001 an 8400“, Barverkauf „1000 an 1590“) bucht es
+  auf derselben Seite und ist keine Nebenbuchung; gibt eine Korrektur einer Nebenbuchung ein
+  Erlös- bzw. Aufwandskonto mit Schlüssel, das kein Minderungskonto ist (Auszahlung einer
+  Gutschrift „10001 an 1200 → 10001 an 8400, Schlüssel 3“), gelten Rückfall und (d) wieder
+  (Folgepaket F, g8w G8R-3). (d) sperrt auch eine Kennziffer, die erst durch die Korrektur entsteht
   und negativ ist (Vorzeichen einer Gutschrift), wenn kein Stand der Kette eine Kennziffer
   negativ bucht und der Beleg keine Gutschrift ist („10001 an 8125 → 8120 an 8125“: Kz 43
   −500; g6w N2) — nicht bei Skonto, Rabatt, Bonus oder Nachlass zur gebuchten Rechnung
@@ -1790,22 +1808,40 @@ Durchlaufs mit Markern in allen Fremddaten.
   Wirtschaftsjahrs in `gesellschaft liste`); jeder Befehl, der sie nutzt, lädt vorher einen
   strengen Abschnitt.
 - Die Schwärzung des Protokolls ist musterbasiert (Namen, kleingeschriebene IBANs erkennt sie
-  nicht). Ihre Muster laufen linear; eine Zeile über 4000 Zeichen kürzt sie vorher auf Anfang
-  und Ende (je höchstens 1500 Zeichen, ein Geheimnis an der Schnittstelle fällt ganz weg),
-  ein statischer Pfad steht gekürzt auf 200 Zeichen im Zugriffsprotokoll (Runde 8, g7w
-  DoS-1). Das Wort vor einem „:“ gehört nicht zur E-Mail-Adresse, außer ein Passwortzeichen
-  folgt („alarm:4711#Sonne@rechner“ ohne Schema); ein Port vor einer Abfrage bleibt, vor „#“
-  mit Text dahinter („https://rechner:8443#anker“) gilt er als Passwort (abgeschnittene
-  Adresse „https://alarm:4711#Sonne“; Runde 8, g7w B7-3). Adressen nennt accounti in
+  nicht). Ihre Muster laufen linear und beginnen an „://“, gleich, was davor steht
+  (Folgepaket F, g8w B8-3); zwischen Schlüsselwort und Wert erkennen sie höchstens 40
+  Leerraumzeichen (Grenze; damit ist auch das PIN/TAN-Muster linear, g8w B8-1). Eine Zeile
+  über 4000 Zeichen kürzt sie vorher auf Anfang und Ende (je höchstens 1500 Zeichen, an
+  Leerraum) und schwärzt jedes Stück zuvor mit 250 Zeichen über die Kante hinaus — ein
+  Geheimnis an der Kante steht vorn geschwärzt da und fällt hinten ganz weg (g8w B8-1: die
+  Fassung aus Runde 8 schnitt zuerst und trennte hinten „Bearer“, „passwort:“, „PIN“ von
+  ihrem Wert). Ein statischer Pfad steht gekürzt auf 200 Zeichen im Zugriffsprotokoll, andere
+  Pfade als Routenvorlage bzw. „(unbekannt)“ (Runde 8, g7w DoS-1; echter `serve`-Lauf mit
+  40 000 Zeichen in Pfad, Abfrage und User-Agent: `GET /anmelden` wartet höchstens 0,03 s).
+  Das Wort vor einem „:“ gehört nicht zur E-Mail-Adresse, außer ein Passwortzeichen folgt
+  („alarm:4711#Sonne@rechner“ ohne Schema). Ein `:Ziffern` ist nur ein Port, wenn der Teil
+  davor wie ein Rechner aussieht (Punkt, auch IPv4, oder `localhost`) und die Zahl 1–65535
+  ist; dann bleibt er vor `/`, Leerraum, Ende, einer Abfrage und `#/`, vor „#“ mit Text
+  („https://rechner.example:8443#anker“) gilt er als Passwort (Runde 8, g7w B7-3; g8w B8-2).
+  Grenzen: Ein Rechner ohne Punkt („https://host:8443?x=1“, Dienstname im Docker-Netz)
+  erscheint als „host:***“; ein Benutzername mit Punkt vor einem Ziffern-Passwort einer
+  abgeschnittenen Adresse gilt als Rechner mit Port. Adressen nennt accounti in
   Meldungen nur über `betrieb.protokoll.rechner_der_adresse` (Schema, Rechner, Port; auch IDN):
   Zugangsdaten stehen vor dem ersten `/`, `?` oder `#` und enden am letzten `@` dort, ein `@`
   in Abfrage oder Fragment ist keine Zugangsangabe (Runde 8, g7w B7-1). Ein unkodiertes `#`,
   `?` oder `/` im Passwort erkennt sie, wenn hinter „benutzer:…“ im Abschnitt bis zum nächsten
   `/` ein `@` steht (Runde 7, g6w B-2; Runde 8, g7w B7-2); ein `@` am Anfang oder weiter
-  hinten im Pfad bleibt Pfad. Grenzen: Ein Passwort mit Ziffern vorn und zwei unkodierten `/`
-  („https://alarm:4711/a/b@rechner“) erscheint als „alarm:4711“; mit Port und `@` in der
-  Abfrage („https://rechner:8443?an=jan@firma.example“) nennt die Meldung den Teil nach dem
-  `@`; ein Benutzer ohne Passwort mit unkodiertem `#`/`?` erscheint als Rechner. Mit
+  hinten im Pfad bleibt Pfad. Hat eine Adresse zwei Lesarten — Zugangsdaten „benutzer:…@“
+  vor einem `#` bzw. `?` und dahinter ein weiteres `@` („https://alarm:Son@ne#x@rechner“) —,
+  nennt sie keinen Rechner, sondern `MEHRDEUTIGE_ADRESSE` („Adresse nicht eindeutig – @ # ?
+  / im Passwort prozentkodieren …“) in Warnung, `aufgaben_benachrichtigungen.adresse` und
+  Verfahrensdokumentation (Folgepaket F, g8w B8-4; auch bei Zugangsdaten mit einer
+  E-Mail-Adresse in der Abfrage). Grenzen: Ein Passwort mit Ziffern vorn und zwei
+  unkodierten `/` („https://alarm:4711/a/b@rechner“) erscheint als „alarm:4711“; ein `@` im
+  Passwort vor einem `/` („https://alarm:Son@ne/x@rechner“) nennt „ne“ (so liest urllib die
+  Adresse); mit Port und `@` in der Abfrage („https://rechner:8443?an=jan@firma.example“)
+  nennt die Meldung den Teil nach dem `@`; ein Benutzer ohne Passwort mit unkodiertem `#`/`?`
+  erscheint als Rechner. Mit
   unkodiertem `#`, `?` oder `/` im Passwort verbindet sich urllib ohnehin mit dem Teil davor
   (Fehlkonfiguration; die Meldung nennt den gemeinten Rechner, nicht den angefragten) —
   Zugangsdaten in einer Adresse prozentkodieren (`%23`, `%3F`, `%2F`, `%40`). Der geplante Lauf

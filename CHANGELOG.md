@@ -729,12 +729,28 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Rechner mit Umlauten (IDN) galt als fehlerhaft, und ein unkodiertes `/` im Passwort hinter
   Ziffern („https://alarm:4711/Sonne@…“) ließ „alarm:4711“ in Warnung,
   `aufgaben_benachrichtigungen` und Verfahrensdokumentation stehen. **Schwärzung:** Port und
-  Abfrage („https://host:8443?x=1“) und das Wort vor einem „:“ („Empfänger:max@firma.de“)
-  verschwinden nicht mehr. **Prüfen und `/buchungen`:** Bei fehlerhafter Konfiguration der
+  Abfrage („https://rechner.example:8443?x=1“) und das Wort vor einem „:“
+  („Empfänger:max@firma.de“) verschwinden nicht mehr. **Prüfen und `/buchungen`:** Bei fehlerhafter Konfiguration der
   Gesellschaft eine Meldung samt Datei statt still gerechneter Standardwerte; Freigeben,
   Korrigieren und Stornieren erst nach der Berichtigung. **Registry in anderer Kodierung als
   UTF-8** (oder unlesbar): eine Meldung statt eines Tracebacks in jedem Befehl, in `serve`
   und im Planer.
+- **Nacharbeit 10b-1** (Nachprüfung g8w, Folgepaket F): **Schwärzung:** Die Kürzung langer
+  Zeilen konnte an der hinteren Kante „Bearer“, „passwort:“, „PIN“, „TAN“ oder „secret:“
+  von ihrem Wert trennen, der dann ungeschwärzt im Protokoll stand — jetzt wird vor dem
+  Schnitt mit Vorlauf geschwärzt. Ein Ziffern-Passwort einer abgeschnittenen Adresse
+  („https://alarm:4711?x=…“) galt als Port (Port jetzt nur hinter einem Rechner mit Punkt
+  oder `localhost`; „https://host:8443“ ohne Punkt erscheint als „host:***“), Zugangsdaten
+  hinter einem Schema nach 42 Buchstaben ohne Trenner blieben stehen, und „PIN“ mit langer
+  Leerraumfolge lief quadratisch. Eine Adresse mit „@“ im Passwort vor „#“/„?“ nannte einen
+  Passwortteil als Rechner — jetzt der Hinweis „Adresse nicht eindeutig“. **Steuer:** Eine
+  auf Quittung oder Marktplatzabrechnung als Erlös im Soll gebuchte Ausgabe („8400 an 1000,
+  Schlüssel 3“) lässt sich wieder auf Aufwand mit Vorsteuer berichtigen (keine § 14c-Sperre,
+  keine falsche Storno-Warnung); Steuerauswahl im Browser und Prüfregel
+  `beleg_ust_ohne_buchung` lesen `elster.steuerrelevante_konten` wie Korrektur und Storno;
+  ein Rechnungsteil auf zwei Gegenkonten („10001 an 1590“) wird nicht mehr zur
+  Erlösschmälerung mit Umsatzsteuer; die § 14c-Lücke einer Marktplatzabrechnung zählt keine
+  Gebührenposition mehr (95 € statt 114 €).
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

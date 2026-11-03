@@ -594,21 +594,40 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
 - Ein Filter an jedem Handler schwärzt IBAN, E-Mail-Adressen, accounti- und Bearer-Token,
   verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
   vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
-  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Eine Zeile über 4000
-  Zeichen kürzt er vorher auf Anfang und Ende (je höchstens 1500 Zeichen, ein Geheimnis an
-  der Schnittstelle fällt ganz weg). Fehlermeldungen nennen eine Webhook-Adresse nur mit
+  „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Zwischen Schlüsselwort
+  und Wert erkennt er bis zu 40 Leerraumzeichen („PIN“, dann 50 Leerzeichen und eine Zahl,
+  bleibt stehen). Eine Zeile über 4000 Zeichen kürzt er vorher auf Anfang und Ende (je
+  höchstens 1500 Zeichen, geschnitten an Leerraum). Jedes Stück schwärzt er zuvor mit 250
+  Zeichen über die Schnittkante hinaus: Ein Geheimnis, das an der Kante beginnt, steht vorn
+  geschwärzt da und fällt hinten ganz weg; ein Wert hinter der Kante verliert sein
+  Schlüsselwort nicht. (Die Fassung vor dem Folgepaket F schwärzte erst nach dem Schnitt —
+  die hintere Kante konnte „Bearer“, „passwort:“, „PIN“ oder „TAN“ von ihrem Wert trennen,
+  der dann ungeschwärzt stand.) Ein `:Ziffern` hinter `://` gilt nur als Port, wenn der
+  Teil davor wie ein Rechner aussieht — mit Punkt (auch IPv4) oder `localhost` — und die
+  Zahl höchstens 65535 ist; sonst ist es ein Passwort einer abgeschnittenen Adresse
+  („https://alarm:4711?x=…“ → „https://alarm:***“). Grenze: Ein Rechner ohne Punkt (Name
+  im Docker-Netz wie „http://n8n:5678/…“ oder „https://host:8443?x=1“) erscheint so als
+  „http://n8n:***/…“ — Sicherheit vor Bequemlichkeit; ein Benutzername mit Punkt vor einem
+  Ziffern-Passwort einer abgeschnittenen Adresse („https://jan.muster:4711?…“) gilt
+  umgekehrt als Rechner mit Port. Fehlermeldungen nennen eine Webhook-Adresse nur mit
   Schema, Rechner und Port; ebenso die Verfahrensdokumentation eine Connector-`basis_url`.
   Zugangsdaten stehen vor dem ersten `/`, `?` oder `#` und enden am letzten `@` dort — ein
   `@` in Abfrage oder Fragment ist keine Zugangsangabe. Ein unkodiertes `#`, `?` oder `/` im
   Passwort erkennt accounti, wenn das `@` im Abschnitt dahinter steht (bis zum nächsten
-  `/`; „https://alarm:4711#Sonne@rechner/…“, „https://alarm:4711/Sonne@rechner/…“). Nicht
-  erkennbar ist ein Passwort mit Ziffern vorn und zwei unkodierten `/`
-  („https://alarm:4711/a/b@rechner/…“ — Meldung und Schwärzung nennen „alarm:4711“ als
-  Rechner und Port), und mit Port und einem `@` in der Abfrage
-  („https://rechner:8443?an=jan@firma.example“) nennt die Meldung im Zweifel den Teil nach
-  dem `@`. Deshalb Sonderzeichen im Passwort einer Adresse prozentkodieren (`#` → `%23`, `?`
-  → `%3F`, `/` → `%2F`, `@` → `%40`): Sonst fragt die Bibliothek ohnehin einen anderen
-  Rechner an, als die Meldung nennt.
+  `/`; „https://alarm:4711#Sonne@rechner/…“, „https://alarm:4711/Sonne@rechner/…“).
+  **Mehrdeutig** ist eine Adresse mit Zugangsdaten „benutzer:…@“ vor einem `#` bzw. `?`
+  und einem weiteren `@` dahinter („https://alarm:Son@ne#x@rechner/…“: Rechner „ne“ oder
+  „rechner“?) — dann nennen Warnung, `aufgaben_benachrichtigungen.adresse` und
+  Verfahrensdokumentation keinen Rechner, sondern „(Adresse nicht eindeutig – @ # ? / im
+  Passwort prozentkodieren …)“; das gilt auch für eine Adresse mit Zugangsdaten und einer
+  E-Mail-Adresse in der Abfrage. Nicht erkennbar ist ein Passwort mit Ziffern vorn und zwei
+  unkodierten `/` („https://alarm:4711/a/b@rechner/…“ — Meldung und Schwärzung nennen
+  „alarm:4711“ als Rechner und Port), ein `@` im Passwort vor einem `/`
+  („https://alarm:Son@ne/x@rechner/…“ nennt „ne“, wie die Bibliothek die Adresse liest),
+  und mit Port und einem `@` in der Abfrage („https://rechner:8443?an=jan@firma.example“)
+  nennt die Meldung im Zweifel den Teil nach dem `@`. Deshalb Sonderzeichen im Passwort
+  einer Adresse prozentkodieren (`#` → `%23`, `?` → `%3F`, `/` → `%2F`, `@` → `%40`):
+  Sonst fragt die Bibliothek ohnehin einen anderen Rechner an, als die Meldung nennt.
 - Namen und Belegtexte erkennt kein Muster; der Code schreibt sie nicht ins Protokoll. Der
   geplante Lauf protokolliert Schritt, Rückgabewert und Dauer (die Ausgabe der Befehle, ohne
   Zeilenumbruch erzeugt, ohne Rahmenzeichen, geschwärzt und je Zeile höchstens 1000 Zeichen
