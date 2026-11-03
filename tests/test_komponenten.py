@@ -4,6 +4,7 @@ Schritt 4, Aussehen nach L4). Jedes Makro wird über eine kleine Vorlage gerende
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 
 import pytest
 from jinja2 import TemplateError
@@ -309,3 +310,21 @@ def test_angaben_als_dl():
     assert 'class="angaben angaben-klein"' in render(
         "{% call k.angaben(klein=true) %}{% endcall %}"
     )
+
+
+def test_betrag_vorzeichen_und_richtung_als_text():
+    ein = render("{{ k.betrag(w, 'einnahme') }}", w=Decimal("780.25"))
+    assert '<span class="betrag-wert">+ 780,25 €</span>' in ein
+    assert '<span class="betrag-richtung">Einnahme</span>' in ein
+    aus = render("{{ k.betrag(w, 'ausgabe') }}", w=Decimal("-1204.90"))
+    assert "− 1.204,90 €" in aus and "Ausgabe" in aus
+    summe = render("{{ k.betrag(w) }}", w=Decimal("11111.11"))
+    assert '<span class="betrag-wert">11.111,11 €</span>' in summe
+    assert "betrag-richtung" not in summe and summe.startswith('<span class="betrag">')
+    assert 'class="betrag betrag-gross"' in render(
+        "{{ k.betrag(w, groesse='gross') }}", w=Decimal("1")
+    )
+    en = render("{{ k.betrag(w, 'ausgabe') }}", w=Decimal("-5"), sprache="en")
+    assert "− €5.00" in en and "Payment out" in en
+    with pytest.raises((ValueError, TemplateError)):
+        render("{{ k.betrag(w, 'ueberweisung') }}", w=Decimal("1"))

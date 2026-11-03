@@ -125,7 +125,21 @@ def bezeichnung(wert: Any, sprache: str | None = None) -> str:
     return "" if wert is None else str(wert)
 
 
+def betrag_anzeige(
+    wert: Any, richtung: str | None = None, sprache: str | None = None
+) -> str:
+    """Betrag der Komponente ``betrag``: mit Richtung (``einnahme``, ``ausgabe``) mit
+    Vorzeichen „+“ bzw. „−“ (U+2212) und schmalem festem Leerzeichen davor, ohne
+    Richtung (Summen) ohne Vorzeichen; vor „€“ ein festes Leerzeichen."""
+    zeichen = {None: "", "einnahme": "+\u202f", "ausgabe": "\u2212\u202f"}
+    if richtung not in zeichen:
+        raise ValueError(f"Richtung {richtung!r} gibt es nicht (einnahme, ausgabe)")
+    zahl = i18n.euro(abs(wert) if richtung else wert, sprache).replace(" ", "\u00a0")
+    return zeichen[richtung] + zahl.replace("-", "\u2212", 1)
+
+
 UMGEBUNG.filters["betrag"] = _filter(i18n.betrag)
+UMGEBUNG.filters["betrag_anzeige"] = _filter(betrag_anzeige)
 UMGEBUNG.filters["euro"] = _filter(i18n.euro)
 UMGEBUNG.filters["datum"] = _filter(i18n.datum)
 UMGEBUNG.filters["prozent"] = _filter(i18n.prozent)

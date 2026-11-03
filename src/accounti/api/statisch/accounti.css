@@ -535,6 +535,12 @@
     .angaben { grid-template-columns: minmax(0, 1fr); gap: 0; }
     .angaben dd { margin-bottom: var(--a-3); }
   }
+  /* Betrag: Vorzeichen und Richtung als Text, bricht nicht um */
+  .betrag { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+  .betrag-wert { font-weight: 600; white-space: nowrap; }
+  .betrag-richtung { font-size: var(--gr-3); color: var(--text-2); }
+  .betrag-mittel .betrag-wert { font-size: var(--gr-6); }
+  .betrag-gross .betrag-wert { font-size: var(--gr-8); letter-spacing: -0.01em; }
 }
 
 @layer hilfen {

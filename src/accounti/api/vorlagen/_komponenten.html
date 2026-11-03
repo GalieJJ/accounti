@@ -118,3 +118,11 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {% macro angabe(label) -%}
 <div class="angabe"><dt>{{ label }}</dt><dd>{{ caller() }}</dd></div>
 {%- endmacro %}
+
+{#- Betrag: mit richtung (einnahme, ausgabe) Vorzeichen „+“/„−“ und die Richtung als Wort,
+    ohne richtung (Summen) ohne Vorzeichen; feste Leerzeichen, bricht nicht um.
+    groesse: none, "mittel" (20 px), "gross" (28 px). -#}
+{% macro betrag(wert, richtung=none, groesse=none) -%}
+{%- set worte = {"einnahme": _("Einnahme"), "ausgabe": _("Ausgabe")} -%}
+<span class="betrag{{ {none: "", "mittel": " betrag-mittel", "gross": " betrag-gross"}[groesse] }}"><span class="betrag-wert">{{ wert | betrag_anzeige(richtung) }}</span>{% if richtung %}<span class="betrag-richtung">{{ worte[richtung] }}</span>{% endif %}</span>
+{%- endmacro %}
