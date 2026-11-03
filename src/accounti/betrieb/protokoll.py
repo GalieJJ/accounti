@@ -31,11 +31,11 @@ from typing import IO
 _SCHEMA = r"://"
 # Zeichen einer E-Mail-Adresse vor dem „@“ bzw. des Rests einer zerschnittenen Adresse
 _LOKAL = r"\w.+\-#?%!$&*=^~"
-# Leerraum zwischen Schlüsselwort und Wert („Passwort:  …“, „PIN\n4711“): begrenzt —
-# sonst probierte das PIN-Muster jede Aufteilung einer langen Leerraumfolge
-# (quadratisch), und die Kürzung langer Zeilen (``_VORLAUF``) braucht einen festen
-# Abstand (Folgepaket F, g8w B8-1)
-_ABSTAND = r"\s{0,40}"
+# Leerraum zwischen Schlüsselwort und Wert („Passwort:  …“, „PIN\n4711“), possessiv:
+# Mit ``\s*`` probierte das PIN-Muster jede Aufteilung einer langen Leerraumfolge
+# (quadratisch, Folgepaket F, g8w B8-1), begrenzt auf 40 Zeichen blieb ein Wert
+# dahinter ungeschwärzt (F Runde 2, gf-betrieb F-B2) — ``\s*+`` gibt nichts zurück
+_ABSTAND = r"\s*+"
 # Teil einer Adresse zwischen „://“ und „:“ (ohne Punkt: ``_RECHNERTEIL``) und ein Port
 # 1–65535 ohne führende Null
 _HOSTTEIL = r"[^/\s:@?#\[\]]"
@@ -51,7 +51,7 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
         ),
         "[Token]",
     ),
-    (re.compile(r"(?i)\bbearer\s{1,40}[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
+    (re.compile(r"(?i)\bbearer\s++[A-Za-z0-9._~+/=\-]+"), "Bearer [Token]"),
     # Zugangsdaten jeder URL (scheme://benutzer:passwort@): die ganze userinfo, auch
     # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
     (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
@@ -146,6 +146,14 @@ def _mit_herkunft(text: str) -> tuple[str, list[int]]:
     return text, herkunft
 
 
+def _vor_dem_abstand(zeile: str, stelle: int) -> int:
+    """Anfang der Folge aus Leerraum, „:“ und „=“, die bis ``stelle`` reicht (sonst
+    ``stelle``) — dort, wo ein Abstand (``_ABSTAND``) sein Schlüsselwort hat."""
+    while stelle > 0 and (zeile[stelle - 1].isspace() or zeile[stelle - 1] in ":="):
+        stelle -= 1
+    return stelle
+
+
 def _ohne_mitte(zeile: str) -> str:
     """Kürzen ohne ein angeschnittenes Geheimnis stehen zu lassen: Die Schnittkanten
     liegen auf Leerraum (der Anfang endet vor dem letzten in den ersten ``_RAND``
@@ -153,8 +161,10 @@ def _ohne_mitte(zeile: str) -> str:
     ``_VORLAUF`` Zeichen über seine Kante hinaus geschwärzt und erst dann geschnitten:
     Ein Treffer, der vor der Kante beginnt, bleibt vorn geschwärzt stehen und fällt
     hinten ganz weg — ein Wert hinter der Kante verliert nie sein Schlüsselwort
-    („Bearer“, „passwort:“, „PIN“, eine IBAN mit Leerzeichen). Die Mitte erscheint
-    nicht."""
+    („Bearer“, „passwort:“, „PIN“, eine IBAN mit Leerzeichen). Der Vorlauf des Endes
+    reicht über einen Abstand (Leerraum, „:“, „=“ — beliebig lang), in dem er beginnt,
+    bis ``_VORLAUF`` Zeichen vor diesen (F Runde 2, gf-betrieb F-B2: „PIN“, 300
+    Leerzeichen, Wert hinter der Kante). Die Mitte erscheint nicht."""
     kante = max((m.start() for m in _LEER.finditer(zeile, 0, _RAND)), default=0)
     text, herkunft = _mit_herkunft(zeile[: kante + _VORLAUF])
     kopf = text[: bisect_left(herkunft, kante)].rstrip()
@@ -162,6 +172,7 @@ def _ohne_mitte(zeile: str) -> str:
     ende = ""
     if weiter is not None:
         start = max(weiter.start() - _VORLAUF, 0)
+        start = max(_vor_dem_abstand(zeile, start) - _VORLAUF, 0)
         text, herkunft = _mit_herkunft(zeile[start:])
         ende = text[bisect_right(herkunft, weiter.start() - start) :].lstrip()
     return f"{kopf} … [gekürzt] … {ende}".strip()

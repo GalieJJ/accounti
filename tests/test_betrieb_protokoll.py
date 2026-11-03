@@ -537,12 +537,18 @@ def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis):
 def test_schluesselwort_mit_langer_leerraumfolge_ohne_quadratische_laufzeit(wort, leer):
     """B8-1 (Hinweis g8w): „PIN“ und 8000 Zeilenumbrüche brauchten 0,71 s — das
     PIN/TAN-Muster probierte jede Aufteilung der Leerraumfolge auf zwei ``\\s*``. Der
-    Abstand zwischen Schlüsselwort und Wert ist jetzt begrenzt, jedes Muster linear."""
+    Abstand zwischen Schlüsselwort und Wert ist possessiv (``\\s*+``, F Runde 2:
+    F-B2), jedes Muster linear — 100 000 Zeichen, auch „PIN “ davor."""
     import time
 
     from accounti.betrieb.protokoll import _MUSTER
 
-    for text in (wort + leer * 20_000, wort + ":" + leer * 20_000 + "4711"):
+    for text in (
+        wort + leer * 100_000,
+        wort + ":" + leer * 100_000 + "4711",
+        "PIN " + leer * 100_000,
+        wort + leer * 100_000 + "4711",
+    ):
         for muster, ersatz in _MUSTER:
             beginn = time.perf_counter()
             muster.sub(ersatz, text)
@@ -551,8 +557,8 @@ def test_schluesselwort_mit_langer_leerraumfolge_ohne_quadratische_laufzeit(wort
 
 
 def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
-    """Der begrenzte Abstand reicht für übliche Schreibweisen (Tabulator, Ausrichtung
-    mit Leerzeichen, Zeilenumbruch)."""
+    """Übliche Schreibweisen (Tabulator, Ausrichtung mit Leerzeichen,
+    Zeilenumbruch)."""
     for roh in (
         "passwort:\t\thunter4711",
         "Kennwort      =      Sonne4711",
@@ -562,6 +568,47 @@ def test_schluesselwort_und_wert_mit_abstand_bleiben_geschwaerzt():
         "secret:" + " " * 30 + "s3cr3t4711",
     ):
         assert not re.search(r"\d", schwaerze(roh)), roh
+
+
+@pytest.mark.parametrize("anzahl", [41, 300, 5000])
+def test_schluesselwort_und_wert_mit_langem_abstand_bleiben_geschwaerzt(anzahl):
+    """F-B2 (gf-betrieb k3_port.py, aus F 61e2a5d): Hinter mehr als 40
+    Leerraumzeichen zwischen Schlüsselwort und Wert erkannte kein Muster den Wert mehr
+    („PIN“ + 41 Leerzeichen + Zahl, „Passwort:“ + 41 Tabs, „Bearer“ + 41 × „\\n“, „TAN“
+    + 40 × „\\r\\n“) — d36ac77 schwärzte sie. Jetzt beliebig lang, auch wenn die Zeile
+    dadurch gekürzt wird (5000 Leerzeichen)."""
+    for roh in (
+        "PIN" + " " * anzahl + "471147",
+        "Passwort:" + "\t" * anzahl + "hunter4711",
+        "Authorization: Bearer" + "\n" * anzahl + "eyJtok4711",
+        "TAN" + "\r\n" * anzahl + "123456",
+        "Kennwort" + " " * anzahl + "=" + " " * anzahl + "Sonne4711",
+        "PIN:" + " " * anzahl + "4711",
+    ):
+        text = schwaerze(roh)
+        assert not re.search(r"\d", text), (roh[:12], text[-40:])
+
+
+@pytest.mark.parametrize("anzahl", [41, 260, 600, 1600])
+@pytest.mark.parametrize(
+    "wort",
+    ["PIN", "Passwort:", "Bearer", "Kennwort ="],
+    ids=["pin", "pw", "bearer", "kw"],
+)
+def test_langer_abstand_an_der_schnittkante_bleibt_geschwaerzt(wort, anzahl):
+    """F-B2 mit der Kürzung langer Zeilen: Ein Abstand über die hintere bzw. vordere
+    Kante hinaus trennt den Wert nicht von seinem Schlüsselwort — der Vorlauf des
+    Endes reicht über den ganzen Abstand (Lage um die Kante in Schritten von 7)."""
+    from accounti.betrieb.protokoll import _RAND
+
+    geheim = wort + " " * anzahl + ("471147" if wort == "PIN" else "hunter4711")
+    for versatz in range(-len(geheim) - 30, 40, 7):
+        zeile = "w " * 2500 + geheim + (" z" * _RAND)[: _RAND - versatz]
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("hinten", versatz, text[-300:])
+        zeile = ("w " * _RAND)[: _RAND + versatz] + " " + geheim + " z" * 3000
+        text = schwaerze(zeile)
+        assert not re.search(r"\d", text), ("vorn", versatz, text[1300:1800])
 
 
 @pytest.mark.parametrize(
