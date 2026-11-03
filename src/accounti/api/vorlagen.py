@@ -22,7 +22,13 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
+from jinja2 import (
+    Environment,
+    PackageLoader,
+    StrictUndefined,
+    nodes,
+    select_autoescape,
+)
 from jinja2.runtime import Context
 from jinja2.utils import pass_context
 from markupsafe import Markup, escape
@@ -30,6 +36,7 @@ from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
+from accounti.api.htmx import ist_htmx
 from accounti.api.registry import Navigationspunkt
 from accounti.api.symbole import symbol_klasse, symbol_url
 from accounti.i18n import N_
@@ -270,12 +277,63 @@ def ansichtspfad(request: Request) -> str:
     return "/"
 
 
+# Vorlagen mit Fragment (``teil``), die schon geprüft sind: (Umgebung, Name, Block)
+_GEPRUEFT: set[tuple[int, str, str]] = set()
+
+
+def pruefe_teilvorlage(umgebung: Environment, name: str, teil: str) -> None:
+    """Eine Vorlage, deren Block ``teil`` allein gerendert wird (htmx-Fragment), darf
+    auf oberster Ebene nur ``extends`` und Blöcke haben, und im Block steht kein
+    ``super()``: Ein Block allein läuft ohne den Code oben — Importe und ``{% set %}``
+    fehlten dort (Plan P1, B19). Sonst ``RuntimeError``, schon beim Rendern der ganzen
+    Seite; geprüft wird einmal je Vorlage."""
+    schluessel = (id(umgebung), name, teil)
+    if schluessel in _GEPRUEFT:
+        return
+    if umgebung.loader is None:
+        raise RuntimeError(f"{name}: keine Vorlagen geladen")
+    quelle = umgebung.loader.get_source(umgebung, name)[0]
+    baum = umgebung.parse(quelle)
+    for knoten in baum.body:
+        if isinstance(knoten, nodes.Extends | nodes.Block):
+            continue
+        if isinstance(knoten, nodes.Output) and all(
+            isinstance(n, nodes.TemplateData) and not n.data.strip()
+            for n in knoten.nodes
+        ):
+            continue
+        raise RuntimeError(
+            f"{name}: mit teil={teil!r} stehen auf oberster Ebene nur extends und "
+            f"Blöcke — Importe und set gehören in den Block {teil!r}"
+        )
+    bloecke = {b.name: b for b in baum.find_all(nodes.Block)}
+    if teil not in bloecke:
+        raise RuntimeError(f"{name}: der Block {teil!r} fehlt")
+    for aufruf in bloecke[teil].find_all(nodes.Call):
+        if isinstance(aufruf.node, nodes.Name) and aufruf.node.name == "super":
+            raise RuntimeError(f"{name}: kein super() im Block {teil!r}")
+    _GEPRUEFT.add(schluessel)
+
+
+def rendere_teil(
+    umgebung: Environment, name: str, teil: str, kontext: dict[str, Any]
+) -> str:
+    """Nur den Block ``teil`` der Vorlage rendern (ohne Gerüst)."""
+    vorlage = umgebung.get_template(name)
+    return "".join(vorlage.blocks[teil](vorlage.new_context(kontext)))
+
+
 def seite(
     request: Request,
     vorlage: str,
     werte: dict[str, Any] | None = None,
     status: int = 200,
+    *,
+    teil: str | None = None,
 ) -> HTMLResponse:
+    """Seite mit dem Grundlayout-Kontext. Mit ``teil`` (neue Seiten ab Baustein 10c)
+    liefert eine htmx-Anfrage ohne Verlaufsabruf nur diesen Block als Fragment, sonst
+    die ganze Seite (eine Route, zwei Formen; AK58)."""
     a = getattr(request.state, "angemeldet", None)
     punkte: list[Navigationspunkt] = getattr(request.app.state, "navigation", [])
     sprache = sprache_der_anfrage(request)
@@ -294,12 +352,24 @@ def seite(
         "pfad": ansichtspfad(request),
         "htmx_konfig": HTMX_KONFIG,
         "hx_kopf": json.dumps({"X-CSRF-Token": csrf}),
+        # Darstellung an <html> (data-theme, color-scheme); die Wahl am Benutzer
+        # verdrahtet das Gerüst (Schritt 7), /muster setzt sie mit ?theme=
+        "darstellung": "auto",
+        "color_scheme": "light dark",
     }
     kontext.update(werte or {})
+    if teil is not None:
+        pruefe_teilvorlage(UMGEBUNG, vorlage, teil)
     # Starlette rendert im Konstruktor — die Sprache gilt genau so lange
     with i18n.sprache_aktiv(sprache):
-        antwort: HTMLResponse = VORLAGEN.TemplateResponse(
-            request, vorlage, kontext, status_code=status
-        )
+        if teil is not None and ist_htmx(request):
+            antwort = HTMLResponse(
+                rendere_teil(UMGEBUNG, vorlage, teil, {**kontext, "request": request}),
+                status_code=status,
+            )
+        else:
+            antwort = VORLAGEN.TemplateResponse(
+                request, vorlage, kontext, status_code=status
+            )
     antwort.headers["Vary"] = "Accept-Language"
     return antwort
