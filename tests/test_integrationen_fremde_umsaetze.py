@@ -1560,6 +1560,43 @@ def test_zuordnen_vor_dem_fenster_auch_mit_trotzdem_nicht(umgebung):
         assert "spät" not in str(fehler.value) and "--trotzdem" not in str(fehler.value)
 
 
+@pytest.mark.parametrize("bank_tag", [date(2026, 8, 6), date(2026, 8, 1)])
+def test_einzahlung_vor_dem_fenster_mit_trotzdem(umgebung, bank_tag):
+    """Nachprüfung 9 E, N9-1: Eine Einzahlung (PayPal „Bankgutschrift“ am 10.08.,
+    Fenster 08.08.–20.08.) überweist die Bank zuerst — der Umsatz vom 06.08. (oder
+    vor dem Abrechnungszeitraum 03.08.–20.08.) ließ sich nie zuordnen, auch nicht mit
+    ``--trotzdem``, und die Meldung sprach von einer Auszahlung. Jetzt ausdrücklich
+    mit ``--trotzdem``; ohne nennt die Meldung die Einzahlung und den Ausweg."""
+    from tests.marktplatz_hilfe import paypal_bericht
+    from tests.test_integrationen_lauf import _pp_zeile, paypal
+
+    s, archiv, kontext = umgebung
+    roh = paypal_bericht(
+        _pp_zeile("03.08.2026", "WZ01", "Website-Zahlung", "100,00", "100,00"),
+        {
+            **_pp_zeile(
+                "10.08.2026",
+                "BG01",
+                "Bankgutschrift auf PayPal-Konto",
+                "50,00",
+                "150,00",
+            ),
+            "Name": "",
+        },
+        _pp_zeile("20.08.2026", "WZ02", "Website-Zahlung", "10,00", "160,00"),
+    )
+    t = bank(s, bank_tag, "-50.00", "PAYPAL EUROPE GUTHABEN AUFLADEN", "PayPal Europe")
+    (ergebnis,) = paypal(s, archiv, kontext, roh)
+    a = ergebnis.abrechnung
+    with pytest.raises(ZuordnungError, match="vor dem Zeitfenster der Einzahlung") as f:
+        ordne_zu(s, kontext, a.nummer, str(t.id)[:8], von="erika")
+    assert "--trotzdem" in str(f.value) and "Auszahlung" not in str(f.value)
+    zuordnung = ordne_zu(s, kontext, a.nummer, str(t.id)[:8], von="erika", trotzdem=True)
+    assert zuordnung.transaktion is not None and zuordnung.transaktion.id == t.id
+    (b,) = buchungen_zur_transaktion(s, t.id)
+    assert (b.soll_konto, b.haben_konto, b.betrag_netto) == ("1360", "1200", Decimal("50.00"))
+
+
 def test_bank_abgleich_bestaetigt_keinen_beleg_fuer_zurueckgehaltene_auszahlung(
     tmp_path, monkeypatch
 ):

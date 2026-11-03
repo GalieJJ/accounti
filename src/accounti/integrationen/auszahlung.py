@@ -2423,10 +2423,33 @@ def _pruefe_datum(
     Abrechnungszeitraum schon gar nicht, und vor dem gemeldeten Auszahlungsdatum
     (abzüglich ``VORLAUF``) bucht die Bank sie nicht (Nachprüfung 7 E, Abläufe N4:
     ``--trotzdem`` nahm auch einen Umsatz im Abrechnungszeitraum vor dem Fenster).
-    Nach dem Fenster nur ausdrücklich (``trotzdem``: die Bank hat spät gebucht)."""
+    Nach dem Fenster nur ausdrücklich (``trotzdem``: die Bank hat spät gebucht).
+
+    Eine Einzahlung (Geld von der Bank zum Marktplatz, PayPal „Bankgutschrift“)
+    bucht die Bank zuerst — eine Überweisung oft Tage vor der Gutschrift beim
+    Marktplatz, auch vor dessen Abrechnungszeitraum: außerhalb des Fensters nach
+    beiden Seiten nur ausdrücklich (``trotzdem``; Nachprüfung 9 E, N9-1: sie ließ sich
+    vor dem Fenster nie zuordnen, die Meldung sprach von einer Auszahlung)."""
     markt = ANZEIGE.get(a.marktplatz, a.marktplatz)
     von, bis = _fenster(lauf, p)
     ident = str(t.id)[:8]
+    if p.art is Postenart.EINZAHLUNG:
+        if t.datum < von and not trotzdem:
+            raise ZuordnungError(
+                f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} "
+                f"liegt vor dem Zeitfenster der Einzahlung vom {p.datum:%d.%m.%Y} "
+                f"({von:%d.%m.%Y}–{bis:%d.%m.%Y}) — nicht zugeordnet; eine Überweisung "
+                f"an {markt} bucht die Bank vor der Gutschrift dort: ist er diese "
+                "Einzahlung, mit --trotzdem zuordnen"
+            )
+        if t.datum > bis and not trotzdem:
+            raise ZuordnungError(
+                f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} "
+                f"liegt außerhalb des Zeitfensters der Einzahlung vom "
+                f"{p.datum:%d.%m.%Y} ({von:%d.%m.%Y}–{bis:%d.%m.%Y}) — nicht "
+                "zugeordnet; hat die Bank so spät gebucht, mit --trotzdem zuordnen"
+            )
+        return
     if t.datum < a.von:
         raise ZuordnungError(
             f"{markt} {a.nummer}: der Bankumsatz {ident} vom {t.datum:%d.%m.%Y} liegt "

@@ -323,7 +323,8 @@ def marktplatz_zuordnen(
         False,
         "--trotzdem",
         help="Auch einen Umsatz nach dem Zeitfenster der Auszahlung zuordnen (die "
-        "Bank hat spät gebucht)",
+        "Bank hat spät gebucht), bei einer Einzahlung auch davor (die Bank bucht die "
+        "Überweisung vor der Gutschrift beim Marktplatz)",
     ),
     von: str | None = typer.Option(
         None,
