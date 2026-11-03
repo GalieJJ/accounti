@@ -751,6 +751,19 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   ein Rechnungsteil auf zwei Gegenkonten („10001 an 1590“) wird nicht mehr zur
   Erlösschmälerung mit Umsatzsteuer; die § 14c-Lücke einer Marktplatzabrechnung zählt keine
   Gebührenposition mehr (95 € statt 114 €).
+- **Sicherheit: Webserver ohne Anmeldung anhaltbar** (Nachprüfung Folgepaket F, F-B1, schon
+  in #36): POST, PUT, DELETE, PATCH … auf einen langen Pfad mit vielen „/“ (z. B. 40 000
+  Zeichen) hielt den Event-Loop sekundenlang an — die 404-Seite suchte die Ansicht für die
+  Sprachwahl quadratisch; ebenso ein `Accept-Language`-Kopf mit langer Leerraumfolge auf
+  jeder Seite, auch `/anmelden`. Beides jetzt linear und begrenzt.
+- **Nacharbeit 10b-1, Runde 2** (Nachprüfung Folgepaket F): Auf Quittung oder
+  Marktplatzabrechnung verlor ein Erlös seine Umsatzsteuer nicht mehr still in zwei Schritten
+  — über eine Erlösschmälerung im Haben („1000 an 8700“, danach „ohne Steuer“) bleibt § 14c,
+  und nach Kontowechsel („→ 2700“) und Storno warnen Storno und Prüfregel
+  `beleg_ust_ohne_buchung` wieder (die Obergrenze der Lücke zählt die ganze Korrekturkette).
+  Skonto zur Zahlung einer Rechnung über ein Verrechnungskonto (1590, SKR04 1370) geht
+  wieder. Ein Wert hinter mehr als 40 Leerraumzeichen nach „PIN“, „Passwort:“, „Bearer“ …
+  wird wieder geschwärzt.
 - **Debitoren: Gutschriften, Guthaben, Verrechnung, Handzuordnung** (Gesamttest Ausgang
   B3, B4, B6): `rechnung neu --korrektur-zu <Nr> [--korrektur-art gutschrift|korrektur]`
   stellt eine Gutschrift (Typ 381, Minderung positiv ausgewiesen) bzw. Rechnungskorrektur

@@ -426,12 +426,17 @@ Die Anwendung muss unter `/` liegen (das Cookie-Präfix `__Host-` verlangt `Path
 Anmeldung bremst Raten über die Kontosperre; eine Begrenzung je IP gehört in den Proxy
 (z. B. `limit_req` für `/anmelden`).
 
-Zusätzlich die Länge der Anfragezeile im Proxy begrenzen: accounti braucht nur kurze Pfade,
-uvicorn (h11) nimmt bis rund 16 KB an. accounti kürzt lange Pfade im Zugriffsprotokoll selbst
-(höchstens 200 Zeichen) und schwärzt in linearer Zeit — bis Runde 8 hielt ein
-unangemeldetes `GET /statisch/<15 000 Zeichen>` den Server mehrere Sekunden an. Bei nginx
-z. B. `large_client_header_buffers 4 4k;` im `server`-Block (längere Anfragezeilen enden mit
-414; Standard 8k), bei Caddy die globale Option `servers { max_header_size 16KB }`.
+Zusätzlich die Länge der Anfragezeile im Proxy begrenzen: accounti braucht nur kurze Pfade.
+uvicorn (h11) begrenzt nur, was von einer Anfrage noch unvollständig im Puffer liegt (16 KB);
+kommt sie in einem Stück an, nimmt er auch 40 000 Zeichen und mehr an (über `localhost`
+gemessen). accounti kürzt lange Pfade im Zugriffsprotokoll selbst (höchstens 200 Zeichen),
+schwärzt in linearer Zeit und rechnet Pfad und Kopfzeilen jeder Anfrage linear — bis Runde 8
+hielt ein unangemeldetes `GET /statisch/<15 000 Zeichen>` den Server mehrere Sekunden an,
+bis zur Nachprüfung des Folgepakets F ein `POST` (auch `PUT`, `DELETE` …) auf einen Pfad
+mit vielen „/“ (40 000 Zeichen: 3,7 s) bzw. ein `Accept-Language` mit langer
+Leerraumfolge. Bei nginx z. B. `large_client_header_buffers 4 4k;` im `server`-Block
+(längere Anfragezeilen enden mit 414; Standard 8k), bei Caddy die globale Option
+`servers { max_header_size 16KB }`.
 
 ## Sicherung und Wiederherstellung
 
@@ -595,12 +600,13 @@ I Nr. 323, ab 01.01.2025), Art. 97 § 19a EGAO, § 14b UStG:
   verbreitete Zugangstoken (GitHub, GitLab, Slack), Benutzer und Passwort in URLs (auch eine
   vom Zeilenumbruch zerschnittene Adresse), Parameter wie `passwort=`, `token=`, `code=`,
   „Passwort: …“ sowie PIN und TAN als Zahl — auch in Stacktraces. Zwischen Schlüsselwort
-  und Wert erkennt er bis zu 40 Leerraumzeichen („PIN“, dann 50 Leerzeichen und eine Zahl,
-  bleibt stehen). Eine Zeile über 4000 Zeichen kürzt er vorher auf Anfang und Ende (je
-  höchstens 1500 Zeichen, geschnitten an Leerraum). Jedes Stück schwärzt er zuvor mit 250
-  Zeichen über die Schnittkante hinaus: Ein Geheimnis, das an der Kante beginnt, steht vorn
-  geschwärzt da und fällt hinten ganz weg; ein Wert hinter der Kante verliert sein
-  Schlüsselwort nicht. (Die Fassung vor dem Folgepaket F schwärzte erst nach dem Schnitt —
+  und Wert darf beliebig viel Leerraum stehen (geprüft in linearer Zeit). Eine Zeile über
+  4000 Zeichen kürzt er vorher auf Anfang und Ende (je höchstens 1500 Zeichen, geschnitten
+  an Leerraum). Jedes Stück schwärzt er zuvor mit 250 Zeichen über die Schnittkante hinaus
+  (das Ende auch über einen Abstand hinweg, in dem diese 250 Zeichen beginnen): Ein
+  Geheimnis, das an der Kante beginnt, steht vorn geschwärzt da und fällt hinten ganz weg;
+  ein Wert hinter der Kante verliert sein Schlüsselwort nicht. (Die Fassung vor dem
+  Folgepaket F schwärzte erst nach dem Schnitt —
   die hintere Kante konnte „Bearer“, „passwort:“, „PIN“ oder „TAN“ von ihrem Wert trennen,
   der dann ungeschwärzt stand.) Ein `:Ziffern` hinter `://` gilt nur als Port, wenn der
   Teil davor wie ein Rechner aussieht — mit Punkt (auch IPv4) oder `localhost` — und die

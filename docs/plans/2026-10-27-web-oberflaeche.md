@@ -1681,20 +1681,29 @@ Durchlaufs mit Markern in allen Fremddaten.
   Erlöskonto auf der Seite einer Rechnung (Erlös im Haben, Erlösschmälerung im Soll; ein
   negativer Beleg spiegelt), gilt der Beleg wie ein Ausgangsbeleg — § 14c, kein Hinweis
   „Fehlschlüssel“, kein Schlüssel 9, kein „ohne Steuer“, Storno-Warnung und
-  `beleg_ust_ohne_buchung` zählen ihn (Runde 8, g7w R7-3). Ein Erlös im Soll eines positiven
-  Belegs („8400 an 1000, Schlüssel 3“ auf einer Tankquittung) ist eine Erstattung bzw. eine
-  falsch kontierte Ausgabe und lässt sich direkt auf „4530 an 1000 --steuer 9“ berichtigen
-  (Folgepaket F, g8w G8R-1). Weist ein solcher Beleg Umsatzsteuer nur über seine
-  Erlösbuchungen aus, zählt als ausgewiesen je Satz höchstens die Steuer dieser Buchungen
-  (eine Gebührenposition desselben Satzes nicht; g8w G8R-4). Auswahl der Oberfläche,
+  `beleg_ust_ohne_buchung` zählen ihn (Runde 8, g7w R7-3). Ebenso jede Buchung mit
+  Erlöskonto, die einen Umsatz mit dem Vorzeichen einer Rechnung bucht (positive
+  Umsatz-Kennziffer, bei negativem Beleg negativ): auch eine Erlösschmälerung im Haben
+  („1000 an 8700, Schlüssel 3“ bucht Kz 81 +500; F Runde 2, gf-richtung GF-1a). Ein Erlös
+  im Soll eines positiven Belegs („8400 an 1000, Schlüssel 3“ auf einer Tankquittung) ist
+  eine Erstattung bzw. eine falsch kontierte Ausgabe und lässt sich direkt auf „4530 an 1000
+  --steuer 9“ berichtigen (Folgepaket F, g8w G8R-1). Weist ein solcher Beleg Umsatzsteuer nur
+  über seine Erlösbuchungen aus, zählt als ausgewiesen je Satz höchstens die Steuer dieser
+  Buchungen (eine Gebührenposition desselben Satzes nicht; g8w G8R-4) — je Korrekturkette
+  ihr höchster Erlös-Stand, auch ein durch eine Neubuchung ersetztes Original („1000 an 8400
+  → 1000 an 2700, Schlüssel 3“, dann Storno: die Lücke bleibt 95 €; GF-1b). Auswahl der Oberfläche,
   Korrektur, Storno-Warnung und Prüfregel lesen dieselben Konten (mit
   `elster.steuerrelevante_konten` und `kennziffern_konten`; g8w G8R-2). Grenzen: Nennt der
   Beleg mehrere Sätze und die Buchung keine Position, gibt es keinen Schlüssel laut Beleg
   (Weg: „ohne Steuer“ mit Grund bzw. Storno). Eine Erlösschmälerung im Soll eines positiven
   Belegs ohne eindeutige Belegart gilt als eigene Minderung des Unternehmers (§ 14c, wie
   R7-3 X2), auch wenn sie in Wahrheit eine Gebühr ist (Weg: Storno bzw. Umbuchung über ein
-  Aufwandskonto). Die Obergrenze der Lücke ist die gebuchte Erlössteuer — war der Erlös mit
-  zu wenig Steuer gebucht, meldet die Lücke nur diese.
+  Aufwandskonto). Die Obergrenze der Lücke ist die höchste gebuchte Erlössteuer der Kette —
+  war der Erlös mit zu wenig Steuer gebucht, meldet die Lücke nur diese. Wird ein Vorschlag
+  direkt (ohne Storno) auf ein Konto ohne Erlös umgebucht („1000 an 2700, Schlüssel 3“ ohne
+  `elster.steuerrelevante_konten`) und dann storniert, kennt die Lücke den früheren Stand
+  nicht (er steht nur im Journal; wie d36ac77); „→ 2700, dann ohne Steuer mit Grund“ bleibt
+  erlaubt (Grenze 5 aus F), meldet aber die Prüfregel.
 - Bei einer Belegbuchung bestimmt der Beleg die Richtung (Runde 5, g4w N1; Runde 6, g5w
   NEU-1/NEU-2): `korrigiere` lehnt eine Korrektur ab, die die Seiten vertauscht — für jede
   Belegbuchung, nicht nur bei ausgewiesener USt: (a) ein Konto wechselt die Seite (neues Soll
@@ -1721,7 +1730,9 @@ Durchlaufs mit Markern in allen Fremddaten.
   gebuchten Rechnung (jeder Stand nur Geld-, Personen- und Verrechnungskonten bzw. ein
   Minderungskonto dagegen, und eine andere wirksame Buchung des Belegs bucht die Rechnung;
   Runde 8, g7w R7-2) — sie bucht ein Geld- oder Personenkonto auf der Gegenseite der
-  Rechnungsbuchung („1200 an 10001“ zu „10001 an 8400“). Ein Teil der Rechnung auf zwei
+  Rechnungsbuchung („1200 an 10001“ zu „10001 an 8400“) bzw. deren Gegenkonto selbst, auch
+  ein Verrechnungs- oder Transitkonto („1200 an 1590“ zu „1590 an 8400“, SKR04 1370; F Runde
+  2, gf-richtung GF-2). Ein Teil der Rechnung auf zwei
   Gegenkonten („10001 an 1590“ neben „10001 an 8400“, Barverkauf „1000 an 1590“) bucht es
   auf derselben Seite und ist keine Nebenbuchung; gibt eine Korrektur einer Nebenbuchung ein
   Erlös- bzw. Aufwandskonto mit Schlüssel, das kein Minderungskonto ist (Auszahlung einer
@@ -1809,15 +1820,22 @@ Durchlaufs mit Markern in allen Fremddaten.
   strengen Abschnitt.
 - Die Schwärzung des Protokolls ist musterbasiert (Namen, kleingeschriebene IBANs erkennt sie
   nicht). Ihre Muster laufen linear und beginnen an „://“, gleich, was davor steht
-  (Folgepaket F, g8w B8-3); zwischen Schlüsselwort und Wert erkennen sie höchstens 40
-  Leerraumzeichen (Grenze; damit ist auch das PIN/TAN-Muster linear, g8w B8-1). Eine Zeile
+  (Folgepaket F, g8w B8-3); zwischen Schlüsselwort und Wert erkennen sie beliebig viel
+  Leerraum, possessiv (`\s*+`) und damit linear (g8w B8-1; die Grenze von 40 Zeichen aus F
+  ließ dahinter den Wert stehen, F Runde 2: gf-betrieb F-B2). Eine Zeile
   über 4000 Zeichen kürzt sie vorher auf Anfang und Ende (je höchstens 1500 Zeichen, an
-  Leerraum) und schwärzt jedes Stück zuvor mit 250 Zeichen über die Kante hinaus — ein
+  Leerraum) und schwärzt jedes Stück zuvor mit 250 Zeichen über die Kante hinaus, das Ende
+  auch über einen Abstand hinweg, in dem diese beginnen — ein
   Geheimnis an der Kante steht vorn geschwärzt da und fällt hinten ganz weg (g8w B8-1: die
   Fassung aus Runde 8 schnitt zuerst und trennte hinten „Bearer“, „passwort:“, „PIN“ von
   ihrem Wert). Ein statischer Pfad steht gekürzt auf 200 Zeichen im Zugriffsprotokoll, andere
   Pfade als Routenvorlage bzw. „(unbekannt)“ (Runde 8, g7w DoS-1; echter `serve`-Lauf mit
   40 000 Zeichen in Pfad, Abfrage und User-Agent: `GET /anmelden` wartet höchstens 0,03 s).
+  Die Sprachwahl nach einem POST (`vorlagen.ansichtspfad`) steigt nur von einem Pfad mit
+  Route und höchstens 16 Abschnitte hinauf, sonst „/“ — für die 404-Seite eines Pfads mit
+  vielen „/“ rechnete sie quadratisch (`POST /x…` mit 40 000 Zeichen: jede andere Anfrage
+  wartete 3,7 s; schon in #36, F Runde 2: gf-betrieb F-B1); `Accept-Language` liest ein
+  possessives Muster (lange Leerraumfolge: vorher 1,2 s je 16 000 Zeichen).
   Das Wort vor einem „:“ gehört nicht zur E-Mail-Adresse, außer ein Passwortzeichen folgt
   („alarm:4711#Sonne@rechner“ ohne Schema). Ein `:Ziffern` ist nur ein Port, wenn der Teil
   davor wie ein Rechner aussieht (Punkt, auch IPv4, oder `localhost`) und die Zahl 1–65535
