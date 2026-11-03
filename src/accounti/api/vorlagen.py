@@ -180,16 +180,30 @@ def _beantwortet_get(request: Request, pfad: str) -> bool:
     return any(r.matches(bereich)[0] is Match.FULL for r in request.app.router.routes)
 
 
+# so viele Abschnitte steigt ``ansichtspfad`` höchstens hinauf — die Routen dieser
+# Anwendung haben weniger
+ABSCHNITTE = 16
+
+
 def ansichtspfad(request: Request) -> str:
     """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst, nach
     einem POST die nächste Seite darüber, die GET beantwortet
     (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
     ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
-    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung."""
+    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung.
+
+    Hinauf nur von einem Pfad mit Route (``scope["route"]``) und höchstens
+    ``ABSCHNITTE`` Abschnitte: Jeder Schritt prüft alle Routen — für einen Pfad ohne
+    Route mit vielen „/“ (404) war das quadratisch, im Event-Loop, ohne Anmeldung
+    (Folgepaket F, Runde 2: gf-betrieb F-B1)."""
     pfad = request.url.path
     if request.method in ("GET", "HEAD"):
         return pfad
-    teile = pfad.rstrip("/").split("/")
+    if request.scope.get("route") is None:
+        return "/"
+    teile = pfad.rstrip("/").split("/", ABSCHNITTE + 1)
+    if len(teile) > ABSCHNITTE + 1:
+        return "/"
     while len(teile) > 2:
         teile.pop()
         kandidat = "/".join(teile)

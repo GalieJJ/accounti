@@ -370,6 +370,76 @@ def test_langer_statischer_pfad_haelt_den_server_nicht_an(tmp_path, ausgabe, lae
     assert dauer < 0.5, dauer  # vorher 5 s bzw. 36 s
 
 
+# --- Folgepaket F, Runde 2 (gf-betrieb F-B1): langer Pfad mit jeder Methode ---------
+
+
+def _scope(app, methode: str, pfad: str, route=None):  # noqa: ANN001, ANN202
+    scope = {
+        "type": "http",
+        "method": methode,
+        "path": pfad,
+        "raw_path": pfad.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [],
+        "app": app,
+        "scheme": "http",
+        "server": ("accounti.test", 80),
+    }
+    if route is not None:
+        scope["route"] = route
+    return scope
+
+
+def test_ansichtspfad_eines_langen_pfads_ohne_quadratische_laufzeit(tmp_path):
+    """F-B1 (gf-betrieb, schon auf main): Nach einem POST suchte ``ansichtspfad`` für
+    jeden Abschnitt des Pfads alle Routen ab und baute den Pfad neu — quadratisch, im
+    Event-Loop, auch für die 404-Seite (8000 Abschnitte: 1 s). Ohne Route (404) gilt
+    gleich „/“, mit Route höchstens ``ABSCHNITTE`` Abschnitte; der Weg einer Route
+    nach oben bleibt (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``)."""
+    import time
+    from types import SimpleNamespace
+    from uuid import uuid4
+
+    from starlette.requests import Request
+
+    from accounti.api.vorlagen import ansichtspfad
+
+    app = webwelt(tmp_path).client().app
+    # wie ``scope["route"]`` beim Bearbeiten der Anfrage (gefundene Route)
+    route = SimpleNamespace(path="/pruefen/{buchung_id:uuid}/korrigieren")
+    for pfad, mit in (("/x" * 20_000, None), ("/pruefen/1" + "/x" * 20_000, route)):
+        beginn = time.perf_counter()
+        assert ansichtspfad(Request(_scope(app, "POST", pfad, mit))) == "/"
+        dauer = time.perf_counter() - beginn
+        assert dauer < 0.01, dauer  # vorher mehrere Sekunden
+    nr = uuid4()
+    anfrage = Request(_scope(app, "POST", f"/pruefen/{nr}/korrigieren", route))
+    assert ansichtspfad(anfrage) == f"/pruefen/{nr}"
+    assert ansichtspfad(Request(_scope(app, "GET", "/x" * 20_000))) == "/x" * 20_000
+
+
+@pytest.mark.parametrize(
+    "methode", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "PROPFIND", "GET", "HEAD"]
+)
+def test_langer_pfad_haelt_den_server_mit_keiner_methode_an(tmp_path, methode):
+    """F-B1: ``POST /x/x/…`` (40 000 Zeichen) ohne Anmeldung hielt den Server an —
+    die 404-Seite rechnete ``ansichtspfad`` quadratisch (echter serve: jede andere
+    Anfrage wartete 3,7 s). Jede Methode außer GET war betroffen; jetzt sind alle so
+    schnell wie GET, angemeldet wie unangemeldet."""
+    import time
+
+    welt = webwelt(tmp_path)
+    welt.person("jan", Rolle.BUCHHALTER)
+    for client in (welt.client(), welt.angemeldet("jan")):
+        client.get("/anmelden")
+        beginn = time.perf_counter()
+        r = client.request(methode, "/x" * 20_000)
+        dauer = time.perf_counter() - beginn
+        assert r.status_code == 404, r.status_code
+        assert dauer < 0.5, dauer  # vorher mehrere Sekunden
+
+
 @pytest.mark.parametrize(
     "folge",
     ["a", "a.", "#", "a%", "a@", "@a.", "a:", "a:a@", "a1", "https://a", "x://", "-"],
