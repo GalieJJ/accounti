@@ -9,7 +9,9 @@ Zählern über den Lesezugriff (``api.lesezugriff``).
 
 from __future__ import annotations
 
-from collections.abc import Collection, Mapping, Sequence
+import hashlib
+import re
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from typing import TYPE_CHECKING
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
     from fastapi import Request
 
     from accounti.api.sitzung import Angemeldet
+    from accounti.betrieb.gesellschaften import Gesellschaft
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,75 @@ class Geruest:
     fachansicht: bool = False
     betraege_verbergen: bool = False
     druck_datum: date | None = None
+
+
+KENNFARBEN = 6
+WORT = re.compile(r"[^\W_]+")
+
+
+def kennfarben(
+    kuerzel_alle: Iterable[str], gewaehlt: Mapping[str, int] | None = None
+) -> dict[str, int]:
+    """Kennfarbe (1–6) je Gesellschaft — **immer** über alle Gesellschaften der
+    Registry, damit jeder Benutzer dieselbe Gesellschaft in derselben Farbe sieht (A5).
+    Gewählte Farben (P5) zuerst, dann in alphabetischer Reihenfolge der Kürzel
+    ``1 + (erste 4 Byte von SHA-256(kuerzel)) % 6``, bei Belegung die nächste freie;
+    ab sieben Gesellschaften wiederholen sich Farben."""
+    gewaehlt = dict(gewaehlt or {})
+    farben = {k: f for k, f in gewaehlt.items() if 1 <= f <= KENNFARBEN}
+    belegt = set(farben.values())
+    for kuerzel in sorted(set(kuerzel_alle) - set(farben)):
+        start = int.from_bytes(hashlib.sha256(kuerzel.encode()).digest()[:4], "big")
+        kandidaten = [(start + i) % KENNFARBEN + 1 for i in range(KENNFARBEN)]
+        frei = [f for f in kandidaten if f not in belegt]
+        farben[kuerzel] = frei[0] if frei else kandidaten[0]
+        belegt.add(farben[kuerzel])
+    return farben
+
+
+def monogramme(namen_alle: Mapping[str, str]) -> dict[str, str]:
+    """Monogramm (zwei Großbuchstaben) je Gesellschaft — über alle der Registry, in
+    alphabetischer Reihenfolge der Kürzel vergeben (Plan P1, B24): Anfangsbuchstaben
+    der ersten zwei Wörter des Namens (ein Wort: seine ersten zwei Zeichen); schon
+    vergeben → die ersten zwei Zeichen des Registry-Kürzels; auch vergeben → erstes
+    Zeichen und eine Ziffer 2–9."""
+    vergeben: dict[str, str] = {}
+    for kuerzel in sorted(namen_alle):
+        woerter: list[str] = WORT.findall(namen_alle[kuerzel])
+        erste = (
+            woerter[0][0] + woerter[1][0]
+            if len(woerter) > 1
+            else woerter[0][:2]
+            if woerter
+            else ""
+        ).upper()[:2]
+        kandidaten = [erste, kuerzel[:2].upper()]
+        anfang = (erste or kuerzel.upper())[:1]
+        kandidaten += [f"{anfang}{ziffer}" for ziffer in range(2, 10)]
+        frei = [k for k in kandidaten if len(k) == 2 and k not in vergeben.values()]
+        vergeben[kuerzel] = frei[0] if frei else kandidaten[-1]
+    return vergeben
+
+
+def marken(
+    gesellschaften: Mapping[str, Gesellschaft],
+    gewaehlt: Mapping[str, int] | None = None,
+) -> dict[str, Marke]:
+    """Kennfarbe und Monogramm je Gesellschaft der Registry (Kopf, ``/menue``,
+    ``/gesellschaft``)."""
+    farben = kennfarben(gesellschaften, gewaehlt)
+    zeichen = monogramme({k: g.name for k, g in gesellschaften.items()})
+    return {
+        k: Marke(k, g.name, farben[k], zeichen[k]) for k, g in gesellschaften.items()
+    }
+
+
+def initialen(name: str) -> str:
+    """Initialen für den Avatar: zwei Zeichen aus Anzeigename oder Benutzername."""
+    woerter: list[str] = WORT.findall(name)
+    if len(woerter) > 1:
+        return (woerter[0][0] + woerter[1][0]).upper()[:2]
+    return (woerter[0][:2] if woerter else "?").upper()
 
 
 MEHR = NavEintrag(N_("Mehr"), "/menue", "menu")
