@@ -80,3 +80,9 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- endmacro %}
 
 {%- macro _status_von_karte(paar) -%}{{ status(paar[0], paar[1]) }}{%- endmacro -%}
+
+{#- Aufklapper (Aufruf) als details/summary: art "linie" (Linie oben, Markierung des
+    Browsers) oder "karte" (eigener Chevron, „aufklappen“/„zuklappen“ wechselt per CSS). -#}
+{% macro aufklapper(titel, art="linie", offen=false) -%}
+<details class="aufklapper aufklapper-{{ {"linie": "linie", "karte": "karte"}[art] }}"{% if offen %} open{% endif %}><summary>{{ titel }}{% if art == "karte" %}<span class="aufklapper-zustand" aria-hidden="true"><span class="aufklapper-zu">{{ _("aufklappen") }}</span><span class="aufklapper-auf">{{ _("zuklappen") }}</span>{{ symbol("chevron-down", groesse=16) }}</span>{% endif %}</summary><div class="aufklapper-inhalt">{{ caller() }}</div></details>
+{%- endmacro %}

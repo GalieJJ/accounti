@@ -466,6 +466,19 @@
     .karte { padding: var(--a-4); }
     .karte-fuss .knopf { width: 100%; min-height: 3rem; }
   }
+  /* Aufklapper: „linie“ mit Markierung des Browsers, „karte“ mit eigenem Chevron */
+  .aufklapper > summary { font-weight: 600; cursor: pointer; }
+  .aufklapper-linie { padding-top: var(--a-3); border-top: 1px solid var(--linie); }
+  .aufklapper-linie > summary { min-height: 2rem; }
+  .aufklapper-karte { padding: 0 var(--a-5); background-color: var(--flaeche); border: 1px solid var(--linie); border-radius: var(--radius-karte); }
+  .aufklapper-karte > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--a-3); min-height: 3.5rem; list-style: none; }
+  .aufklapper-karte > summary::-webkit-details-marker { display: none; }
+  .aufklapper-karte > .aufklapper-inhalt { padding-bottom: var(--a-5); }
+  .aufklapper-zustand { display: inline-flex; align-items: center; gap: var(--fein-3); font-size: var(--gr-3); font-weight: 400; color: var(--text-2); }
+  .aufklapper-auf, .aufklapper[open] > summary .aufklapper-zu { display: none; }
+  .aufklapper[open] > summary .aufklapper-auf { display: inline; }
+  .aufklapper[open] > summary .aufklapper-zustand .symbol { transform: rotate(180deg); }
+  @media (pointer: coarse) { .aufklapper-linie > summary { min-height: 2.75rem; } }
 }
 
 @layer hilfen {

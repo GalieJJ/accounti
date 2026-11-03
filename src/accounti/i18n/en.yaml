@@ -350,3 +350,5 @@ hoch: high
 'Erledigt:': 'Done:'
 'Achtung:': 'Caution:'
 'Fehler:': 'Error:'
+aufklappen: expand
+zuklappen: collapse

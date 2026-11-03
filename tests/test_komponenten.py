@@ -215,3 +215,19 @@ def test_karte_titel_anzahl_status_hauptaktion_kennzahl():
     assert '<p class="kennzahl"><span class="kennzahl-wert">4</span>' in kennzahl
     with pytest.raises(TemplateError):
         render('{% call k.karte("x", ebene=1) %}{% endcall %}')
+
+
+def test_aufklapper_details_summary():
+    zu = render('{% call k.aufklapper("Zahlungen ansehen (4)") %}Liste{% endcall %}')
+    assert zu.startswith('<details class="aufklapper aufklapper-linie"><summary>')
+    assert "Zahlungen ansehen (4)</summary>" in zu and "Liste" in zu
+    karte = render(
+        '{% call k.aufklapper("Kennzahlen Oktober", art="karte", offen=true) %}'
+        "x{% endcall %}"
+    )
+    assert '<details class="aufklapper aufklapper-karte" open>' in karte
+    zustand = re.search(r'<span class="aufklapper-zustand"[^>]*>', karte)
+    assert zustand and 'aria-hidden="true"' in zustand.group(0)
+    assert "aufklappen" in karte and "zuklappen" in karte and "#chevron-down" in karte
+    with pytest.raises(TemplateError):
+        render('{% call k.aufklapper("x", art="kasten") %}{% endcall %}')
