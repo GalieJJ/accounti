@@ -309,3 +309,72 @@ def test_zahlung_zur_eingangsrechnung_wird_erhaltenes_skonto(make_session):
     assert _nebenbuchung(make_session, z.id)
     k = _korrigiere(make_session, z.id, "70001", "3736", steuer=9)
     assert k.neu is not None and k.neu.haben_konto == "3736"
+
+
+# --- G8R-4: Lücke eines Belegs, der nur über seinen Erlös Ausgang ist -----------------
+
+MARKT = [
+    ("Verkauf", "500.00", "19", "95.00"),
+    ("Verkaufsgebühr", "100.00", "19", "19.00"),
+]
+
+
+def _luecken_der_regel(make_session) -> list[Any]:  # noqa: ANN001
+    from accounti.konfiguration import Buchhaltung
+    from accounti.pruefung.einstellungen import PruefEinstellungen
+    from accounti.pruefung.regeln import Kontext, fuehre_regeln_aus
+
+    with make_session() as s:
+        k = Kontext(s, PruefEinstellungen(), Buchhaltung(), date(2026, 10, 20))
+        return fuehre_regeln_aus(k, ["beleg_ust_ohne_buchung"]).befunde
+
+
+@pytest.mark.parametrize(
+    "gebuehr",
+    [("9", "100.00", "19.00"), (None, "119.00", None)],
+    ids=["gebuehr_mit_vorsteuer", "gebuehr_brutto"],
+)
+def test_luecke_zaehlt_keine_gebuehrenposition(make_session, gebuehr):
+    """G8R-4 (t6_markt_luecke.py P1/P2): Marktplatzabrechnung (SONSTIGES) mit Verkauf
+    und Verkaufsgebühr zu 19 % — nach dem Storno des Erlöses fehlen 95,00 € (die
+    Umsatzsteuer des Verkaufs), nicht 114,00 €: Die Gebühr ist eine Eingangsleistung.
+    Storno-Warnung und Prüfregel nennen denselben Betrag."""
+    schluessel, netto, steuer = gebuehr
+    bel = _beleg("S", netto="600.00", steuer="114.00", positionen=MARKT)
+    erloes = _buchung(bel, "1200", "8400", 3, "95.00")
+    gebuehr_b = _buchung(
+        bel, "4970", "1200", int(schluessel) if schluessel else None, steuer, netto
+    )
+    anlegen(make_session, bel, erloes, gebuehr_b)
+    (warnung,) = [w for w in _storniere(make_session, erloes.id) if "§ 14c" in w]
+    assert "weist 95,00 € Umsatzsteuer" in warnung and "114,00" not in warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+def test_korrigierter_erloes_mit_gebuehr_hat_keine_luecke(make_session):
+    """G8R-4: Eine Korrektur (Storno und Neubuchung) des Erlöses lässt die Steuer
+    gebucht — keine Lücke, auch nicht in Höhe der Gebühr (die Kette zählt einmal);
+    erst das Storno der Neubuchung fehlt mit 95,00 €."""
+    bel = _beleg("S", netto="600.00", steuer="114.00", positionen=MARKT)
+    erloes = _buchung(bel, "1200", "8400", 3, "95.00")
+    gebuehr_b = _buchung(bel, "4970", "1200", 9, "19.00", "100.00")
+    anlegen(make_session, bel, erloes, gebuehr_b)
+    k = _korrigiere(make_session, erloes.id, "1360", "8400")
+    assert k.neu is not None and not [w for w in k.warnungen if "§ 14c" in w]
+    assert _luecken_der_regel(make_session) == []
+    (warnung,) = [w for w in _storniere(make_session, k.neu.id) if "§ 14c" in w]
+    assert "weist 95,00 € Umsatzsteuer" in warnung
+    (befund,) = _luecken_der_regel(make_session)
+    assert befund.betrag == D("95.00"), befund.text
+
+
+def test_ausgangsrechnung_zaehlt_weiter_alle_positionen(make_session):
+    """Gegenprobe: Eine Ausgangsrechnung weist die Steuer aller ihrer Positionen aus
+    (zwei Erlöspositionen, eine gebucht) — unverändert."""
+    zwei = [("Ware", "500.00", "19", "95.00"), ("Fracht", "100.00", "19", "19.00")]
+    bel = _beleg("AR", netto="600.00", steuer="114.00", positionen=zwei)
+    b = _buchung(bel, "10001", "8400", 3, "95.00")
+    anlegen(make_session, bel, b)
+    (warnung,) = [w for w in _storniere(make_session, b.id) if "§ 14c" in w]
+    assert "weist 114,00 € Umsatzsteuer" in warnung

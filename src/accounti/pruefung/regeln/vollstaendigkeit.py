@@ -402,6 +402,7 @@ class BelegUstOhneBuchung:
         from accounti.belege.dubletten import kopien
         from accounti.pruefung.storno import (
             AUSGEWIESENE_UST,
+            ersetzte_buchungen,
             hinweis_14c,
             kontenplan,
             ust_luecken,
@@ -413,6 +414,7 @@ class BelegUstOhneBuchung:
             if x.beleg_id is not None:
                 je_beleg[x.beleg_id].append(x)
         plan = kontenplan(k.session, k.buchhaltung, k.elster)
+        ersetzt = ersetzte_buchungen(k.session)
         gemeldet: set[UUID] = set()
         befunde = []
         for beleg_id, liste in je_beleg.items():
@@ -435,7 +437,7 @@ class BelegUstOhneBuchung:
             b = k.belege.get(beleg_id)
             gleiche = kopien(b, k.belege.values()) if b is not None else []
             andere = [x for c in gleiche for x in je_beleg.get(c.id, [])]
-            luecken = ust_luecken(b, liste, plan, andere)
+            luecken = ust_luecken(b, liste, plan, andere, ersetzt)
             if not luecken:
                 continue
             gemeldet |= {beleg_id, *(c.id for c in gleiche)}

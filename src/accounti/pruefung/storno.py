@@ -1266,11 +1266,62 @@ def _ausgewiesen(
     return je
 
 
+def ersetzte_buchungen(
+    session: Session, buchungen: Iterable[Buchungssatz] | None = None
+) -> frozenset[str]:
+    """Ids der Buchungen, die eine Korrektur durch eine Neubuchung ersetzt hat
+    (``buchungskorrekturen`` mit Neubuchung) — von ``buchungen`` bzw. aller. In einer
+    Korrekturkette zählt so nur der jüngste Stand (``ust_luecken``)."""
+    from accounti.db.tabellen_pruefung import BuchungskorrekturRow
+
+    abfrage = session.query(BuchungskorrekturRow.original_id).filter(
+        BuchungskorrekturRow.neubuchung_id.isnot(None)
+    )
+    if buchungen is None:
+        return frozenset(str(z[0]) for z in abfrage)
+    ids = sorted({str(x.id) for x in buchungen if x.storniert_durch is not None})
+    ersetzt: set[str] = set()
+    for start in range(0, len(ids), _JE_ABFRAGE):
+        teil = ids[start : start + _JE_ABFRAGE]
+        ersetzt |= {
+            str(z[0])
+            for z in abfrage.filter(BuchungskorrekturRow.original_id.in_(teil))
+        }
+    return frozenset(ersetzt)
+
+
+def _erloes_ust(
+    beleg: Beleg | None,
+    eigene: list[Buchungssatz],
+    plan: Kontenplan,
+    ersetzt: frozenset[str],
+) -> dict[Decimal, Decimal]:
+    """Umsatzsteuer je Satz, die die Erlösbuchungen eines Belegs ohne eindeutige
+    Belegart gebucht haben (``_erloesbuchung``; ohne Stornos, eine durch eine
+    Neubuchung ersetzte Buchung nur über diese) — auch die inzwischen stornierten."""
+    from accounti.steuer.kennziffern import sachseite
+
+    je: dict[Decimal, Decimal] = {}
+    for x in eigene:
+        if (
+            x.storno_von is not None
+            or x.steuer_schluessel not in AUSGEWIESENE_UST
+            or str(x.id) in ersetzt
+            or eingangsbeleg(beleg, x, plan)
+        ):
+            continue
+        vorzeichen = 1 if sachseite(x, plan) == "haben" else -1
+        satz = _SATZ_DER_UST[x.steuer_schluessel]
+        je[satz] = je.get(satz, NULL) + vorzeichen * (x.steuer_betrag or NULL)
+    return je
+
+
 def ust_luecken(
     beleg: Beleg | None,
     buchungen: Iterable[Buchungssatz],
     plan: Kontenplan,
     kopien: Iterable[Buchungssatz] = (),
+    ersetzt: frozenset[str] = frozenset(),
 ) -> list[UstLuecke]:
     """Ausgewiesene Umsatzsteuer des Belegs, die nicht wirksam gebucht ist — je Satz
     die wirksam gebuchte Steuer (Schlüssel 2, 3, auf der Seite einer Rechnung) gegen
@@ -1287,7 +1338,11 @@ def ust_luecken(
     des Belegs mit Schlüssel 2 oder 3 (ohne sie: keine ausgewiesene Steuer in accounti,
     z. B. OSS). Ein Eingangsbeleg weist keine Umsatzsteuer des Unternehmers aus
     (``eingangsbeleg``) — ohne eindeutige Belegart nur, wenn keine seiner Buchungen mit
-    Schlüssel 2/3 einen Erlös bucht (Runde 8, g7w R7-3: Kassenbon, Marktplatz)."""
+    Schlüssel 2/3 einen Erlös bucht (Runde 8, g7w R7-3: Kassenbon, Marktplatz). Ist er
+    nur über seine Erlösbuchungen Ausgangsbeleg, weist er je Satz höchstens die
+    Umsatzsteuer aus, die sie gebucht haben (``_erloes_ust``; ``ersetzt``: die durch
+    eine Neubuchung ersetzten Buchungen, ``ersetzte_buchungen``) — eine Gebühren- oder
+    Aufwandsposition desselben Satzes nicht (Folgepaket F, g8w G8R-4)."""
     from accounti.steuer.kennziffern import sachseite
 
     eigene = list(buchungen)
@@ -1304,6 +1359,12 @@ def ust_luecken(
     if not saetze:
         return []
     ausgewiesen = _ausgewiesen(beleg, saetze, eigene, plan)
+    if eingangsbeleg(beleg):  # nur über seine Erlösbuchungen Ausgangsbeleg
+        erloes = _erloes_ust(beleg, eigene, plan, ersetzt)
+        ausgewiesen = {
+            satz: (min(betrag, erloes.get(satz, NULL)), anzahl)
+            for satz, (betrag, anzahl) in ausgewiesen.items()
+        }
     gebucht: dict[Decimal, Decimal] = dict.fromkeys(saetze, NULL)
     for x in [*eigene, *kopien]:
         if not ist_wirksam(x) or x.steuer_schluessel not in AUSGEWIESENE_UST:
@@ -1377,14 +1438,15 @@ def _warnung_14c(session: Session, b: Buchungssatz, plan: Kontenplan) -> list[st
         return []
     beleg = lade_beleg(session, b.beleg_id)
     eigene = lade_buchungen_zu(session, beleg_id=b.beleg_id)
-    luecken = ust_luecken(beleg, eigene, plan)
+    ersetzt = ersetzte_buchungen(session, eigene)
+    luecken = ust_luecken(beleg, eigene, plan, ersetzt=ersetzt)
     if luecken and beleg is not None and beleg.belegnummer:
         gleiche = kopien(beleg, lade_belege(session))
         if gleiche:
             andere = [
                 x for c in gleiche for x in lade_buchungen_zu(session, beleg_id=c.id)
             ]
-            luecken = ust_luecken(beleg, eigene, plan, andere)
+            luecken = ust_luecken(beleg, eigene, plan, andere, ersetzt)
     if not luecken:
         return []
     name = (beleg.belegnummer or beleg.dateiname) if beleg else str(b.beleg_id)[:8]
