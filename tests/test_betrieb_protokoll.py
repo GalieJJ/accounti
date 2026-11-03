@@ -429,3 +429,58 @@ def test_kuerzung_laesst_kein_halbes_geheimnis_stehen(geheimnis, darf_nicht):
         assert darf_nicht not in schwaerze(zeile), stelle
         zeile = "w " * ZEILE_HOECHSTENS + geheimnis + " z" * (stelle // 2)
         assert darf_nicht not in schwaerze(zeile), stelle
+
+
+@pytest.mark.parametrize(
+    ("roh", "erwartet"),
+    [
+        # Port vor einer Abfrage (Runde 7 machte Port und Abfrage zu „***“)
+        ("https://host:8443?x=1", "https://host:8443?x=1"),
+        ("http://localhost:8000?next=/", "http://localhost:8000?next=/"),
+        ("http://localhost:8000?", "http://localhost:8000?"),
+        ("https://host:8443#/start", "https://host:8443#/start"),
+        # das Wort vor „:“ gehört nicht zur E-Mail-Adresse
+        ("Empfänger:max@firma.de", "Empfänger:[E-Mail]"),
+        ("Kontakt: mailto:info@galerie.example", "Kontakt: mailto:[E-Mail]"),
+        ("Konto 4711:Bürobedarf@Lieferant.de", "Konto 4711:[E-Mail]"),
+        ("Uhrzeit 10:30@buero.example", "Uhrzeit 10:[E-Mail]"),
+        ("Zeit 12:00:00@x.de", "Zeit 12:00:[E-Mail]"),
+        ("Benutzer jan:Rolle@admin.example", "Benutzer jan:[E-Mail]"),
+    ],
+)
+def test_schwaerzung_ohne_ueberschwaerzung(roh, erwartet):
+    """B7-3 (g7w, Runde 7): Port und Abfrage verschwanden, ein Wort vor „:“ wurde Teil
+    von [E-Mail]. Zugangsdaten bleiben geschwärzt (``test_schwaerzung``)."""
+    assert schwaerze(roh) == erwartet
+
+
+@pytest.mark.parametrize(
+    ("roh", "darf_nicht"),
+    [
+        ("Fehler: https://alarm:4711/Sonne@hooks.example.invalid/hook", "4711"),
+        ("Fehler: https://alarm:4711/Sonne@hooks.example.invalid/hook", "alarm"),
+        ("Fehler: https://alarm:4711/Sonne@hooks.example.invalid/hook", "Sonne"),
+        ("Fehler: https://alarm:4711/Sonne@hooks.example.invalid", "4711"),
+        ("https://host:4711#Sonne nicht zustellbar", "Sonne"),
+        ("https://alarm:4711?Sonne nicht zustellbar", "Sonne"),
+        ("Rest alarm:4711#Sonne@hooks.example.invalid/hook", "alarm"),
+        ("Rest alarm:Wint3r%3FSonne@hooks.example.invalid/hook", "alarm"),
+    ],
+)
+def test_schwaerzung_mit_schraegstrich_im_passwort(roh, darf_nicht):
+    """B7-2 (g7w): Ein unkodiertes „/“ im Passwort mit Ziffern davor ließ „alarm:4711“
+    als Rechner und Port stehen. Ein „@“ im ersten Pfadabschnitt hinter
+    „benutzer:…“ gilt als Ende der Zugangsdaten."""
+    assert darf_nicht not in schwaerze(roh)
+
+
+@pytest.mark.parametrize(
+    "roh",
+    [
+        "https://mastodon.example:443/@kanal",
+        "https://hooks.example:8443/pfad/@user",
+        "https://outlook.office.com/webhook/a1b2-c3@d4e5-f6/IncomingWebhook/abc",
+    ],
+)
+def test_schwaerzung_laesst_at_im_pfad(roh):
+    assert schwaerze(roh) == roh

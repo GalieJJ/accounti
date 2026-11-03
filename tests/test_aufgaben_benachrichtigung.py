@@ -578,6 +578,33 @@ def test_eigener_kanal_aus_der_registry(tmp_path, monkeypatch):
         ),
         ("https://[::1/x", "(ungültige Adresse)"),
         ("https:///nur-pfad", "(ungültige Adresse)"),
+        # Runde 8 (g7w B7-1): ein „@“ in Abfrage oder Fragment ohne Pfad ist keine
+        # Zugangsangabe; ein Rechnername mit Umlauten (IDN) ist gültig
+        ("https://hooks.example?an=jan@firma.example", "https://hooks.example/…"),
+        ("https://hooks.example?token=abc@geheim", "https://hooks.example/…"),
+        ("https://hooks.example#frag@x", "https://hooks.example/…"),
+        ("https://bücher.example/hook", "https://bücher.example/…"),
+        ("https://bücher.example:8443?x=1", "https://bücher.example:8443/…"),
+        # … ein unkodiertes „/“ im Passwort mit Ziffern davor (g7w B7-2): ein „@“ im
+        # ersten Pfadabschnitt beendet die Zugangsdaten
+        (
+            "https://alarm:4711/Sonne@hooks.example.invalid/hook",
+            "https://hooks.example.invalid/…",
+        ),
+        (
+            "https://alarm:4711/Sonne@hooks.example.invalid",
+            "https://hooks.example.invalid/…",
+        ),
+        ("https://alarm:4711/x@hooks.example:8443?a=1", "https://hooks.example:8443/…"),
+        ("https://user:pa/ss@hooks.example/x/@y", "https://hooks.example/…"),
+        ("https://user:pa/s/s@hooks.example/x", "https://hooks.example/…"),
+        # ein „@“ am Anfang oder hinter dem ersten Pfadabschnitt bleibt Pfad
+        ("https://hooks.example:8443/@kanal", "https://hooks.example:8443/…"),
+        ("https://hooks.example:8443/pfad/@user", "https://hooks.example:8443/…"),
+        (
+            "https://outlook.office.com/webhook/a1b2-c3@d4e5-f6/IncomingWebhook/abc",
+            "https://outlook.office.com/…",
+        ),
     ],
 )
 def test_webhook_ziel_ohne_zugangsdaten(url, erwartet):
@@ -586,8 +613,17 @@ def test_webhook_ziel_ohne_zugangsdaten(url, erwartet):
     assert WebhookKanal(url)._ziel() == erwartet
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://alarm:4711#Sonne@hooks.example.invalid/hook",
+        # Runde 8 (g7w B7-2): unkodiertes „/“ im Passwort mit Ziffern davor
+        "https://alarm:4711/Sonne@hooks.example.invalid/hook",
+    ],
+    ids=["raute", "schraegstrich"],
+)
 def test_webhook_fehler_gespeichert_ohne_passwortziffern(
-    make_session, fuenf_aufgaben, monkeypatch
+    make_session, fuenf_aufgaben, monkeypatch, url
 ):
     """g6w B-2: WARNUNG und ``aufgaben_benachrichtigungen`` (adresse, fehler) zeigten
     „https://alarm:4711/…“ — Benutzer und Ziffern des Passworts als Rechner und
@@ -600,7 +636,6 @@ def test_webhook_fehler_gespeichert_ohne_passwortziffern(
         raise urllib.error.URLError("Temporary failure in name resolution")
 
     monkeypatch.setattr(benachrichtigung.urllib.request, "urlopen", urlopen)
-    url = "https://alarm:4711#Sonne@hooks.example.invalid/hook"
     e = _einstellungen(kanaele=["webhook"], webhook={"url": url})
     lauf = _versende(make_session, e, {"webhook": WebhookKanal(url, timeout=1)})
     assert lauf.zustellungen and not any(z.erfolgreich for z in lauf.zustellungen)

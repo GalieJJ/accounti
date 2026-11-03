@@ -488,8 +488,15 @@ def test_connector_adresse_ohne_zugangsdaten(tmp_path):
          "Wint3r"),
         ("https://alarm:1234#abc@portal.example:8443/api", "portal.example:8443",
          "1234"),
+        # Runde 8 (g7w B7-2, B7-1)
+        ("https://alarm:4711/Sonne@portal.example/api", "json: portal.example |",
+         "4711"),
+        ("https://portal.example?konto=rechnung@firma.example",
+         "json: portal.example |", "firma.example"),
+        ("https://bücher.example/api", "json: bücher.example |",
+         "basis_url fehlerhaft"),
     ],
-    ids=["raute", "fragezeichen", "ziffern"],
+    ids=["raute", "fragezeichen", "ziffern", "schraegstrich", "abfrage", "idn"],
 )  # fmt: skip
 def test_connector_adresse_mit_unkodiertem_passwort(
     tmp_path, basis, erwartet, darf_nicht

@@ -43,11 +43,19 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     # Zugangsdaten jeder URL (scheme://benutzer:passwort@): die ganze userinfo, auch
     # mit unkodiertem # oder ? im Passwort (Runde 6, g5w-konten N1)
     (re.compile(rf"({_SCHEMA})[^/\s@]+@"), r"\1***@"),
+    # … auch mit unkodiertem „/“ im Passwort („benutzer:4711/Sonne@rechner“): ein „@“
+    # im ersten Pfadabschnitt hinter „benutzer:…“ (Runde 8, g7w B7-2; „/@kanal“ und ein
+    # „@“ weiter hinten im Pfad bleiben Pfad)
+    (re.compile(rf"({_SCHEMA})[^/\s@:]*:[^/\s@]*/[^/\s@]+@"), r"\1***@"),
     # … und abgeschnitten (Zeilenumbruch, kaputte Adresse): „scheme://benutzer:etwas“
-    # ohne @ — außer einem Port (nur Ziffern vor „/“, Leerraum oder Ende; „:4711#Sonne“
-    # ist ein Passwort, Runde 7, g6w B-2)
+    # ohne @ — außer einem Port: Ziffern vor „/“, Leerraum, Ende, einer Abfrage („?x=1“,
+    # „?“) oder „#/“ (Runde 8, g7w B7-3); „:4711#Sonne“ und „:4711?Sonne“ sind ein
+    # Passwort (Runde 7, g6w B-2)
     (
-        re.compile(rf"({_SCHEMA}[^/\s:@?#\[\]]+):(?!\d+(?:[/\s]|$))[^/\s@]+"),
+        re.compile(
+            rf"({_SCHEMA}[^/\s:@?#\[\]]+):"
+            r"(?!\d+(?:[/\s]|$|\?(?:[^\s#/=]*=|[\s#/]|$)|#(?:[/\s]|$)))[^/\s@]+"
+        ),
         r"\1:***",
     ),
     (
@@ -66,12 +74,15 @@ _MUSTER: list[tuple[re.Pattern[str], str]] = [
     ),
     # PIN und TAN als Zahl („PIN: 12345“, „TAN 123456“)
     (re.compile(r"(?i)\b(pin|tan)(\s*[:=]?\s*)\d{4,8}\b"), r"\1\2***"),
-    # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“, auch
-    # „benutzer:4711#Sonne@host“ ohne Schema); beginnt nur am Anfang einer solchen
-    # Zeichenfolge, nicht an jeder ihrer Stellen (DoS-1)
+    # E-Mail — und der Rest einer zerschnittenen Adresse („…geheim@host“); beginnt nur
+    # am Anfang einer solchen Zeichenfolge, nicht an jeder ihrer Stellen (DoS-1). Ein
+    # „wort:“ davor gehört nur dazu, wenn ein Passwortzeichen folgt
+    # („benutzer:4711#Sonne@host“ ohne Schema) — „Empfänger:max@firma.de“ behält
+    # „Empfänger:“, „Uhrzeit 10:30@…“ die Stunde (Runde 8, g7w B7-3)
     (
         re.compile(
-            rf"(?<![{_LOKAL}])[{_LOKAL}]+(?::[{_LOKAL}]+)?@[\w\-]+(?:\.[\w\-]+)+"
+            rf"(?<![{_LOKAL}])(?:[\w.+\-]+:(?=[\w.+\-]*[#?%!$&*=^~]))?"
+            rf"[{_LOKAL}]+@[\w\-]+(?:\.[\w\-]+)+"
         ),
         "[E-Mail]",
     ),
@@ -120,7 +131,9 @@ def schwaerze(text: str) -> str:
     return text
 
 
-_RECHNER = re.compile(r"[A-Za-z0-9._~\-]+|\[[0-9A-Za-z:.%]+\]")
+# Rechnername: Buchstaben (auch Umlaute, IDN wie „bücher.example“; Runde 8, g7w B7-1),
+# Ziffern, „.“, „_“, „~“, „-“ — oder IPv6 in Klammern
+_RECHNER = re.compile(r"[\w.~\-]+|\[[0-9A-Za-z:.%]+\]")
 
 
 def _rechner_und_port(teil: str) -> tuple[str, str | None] | None:
@@ -146,26 +159,45 @@ def _rechner_und_port(teil: str) -> tuple[str, str | None] | None:
     return rechner, port
 
 
+def _hinter_zugangsdaten(vorn: str, hinten: str) -> str | None:
+    """Der Rechner hinter Zugangsdaten mit unkodiertem „#“, „?“ oder „/“ im Passwort
+    („benutzer:4711#Sonne@rechner“): ``vorn`` ist der Teil vor dem ersten dieser
+    Zeichen, ``hinten`` der Rest ab ihm. Steht im Abschnitt dahinter — bis zum nächsten
+    „/“, nach einem „/“ bis zum nächsten „/“, „?“ oder „#“ — ein „@“ (nach einem „/“
+    mit Text davor: „/@kanal“ ist Pfad), folgt der Rechner dem letzten „@“ dort. Sonst,
+    wenn ``vorn`` nicht „rechner:port“ ist („benutzer:pa/s/s@rechner“), dem letzten
+    „@“ überhaupt. ``None``: keine Zugangsdaten zu erkennen."""
+    if ":" not in vorn or not hinten:
+        return None
+    zeichen, inhalt = hinten[0], hinten[1:]
+    abschnitt = re.split(r"[/?#]" if zeichen == "/" else "/", inhalt, maxsplit=1)[0]
+    zugang, at, rechner = abschnitt.rpartition("@")
+    if not at or (zeichen == "/" and not zugang):
+        sauber = _rechner_und_port(vorn)
+        if (sauber is not None and sauber[1] is not None) or "@" not in hinten:
+            return None
+        rechner = hinten.rpartition("@")[2]
+    return re.split(r"[/?#]", rechner, maxsplit=1)[0]
+
+
 def rechner_der_adresse(adresse: str) -> str | None:
     """„schema://rechner[:port]“ einer Adresse — ohne Benutzer, Passwort, Pfad und
-    Abfrage (die tragen oft ein Geheimnis). Robust gegen ein unkodiertes #, ? oder /
-    im Passwort (``urlsplit`` machte dort den Passwortanfang zum Rechner und seine
-    Ziffern zum Port, Runde 7, g6w B-2): Steht nach „://“ vor dem Pfad ein „@“, ist
-    alles bis zum letzten „@“ Zugangsdaten; ist der Teil vor dem ersten „/“ kein
-    sauberer Rechner, aber folgt später ein „@“, ebenso. Im Zweifel ohne Port.
-    ``None``, wenn die Adresse keinen Rechner erkennen lässt."""
+    Abfrage (die tragen oft ein Geheimnis). Zugangsdaten stehen vor dem ersten „/“, „?“
+    oder „#“ und enden am letzten „@“ dort; ein „@“ in Abfrage oder Fragment ist keine
+    Zugangsangabe („https://rechner?an=jan@firma.example“; Runde 8, g7w B7-1). Robust
+    gegen ein unkodiertes #, ? oder / im Passwort (``urlsplit`` machte dort den
+    Passwortanfang zum Rechner und seine Ziffern zum Port, Runde 7, g6w B-2; Runde 8,
+    g7w B7-2): ``_hinter_zugangsdaten``. Im Zweifel ohne Port. ``None``, wenn die
+    Adresse keinen Rechner erkennen lässt."""
     schema, trenner, rest = adresse.strip().partition("://")
     if not trenner or not re.fullmatch(r"[A-Za-z][A-Za-z0-9+.\-]*", schema):
         return None
-    vorn = rest.split("/", 1)[0]
+    vorn = re.split(r"[/?#]", rest, maxsplit=1)[0]
     if "@" in vorn:
         vorn = vorn.rpartition("@")[2]
-    elif "@" in rest:
-        # ein „/“ im Passwort: „benutzer:pa/ss@rechner/…“
-        sauber = _rechner_und_port(re.split(r"[?#]", vorn, maxsplit=1)[0])
-        if sauber is None or (sauber[1] is None and ":" in vorn):
-            vorn = rest.rpartition("@")[2].split("/", 1)[0]
-    zerlegt = _rechner_und_port(re.split(r"[?#]", vorn, maxsplit=1)[0])
+    elif (rechner := _hinter_zugangsdaten(vorn, rest[len(vorn) :])) is not None:
+        vorn = rechner
+    zerlegt = _rechner_und_port(vorn)
     if zerlegt is None:
         return None
     rechner, port = zerlegt
