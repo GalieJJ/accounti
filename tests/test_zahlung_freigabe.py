@@ -296,3 +296,21 @@ def test_anlage_wird_erst_mit_dem_commit_gespeichert(tmp_path):
     with fabrik() as s:
         assert lade_laeufe(s) == []
     engine.dispose()
+
+
+def test_anzahl_laeufe_je_status(db):
+    """Zähler der Navigation (Plan P1, Schritt 6): ein COUNT je Status."""
+    from accounti.db.repo_zahlung import anzahl_laeufe
+
+    fabrik, *_ = db
+    with fabrik() as s:
+        assert anzahl_laeufe(s, [LaufStatus.ENTWURF]) == 0
+    lauf = _anlegen(fabrik)
+    with fabrik() as s:
+        assert anzahl_laeufe(s, [LaufStatus.ENTWURF]) == 1
+        assert len(lade_laeufe(s, [LaufStatus.ENTWURF])) == 1
+    _freigeben(fabrik, lauf.nr)
+    with fabrik() as s:
+        assert anzahl_laeufe(s, [LaufStatus.ENTWURF]) == 0
+        assert anzahl_laeufe(s, [LaufStatus.FREIGEGEBEN, LaufStatus.ENTWURF]) == 1
+        assert anzahl_laeufe(s) == 1

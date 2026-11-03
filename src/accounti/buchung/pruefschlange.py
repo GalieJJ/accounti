@@ -22,7 +22,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from accounti.aufgaben import (
@@ -301,6 +301,26 @@ def _zurueckgestellte(session: Session) -> set[str]:
         for a in lade_aufgaben(session, art=RUECKFRAGE, status=AKTIVE_STATUS)
         if a.objekt.typ == "buchung"
     }
+
+
+def anzahl_offen(session: Session) -> int:
+    """Offene Vorschläge ohne die zurückgestellten — dieselbe Zahl wie die Ansicht
+    „Offen“, aber als ``COUNT`` (Zähler der Navigation, Baustein 10c P1)."""
+    pruefung = BuchungssatzRow.status == BuchungStatus.ZUR_PRUEFUNG.value
+    alle = session.scalar(
+        select(func.count()).select_from(BuchungssatzRow).where(pruefung)
+    )
+    zurueck = _zurueckgestellte(session)
+    davon = (
+        session.scalar(
+            select(func.count())
+            .select_from(BuchungssatzRow)
+            .where(pruefung, BuchungssatzRow.id.in_(zurueck))
+        )
+        if zurueck
+        else 0
+    )
+    return int(alle or 0) - int(davon or 0)
 
 
 def _reihe(session: Session) -> tuple[list[Buchungssatz], set[str]]:
