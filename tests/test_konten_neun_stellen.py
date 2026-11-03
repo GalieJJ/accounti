@@ -117,7 +117,11 @@ def test_kasse_bucht_gegen_neunstelliges_personenkonto(welt):
 def test_export_datev_mit_sachkontenlaenge_der_konfiguration(welt):
     """Der Buchungsstapel nannte immer Sachkontenlänge 4 — ein 9-stelliges
     Personenkonto passte dann nicht (DATEV lehnt den Stapel ab); ``datev belege``
-    nahm schon ``mandant.sachkonten_laenge``."""
+    nahm schon ``mandant.sachkonten_laenge``. Beraternummer 1001: der Stapel prüft den
+    Kopf wie DATEV (1001–9999999, Paket E). Ein 10-stelliges Konto passt in kein
+    DATEV-Kontofeld (höchstens 9 Stellen): Seit Paket E schreibt der Export dann
+    keinen Stapel und nennt das Konto, statt einen Stapel zu schreiben, den DATEV
+    ablehnt."""
     tmp_path, url, fabrik, konfig = welt
     anlegen(
         fabrik,
@@ -125,22 +129,24 @@ def test_export_datev_mit_sachkontenlaenge_der_konfiguration(welt):
             status=BuchungStatus.GEPRUEFT, soll="4900", haben=NEUN,
             tag=date(2026, 10, 2),
         ),
+    )  # fmt: skip
+    ausgabe = tmp_path / "ex"
+    befehl = ["export", "datev", "--berater", "1001", "--mandant", "2", "--output",
+              str(ausgabe), "--db", url, "--config", konfig]  # fmt: skip
+    r = runner.invoke(app, befehl, env={"COLUMNS": "250"})
+    assert r.exit_code == 0, r.output
+    (datei,) = ausgabe.glob("EXTF_*.csv")
+    kopf = datei.read_text(encoding="cp1252").splitlines()[0].split(";")
+    assert kopf[13] == "8"  # Feld 14: Sachkontenlänge
+    assert NEUN not in " ".join(r.output.split())  # passt: keine Warnung
+    anlegen(
+        fabrik,
         buchung(
             status=BuchungStatus.GEPRUEFT, soll="4900", haben="1234567890",
             tag=date(2026, 10, 3), steuer=None, schluessel=None,
         ),
     )  # fmt: skip
-    ausgabe = tmp_path / "ex"
-    r = runner.invoke(
-        app,
-        ["export", "datev", "--berater", "1", "--mandant", "2", "--output",
-         str(ausgabe), "--db", url, "--config", konfig],
-        env={"COLUMNS": "250"},
-    )  # fmt: skip
-    assert r.exit_code == 0, r.output
-    (datei,) = ausgabe.glob("EXTF_*.csv")
-    kopf = datei.read_text(encoding="cp1252").splitlines()[0].split(";")
-    assert kopf[13] == "8"  # Feld 14: Sachkontenlänge
-    text = " ".join(r.output.split())
-    assert "1234567890" in text and "Sachkontenlänge 8" in text
-    assert NEUN not in text
+    r = runner.invoke(app, befehl, env={"COLUMNS": "250"})
+    assert r.exit_code == 1, r.output
+    assert "1234567890" in " ".join(r.output.split())
+    assert list(ausgabe.glob("EXTF_*.csv")) == [datei]  # kein zweiter Stapel

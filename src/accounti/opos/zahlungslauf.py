@@ -8,7 +8,7 @@ Ruhe, was hier zugeordnet ist.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from decimal import Decimal
 from uuid import UUID
@@ -128,9 +128,16 @@ def _speichere(
 
 
 def zuordne_zahlungen(
-    session: Session, einstellungen: Buchhaltung, zeitraum: str | None = None
+    session: Session,
+    einstellungen: Buchhaltung,
+    zeitraum: str | None = None,
+    auslassen: Collection[UUID] = (),
 ) -> Zahlungslauf:
-    """Ordnet alle offenen Transaktionen zu (optional nur eines Monats, ``JJJJ-MM``)."""
+    """Ordnet alle offenen Transaktionen zu (optional nur eines Monats, ``JJJJ-MM``).
+
+    ``auslassen``: Umsätze, über die der Marktplatz-Abgleich desselben ``bank lauf``
+    einen Befund hat — eine Auszahlung, nie die Zahlung einer Forderung, auch nicht
+    als Vorschlag (Nachprüfung 6 E, Mb)."""
     lauf = Zahlungslauf()
     kontakte = lade_kontakte(session)
     reserviert: set[UUID] = {
@@ -139,6 +146,8 @@ def zuordne_zahlungen(
     }
     for tx in offene_transaktionen(session):
         if zeitraum and f"{tx.datum:%Y-%m}" != zeitraum:
+            continue
+        if tx.id in auslassen:
             continue
         posten = [
             p
@@ -188,12 +197,17 @@ def bestaetige(
     ``skonto``: Belegnummer → Skonto, das der Mensch für diesen Posten anerkennt (statt
     des vorgeschlagenen) — gebucht mit anteiliger Steuerkorrektur wie jedes Skonto;
     Zahlung und Skonto dürfen den Rest des Postens nicht übersteigen.
+
+    Ist der Umsatz inzwischen anderweitig gebucht oder einer Marktplatz-Auszahlung
+    zugeordnet, ist der Vorschlag veraltet — sonst stünde er doppelt auf der Bank und
+    eine fremde Forderung gälte als bezahlt (Nachprüfung 6 E, Mb).
     """
     zuordnungen = _vorschlag_zu(session, praefix)
     tx = lade_transaktion(session, zuordnungen[0].transaktion_id)
     if tx is None:
         msg = f"Transaktion {zuordnungen[0].transaktion_id} nicht gefunden."
         raise ZahlungslaufError(msg)
+    _pruefe_noch_offen(session, tx)
     offen = dict(skonto or {})
     anteile = []
     for z in zuordnungen:
@@ -228,6 +242,25 @@ def bestaetige(
         raise ZahlungslaufError(f"Vorschlag veraltet: {fehler}") from fehler
     setze_zuordnungen_status(session, tx.id, ZuordnungStatus.GEBUCHT)
     return buchungen
+
+
+def _pruefe_noch_offen(session: Session, tx: Transaktion) -> None:
+    """Der Umsatz eines Vorschlags darf inzwischen nirgends gebucht sein."""
+    from accounti.db.repo_integrationen import zugeordnete_bank_transaktionen
+
+    ident = str(tx.id)[:8]
+    if tx.id in zugeordnete_bank_transaktionen(session):
+        wo = "einer Marktplatz-Auszahlung zugeordnet (accounti marktplatz zeigen)"
+    elif tx.id in gebuchte_transaktion_ids(session):
+        wo = "anderweitig gebucht"
+    else:
+        return
+    msg = (
+        f"Vorschlag veraltet: der Umsatz {ident} ist inzwischen {wo} und damit schon "
+        f"gebucht — nicht zweimal buchen; den Vorschlag verwerfen mit accounti opos "
+        f"ablehnen {ident}"
+    )
+    raise ZahlungslaufError(msg)
 
 
 def lehne_ab(session: Session, praefix: str) -> Transaktion | None:

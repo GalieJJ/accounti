@@ -421,3 +421,917 @@ def test_shopify_reserve_in_fremdwaehrung(umgebung):
     assert nl.betrag_netto == D("24.31")  # 25,00 GBP = 29,41 EUR / 1,21
     assert saldo(buchungen, "1363") == 0
     assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABGEGLICHEN
+
+
+# --- Gesamttest Steuer B2: Fremdwährung mit Toleranz, Kursdifferenz -------------------
+
+
+def test_fremdwaehrung_bankbetrag_in_der_toleranz_mit_kursdifferenz(umgebung):
+    """51,68 GBP: Summe der einzeln umgerechneten Posten 59,73 €, die Bank schreibt
+    59,75 € gut (eigener Kurs). Früher nie ein Treffer — danach buchte classify die
+    Auszahlung als Erlös. Jetzt: Bankbetrag gebucht, 0,02 € Kursdifferenz (2660),
+    Verrechnungskonto glatt."""
+    s, archiv, kontext = umgebung
+    eingang = bank(
+        s,
+        date(2026, 9, 11),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    (abgleich,) = ergebnis.abgleich
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == eingang.id
+    assert abgleich.befund is not None and abgleich.befund.code == "kursdifferenz"
+    assert abgleich.befund.schweregrad is Schweregrad.HINWEIS
+    buchungen = lade_buchungen(s)
+    bank_seite = sorted(
+        (b.soll_konto, b.haben_konto, b.betrag_netto, b.steuer_schluessel)
+        for b in buchungen
+        if b.transaktion_id == eingang.id
+    )
+    assert bank_seite == [
+        ("1200", "1362", D("59.73"), None),
+        ("1200", "2660", D("0.02"), None),
+    ]
+    assert saldo(buchungen, "1362") == 0
+    assert saldo(buchungen, "1200") == D("59.75")
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    assert eingang.id not in {t.id for t in offene_transaktionen(s, True)}
+
+
+def test_fremdwaehrung_ausserhalb_der_toleranz_bleibt_befund(umgebung):
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 9, 11), "55.00", "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    assert [a.befund.code for a in ergebnis.abgleich if a.befund] == [
+        "auszahlung_abweichung"
+    ]
+    assert not [b for b in lade_buchungen(s) if b.transaktion_id is not None]
+
+
+def test_fremdwaehrung_ohne_stichwort_kein_toleranztreffer(umgebung):
+    """Die Toleranz gilt nur mit Stichwort oder Abrechnungsnummer — ein fremder
+    Eingang über 59,75 € ist kein Treffer."""
+    s, archiv, kontext = umgebung
+    bank(s, date(2026, 9, 11), "59.75", "MIETE SEPTEMBER", "Hausverwaltung")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    assert all(a.transaktion is None for a in ergebnis.abgleich)
+
+
+def _als_erloes_gebucht(session, tx, netto, steuer):
+    """Wie eine Regel vor dem Import: Auszahlung als Erlös 19 % (1200 an 8400)."""
+    speichere_buchung(
+        session,
+        Buchungssatz(
+            transaktion_id=tx.id,
+            datum=tx.datum,
+            soll_konto="1200",
+            haben_konto="8400",
+            betrag_netto=D(netto),
+            steuer_schluessel=3,
+            steuer_betrag=D(steuer),
+            buchungstext="Auszahlung per Regel",
+            status=BuchungStatus.AUTO_GEBUCHT,
+        ),
+    )
+
+
+def test_fremdwaehrung_schon_per_regel_gebucht_ist_befund(umgebung):
+    """Nachprüfung N2 (a): eBay in GBP, die Bank (59,75 €) kam vor dem Import und
+    ist per Regel als Erlös gebucht; die Abrechnung ergibt 59,73 €. „Schon gebucht“
+    verlangte den exakten Betrag — kein Befund, Kz 81 still doppelt. Bei
+    Fremdwährung gilt dieselbe Toleranz wie beim Treffer."""
+    s, archiv, kontext = umgebung
+    tx = bank(
+        s,
+        date(2026, 9, 11),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    _als_erloes_gebucht(s, tx, "50.21", "9.54")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert befund.schweregrad is Schweregrad.FEHLER
+    assert "11.09.2026" in befund.text
+    assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABWEICHUNG
+
+
+@pytest.mark.parametrize("mit_nummer", [False, True], ids=["ohne_nummer", "nummer"])
+def test_schon_gebucht_in_euro_nur_mit_exaktem_betrag(umgebung, mit_nummer):
+    """Gegenprobe zu N2 (a): in Euro ist ein Bankumsatz mit 1 Cent Abweichung keine
+    gebuchte Auszahlung — die Toleranz gilt nur, wo der Kurs der Bank abweicht.
+    Nennt er aber die eigene Nummer, ist er es doch, nur in anderer Höhe: dann ist
+    der Erlös doppelt, ein Fehler-Befund mit beiden Beträgen (Nachprüfung 5 E, N2 —
+    vorher schrieb dieser Test das Schweigen fest)."""
+    s, archiv, kontext = umgebung
+    nummer = " 11223344556" if mit_nummer else ""
+    tx = bank(s, date(2026, 8, 18), "209.86", f"AMAZON PAYMENTS EUROPE{nummer}")
+    _als_erloes_gebucht(s, tx, "176.35", "33.51")
+    (ergebnis,) = amazon(s, archiv, kontext)
+    befunde = [a.befund for a in ergebnis.abgleich if a.befund]
+    if not mit_nummer:
+        assert not befunde
+        return
+    (befund,) = befunde
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert "209,86" in befund.text and "209,85" in befund.text
+    assert _ustva_warnungen(s, "2026-08")
+
+
+def _amazon_ende_august(inhalt: bytes) -> bytes:
+    """Amazon-Abrechnung 16.–31.08., Auszahlung am 02.09. (Kopfzeile der Fixture)."""
+    alt = b"01.08.2026 00:00:00 UTC\t15.08.2026 00:00:00 UTC\t17.08.2026 00:00:00 UTC"
+    neu = b"16.08.2026 00:00:00 UTC\t31.08.2026 00:00:00 UTC\t02.09.2026 00:00:00 UTC"
+    assert inhalt.count(alt) == 1
+    return inhalt.replace(alt, neu)
+
+
+def test_schon_gebuchte_auszahlung_warnt_im_monat_der_bankbuchung(umgebung):
+    """Nachprüfung N2 (b): Abrechnung 16.–31.08., die Auszahlung kam am 03.09. auf
+    die Bank und steht per Regel als Erlös im September. Die Warnung stand in der
+    UStVA 08 (dort ist nichts falsch) und fehlte in der UStVA 09 (Kz 81 doppelt)."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import bereite_vor
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    roh = _amazon_ende_august((FIXTURES / "amazon_abrechnung_v2.txt").read_bytes())
+    (ergebnis,) = amazon(s, archiv, kontext, roh)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+
+    def marktplatz(monat):
+        v = bereite_vor(
+            s,
+            Zeitraum.lies(monat),
+            buchhaltung=Buchhaltung(),
+            einstellungen=ElsterEinstellungen(),
+        )
+        return [b for b in v.befunde if b.regel == "marktplatz"]
+
+    (september,) = marktplatz("2026-09")
+    assert september.schweregrad.value == "warnung"
+    assert "auszahlung_anderweitig_gebucht" in september.text
+    assert "03.09.2026" in september.text
+    assert not marktplatz("2026-08")
+
+
+# --- Nachprüfung 2 E: M1 (zwei Auszahlungen über die Monatsgrenze), L1 ---------------
+
+_EBAY_ZWEITE = (
+    '"26.09.2026";"Bestellung";"12-77777-77778";"J. Smith";"London";"SW1A 1AA";'
+    '"Großbritannien";"52,00";"GBP";"01.10.2026";"6009990002";"Bezahlt";"";'
+    '"110000000007";"2200000000008";"Bilderrahmen 30x40 Eiche";"1";"52,32";"8,00";'
+    '"-0,30";"-7,02";"0";"0";"-1,00";"60,32";"GBP";"";"";""\n'
+    '"01.10.2026";"Auszahlung";"";"";"";"";"";"-52,00";"GBP";"01.10.2026";'
+    '"6009990002";"Bezahlt";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";"";'
+    '"Auszahlung an Bankkonto ****3000"\n'
+)
+
+
+def _ebay_gbp(zweite: bool = False) -> bytes:
+    """eBay in GBP: 6009990001 über 51,68 GBP (59,73 €), Auszahlung am 29.09. — oder
+    ``zweite``: 6009990002 über 52,00 GBP (60,10 €), Auszahlung am 01.10."""
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    if zweite:
+        kopf = roh.decode("utf-8-sig").splitlines(keepends=True)[0]
+        return (kopf + _EBAY_ZWEITE).encode("utf-8-sig")
+    return roh.replace(b"03.09.2026", b"24.09.2026").replace(
+        b"10.09.2026", b"29.09.2026"
+    )
+
+
+def _ebay_import(s, archiv, kontext, zweite=False):
+    (ergebnis,) = importiere(
+        s,
+        archiv,
+        kontext,
+        "ebay",
+        _ebay_gbp(zweite),
+        "gbp2.csv" if zweite else "gbp1.csv",
+        kurs=D("0.8650"),
+    )
+    return ergebnis
+
+
+def _ebay_september_abgeglichen(s, archiv, kontext):
+    """Erste Auszahlung: Bank 59,75 € am 30.09., accounti bucht 1200 an 1362 und die
+    Kursdifferenz."""
+    erste = bank(
+        s,
+        date(2026, 9, 30),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    (abgleich,) = _ebay_import(s, archiv, kontext).abgleich
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == erste.id
+    return erste
+
+
+def test_schon_gebucht_nicht_der_umsatz_einer_anderen_auszahlung(umgebung):
+    """Nachprüfung 2 E, M1: eBay 6009990001 ist mit dem Bankumsatz vom 30.09.
+    abgeglichen. Die Bank bucht am 02.10. 60,14 € für 6009990002, die Regel bucht sie
+    als Erlös (die Abrechnung fehlte noch). Der Befund nannte den Umsatz vom 30.09.
+    (dort ist alles richtig gebucht) und warnte in der UStVA 09 statt 10 — der
+    Umsatz einer anderen Auszahlung liegt in der Toleranz. Zugeordnete Umsätze
+    zählen nicht als „schon gebucht“."""
+    from accounti.elster.ustva import marktplatz_befunde
+    from accounti.integrationen.auszahlung import bankdatum
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    _ebay_september_abgeglichen(s, archiv, kontext)
+    zweite = bank(
+        s,
+        date(2026, 10, 2),
+        "60.14",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990002",
+        "eBay S.a.r.l.",
+    )
+    _als_erloes_gebucht(s, zweite, "50.54", "9.60")
+    regel = next(b for b in lade_buchungen(s) if b.transaktion_id == zweite.id)
+    ergebnis = _ebay_import(s, archiv, kontext, zweite=True)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert bankdatum(befund) == date(2026, 10, 2), befund.text
+    assert f"korrigiere {str(regel.id)[:8]} " in befund.text
+    assert not marktplatz_befunde(s, Zeitraum.lies("2026-09"))
+    (oktober,) = marktplatz_befunde(s, Zeitraum.lies("2026-10"))
+    assert "6009990002" in oktober.text
+    erste, zweite_abrechnung = sorted(lade_abrechnungen(s), key=lambda a: a.nummer)
+    assert erste.status is AbrechnungStatus.ABGEGLICHEN
+    assert zweite_abrechnung.status is AbrechnungStatus.ABWEICHUNG
+
+
+def test_auszahlung_vor_ihrem_bankumsatz_ohne_falschen_befund(umgebung):
+    """Nachprüfung 2 E, M1 (Variante): die zweite Abrechnung kommt vor ihrem
+    Bankumsatz. Der Umsatz der ersten Auszahlung (30.09., in der Toleranz) galt als
+    „schon gebucht“ — ein falscher FEHLER, Status „abweichung“, bis der eigene
+    Umsatz eingeht. Richtig: noch nicht auf der Bank, kein Befund."""
+    s, archiv, kontext = umgebung
+    _ebay_september_abgeglichen(s, archiv, kontext)
+    ergebnis = _ebay_import(s, archiv, kontext, zweite=True)
+    assert not [a.befund for a in ergebnis.abgleich if a.befund]
+    assert ergebnis.abrechnung.status is AbrechnungStatus.GEBUCHT
+    eigene = bank(
+        s,
+        date(2026, 10, 2),
+        "60.14",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990002",
+        "eBay S.a.r.l.",
+    )
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == eigene.id
+    assert {a.status for a in lade_abrechnungen(s)} == {AbrechnungStatus.ABGEGLICHEN}
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def _korrigiere_wie_vorgeschlagen(s, befund):
+    import re
+
+    from accounti.pruefung.storno import korrigiere
+
+    treffer = re.search(
+        r"korrigiere (\w+) --soll (\d+) --haben (\d+) --ohne-steuer", befund.text
+    )
+    assert treffer is not None, befund.text
+    ident, soll, haben = treffer.groups()
+    return korrigiere(s, ident, soll, haben, ohne_steuer=True, von="erika")
+
+
+def test_befund_erledigt_nach_der_vorgeschlagenen_korrektur(umgebung):
+    """Nachprüfung 2 E, L1: dem Vorschlag folgen (korrigiere … --soll 1200 --haben
+    1361 --ohne-steuer), dann abgleichen. Der Befund blieb offen, ein zweiter kam
+    dazu (der Text nannte jetzt auch Storno und Neubuchung), die UStVA warnte
+    dauerhaft. Jetzt: der Umsatz ist die Auszahlung — zugeordnet, ohne zweite
+    Bankbuchung, der Befund erledigt."""
+    from accounti.elster.ustva import marktplatz_befunde
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 8, 18), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    (ergebnis,) = amazon(s, archiv, kontext)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    anzahl = len(lade_buchungen(s))
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == tx.id
+    assert abgleich.befund is None
+    assert len(lade_buchungen(s)) == anzahl  # die Neubuchung ist die Bankbuchung
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    assert not [b for b in abrechnung.offene_befunde if b.code.startswith("auszahlung")]
+    assert saldo(lade_buchungen(s), "1361") == 0
+    assert not marktplatz_befunde(s, Zeitraum.lies("2026-08"))
+    assert gleiche_auszahlungen_ab(s, kontext) == []
+
+
+def test_korrektur_in_fremdwaehrung_bucht_die_kursdifferenz(umgebung):
+    """L1, Fremdwährung: die Korrektur bucht den Bankbetrag (59,75 €) auf 1362, die
+    Abrechnung erwartet 59,73 € — die 0,02 € blieben auf dem Verrechnungskonto
+    stehen. Beim Abgleich geht die Differenz wie beim Treffer auf das
+    Kursdifferenzkonto (2660)."""
+    s, archiv, kontext = umgebung
+    tx = bank(
+        s,
+        date(2026, 9, 11),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    _als_erloes_gebucht(s, tx, "50.21", "9.54")
+    roh = (FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+    (ergebnis,) = importiere(
+        s, archiv, kontext, "ebay", roh, "gbp.csv", kurs=D("0.8650")
+    )
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == tx.id
+    assert abgleich.befund is not None and abgleich.befund.code == "kursdifferenz"
+    buchungen = lade_buchungen(s)
+    assert saldo(buchungen, "1362") == 0
+    assert saldo(buchungen, "2660") == D("-0.02")
+    assert saldo(buchungen, "1200") == D("59.75")
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+
+
+# --- Nachprüfung 3 E: M2 (zwei per Regel gebuchte Auszahlungen), L-b ---------------
+
+# (Tag, Betrag, Verwendungszweck, netto, USt) — wie ``bank lauf`` sie per Regel als
+# Erlös 19 % bucht, bevor der Transaktionsbericht kommt
+_UMSATZ_A = (date(2026, 9, 30), "59.75", "6009990001", "50.21", "9.54")
+_UMSATZ_B = (date(2026, 10, 2), "60.14", "6009990002", "50.54", "9.60")
+
+
+def _per_regel(s, umsatz, mit_nummer=True):
+    tag, betrag, nummer, netto, steuer = umsatz
+    zweck = "EBAY MANAGED PAYMENTS AUSZAHLUNG" + (f" {nummer}" if mit_nummer else "")
+    tx = bank(s, tag, betrag, zweck, "eBay S.a.r.l.")
+    _als_erloes_gebucht(s, tx, netto, steuer)
+    (regel,) = [b for b in lade_buchungen(s) if b.transaktion_id == tx.id]
+    return tx, regel
+
+
+def _anderweitig(ergebnis):
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    return befund
+
+
+def _ustva_warnungen(s, monat):
+    """Warnungen der UStVA-Prüfung aus Marktplatz-Befunden — ohne die Hinweise
+    („vielleicht gebucht“ mit Stichworten, Nachprüfung 7 E, N2)."""
+    from accounti.elster.ustva import marktplatz_befunde
+    from accounti.steuer.zeitraum import Zeitraum
+
+    return [
+        b.text
+        for b in marktplatz_befunde(s, Zeitraum.lies(monat))
+        if b.schweregrad.value != "hinweis"
+    ]
+
+
+@pytest.mark.parametrize("neu_zuerst", [False, True], ids=["alt_zuerst", "neu_zuerst"])
+def test_schon_gebucht_nennt_den_umsatz_mit_der_eigenen_nummer(umgebung, neu_zuerst):
+    """Nachprüfung 3 E, M2: ``bank lauf`` hat beide eBay-Auszahlungen per Regel als
+    Erlös gebucht (30.09. für 6009990001, 02.10. für 6009990002), dann kommen die
+    Berichte. Beide liegen in Fenster und Toleranz beider Abrechnungen — „schon
+    gebucht“ nahm den zuerst importierten Umsatz: beide Befunde nannten denselben
+    Tag, eine Voranmeldung warnte nicht, die Korrektur blieb wirkungslos. Ein Umsatz
+    mit der Nummer einer anderen bekannten Abrechnung scheidet aus, sonst entscheidet
+    die eigene Nummer — in beiden Reihenfolgen des Bankimports."""
+    from accounti.integrationen.auszahlung import bankdatum
+
+    s, archiv, kontext = umgebung
+    if neu_zuerst:
+        b, regel_b = _per_regel(s, _UMSATZ_B)
+        a, regel_a = _per_regel(s, _UMSATZ_A)
+    else:
+        a, regel_a = _per_regel(s, _UMSATZ_A)
+        b, regel_b = _per_regel(s, _UMSATZ_B)
+    erster = _anderweitig(_ebay_import(s, archiv, kontext))
+    zweiter = _anderweitig(_ebay_import(s, archiv, kontext, zweite=True))
+    assert bankdatum(erster) == date(2026, 9, 30), erster.text
+    assert f"korrigiere {str(regel_a.id)[:8]} " in erster.text
+    assert bankdatum(zweiter) == date(2026, 10, 2), zweiter.text
+    assert f"korrigiere {str(regel_b.id)[:8]} " in zweiter.text
+    (september,) = _ustva_warnungen(s, "2026-09")
+    (oktober,) = _ustva_warnungen(s, "2026-10")
+    assert "6009990001" in september and "6009990002" in oktober
+    # beiden Vorschlägen folgen, abgleichen: jede Auszahlung bekommt ihren Umsatz
+    _korrigiere_wie_vorgeschlagen(s, erster)
+    _korrigiere_wie_vorgeschlagen(s, zweiter)
+    zuordnung = {
+        x.abrechnung.nummer: x.transaktion.id
+        for x in gleiche_auszahlungen_ab(s, kontext)
+        if x.transaktion is not None
+    }
+    assert zuordnung == {"6009990001": a.id, "6009990002": b.id}
+    buchungen = lade_buchungen(s)
+    assert saldo(buchungen, "1362") == 0
+    assert saldo(buchungen, "2660") == D("-0.06")  # 0,02 € + 0,04 €
+    assert {x.status for x in lade_abrechnungen(s)} == {AbrechnungStatus.ABGEGLICHEN}
+    assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def test_umgebuchter_umsatz_einer_anderen_auszahlung_ist_kein_treffer(umgebung):
+    """M2, Fall u2: der Umsatz „AUSZAHLUNG 6009990002“ steht nach der Korrektur auf
+    1362, der Abgleich prüft 6009990001 zuerst — er nahm den fremden Umsatz (in
+    Toleranz, mit Stichwort) und buchte 0,41 € Kursdifferenz statt 0,02 €."""
+    s, archiv, kontext = umgebung
+    a, _ = _per_regel(s, _UMSATZ_A)
+    b, _ = _per_regel(s, _UMSATZ_B)
+    zweiter = _anderweitig(_ebay_import(s, archiv, kontext, zweite=True))
+    erster = _anderweitig(_ebay_import(s, archiv, kontext))
+    _korrigiere_wie_vorgeschlagen(s, zweiter)  # nur B wird umgebucht
+    (treffer,) = [x for x in gleiche_auszahlungen_ab(s, kontext) if x.transaktion]
+    assert treffer.abrechnung.nummer == "6009990002" and treffer.transaktion.id == b.id
+    assert saldo(lade_buchungen(s), "2660") == D("-0.04")
+    eins, zwei = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert eins.status is AbrechnungStatus.ABWEICHUNG
+    assert [x.text for x in eins.offene_befunde if x.code.startswith("ausz")] == [
+        erster.text
+    ]
+    assert zwei.status is AbrechnungStatus.ABGEGLICHEN
+    assert _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def test_nummern_aus_demselben_bericht_zaehlen(umgebung):
+    """M2, Normalfall: ein Transaktionsbericht mit beiden Auszahlungen, auf der Bank
+    erst der Umsatz für 6009990002 (per Regel gebucht). Der Abgleich der ersten
+    Abrechnung läuft, bevor die zweite gespeichert ist — ihre Nummer muss trotzdem
+    zählen, sonst nennt 6009990001 den fremden Umsatz (falscher FEHLER, Warnung im
+    Oktober doppelt)."""
+    s, archiv, kontext = umgebung
+    b, regel_b = _per_regel(s, _UMSATZ_B)
+    beide = (_ebay_gbp().decode("utf-8-sig") + _EBAY_ZWEITE).encode("utf-8-sig")
+    eins, zwei = importiere(
+        s, archiv, kontext, "ebay", beide, "gbp12.csv", kurs=D("0.8650")
+    )
+    assert eins.abrechnung.nummer == "6009990001"
+    assert not [x.befund for x in eins.abgleich if x.befund]
+    assert eins.abrechnung.status is AbrechnungStatus.GEBUCHT
+    befund = _anderweitig(zwei)
+    assert f"korrigiere {str(regel_b.id)[:8]} " in befund.text
+    (oktober,) = _ustva_warnungen(s, "2026-10")
+    assert "6009990002" in oktober
+
+
+def test_ueberholter_befund_erledigt_sich_beim_naechsten_abgleich(umgebung):
+    """M2: kam 6009990001 allein, als nur der Umsatz für 6009990002 auf der Bank
+    stand, nennt sein Befund diesen Umsatz (die fremde Nummer war noch unbekannt).
+    Sobald 6009990002 bekannt ist, findet der nächste Abgleich keinen schon
+    gebuchten Umsatz für 6009990001 mehr — der überholte Befund erledigt sich,
+    statt im Oktober eine zweite Warnung zu halten."""
+    s, archiv, kontext = umgebung
+    _per_regel(s, _UMSATZ_B)
+    vorher = _anderweitig(_ebay_import(s, archiv, kontext))
+    assert "02.10.2026" in vorher.text  # Grenze: die fremde Nummer kennt noch keiner
+    # der Import von 6009990002 gleicht alle ab: der überholte Befund erledigt sich
+    # schon dabei (vorher erst beim nächsten Abgleich, bis dahin zwei Warnungen)
+    _anderweitig(_ebay_import(s, archiv, kontext, zweite=True))
+    assert len(_ustva_warnungen(s, "2026-10")) == 1
+    gleiche_auszahlungen_ab(s, kontext)
+    eins, _ = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert not [x for x in eins.offene_befunde if x.code.startswith("auszahlung")]
+    assert eins.status is AbrechnungStatus.GEBUCHT
+    (oktober,) = _ustva_warnungen(s, "2026-10")
+    assert "6009990002" in oktober
+
+
+def test_mehrere_schon_gebuchte_umsaetze_ohne_nummer_wird_nicht_geraten(umgebung):
+    """M2: nennt keiner der schon gebuchten Umsätze eine Nummer, ist nicht zu
+    entscheiden, welcher die Auszahlung ist — der Befund nennt beide (und die
+    Voranmeldung beider Monate warnt), statt den zuerst importierten zu nehmen.
+    Nach der Korrektur des richtigen erledigt er sich."""
+    from accounti.integrationen.auszahlung import bankdaten
+
+    s, archiv, kontext = umgebung
+    a, regel_a = _per_regel(s, _UMSATZ_A, mit_nummer=False)
+    _, regel_b = _per_regel(s, _UMSATZ_B, mit_nummer=False)
+    befund = _anderweitig(_ebay_import(s, archiv, kontext))
+    assert bankdaten(befund) == [date(2026, 9, 30), date(2026, 10, 2)], befund.text
+    assert str(regel_a.id)[:8] in befund.text and str(regel_b.id)[:8] in befund.text
+    assert "nicht geraten" in befund.text
+    assert _ustva_warnungen(s, "2026-09") and _ustva_warnungen(s, "2026-10")
+    from accounti.pruefung.storno import korrigiere
+
+    korrigiere(s, str(regel_a.id), "1200", "1362", ohne_steuer=True, von="erika")
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == a.id
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def test_auszahlung_als_geldbewegung_auf_anderem_konto_ist_warnung(umgebung):
+    """Nachprüfung 3 E, L-b: die Amazon-Auszahlung ist 1200 an 1360 (Geldtransit)
+    gebucht. Seit M1 zählt eine Geldbewegung nicht als „schon gebucht“ — es kam gar
+    kein Befund mehr, auf 1361 blieb still ein Saldo. Jetzt eine Warnung mit dem
+    Konto und der Umbuchung; danach gleicht der Abgleich ab."""
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 8, 18), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    speichere_buchung(
+        s,
+        Buchungssatz(
+            transaktion_id=tx.id,
+            datum=tx.datum,
+            soll_konto="1200",
+            haben_konto="1360",
+            betrag_netto=D("209.85"),
+            buchungstext="Geldtransit",
+            status=BuchungStatus.AUTO_GEBUCHT,
+        ),
+    )
+    (ergebnis,) = amazon(s, archiv, kontext)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_umgebucht", befund.text
+    assert befund.schweregrad is Schweregrad.WARNUNG
+    assert "1360" in befund.text and "1361" in befund.text, befund.text
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == tx.id
+    (abrechnung,) = lade_abrechnungen(s)
+    assert abrechnung.status is AbrechnungStatus.ABGEGLICHEN
+    assert not abrechnung.offene_befunde or all(
+        not b.code.startswith("auszahlung") for b in abrechnung.offene_befunde
+    )
+    buchungen = lade_buchungen(s)
+    assert saldo(buchungen, "1361") == 0 and saldo(buchungen, "1360") == 0
+
+
+# --- Nachprüfung 4 E: M3 (der eigene Umsatz steht da, ein anderer in der Toleranz) ---
+
+
+def _umsatz_b(s, mit_nummer=True):
+    """Bankumsatz B (02.10., 60,14 €) für 6009990002 — offen, nach dem Lauf
+    importiert."""
+    tag, betrag, nummer, _, _ = _UMSATZ_B
+    zweck = "EBAY MANAGED PAYMENTS AUSZAHLUNG" + (f" {nummer}" if mit_nummer else "")
+    return bank(s, tag, betrag, zweck, "eBay S.a.r.l.")
+
+
+@pytest.mark.parametrize("b_mit_nummer", [True, False], ids=["t1", "t9"])
+def test_eigener_gebuchter_umsatz_geht_vor_dem_toleranztreffer(umgebung, b_mit_nummer):
+    """Nachprüfung 4 E, M3 (Fall t1): Bank A (30.09.) importiert und von ``bank
+    lauf`` per Regel als Erlös gebucht, danach Bank B (02.10.) importiert, offen;
+    dann die Berichte 6009990001 und 6009990002 einzeln. 6009990001 nahm per Toleranz
+    Umsatz B (0,41 € Kursdifferenz, die Nummer 6009990002 war noch unbekannt),
+    obwohl A mit der eigenen Nummer gebucht dastand; 6009990002 blieb danach ohne
+    Befund offen (A nennt eine bekannte fremde Nummer), die UStVA 09 schwieg bei
+    doppeltem Erlös. Nennt ein Umsatz die eigene Nummer, zählt nur er — auch wenn B
+    gar keine Nummer trägt (t9)."""
+    from accounti.integrationen.auszahlung import bankdatum
+
+    s, archiv, kontext = umgebung
+    a, regel_a = _per_regel(s, _UMSATZ_A)
+    b = _umsatz_b(s, mit_nummer=b_mit_nummer)
+    erster = _anderweitig(_ebay_import(s, archiv, kontext))
+    assert bankdatum(erster) == date(2026, 9, 30), erster.text
+    assert f"korrigiere {str(regel_a.id)[:8]} " in erster.text
+    assert b.id in {t.id for t in offene_transaktionen(s, True)}
+    (zweiter,) = _ebay_import(s, archiv, kontext, zweite=True).abgleich
+    assert zweiter.transaktion is not None and zweiter.transaktion.id == b.id
+    assert zweiter.befund is not None and "0,04" in zweiter.befund.text
+    (september,) = _ustva_warnungen(s, "2026-09")
+    assert "6009990001" in september
+    assert not _ustva_warnungen(s, "2026-10")
+    # marktplatz abgleichen: der Befund bleibt, bis die Regelbuchung korrigiert ist
+    nochmal = [x.befund.text for x in gleiche_auszahlungen_ab(s, kontext) if x.befund]
+    assert nochmal == [erster.text]
+    _korrigiere_wie_vorgeschlagen(s, erster)
+    zuordnung = {
+        x.abrechnung.nummer: x.transaktion.id
+        for x in gleiche_auszahlungen_ab(s, kontext)
+        if x.transaktion is not None
+    }
+    assert zuordnung == {"6009990001": a.id}
+    buchungen = lade_buchungen(s)
+    assert saldo(buchungen, "1362") == 0
+    assert saldo(buchungen, "2660") == D("-0.06")  # 0,02 € + 0,04 €
+    assert {x.status for x in lade_abrechnungen(s)} == {AbrechnungStatus.ABGEGLICHEN}
+    assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def _ohne_stichwort(kontext, markt="ebay"):
+    """Kontext, in dem ``bank_stichworte`` des Marktplatzes leer ist — dann lässt die
+    Kontierung einen Eingang ohne importierte Abrechnung nicht offen."""
+    e = kontext.einstellungen
+    konten = e.marktplaetze[markt].model_copy(update={"bank_stichworte": []})
+    einstellungen = e.model_copy(
+        update={"marktplaetze": {**e.marktplaetze, markt: konten}}
+    )
+    return Kontext(
+        einstellungen=einstellungen,
+        buchhaltung=kontext.buchhaltung,
+        oss_registriert=kontext.oss_registriert,
+        firmen_land=kontext.firmen_land,
+    )
+
+
+def _bank_lauf_mit_regel(s, kontext, muster=r"EBAY"):
+    """``bank lauf`` mit einer Regel, die den Eingang als Erlös 8400 (19 %) bucht."""
+    from accounti.bank.einstellungen import BankEinstellungen
+    from accounti.bank.lauf import bank_lauf
+    from accounti.klassifikation.engine import (
+        KlassifikationsEngine,
+        Regel,
+        RegelwerkEngine,
+    )
+
+    engine = KlassifikationsEngine(
+        regelwerk=RegelwerkEngine(
+            [Regel("markt", muster, "1200", "8400", steuer_schluessel=3)]
+        )
+    )
+    return bank_lauf(
+        s,
+        engine,
+        kontext.buchhaltung,
+        bank_einstellungen=BankEinstellungen(),
+        marktplatz=kontext,
+    )
+
+
+def test_bank_lauf_laesst_marktplatz_eingang_vor_dem_import_offen(umgebung):
+    """Fall t10 nach dem Zusammenführen mit Kontierung B2 (#31): ``bank lauf`` vor
+    dem Import lässt A (Stichwort EBAY) offen, statt ihn per Regel als Erlös zu
+    buchen — die Importe ordnen danach A und B richtig zu, ohne Befund."""
+    s, archiv, kontext = umgebung
+    tag, betrag, nummer, _, _ = _UMSATZ_A
+    a = bank(s, tag, betrag, f"EBAY MANAGED PAYMENTS AUSZAHLUNG {nummer}", "eBay")
+    erster = _bank_lauf_mit_regel(s, kontext)
+    assert erster.kontierung.kontiert == 0 and erster.kontierung.marktplatz == 1
+    b = _umsatz_b(s)
+    _ebay_import(s, archiv, kontext)
+    _ebay_import(s, archiv, kontext, zweite=True)
+    ergebnis = _bank_lauf_mit_regel(s, kontext)
+    assert ergebnis.kontierung.kontiert == 0
+    assert not [m.befund for m in ergebnis.marktplatz if m.befund]
+    eins, zwei = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert [p.bank_transaktion_id for p in eins.posten if p.bank_transaktion_id] == [
+        a.id
+    ]
+    assert [p.bank_transaktion_id for p in zwei.posten if p.bank_transaktion_id] == [
+        b.id
+    ]
+    assert saldo(lade_buchungen(s), "1362") == 0
+    assert not _ustva_warnungen(s, "2026-09") and not _ustva_warnungen(s, "2026-10")
+
+
+def test_eigener_gebuchter_umsatz_mit_bank_lauf(umgebung):
+    """M3, Fall t10: wie t1, aber ``bank lauf`` statt ``marktplatz abgleichen`` —
+    erst bucht der Lauf A per Regel als Erlös (ohne ``bank_stichworte``, sonst
+    bliebe A offen), zum Schluss gleicht er ab."""
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext)
+
+    def lauf():
+        return _bank_lauf_mit_regel(s, kontext)
+
+    tag, betrag, nummer, _, _ = _UMSATZ_A
+    a = bank(s, tag, betrag, f"EBAY MANAGED PAYMENTS AUSZAHLUNG {nummer}", "eBay")
+    assert lauf().kontierung.kontiert == 1  # A per Regel 1200 an 8400
+    b = _umsatz_b(s)
+    _ebay_import(s, archiv, kontext)
+    _ebay_import(s, archiv, kontext, zweite=True)
+    ergebnis = lauf()
+    assert ergebnis.kontierung.kontiert == 0
+    (befund,) = [m.befund for m in ergebnis.marktplatz if m.befund]
+    assert befund.code == "auszahlung_anderweitig_gebucht", befund.text
+    assert "30.09.2026" in befund.text
+    eins, zwei = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert eins.status is AbrechnungStatus.ABWEICHUNG
+    assert [p.bank_transaktion_id for p in zwei.posten if p.bank_transaktion_id] == [
+        b.id
+    ]
+    (september,) = _ustva_warnungen(s, "2026-09")
+    assert "6009990001" in september
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    (treffer,) = [m for m in lauf().marktplatz if m.transaktion]
+    assert treffer.abrechnung.nummer == "6009990001" and treffer.transaktion.id == a.id
+    assert saldo(lade_buchungen(s), "1362") == 0
+    assert not _ustva_warnungen(s, "2026-09")
+
+
+def test_eigene_nummer_geht_auch_vor_dem_exakten_betrag(umgebung):
+    """M3 in Euro: die Amazon-Auszahlung mit der eigenen Nummer ist per Regel als
+    Erlös gebucht, daneben steht ein offener Amazon-Eingang ohne Nummer über
+    denselben Betrag. Der exakte Betrag ist kein Grund, ihn zu nehmen — „schon
+    gebucht“ mit dem eigenen, der andere bleibt offen."""
+    s, archiv, kontext = umgebung
+    eigener = bank(s, date(2026, 8, 18), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    _als_erloes_gebucht(s, eigener, "176.34", "33.51")
+    anderer = bank(s, date(2026, 8, 19), "209.85", "AMAZON PAYMENTS EUROPE")
+    (ergebnis,) = amazon(s, archiv, kontext)
+    befund = _anderweitig(ergebnis)
+    assert "18.08.2026" in befund.text, befund.text
+    assert anderer.id in {t.id for t in offene_transaktionen(s, True)}
+
+
+def test_umsatz_mit_anderer_nummer_ist_kein_treffer(umgebung):
+    """Regel 4: auf der Bank steht nur Umsatz B („AUSZAHLUNG 6009990002“, offen),
+    6009990001 kommt allein — 6009990002 kennt accounti noch nicht. B lag in der
+    Toleranz und wurde Treffer (0,41 €); kam danach A, fand 6009990001 ihn nicht
+    mehr, 6009990002 seinen Umsatz auch nicht. Eine andere Nummer derselben Form ist
+    kein Treffer: Warnung statt Zuordnung, mit dem Import von 6009990002 erledigt."""
+    s, archiv, kontext = umgebung
+    b = _umsatz_b(s)
+    (abgleich,) = _ebay_import(s, archiv, kontext).abgleich
+    assert abgleich.transaktion is None
+    assert abgleich.befund is not None, "Warnung erwartet"
+    assert abgleich.befund.code == "auszahlung_andere_nummer", abgleich.befund.text
+    assert abgleich.befund.schweregrad is Schweregrad.WARNUNG
+    assert "6009990002" in abgleich.befund.text
+    assert not _ustva_warnungen(s, "2026-10")
+    (zweiter,) = _ebay_import(s, archiv, kontext, zweite=True).abgleich
+    assert zweiter.transaktion is not None and zweiter.transaktion.id == b.id
+    a = bank(
+        s,
+        date(2026, 9, 30),
+        "59.75",
+        "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+        "eBay S.a.r.l.",
+    )
+    (treffer,) = gleiche_auszahlungen_ab(s, kontext)
+    assert treffer.transaktion is not None and treffer.transaktion.id == a.id
+    eins, _ = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert eins.status is AbrechnungStatus.ABGEGLICHEN
+    assert not [x for x in eins.offene_befunde if x.code.startswith("auszahlung")]
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def test_referenz_derselben_form_bleibt_korrigierbar(umgebung):
+    """Regel 4, Gegenprobe: ist die andere Zahl nur eine Referenz der Bank, die wie
+    eine eBay-Nummer aussieht (zehn Ziffern, derselbe Anfang — eine mit anderem
+    Anfang zählt seit Nachprüfung 5 E gar nicht als Nummer), darf der Weg zur
+    Zuordnung nicht verbaut sein — der Befund „schon gebucht“ sagt, dass der Umsatz
+    wohl zu einer anderen Abrechnung gehört; bucht der Mensch ihn trotzdem aufs
+    Verrechnungskonto, gilt das."""
+    s, archiv, kontext = umgebung
+    tx = bank(
+        s,
+        date(2026, 9, 30),
+        "59.75",
+        "EBAY MANAGED PAYMENTS EREF 6009990077",
+        "eBay S.a.r.l.",
+    )
+    _als_erloes_gebucht(s, tx, "50.21", "9.54")
+    befund = _anderweitig(_ebay_import(s, archiv, kontext))
+    assert "6009990077" in befund.text and "noch nicht importierten" in befund.text
+    _korrigiere_wie_vorgeschlagen(s, befund)
+    (abgleich,) = gleiche_auszahlungen_ab(s, kontext)
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == tx.id
+    assert lade_abrechnungen(s)[0].status is AbrechnungStatus.ABGEGLICHEN
+    assert saldo(lade_buchungen(s), "1362") == 0
+
+
+def test_spaeter_umsatz_mit_eigener_nummer_als_erloes_ist_befund(umgebung):
+    """Regel 8: Umsatz B trägt keine Nummer und war beim Import von 6009990001 der
+    einzige in der Toleranz — Treffer (geraten, damals nannte keiner die Nummer).
+    Danach kommt A mit „AUSZAHLUNG 6009990001“ und wird per Regel als Erlös gebucht:
+    der Erlös steht doppelt, 6009990002 findet A nie (fremde Nummer). Statt still:
+    Fehler „schon gebucht“ an 6009990001, die UStVA 09 warnt."""
+    s, archiv, kontext = umgebung
+    b = _umsatz_b(s, mit_nummer=False)
+    (abgleich,) = _ebay_import(s, archiv, kontext).abgleich
+    assert abgleich.transaktion is not None and abgleich.transaktion.id == b.id
+    _, regel_a = _per_regel(s, _UMSATZ_A)
+    _ebay_import(s, archiv, kontext, zweite=True)
+    (zweifel,) = [x.befund for x in gleiche_auszahlungen_ab(s, kontext) if x.befund]
+    assert zweifel.code == "auszahlung_anderweitig_gebucht", zweifel.text
+    assert zweifel.schweregrad is Schweregrad.FEHLER
+    assert f"korrigiere {str(regel_a.id)[:8]} " in zweifel.text
+    assert "02.10.2026" in zweifel.text  # die zweifelhafte Zuordnung
+    (september,) = _ustva_warnungen(s, "2026-09")
+    assert "6009990001" in september
+    eins, _ = sorted(lade_abrechnungen(s), key=lambda x: x.nummer)
+    assert eins.status is AbrechnungStatus.ABWEICHUNG
+    # ein zweiter Abgleich wiederholt ihn nicht; nach der Korrektur ist er erledigt
+    wieder = [x.befund.text for x in gleiche_auszahlungen_ab(s, kontext) if x.befund]
+    assert wieder == [zweifel.text]
+    assert len(_ustva_warnungen(s, "2026-09")) == 1
+    _korrigiere_wie_vorgeschlagen(s, zweifel)
+    # nach der Korrektur kein doppelter Erlös mehr — die Zuordnung zu B bleibt aber
+    # zweifelhaft: eine Warnung nennt den Befehl, der sie löst (Nachprüfung 5 E, N1;
+    # vorher blieb 6009990002 ohne Befund für immer offen)
+    (warnung,) = [x.befund for x in gleiche_auszahlungen_ab(s, kontext) if x.befund]
+    assert warnung.code == "auszahlung_zweifel", warnung.text
+    assert "accounti marktplatz zuordnen 6009990001 " in warnung.text
+    assert not _ustva_warnungen(s, "2026-09")
+
+
+def test_offener_marktplatzbefund_ist_ustva_warnung(umgebung):
+    """Gesamttest Steuer B2: die per Regel als Erlös gebuchte Auszahlung (Erlös
+    doppelt in Kz 81) stand nur in ``marktplatz liste`` — die Voranmeldung des
+    Monats nennt den offenen Fehler-Befund jetzt als Warnung."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import bereite_vor
+    from accounti.steuer.zeitraum import Zeitraum
+
+    s, archiv, kontext = umgebung
+    tx = bank(s, date(2026, 8, 18), "209.85", "AMAZON PAYMENTS EUROPE 11223344556")
+    speichere_buchung(
+        s,
+        Buchungssatz(
+            transaktion_id=tx.id,
+            datum=tx.datum,
+            soll_konto="1200",
+            haben_konto="8400",
+            betrag_netto=D("176.34"),
+            steuer_schluessel=3,
+            steuer_betrag=D("33.51"),
+            buchungstext="Amazon-Auszahlung",
+            status=BuchungStatus.AUTO_GEBUCHT,
+        ),
+    )
+    amazon(s, archiv, kontext)
+    v = bereite_vor(
+        s,
+        Zeitraum.lies("2026-08"),
+        buchhaltung=Buchhaltung(),
+        einstellungen=ElsterEinstellungen(),
+    )
+    (befund,) = [b for b in v.befunde if b.regel == "marktplatz"]
+    assert befund.schweregrad.value == "warnung"
+    assert (
+        "auszahlung_anderweitig_gebucht" in befund.text and "11223344556" in befund.text
+    )
+    juli = bereite_vor(
+        s,
+        Zeitraum.lies("2026-07"),
+        buchhaltung=Buchhaltung(),
+        einstellungen=ElsterEinstellungen(),
+    )
+    assert not [b for b in juli.befunde if b.regel == "marktplatz"]
+
+
+def test_abbruch_nach_dem_ablegen_laesst_keine_datei_zurueck(umgebung, monkeypatch):
+    """Gesamttest Steuer B9: scheitert der Lauf nach dem Ablegen, rollt die
+    Datenbank zurück — die eben abgelegte Datei verschwindet mit."""
+    import accounti.integrationen.lauf as lauf
+
+    s, archiv, kontext = umgebung
+
+    def kaputt(*args, **kwargs):
+        raise RuntimeError("Schreibfehler")
+
+    monkeypatch.setattr(lauf, "buche_abrechnung", kaputt)
+    with pytest.raises(RuntimeError):
+        amazon(s, archiv, kontext)
+    s.rollback()
+    roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
+    assert not archiv.enthaelt(hashlib.sha256(roh).hexdigest())
+    # eine schon vorher archivierte Datei bleibt, auch wenn der Lauf scheitert
+    archiv.ablegen(roh, ".txt")
+    with pytest.raises(RuntimeError):
+        amazon(s, archiv, kontext)
+    assert archiv.enthaelt(hashlib.sha256(roh).hexdigest())
+
+
+def test_schon_gebucht_mit_exaktem_betrag_auch_ohne_stichwort(umgebung):
+    """Simulation Nachprüfung 5 E: ohne ``bank_stichworte`` bucht die Kontierung
+    einen Eingang ohne Nummer vor dem Import per Regel als Erlös. Der Abgleich nimmt
+    einen offenen mit exakt dem Betrag auch ohne Stichwort als Treffer (Regel 5),
+    „schon gebucht“ verlangte aber ein Stichwort — die Voranmeldung schwieg bei
+    doppeltem Erlös. Der exakte Betrag allein ist aber kein Beweis: eine
+    Kundenzahlung gleicher Höhe bekam so den FEHLER mit einem korrigiere-Befehl, der
+    echten Erlös löschte (Nachprüfung 6 E, Mc — vorher schrieb dieser Test den
+    FEHLER fest). Jetzt: die Warnung ``auszahlung_vielleicht_gebucht`` ohne Befehl,
+    die Voranmeldung des Bankmonats warnt weiter."""
+    s, archiv, kontext = umgebung
+    kontext = _ohne_stichwort(kontext, "amazon")
+    tx = bank(s, date(2026, 9, 3), "209.85", "AMAZON PAYMENTS EUROPE")
+    _als_erloes_gebucht(s, tx, "176.34", "33.51")
+    roh = _amazon_ende_august((FIXTURES / "amazon_abrechnung_v2.txt").read_bytes())
+    (ergebnis,) = amazon(s, archiv, kontext, roh)
+    (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+    assert befund.code == "auszahlung_vielleicht_gebucht", befund.text
+    assert befund.schweregrad is Schweregrad.WARNUNG
+    assert "03.09.2026" in befund.text
+    assert "accounti korrigiere" not in befund.text and "--soll" not in befund.text
+    assert lade_abrechnungen(s)[0].status is not AbrechnungStatus.ABWEICHUNG
+    (warnung,) = _ustva_warnungen(s, "2026-09")
+    assert "auszahlung_vielleicht_gebucht" in warnung

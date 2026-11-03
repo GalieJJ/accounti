@@ -339,6 +339,15 @@ def test_gebaeudekonto_ohne_anlagegut_und_ausnahme_per_konfiguration(
     assert befunde(make_session, ohne_bauten, "anlagen") == []
 
 
+def test_verrechnungskonten_der_marktplaetze(make_session, config):
+    """Gesamttest Steuer B2: ein Rest auf 1362 (eBay) blieb beim Abschluss unbemerkt —
+    die Vorgabe kannte nur 1360/1590/1792. PayPal (1210) ist ein Geldkonto."""
+    buche(make_session, date(J, 12, 30), "1362", "8400", "0.02")
+    buche(make_session, date(J, 12, 30), "1210", "1200", "50")
+    (b,) = befunde(make_session, config, "verrechnungskonten")
+    assert b.schwere is Schwere.WARNUNG and "1362" in b.text and "0,02" in b.text
+
+
 def test_personenkonto_weicht_von_offenen_posten_ab(make_session, config):
     """B05 (Gesamttest): Kreditor netto gebucht, Posten brutto — Warnung im Abschluss
     (vorher bemerkte keine Prüfung die Abweichung)."""

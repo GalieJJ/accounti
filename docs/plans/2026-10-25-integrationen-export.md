@@ -241,6 +241,74 @@ DATEV-Übergabe:
   `--kurs` bei einer Auszahlung in Fremdwährung.
   Shopify: der Auszahlungsbetrag steht nicht in der Transaktionsdatei, er wird aus den Posten
   gebildet (oder mit `--auszahlung` vorgegeben).
+- Gesamttest, Nachprüfung Paket E: Die Voranmeldung ordnet eine schon als Erlös gebuchte
+  Auszahlung (`auszahlung_anderweitig_gebucht`) dem Monat des Bankumsatzes zu. Den Tag liest
+  `auszahlung.bankdaten` aus dem Befundtext — `marktplatz_befunde` hat keine Spalte dafür, eine
+  Migration verlangte dieses Paket nicht.
+- Nachprüfung 3 E, M2, 4 E, M3, und 5 E, M4/N1/N2 — die Regel, welcher Umsatz zu welcher Auszahlung gehört,
+  steht vollständig im Docstring von `integrationen/auszahlung.py`. Einer anderen Abrechnung
+  gehört ein Umsatz, wenn sein Verwendungszweck deren Nummer als eigenes Wort nennt (mindestens
+  6 Zeichen, nicht die eigene) und accounti sie kennt — gespeichert oder aus demselben Bericht.
+  Nennt einer die eigene Nummer, zählen nur die eigenen, auch ein schon per Regel gebuchter
+  (sonst nahm eine einzeln importierte Abrechnung per Toleranz den offenen Umsatz einer noch
+  nicht importierten, und der doppelte Erlös blieb still). Eine noch nicht importierte Nummer
+  erkennt accounti nur an der Form der eigenen (nur Ziffern, gleiche Länge, dieselben zwei
+  ersten Ziffern, nicht hinter einer Kunden-, Mandats-, Konto- oder Rechnungsangabe — eine
+  Bankreferenz wie `EREF 4711000815` neben 6009990001 zählt nicht, eine mit demselben Anfang
+  schon): ein offener Umsatz damit wird nicht zugeordnet (Warnung `auszahlung_andere_nummer`
+  mit `marktplatz zuordnen`, falls die Zahl doch nur eine Referenz ist); ist er schon gebucht,
+  nennt ihn der Befund „schon gebucht“ mit dem Hinweis, erst die andere Abrechnung zu
+  importieren — bis dahin steht er vorübergehend da, und wer den Vorschlag trotzdem befolgt,
+  gibt den Umsatz dieser Abrechnung (die Kursdifferenz zeigt es; so bleibt ein Ausweg, wenn die
+  Zahl nur eine Referenz der Bank war). Nennt kein Umsatz eine Nummer, entscheiden Stichwort
+  und Betrag: in Fremdwährung ist dann geraten, welcher von zwei Umsätzen in der Toleranz zu
+  welcher Auszahlung gehört (Kursdifferenzen vertauscht, Summe richtig), und ein Umsatz ohne
+  Nummer kann Treffer werden, bevor der mit der eigenen auf der Bank steht — jede Zuordnung
+  ohne Nummer trägt deshalb den Hinweis `zuordnung_ohne_nummer`, und ist ein Umsatz einziger
+  Kandidat zweier Abrechnungen, bekommt ihn keine. Kommt der mit der eigenen Nummer später,
+  bezweifelt der Abgleich die Zuordnung (als Erlös gebucht: Fehler „schon gebucht“, die
+  Voranmeldung warnt; offen oder nach der Korrektur: Warnung `auszahlung_zweifel`); die
+  Zuordnung bleibt, bis der Mensch `marktplatz zuordnen` aufruft — das storniert accountis
+  Bankbuchung am falschen Umsatz, bucht den richtigen und gleicht neu ab. Automatisch
+  zurückgenommen wird nichts. `bank lauf` kontiert keinen Umsatz, über den der Abgleich
+  desselben Laufs einen Befund hat; mit #31 bleiben Eingänge mit Stichwort ohnehin offen. In
+  Fremdwährung findet der Abgleich eine Auszahlung ohne Stichwort und ohne Nummer nicht — mit
+  leeren `bank_stichworte` bucht die Kontierung sie dann als Erlös, still doppelt; der Import
+  warnt deshalb (`bank_stichworte_leer`). In Euro nennt ihn der Abgleich am exakten Betrag
+  „vielleicht gebucht“ (`auszahlung_vielleicht_gebucht`, Warnung, die Voranmeldung warnt mit) —
+  ohne korrigiere-Befehl, denn eine Kundenzahlung gleicher Höhe sieht genauso aus (Nachprüfung
+  6 E, Mc: der Befehl löschte dort echten Erlös); der Mensch prüft und bucht selbst um, bis dahin
+  ist der Fall in der Simulation „unsauber“, nie still. Kassen- und Kartenumsätze, Umsätze mit
+  dem Stichwort oder der Nummer eines anderen Marktplatzes und Zahlungen eines opos-Postens
+  sind keine Kandidaten (Nachprüfung 6 E, Mc, Md, N-d). Seit Nachprüfung 7 E (M1) ist eine
+  Zahlung nur, was die Belegnummer nicht bloß als (Teil eines) Datum nennt, den Posten in seiner
+  Richtung tilgt und seinen Betrag hat; das PayPal-Stichwort schließt nur aus, wenn PayPal den
+  Betrag erwartet (N1), „vielleicht gebucht“ mit Stichworten zeigt die Voranmeldung als
+  Hinweis (N2). Grenzen: ein Datum mit Leerzeichen („2026 09 03“) gilt nicht als Datum; ein
+  Umsatz mit Stichwort und Betrag, der eine Rechnung gleicher Höhe nennt, geht an opos (Hinweis
+  `auszahlung_rechnung`) — ist er doch die Auszahlung, löst der Mensch die opos-Zahlung; ist
+  die Rechnung schon bezahlt, bucht opos ihn nicht, der Hinweis sagt das und nennt
+  `marktplatz zuordnen` (Nachprüfung 9 E, N9-2). Das Zeitfenster des Abgleichs ist für Aus-
+  und Einzahlungen gleich (Auszahlungsdatum − 2 Tage bis + `auszahlung_toleranz_tage`): Eine
+  Einzahlung, deren Überweisung die Bank früher bucht, gleicht er nicht selbst ab —
+  `marktplatz zuordnen --trotzdem` nimmt sie, auch vor dem Abrechnungszeitraum; eine
+  Auszahlung vor dem Fenster nie (Nachprüfung 9 E, N9-1).
+  Weitere Grenzen aus der Simulation (19 584 Läufe, Prüfung nach jedem Schritt; Skripte unter
+  `.claude/arbeit/s/gesamttest/r6-e/`): Ein Teilbetrag oder ein Betrag zu einer Abrechnung mit
+  falschem Kurs, der statt der Nummer eine Referenz mit dem Anfang der Auszahlungsnummern nennt,
+  bleibt ohne Befund offen (Regel 4 hält ihn zurück, eine Abweichung wäre bei einer echten
+  fremden Auszahlung ein falscher Fehler) — kontiert wird er nicht. Ohne Stichwort, ohne Nummer
+  und bei gleichen Beträgen kann ein als Erlös gebuchter Umsatz still bleiben, bis die zweite
+  Abrechnung importiert ist (die erste nimmt den offenen Umsatz gleichen Betrags). Eine
+  Zuordnung von Hand prüft Betrag und Richtung: bei falschem Kurs lehnt `marktplatz zuordnen`
+  ab, bis die Abrechnung mit dem richtigen Kurs vorliegt.
+  Mehrere schon gebuchte Umsätze ohne Nummer: der Befund nennt alle, der Mensch
+  entscheidet (kein „nächster Betrag“ — der wäre geraten). Der exakte Betrag entscheidet bei
+  „schon gebucht“ erst nach der eigenen Nummer (in Fremdwährung ist er Zufall); beim Treffer
+  bleibt er zuerst. `marktplatz import --buchungsdatum` prüft das
+  Kalenderjahr, nicht ein abweichendes Wirtschaftsjahr (`ziel.year != tag.year`, wie die
+  Jahressperre und `opos verbuchen`); umgestellt wird beim Zusammenführen mit Paket F auf
+  dessen Helfer `wirtschaftsjahr(jahr, config)`, damit nicht ein Befehl allein anders rechnet.
 
 **OSS**
 - Ermäßigte Steuersätze nur über die SKU-Liste `integrationen.ermaessigte_artikel` und je Land
@@ -252,19 +320,27 @@ DATEV-Übergabe:
   eingetragen werden. Fehlt der Vorjahreswert, kann accounti ein überschrittenes Vorjahr nicht
   erkennen.
 - OSS-Korrekturen: Eine Erstattung wird ihrem Ursprungsquartal nur zugeordnet, wenn der Erlös
-  mit derselben Belegnummer auf demselben OSS-Erlöskonto gebucht ist; sonst mindert sie das
-  laufende Quartal (die CLI warnt bei negativen Länderzeilen). Ausgewiesen wird die Änderung,
-  nicht der „ursprüngliche und berichtigte Steuerbetrag“ des Portals — die ursprünglich
-  gemeldete Steuer kennt accounti nicht. Die CSV ist eine Prüfliste, nicht das Upload-Format
-  des BZSt.
+  mit derselben Belegnummer im selben Land gebucht ist (auf einem seiner OSS-Erlöskonten, seit
+  Nachprüfung 9 E, N2 auch auf einem anderen als die Erstattung — SKR04 8320 → 4320); sonst
+  mindert sie das laufende Quartal (die CLI warnt bei negativen Länderzeilen). Ausgewiesen
+  wird die Änderung, nicht der „ursprüngliche und berichtigte Steuerbetrag“ des Portals — die
+  ursprünglich gemeldete Steuer kennt accounti nicht. Die CSV ist eine Prüfliste, nicht das
+  Upload-Format des BZSt.
 - Gebuchte OSS-Steuer (Brutto − Netto je Bestellung) und gemeldete (je Land und Satz aus der
   Summe) können centweise auseinanderliegen; die CLI zeigt die Differenz je Steuerkonto, eine
   Ausgleichsbuchung gibt es nicht.
 - OSS-Erlöskonten gibt es in `steuer/umsatzsteuer.py` nur für acht Länder (FR, IT, ES, NL, SE, PL,
-  AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuerkonten dort
-  sind sechsstellig (`1777xx`) und teilen sich teils ein Konto (FR/AT `177720`) — sie passen nicht
-  zur Sachkontenlänge 4 und werden im DATEV-Export als Befund gemeldet. `steuer/` ist gemeinsamer
-  Code und wurde hier nur im Vorzeichenfehler der OSS-Engine geändert.
+  AT, BE); andere Länder gehen mit Befund `oss_konto_fehlt` zur Prüfung. Die OSS-Steuer geht seit
+  Steuer B6/B7 auf das Sammelkonto des Kontenrahmens (SKR03 1767, SKR04 3817; vorher sechsstellig
+  `1777xx`, die nicht zur Sachkontenlänge 4 passten), seit dem Merge mit main nach #36 auch bei
+  eigenen Rechnungen (OPOS). Schon auf 1777xx gebuchte OSS-Steuer bucht der Mensch auf das
+  Sammelkonto um (SKR04 3817, SKR03 1767), statt die Konten in `oss_ust_konten` einzustellen.
+- OPOS liest `integrationen` nicht: Eigene Rechnungen gehen auf die Länderkonten des
+  Kontenrahmens, ein Land ohne solches Konto (DK) zur Prüfung, auch mit `oss_erloes_konten`
+  `{DK: "8328"}`. Deshalb gehört ein Länderkonto des Kontenrahmens seinem Land:
+  `oss_erloes_konten` kann es keinem anderen Land geben, `oss_erloes_ermaessigt` gar nicht
+  (im SKR04 auch 8320–8327; `lade_integrationen` lehnt ab, Nachprüfung 9 E, N1); `LAND: null`
+  nimmt ein Land nur für den Marktplatz heraus.
 
 **DATEV**
 - Kein Import in ein echtes DATEV-Programm. Die Golden-Datei ist von accounti erzeugt und gegen die
@@ -285,6 +361,19 @@ DATEV-Übergabe:
   Inlandserlöse tragen BU 3 auf dem Automatikkonto 8400 — das ist die Projektkonvention
   (`config/regeln.yaml`), ob DATEV das ohne Hinweis annimmt, ist nicht geprüft.
 - Der Zeitraum eines Belegexports liegt in einem Kalenderjahr (Kopf und Belegdatum `TTMM`).
+- Gesamttest, Nachprüfung Paket E: `export datev` überschreibt keinen Stapel mehr (`…_2.csv`),
+  `datev belege` dagegen schon — sein Stapel und sein Paket sind je Zeitraum vollständig (alle
+  freigegebenen Buchungen, nicht nur neue) und ersetzen den vorigen, die Ausgabedatei nennt der
+  Mensch (`--ausgabe`); der SHA-256 eines früheren Journaleintrags passt dann nicht mehr zur
+  Datei. Ungeprüfte Buchungen aus `export datev --alle` gelten als übergeben (Journal
+  `ungeprueft`): wird eine vor der Freigabe noch geändert (`korrigiere` ändert Vorschläge ohne
+  Storno), kommt sie nur mit `--erneut` noch einmal — der Export warnt, `korrigiere` auch
+  (Nachprüfung 2 E, L3) und nennt den Stapel aus dem Journal und `--erneut --alle`
+  (Nachprüfung 3 E, L-c) — jeden Stapel, der laut Journal Buchungen des Monats übergab, denn
+  der Ersatzstapel enthält alle (4 E, L-d). `--period` kennt nur Monate: war ein alter Stapel
+  ohne `--period` exportiert, sagt die Warnung, dass in DATEV nur die Buchungen des Monats zu
+  ersetzen sind. Die laufende Nummer eines Stapels zählt die Namen im Journal und im
+  Ordner (L2).
 
 **Kontoauszüge**
 - Der MT940-Import in DATEV ist nicht echt geprüft, nur gegen die DK-Spezifikation und eine

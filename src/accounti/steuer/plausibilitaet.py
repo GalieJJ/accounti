@@ -18,10 +18,16 @@ Die Regeln ändern nie Daten.
                            bekannten Leistenden, Steuerkonto ohne Kennziffer, EU-Kunde
                            auf einem nicht steuerbaren Konto (warnung); fehlender
                            Steuerbetrag (hinweis)
-- ``periode``              Periodenabschluss/Prüfbefunde (Baustein 7) ungeprüft
-                           (hinweis)
+- ``periode``              nur ohne ``weitere``: Periodenabschluss/Prüfbefunde
+                           (Baustein 7) ungeprüft (hinweis)
 - ``beleg_nach_zeitraum``  Vorsteuer aus einer Rechnung, die erst nach Ende des
                            Zeitraums einging (warnung, § 15 Abs. 1 Nr. 1 UStG)
+
+``elster.ustva.bereite_vor`` gibt als ``weitere`` mit: ``abgegeben_abweichend`` (die
+abgegebene Anmeldung passt nicht mehr zu den Buchungen, warnung), ``marktplatz``
+(offener Fehler-Befund einer Abrechnung im Zeitraum, warnung), ``pruefung``
+(Prüfregeln aus Baustein 7: Fehler als warnung, der Rest als hinweis); dazu kommt
+``zeitraum_laufend`` (Zeitraum noch nicht abgelaufen, fehler — im Testmodus warnung).
 """
 
 from __future__ import annotations

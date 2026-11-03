@@ -52,10 +52,12 @@ class TestDATEVExporter:
 
         datei = exporter.exportiere(buchungen, tmp_path)
         inhalt = datei.read_text(encoding="cp1252")
+        kopf = inhalt.splitlines()[0].split(";")
 
-        assert "99999" in inhalt
-        assert "00001" in inhalt
-        assert "accounti" in inhalt
+        # Berater- und Mandantennummer sind Zahlfelder (führende Nullen ohne Wert,
+        # wie in datev belege); „accounti“ steht als Anwendungsinfo in Feld 31
+        assert kopf[10:12] == ["99999", "1"]
+        assert kopf[30] == '"accounti"' and kopf[7] == '"RE"'
 
     def test_export_mit_mehreren_buchungen(self, tmp_path: Path) -> None:
         config = DATEVConfig(
@@ -88,10 +90,13 @@ def test_storno_traegt_den_bezug_zum_original_in_belegfeld_2(tmp_path: Path) -> 
     datei = DATEVExporter(
         DATEVConfig(berater_nummer="1001", mandanten_nummer="1")
     ).exportiere([original, storno, andere], tmp_path)
-    zeilen = datei.read_text(encoding="cp1252").splitlines()
-    spalten = zeilen[1].split(";")
-    feld = spalten.index("Belegfeld 2")
-    werte = [z.split(";")[feld] for z in zeilen[2:]]
+    import csv
+
+    zeilen = list(
+        csv.reader(datei.read_text(encoding="cp1252").splitlines(), delimiter=";")
+    )
+    feld = zeilen[1].index("Belegfeld 2")
+    werte = [z[feld] for z in zeilen[2:]]  # Textfeld: in Anführungszeichen
     bezug = "ST" + original.id.hex[:8].upper()
     assert werte == [bezug, bezug, ""]
     assert len(bezug) <= 12 and bezug.isalnum()

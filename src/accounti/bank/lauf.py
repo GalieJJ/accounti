@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
@@ -48,6 +49,10 @@ from accounti.klassifikation.engine import KlassifikationsEngine
 from accounti.konfiguration import Buchhaltung
 from accounti.models import Bankkonto, KontoZustand, Transaktion
 from accounti.opos.zahlungslauf import Zahlungslauf, zuordne_zahlungen
+
+if TYPE_CHECKING:
+    from accounti.integrationen.auszahlung import Abgleich
+    from accounti.integrationen.einstellungen import Kontext
 
 UEBERLAPPUNG = timedelta(days=14)  # Banken buchen nach; Dubletten fängt der Schutz
 # warten auf einen Menschen — ohne Rückfrage wird nicht erneut abgerufen
@@ -184,6 +189,7 @@ class Banklauf:
     zuordnung: Zahlungslauf = field(default_factory=Zahlungslauf)
     abgleich: Abgleichsergebnis = field(default_factory=Abgleichsergebnis)
     kontierung: Kontierungslauf = field(default_factory=Kontierungslauf)
+    marktplatz: list[Abgleich] = field(default_factory=list)
 
 
 def bank_lauf(
@@ -193,20 +199,43 @@ def bank_lauf(
     schluessel: str | None = None,
     bank_einstellungen: BankEinstellungen | None = None,
     sichern: Callable[[], None] | None = None,
+    marktplatz: Kontext | None = None,
     integrationen: Integrationen | None = None,
 ) -> Banklauf:
-    """Der geplante Lauf: abrufen → Kreditkarten → offene Posten zuordnen →
-    abgleichen → kontieren. Die Sammelbelastung einer Karte ist damit gebucht,
-    bevor offene Posten oder das Regelwerk sie sehen. ``sichern`` schreibt den
-    Abruf je Konto fest — die Buchungen danach beginnen eine eigene Transaktion
-    (unter PostgreSQL mit der Schreibsperre zuerst)."""
-    bank = bank_einstellungen or lade_bank_einstellungen()
-    return Banklauf(
-        abrufe=rufe_ab(session, schluessel, sichern=sichern),
-        kreditkarten=gleiche_sammelbelastungen_ab(
-            session, einstellungen, bank.kreditkarte
-        ),
-        zuordnung=zuordne_zahlungen(session, einstellungen),
-        abgleich=gleiche_belege_ab(session),
-        kontierung=kontiere_umsaetze(session, engine, einstellungen, integrationen),
+    """Der geplante Lauf: abrufen → Kreditkarten → Marktplatz-Auszahlungen →
+    offene Posten zuordnen → abgleichen → kontieren. Die Sammelbelastung einer Karte
+    und die Auszahlung einer importierten Marktplatz-Abrechnung (``marktplatz``:
+    Abschnitt ``integrationen``) sind damit gebucht — „Bank an Verrechnungskonto“
+    ohne Umsatzsteuer —, bevor offene Posten oder das Regelwerk sie sehen; sonst
+    bucht eine Regel die Auszahlung als Erlös und der Umsatz zählt doppelt.
+    Was noch keine Abrechnung abgleichen konnte, lässt die Kontierung offen
+    (``integrationen``, ohne Angabe die aus ``marktplatz``; ``buchung.marktplatz``).
+    ``sichern`` schreibt den Abruf je Konto fest — die Buchungen danach beginnen
+    eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst)."""
+    from accounti.integrationen.auszahlung import (
+        gleiche_auszahlungen_ab,
+        umsaetze_mit_befund,
     )
+
+    bank = bank_einstellungen or lade_bank_einstellungen()
+    if integrationen is None and marktplatz is not None:
+        integrationen = marktplatz.einstellungen
+    lauf = Banklauf(abrufe=rufe_ab(session, schluessel, sichern=sichern))
+    lauf.kreditkarten = gleiche_sammelbelastungen_ab(
+        session, einstellungen, bank.kreditkarte
+    )
+    if marktplatz is not None:
+        lauf.marktplatz = gleiche_auszahlungen_ab(session, marktplatz)
+    # ein Umsatz, über den der Abgleich eben einen Befund hat (andere Nummer,
+    # mehrdeutig, Abweichung), ist eine Auszahlung — nie zugleich kontieren, auch
+    # nicht aus einem Beleg (Nachprüfung 5 E, M4 a), nie einer Forderung vorschlagen
+    # (Nachprüfung 6 E, Mb) und keinen Beleg für ihn bestätigen (7 E, Abläufe N3)
+    befund_umsaetze = umsaetze_mit_befund(lauf.marktplatz)
+    lauf.zuordnung = zuordne_zahlungen(
+        session, einstellungen, auslassen=befund_umsaetze
+    )
+    lauf.abgleich = gleiche_belege_ab(session, auslassen=befund_umsaetze)
+    lauf.kontierung = kontiere_umsaetze(
+        session, engine, einstellungen, integrationen, auslassen=befund_umsaetze
+    )
+    return lauf

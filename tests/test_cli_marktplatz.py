@@ -181,3 +181,136 @@ def test_import_meldet_widerspruechliche_auszahlungszeile(tmp_path):
     text = _text(r)
     assert "widerspricht" in text and "nichts nachgetragen" in text
     assert "auszahlung_doppelt" in text
+
+
+# --- Gesamttest Steuer B9: Import in einen festgeschriebenen Monat -------------------
+
+
+def test_import_in_festgeschriebenen_monat_klar_abgelehnt(tmp_path):
+    """Vorher: Traceback (PeriodeGesperrtError beim Flush) und eine verwaiste Datei
+    im Archiv. Jetzt: Prüfung vor dem Ablegen, klare Meldung, nichts abgelegt."""
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path)
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    text = _text(r)
+    assert "2026-08" in text and "festgeschrieben" in text and "--buchungsdatum" in text
+    archiv = tmp_path / "archiv"
+    assert not archiv.exists() or not [p for p in archiv.rglob("*") if p.is_file()]
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        assert lade_belege(s) == [] and lade_buchungen(s) == []
+
+
+def test_import_mit_buchungsdatum_in_den_ersten_offenen_tag(tmp_path):
+    from accounti.db.repo_integrationen import lade_abrechnungen
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 0, r.output
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        buchungen = lade_buchungen(s)
+        (beleg,) = lade_belege(s)
+        (abrechnung,) = lade_abrechnungen(s)
+    assert buchungen and {b.datum for b in buchungen} == {date(2026, 9, 1)}
+    assert beleg.belegdatum is not None and beleg.belegdatum.month == 8  # bleibt
+    (befund,) = [b for b in abrechnung.befunde if b.code == "buchungsdatum"]
+    assert "01.09.2026" in befund.text and "§ 18" in befund.text
+
+
+def test_buchungsdatum_hinweis_warnt_vor_doppelter_berichtigung(tmp_path):
+    """accounti zählt die verschobenen Umsätze im Buchungsmonat — wer zusätzlich den
+    Leistungsmonat von Hand berichtigt, meldet sie doppelt (wie beim Storno, B5)."""
+    from accounti.db.repo_integrationen import lade_abrechnungen
+
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 0, r.output
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        (abrechnung,) = lade_abrechnungen(s)
+    (befund,) = [b for b in abrechnung.befunde if b.code == "buchungsdatum"]
+    text = " ".join(befund.text.split())
+    assert "Buchungsmonats" in text and "doppelt" in text
+    assert "accounti periode oeffnen 2026-08" in text
+
+
+def _ohne_import(tmp_path):
+    from accounti.db.repository import lade_belege, lade_buchungen
+
+    archiv = tmp_path / "archiv"
+    assert not archiv.exists() or not [p for p in archiv.rglob("*") if p.is_file()]
+    _, make = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    with make() as s:
+        assert lade_belege(s) == [] and lade_buchungen(s) == []
+
+
+def test_buchungsdatum_nicht_ins_naechste_geschaeftsjahr(tmp_path):
+    """Wie ``opos verbuchen``: ein Erlös vom August 2026 gehört ins Geschäftsjahr
+    2026 (§ 252 Abs. 1 Nr. 5 HGB) — ein Buchungsdatum 2027 wird vor dem Ablegen
+    abgelehnt."""
+    r = runner.invoke(
+        app, ["periode", "schliessen", "2026-08", "--von", "t", *_basis(tmp_path)]
+    )
+    assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "2027-01-15")
+    assert r.exit_code == 1, r.output
+    assert "Traceback" not in r.output
+    text = _text(r)
+    assert "Geschäftsjahr 2026" in text and "periode oeffnen 2026-08" in text
+    _ohne_import(tmp_path)
+
+
+def test_buchungsdatum_offen_bleibt_im_geschaeftsjahr(tmp_path):
+    """Ist der Rest des Jahres festgeschrieben, läge der erste offene Tag im
+    Folgejahr — auch dann kein Import über die Jahresgrenze."""
+    for monat in range(8, 13):
+        r = runner.invoke(
+            app,
+            [
+                "periode",
+                "schliessen",
+                f"2026-{monat:02d}",
+                "--von",
+                "t",
+                *_basis(tmp_path),
+            ],
+        )
+        assert r.exit_code == 0, r.output
+    r = _import(tmp_path, "--buchungsdatum", "offen")
+    assert r.exit_code == 1, r.output
+    assert "Geschäftsjahr 2026" in _text(r)
+    _ohne_import(tmp_path)
+
+
+def test_import_und_abgleichen_halten_die_laufsperre(tmp_path):
+    """Nachprüfung N6: ``bank lauf`` gleicht Auszahlungen unter der Laufsperre ab;
+    ``marktplatz import`` und ``abgleichen`` taten es ohne — beide zugleich konnten
+    dieselbe Auszahlung zweimal buchen (``transaktion_id`` ist nicht eindeutig)."""
+    from accounti.betrieb.laufsperre import laufsperre
+
+    url = f"sqlite:///{tmp_path / 'm.db'}"
+    _bankumsatz(tmp_path, "209.85")
+    with laufsperre(url, "bank"):
+        r = _import(tmp_path)
+        assert r.exit_code == 1 and "läuft schon" in _text(r), r.output
+        r = runner.invoke(app, ["marktplatz", "abgleichen", *_basis(tmp_path)])
+        assert r.exit_code == 1 and "läuft schon" in _text(r), r.output
+    assert not (tmp_path / "archiv").exists() or not any(
+        p.is_file() for p in (tmp_path / "archiv").rglob("*")
+    )
+    r = _import(tmp_path)
+    assert r.exit_code == 0 and "abgeglichen" in _text(r), r.output

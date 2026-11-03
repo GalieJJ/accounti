@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -17,6 +17,8 @@ from accounti.pruefung.regeln import Kontext, befund, registriere_pruefregel
 from accounti.pruefung.regeln.zeitgerechtheit import ende_folgemonat
 
 SALDENVORTRAG = frozenset({"9000", "9008", "9009"})
+# Journalvorgänge, mit denen eine Buchung neu in die Kennziffern eingeht
+_GEBUCHT = frozenset({"buchung_angelegt", "storno_gebucht", "buchung_korrigiert"})
 
 
 class BuchungOhneBeleg:
@@ -178,6 +180,97 @@ class PeriodeNichtFestgeschrieben:
         return befunde
 
 
+class AbgegebenAbweichend:
+    """Buchungen, die laut Journal nach der Abgabe einer Umsatzsteuer-Voranmeldung in
+    ihrem Zeitraum angelegt oder korrigiert wurden (Storno, Neubuchung, Nachbuchung)
+    und deren Kennziffern sie ändern — dann ist eine berichtigte Anmeldung abzugeben
+    (§ 153 Abs. 1 AO, § 18 Abs. 1 UStG). Ein Storno mit gleich hoher Neubuchung
+    hebt sich auf und wird nicht gemeldet; den genauen Vergleich mit den abgegebenen
+    Werten macht ``accounti ustva`` (Befund ``abgegeben_abweichend``)."""
+
+    name = "abgegeben_abweichend"
+    kategorie = Kategorie.ORDNUNG
+    schwere = Schwere.WARNUNG
+    beschreibung = "Buchungen ändern eine schon abgegebene Umsatzsteuer-Voranmeldung"
+
+    class Parameter(BaseModel):
+        pass
+
+    def pruefe(self, k: Kontext, p: Parameter) -> list[Befund]:
+        from accounti.db.repo_elster import lade_uebermittlungen
+        from accounti.db.repository import lade_bankkonten
+        from accounti.models.elster import Meldeart, Modus
+        from accounti.pruefung.journal import journal_vorhanden, lade_journal
+        from accounti.steuer.kennziffern import Kontenplan, ermittle
+        from accounti.steuer.zeitraum import Zeitraum, ZeitraumError
+
+        abgaben: dict[str, datetime] = {}
+        for u in lade_uebermittlungen(k.session, Meldeart.USTVA, modus=Modus.ECHT):
+            if u.erfolgreich:
+                abgaben[u.zeitraum] = max(
+                    u.zeitpunkt, abgaben.get(u.zeitraum, u.zeitpunkt)
+                )
+        if not abgaben or not journal_vorhanden(k.session.connection()):
+            return []
+        erste = min(abgaben.values())
+        erfasst: dict[str, datetime] = {}  # Buchung → letzte Anlage/Korrektur
+        for j in lade_journal(k.session, von=erste.date()):
+            if j.objekt_typ == "buchung" and j.vorgang in _GEBUCHT:
+                erfasst[j.objekt_id] = j.zeitpunkt
+        b = k.buchhaltung
+        plan = Kontenplan(
+            kontenrahmen=b.kontenrahmen.upper(),
+            debitoren=(b.debitoren_von, b.debitoren_bis),
+            kreditoren=(b.kreditoren_von, b.kreditoren_bis),
+            geldkonten=frozenset(
+                {b.bank_konto, *(x.sachkonto for x in lade_bankkonten(k.session))}
+            ),
+        )
+        befunde = []
+        for text, zeitpunkt in sorted(abgaben.items()):
+            try:
+                z = Zeitraum.lies(text)
+            except ZeitraumError:
+                continue
+            if not (k.im_zeitraum(z.von) or k.im_zeitraum(z.bis)):
+                continue
+            neu = [
+                x
+                for x in k.buchungen
+                if z.enthaelt(x.datum)
+                and str(x.id) in erfasst
+                and erfasst[str(x.id)] > zeitpunkt
+            ]
+            if not neu:
+                continue
+            e = ermittle(neu, z, plan)
+            if not (
+                any(w for w in e.voranmeldung.werte.values())
+                or e.offen
+                or e.ohne_kennziffer
+            ):
+                continue
+            ids = ", ".join(str(x.id)[:8] for x in neu[:5]) + (
+                " …" if len(neu) > 5 else ""
+            )
+            befunde.append(
+                befund(
+                    self,
+                    "voranmeldung",
+                    text,
+                    f"Umsatzsteuer-Voranmeldung {text} am {zeitpunkt:%d.%m.%Y} "
+                    f"abgegeben, danach {len(neu)} Buchung(en) im Zeitraum angelegt "
+                    f"({ids}), die ihre Kennziffern ändern",
+                    datum=z.bis,
+                    abhilfe=(
+                        f"berichtigte Voranmeldung abgeben (accounti ustva --period "
+                        f"{text}; Kz 10)"
+                    ),
+                )
+            )
+        return befunde
+
+
 class PersonenkontoOffenePosten:
     """Saldo eines Kreditoren-/Debitorenkontos = Summe seiner offenen Posten
     (Hauptbuch und Nebenbuch, GoBD Rz. 58 ff.; ``opos/abstimmung.py``)."""
@@ -226,6 +319,7 @@ for _regel in (
     BuchungOhneBeleg(),
     OpAlter(),
     PeriodeNichtFestgeschrieben(),
+    AbgegebenAbweichend(),
     PersonenkontoOffenePosten(),
 ):
     registriere_pruefregel(_regel)

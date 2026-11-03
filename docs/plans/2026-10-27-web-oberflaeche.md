@@ -1252,7 +1252,8 @@ paket_c`, `::test_db_upgrade_vorabstand_ohne_steuerkennzeichen_und_rang`,
 `test_migration_web.py::test_migration_ergaenzt_rang_an_vorhandener_tabelle`. OPOS: das
 Erlöskonto des OSS-Fernverkaufs aus `erloeskonten` (Länderkonten je Kontenrahmen), die
 OSS-Steuer wie Paket C auf `OSS_UST_KONTEN_SKR03` (1777xx, sonst 1779 — eigene Konten, auch im
-SKR04; Grenze), das Bestimmungsland aus der Rechnung.
+SKR04; Grenze; seit dem Merge mit Paket E `erloeskonten(…).oss_ust`: SKR03 1767, SKR04 3817),
+das Bestimmungsland aus der Rechnung.
 
 ### Paket 4 — Auswertungen (PR 10b-2)
 
@@ -1657,16 +1658,20 @@ Durchlaufs mit Markern in allen Fremddaten.
   rechnet mit dem Normalsatz; nur die Marktplatz-Abrechnung kennt `oss_erloes_ermaessigt`). Die
   DATEV-Automatik von 4400/4300 kennt accounti im SKR04 nur mit einer eigenen
   `pruefung.kontenrahmen_datei` (sonst trägt der Export den BU-Schlüssel mit).
-  Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten (im SKR04
-  8320–8327; Meldung und Kz 45 zählen sie mit). Die OSS-Steuer selbst bucht OPOS (seit Paket C)
-  in beiden Kontenrahmen auf die eigenen Konten 1777xx (Rückfall 1779) — im SKR04 liegen sie
-  außerhalb der Steuerkonten (3800 ff.), die Anlage EÜR führt sie dort als Bestand; ein
-  SKR04-eigenes OSS-Steuerkonto fehlt (Folgearbeit, mit DATEV abzustimmen). Im SKR04 liegen
-  1777xx/1779 zudem im Bank- und Zahlungsmittelbereich (1700–1889): `abschluss pruefen` meldet
-  sie als nicht eingerichtetes Bankkonto (Abschluss gesperrt, Rat „bank verbinde“ irreführend),
-  und die Zahlung der OSS-Steuer an das BZSt lässt sich nicht als Regel lernen („beide
-  Geldkonten“). Das behebt Paket E beim nächsten Zusammenführen, das die OSS-Steuerkonten
-  ohnehin ändert (g3w-fach/g3w-merge N1, Runde 4 nicht behoben).
+  Marktplatz-Abrechnungen (`integrationen`) folgen weiter ihren konfigurierten Konten (Vorgabe
+  seit Paket E `integrationen.oss_erloes_konten`, im SKR04 4320–4327; Meldung und Kz 45 zählen
+  dort auch 8320–8327 mit). Die OSS-Steuer selbst bucht OPOS seit dem Merge mit Paket E auf das
+  DATEV-Sammelkonto des Kontenrahmens wie der Marktplatz: SKR03 1767, SKR04 3817 „Umsatzsteuer
+  aus im anderen EU-Land steuerpflichtigen Lieferungen“ (Gegenstück zu 1767 im
+  DATEV-Kontenrahmen § 4 Abs. 3 EStG 2026; in den Steuerkonten 3800–3849, Anlage EÜR Zeile 140).
+  Vorher (seit Paket C) buchte sie in beiden Kontenrahmen auf 1777xx (Rückfall 1779) — im SKR04
+  im Bank- und Zahlungsmittelbereich (1700–1889): `abschluss pruefen` meldete ein nicht
+  eingerichtetes Bankkonto (Abschluss gesperrt), und die Zahlung der OSS-Steuer an das BZSt
+  ließ sich nicht als Regel lernen („beide Geldkonten“; g3w-fach/g3w-merge N1, Runde 4 nicht
+  behoben). Wer schon auf 1777xx gebucht hat, bucht den Bestand auf das Sammelkonto um (SKR04
+  3817, SKR03 1767), statt die Konten in `oss_ust_konten` einzustellen. Eigene
+  Konten je Land (`integrationen.oss_ust_konten`) kennt OPOS nicht: Es bucht immer auf das
+  Sammelkonto, der Steuerabgleich der OSS-Meldung zeigt dann eine Differenz je Konto.
 - Im Browser bietet die Korrektur einer Belegbuchung den bisherigen Schlüssel und den, den der
   Beleg vorgibt (`steuer_optionen(b, beleg).laut_beleg`: sein einziger Satz mit seiner
   Richtung — 19 % Eingang 9, 7 % 8, Ausgang 3 bzw. 2; ohne Satz in den Positionen das

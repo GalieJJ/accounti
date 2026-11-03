@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from accounti.steuer.eu_steuersaetze import (
-    EU_STEUERSAETZE,
     ist_eu_land,
+    steuersatz_oder_none,
 )
 
 
@@ -70,22 +71,13 @@ VST_KONTEN_SKR03: dict[str, str] = {
     "7": "1571",  # Vorsteuer 7%
 }
 
-# OSS-Umsatzsteuerkonten (für EU-B2C)
-# Im SKR03 gibt es keine Standard-OSS-Konten — die müssen angelegt werden.
-# Empfohlene Konvention: 1777xx pro Land
-OSS_UST_KONTEN_SKR03: dict[str, str] = {
-    "FR": "177720",  # USt OSS Frankreich 20%
-    "IT": "177722",  # USt OSS Italien 22%
-    "ES": "177721",  # USt OSS Spanien 21%
-    "NL": "177721",  # USt OSS Niederlande 21%
-    "SE": "177725",  # USt OSS Schweden 25%
-    "PL": "177723",  # USt OSS Polen 23%
-    "AT": "177720",  # USt OSS Österreich 20%
-    "BE": "177721",  # USt OSS Belgien 21%
-    # Weitere Länder → config/oss_konten.yaml
-}
+# OSS-Umsatzsteuer (für EU-B2C): DATEV-Sammelkonto „Umsatzsteuer aus im anderen
+# EU-Land steuerpflichtigen Lieferungen“ (SKR03 1767, SKR04 3817; Kontenrahmen 2026) —
+# vierstellig, passt zur Sachkontenlänge 4 des DATEV-Stapels; das Land steht im
+# Buchungstext. Eigene Konten je Land: integrationen.oss_ust_konten.
+OSS_UST_KONTO_SKR03 = "1767"
 
-# Erlöskonten für OSS (SKR03)
+# Erlöskonten für OSS (SKR03) — Vorgabe; weitere: integrationen.oss_erloes_konten
 OSS_ERLOES_KONTEN_SKR03: dict[str, str] = {
     "FR": "8320",  # Erlöse OSS Frankreich
     "IT": "8321",  # Erlöse OSS Italien
@@ -113,6 +105,10 @@ OSS_ERLOES_KONTEN_SKR04: dict[str, str] = {
     "AT": "4326",
     "BE": "4327",
 }
+# Gegenstück zu SKR03 1767 (DATEV-Kontenrahmen § 4 Abs. 3 EStG 2026, gleich bezeichnet)
+# in den Steuerkonten 3800–3849 — nicht 1767/1777xx/1779 wie im SKR03: Die liegen im
+# SKR04 im Bank- und Zahlungsmittelbereich 1700–1889 (Merge Paket E, NACHARBEITEN)
+OSS_UST_KONTO_SKR04 = "3817"
 
 
 def oss_erloeskonten(kontenrahmen: str = "SKR03") -> dict[str, str]:
@@ -122,11 +118,23 @@ def oss_erloeskonten(kontenrahmen: str = "SKR03") -> dict[str, str]:
     return dict(OSS_ERLOES_KONTEN_SKR03)
 
 
+def oss_ust_konto(kontenrahmen: str = "SKR03") -> str:
+    """DATEV-Sammelkonto „Umsatzsteuer aus im anderen EU-Land steuerpflichtigen
+    Lieferungen“ des Kontenrahmens (SKR03 1767, SKR04 3817) — Vorgabe für OPOS, den
+    Marktplatz (``integrationen.oss_ust_konto``) und den Steuerabgleich der
+    OSS-Meldung."""
+    if kontenrahmen.upper() == "SKR04":
+        return OSS_UST_KONTO_SKR04
+    return OSS_UST_KONTO_SKR03
+
+
 def oss_konto_land(kontenrahmen: str = "SKR03") -> dict[str, str]:
     """OSS-Erlöskonto → Bestimmungsland, wie OSS-Meldung, Lieferschwelle und
-    Kennziffer 45 sie lesen. Im SKR04 dazu die SKR03-Konten 8320–8327: Dort bucht die
-    Marktplatz-Abrechnung (``integrationen``) — die Kontenklasse 8 steht im SKR04 zur
-    freien Verfügung. Im SKR03 nie die SKR04-Konten (4320 ist dort Gewerbesteuer)."""
+    Kennziffer 45 sie lesen. Im SKR04 dazu die SKR03-Konten 8320–8327: Dort buchte die
+    Marktplatz-Abrechnung (``integrationen``) bis Paket E, und dorthin legt sie, wer
+    ``integrationen.oss_erloes_konten`` so setzt — die Kontenklasse 8 steht im SKR04
+    zur freien Verfügung. Im SKR03 nie die SKR04-Konten (4320 ist dort
+    Gewerbesteuer)."""
     konten = {konto: land for land, konto in OSS_ERLOES_KONTEN_SKR03.items()}
     if kontenrahmen.upper() == "SKR04":
         konten |= {konto: land for land, konto in OSS_ERLOES_KONTEN_SKR04.items()}
@@ -263,6 +271,7 @@ class UStBerechner:
         ermaessigt: bool = False,
         ist_sonstige_leistung: bool = False,
         ist_elektronisch: bool = False,
+        stichtag: date | None = None,
     ) -> UStPosition:
         """Berechnet Umsatzsteuer für einen Verkauf.
 
@@ -273,6 +282,8 @@ class UStBerechner:
             kaeufer_hat_ust_id: Käufer hat gültige USt-ID?
             ermaessigt: Ermäßigter Steuersatz?
             ist_sonstige_leistung: Dienstleistung statt Lieferung?
+            stichtag: Tag der Leistung — der Steuersatz gilt an diesem Tag
+                (ohne: heute)
 
         Returns:
             Vollständige UStPosition mit allen Buchungsinfos
@@ -293,7 +304,11 @@ class UStBerechner:
         kennziffer: int | None = None
 
         if vorfall == Geschaeftsvorfall.INLAND:
-            info = EU_STEUERSAETZE[self.firmen_land]
+            inland = steuersatz_oder_none(self.firmen_land, stichtag)
+            if inland is None:
+                msg = f"Kein Steuersatz für Land '{self.firmen_land}' hinterlegt"
+                raise ValueError(msg)
+            info = inland
             steuersatz = info.ermaessigt if ermaessigt else info.normal
             schluessel = str(int(steuersatz))
             steuer_konto = UST_KONTEN_SKR03.get(schluessel, "1776")
@@ -301,13 +316,13 @@ class UStBerechner:
             kennziffer = ELSTER_KENNZIFFERN.get(f"umsaetze_{int(steuersatz)}", 81)
 
         elif vorfall == Geschaeftsvorfall.EU_B2C_OSS:
-            info_opt = EU_STEUERSAETZE.get(land)
+            info_opt = steuersatz_oder_none(land, stichtag)
             if info_opt is None:
                 msg = f"Kein Steuersatz für Land '{land}' hinterlegt"
                 raise ValueError(msg)
             info = info_opt
             steuersatz = info.ermaessigt if ermaessigt else info.normal
-            steuer_konto = OSS_UST_KONTEN_SKR03.get(land, "1779")
+            steuer_konto = OSS_UST_KONTO_SKR03
             datev_schluessel = DATEV_BU_SCHLUESSEL.get("oss")
             kennziffer = ELSTER_KENNZIFFERN["oss_nicht_de"]  # nur der Nettoumsatz
 

@@ -8,6 +8,7 @@ bestätigter Vorschlag verwirft die konkurrierenden für denselben Umsatz und Be
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -82,13 +83,20 @@ def _speichere(session: Session, k: Kandidat, status: AbgleichStatus) -> None:
 
 
 def gleiche_belege_ab(
-    session: Session, zeitraum: str | None = None
+    session: Session,
+    zeitraum: str | None = None,
+    auslassen: Collection[UUID] = (),
 ) -> Abgleichsergebnis:
-    """Gleicht offene Umsätze (optional eines Monats, ``JJJJ-MM``) mit Belegen ab."""
+    """Gleicht offene Umsätze (optional eines Monats, ``JJJJ-MM``) mit Belegen ab.
+
+    ``auslassen``: Umsätze, über die der Marktplatz-Abgleich desselben ``bank lauf``
+    einen Befund hat — eine Auszahlung, für die kein Beleg bestätigt wird, sonst bliebe
+    er nach ``marktplatz zuordnen`` bestätigt und nie gebucht (Nachprüfung 7 E,
+    Abläufe N3; wie opos und die Kontierung, 6 E, Mb)."""
     transaktionen = [
         t
         for t in offene_transaktionen(session)
-        if not zeitraum or f"{t.datum:%Y-%m}" == zeitraum
+        if (not zeitraum or f"{t.datum:%Y-%m}" == zeitraum) and t.id not in auslassen
     ]
     abgelehnt = {
         (a.transaktion_id, a.beleg_id)

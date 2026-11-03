@@ -1209,13 +1209,17 @@ def test_datev_export_hebt_die_automatik_auf(tmp_path, skr03):
         buchung(soll="3400", haben="70001", schluessel=8, steuer="7.00"),
     ]
     cfg = DATEVConfig(
-        berater_nummer="1", mandanten_nummer="1", automatikkonten=automatik
+        berater_nummer="1001", mandanten_nummer="1", automatikkonten=automatik
     )
     exporter = DATEVExporter(cfg)
     datei = exporter.exportiere(buchungen, tmp_path / "out")
-    zeilen = datei.read_text(encoding="cp1252").splitlines()
-    bu = zeilen[1].split(";").index("BU-Schlüssel")
-    assert [z.split(";")[bu] for z in zeilen[2:]] == ["40", "", "", "", "9", "", "8"]
+    import csv
+
+    zeilen = list(
+        csv.reader(datei.read_text(encoding="cp1252").splitlines(), delimiter=";")
+    )
+    bu = zeilen[1].index("BU-Schlüssel")
+    assert [z[bu] for z in zeilen[2:]] == ["40", "", "", "", "9", "", "8"]
     (warnung,) = exporter.warnungen
     assert "3400" in warnung and "Schlüssel 8" in warnung
 
@@ -1247,13 +1251,21 @@ def test_skontokonten_mit_steuersatz_sind_automatikkonten(
         ),
         buchung(soll="8736", haben="10000", netto="2.00", steuer="0.38", schluessel=3),
     ]
+    # Beraternummer im DATEV-Bereich, Textfelder in Anführungszeichen — wie der
+    # Export seit Gesamttest Abschluss B1–B3 (Paket E) schreibt
     exporter = DATEVExporter(
-        DATEVConfig(berater_nummer="1", mandanten_nummer="1", automatikkonten=automatik)
+        DATEVConfig(
+            berater_nummer="1001", mandanten_nummer="1", automatikkonten=automatik
+        )
     )
     datei = exporter.exportiere(buchungen, tmp_path / "out")
-    zeilen = datei.read_text(encoding="cp1252").splitlines()
-    bu = zeilen[1].split(";").index("BU-Schlüssel")
-    assert [z.split(";")[bu] for z in zeilen[2:]] == ["", "", "94", ""]
+    import csv
+
+    zeilen = list(
+        csv.reader(datei.read_text(encoding="cp1252").splitlines(), delimiter=";")
+    )
+    bu = zeilen[1].index("BU-Schlüssel")
+    assert [z[bu] for z in zeilen[2:]] == ["", "", "94", ""]
     assert exporter.warnungen == []
     anlegen(make_session, *buchungen)
     assert pruefe(make_session, "steuerschluessel_konto") == []
@@ -1391,7 +1403,7 @@ def test_datev_export_warnt_bei_steuer_ohne_schluessel_auf_automatikkonto(tmp_pa
     from accounti.pruefung.regeln.richtigkeit import automatikkonten
 
     cfg = DATEVConfig(
-        berater_nummer="1",
+        berater_nummer="1001",
         mandanten_nummer="1",
         automatikkonten=automatikkonten(Buchhaltung()),
     )

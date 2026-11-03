@@ -6,6 +6,9 @@ nennt; bei Länge 6 oder 8 liefen 5-stellige Personenkonten ohne Warnung durch, 
 ``datev stammdaten`` dieselbe Einstellung ablehnte. DATEV erlaubt 4 bis 8, ein
 Personenkonto ist eine Stelle länger.
 
+Beraternummer 1001 (nicht 1): Der Stapel prüft den Kopf wie DATEV (1001–9999999,
+Paket E).
+
 N3: Die Personenkontenbereiche (``buchhaltung.debitoren_von`` …) hatten keine
 Obergrenze — 10-stellige Debitoren wurden gebucht, ließen sich aber weder korrigieren
 noch in der Kasse gegenbuchen (Kontonummern 4–9 Ziffern). DATEV-Personenkonten haben
@@ -85,7 +88,9 @@ def _buchungen():  # noqa: ANN202
 @pytest.mark.parametrize("laenge", [6, 8])
 def test_export_warnt_vor_unpassenden_personenkonten(tmp_path, laenge):
     exporter = DATEVExporter(
-        DATEVConfig(berater_nummer="1", mandanten_nummer="2", sachkonten_laenge=laenge)
+        DATEVConfig(
+            berater_nummer="1001", mandanten_nummer="2", sachkonten_laenge=laenge
+        )
     )
     exporter.exportiere(_buchungen(), tmp_path)
     personen = [w for w in exporter.warnungen if "Personenkonto" in w]
@@ -95,7 +100,7 @@ def test_export_warnt_vor_unpassenden_personenkonten(tmp_path, laenge):
 
 
 def test_export_mit_laenge_4_ohne_warnung(tmp_path):
-    exporter = DATEVExporter(DATEVConfig(berater_nummer="1", mandanten_nummer="2"))
+    exporter = DATEVExporter(DATEVConfig(berater_nummer="1001", mandanten_nummer="2"))
     exporter.exportiere(_buchungen(), tmp_path)
     assert exporter.warnungen == []
 
@@ -104,7 +109,7 @@ def test_export_personenkonten_aus_den_bereichen_der_buchhaltung(tmp_path):
     """Neunstellige Bereiche (Sachkontenlänge 8): 100000000 passt, 10000 nicht."""
     exporter = DATEVExporter(
         DATEVConfig(
-            berater_nummer="1",
+            berater_nummer="1001",
             mandanten_nummer="2",
             sachkonten_laenge=8,
             personenkonten=((100000000, 699999999), (700000000, 999999999)),
@@ -136,7 +141,7 @@ def cli_welt(tmp_path, monkeypatch):
 def _export(tmp_path, url, konfig):  # noqa: ANN001, ANN202
     r = runner.invoke(
         app,
-        ["export", "datev", "--berater", "1", "--mandant", "2", "--output",
+        ["export", "datev", "--berater", "1001", "--mandant", "2", "--output",
          str(tmp_path / "ex"), "--db", url, "--config", str(konfig)],
         env={"COLUMNS": "300", "ACCOUNTI_KONFIG": str(konfig)},
     )  # fmt: skip

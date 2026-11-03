@@ -467,7 +467,7 @@ def test_belegbuchung_im_datev_export(umgebung, tmp_path):
     with make_session() as s:
         buchungen = lade_buchungen(s)
     datei = DATEVExporter(
-        DATEVConfig(berater_nummer="1", mandanten_nummer="2")
+        DATEVConfig(berater_nummer="1001", mandanten_nummer="2")
     ).exportiere(buchungen, tmp_path)
     zeilen = list(
         csv.reader(datei.read_text(encoding="cp1252").splitlines()[1:], delimiter=";")
@@ -1010,7 +1010,9 @@ def test_oss_land_aus_der_rechnung_und_steuer_auf_dem_oss_konto(umgebung):
     assert len({v.treffer.kontakt.id for v in verbucht}) == 2
     rom_buchungen = verbucht[1].buchungen
     konten = sorted((b.haben_konto, b.betrag_netto) for b in rom_buchungen)
-    assert konten == [("177722", Decimal("220.00")), ("8321", Decimal("1000.00"))]
+    # OSS-Umsatzsteuer auf 1767 (Paket E, Steuer B6/B7: 177722 passt nicht zur
+    # Sachkontenlänge 4 des DATEV-Stapels)
+    assert konten == [("1767", Decimal("220.00")), ("8321", Decimal("1000.00"))]
     assert verbucht[1].posten.betrag == Decimal("1220.00")
 
 

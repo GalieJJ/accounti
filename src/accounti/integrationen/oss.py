@@ -1,11 +1,12 @@
 """OSS-Quartalsmeldung aus den gebuchten Marktplatz-Erlösen, gerechnet von steuer.oss.
 
 Die Marktplatz-Buchung legt EU-Fernverkäufe an Privatkunden je Bestimmungsland auf die
-OSS-Erlöskonten aus ``steuer.umsatzsteuer.OSS_ERLOES_KONTEN_SKR03`` (ermäßigte Sätze auf
-die Konten aus ``integrationen.oss_erloes_ermaessigt``), eigene Rechnungen (OPOS) auf
+OSS-Erlöskonten aus ``integrationen.oss_erloes_konten`` (ermäßigte Sätze auf die
+Konten aus ``integrationen.oss_erloes_ermaessigt``), eigene Rechnungen (OPOS) auf
 die Länderkonten des Kontenrahmens (SKR04 4320–4327, ``umsatzsteuer.oss_konto_land``);
-die Meldung bildet ``steuer.oss.OSSEngine`` aus diesen Buchungen. Hier wird nur
-zusammengestellt und die gemeldete Steuer gegen die gebuchte abgeglichen.
+die Meldung bildet ``steuer.oss.OSSEngine`` aus diesen Buchungen und liest beide.
+Hier wird nur zusammengestellt und die gemeldete Steuer gegen die gebuchte
+abgeglichen.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from accounti.integrationen.einstellungen import Integrationen
 from accounti.models import Buchungssatz, BuchungStatus
 from accounti.steuer.eu_steuersaetze import EU_STEUERSAETZE
 from accounti.steuer.oss import OSSEngine, OSSMeldung
-from accounti.steuer.umsatzsteuer import UStBerechner, oss_konto_land
+from accounti.steuer.umsatzsteuer import oss_konto_land, oss_ust_konto
 
 NULL = Decimal("0.00")
 
@@ -29,8 +30,11 @@ NULL = Decimal("0.00")
 def _erloeskonten(
     einstellungen: Integrationen | None, kontenrahmen: str = "SKR03"
 ) -> set[str]:
+    """Länderkonten des Kontenrahmens (OPOS, Vorgabe des Marktplatzes) und die
+    Konten aus ``integrationen`` (eigene Länderkonten, ermäßigte Sätze)."""
     konten = set(oss_konto_land(kontenrahmen))
     if einstellungen is not None:
+        konten |= set(einstellungen.oss_erloes_konten.values())
         konten |= set(einstellungen.oss_erloes_ermaessigt.values())
     return konten
 
@@ -84,6 +88,7 @@ def oss_meldung(
         erloes_konten_ermaessigt=(
             einstellungen.oss_erloes_ermaessigt if einstellungen else None
         ),
+        erloes_konten=einstellungen.oss_erloes_konten if einstellungen else None,
         kontenrahmen=kontenrahmen,
     )
 
@@ -106,15 +111,16 @@ class Steuerdifferenz:
         return self.gebucht - self.gemeldet
 
 
-def _steuerkonto(land: str, firmen_land: str) -> str:
-    berechner = UStBerechner(firmen_land=firmen_land)
-    return berechner.berechne_ust(Decimal("1"), land).steuer_konto
-
-
 def steuerabgleich(
-    session: Session, meldung: OSSMeldung, firmen_land: str = "DE"
+    session: Session,
+    meldung: OSSMeldung,
+    firmen_land: str = "DE",
+    einstellungen: Integrationen | None = None,
+    kontenrahmen: str = "SKR03",
 ) -> list[Steuerdifferenz]:
-    """Gebuchte OSS-Steuer des Quartals gegen die gemeldete, je OSS-Steuerkonto.
+    """Gebuchte OSS-Steuer des Quartals gegen die gemeldete, je OSS-Steuerkonto
+    (``integrationen.oss_ust_konto_fuer``; ohne Einstellungen das Konto des
+    Kontenrahmens, ``umsatzsteuer.oss_ust_konto``).
 
     Gebucht wird je Bestellung Brutto − Netto, gemeldet je Land und Satz die Steuer
     auf die Summe der Bemessungsgrundlagen; dazu kommen Korrekturen früherer
@@ -122,7 +128,11 @@ def steuerabgleich(
     Erlös nicht auf einem OSS-Erlöskonto liegt (z.B. ermäßigter Satz ohne Konto).
     """
     land_konto = {
-        land: _steuerkonto(land, firmen_land)
+        land: (
+            einstellungen.oss_ust_konto_fuer(land)
+            if einstellungen is not None
+            else oss_ust_konto(kontenrahmen)
+        )
         for land in EU_STEUERSAETZE
         if land != firmen_land
     }

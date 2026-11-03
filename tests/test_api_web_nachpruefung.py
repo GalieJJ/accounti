@@ -684,7 +684,9 @@ def test_ustva_fachfehler_verbraucht_den_code_nicht(qw):
         r = client.post("/freigaben/ustva", data=daten)
         assert r.status_code == status, (zeitraum, r.status_code, r.text)
     assert _verbrauchte_codes(qw) == 0
-    daten = {"csrf": csrf(client), "zeitraum": "2026-11", "einmalcode": code}
+    # ein abgelaufener Monat: einen laufenden sperrt die Freigabe (zeitraum_laufend,
+    # § 18 Abs. 1 UStG, Paket E)
+    daten = {"csrf": csrf(client), "zeitraum": "2026-09", "einmalcode": code}
     r = client.post("/freigaben/ustva", data=daten)
     assert r.status_code == 200 and "freigegeben von fritz" in r.text, r.text
     assert _verbrauchte_codes(qw) == 1 and _fehlversuche(qw, "fritz") == 0
@@ -694,7 +696,7 @@ def test_ustva_doppelklick_409_ohne_fehlversuch(qw):
     client = qw.web.angemeldet("fritz")
     daten = {
         "csrf": csrf(client),
-        "zeitraum": "2026-12",
+        "zeitraum": "2026-08",  # abgelaufen (zeitraum_laufend, Paket E)
         "einmalcode": qw.web.code("fritz"),
     }
     a, b = zwei_gleichzeitig(client, "/freigaben/ustva", daten, daten)

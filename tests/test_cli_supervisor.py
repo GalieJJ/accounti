@@ -130,7 +130,7 @@ def test_export_nur_freigegeben(tmp_path):
         "--db",
         url,
         "--berater",
-        "1",
+        "1001",  # DATEV: Beraternummer 1001–9999999
         "--mandant",
         "2",
         "--output",
@@ -139,7 +139,10 @@ def test_export_nur_freigegeben(tmp_path):
     res = runner.invoke(app, args)
     assert res.exit_code == 0
     assert "2 Buchungen" in res.stdout
+    # die zwei sind jetzt exportiert: ein zweiter Export nimmt sie nur mit --erneut
     res_alle = runner.invoke(app, [*args, "--alle"])
+    assert "1 Buchungen" in res_alle.stdout
+    res_alle = runner.invoke(app, [*args, "--alle", "--erneut"])
     assert "3 Buchungen" in res_alle.stdout
 
 

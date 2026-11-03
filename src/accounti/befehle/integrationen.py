@@ -14,7 +14,13 @@ import typer
 from rich.markup import escape
 from rich.table import Table
 
-from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
+from accounti.befehle import (
+    DB_OPTION,
+    KONFIG_OPTION,
+    console,
+    handelnde_person,
+    laufsperre_oder_ende,
+)
 
 if TYPE_CHECKING:
     from accounti.integrationen.auszahlung import Abgleich
@@ -90,25 +96,48 @@ def marktplatz_import(
     auszahlung: str | None = typer.Option(
         None, help="Auszahlungsbetrag laut Marktplatz, wenn er nicht in der Datei steht"
     ),
+    buchungsdatum: str | None = typer.Option(
+        None,
+        help="Posten in abgeschlossenen Zeiträumen buchen am: offen (erster offener "
+        "Tag) oder JJJJ-MM-TT — das Belegdatum bleibt",
+    ),
     db: str = DB_OPTION,
     archiv: str = typer.Option(ARCHIV_STANDARD, help="Archivverzeichnis"),
     config: str = KONFIG_OPTION,
 ) -> None:
     """Abrechnung einlesen, archivieren, buchen und die Auszahlung abgleichen."""
+    from datetime import date
+
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
     from accounti.importers.marktplatz import MarktplatzFormatError, lies_laenderdatei
     from accounti.integrationen.buchung import ANZEIGE
     from accounti.integrationen.einstellungen import lade_kontext
-    from accounti.integrationen.lauf import IntegrationError, importiere
+    from accounti.integrationen.lauf import (
+        Buchungsdatum,
+        IntegrationError,
+        importiere,
+    )
     from accounti.konfiguration import KonfigurationError
 
+    tag: Buchungsdatum | None = None
+    if buchungsdatum == "offen":
+        tag = "offen"
+    elif buchungsdatum is not None:
+        try:
+            tag = date.fromisoformat(buchungsdatum)
+        except ValueError as fehler:
+            console.print("[red]--buchungsdatum: offen oder JJJJ-MM-TT[/red]")
+            raise typer.Exit(1) from fehler
     try:
         kontext = lade_kontext(config)
         angaben = lies_laenderdatei(Path(laender).read_bytes()) if laender else None
         engine, make_session = session_factory(db)
         init_db(engine)
-        with make_session() as s:
+        # die Laufsperre wie bank lauf, der dieselben Auszahlungen abgleicht — sonst
+        # buchen zwei Läufe dieselbe Auszahlung zweimal
+        with laufsperre_oder_ende(db), make_session() as s:
             ergebnisse = importiere(
                 s,
                 BelegArchiv(archiv),
@@ -119,12 +148,14 @@ def marktplatz_import(
                 laender=angaben,
                 kurs=_zahl(kurs, "Kurs"),
                 auszahlung=_zahl(auszahlung, "Auszahlung"),
+                buchungsdatum=tag,
             )
             s.commit()
     except (
         IntegrationError,
         MarktplatzFormatError,
         KonfigurationError,
+        JahrGesperrtError,  # auch die Monatssperre (PeriodeGesperrtError)
         OSError,
     ) as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -246,17 +277,142 @@ def marktplatz_abgleichen(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> N
         raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
-    with make_session() as s:
+    with laufsperre_oder_ende(db), make_session() as s:  # wie marktplatz import
         ergebnisse = gleiche_auszahlungen_ab(s, kontext)
         s.commit()
+    _abgleich_ausgabe(ergebnisse)
+
+
+def _abgleich_ausgabe(ergebnisse: list[Abgleich]) -> None:
     gefunden = [e for e in ergebnisse if e.transaktion is not None]
+    # eine Zuordnung, die Regel 8 bezweifelt, ist nicht offen
+    offen = [
+        e
+        for e in ergebnisse
+        if e.transaktion is None and e.posten.bank_transaktion_id is None
+    ]
     console.print(
-        f"[green]{len(gefunden)}[/green] Auszahlungen abgeglichen, "
-        f"{len(ergebnisse) - len(gefunden)} offen."
+        f"[green]{len(gefunden)}[/green] Auszahlungen abgeglichen, {len(offen)} offen."
     )
     for e in ergebnisse:
         if e.befund is not None:
-            _befunde([e.befund])
+            _befunde([e.befund, *e.hinweise])
+
+
+@befehl.command("zuordnen")
+def marktplatz_zuordnen(
+    nummer: str = typer.Argument(help="Abrechnungsnummer oder Anfang der ID"),
+    umsatz: str | None = typer.Argument(
+        None, help="Anfang der ID des Bankumsatzes (steht im Befund)"
+    ),
+    loesen: bool = typer.Option(
+        False,
+        "--loesen",
+        help="Zuordnung lösen: der Umsatz gehört nicht zu dieser Auszahlung",
+    ),
+    posten: int | None = typer.Option(
+        None, help="Zeile der Aus-/Einzahlung, wenn die Abrechnung mehrere hat"
+    ),
+    tag: str | None = typer.Option(
+        None,
+        "--datum",
+        help="Storno-Datum der bisherigen Zuordnung, wenn ihr Zeitraum abgeschlossen "
+        "ist (JJJJ-MM-TT)",
+    ),
+    trotzdem: bool = typer.Option(
+        False,
+        "--trotzdem",
+        help="Auch einen Umsatz nach dem Zeitfenster der Auszahlung zuordnen (die "
+        "Bank hat spät gebucht), bei einer Einzahlung auch davor (die Bank bucht die "
+        "Überweisung vor der Gutschrift beim Marktplatz)",
+    ),
+    von: str | None = typer.Option(
+        None,
+        help="Wer zuordnet (sonst ACCOUNTI_BENUTZER bzw. Anmeldename; mit "
+        "eingerichteten Benutzern: Rolle und Einmalcode)",
+    ),
+    db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
+) -> None:
+    """Bankumsatz ausdrücklich einer Auszahlung zuordnen — oder die Zuordnung lösen.
+
+    Für den Fall, den der Abgleich nicht entscheidet: eine Bankreferenz, die wie eine
+    Auszahlungsnummer aussieht (auszahlung_andere_nummer), mehrere passende Umsätze
+    (auszahlung_mehrdeutig), eine Zuordnung ohne Nummer, die ein späterer Umsatz
+    bezweifelt (auszahlung_zweifel). Eine bisherige Zuordnung des Umsatzes oder der
+    Auszahlung wird dabei storniert; danach gleicht accounti neu ab."""
+    from datetime import date
+
+    from accounti.db import init_db, session_factory
+    from accounti.db.tabellen import UnveraenderbarError
+    from accounti.db.tabellen_abschluss import JahrGesperrtError
+    from accounti.integrationen.auszahlung import ZuordnungError, ordne_zu
+    from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.konfiguration import KonfigurationError
+    from accounti.models.auth import Recht
+    from accounti.pruefung.storno import StornoError
+
+    if (umsatz is None) == (not loesen):
+        console.print("[red]Entweder einen Bankumsatz angeben oder --loesen[/red]")
+        raise typer.Exit(1)
+    am = None
+    if tag is not None:
+        try:
+            am = date.fromisoformat(tag)
+        except ValueError as fehler:
+            console.print("[red]--datum: JJJJ-MM-TT[/red]")
+            raise typer.Exit(1) from fehler
+    try:
+        kontext = lade_kontext(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
+    engine, make_session = session_factory(db)
+    init_db(engine)
+    # mit Benutzern: buchen (buchhalter) und Einmalcode — wie korrigiere und Storno;
+    # die Laufsperre wie marktplatz abgleichen
+    with (
+        handelnde_person(db, config, Recht.BUCHEN, von) as person,
+        laufsperre_oder_ende(db),
+        make_session() as s,
+    ):
+        try:
+            ergebnis = ordne_zu(
+                s,
+                kontext,
+                nummer,
+                None if loesen else umsatz,
+                posten=posten,
+                von=person,
+                datum=am,
+                trotzdem=trotzdem,
+            )
+            s.commit()
+        except (
+            ZuordnungError,
+            StornoError,
+            JahrGesperrtError,
+            UnveraenderbarError,
+        ) as fehler:
+            s.rollback()
+            console.print(f"[red]{escape(str(fehler))}[/red]")
+            raise typer.Exit(1) from fehler
+    a, t = ergebnis.abrechnung, ergebnis.transaktion
+    for text in ergebnis.geloest:
+        console.print(f"[yellow]{escape(text)}[/yellow]")
+    if t is not None:
+        console.print(
+            f"[green]{escape(a.nummer)}: Bankumsatz vom {t.datum:%d.%m.%Y} über "
+            f"{_eur(t.betrag)} € zugeordnet[/green] (Status {a.status.value})"
+        )
+    else:
+        console.print(
+            f"{escape(a.nummer)}: Zuordnung gelöst — der Abgleich nimmt den Umsatz "
+            "für diese Auszahlung nicht wieder"
+        )
+    for warnung in ergebnis.warnungen:
+        console.print(f"[yellow]{escape(warnung)}[/yellow]")
+    _abgleich_ausgabe(ergebnis.abgleich)
 
 
 @befehl.command("oss")
@@ -296,7 +452,7 @@ def marktplatz_oss(
         rahmen = kontext.buchhaltung.kontenrahmen
         meldung = oss_meldung(s, jahr, nr, kontext.firmen_land, e, rahmen)
         offen = ungepruefte(oss_buchungen(s, jahr, nr, e, rahmen))
-        differenzen = steuerabgleich(s, meldung, kontext.firmen_land)
+        differenzen = steuerabgleich(s, meldung, kontext.firmen_land, e)
     tabelle = Table(title=f"OSS-Meldung {meldung.quartal}")
     for spalte in ("Land", "Satz", "Bemessungsgrundlage", "Steuer", "Anzahl"):
         tabelle.add_column(spalte)

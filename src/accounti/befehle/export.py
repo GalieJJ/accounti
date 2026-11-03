@@ -1,6 +1,7 @@
 """Befehlsgruppe ``accounti datev`` — Stammdaten, Belege und Kontoauszüge für DATEV.
 
-Der Buchungsstapel ohne Belege bleibt ``accounti export datev``; ``datev belege``
+Der Buchungsstapel ohne Belege bleibt ``accounti export datev`` (``buchungsstapel``
+hier, aufgerufen aus ``cli.py``); ``datev belege``
 schreibt für denselben Zeitraum einen Buchungsstapel *mit* Beleglink und das
 zugehörige Belegpaket — beides zusammen importieren, nicht zusätzlich zum alten Stapel.
 ``datev kontoauszuege`` schreibt die Monatsauszüge eines Finanzkontos fest und gibt
@@ -58,6 +59,148 @@ def automatikkonten_aus(config: str) -> dict[str, int]:
 def _fehler(fehler: Exception) -> typer.Exit:
     console.print(f"[red]{escape(str(fehler))}[/red]")
     return typer.Exit(1)
+
+
+def buchungsstapel(
+    *,
+    period: str | None,
+    berater: str | None,
+    mandant: str | None,
+    output: str,
+    alle: bool,
+    erneut: bool,
+    db: str,
+    config: str,
+) -> None:
+    """``accounti export datev``: Buchungsstapel eines Zeitraums (ohne Beleglink).
+
+    Nur freigegebene Buchungen (mit ``alle`` auch ungeprüfte), nur noch nicht
+    exportierte (mit ``erneut`` auch exportierte), nur der Zeitraum (``period``) —
+    ohne Zeitraum alle offenen, solange sie in einem Wirtschaftsjahr liegen
+    (``datev.wirtschaftsjahr_beginn``).
+    """
+    from accounti.db import session_factory
+    from accounti.db.repository import lade_buchungen
+    from accounti.export.datev import (
+        DATEVConfig,
+        DATEVExporter,
+        exportierte_dateien,
+        schon_exportiert,
+    )
+    from accounti.export.datev_format import DatevFormatError
+    from accounti.export.datev_stammdaten import lade_datev_mandant
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
+    from accounti.models import BuchungStatus
+    from accounti.models.auth import Recht
+    from accounti.pruefung.storno import markiere_exportiert
+
+    von_bis = zeitraum(period) if period else None
+    try:
+        automatik = automatikkonten_aus(config)
+        # Berater- und Mandantennummer vorab (Optionen oder Abschnitt datev)
+        lade_datev_mandant(
+            config, von_bis[0] if von_bis else date.today(), berater, mandant
+        )
+    except (KonfigurationError, ValueError) as fehler:
+        raise _fehler(fehler) from fehler
+    status_freigegeben = {
+        BuchungStatus.AUTO_GEBUCHT,
+        BuchungStatus.GEPRUEFT,
+        BuchungStatus.KORRIGIERT,
+        BuchungStatus.EXPORTIERT,
+    }
+    status = None if alle else status_freigegeben
+    _, make_session = session_factory(db)
+    # Übergabe an den Steuerberater, vermerkt die Buchungen als exportiert: Buchungen
+    # freigeben (buchhalter, freigeber) und Einmalcode
+    with (
+        handelnde_person(db, config, Recht.BUCHUNG_FREIGEBEN, None),
+        make_session() as s,
+    ):
+        kandidaten = lade_buchungen(s, status=status)
+        if von_bis is not None:
+            kandidaten = [b for b in kandidaten if von_bis[0] <= b.datum <= von_bis[1]]
+        frueher = set() if erneut else schon_exportiert(s)
+        buchungen = sorted(
+            (
+                b
+                for b in kandidaten
+                if erneut
+                or (b.status is not BuchungStatus.EXPORTIERT and b.id not in frueher)
+            ),
+            key=lambda b: (b.datum, b.beleg_nummer or "", str(b.id)),
+        )
+        uebersprungen = len(kandidaten) - len(buchungen)
+        if not buchungen:
+            console.print(
+                "Keine Buchungen zu exportieren"
+                + (f" ({period})" if period else "")
+                + (
+                    f" — {uebersprungen} schon exportiert (erneut: --erneut)"
+                    if uebersprungen
+                    else ""
+                )
+                + "."
+            )
+            return
+        try:
+            datev = lade_datev_mandant(
+                config, von_bis[0] if von_bis else buchungen[0].datum, berater, mandant
+            )
+            bh = lade_buchhaltung(config)
+            exporter = DATEVExporter(
+                DATEVConfig(
+                    berater_nummer=str(datev.berater),
+                    mandanten_nummer=str(datev.mandant),
+                    wirtschaftsjahr_beginn=datev.wj_beginn,
+                    sachkonten_laenge=datev.sachkontenlaenge,
+                    # Personenkonten eine Stelle länger (Runde 6, g5w-konten N2)
+                    personenkonten=(
+                        (bh.debitoren_von, bh.debitoren_bis),
+                        (bh.kreditoren_von, bh.kreditoren_bis),
+                    ),
+                    datum_von=von_bis[0] if von_bis else None,
+                    datum_bis=von_bis[1] if von_bis else None,
+                    skr=datev.skr,
+                    automatikkonten=automatik,
+                )
+            )
+            datei = exporter.exportiere(
+                buchungen, output, vergeben=exportierte_dateien(s)
+            )
+        except (KonfigurationError, DatevFormatError) as fehler:
+            s.rollback()
+            raise _fehler(fehler) from fehler
+        # Baustein 7: ab Export nur noch Storno; der Export steht im Journal
+        markiert, gesperrt = markiere_exportiert(s, buchungen, datei, "datev")
+        s.commit()
+    console.print(f"[green]Export:[/green] {datei} ({len(buchungen)} Buchungen)")
+    if uebersprungen:
+        console.print(
+            f"[dim]{uebersprungen} schon exportierte Buchungen nicht noch einmal "
+            "(erneut: --erneut)[/dim]"
+        )
+    for warnung in exporter.warnungen:
+        console.print(f"[yellow]{escape(warnung)}[/yellow]")
+    ungeprueft = sum(1 for b in buchungen if b.status not in status_freigegeben)
+    if ungeprueft:
+        console.print(
+            f"[yellow]{ungeprueft} ungeprüfte Buchungen im Stapel (--alle): sie "
+            "bleiben ungeprüft, gelten aber als übergeben und kommen nach der Freigabe "
+            "nicht noch einmal — ändert sich eine davon noch, nur mit --erneut --alle "
+            "(den früheren Stapel in DATEV dann ersetzen)[/yellow]"
+        )
+    if markiert or gesperrt:
+        console.print(
+            f"[dim]{markiert} als exportiert vermerkt"
+            + (
+                f", {gesperrt} in abgeschlossenen Zeiträumen unverändert (im Journal "
+                "als exportiert vermerkt)"
+                if gesperrt
+                else ""
+            )
+            + "[/dim]"
+        )
 
 
 @befehl.command("stammdaten")

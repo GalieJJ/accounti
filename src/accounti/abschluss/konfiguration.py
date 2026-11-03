@@ -133,6 +133,10 @@ class AbschlussEinstellungen(BaseModel):
         default=False, description="§ 5 Abs. 5 Satz 2 EStG, einheitlich"
     )
     verrechnungskonten: list[str] = Field(default_factory=list)
+    # Verrechnungskonten der Marktplätze (integrationen.marktplaetze, ohne PayPal —
+    # dessen Konto ist ein Geldkonto): sollen zum Stichtag ausgeglichen sein, bis auf
+    # Auszahlungen, die erst im neuen Jahr kommen
+    marktplatz_konten: list[str] = Field(default_factory=list)
     kontenzuordnung: str | None = None
     debitoren: tuple[int, int] = (10000, 69999)
     kreditoren: tuple[int, int] = (70000, 99999)
@@ -169,12 +173,22 @@ def _abschnitt(pfad: Path, name: str) -> dict[str, Any]:
 
 
 def lade_abschluss(pfad: str | Path = STANDARD_PFAD) -> AbschlussEinstellungen:
+    from accounti.integrationen.einstellungen import lade_integrationen
+
     pfad = Path(pfad)
     buchhaltung = lade_buchhaltung(pfad)
     kontenrahmen = buchhaltung.kontenrahmen.upper()
+    marktplaetze = lade_integrationen(pfad).marktplaetze
     werte = {
         **_STANDARDS.get(kontenrahmen, _STANDARDS["SKR03"]),
         **_abschnitt(pfad, "abschluss"),
+        "marktplatz_konten": sorted(
+            {
+                k.verrechnungskonto
+                for name, k in marktplaetze.items()
+                if name != "paypal"
+            }
+        ),
         "kontenrahmen": kontenrahmen,
         "debitoren": (buchhaltung.debitoren_von, buchhaltung.debitoren_bis),
         "kreditoren": (buchhaltung.kreditoren_von, buchhaltung.kreditoren_bis),

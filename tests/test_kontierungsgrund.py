@@ -290,3 +290,101 @@ def test_unbekannte_quelle_abgelehnt(make_session, quelle):
 def _unbenutzt() -> None:  # pragma: no cover
     speichere_transaktion  # noqa: B018
     D  # noqa: B018
+
+
+def test_marktplatz_kursdifferenz_mit_grund(tmp_path):
+    """Merge Paket E mit #36: die Auszahlung in Fremdwährung bucht zwei Sätze (Bank an
+    Verrechnungskonto, Bank an Kursdifferenz) — beide mit Herkunft, die Kursdifferenz
+    mit den Beträgen laut Bank und Abrechnung."""
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.lauf import Kontext, importiere
+    from tests import test_integrationen_lauf as il
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    init_db(engine)
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
+        buchhaltung=Buchhaltung(),
+        oss_registriert=True,
+    )
+    with fabrik() as s:
+        eingang = il.bank(
+            s, date(2026, 9, 11), "59.75", "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001"
+        )
+        roh = (il.FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+        importiere(
+            s,
+            BelegArchiv(tmp_path / "archiv"),
+            kontext,
+            "ebay",
+            roh,
+            "gbp.csv",
+            kurs=D("0.8650"),
+        )
+        s.commit()
+        buchungen = lade_buchungen(s)
+        gruende = lade_kontierungsgruende(s, [b.id for b in buchungen])
+    engine.dispose()
+    assert set(gruende) == {b.id for b in buchungen}
+    bank_seite = {b.haben_konto: b for b in buchungen if b.transaktion_id == eingang.id}
+    assert set(bank_seite) == {"1362", "2660"}
+    auszahlung = gruende[bank_seite["1362"].id]
+    kurs = gruende[bank_seite["2660"].id]
+    assert {auszahlung.quelle, kurs.quelle} == {"marktplatz"}
+    assert "Auszahlung" in auszahlung.begruendung
+    assert "Kursdifferenz" in kurs.begruendung
+    assert "59,75" in kurs.begruendung and "59,73" in kurs.begruendung
+
+
+def test_umbuchung_der_kursdifferenz_mit_grund(tmp_path):
+    """„Anderweitig gebucht“, korrigiert auf das Verrechnungskonto: die Umbuchung der
+    Kursdifferenz (ohne Bank) trägt Herkunft und Beträge."""
+    from accounti.belege.archiv import BelegArchiv
+    from accounti.db import init_db, session_factory
+    from accounti.integrationen.auszahlung import gleiche_auszahlungen_ab
+    from accounti.integrationen.einstellungen import lade_integrationen
+    from accounti.integrationen.lauf import Kontext, importiere
+    from tests import test_integrationen_lauf as il
+
+    engine, fabrik = session_factory(f"sqlite:///{tmp_path / 'm.db'}")
+    init_db(engine)
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
+        buchhaltung=Buchhaltung(),
+        oss_registriert=True,
+    )
+    with fabrik() as s:
+        tx = il.bank(
+            s,
+            date(2026, 9, 11),
+            "59.75",
+            "EBAY MANAGED PAYMENTS AUSZAHLUNG 6009990001",
+            "eBay S.a.r.l.",
+        )
+        il._als_erloes_gebucht(s, tx, "50.21", "9.54")
+        roh = (il.FIXTURES / "ebay_transaktionsbericht_gbp.csv").read_bytes()
+        (ergebnis,) = importiere(
+            s,
+            BelegArchiv(tmp_path / "archiv"),
+            kontext,
+            "ebay",
+            roh,
+            "gbp.csv",
+            kurs=D("0.8650"),
+        )
+        (befund,) = [a.befund for a in ergebnis.abgleich if a.befund]
+        il._korrigiere_wie_vorgeschlagen(s, befund)
+        gleiche_auszahlungen_ab(s, kontext)
+        s.commit()
+        (umbuchung,) = [
+            b
+            for b in lade_buchungen(s)
+            if b.transaktion_id is None and "2660" in (b.soll_konto, b.haben_konto)
+        ]
+        g = lade_kontierungsgrund(s, umbuchung.id)
+    engine.dispose()
+    assert g is not None and g.quelle == "marktplatz"
+    assert "Kursdifferenz" in g.begruendung and "Umbuchung auf 2660" in g.begruendung
+    assert "59,75" in g.begruendung and "59,73" in g.begruendung

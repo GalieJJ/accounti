@@ -78,12 +78,14 @@ class Erloeskonten:
     ohne erkennbaren Satz (zur Prüfung); ``oss``: Land → Erlöskonto eines
     OSS-Fernverkaufs (zur Prüfung; ``steuer.umsatzsteuer.oss_erloeskonten``) — ein Land
     ohne eigenes Konto geht auf ``unbekannt``, die OSS-Meldung ordnet über das Konto
-    zu."""
+    zu; ``oss_ust``: Konto der Umsatzsteuer des Bestimmungslands
+    (``steuer.umsatzsteuer.oss_ust_konto``, SKR03 1767, SKR04 3817)."""
 
     steuerpflichtig: dict[Decimal, str]
     steuerfrei: dict[str, str]
     unbekannt: str
     oss: dict[str, str]
+    oss_ust: str
 
 
 # Kategorie der E-Rechnung → Kennziffer der Voranmeldung (Bemessungsgrundlage)
@@ -95,10 +97,10 @@ def erloeskonten(kontenrahmen: str) -> Erloeskonten:
     """Erlöskonten des Kontenrahmens (DATEV SKR03 bzw. SKR04, Kontenrahmen 2026):
     SKR03 8400 (19 %), 8300 (7 %), 8200 (ohne Satz), OSS 8320–8327; SKR04 4400, 4300,
     4200, OSS 4320–4327 — im SKR04 sind 8400/8300/8200 „zur freien Verfügung“
-    (Gesamttest 10b-1 nach dem Merge, M-3; OSS: Runde 3). Andere Kontenrahmen lässt
-    ``Buchhaltung`` nicht zu."""
+    (Gesamttest 10b-1 nach dem Merge, M-3; OSS: Runde 3). OSS-Umsatzsteuer: SKR03 1767,
+    SKR04 3817 (Merge Paket E). Andere Kontenrahmen lässt ``Buchhaltung`` nicht zu."""
     from accounti.steuer.kennziffern import KENNZIFFERN_KONTEN
-    from accounti.steuer.umsatzsteuer import oss_erloeskonten
+    from accounti.steuer.umsatzsteuer import oss_erloeskonten, oss_ust_konto
 
     name = kontenrahmen.upper()
     funktion = KENNZIFFERN_KONTEN[name]
@@ -112,12 +114,14 @@ def erloeskonten(kontenrahmen: str) -> Erloeskonten:
             steuerfrei,
             "4200",
             oss_erloeskonten("SKR04"),
+            oss_ust_konto("SKR04"),
         )
     return Erloeskonten(
         {Decimal("19"): "8400", Decimal("7"): "8300"},
         steuerfrei,
         "8200",
         oss_erloeskonten("SKR03"),
+        oss_ust_konto("SKR03"),
     )
 
 

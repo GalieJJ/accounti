@@ -409,3 +409,75 @@ def test_protokoll_nennt_die_kennziffer_der_meldeart(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert "Kz 38 4.000,00" in text(r) and "Kz 83" not in text(r)
+
+
+# --- Gesamttest Steuer B5, B10 --------------------------------------------------------
+
+
+def test_laufender_zeitraum_nicht_freigeben_testmodus_mit_warnung(tmp_path):
+    """Steuer B10: § 18 Abs. 1 UStG — erst nach Ablauf des Zeitraums."""
+    url, konfig = umgebung(tmp_path)
+    basis = ["--period", "2099-12", "--db", url, "--config", konfig]
+    r = runner.invoke(app, ["ustva", "freigeben", "--von", "Erika", *basis])
+    assert r.exit_code != 0 and "nicht abgelaufen" in text(r), r.output
+    r = runner.invoke(
+        app,
+        ["ustva", "uebermitteln", "--test", *basis, "--archiv", str(tmp_path / "a")],
+    )
+    assert r.exit_code == 0, r.output
+    assert "Warnung" in text(r) and "nicht abgelaufen" in text(r)
+
+
+def test_testmodus_im_laufenden_zeitraum_verspricht_keine_freigabe(tmp_path):
+    """Nachprüfung N5: ``uebermitteln --test`` für einen laufenden Zeitraum zeigte
+    „Freigabe möglich (accounti ustva freigeben)“ — ``freigeben`` lehnt dann ab."""
+    url, konfig = umgebung(tmp_path)
+    basis = ["--period", "2099-12", "--db", url, "--config", konfig]
+    r = runner.invoke(
+        app,
+        ["ustva", "uebermitteln", "--test", *basis, "--archiv", str(tmp_path / "a")],
+    )
+    assert r.exit_code == 0, r.output
+    assert "Freigabe möglich" not in text(r)
+    assert "nach Ablauf" in text(r) and "31.12.2099" in text(r)
+
+
+def test_nach_der_abgabe_festschreiben_angeboten_und_korrektur_gemeldet(
+    tmp_path, monkeypatch
+):
+    """Steuer B5: nach der echten Abgabe wird das Festschreiben angeboten; eine
+    spätere Korrektur im Monat warnt sofort, ``pruefen`` und ``ustva`` melden die
+    Abweichung von der abgegebenen Anmeldung."""
+    import sqlite3
+
+    url, konfig = umgebung(tmp_path)
+    mit_attrappe(konfig)
+    als_eric(monkeypatch)
+    assert befehl(url, konfig, tmp_path, "freigeben", "--von", "Erika").exit_code == 0
+    assert befehl(url, konfig, tmp_path, "uebermitteln", "--test").exit_code == 0
+    r = befehl(url, konfig, tmp_path, "uebermitteln")
+    assert r.exit_code == 0, r.output
+    assert "accounti periode schliessen 2026-08" in text(r)
+    pruefen = ["pruefen", "--regel", "abgegeben_abweichend", "--period", "2026-08"]
+    r = runner.invoke(app, [*pruefen, "--db", url, "--config", konfig])
+    assert "keine Befunde" in text(r), r.output
+    db = sqlite3.connect(tmp_path / "a.db")
+    (ident,) = db.execute(
+        "select substr(id,1,8) from buchungssaetze where soll_konto='4930'"
+    ).fetchone()
+    db.close()
+    r = runner.invoke(
+        app,
+        ["korrigiere", ident, "--soll", "4930", "--haben", "70001", "--ohne-steuer"]
+        + ["--grund", "Rechnung fehlt", "--von", "Erika", "--db", url]
+        + ["--config", konfig],
+    )
+    assert r.exit_code == 0, r.output
+    assert "schon abgegeben" in text(r) and "berichtigte Voranmeldung" in text(r)
+    r = runner.invoke(
+        app, [*pruefen, "--db", url, "--config", konfig], env={"COLUMNS": "300"}
+    )
+    assert "abgegeben_abweichend" in text(r), r.output
+    assert "danach 2 Buchung(en)" in text(r)  # Storno und Neubuchung
+    r = befehl(url, konfig, tmp_path, "pruefen")
+    assert "abgegeben" in text(r) and "Kz 83 2.145,18 €" in text(r), r.output

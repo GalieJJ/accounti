@@ -102,7 +102,7 @@ Holt Kontoumsätze selbst ab und führt sie mit Belegen zusammen.
 - `provider.py` — Registry wie bei den Importern: `fints` (Direktverbindung, Default), `psd2` (Aggregator, opt-in), `datei` (der bestehende Dateiimport hinter derselben Schnittstelle, `datei.py`). Damit bleibt accounti ohne jede Bankverbindung vollständig nutzbar. Verlangt die Bank eine Freigabe, meldet der Provider das als Zustand am Konto. *(vorhanden: Schnittstelle, `datei`, `fints`; `psd2` folgt)*
 - `tresor.py` — Zugangsdaten mit AES-GCM verschlüsselt, Schlüssel aus `ACCOUNTI_SCHLUESSEL`, das Chiffrat an das Konto gebunden. *(vorhanden)*
 - `dubletten.py` — Dublettenschlüssel aus Konto, Datum, Betrag, Verwendungszweck, Gegenpartei und laufender Nummer gleicher Umsätze; gilt für Abruf und `import bank`. *(vorhanden)*
-- `lauf.py` — Abruf aller Konten (ab Stand minus 14 Tage) und der geplante Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren; idempotent. Umsätze tragen das Sachkonto ihres Bankkontos. *(vorhanden)*
+- `lauf.py` — Abruf aller Konten (ab Stand minus 14 Tage) und der geplante Lauf: abrufen → Kreditkarten → Marktplatz-Auszahlungen (`integrationen.auszahlung`, vor jeder Regel) → offene Posten zuordnen → abgleichen → kontieren; idempotent. Umsätze tragen das Sachkonto ihres Bankkontos. *(vorhanden)*
 - `abgleich.py` — Beleg ↔ Umsatz, dreistufig: Referenz, exakter Treffer, unscharfer Vorschlag. Bewusst streng — ein falscher Abgleich begründet eine falsche Vorsteuer und ist teurer als ein fehlender. Abgeglichen werden Quittungen und sonstige Belege; Rechnungen laufen über offene Posten. Automatisch nur, was auf beiden Seiten eindeutig ist; zwei gleiche Belege werden zwei Vorschläge. *(vorhanden)*
 - `abgleichslauf.py` — Tabelle `belegabgleiche` (vorgeschlagen/bestätigt/abgelehnt), Bestätigen verwirft konkurrierende Vorschläge, Bericht „Umsätze ohne Beleg / Belege ohne Umsatz“. *(vorhanden)*
 - Bankkonten (`Bankkonto` in `models/`, Tabelle `bankkonten`) — IBAN, Sachkonto, Provider, Einstellungen, verschlüsselter Zugang, Abrufstand, Zustand; Zugangsdaten nie in Logs, nie im LLM-Prompt. *(vorhanden)*
@@ -154,10 +154,48 @@ eigenes Konto mit Guthaben).
   Gebühren je Art, Erstattungen, Einbehalte gegen das Verrechnungskonto; Steuer je
   Bestimmungsland über `steuer.umsatzsteuer`; Lieferschwelle.
 - `auszahlung.py` — Auszahlung ↔ Bankumsatz exakt (erst alle eindeutigen Treffer, dann
-  Befunde), sonst Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`.
+  Befunde), in Fremdwährung mit Stichwort innerhalb `auszahlung_toleranz_prozent`, sonst
+  Befund; Buchung „Bank an Verrechnungskonto“ mit `transaktion_id`, eine Kursdifferenz auf
+  `kursdifferenz_aufwand`/`_ertrag`. „Schon gebucht“ ist nur ein Umsatz, der keinem Posten
+  zugeordnet und nicht bloß Geldbewegung ist; steht er schon auf dem Verrechnungskonto (nach
+  der vorgeschlagenen Korrektur), wird er zugeordnet und nur die Kursdifferenz umgebucht.
+  Nummer vor Betrag: ein Umsatz mit der Nummer einer anderen bekannten Abrechnung (gespeichert
+  oder aus demselben Bericht) scheidet aus; nennt einer die eigene, zählen nur die eigenen —
+  auch ein schon gebuchter geht dann jedem Treffer vor; ein offener mit einer anderen, noch
+  unbekannten Nummer derselben Form wird nicht zugeordnet (`auszahlung_andere_nummer`,
+  Warnung). Mehrere gebuchte ohne Nummer nennt der Befund alle (`bankdaten` liest die Tage für
+  die Voranmeldung). Ein Lauf erledigt einen Befund über einen Umsatz, den er nicht mehr so
+  findet; eine Geldbewegung auf einem anderen Konto ist `auszahlung_umgebucht` (Warnung);
+  steht ein als Erlös gebuchter Umsatz mit der eigenen Nummer neben einer früheren Zuordnung
+  ohne sie, ist das „schon gebucht“, offen oder umgebucht `auszahlung_zweifel` (ebenso, wenn
+  der zugeordnete Umsatz die Nummer einer inzwischen bekannten anderen Abrechnung nennt).
+  „Dieselbe Form“ (Regel 4) heißt gleiche Länge und dieselben zwei ersten Ziffern, nicht
+  hinter einer Kunden-, Mandats-, Rechnungs-, Bestell- oder Referenzangabe; ein Umsatz, der
+  einziger Kandidat zweier Abrechnungen ist, bleibt offen (mehrdeutig), außer er nennt die
+  Nummer einer — deshalb gleicht auch der Import einer Abrechnung alle ab; eine Zuordnung ohne
+  Nummer (PayPal: ohne Stichwort) ist ein Hinweis. Kandidaten sind nur Bankumsätze (keine
+  Kasse, keine Kreditkarte) und — ohne die eigene Nummer — keiner mit dem Stichwort oder der
+  Abrechnungsnummer eines anderen Marktplatzes (PayPal nur, wenn es den Betrag erwartet; ein
+  Datum ist keine Nummer) und keine Zahlung eines opos-Postens (Belegnummer — nicht als Teil
+  eines Datums, `opos.zuordnung.im_datum` —, Richtung und Betrag; mit Stichwort und Betrag der
+  Auszahlung der Hinweis `auszahlung_rechnung`; ein gebuchter mit Stichwort nur, wenn opos ihn
+  gebucht hat). Weitere Hinweise neben dem Hauptbefund stehen in `Abgleich.hinweise`.
+  „Schon gebucht“ (Fehler mit korrigiere-Befehl) nur mit Stichwort oder Nummer; nur der
+  exakte Betrag ist `auszahlung_vielleicht_gebucht` ohne Befehl (ohne `bank_stichworte` eine
+  Warnung, die auch die Voranmeldung zeigt). Die Kursdifferenz eines vorgebuchten Umsatzes in
+  einem abgeschlossenen Monat geht auf den ersten offenen Tag des Geschäftsjahres, sonst
+  `auszahlung_gesperrt`. `ordne_zu` (`marktplatz zuordnen`) ordnet von Hand zu oder löst
+  (Storno der Bankbuchung, Journal, Hinweis als Merkmal für den Abgleich; nicht bei offenem
+  opos-Vorschlag, nicht vor dem Abrechnungszeitraum); `Abgleich.umsaetze` hält `bank lauf`
+  davon ab, einen Umsatz mit Befund zu kontieren oder opos zu geben, `classify` ebenso
+  (`umsaetze_ohne_abgleich`: Abgleich im zurückgerollten Sicherungspunkt). Die Regel steht
+  vollständig im Docstring des Moduls.
 - `oss.py` — Quartalsmeldung aus den gebuchten OSS-Erlösen über `steuer.oss`, Abgleich der
   gebuchten mit der gemeldeten OSS-Steuer.
-- `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03).
+- `einstellungen.py` — Abschnitt `integrationen` mit Standardwerten (SKR03); OSS-Erlöskonten je
+  Land, OSS-Umsatzsteuerkonto und Kursdifferenzkonten folgen `buchhaltung.kontenrahmen`
+  (SKR04: 4320–4327, 3817, 6880/4840); `elster.lade_elster` ergänzt eigene OSS-Erlöskonten als
+  Kz 45 und nimmt die OSS-Umsatzsteuerkonten aus den Steuerkonten der Voranmeldung.
 - Tabellen `marktplatz_abrechnungen`, `marktplatz_posten`, `marktplatz_befunde`.
 
 ### `klassifikation/`
@@ -346,14 +384,15 @@ Intern gedacht: kein Portal für externe Nutzer.
 
 Vollständiges Umsatzsteuer-Modul mit vier Komponenten:
 
-- **`eu_steuersaetze.py`** — Datenbank aller 27 EU-Steuersätze + UK. Normal, ermäßigt, super-ermäßigt, Währung, OSS-Fähigkeit. Erweiterbar per YAML-Override.
+- **`eu_steuersaetze.py`** — Datenbank aller 27 EU-Steuersätze + UK mit Verlauf: jeder Stand trägt `gueltig_ab`, `steuersatz_fuer_land(land, stichtag)` nimmt den Satz am Tag der Leistung (Normal, ermäßigt, super-ermäßigt, Parksatz, Währung, OSS-Fähigkeit, Quelle). Keine Konfigurationsdatei — eine Satzänderung ist ein neuer Stand in der Tabelle.
 
 - **`umsatzsteuer.py`** — Kern-Engine für USt/VSt-Berechnung:
   - Geschäftsvorfall-Bestimmung (Inland / EU-OSS / EU-B2B-RC / Drittland)
   - Netto ↔ Brutto-Umrechnung mit korrektem Steuersatz
-  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS 1777xx)
+  - Steuerkonten-Zuordnung (USt 1776/1771, VSt 1576/1571, OSS-Sammelkonto 1767; je
+    Kontenrahmen `oss_ust_konto`: SKR04 3817 — OPOS über `buchung.konten.erloeskonten`)
   - DATEV BU-Schlüssel und ELSTER-Kennziffern
-  - SKR03 OSS-Erlöskonten (8320-8339 pro Land)
+  - Vorgabe der OSS-Erlöskonten (SKR03 8320–8327, SKR04 4320–4327 für acht Länder)
 
 - **`oss.py`** — One-Stop-Shop-Engine:
   - €10.000-Schwellenwertprüfung
@@ -466,7 +505,11 @@ Wirtschaftsjahr ab.
 ### `export/`
 
 **DATEV-Export** (Priorität), Format EXTF Version 700, Windows-1252:
-- `datev.py` — Buchungsstapel (`accounti export datev`).
+- `datev.py` — Buchungsstapel (`accounti export datev --period`), aus denselben Bausteinen wie
+  `datev belege` (ohne Beleglink); ein Stapel je Wirtschaftsjahr, schon exportierte Buchungen
+  (Status oder Journalvermerk, auch ungeprüfte aus `--alle`) nur mit `--erneut`; eine
+  vorhandene Stapeldatei wird nie überschrieben (`…_2.csv`), ein Name aus dem Journal nie
+  wieder vergeben.
 - `datev_format.py`, `datev_felder.py` — Kopfzeile, Feldtypen und Feldlisten wörtlich aus DATEVs
   Musterdateien und Formatbeschreibung; was nicht passt, ist ein `DatevFormatError`.
 - `datev_stammdaten.py` — Debitoren/Kreditoren (Kategorie 16, Version 5) aus `kontakte/`.

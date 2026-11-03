@@ -32,7 +32,9 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   frischem Einmalcode. Oberfläche auf Deutsch und Englisch (Sprache je Benutzer, sonst nach
   Browser; Zahlen und Daten je Sprache; Fachbegriffe wie „Buchungssatz“ bleiben deutsch).
   Klassifikation, Kreditkarte, Anlagen, Marktplatz und offene Posten speichern jetzt zu jeder
-  Buchung Quelle, Regel und Begründung (`kontierungsgruende`). HTMX 2.0.11 (0BSD) liegt lokal
+  Buchung Quelle, Regel und Begründung (`kontierungsgruende`) — beim Marktplatz auch die
+  Kursdifferenz einer Auszahlung und ihre Umbuchung nach „anderweitig gebucht“ (Beträge laut
+  Bank bzw. Gegenkonto und Abrechnung, verschobener Tag). HTMX 2.0.11 (0BSD) liegt lokal
   unter `/statisch`. Neue Schlüssel `buchhaltung.gelernte_regeln`, `server.sprache`,
   `server.max_vorschau_megapixel`. Gelernte Regeln teilen das Regelmodell der Regeldatei und
   der Standardregeln (Richtung `ausgabe`/`einnahme`, gegen die Richtung nur als Gegenbuchung
@@ -320,6 +322,21 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - **Geschäftsvorfall-Engine**: Inland, EU B2C (OSS), EU B2B (Reverse Charge), Drittland
 - Tests für Klassifikation, DATEV-Export, USt, OSS und EU-Steuersätze
 - CI-Pipeline (GitHub Actions)
+- **`accounti marktplatz zuordnen <Nummer> <Umsatz>`** (Nachprüfung 5 E, M4/N1): ordnet einen
+  Bankumsatz ausdrücklich der Aus- oder Einzahlung einer Abrechnung zu, wo der Abgleich nicht
+  entscheidet (Bankreferenz, die wie eine Auszahlungsnummer aussieht; mehrere passende
+  Umsätze; eine Zuordnung ohne Nummer, die ein späterer Umsatz bezweifelt). Eine bisherige
+  Zuordnung des Umsatzes oder der Auszahlung wird dabei gelöst (accountis Bankbuchung
+  storniert, `--datum` für einen abgeschlossenen Zeitraum), danach gleicht accounti alles neu
+  ab — der frei gewordene Umsatz findet seine Abrechnung. `--loesen` löst nur, und der Abgleich
+  nimmt den Umsatz für diese Auszahlung nicht wieder. Ein als Erlös gebuchter Umsatz wird erst
+  mit `korrigiere` umgebucht (die Meldung nennt den Befehl); Betrag und Richtung müssen passen,
+  ein Umsatz vor dem Abrechnungszeitraum wird abgelehnt, einer nach dem Zeitfenster nur mit
+  `--trotzdem` (eine Einzahlung auch davor, Nachprüfung 9 E), einer mit offenem opos- oder
+  Beleg-Vorschlag erst nach dessen Ablehnung (Nachprüfung 6 E). Recht „buchen“ wie
+  `korrigiere`, Journal (`auszahlung_zugeordnet`/`auszahlung_geloest`, auch für eine
+  mitgelöste Zuordnung) mit der handelnden Person, Hinweis
+  an der Abrechnung; die Befunde des Abgleichs nennen den Befehl mit der Umsatz-ID
 
 ### Geändert
 - **Die Regeldatei wird streng geprüft** (Baustein 10b, Teil 1): Ein Eintrag mit einem Feld,
@@ -515,6 +532,294 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+- **OSS und Marktplatz: Nachprüfung 9 E** (Runde 10, N1–N4, N9-1, N9-2): Ein Länderkonto des
+  Kontenrahmens (im SKR04 auch 8320–8327) lässt sich in `integrationen.oss_erloes_konten`
+  keinem anderen Land und in `oss_erloes_ermaessigt` gar nicht mehr geben — OPOS bucht eigene
+  Rechnungen dort, die OSS-Meldung nahm das Land aus der Einstellung (`{DK: "8327", BE: null}`:
+  BE-Rechnung als DK 25 %; AT und IT vertauscht; IT 22 % als FR 5,5 %); das Laden lehnt ab und
+  rät zu einem anderen Konto (z. B. 8328) und zum Umbuchen. `LAND: null` nimmt ein Land nur für
+  den Marktplatz heraus, das Konto bleibt das Konto seines Lands. Eine Erstattung im
+  Folgequartal auf einem anderen Konto desselben Lands (SKR04 8320 → 4320) berichtigt das
+  Ursprungsquartal statt das laufende zu mindern (je Land und Satzart). Die Beispielkonfiguration setzt Kursdifferenz-
+  und OSS-Steuerkonto nicht mehr fest (auf SKR04 gestellt gingen Kursdifferenzen still auf die
+  Privatkonten 2150/2660). `marktplatz zuordnen --trotzdem` nimmt eine Einzahlung auch vor dem
+  Zeitfenster (die Bank bucht die Überweisung zuerst; die Meldung sprach von einer Auszahlung),
+  eine Auszahlung davor weiter nie. Der Hinweis `auszahlung_rechnung` nennt eine schon bezahlte
+  Rechnung nicht mehr „offen“ und sagt, dass opos den Umsatz dann nicht bucht
+- **SKR04: OSS-Umsatzsteuer im Bankbereich** (Merge Paket E mit main nach #36; g3w-fach/
+  g3w-merge N1): Eigene Rechnungen (OPOS) buchten die Steuer eines OSS-Fernverkaufs im SKR04
+  auf 177720/1779 bzw. 1767 — dort Bank- und Zahlungsmittelbereich (1700–1889). `abschluss
+  pruefen` meldete „Bankkonto … nicht eingerichtet“ und sperrte den Abschluss, die Zahlung an
+  das BZSt ließ sich nicht als Regel lernen („beide Geldkonten“). Jetzt DATEV SKR04 3817
+  „Umsatzsteuer aus im anderen EU-Land steuerpflichtigen Lieferungen“ (Gegenstück zu SKR03
+  1767, Steuerkonto, Anlage EÜR Zeile 140), wie beim Marktplatz-Import; der Steuerabgleich
+  der OSS-Meldung nimmt ohne Einstellungen das Konto des Kontenrahmens. Schon auf 1777xx
+  gebuchte OSS-Steuer auf das Sammelkonto umbuchen (SKR04 3817, SKR03 1767).
+- **EU-Steuersätze veraltet** (Gesamttest Steuer B8): Die Tabelle führt je Land Stände mit
+  `gueltig_ab`; maßgeblich ist der Satz am Tag der Leistung (Art. 63, 93 MwStSystRL).
+  Berichtigt: Rumänien 21/11 % ab 01.08.2025 (vorher 19 % — OSS-Buchung und -Meldung nach
+  RO waren falsch), Estland 24/13/9 %, Finnland 25,5/13,5/10 % ab 01.01.2026, Slowakei
+  23/19/5 % ab 01.01.2025, Litauen 21/12/5 % ab 01.01.2026, Malta mit 12 %, Luxemburg mit
+  Parksatz 14 %, Bulgarien in Euro ab 01.01.2026. Ändert ein Land den Satz im Quartal, hat
+  die OSS-Meldung zwei Zeilen; Korrekturen früherer Quartale rechnen mit dem Satz des
+  Ursprungsumsatzes. Die Doku versprach eine Überschreibung per `config/eu_steuersaetze.yaml`,
+  die es nie gab — die Aussage ist entfernt
+- **`export datev` ohne Zeitraum und mit festem Kopf 2026** (Gesamttest Abschluss B1/B2,
+  Betrieb B6, Eingang B11): `--period JJJJ-MM` (wie im README und bei `datev belege`), Kopf
+  mit Wirtschaftsjahr aus `datev.wirtschaftsjahr_beginn` und dem Zeitraum der Buchungen; ein
+  Stapel über die Grenze des Wirtschaftsjahrs wird abgelehnt (DATEV läse das Belegdatum TTMM
+  im falschen Jahr). Schon exportierte Buchungen — auch solche in festgeschriebenen Monaten,
+  die den Status nicht mehr wechseln, und ungeprüfte, die mit `--alle` im Stapel waren (sie
+  stehen als `ungeprueft` im Journal) — kommen nur mit `--erneut` noch einmal; `korrigiere`
+  warnt, wenn ein solcher Vorschlag danach noch geändert wird (in DATEV steht das alte Konto),
+  nennt jeden Stapel, der laut Journal Buchungen des Monats übergab, und den Ersatz mit
+  `--erneut --alle` (ohne `--alle` fehlten dem neuen Stapel die übrigen ungeprüften Vorschläge,
+  wer ihn in DATEV ersetzte, verlöre sie; nannte sie nur den letzten Stapel der Buchung, stand
+  nach dessen Ersatz der Rest des Monats in DATEV doppelt) und sagt, wenn ein alter Stapel
+  nicht genau den Monat umfasste.
+  Ein weiterer Export desselben Zeitraums schreibt eine eigene Datei (`…_2.csv`, `…_3.csv`) und
+  überschreibt nie einen früheren Stapel (vorher war der erste weg, der SHA-256 im Journal
+  verwies ins Leere); die Nummer zählt auch die Stapel, die laut Journal schon übergeben und
+  aus dem Ordner geräumt sind (sonst trugen zwei Stapel denselben Namen).
+  `--berater`/`--mandant` fallen auf `datev.berater_nummer`/`mandanten_nummer` zurück. Der
+  Stapel entsteht aus denselben Bausteinen wie `datev belege`: 31 Kopffelder, Herkunft „RE“,
+  Buchungstyp 1, Textfelder maskiert (ein `"` oder `;` im Buchungstext verschob Felder),
+  Belegfeld 1 im DATEV-Zeichenvorrat, Kostenstelle in KOST1 (Feld 37 statt Beleginfo);
+  Konten, die nicht zur Sachkontenlänge passen (z. B. 177721 bei Länge 4), meldet er als
+  Warnung, ebenso ein Personenkonto, das kürzer ist als Sachkontenlänge + 1 (DATEV läse es als
+  Sachkonto); ein Konto, das in kein DATEV-Kontofeld passt (10 Stellen), hält den Export an
+- **OSS-Konten fest verdrahtet, sechsstellige Steuerkonten** (Gesamttest Steuer B6/B7):
+  `integrationen.oss_erloes_konten` ordnet jedem EU-Land ein Erlöskonto zu (Vorgabe wie bisher
+  acht Länder, SKR04 4320–4327; `LAND: null` nimmt eines nur für den Marktplatz heraus, das
+  Konto bleibt das Konto seines Lands; ein Konto für zwei Länder ist ein Konfigurationsfehler);
+  ein Dänemark-Verkauf landete ohne Ausweg auf 8200/1779. Eigene OSS-Erlöskonten (auch
+  `oss_erloes_ermaessigt`, z. B. 8328) zählen in der Voranmeldung zu Kz 45 statt die Freigabe
+  zu sperren. Die OSS-Umsatzsteuer geht auf das DATEV-Sammelkonto 1767 (SKR04
+  3817, `oss_ust_konto`, je Land `oss_ust_konten`) statt auf 177720–177725, die der Stapel mit
+  Sachkontenlänge 4 nicht annahm; sie erscheint nicht als „Steuerkonto ohne Kennziffer“ in der
+  Voranmeldung. Schon auf 1777xx gebuchte OSS-Steuer auf das Sammelkonto umbuchen (SKR04 3817,
+  SKR03 1767), nicht in `oss_ust_konten` einstellen: im SKR04 liegen 1777xx im Bankbereich, im
+  SKR03 bucht der Marktplatz neue OSS-Steuer dann wieder sechsstellig.
+  OSS-Meldung, Lieferschwelle und Kz 45 lesen die Länderkonten des Kontenrahmens (OPOS, im SKR04
+  auch 8320–8327) und die eingestellten `oss_erloes_konten`; die Richtungsprüfung einer
+  Korrektur kennt dieselben OSS-Konten wie die Voranmeldung
+- **Korrektur nach Abgabe der Voranmeldung ohne Befund** (Gesamttest Steuer B5, Eingang B13,
+  Ausgang): `storniere`/`korrigiere` warnen, wenn die Voranmeldung des Zeitraums schon
+  abgegeben oder freigegeben ist; der Hinweis beim Storno in einen anderen Monat unterscheidet
+  § 17 UStG (Berichtigung im Zeitraum der Änderung) von der Fehlbuchung (Monat öffnen, dort
+  stornieren — sonst wirkt die Korrektur doppelt) und verlangt nicht zugleich eine berichtigte
+  Anmeldung für den Monat des Originals, den das Storno nicht ändert. `ustva` meldet
+  `abgegeben_abweichend`, wenn die Buchungen nicht mehr zur abgegebenen Anmeldung passen
+  (§ 153 Abs. 1 AO), und die Prüfregel `abgegeben_abweichend` (`accounti pruefen`) findet
+  Buchungen, die laut Journal nach der Abgabe in ihren Zeitraum kamen. Die Plausibilisierung
+  bezieht die Prüfregeln aus Baustein 7 über den Zeitraum ein (deren Fehler als Warnung) — der
+  Hinweis „Baustein 7 nicht angeschlossen“ ist weg. Nach der echten Abgabe bietet
+  `ustva uebermitteln` das Festschreiben an (GoBD Rz. 108–110, nicht erzwungen). Eine
+  Saldenvortragsbuchung auf ein Steuerkonto (EB 1576 an 9000) ist kein Umsatz und keine
+  Warnung mehr wert
+- **Voranmeldung für einen laufenden Zeitraum** (Gesamttest Steuer B10): ein noch nicht
+  abgelaufener Zeitraum ist ein Fehler — keine Freigabe, keine Abgabe (§ 18 Abs. 1 UStG); im
+  Testmodus eine Warnung, und `uebermitteln --test` sagt dann, ab wann freigegeben werden kann,
+  statt „Freigabe möglich“
+- **Marktplatz-Auszahlungen als Erlös gebucht** (Gesamttest Steuer B2, Teil Abgleich): `bank lauf`
+  (auch über REST) gleicht Auszahlungen importierter Abrechnungen vor dem Kontieren ab und bucht
+  sie „Bank an Verrechnungskonto“; in Fremdwährung gilt ein Bankumsatz mit Stichwort oder
+  Abrechnungsnummer innerhalb von `integrationen.auszahlung_toleranz_prozent` (Vorgabe 2 %) als
+  Treffer — gebucht wird der Bankbetrag, die Differenz auf `kursdifferenz_aufwand`/`_ertrag`
+  (SKR03 2150/2660, SKR04 6880/4840), mit Hinweis an der Abrechnung (vorher kam ein Treffer bei
+  Fremdwährung praktisch nie zustande, und die Regel buchte die Auszahlung als Erlös 19 %).
+  Offene Fehler-Befunde einer Abrechnung stehen als Warnung in der Voranmeldung ihres
+  Zeitraums — eine schon als Erlös gebuchte Auszahlung in der Voranmeldung des Monats der
+  Bankbuchung, wo der Erlös doppelt steht (Abrechnung 16.–31.08., Auszahlung 03.09.: UStVA 09);
+  in Fremdwährung erkennt der Abgleich sie innerhalb derselben Toleranz wie einen Treffer
+  (vorher nur bei exakt gleichem Betrag, Kz 81 blieb still doppelt) — nicht aber den Umsatz,
+  den accounti schon einer anderen Auszahlung zugeordnet hat, und keine Geldbewegung (nur Bank,
+  Verrechnungs-, Geldtransit- und Kursdifferenzkonten): sonst traf die Toleranz den Umsatz der
+  vorigen Auszahlung (eBay 30.09. statt 02.10.), der Befund nannte die richtige Buchung, warnte
+  in der UStVA 09 statt 10, und solange der eigene Umsatz fehlte, stand ein falscher Fehler.
+  Nach der vorgeschlagenen Korrektur (`korrigiere … --soll 1200 --haben 1361 --ohne-steuer`)
+  ordnet der nächste Abgleich den Umsatz zu und erledigt den Befund, statt einen zweiten
+  anzulegen; in Fremdwährung bucht er die Kursdifferenz vom Verrechnungskonto um (vorher blieb
+  die Abrechnung „abweichung“ und die Voranmeldung warnte dauerhaft). Ein Umsatz, dessen
+  Verwendungszweck die Nummer einer anderen bekannten Abrechnung desselben Marktplatzes nennt
+  (auch einer aus demselben Bericht), ist weder Treffer noch „schon gebucht“; unter mehreren
+  entscheidet die eigene Nummer — vorher nahm „schon gebucht“ (und nach der Korrektur der
+  Treffer mit Toleranz) den zuerst importierten Umsatz: bucht `bank lauf` zwei eBay-Auszahlungen
+  per Regel als Erlös, bevor der Transaktionsbericht kommt, nannten beide Befunde denselben Tag,
+  die Voranmeldung des anderen Monats warnte nicht, und die Korrektur ordnete den Umsatz der
+  falschen Auszahlung zu (Kursdifferenz 0,41 € statt 0,02 €). Nennt ein Umsatz im Zeitfenster
+  die eigene Nummer, zählt nur er, auch ein schon per Regel gebuchter — kein anderer wird
+  Treffer, weder mit Toleranz noch mit exaktem Betrag: vorher nahm eine einzeln importierte
+  Abrechnung per Toleranz den offenen Umsatz einer noch nicht importierten (0,41 €), während
+  ihr eigener als Erlös gebucht dastand; die andere fand danach keinen Umsatz und keinen
+  Befund mehr, die Voranmeldung schwieg bei doppeltem Erlös. Nennt ein Umsatz statt der
+  eigenen eine andere, noch unbekannte Nummer derselben Form, wird er nicht zugeordnet
+  (Warnung `auszahlung_andere_nummer`, mit dem Import jener Abrechnung erledigt); kommt der
+  Umsatz mit der eigenen Nummer erst, nachdem einer ohne Nummer zugeordnet wurde, und ist er
+  als Erlös gebucht, ist das ein Fehler-Befund „schon gebucht“ (die Zuordnung bleibt). Die
+  ganze Regel steht in `integrationen/auszahlung.py`. Ist nicht zu entscheiden, welcher
+  gebuchte Umsatz die Auszahlung ist, nennt der Befund alle, statt zu raten, und die
+  Voranmeldung jedes ihrer Monate warnt. Ein Befund „schon gebucht“ gilt, solange der Abgleich
+  denselben Umsatz findet; nennt ein späterer Lauf einen anderen oder keinen mehr, ist er
+  erledigt. Ist die Auszahlung als Geldbewegung auf ein anderes Konto gebucht (z. B. 1360 statt
+  1361), warnt der Abgleich (`auszahlung_umgebucht`) mit der Umbuchung — vorher kam seit der
+  Korrektur oben kein Befund mehr, das Verrechnungskonto behielt still den Saldo; bei PayPal
+  nennt der Korrekturvorschlag das Geldtransitkonto, auf das accounti selbst bucht. `marktplatz
+  import` und `marktplatz abgleichen` nehmen die Laufsperre von `bank lauf` (sonst konnten beide dieselbe
+  Auszahlung buchen); der Jahresabschluss prüft die Verrechnungskonten der Marktplätze
+  (1361–1363)
+- **Marktplatz: echte Auszahlung mit Bankreferenz nicht zugeordnet, still doppelter Erlös**
+  (Nachprüfung 5 E, M4): Nannte der Verwendungszweck statt der Abrechnungsnummer eine andere
+  Zahl derselben Länge (`EREF 4711000815`, `KD 40123456789`), hielt der Abgleich den Umsatz für
+  die Auszahlung einer noch nicht importierten Abrechnung — nicht zugeordnet, `bank lauf`
+  buchte ihn im selben Lauf per Regel als Erlös, die UStVA schwieg bis zum nächsten Abgleich;
+  nach dem Zusammenführen mit #31 wäre er für immer offen geblieben. Als fremde
+  Auszahlungsnummer zählt jetzt nur eine Zahl mit denselben zwei ersten Ziffern (die Nummern
+  eines Marktplatzes laufen fort) und nicht hinter einer Kunden-, Mandats-, Konto- oder
+  Rechnungsangabe; die Warnung `auszahlung_andere_nummer` nennt `marktplatz zuordnen`. `bank
+  lauf` kontiert keinen Umsatz, über den der Abgleich desselben Laufs einen Befund hat, auch
+  nicht aus einem Beleg. Ist derselbe Umsatz ohne Nummer der einzige Kandidat zweier
+  Abrechnungen, bekommt ihn keine (`auszahlung_mehrdeutig` an beiden, vorher die zuerst
+  geprüfte); dafür gleicht auch der Import einer einzelnen Abrechnung alle ab — eine Warnung,
+  die sich mit ihm erledigt, ist sofort erledigt. Eine Zuordnung ohne Nummer im
+  Verwendungszweck ist geraten und sagt das als Hinweis (`zuordnung_ohne_nummer`). Ein Bericht
+  mit mehreren Abrechnungen gleicht erst ab, wenn alle gespeichert sind. Ein als Erlös gebuchter
+  Umsatz mit exakt dem erwarteten Betrag, aber ohne Stichwort und Nummer, ist ein Befund (seit
+  Nachprüfung 6 E „vielleicht gebucht“ ohne korrigiere-Befehl, siehe dort); ohne `bank_stichworte`
+  warnt der Import (`bank_stichworte_leer`) — in Fremdwährung erkennt der Abgleich eine
+  Auszahlung ohne Stichwort und Nummer nicht, die Kontierung buchte sie als Erlös. Die Warnung
+  `auszahlung_andere_nummer` kommt auch ohne Stichwort, wo der exakte Betrag Treffer wäre
+  (sonst blieb die Auszahlung still offen); „schon gebucht“ erledigt sich nach der Korrektur
+  auch, wenn danach mehrere Umsätze passen (vorher blieb der Fehler und schlug die Korrektur
+  einer stornierten Buchung vor)
+- **Marktplatz: bezweifelte Zuordnung ohne Ausweg** (Nachprüfung 5 E, N1): Kam der Umsatz mit
+  der eigenen Nummer nach einer Zuordnung ohne sie, blieb die Zuordnung, auch nach der
+  vorgeschlagenen Korrektur — das Verrechnungskonto behielt einen Rest, die andere Abrechnung
+  stand für immer „gebucht“ ohne Befund (mit #31 bleibt der eigene Umsatz offen, dann kam gar
+  kein Befund). Jetzt warnt der Abgleich (`auszahlung_zweifel`), solange der Umsatz mit der
+  Nummer offen oder als Geldbewegung auf dem Verrechnungskonto steht, ebenso wenn der
+  zugeordnete Umsatz die Nummer einer inzwischen bekannten anderen Abrechnung nennt; der
+  Befund — auch der Fehler „schon gebucht“ — nennt `marktplatz zuordnen`, das die Zuordnung
+  löst und beide richtig stellt. Die Ausgabe von `marktplatz abgleichen` und `bank lauf` zählt
+  eine bezweifelte Zuordnung nicht mehr als „offen“
+- **Marktplatz: eigene Nummer außerhalb der Toleranz ohne Befund** (Nachprüfung 5 E, N2): Ein
+  Umsatz mit der eigenen Abrechnungsnummer, vor dem Import als Erlös gebucht, bekam keinen
+  Befund, wenn sein Betrag außerhalb der Toleranz lag (falscher `--kurs`, Teilbetrag) — die
+  UStVA schwieg bei doppeltem Erlös. Jetzt „schon gebucht“ (Fehler, mit beiden Beträgen, die
+  Voranmeldung des Bankmonats warnt), nach der Korrektur `auszahlung_abweichung`; „schon
+  gebucht“ geht einer Abweichung vor
+- **Marktplatz: opos-Zahlungsvorschlag übergangen, Bankumsatz doppelt gebucht** (Nachprüfung
+  6 E, Mb): `marktplatz zuordnen` nahm einen Umsatz, den opos einer fremden Forderung
+  vorgeschlagen hatte; nach `opos bestaetigen` stand er zweimal auf der Bank (1200/1361 und
+  1200/10001), die fremde Forderung galt als bezahlt. Jetzt lehnt `marktplatz zuordnen` einen
+  Umsatz mit offenem Zahlungs- oder Beleg-Vorschlag ab (die Meldung nennt `accounti opos
+  ablehnen <Umsatz>` bzw. `bank ablehnen`), `opos bestaetigen` einen inzwischen gebuchten oder
+  einer Auszahlung zugeordneten Umsatz („Vorschlag veraltet“), und `bank lauf` gibt Umsätze mit
+  Abgleichsbefund auch opos nicht als Zahlung (wie der Kontierung)
+- **Marktplatz: „schon gebucht“ bei fremdem Erlös gleicher Höhe, der Vorschlag löschte echten
+  Erlös** (Nachprüfung 6 E, Mc): Ein Barverkauf im Kassenbuch oder eine Kundenzahlung mit genau
+  dem Betrag der Auszahlung bekam den Fehler „Erlöse wären doppelt“ mit einem korrigiere-Befehl;
+  wer ihm folgte, hatte Umsatz und USt zu niedrig gemeldet, danach warnte nichts mehr. Der Fehler
+  mit Befehl kommt nur noch für Umsätze mit Stichwort oder eigener Nummer. Ein als Erlös
+  gebuchter Umsatz mit genau dem Betrag, aber ohne beides, ist `auszahlung_vielleicht_gebucht`
+  ohne Befehl („prüfen“) — ein Hinweis, ohne `bank_stichworte` eine Warnung, bei der auch die
+  Voranmeldung seines Monats warnt (dort ist der Betrag das einzige Merkmal; sonst bliebe ein
+  doppelter Erlös still). Kassenbuch-Vorgänge und Kartenumsätze (N-d: Bankkonto einer
+  Kreditkarte oder ihr Sachkonto) sind keine Kandidaten einer Auszahlung — sie geht aufs
+  Bankkonto, wie bei der Kontierung. Grenze: Ohne Stichwort und Nummer klärt sich eine schon
+  als Erlös gebuchte Auszahlung nicht mehr über einen fertigen Befehl — der Mensch prüft den
+  Kontoauszug und bucht selbst um (der frühere Befehl löschte bei einer fremden Einnahme echten
+  Erlös); einen Umsatz, den opos als Zahlung eines Postens gebucht hat, nennt der Befund nicht
+- **Marktplatz: PayPal nahm fremde Umsätze gleicher Höhe, ohne Befund** (Nachprüfung 6 E, Md):
+  eine Kundenzahlung „RE-2026-12, Galerie Nord GmbH“, eine eBay-Auszahlung „EBAY MANAGED
+  PAYMENTS AUSZAHLUNG 6001234567“ oder die Lastschrift einer offenen Eingangsrechnung wurden
+  PayPals Auszahlung bzw. Einzahlung (die Rechnung blieb offen, eBay fand nichts, Aufwand und
+  Vorsteuer fehlten). Kein Kandidat ist jetzt — ohne die eigene Nummer — ein Umsatz mit dem
+  Stichwort eines anderen Marktplatzes (und nicht dem eigenen), mit der bekannten Nummer der
+  Abrechnung eines anderen Marktplatzes oder mit der Belegnummer eines opos-Postens. `bank lauf`
+  gleicht weiter vor opos ab (die Auszahlung ist gebucht, bevor opos oder eine Regel sie sieht)
+  und lässt die Zahlung einer Rechnung so für opos liegen. Ein Treffer ohne Stichwort trägt auch
+  bei PayPal den Hinweis `zuordnung_ohne_nummer` (Text „nach Betrag, ohne Stichwort“, mit
+  `--loesen`); nennt ein Umsatz, der einziger Kandidat mehrerer Abrechnungen ist, die Nummer
+  genau einer, bekommt sie ihn (N-b)
+- **Marktplatz: echte Auszahlung wegen einer Belegnummer still offen, als Teilzahlung gebucht
+  oder ohne „schon gebucht“** (Nachprüfung 7 E, M1): Der Ausschluss aus Nachprüfung 6 E (Md)
+  traf jeden Umsatz, der irgendeine Belegnummer aus opos nannte — „AUSZAHLUNG VOM 03.09.2026“
+  die Monatsrechnung 09/2026, „2026-09-03“ den Posten 2026-09, „REF 100045“ eine alte
+  Eingangsrechnung. Die Auszahlung blieb ohne Befund offen, opos buchte sie automatisch als
+  Teilzahlung einer Monatsforderung, und eine von Hand als Erlös gebuchte verlor den Fehler
+  „schon gebucht“ (8400 doppelt, UStVA still). Jetzt ist ein Umsatz nur dann die Zahlung eines
+  Postens, wenn er die Belegnummer nennt (nicht als Datum oder Teil eines Datums), den Posten in
+  seiner Richtung tilgt und dessen Betrag hat; ein gebuchter mit Stichwort oder Nummer nur, wenn
+  opos ihn als Zahlung gebucht hat. Trägt die Zahlung einer Rechnung das Stichwort und den
+  Betrag der Auszahlung, sagt es der Hinweis `auszahlung_rechnung`. Auch opos selbst liest einen
+  Teil eines Datums nicht mehr als Referenz (`opos.zuordnung.im_datum`)
+- **Marktplatz: Auszahlung über PayPal, Datum als Shopify-Nummer** (Nachprüfung 7 E, N1): Eine
+  eBay-Auszahlung mit nur „PAYPAL“ im Text blieb still offen; das PayPal-Stichwort schließt jetzt
+  nur aus, wenn eine PayPal-Abrechnung den Betrag erwartet (sonst Treffer mit Hinweis, der das
+  Stichwort nennt) — andere fremde Stichworte weiter immer. Das Datum, das ein Shopify-Export ohne
+  Payout ID als Nummer trägt, gilt nicht als Auszahlungsnummer (die eBay-Auszahlung mit
+  „2026-08-21“ im Text war ausgeschlossen, Shopify meldete eine falsche Abweichung)
+- **Marktplatz: „vielleicht gebucht“ mit Stichworten verdeckt und ohne UStVA** (Nachprüfung 7 E,
+  N2): Der Hinweis erscheint in der Voranmeldung des Bankmonats als Hinweis (nicht sperrend) und
+  steht neben einem anderen Befund derselben Auszahlung, statt hinter ihm zu verschwinden
+- **`opos zuordnen` schlug eine zurückgehaltene Auszahlung einer Forderung vor** (Nachprüfung
+  7 E, Mb-Rest): Wie `bank lauf` und `classify` lässt es Umsätze aus, über die der
+  Marktplatz-Abgleich einen Befund hätte
+- **Marktplatz: Abläufe aus Nachprüfung 7 E** (N1–N4): Die Kursdifferenz eines vorgebuchten
+  Umsatzes bleibt im Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`) der Auszahlung — bisher
+  das Kalenderjahr: bei einem WJ ab 01.07. ging sie in den Juli des nächsten WJ, und ein offener
+  Januar desselben WJ galt als gesperrt; die Warnung `auszahlung_gesperrt` nennt das
+  Geschäftsjahr mit Beginn und Ende. Eine Kundenzahlung, die opos eindeutig einem offenen
+  Posten zuordnet (bekannter Kunde, genau der Rest), hält Regel 4 nicht mehr als „andere
+  Nummer“ zurück, auch wenn eine Zahl darin wie eine Auszahlungsnummer aussieht — opos gleicht
+  die Rechnung aus, statt dass sie gemahnt wird. `bank lauf` bestätigt keinen Beleg für einen
+  Umsatz mit Abgleichsbefund (ebenso `bank abgleich`, jetzt mit `--config`), und
+  `marktplatz zuordnen` meldet einen schon bestätigten Beleg
+  auf dem Umsatz (er bliebe sonst still ungebucht). `marktplatz zuordnen` nimmt einen Umsatz
+  vor dem Zeitfenster einer Auszahlung auch mit `--trotzdem` nicht (die Meldung sprach von
+  „spät gebucht“); `--trotzdem` gilt wie in der Hilfe nur nach dem Fenster (bei einer
+  Einzahlung auch davor, Nachprüfung 9 E)
+- **Marktplatz: festgeschriebener Monat brach jeden Abgleich ab** (Nachprüfung 6 E): Ein
+  vorgebuchter Umsatz (nach „schon gebucht“ und der Korrektur auf das Verrechnungskonto) mit
+  Kursdifferenz in einem festgeschriebenen Monat ließ `marktplatz abgleichen`, `bank lauf`,
+  jeden Marktplatz-Import und `marktplatz zuordnen` mit PeriodeGesperrtError abbrechen. Die
+  Kursdifferenz geht jetzt auf den ersten offenen Tag desselben Geschäftsjahres — wie die
+  Korrektur selbst mit `--datum` (der festgeschriebene Monat bleibt unverändert, GoBD Rz.
+  107 ff.; ohne Umsatzsteuer) —, der Hinweis `kursdifferenz` nennt Tag und Monat, `--loesen`
+  storniert auch sie. Ist bis zum Jahresende kein Tag offen (§ 252 Abs. 1 Nr. 5 HGB), wird der
+  Umsatz nicht Treffer: Warnung `auszahlung_gesperrt`. `marktplatz zuordnen` eines offenen
+  Umsatzes in einem abgeschlossenen Zeitraum lehnt mit klarer Meldung ab
+- **`marktplatz zuordnen`, `--loesen`, `classify`: kleinere Lücken** (Nachprüfung 6 E, N-a bis
+  N-i): Der gedruckte Befehl ist ausführbar (Nummer in Anführungszeichen, bei PayPal mit
+  `--posten`); `--loesen` warnt wie `korrigiere`, wenn die verworfene Vorschlagsbuchung schon an
+  DATEV ging (Stapel, `--erneut --alle`), und nennt eine Geldbewegung, die auf dem
+  Verrechnungskonto stehen bleibt; `classify` kontiert wie `bank lauf` keinen Umsatz, über den
+  der Abgleich einen Befund hätte, auch nicht aus einem Beleg (der Abgleich läuft dafür in einem
+  Sicherungspunkt und wird zurückgerollt); Regel 4 zählt eine Zahl hinter RECHNUNGSNUMMER, INV,
+  BESTELLNR, ORDER, CUSTOMER, REF (auch END-TO-END-REF) oder BELEG nicht als
+  Auszahlungsnummer, hinter EREF weiter
+- **UStVA: § 153 Abs. 1 AO auch bei sinkender Zahllast** (Nachprüfung 6 E): Der Befund
+  `abgegeben_abweichend` nennt die Pflicht zur Berichtigung nur, wenn Kz 83 steigt (Verkürzung);
+  sonst „eine berichtigte Voranmeldung stellt das richtig …, keine Pflicht“ — wie die Hinweise
+  der Verbuchung. Grenze (nicht behoben): `opos verbuchen` bucht die OSS-Umsatzsteuer einer
+  sonstigen bzw. elektronischen Leistung weiter auf 1767 („… Lieferungen“) statt 1768 (SKR04
+  3817 statt 3818) — die Belegposition trägt nicht, ob sie eine Leistung ist (das steht nur an
+  der Position der Ausstellung, sie zu übertragen ist kein kleiner Eingriff), und die
+  Erlös- und OSS-Konten der Verbuchung sind SKR03-Konten; steuerlich neutral (Kz 45, die
+  OSS-Meldung rechnet aus dem Erlös), nur der Kontennachweis
+- **`marktplatz import` in einen festgeschriebenen Monat** (Gesamttest Steuer B9): statt eines
+  Tracebacks beim Schreiben (und einer verwaisten Datei im Archiv) prüft der Import die Sperre
+  vor dem Ablegen und meldet klar, was zu tun ist; `--buchungsdatum offen|JJJJ-MM-TT` bucht die
+  Posten wie bei `opos verbuchen` in einen offenen Zeitraum (Belegdatum bleibt), nie in ein
+  anderes Geschäftsjahr (§ 252 Abs. 1 Nr. 5 HGB); der Befund sagt, dass accounti die Umsätze
+  dann im Buchungsmonat zählt, und warnt davor, den Leistungsmonat zusätzlich von Hand zu
+  berichtigen (doppelt gemeldet). Scheitert ein Import nach dem Ablegen, wird die eben
+  abgelegte Datei wieder entfernt
+- **DATEV-Automatikkonten fehlten** (Gesamttest Abschluss B3): `pruefung/skr03.yaml` kennt
+  8801/8820 (AM, Anlagenverkauf 19 %), 8731/8736 (AM, gewährte Skonti), 3731/3736 (AV,
+  erhaltene Skonti) — beide DATEV-Exporte lassen dort das BU-Feld
+  leer, statt einen Steuerschlüssel zu setzen, den DATEV auf Automatikkonten nicht annimmt
 - **Nachbesserung Web-Oberfläche Teil 1** (Prüfberichte 10b-1): gelernte Regeln mit
   `buchhaltung.gelernte_regeln: pruefen` legten Belegbuchungen und offene Posten trotzdem
   automatisch an; übernommene Regeln ohne Richtung buchten Erstattungen als Geldabgang; ein

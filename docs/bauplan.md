@@ -51,8 +51,9 @@ Sondervorauszahlung, Zusammenfassende Meldung als Portaldatei und Fristenkalende
 ([Plan](plans/2026-10-25-steuermeldungen-elster.md)). Was fehlt, ist der erste echte Lauf: Er
 braucht die Registrierung als Entwickler beim Bayerischen Landesamt für Steuern, eine eigene
 Hersteller-ID (die Test-ID 74931 ist seit ERiC 39.4 gesperrt) und ein ELSTER-Zertifikat. Fristen
-werden Aufgaben, sobald Baustein 8 steht; Periodenabschluss und Prüfbefunde aus Baustein 7
-kann die Plausibilisierung jetzt einbeziehen (noch nicht angeschlossen).
+werden Aufgaben, sobald Baustein 8 steht. Die Plausibilisierung bezieht die Prüfregeln aus
+Baustein 7 über den Zeitraum, offene Marktplatz-Befunde und die Abweichung von einer schon
+abgegebenen Anmeldung ein (Gesamttest, Paket E).
 
 **Baustein 2 ist fertig:** Ordner- und Upload-Kanal, Archiv, Dublettenprüfung, Eingangsprotokoll
 ([Paket 1](plans/2026-10-19-belegerfassung-paket-1.md)), Erkennung, OCR und Positionssplit
@@ -101,8 +102,7 @@ verzahnt: Erfassen, Freigabe, Korrektur, Storno, Festschreibung und Export nur m
 der CLI mit Einmalcode, im Browser in der Sitzung mit zweitem Faktor (Storno freigegebener
 Buchungen auch dort mit Einmalcode) —, das Öffnen eines festgeschriebenen Zeitraums nur durch die Rolle freigeber, im
 Journal der angemeldete Benutzer (andere Personen als „ungeprüft“), Sammelläufe unter der Laufsperre, Journal und Korrekturen in
-Sicherung und Aufbewahrungsbericht; Migration für bestehende Datenbanken. Offen: Prüfbefunde
-und Perioden in der UStVA-Plausibilisierung (Baustein 9), Generalumkehr im DATEV-Export,
+Sicherung und Aufbewahrungsbericht; Migration für bestehende Datenbanken. Offen: Generalumkehr im DATEV-Export,
 Historisierung von Stammdaten, Prüfbefunde in der Oberfläche (Baustein 10).
 
 **Baustein 8 ist fertig** ([Plan](plans/2026-10-25-aufgaben-rueckfragen.md)): Aufgaben mit
