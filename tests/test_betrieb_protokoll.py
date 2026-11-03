@@ -440,6 +440,25 @@ def test_langer_pfad_haelt_den_server_mit_keiner_methode_an(tmp_path, methode):
         assert dauer < 0.5, dauer  # vorher mehrere Sekunden
 
 
+def test_lange_sprachangabe_haelt_den_server_nicht_an(tmp_path):
+    """Gefunden bei der Suche nach weiteren Stellen wie F-B1 (schon auf main): Das
+    Muster für ``Accept-Language`` probierte für jeden Teil jede Aufteilung einer
+    Leerraumfolge (16 000 Leerzeichen: 1,2 s, im Event-Loop) — jede Seite, auch
+    ``/anmelden`` und die 404-Seite ohne Anmeldung, liest den Kopf."""
+    import time
+
+    client = webwelt(tmp_path).client()
+    client.get("/anmelden")
+    for pfad in ("/anmelden", "/gibt/es/nicht"):
+        for kopf in ("de" + " " * 40_000 + ";q=1 x", "en" + "\t" * 40_000 + "x"):
+            beginn = time.perf_counter()
+            r = client.get(pfad, headers={"Accept-Language": kopf})
+            dauer = time.perf_counter() - beginn
+            assert r.status_code in (200, 404), r.status_code
+            assert '<html lang="de">' in r.text
+            assert dauer < 0.5, (pfad, dauer)  # vorher mehrere Sekunden
+
+
 @pytest.mark.parametrize(
     "folge",
     ["a", "a.", "#", "a%", "a@", "@a.", "a:", "a:a@", "a1", "https://a", "x://", "-"],
