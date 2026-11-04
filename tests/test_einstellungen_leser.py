@@ -637,3 +637,24 @@ def test_datei_cache_ohne_wiederholtes_parsen(tmp_path, monkeypatch):
         with mit_quelle(None):
             lies_abschnitt(pfad, "kasse")
     assert zaehler == [1]
+
+
+def test_betriebsfeld_unter_dem_feldnamen_nie_aus_der_version(tmp_path, db):
+    """Prüfung sicher-2: ``anlagen.rechtsstand`` ist im Modell das Feld
+    ``rechtsstand_datei`` (Alias, ``populate_by_name``) — auch unter dem Feldnamen
+    kommt der Pfad nie aus einer Version; es gilt der Standard. Die Datei darf beide
+    Schreibweisen nutzen."""
+    from accounti.anlagen.konfiguration import lade_anlagen
+
+    fremd = konfig(tmp_path, "gwg:\n  grenze: 1\n", "fremder_rechtsstand.yaml")
+    version(db, "anlagen", {"rechtsstand_datei": str(fremd), "kfz_konten": ["0520"]})
+    leer = konfig(tmp_path, "")
+    with mit_quelle(DatenbankQuelle(db)):
+        assert lies_abschnitt(leer, "anlagen") == {"kfz_konten": ["0520"]}
+        assert lade_anlagen(leer).rechtsstand_datei is None
+    eigen = tmp_path / "eigener_rechtsstand.yaml"
+    for schluessel in ("rechtsstand", "rechtsstand_datei"):
+        text = f"anlagen:\n  {schluessel}: {eigen}\n"
+        pfad = konfig(tmp_path, text, f"{schluessel}.yaml")
+        with mit_quelle(DatenbankQuelle(db)):
+            assert lade_anlagen(pfad).rechtsstand_datei == str(eigen), schluessel

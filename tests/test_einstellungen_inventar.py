@@ -136,6 +136,80 @@ def test_betriebsfelder_markiert_und_gelistet():
     assert all(grund.strip() for grund in KEIN_BETRIEBSFELD.values())
 
 
+def _nimmt_feldnamen(modell: type[BaseModel]) -> bool:
+    konfig = modell.model_config
+    return bool(konfig.get("populate_by_name") or konfig.get("validate_by_name"))
+
+
+def _betriebswege(
+    praefixe: list[tuple[str, str]], modell: type[BaseModel]
+) -> Iterator[tuple[str, str]]:
+    """(Pfad mit Datei-Schlüsseln, Pfad, unter dem das Modell den Wert auch nimmt) je
+    markiertem Feld — mit dem Feldnamen statt des Alias, wo ein Modell beides annimmt
+    (``populate_by_name``), auch auf dem Weg dorthin."""
+    for name, feld in modell.model_fields.items():
+        datei = feld.alias or name
+        schluessel = [datei]
+        if feld.alias and feld.alias != name and _nimmt_feldnamen(modell):
+            schluessel.append(name)
+        wege = [(f"{a}.{datei}", f"{w}.{s}") for a, w in praefixe for s in schluessel]
+        if feld.json_schema_extra == BETRIEB:
+            yield from wege
+            continue
+        for zusatz, unter in _modelle(feld.annotation):
+            yield from _betriebswege([(a + zusatz, w + zusatz) for a, w in wege], unter)
+
+
+def _ohne_namensschutz(
+    abschnitt: str,
+    modell: type[BaseModel],
+    namen: dict[str, str],
+    betriebsfelder: frozenset[str] = BETRIEBSFELDER,
+) -> set[str]:
+    """Wege, unter denen das Modell ein Betriebsfeld annimmt, die der Leser aber nicht
+    aus einer Version entfernt (weder ``betriebsfelder`` noch ``namen``)."""
+    geschuetzt = betriebsfelder | set(namen.values())
+    return {
+        weg
+        for _, weg in _betriebswege([(abschnitt, abschnitt)], modell)
+        if weg not in geschuetzt
+    }
+
+
+def test_betriebsfeld_auch_unter_dem_feldnamen_geschuetzt():
+    """Prüfung sicher-2: Ein markiertes Feld mit Alias in einem Modell mit
+    ``populate_by_name`` nimmt auch den Feldnamen — der steht dann in
+    ``BETRIEBSFELD_NAMEN`` (der Leser entfernt beide aus einer Version), sonst schlägt
+    der Test an."""
+    from pydantic import ConfigDict, Field
+
+    from accounti.einstellungen.inventar import BETRIEBSFELD_NAMEN, Betriebsfeld
+
+    class Probe(BaseModel):
+        model_config = ConfigDict(populate_by_name=True)
+        datei: Betriebsfeld[str | None] = Field(default=None, alias="pfad")
+
+    class OhneNamen(BaseModel):
+        datei: Betriebsfeld[str | None] = Field(default=None, alias="pfad")
+
+    markiert = frozenset({"probe.pfad"})
+    assert _ohne_namensschutz("probe", Probe, {}, markiert) == {"probe.datei"}
+    namen = {"probe.pfad": "probe.datei"}
+    assert _ohne_namensschutz("probe", Probe, namen, markiert) == set()
+    assert _ohne_namensschutz("probe", OhneNamen, {}, markiert) == set()
+    alle: set[tuple[str, str]] = set()
+    for abschnitt, punktname in MODELL.items():
+        if abschnitt in BETRIEBSABSCHNITTE:
+            continue
+        modell = _objekt(punktname)
+        assert _ohne_namensschutz(abschnitt, modell, BETRIEBSFELD_NAMEN) == set()
+        alle |= set(_betriebswege([(abschnitt, abschnitt)], modell))
+    # jeder Eintrag ist ein Weg eines Betriebsfelds (keiner veraltet)
+    assert set(BETRIEBSFELD_NAMEN.items()) <= alle
+    assert all(datei in BETRIEBSFELDER for datei in BETRIEBSFELD_NAMEN)
+    assert BETRIEBSFELD_NAMEN == {"anlagen.rechtsstand": "anlagen.rechtsstand_datei"}
+
+
 def test_betriebsfelder_liegen_in_datenbank_abschnitten():
     for pfad in BETRIEBSFELDER:
         assert ABSCHNITTE[pfad.split(".")[0]].ziel == "db", pfad

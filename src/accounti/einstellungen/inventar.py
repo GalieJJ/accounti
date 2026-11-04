@@ -96,6 +96,13 @@ BETRIEBSFELDER = frozenset(
         "anlagen.rechtsstand",
     }
 )
+# Betriebsfelder, die ihr Modell auch unter dem Feldnamen annimmt (Alias und
+# ``populate_by_name``): Datei-Schlüssel → Feldname. Der Leser entfernt beide aus einer
+# Version, sonst käme der Wert über den Feldnamen doch aus der Datenbank (Prüfung
+# sicher-2; Strukturtest tests/test_einstellungen_inventar.py)
+BETRIEBSFELD_NAMEN: dict[str, str] = {
+    "anlagen.rechtsstand": "anlagen.rechtsstand_datei",
+}
 # Felder, die nach Pfad aussehen (Typ Path oder Name mit datei|pfad|archiv|…), aber
 # keine Betriebswerte sind — je mit Grund
 KEIN_BETRIEBSFELD: dict[str, str] = {

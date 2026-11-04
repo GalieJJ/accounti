@@ -52,7 +52,12 @@ from typing import TYPE_CHECKING, Any, Literal, Protocol
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from accounti.einstellungen.inventar import ABSCHNITTE, BETRIEBSFELDER, info
+from accounti.einstellungen.inventar import (
+    ABSCHNITTE,
+    BETRIEBSFELD_NAMEN,
+    BETRIEBSFELDER,
+    info,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy import Connection, Engine
@@ -721,9 +726,11 @@ def _ohne_platzhalter(knoten: Any) -> Any:
 
 
 def _muster(abschnitt: str) -> list[tuple[str, ...]]:
-    """Betriebsfelder des Abschnitts als Segmente (``[]`` für Listenelemente)."""
+    """Betriebsfelder des Abschnitts als Segmente (``[]`` für Listenelemente) — auch
+    unter dem Feldnamen, wo das Modell ihn neben dem Alias annimmt
+    (``BETRIEBSFELD_NAMEN``, Prüfung sicher-2)."""
     muster = []
-    for eintrag in sorted(BETRIEBSFELDER):
+    for eintrag in sorted(BETRIEBSFELDER | set(BETRIEBSFELD_NAMEN.values())):
         kopf, _, rest = eintrag.partition(".")
         if kopf != abschnitt:
             continue
