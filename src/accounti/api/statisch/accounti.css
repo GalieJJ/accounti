@@ -527,6 +527,7 @@ tr{break-inside:avoid}
 .tabelle-rahmen{overflow:visible}
 .tabelle{font-size:var(--gr-1)}
 .tabelle th, .tabelle td{padding:var(--a-1);font-size:inherit;overflow-wrap:break-word}
+.tabelle th *, .tabelle td *{font-size:inherit}
 .tabelle .zahl{text-align:right}
 }
 }

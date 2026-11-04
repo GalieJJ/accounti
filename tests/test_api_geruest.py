@@ -414,6 +414,8 @@ def test_druck_tabelle_ganz_auf_dem_papier():
     assert zelle.get("padding") == "var(--a-1)"
     assert zelle.get("overflow-wrap") == "break-word"
     assert _deklarationen(".tabelle th", "print").get("font-size") == "inherit"
+    # Nebentext (.neben 14 px) nicht größer als die Zelle (gp1-3 B4)
+    assert _deklarationen(".tabelle td *", "print").get("font-size") == "inherit"
     assert _deklarationen(".tabelle .zahl", "print").get("text-align") == "right"
 
 

@@ -90,11 +90,13 @@
     function (e) {
       var form = e.target;
       var feld = form && form.querySelector ? form.querySelector("input[data-hier]") : null;
-      if (feld && window.location.pathname + window.location.search !== geladen) {
-        var abfrage = new URLSearchParams(window.location.search);
-        abfrage.delete("erledigt");
-        var rest = abfrage.toString();
-        feld.value = window.location.pathname + (rest ? "?" + rest : "");
+      if (feld) {
+        var hier = window.location.pathname + window.location.search;
+        // sonst der Server-Wert, nicht ein früher hineingeschriebener (Runde 3)
+        var ziel = new URL(hier !== geladen ? hier : feld.defaultValue, window.location.origin);
+        ziel.searchParams.delete("erledigt");
+        var rest = ziel.searchParams.toString();
+        feld.value = ziel.pathname + (rest ? "?" + rest : "");
       }
     },
     true

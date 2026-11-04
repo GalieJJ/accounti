@@ -697,12 +697,16 @@ async function rueckweg(browser, welt, name) {
   const regel = seite.locator('form[action$="/deaktivieren"]').first();
   if (await regel.count()) {
     await regel.evaluate((f) => { f.noValidate = true; });
-    await Promise.all([seite.waitForNavigation(), regel.locator('button[type=submit]').click()]);
+    const [fehler] = await Promise.all([seite.waitForNavigation(), regel.locator('button[type=submit]').click()]);
     const unter = new URL(seite.url()).pathname;
     await seite.locator('summary.benutzermenue-ausloeser').click();
     const [antwort] = await Promise.all([seite.waitForNavigation(), seite.locator('form.benutzermenue-wahl button[type=submit]').click()]);
     const ist = new URL(seite.url()).pathname;
-    befunde.push({ name: 'Übernehmen nach einer Seite unter POST-Pfad', ok: ist === '/pruefen/regeln' && antwort?.status() === 200, wert: { unter, ist, status: antwort?.status() } });
+    const vorbedingung = fehler?.status() === 422 && unter.endsWith('/deaktivieren');
+    befunde.push({ name: 'Übernehmen nach einer Seite unter POST-Pfad', ok: vorbedingung && ist === '/pruefen/regeln' && antwort?.status() === 200, wert: { unter, fehlerstatus: fehler?.status(), ist, status: antwort?.status() } });
+  } else {
+    // ohne aktive Regel misst der Schritt nichts — das ist ein Befund, kein Grün (gp1-3 B6)
+    befunde.push({ name: 'Übernehmen nach einer Seite unter POST-Pfad', ok: false, wert: 'keine aktive Regel in der Welt' });
   }
   await vorliebe(seite, welt.basis, { tastenkuerzel: 'an' });
   await kontext.close();
