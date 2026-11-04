@@ -14,6 +14,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 __all__ = [
@@ -100,7 +102,7 @@ class ElsterEinstellungen(BaseModel):
     hersteller_id: str | None = Field(default=None, description="eigene, für Kz09")
     produkt_name: str = "accounti"
     uebermittler: Literal["eric", "attrappe"] = "eric"
-    eric: EricEinstellungen = Field(default_factory=EricEinstellungen)
+    eric: Betriebsfeld[EricEinstellungen] = Field(default_factory=EricEinstellungen)
     abweichung_prozent: Decimal = Decimal("50")
     abweichung_mindestens: Decimal = Decimal("1000")
     steuerrelevante_konten: list[str] | None = None
@@ -182,12 +184,10 @@ def _fehlertext(fehler: ValidationError) -> str:
 
 def lade_elster(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return ElsterEinstellungen()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("elster") if isinstance(daten, dict) else None
+    # über den Abschnittsleser (Baustein 10c P4): Datenbank vor Datei, ohne Datei {}
+    abschnitt = lies_abschnitt(pfad, "elster")
     try:
-        einstellungen = ElsterEinstellungen.model_validate(abschnitt or {})
+        einstellungen = ElsterEinstellungen.model_validate(abschnitt)
     except ValidationError as fehler:
         msg = f"{pfad}: {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

@@ -13,6 +13,7 @@ from typing import Any
 from pydantic import BaseModel, Field, ValidationError
 
 from accounti.anlagen.rechtsstand import Rechtsstand, lade_rechtsstand
+from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
@@ -95,7 +96,9 @@ class AnlagenEinstellungen(BaseModel):
     kfz_konten: list[str] = Field(default_factory=list)
     immaterielle_konten: list[tuple[str, str]] = Field(default_factory=list)
     anlagekonten: list[tuple[str, str]] = Field(default_factory=list)
-    rechtsstand_datei: str | None = Field(default=None, alias="rechtsstand")
+    rechtsstand_datei: Betriebsfeld[str | None] = Field(
+        default=None, alias="rechtsstand"
+    )
     wirtschaftsjahr_beginn: date | None = Field(
         default=None, description="aus datev.wirtschaftsjahr_beginn (Tag und Monat)"
     )

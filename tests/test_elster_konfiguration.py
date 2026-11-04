@@ -11,7 +11,15 @@ from accounti.elster.konfiguration import (
 
 
 def test_ohne_datei_und_ohne_abschnitt_gelten_standards(tmp_path):
-    assert lade_elster(tmp_path / "fehlt.yaml") == ElsterEinstellungen()
+    # Baustein 10c P4 (D25): eine fehlende Datei ist ein leerer Startwert — wie eine
+    # leere Datei, also mit den OSS-Konten aus den Standards von integrationen
+    leer = tmp_path / "leer.yaml"
+    leer.write_text("", encoding="utf-8")
+    ohne = lade_elster(tmp_path / "fehlt.yaml")
+    assert ohne == lade_elster(leer)
+    standard = ElsterEinstellungen()
+    weg = {"kennziffern_konten", "konten_ohne_kennziffer"}
+    assert ohne.model_dump(exclude=weg) == standard.model_dump(exclude=weg)
     datei = tmp_path / "a.yaml"
     datei.write_text("mandant:\n  name: X\n", encoding="utf-8")
     e = lade_elster(datei)

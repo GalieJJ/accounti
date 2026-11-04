@@ -916,7 +916,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 2 — Abschnittsleser und Inventar · P4a
 
-- [ ] **Inventar als Daten** (`einstellungen/inventar.py`):
+- [x] **Inventar als Daten** (`einstellungen/inventar.py`):
   - `ABSCHNITTE` (Name → `AbschnittInfo(ziel: "db"|"datei"|"nur_db", schema_version,
     unvollstaendig_erlaubt)`) für die Abschnitte aus Anhang A und `einrichtung`
   - `BETRIEBSABSCHNITTE`, `BETRIEBSFELDER`, Markierung `Betriebsfeld[...]`, `KEIN_BETRIEBSFELD`
@@ -936,7 +936,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     Modelle der Connector-Typen: Markierung ⇔ `BETRIEBSFELDER`; Feld vom Typ `Path` oder mit
     Pfadnamen ohne Markierung nur mit Grund in `KEIN_BETRIEBSFELD`; D7, N11)
   - `::test_geheimfelder_haben_eine_verbrauchsstelle` (Liste gegen die vier Stellen)
-- [ ] **Leser** (`einstellungen/leser.py`):
+- [x] **Leser** (`einstellungen/leser.py`):
   - **Datei-Cache** (Prüfbefund M7): Die Datei wird bei jedem ersten Lesen in einem Stand als
     Bytes gelesen (klein, eine Systemabfrage). Gecacht wird nur das Parsen, Schlüssel ist der
     SHA-256 des Inhalts → geparste Datei; Rückgabe als tiefe Kopie. Eine gleich lange Änderung
@@ -1029,6 +1029,58 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - `::test_ohne_tabelle_wie_datei`
   - `::test_nicht_erreichbar_fail_closed`
   - `::test_parse_text_grenze_anker_zeile_spalte`
+
+  *Umgesetzt (Schritt 2), Abweichungen und Ergänzungen:*
+  - **`KonfigurationError` liegt jetzt in `einstellungen/leser.py`**; `konfiguration.py`
+    führt ihn weiter (`from … import KonfigurationError as KonfigurationError`, dieselbe
+    Klasse). Der Leser meldet kaputtes YAML, fremde Kodierung, eine unlesbare Datei und
+    einen Abschnitt, der keine Zuordnung ist, als `KonfigurationError` (Texte wie
+    `konfiguration.lies_yaml`), darf aber `konfiguration.py` nicht importieren (D1, kein
+    Zyklus: `konfiguration` importiert den Leser).
+  - `EinstellungsquelleFehlt` und `EinstellungenNichtLesbar` sind `RuntimeError`, keine
+    `KonfigurationError`: Routen und Befehle fangen `KonfigurationError` und zeigten sonst
+    eine Meldung statt der 500 (D5). Die Meldungen nennen keinen Pfad und keine URL.
+  - **Abschnitt keine Zuordnung** (`kasse: 5`): `lies_abschnitt` bricht mit „Abschnitt
+    'kasse' muss eine Zuordnung sein“ ab (bisher je Lader verschieden: übergangen,
+    Pydantic-Fehler oder dieselbe Meldung). `mandant: null` gilt als fehlend.
+  - **Fehlende Datei** (D25) wirkt schon bei den Piloten: `lade_elster` auf einen
+    fehlenden Pfad liefert jetzt dasselbe wie auf eine leere Datei (mit den OSS-Konten aus
+    den Standards von `integrationen`); `tests/test_elster_konfiguration.py::
+    test_ohne_datei_und_ohne_abschnitt_gelten_standards` ist darauf angepasst.
+  - **Anker, Aliase und 64 KB** prüft nur `parse_text` (Eingaben über CLI und später den
+    Browser). Die Datei des Betreibers liest `lies_datei` wie bisher mit `yaml.safe_load`;
+    sonst bräche ein Update bestehende Dateien mit Ankern. Die Größe der Normalform beim
+    Übernehmen aus der Datei prüft P4b (Offener Punkt 9).
+  - `herkunft_roh` liefert zusätzlich `version_datei_hash` (der `datei_hash` der Version),
+    damit `pruefung.herkunft` „Datei nach der letzten Version geändert“ ohne zweite
+    Abfrage erkennt; `datei_hash` ist der Hash des Datei-Abschnitts jetzt.
+  - Neu im Leser: `abschnitt_hash(daten)` (D9), `binde_gesellschaft` (Schritt 3),
+    `aktueller_stand`/`setze_stand`/`ruecksetzen` (Middleware), `Stand.ersatz` und
+    `Stand.fremde_pfade` (D3, D5). `neuer_stand(web=…, ersatz=…, fremde_pfade=…)`.
+    `mit_quelle(…, konfiguration)` bindet streng (nur diese Datei).
+  - Der Schnappschuss liest per SQL ohne die Tabellenmodule (eine Abfrage für die neueste
+    Version je Abschnitt, Zeilen nur bei unbekanntem Hash, dazu die Chiffrate) und hält
+    die Verbindung nur für diese Lesetransaktion (URL: eigene Engine ohne Pool).
+  - Markiert mit `Betriebsfeld[...]`: `ElsterEinstellungen.eric`,
+    `PruefEinstellungen.archiv|kontenrahmen_datei`, `WebhookEinstellungen.host|port`,
+    `EmailPostfach.ca_datei`, `UstIdEinstellungen.url`, `FinTSEinstellungen.produkt_id`,
+    `AbschlussEinstellungen.kontenzuordnung`, `AnlagenEinstellungen.rechtsstand_datei`
+    (Alias `rechtsstand`). `KEIN_BETRIEBSFELD`: `belegkanaele.dateitypen`,
+    `email[].ordner|ziel_ordner`, `webhook.max_dateien` und die URL-Pfade des
+    JSON-Connectors (`liste.pfad`, `datei`, `datei.pfad`, `felder.dateiname`).
+  - `MODELL` führt nur vorhandene Modelle; `datev`, `import`, `llm`, `einrichtung` trägt
+    Schritt 5 nach, `bwa` 10b-2. `LADER` enthält die beiden Piloten.
+  - Der Datei-Abschnitt `einstellungen` (`quelle`, `festgelegt`) wird im Leser schon
+    geprüft (Wert von `quelle`, unbekannte Abschnitte in `festgelegt` mit Pfad); das
+    Modell `EinstellungsQuelle` aus Schritt 5 kann diese Prüfung übernehmen.
+  - Zusätzliche Tests: `::test_festlegung_mit_unbekanntem_abschnitt_ist_ein_fehler`,
+    `::test_pilot_lader_fallback_mandant_kontenrahmen`,
+    `::test_web_ungebunden_und_fremder_pfad_fail_closed`,
+    `::test_cli_fremder_registry_pfad_fail_closed`, `::test_ersatzquelle_beim_ersten_lesen`,
+    `::test_kaputtes_yaml_und_fremde_kodierung_sind_konfigurationsfehler`,
+    `::test_datei_cache_ohne_wiederholtes_parsen`; im Inventar
+    `::test_betriebsfelder_liegen_in_datenbank_abschnitten`,
+    `::test_modelle_und_lader_sind_aufloesbar`.
 
 ### Schritt 3 — Bindung in CLI und Web · P4a
 
@@ -2053,6 +2105,9 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
    eigene Revision (`REV`, `VOR = get_revision(REV).down_revision`). Wer als Zweiter merged,
    kettet sich an, setzt `SCHEMA_STAND` auf seine Revision und stellt die Kopf-Tests des Ersten
    um. Das geht als Hinweis an P1, den P1-Plan ändert dieser Plan nicht.
+9. **(P4b, aus P4a)** Beim Übernehmen aus der Datei und bei `setze_abschnitt` die Größe
+   der Normalform begrenzen (64 KB wie `parse_text`): `lies_datei` weist Anker und Aliase
+   in der Datei des Betreibers nicht ab (Schritt 2, Abweichung).
 
 ---
 

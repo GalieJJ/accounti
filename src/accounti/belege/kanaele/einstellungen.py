@@ -25,6 +25,8 @@ from pydantic import (
 )
 
 from accounti.belege.kanaele.pruefung import DATEITYPEN, Dateipruefung
+from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import im_pruefmodus
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 ABSCHNITT = "belegkanaele"
@@ -42,6 +44,8 @@ def loese_auf(wert: str) -> str:
     def ersetze(treffer: re.Match[str]) -> str:
         name = treffer.group(1)
         if name not in os.environ:
+            if im_pruefmodus():  # Validierung ohne die Variable (Plan D16)
+                return treffer.group(0)
             msg = f"Umgebungsvariable {name} ist nicht gesetzt"
             raise KonfigurationError(msg)
         return os.environ[name]
@@ -70,7 +74,9 @@ class EmailPostfach(BaseModel):
     ab: date | None = Field(default=None, description="ältere Nachrichten auslassen")
     nach_abholen: Literal["belassen", "gelesen", "verschieben"] = "belassen"
     ziel_ordner: str | None = None
-    ca_datei: str | None = Field(default=None, description="eigene CA (PEM)")
+    ca_datei: Betriebsfeld[str | None] = Field(
+        default=None, description="eigene CA (PEM)"
+    )
     timeout_sekunden: float = Field(default=60, gt=0)
     max_nachricht_mb: float = Field(default=50, gt=0)
 
@@ -112,8 +118,8 @@ class EmailPostfach(BaseModel):
 class WebhookEinstellungen(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    host: str = "127.0.0.1"
-    port: int = Field(default=8410, ge=1, le=65535)
+    host: Betriebsfeld[str] = "127.0.0.1"
+    port: Betriebsfeld[int] = Field(default=8410, ge=1, le=65535)
     max_dateien: int = Field(default=10, ge=1)
     max_anfrage_mb: float = Field(default=60, gt=0)
 

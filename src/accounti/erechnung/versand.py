@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.db.repository import lade_ausgangsrechnung, speichere_versandprotokoll
+from accounti.einstellungen.leser import im_pruefmodus
 from accounti.erechnung import lies
 from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError, lies_yaml
 from accounti.models import Ausgangsrechnung, AusgangsrechnungStatus, Versandprotokoll
@@ -89,6 +90,8 @@ def _ersetze_variablen(wert: Any) -> Any:
         def ersetze(m: re.Match[str]) -> str:
             name = m.group(1)
             if name not in os.environ:
+                if im_pruefmodus():  # Validierung ohne die Variable (Plan D16)
+                    return m.group(0)
                 msg = f"Umgebungsvariable {name} ist nicht gesetzt"
                 raise KonfigurationError(msg)
             return os.environ[name]

@@ -21,6 +21,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
 
 UMGEBUNG_PRODUKT_ID = "ACCOUNTI_FINTS_PRODUKT_ID"
@@ -28,7 +29,7 @@ _VARIABLE = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
 
 class FinTSEinstellungen(BaseModel):
-    produkt_id: str | None = Field(
+    produkt_id: Betriebsfeld[str | None] = Field(
         default=None, description="Registrierungsnummer der DK (HKVVB, an..25)"
     )
     produkt_version: str = Field(default="0.1", min_length=1, max_length=5)

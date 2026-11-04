@@ -27,6 +27,7 @@ from accounti.abschluss.kontenrahmen import (
     Kontenrahmen,
     lade_kontenrahmen,
 )
+from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
@@ -137,7 +138,7 @@ class AbschlussEinstellungen(BaseModel):
     # dessen Konto ist ein Geldkonto): sollen zum Stichtag ausgeglichen sein, bis auf
     # Auszahlungen, die erst im neuen Jahr kommen
     marktplatz_konten: list[str] = Field(default_factory=list)
-    kontenzuordnung: str | None = None
+    kontenzuordnung: Betriebsfeld[str | None] = None
     debitoren: tuple[int, int] = (10000, 69999)
     kreditoren: tuple[int, int] = (70000, 99999)
     bank_konto: str = "1200"

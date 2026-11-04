@@ -16,16 +16,18 @@ import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.belege.extraktion import iban_gueltig
+from accounti.einstellungen.inventar import Betriebsfeld
+
+# KonfigurationError lebt beim Abschnittsleser (der keine Fachmodule importiert);
+# hier bleibt er für alle Lader erreichbar
+from accounti.einstellungen.leser import KonfigurationError as KonfigurationError
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.kontakte.ustid import EVATR_URL
 
 if TYPE_CHECKING:
     from accounti.kontakte.dienst import Partnerdaten
 
 STANDARD_PFAD = Path("config/accounti.yaml")
-
-
-class KonfigurationError(ValueError):
-    """Die Konfiguration fehlt oder ist unvollständig."""
 
 
 class Anschrift(BaseModel):
@@ -259,15 +261,11 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     beide, ist das ein Fehler — sonst rechneten USt und Abschluss mit dem einen, der
     DATEV-Kopf mit dem anderen Kontenrahmen (Gesamttest Betrieb B4)."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return Buchhaltung()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    werte: Any = abschnitt or {}
+    # über den Abschnittsleser (Baustein 10c P4): Datenbank vor Datei, ohne Datei {}
+    werte: dict[str, Any] = lies_abschnitt(pfad, "buchhaltung")
     herkunft: dict[str, str] = {}
-    alt = mandant.get("kontenrahmen") if isinstance(mandant, dict) else None
-    if alt is not None and isinstance(werte, dict):
+    alt = lies_abschnitt(pfad, "mandant").get("kontenrahmen")
+    if alt is not None:
         eigen = werte.get("kontenrahmen")
         if eigen is None:
             werte = {**werte, "kontenrahmen": alt}
@@ -278,8 +276,7 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
                 f"({alt}) widersprechen sich — nur buchhaltung.kontenrahmen angeben"
             )
             raise KonfigurationError(msg)
-    if isinstance(werte, dict):
-        werte = _offene_obergrenzen(pfad, werte)
+    werte = _offene_obergrenzen(pfad, werte)
     try:
         return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
@@ -323,7 +320,7 @@ def _offene_obergrenzen(pfad: Path, werte: dict[str, Any]) -> dict[str, Any]:
 class UstIdEinstellungen(BaseModel):
     """Bestätigungsabfrage beim BZSt (Abschnitt ``ustid_pruefung``)."""
 
-    url: str = EVATR_URL
+    url: Betriebsfeld[str] = EVATR_URL
     timeout_sekunden: float = Field(default=60, gt=0)
     max_alter_tage: int = Field(
         default=30,
