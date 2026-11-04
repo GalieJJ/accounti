@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 from starlette.concurrency import run_in_threadpool
 
+from accounti.api.hilfe_inhalt import HILFE, Hilfethema
 from accounti.api.lesezugriff import Zaehler, zaehle
 from accounti.api.registry import UNTEN, Bereich, Navigationspunkt
 from accounti.api.sicherheit import FEHLER
@@ -234,7 +235,9 @@ def hilfe_pfad(aktiv: Bereich | None, pfad: str) -> str:
         return "/hilfe/anmeldung"
     if pfad == "/konto" or pfad.startswith("/konto/"):
         return "/hilfe/konto"
-    return f"/hilfe/{aktiv.value}" if aktiv is not None else "/hilfe"
+    if aktiv is not None and Hilfethema(aktiv.value) in HILFE:
+        return f"/hilfe/{aktiv.value}"
+    return "/hilfe"
 
 
 def brotkrumen(

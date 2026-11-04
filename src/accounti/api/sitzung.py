@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.dienste import Dienste
 from accounti.api.formular import formular
 from accounti.api.htmx import ist_htmx
+from accounti.api.sicherheit import FEHLER
 from accounti.auth.dienst import (
     gesellschaften_von,
     pruefe_sitzung,
@@ -139,6 +140,29 @@ async def angemeldet(request: Request) -> Angemeldet:
 
 
 AngemeldetDep = Annotated[Angemeldet, Depends(angemeldet)]
+
+
+async def vielleicht_angemeldet(request: Request) -> Angemeldet | None:
+    """Für Seiten, die auch ohne Anmeldung gehen (Hilfe, 404): mit gültiger Sitzung
+    das Gerüst mit Navigation — derselbe Kern wie ``angemeldet`` (``_lade``), aber ohne
+    Weiterleitung. Scheitert das Lesen an der Systemdatenbank (etwa „database is
+    locked“), gilt die Anfrage als nicht angemeldet; das Protokoll nennt nur die Art
+    (Plan P1, B23)."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    dienste = dienste_von(request)
+    token = request.cookies.get(cookie_name(dienste))
+    if not token:
+        return None
+    try:
+        a = await run_in_threadpool(_lade, dienste, token)
+    except SQLAlchemyError as fehler:
+        FEHLER.warning("Sitzung nicht lesbar (%s)", type(fehler).__name__)
+        return None
+    if a is not None:
+        request.state.benutzersprache = a.benutzer.sprache
+        request.state.angemeldet = a
+    return a
 
 
 async def merke_benutzersprache(request: Request) -> None:

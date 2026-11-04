@@ -126,6 +126,8 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     ("GET", "/gesellschaft"): ("fragment", "neue Seite: Block inhalt"),
     ("GET", "/konto"): ("fragment", "neue Seite: Block inhalt"),
     ("POST", "/konto/vorlieben"): ("neu_laden", "HX-Refresh; ohne htmx 303 auf weiter"),
+    ("GET", "/hilfe"): ("fragment", "neue Seite: Block inhalt"),
+    ("GET", "/hilfe/{thema}"): ("fragment", "neue Seite: Block inhalt"),
 }
 
 

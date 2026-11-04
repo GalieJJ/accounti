@@ -127,6 +127,7 @@ def _pfad(vorlage: str, ids: dict[str, str]) -> str:
         vorlage.replace("{buchung_id:uuid}", buchung)
         .replace("{beleg_id:uuid}", beleg)
         .replace("{n}", "1")
+        .replace("{thema}", "pruefen")
     )
 
 
