@@ -2743,15 +2743,25 @@ def _abruf_ausgabe(abrufe: "list[KontoAbruf]") -> None:
 def bank_abrufen(
     konto: str | None = typer.Option(None, help="Nur dieses Konto (IBAN)"),
     db: str = typer.Option("sqlite:///accounti.db", help="DB-URL"),
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Neue Umsätze aller Konten holen — ohne Dubletten."""
     from rich.markup import escape
 
+    from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import rufe_ab
     from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonto
+    from accounti.konfiguration import KonfigurationError
 
+    try:
+        # FinTS-Einstellungen der Gesellschaft (-g), nicht config/accounti.yaml des
+        # Arbeitsordners — das kann unter einer Registry eine andere sein (D5)
+        bank = lade_bank_einstellungen(config)
+    except KonfigurationError as fehler:
+        console.print(f"[red]{escape(str(fehler))}[/red]")
+        raise typer.Exit(1) from fehler
     engine, make_session = session_factory(db)
     init_db(engine)
     with laufsperre_oder_ende(db), make_session() as s:
@@ -2762,7 +2772,7 @@ def bank_abrufen(
             except ValueError as fehler:
                 console.print(f"[red]{escape(str(fehler))}[/red]")
                 raise typer.Exit(1) from fehler
-        abrufe = rufe_ab(s, konten=konten)
+        abrufe = rufe_ab(s, konten=konten, bank_einstellungen=bank)
         s.commit()
     _abruf_ausgabe(abrufe)
 
@@ -2776,6 +2786,7 @@ def bank_lauf_befehl(
     """Geplanter Lauf: abrufen → offene Posten zuordnen → abgleichen → kontieren."""
     from rich.markup import escape
 
+    from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
     from accounti.befehle.kreditkarte import zeige_kartenabgleich
     from accounti.betrieb.kontext import regeln_datei
@@ -2791,6 +2802,9 @@ def bank_lauf_befehl(
     try:
         einstellungen = lade_buchhaltung(config)
         ki = lade_llm(config)
+        # Kreditkarten und FinTS der Gesellschaft (wie die REST-Route) — ohne Angabe
+        # läse bank_lauf config/accounti.yaml des Arbeitsordners (D5)
+        bank = lade_bank_einstellungen(config)
         marktplatz = lade_kontext(config)  # Auszahlungen vor dem Kontieren abgleichen
         # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
         # — vor dem Lauf geprüft, geladen unter der Laufsperre
@@ -2819,7 +2833,12 @@ def bank_lauf_befehl(
                 auto_buchen_schwelle=ki.auto_buchen_schwelle,
             )
             ergebnis = bank_lauf(
-                s, engine, einstellungen, sichern=s.commit, marktplatz=marktplatz
+                s,
+                engine,
+                einstellungen,
+                bank_einstellungen=bank,
+                sichern=s.commit,
+                marktplatz=marktplatz,
             )
             s.commit()
     except LaufLaeuftError as fehler:

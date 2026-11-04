@@ -23,6 +23,7 @@ from accounti.bank.abgleich import Abgleichsergebnis
 from accounti.bank.abgleichslauf import gleiche_belege_ab
 from accounti.bank.dubletten import mit_schluessel
 from accounti.bank.einstellungen import BankEinstellungen, lade_bank_einstellungen
+from accounti.bank.fints import FinTSProvider
 from accounti.bank.kreditkarte import Kartenabgleich, gleiche_sammelbelastungen_ab
 from accounti.bank.provider import (
     BANK_PROVIDER,
@@ -106,6 +107,7 @@ def rufe_ab(
     jetzt: datetime | None = None,
     freigabe: Freigabe | None = None,
     sichern: Callable[[], None] | None = None,
+    bank_einstellungen: BankEinstellungen | None = None,
 ) -> list[KontoAbruf]:
     """Holt neue Umsätze aller (oder der genannten) Konten.
 
@@ -114,6 +116,10 @@ def rufe_ab(
     die auf einen Menschen warten (``WARTET``), ruft nur ein Abruf mit Rückfrage ab.
     ``sichern`` (z.B. ``session.commit``) läuft nach jedem Konto — so bleibt keine
     Transaktion offen, während das nächste Konto auf TAN oder App-Freigabe wartet.
+    ``bank_einstellungen``: Abschnitt ``bank`` der Gesellschaft — der FinTS-Provider
+    bekommt daraus ``fints``; ohne lädt er selbst die Standarddatei (nur Werkzeuge und
+    Tests: CLI und REST geben ihn immer mit, sonst läse ``-g b`` unter einer Registry
+    die Datei einer anderen Gesellschaft, D5).
     """
     ergebnisse = []
     for konto in konten if konten is not None else lade_bankkonten(session):
@@ -135,7 +141,12 @@ def rufe_ab(
                 schluessel = schluessel or lade_schluessel()
                 zugang = entschluessele(konto.zugang, schluessel, str(konto.id))
             ab = konto.abrufstand - UEBERLAPPUNG if konto.abrufstand else None
-            abruf = klasse(freigabe=freigabe).abrufen(konto, zugang, ab)
+            provider = (
+                klasse(freigabe=freigabe, einstellungen=bank_einstellungen.fints)
+                if bank_einstellungen is not None and issubclass(klasse, FinTSProvider)
+                else klasse(freigabe=freigabe)
+            )
+            abruf = provider.abrufen(konto, zugang, ab)
             neuer_zugang = abruf.zugang
             with session.begin_nested():
                 ergebnis.neu, ergebnis.doppelt = speichere_neue(
@@ -211,7 +222,10 @@ def bank_lauf(
     Was noch keine Abrechnung abgleichen konnte, lässt die Kontierung offen
     (``integrationen``, ohne Angabe die aus ``marktplatz``; ``buchung.marktplatz``).
     ``sichern`` schreibt den Abruf je Konto fest — die Buchungen danach beginnen
-    eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst)."""
+    eine eigene Transaktion (unter PostgreSQL mit der Schreibsperre zuerst).
+    ``bank_einstellungen``: Abschnitt ``bank`` der Gesellschaft (Kreditkarten, FinTS)
+    — CLI und REST geben ihn immer mit; ohne gilt die Standarddatei (Werkzeuge und
+    Tests ohne Stand)."""
     from accounti.integrationen.auszahlung import (
         gleiche_auszahlungen_ab,
         umsaetze_mit_befund,
@@ -220,7 +234,9 @@ def bank_lauf(
     bank = bank_einstellungen or lade_bank_einstellungen()
     if integrationen is None and marktplatz is not None:
         integrationen = marktplatz.einstellungen
-    lauf = Banklauf(abrufe=rufe_ab(session, schluessel, sichern=sichern))
+    lauf = Banklauf(
+        abrufe=rufe_ab(session, schluessel, sichern=sichern, bank_einstellungen=bank)
+    )
     lauf.kreditkarten = gleiche_sammelbelastungen_ab(
         session, einstellungen, bank.kreditkarte
     )

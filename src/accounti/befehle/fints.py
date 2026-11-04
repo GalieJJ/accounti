@@ -187,14 +187,24 @@ def _ausgabe(abrufe: list[KontoAbruf]) -> None:
 def freigeben(
     konto: str | None = typer.Option(None, help="Nur dieses Konto (IBAN)"),
     db: str = DB_OPTION,
+    config: str = KONFIG_OPTION,
 ) -> None:
     """Freigabe der Bank erteilen (TAN oder App) und Umsätze abrufen."""
+    from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import rufe_ab
     from accounti.befehle import laufsperre_oder_ende
     from accounti.db import init_db, session_factory
     from accounti.db.repository import lade_bankkonten, lade_bankkonto
+    from accounti.konfiguration import KonfigurationError
     from accounti.models import KontoZustand
 
+    try:
+        # FinTS-Einstellungen der Gesellschaft (-g), nicht config/accounti.yaml des
+        # Arbeitsordners — das kann unter einer Registry eine andere sein (D5)
+        bank = lade_bank_einstellungen(config)
+    except KonfigurationError as fehler:
+        _ende(str(fehler))
+        return
     engine, make_session = session_factory(db)
     init_db(engine)
     # ruft ab wie bank abrufen — nie neben einem laufenden bank lauf
@@ -223,7 +233,13 @@ def freigeben(
             konten = [k for k in konten if k not in abgelehnt]
         # je Konto festschreiben: keine offene Transaktion während der TAN-Abfrage
         abrufe = (
-            rufe_ab(s, konten=konten, freigabe=konsolen_freigabe, sichern=s.commit)
+            rufe_ab(
+                s,
+                konten=konten,
+                freigabe=konsolen_freigabe,
+                sichern=s.commit,
+                bank_einstellungen=bank,
+            )
             if konten
             else []
         )
