@@ -36,7 +36,8 @@ mandant:
     iban: "DE89 3704 0044 0532 0130 00"
     bic: "COBADEFFXXX"
   oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz;
-                               # ab einem Quartal: { 2026-Q1: false, 2027-Q1: true }
+                               # ab einem Quartal: { 2026-Q1: false, 2027-Q1: true } — gilt
+                               # ab Quartalsbeginn, gefragt am Tag der Leistung
   rechnung:
     nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr; ohne {jahr} jahresübergreifend
     zahlungsziel_tage: 14
@@ -103,10 +104,13 @@ llm:
   model: "claude-sonnet-4-20250514"
   api_key: "${ANTHROPIC_API_KEY}"    # Umgebungsvariable
 
-  # Ab welcher Confidence automatisch buchen (0.0-1.0)? Wirkt ab Baustein 10c
+  # Ab welcher Confidence automatisch buchen (0.0-1.0)? Wirkt ab Baustein 10c — für
+  # Regeln und LLM, auch für das Sachkonto einer Buchung aus dem Beleg und für
+  # opos verbuchen
   auto_buchen_schwelle: 0.95
 
-  # Ab welcher Confidence zur Prüfung vorlegen (darunter = manuell)?
+  # Ab welcher Confidence zur Prüfung vorlegen (darunter = manuell)? Höchstens
+  # auto_buchen_schwelle, sonst halten classify, bank lauf und opos verbuchen an
   pruefung_schwelle: 0.70
 
 # Import-Einstellungen
@@ -259,7 +263,8 @@ anlagen:
 abschluss:
   gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP); ohne Angabe
                                  # bucht opos verbuchen --buchungsdatum nie ins Folgejahr;
-                                 # ab einem Wirtschaftsjahr: { 2026: euer, 2027: bilanz }
+                                 # ab einem Wirtschaftsjahr: { 2026: euer, 2027: bilanz };
+                                 # beim Wechsel kein Saldovortrag: EB über abschluss eroeffnung
   ergebnis_konto: "0880"         # Kapitalkonto für Ergebnis und Privatkonten (SKR04: 2010)
   rap_verzicht_bis_gwg: false    # § 5 Abs. 5 Satz 2 EStG, einheitlich für alle
   verrechnungskonten: ["1360", "1590", "1792"]   # sollen zum Stichtag ausgeglichen sein
@@ -338,7 +343,8 @@ aufgaben:
     arten:
       beleg_fehlt: {stufen: [0, 7, 14]}
   pruefung:
-    kontierung_schwelle: 0.95    # darunter wird eine Buchung zur Aufgabe
+    kontierung_schwelle: 0.95    # darunter wird eine Buchung zur Aufgabe (eigene Schwelle,
+                                 # unabhängig von llm.auto_buchen_schwelle)
     beleg_fehlt_ab_betrag: 0.00
     beleg_fehlt_nach_tagen: 0
     abgeschaltet: []             # z.B. [kontakt_pruefen]

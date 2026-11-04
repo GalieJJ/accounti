@@ -269,7 +269,15 @@ Stelle, an der der Plan von der Spec abweicht oder sie präzisiert.
    ASGI-Middleware `Einstellungsstand` legt je HTTP-Anfrage einen neuen, ungebundenen `Stand` an
    und setzt ihn am Ende zurück. Die async-Dependencies `angemeldet` (Sitzung) und `api_zugang`
    (Token) binden ihn an die Gesellschaft: `Dienste.quelle(kuerzel)`, Konfigurationspfad, im
-   Threadpool mit sofortigem Schnappschuss. *Gründe:* `gesellschaft_db` ist ein synchroner
+   Threadpool. **Berichtigt nach der gegnerischen Prüfung (sicher-3):** Die Bindung nimmt den
+   Schnappschuss nicht sofort (`binde(..., sofort=False)`); er entsteht beim ersten Lesen eines
+   Datenbank-Abschnitts der Anfrage, einmal je Stand unter einer Sperre des Stands. Sonst
+   öffnete jede angemeldete Anfrage die Datenbank (bisher samt `init_db` unter der globalen
+   Sperre), und eine nicht erreichbare oder gesperrte Datenbank hielte `/gesellschaft`,
+   Wechsel und Abmelden auf (P1 B14). D3 (b) gilt im Web nicht, vor dem Endpunkt liegt keine
+   eigene Schreibsperre. Folge für P4b: Eine Anfrage, die selbst eine Version schreibt, bevor
+   sie zum ersten Mal einen Datenbank-Abschnitt liest, sieht die neue Version (Grenzen).
+   *Gründe:* `gesellschaft_db` ist ein synchroner
    Generator. FastAPI führt ihn in einem kopierten Kontext im Threadpool aus, ein dort gesetztes
    `ContextVar` sähe der Endpunkt nicht. Gebunden wird ein **veränderliches** Stand-Objekt, das
    in allen Kopien dasselbe ist. Viele Routen lesen Lader außerhalb der Sitzung (z. B.
@@ -417,6 +425,15 @@ Stelle, an der der Plan von der Spec abweicht oder sie präzisiert.
     Trigger entstehen über `after_create` (der Weg über `init_db`) und in der Migration.
     *Grund:* AK25 verlangt PostgreSQL ausdrücklich. Bisher schützt PostgreSQL das Journal nur über
     ORM und Hash-Kette. Journal und Korrekturen nachzurüsten ist ein eigener Schritt (Grenzen).
+    **Ergänzt nach der gegnerischen Prüfung (db-1):** Unter SQLite kommt ein dritter Trigger
+    `einstellungen_kein_ersetzen` dazu (`BEFORE INSERT … WHEN EXISTS (SELECT 1 FROM einstellungen
+    WHERE id = NEW.id OR (abschnitt = NEW.abschnitt AND version = NEW.version) OR hash =
+    NEW.hash) … RAISE(ABORT)`): Bei `REPLACE INTO`/`INSERT OR REPLACE` löscht SQLite die alte
+    Zeile, ohne den DELETE-Trigger auszulösen (`recursive_triggers` ist aus, und das PRAGMA gilt
+    nur je Verbindung). `nur_anfuegen_sql(…, *, eindeutig=…)` bekommt die eindeutigen Schlüssel
+    (`tabellen_einstellungen.EINDEUTIG`; die Migration hat eine eigene gleiche Konstante, ein Test
+    vergleicht sie), `entferne_sql` entfernt den Trigger mit. PostgreSQL bleibt unverändert:
+    Upsert und `MERGE … UPDATE/DELETE` lösen den Zeilen-Trigger aus (jetzt getestet).
 11. **D11 — Anträge umfassen die ganze Änderung.** Ist ein Abschnitt einer Änderung K3, wird die
     **gesamte** Änderung (alle Abschnitte, je mit Basisversion) ein Antrag, und es wird nichts
     gespeichert. Das folgt „alles oder nichts“ wie A45.
@@ -557,7 +574,11 @@ Stelle, an der der Plan von der Spec abweicht oder sie präzisiert.
     der YAML-Wert. Listen und Zuordnungen gehen nur über `--datei` (A49).
 18. **D18 — Der Abschnitt `llm` wirkt ab P4.** Neu sind das Modell `LlmEinstellungen` und
     `lade_llm`. Verdrahtet werden `auto_buchen_schwelle` (über `KlassifikationsEngine` in
-    `zu_buchungssatz(auto_schwelle=…)`) und Anbieter/Modell (`LLMEngine(model=…)`), `api_key` über
+    `zu_buchungssatz(auto_schwelle=…)`, nach der gegnerischen Prüfung, verhalten-2, auch an
+    `kontiere_beleg`/`sachkonto_fuer_beleg(auto_schwelle=…)` und an `opos verbuchen`
+    (`verbuche_belege(auto_schwelle=…)`); `buchung.mapper.AUTO_SCHWELLE` ist nur noch Standard,
+    auch von `KlassifikationsEngine` und `LlmEinstellungen`) und Anbieter/Modell
+    (`LLMEngine(model=…)`), `api_key` über
     D8. *Grund:* Heute gilt immer 0,95, und der Abschnitt ist toter Text. K3 für „Schwelle senken“
     (E6, AK100) schützte dann nichts. Die Beispielkonfiguration hat 0,95, der Golden-Test bleibt
     grün. Abweichende Werte in bestehenden Dateien **wirken ab jetzt**. Das steht im CHANGELOG und
@@ -709,7 +730,8 @@ class DatenbankQuelle:  # url oder engine; legt keine SQLite-Datei an; ohne Tabe
     def schnappschuss(self, stichtag: datetime | None = None) -> Schnappschuss
 class Stand:
     def binde(self, quelle: Quelle, konfiguration: Path | None = None, *, streng: bool = False,
-              kuerzel: str | None = None) -> None   # nimmt sofort den Schnappschuss (D3, D4)
+              kuerzel: str | None = None, sofort: bool = True) -> None
+              # sofort: Schnappschuss beim Binden (CLI, D3); Web sofort=False (D4, sicher-3)
 
 # einstellungen/dienst.py — in der Sitzung des Aufrufers (flush, nie commit); Aufrufer committet
 @dataclass(frozen=True)
@@ -910,6 +932,13 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     `einstellungen_nicht_leeren` (TRUNCATE). Die Migration nimmt die Anweisungen aus
     `db/schutz.py`; das Downgrade entfernt die Funktion nur, wenn kein Trigger sie mehr
     nutzt.
+  - **Nach der gegnerischen Prüfung (db-1, db-2, tests-5):** dritter SQLite-Trigger
+    `einstellungen_kein_ersetzen` gegen `REPLACE INTO` (D10). Tests
+    `test_einstellungen_tabellen.py::test_version_nur_anfuegen_rohes_sql_sqlite` (REPLACE über
+    `id`, `(abschnitt, version)`, `hash`, Upsert), `::test_ersetzen_sperre_kennt_jeden_eindeutigen_schluessel`,
+    PostgreSQL mit Upsert und MERGE; `test_migration_einstellungen.py::test_migration_nutzt_die_werte_der_tabelle`,
+    `::test_db_upgrade_nach_init_db_leitet_rev_ab`; `pruefe_kette` mit
+    `::test_kette_findet_eine_an_accounti_vorbei_geaenderte_version` und `::test_kette_findet_eine_luecke`.
   - Zusätzlich im Repository: `pruefe_kette(s)` (Lücke, falscher Vorgänger, veränderte
     Zeile je Abschnitt) und `zeilenhash`/`versionshash`; `normalform` liegt in
     `einstellungen/leser.py` (ohne Fachimporte), `einstellungen.normalform` reicht sie weiter.
@@ -1062,12 +1091,21 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     `mit_quelle(…, konfiguration)` bindet streng (nur diese Datei).
   - Der Schnappschuss liest per SQL ohne die Tabellenmodule (eine Abfrage für die neueste
     Version je Abschnitt, Zeilen nur bei unbekanntem Hash, dazu die Chiffrate) und hält
-    die Verbindung nur für diese Lesetransaktion (URL: eigene Engine ohne Pool).
+    die Verbindung nur für diese Lesetransaktion (URL: eigene Engine ohne Pool). Nach der
+    gegnerischen Prüfung (sicher-5, verhalten-5): Eine URL mit ungültigem Port (`ValueError`)
+    gilt wie eine nicht lesbare Datenbank (Schlüssel `ungueltig:…`, Fehler im Schnappschuss,
+    Meldung ohne Passwort); kaputtes YAML einer Datei meldet nur Zeile, Spalte und Problem
+    (`leser._yaml_fehler`, wie `parse_text`), nie den Ausschnitt der Zeile.
   - Markiert mit `Betriebsfeld[...]`: `ElsterEinstellungen.eric`,
     `PruefEinstellungen.archiv|kontenrahmen_datei`, `WebhookEinstellungen.host|port`,
     `EmailPostfach.ca_datei`, `UstIdEinstellungen.url`, `FinTSEinstellungen.produkt_id`,
     `AbschlussEinstellungen.kontenzuordnung`, `AnlagenEinstellungen.rechtsstand_datei`
-    (Alias `rechtsstand`). `KEIN_BETRIEBSFELD`: `belegkanaele.dateitypen`,
+    (Alias `rechtsstand`; nach der gegnerischen Prüfung, sicher-2, zusätzlich in
+    `inventar.BETRIEBSFELD_NAMEN`: Das Modell nimmt mit `populate_by_name` auch den Feldnamen
+    an, der Leser entfernt deshalb beide Schlüssel aus einer Version, D7; Strukturtest
+    `test_einstellungen_inventar.py::test_betriebsfeld_auch_unter_dem_feldnamen_geschuetzt`,
+    Test `test_einstellungen_leser.py::test_betriebsfeld_unter_dem_feldnamen_nie_aus_der_version`).
+    `KEIN_BETRIEBSFELD`: `belegkanaele.dateitypen`,
     `email[].ordner|ziel_ordner`, `webhook.max_dateien` und die URL-Pfade des
     JSON-Connectors (`liste.pfad`, `datei`, `datei.pfad`, `felder.dateiname`).
   - `MODELL` führt nur vorhandene Modelle; `datev`, `import`, `llm`, `einrichtung` trägt
@@ -1144,7 +1182,10 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - `api/einstellungsstand.py`: reine ASGI-Middleware, in `erstelle_app` registriert, und zwar
     **vor** `app.add_middleware(Sicherheit)`. In Starlette liegt die zuletzt hinzugefügte
     Middleware außen. So bleibt Sicherheit mit der 500-Seite außen, wie mit P1 vereinbart (G-N1).
-  - `Dienste.quelle(kuerzel) -> DatenbankQuelle` auf der vorhandenen Engine.
+  - `Dienste.quelle(kuerzel) -> DatenbankQuelle` ~~auf der vorhandenen Engine~~ — berichtigt
+    (sicher-3): je URL eine eigene `DatenbankQuelle(url, wartezeit=QUELLE_WARTEN,
+    behalten=True)`, ohne `_fabrik`/`init_db` und ohne Verbindungsaufbau unter der globalen
+    Sperre.
   - `leser.binde_gesellschaft(stand, dienste, g)` am Ende von `angemeldet` und in `api_zugang`,
     über `run_in_threadpool`, Modus streng (D5). Ist P1 vorher auf `main`, sitzt der Aufruf im
     gemeinsamen Kern von `angemeldet` und `vielleicht_angemeldet` (G-N1, Offener Punkt 7).
@@ -1173,11 +1214,23 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   `sitzung._lade_gebunden` (ein Sprung in den Threadpool: Sitzung lesen, dann
   `binde_gesellschaft`), den `angemeldet` und `vielleicht_angemeldet` nutzen;
   `merke_benutzersprache` bindet nicht. `api_zugang` bindet nach der Tokenprüfung.
-  `Dienste.quelle(kuerzel)` hält je URL eine `DatenbankQuelle` auf der vorhandenen Engine
-  (`schliesse` leert sie mit). `test_rest_token_bindet_seine_gesellschaft` fängt
+  `Dienste.quelle(kuerzel)` hält je URL eine `DatenbankQuelle` mit eigener Engine (nach der
+  gegnerischen Prüfung, sicher-3: SQLite ohne Pool, sonst Pool mit `pool_pre_ping`,
+  `QUELLE_WARTEN` = 3 s als SQLite-`timeout` bzw. PostgreSQL-`connect_timeout`; keine Datei, kein
+  `init_db`, `schliesse` gibt die Engines frei); `binde_gesellschaft` bindet mit `sofort=False`
+  (D4). Tests `tests/test_bindung_web.py` (nicht erreichbare und kaputte Datenbank der aktiven
+  Gesellschaft: `/gesellschaft`, `/konto`, Wechsel und Abmelden gehen, ein Datenbank-Abschnitt
+  scheitert fail-closed; keine Engine und kein Verbindungsaufbau unter `Dienste._sperre`;
+  `/konto` verbindet nie; keine SQLite-Datei) und
+  `test_einstellungen_leser.py::test_bindung_ohne_sofort_liest_beim_ersten_abschnitt`,
+  `::test_behaltene_quelle_wartet_hoechstens_die_wartezeit` (PostgreSQL-URL gegen einen Server,
+  der nie antwortet) und `::test_behaltene_quelle_unter_postgresql` (eine Engine mit Pool,
+  `schliesse`).
+  `test_rest_token_bindet_seine_gesellschaft` fängt
   `bank.lauf.bank_lauf` ab und prüft die übergebene `Buchhaltung` je Token (a: Datei, b:
   Version) und den Stand einer Token-Route. Zusätzlich
-  `::test_dienste_quelle_nutzt_die_engine_der_gesellschaft`,
+  `::test_dienste_quelle_je_datenbank_der_gesellschaft` (vorher
+  `…_nutzt_die_engine_der_gesellschaft`, Erwartungen unverändert),
   `::test_rechte_haengen_nicht_an_der_bindung`; `::test_gesellschaften_getrennt` wechselt
   per `POST /gesellschaft` von a nach b.
 
@@ -1283,9 +1336,25 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     Arbeitsordners (`nachforderung._pruefeinstellungen` → `lade_pruefung()`), nicht aus
     der Konfiguration der Gesellschaft — jetzt 500. Die Route setzt
     `mit_pruefeinstellungen(lade_pruefung(<Konfiguration der Gesellschaft>))`
-    (`tests/test_api_rechte_matrix.py` deckt es ab). Die CLI (`aufgaben lauf|pruefen`)
-    hat dieselbe Lücke ohne Fehler (dort gilt E5, die Datenbank des Befehls); sie bleibt
-    wie bisher (außerhalb von P4).
+    (`tests/test_api_rechte_matrix.py` deckt es ab). ~~Die CLI (`aufgaben lauf|pruefen`)
+    hat dieselbe Lücke ohne Fehler …; sie bleibt wie bisher (außerhalb von P4).~~
+    **Berichtigt nach der gegnerischen Prüfung (sicher-1, verhalten-1):** Das stimmte nicht.
+    Mit einer Registry, in der eine Gesellschaft die globale Datei nutzt (ohne
+    `konfiguration:`), steht `config/accounti.yaml` für jede andere in `fremde_pfade`; drei
+    Rückfälle auf den Standardpfad (`bank_lauf` ohne `bank_einstellungen`, der
+    FinTS-Provider ohne Einstellungen, `beleg_fehlt` ohne `mit_pruefeinstellungen`) ließen
+    `-g b bank lauf` (auch ohne Bankkonto), `bank abrufen`, `fints freigeben` und `aufgaben
+    lauf|pruefen` mit Exit 1 enden, also jeden geplanten Lauf von b; im Web gab `POST
+    /api/v1/laeufe/bank` mit FinTS-Konto 500. Jetzt wie die REST-Route: `aufgaben
+    pruefen|lauf` laufen in `mit_pruefeinstellungen(lade_pruefung(config))`; `bank lauf`,
+    `bank abrufen` und `fints freigeben` (beide neu mit `--config`) geben
+    `lade_bank_einstellungen(config)` an `bank_lauf` bzw. `rufe_ab(..., bank_einstellungen=)`,
+    das `bank.fints` an den Provider reicht. In `bank/kreditkarte.py` ist `einst` Pflicht
+    (drei tote Rückfälle). Strukturtest `tests/test_bindung_struktur.py`: kein Lader ohne Pfad
+    im Quellcode außer den drei begründeten Rückfällen für Werkzeuge und Tests ohne Stand, und
+    deren Aufrufer geben immer Einstellungen mit; Verhaltenstests
+    `tests/test_bindung_rueckfaelle.py` (Registry: a ohne `konfiguration:`, b mit eigener
+    Datei; CLI und REST).
   - **Meldung bei fremder Konfiguration (CLI):** Seit `lade_zahlung` über den Leser liest,
     scheitert `-g b zahlung freigeben --db <a> --config <a.yaml>` schon beim Laden von
     `zahlung` (D5) statt erst an `_pruefe_registry`. Die Meldung nennt jetzt die gewählte
@@ -1390,9 +1459,25 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     `LLMEngine` gibt `api_key` nur weiter, wenn er gesetzt ist. Verfahrensdokumentation
     (Abschnitt 2.3: Schwelle, Modell, „Prüfen“-Spalte der eigenen Regeln) und die
     Prüfen-Seite (`auto_schwelle(konfiguration)`, Anzeige der Schwelle) nehmen die
-    wirksamen Werte. **Grenze:** Die Kontierung **mit Beleg** (`buchung/mit_beleg.py`)
+    wirksamen Werte. ~~**Grenze:** Die Kontierung **mit Beleg** (`buchung/mit_beleg.py`)
     vergleicht die Confidence einer Regel weiter mit der festen 0,95 (nur der Hinweis
-    „zur Prüfung“ am Sachkonto); das bleibt außerhalb von P4a.
+    „zur Prüfung“ am Sachkonto); das bleibt außerhalb von P4a.~~ **Berichtigt nach der
+    gegnerischen Prüfung (verhalten-2):** Die Grenze entfällt; sie war auch falsch beschrieben,
+    `Sachkonto.pruefen` entschied den Status, nicht nur einen Hinweis, und die
+    Verfahrensdokumentation versprach die Schwelle für alle Wege. Jetzt eine Schwelle für jeden
+    Weg, auf dem eine Regel kontiert: `kontiere_umsaetze` →
+    `kontiere_beleg(auto_schwelle=engine.auto_buchen_schwelle)`; `opos verbuchen` liest
+    `lade_llm(config)` (ein Fehler im Abschnitt endet wie bei `classify` mit Exit 1) →
+    `verbuche_belege(auto_schwelle=…)`. Die Verfahrensdokumentation (2.3) sagt, dass dieselbe
+    Schwelle für die Belegbuchung und `opos verbuchen` gilt; `config/regeln.yaml` nennt
+    `llm.auto_buchen_schwelle`. Prüfen-Seite (verhalten-3): `auto_schwelle(konfiguration)` liefert
+    `(Schwelle, Fehler)`; bei einem ungültigen Abschnitt erscheint ein Hinweis mit der
+    Fachmeldung statt still 95 %, die Prozentzahl rechnet wie `confidence_prozent` (0,57 →
+    57 %). Tests `tests/test_schwelle_ueberall.py`, `test_llm_einstellungen.py::
+    test_bank_lauf_nimmt_die_schwelle_der_konfiguration`,
+    `::test_rest_banklauf_nimmt_die_schwelle_der_gesellschaft` (tests-4),
+    `test_api_pruefen.py::test_schwelle_der_gesellschaft_am_vorschlag`,
+    `::test_fehlerhafter_llm_abschnitt_zeigt_hinweis_statt_standard`.
   - `ImportEinstellungen`/`lade_import` in `importers/einstellungen.py` (neu, ohne
     Wirkung). `EinrichtungEinstellungen`/`lade_einrichtung` in
     `einstellungen/einrichtung.py` (neu; nur Datenbank). `EinstellungsQuelle` in
@@ -1424,7 +1509,10 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     `befehle/fristen.py`, `steuer/fristen` (Aufrufer), `pruefung/verfahrensdoku.py`.
   - `mandant.oss` → `Firma.oss_am(datum)`, `lade_oss(pfad, zeitraum)` (Pflichtparameter; heute
     `bool(dict)`, also `True` für jede Zuordnung), `integrationen.Kontext.oss_am(datum)`.
-    Verbraucher: `erechnung/erzeuger/aufbau.py` (Rechnungsdatum), `befehle/ustva.py`,
+    Verbraucher: `erechnung/erzeuger/aufbau.py` (~~Rechnungsdatum~~ — berichtigt nach der
+    gegnerischen Prüfung, steuer-1: der Tag der Leistung, also das Leistungsdatum, sonst das
+    Rechnungsdatum; eine Gutschrift/Korrektur ohne eigenes Leistungsdatum: die ursprüngliche
+    Rechnung, BT-26; derselbe Tag für Steuersatz und BT-72), `befehle/ustva.py`,
     `befehle/fristen.py`, `api/seiten/freigaben.py`, `integrationen/buchung.py`.
   - `abschluss.gewinnermittlung` → `AbschlussEinstellungen.gewinnermittlung_fuer(wj)` und
     `gewinnermittlung_angegeben(pfad, wj)` (Paket F; heute Rohwert, bei einer Zuordnung `None`).
@@ -1446,7 +1534,10 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
   Dazu `tests/test_elster_ustva.py::test_dezember_2026_monat_trotz_quartal_2027` (AK31, dritter
   Punkt), `tests/test_steuer_fristen.py::test_kalender_je_jahr_mit_periodenwert`,
-  `tests/test_erechnung_aufbau.py::test_oss_ab_quartal_nach_rechnungsdatum`,
+  `tests/test_erechnung_aufbau.py::test_oss_ab_quartal_nach_leistungsdatum` (vorher
+  `…_nach_rechnungsdatum`; er schrieb den Fehler steuer-1 fest und erwartet jetzt 19 % für
+  Leistung 12/2026 mit Rechnung 01/2027), dazu `::test_oss_ab_quartal_leistung_vor_dem_oss_quartal`
+  und `::test_oss_gutschrift_folgt_der_leistung_der_rechnung`,
   `tests/test_elster_konfiguration.py::test_lade_oss_mit_zuordnung_je_zeitraum` (`{2026-Q1:
   false, 2027-Q1: true}` → 2026 falsch, 2027 wahr; M6),
   `tests/test_abschluss_euer.py::test_gewinnermittlung_je_wirtschaftsjahr` und
@@ -1457,8 +1548,10 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - `einstellungen/perioden.py`: `wert_fuer`, `setze_ab` (auch vor dem frühesten Eintrag
     behalten die Zeiträume davor ihren Wert), `schluessel_fuer(art, zeitraum, beginn=)`,
     `quartal_von`, `pruefe(art, typ)` als `BeforeValidator` (Schlüsselform; Jahre
-    1900–2999, Quartale `JJJJ-Qn`; mindestens ein Eintrag; Schlüssel aus JSON als Text
-    werden Zahlen; eine Meldung mit Schlüssel statt der Meldungen jedes Zweigs der
+    1900–2999, nach der gegnerischen Prüfung, steuer-4, auch als Text und in `JJJJ-Qn`;
+    Quartale `JJJJ-Qn`; mindestens ein Eintrag; Schlüssel aus JSON als Text werden Zahlen;
+    ein Schlüssel, der nach dem Vereinheitlichen doppelt vorkommt, ist ein Fehler; eine
+    Meldung mit Schlüssel statt der Meldungen jedes Zweigs der
     Union) und die Feldtypen `JahresVoranmeldung`, `JahresSchalter`, `QuartalsSchalter`,
     `WirtschaftsjahrGewinnermittlung`.
   - Rohfelder: `ElsterEinstellungen.voranmeldungszeitraum_roh`/`dauerfrist_roh`,
@@ -1489,7 +1582,18 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     Funktion des Belegdatums; die CLI gibt je Beleg die Gewinnermittlung seines WJ
     (`abschluss.wirtschaftsjahr_zum(belegdatum)`).
   - **Vortrag:** Abschluss und Journal mit der Gewinnermittlung des abgeschlossenen
-    WJ, die Eröffnungsbuchungen mit der des Folgejahres.
+    WJ. ~~… die Eröffnungsbuchungen mit der des Folgejahres.~~ **Berichtigt nach der
+    gegnerischen Prüfung (steuer-2):** Über einen Wechsel der Gewinnermittlung trägt accounti
+    nicht vor. Die Schlusssalden folgen den Kontenarten des alten Jahres, unter EÜR gingen die
+    Umsatzsteuerkonten ins Kapital, der Eröffnungsbilanz fehlte die USt-Schuld. `trage_vor`
+    lehnt deshalb wie beim abweichenden WJ ab (`AbschlussError`, bevor gesperrt, gebucht oder
+    protokolliert wird; Übergangsbilanz R 4.6 EStR mit dem Steuerberater, EB über `abschluss
+    eroeffnung`), `abschluss pruefen` meldet den Wechsel vorab (`wechsel_gewinnermittlung`,
+    Warnung, `abschluss/pruefungen.py`). Ohne Wechsel sind die Gewinnermittlung des Abschlusses
+    und die der Eröffnung damit stets gleich. Tests `tests/test_abschluss_vortrag.py::
+    test_wechsel_der_gewinnermittlung_lehnt_den_vortrag_ab` (beide Richtungen),
+    `::test_wechsel_eroeffnung_von_hand_und_befund_vorab`, `::test_wechsel_ueber_die_cli`,
+    `::test_ohne_wechsel_bleibt_der_vortrag_wie_bisher`.
   - **OSS in `integrationen`:** `Kontext.oss_roh` (Alias im Golden-Serialisierer:
     `oss_registriert`, über `dataclasses.field(metadata={"alias": …})`),
     `Kontext.oss_am(datum)`, `Kontext.oss_immer`; `Buchungskontext.oss_am` ist eine
@@ -1509,6 +1613,19 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - Tests: `tests/test_einstellungen_perioden.py` (16; zusätzlich
     `::test_rohfelder_heissen_anders_als_in_der_datei`,
     `::test_model_copy_nimmt_auch_den_dateinamen`) und die sechs Tests oben.
+  - **Nach der gegnerischen Prüfung ergänzt (Verbraucher mit Periodenwerten, tests-1 bis
+    tests-3, steuer-4, verhalten-4):** `test_einstellungen_perioden.py::
+    test_schluessel_als_text_im_bereich`, `::test_doppelter_schluessel_nach_normalisierung_ist_ein_fehler`;
+    `test_integrationen_oss.py::test_oss_ab_quartal_je_posten_in_der_buchung`,
+    `::test_oss_ab_quartal_abrechnung_ueber_die_quartalsgrenze`;
+    `test_integrationen_lieferschwelle.py::test_oss_erst_ab_einem_spaeteren_quartal_zaehlt_die_lieferschwelle`;
+    `test_elster_ustva.py::test_dezember_2026_kz39_und_faelligkeit_trotz_quartal_2027` (Kz 39 und
+    Kz 83 im Dezember 2026, Zahllast 2026-12 fällig am 10.02.2027, 2027-Q1 ohne Dauerfrist am
+    12.04.2027 — der 10.04. ist ein Samstag —, keine SVZ 2027 bei Quartal);
+    `test_abschluss_abgrenzung.py::test_rechnungsabgrenzung_nach_der_gewinnermittlung_des_wirtschaftsjahres`
+    und `test_opos_verbuchung.py::test_cli_vorsteuer_folgejahr_nach_dem_wirtschaftsjahr_des_belegs`
+    (je Kalenderjahr und WJ 07-01); `test_elster_konfiguration.py::test_oss_als_text_ist_ein_schalter`,
+    `::test_oss_ja_nein_ist_ein_fehler`. Mit Mutationen nachgewiesen, dass sie anschlagen.
 
 > **PR P4b „Schreiben“: Schritte 7–10, 12, 13, 16** (D28), abzweigen nach dem Merge von P4a.
 > Vorher entscheidet der Nutzer D6 (Offener Punkt 5). D26 ist entschieden (Offener Punkt 6).
@@ -2024,8 +2141,9 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   → 21 (Protokoll im PR). Dazu einmal ohne `config/accounti.yaml` im Container (nur
   Datenbank-Versionen von `mandant` und `buchhaltung`): `einstellungen zeigen mandant` zeigt die
   Datenbank-Werte (D25). Die Browser-Probe folgt in P5.
-- [ ] **Gegnerische Prüfung** (Technik und Fachlich) je PR wie in 10a/10b; Befunde im Plan
-  nachtragen.
+- [x] **Gegnerische Prüfung** (Technik und Fachlich) je PR wie in 10a/10b; Befunde im Plan
+  nachtragen. *P4a (PR #41): erledigt, 21 Befunde — „Prüfbefunde und Umgang“, Abschnitt
+  „Gegnerische Prüfung P4a (PR #41)“. P4b und P4c je in ihrem PR.*
 
   *Stand P4a (Abschnitt B):* Doku-Bausteine des P4a-Teils eingearbeitet — CHANGELOG
   („Hinzugefügt“: Lesen aus der Datenbank, Periodenwerte, neue Felder; „Geändert“: `llm`,
@@ -2038,7 +2156,9 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   und Festlegung; ohne `einstellungen pruefen` und ohne `db upgrade` nach späteren Updates),
   Vorlage. **Abweichung Vorlage:** `rechtsform: gmbh` steht auskommentiert — die Vorlage ist
   die Golden-Konfiguration „beispiel“, ein gesetzter Wert wäre kein Standard mehr
-  (`ERLAUBT` nur wie im Plan). Die gegnerische Prüfung von P4a steht noch aus (Orchestrator).
+  (`ERLAUBT` nur wie im Plan). Die gegnerische Prüfung von P4a ist erledigt; ihre Befunde und
+  der Umgang stehen unter „Prüfbefunde und Umgang“, die Berichtigungen an den Schritten 2–6, in
+  D4, D10, D18, Sicherheit, Migration und Grenzen (jeweils „nach der gegnerischen Prüfung“).
 
 ---
 
@@ -2118,7 +2238,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 | AK27 (Fachkern, CLI) | Abweichung sichtbar, Übernahme mit Grund | `test_einstellungen_pruefung.py::test_abweichung_sichtbar_und_uebernehmen_erzeugt_version`, `test_cli_einstellungen.py::test_uebernehmen_mit_grund` |
 | AK28 (Fachkern) | veraltete Version, nichts gespeichert | `test_einstellungen_dienst.py::test_veraltete_version_konflikt_nichts_gespeichert` |
 | AK30 (CLI-Teil) | Antrag, zweite Person, nicht selbst | `test_cli_einstellungen.py::test_k3_erzeugt_antrag_statt_version`, `::test_antrag_bestaetigen_zweite_person`, `::test_antrag_selbst_bestaetigen_abgewiesen` |
-| AK31 | Sperren, Periodenwert Dezember | `test_einstellungen_sperren.py::test_voranmeldungszeitraum_2026_gesperrt_nach_uebermittlung`, `::test_kontenrahmen_gesperrt_nach_erster_buchung`, `test_elster_ustva.py::test_dezember_2026_monat_trotz_quartal_2027` |
+| AK31 | Sperren, Periodenwert Dezember | `test_einstellungen_sperren.py::test_voranmeldungszeitraum_2026_gesperrt_nach_uebermittlung`, `::test_kontenrahmen_gesperrt_nach_erster_buchung`, `test_elster_ustva.py::test_dezember_2026_monat_trotz_quartal_2027`, `::test_dezember_2026_kz39_und_faelligkeit_trotz_quartal_2027` (Kz 39, Fälligkeit, SVZ; tests-2) |
 | AK32 | Geheimnis nie im Klartext, Platzhalter im Export | `test_einstellungen_geheimnisse.py::*`, `test_einstellungen_export.py::test_geheimnis_als_platzhalter` |
 | AK33 | Rundlauf | `test_einstellungen_export.py::test_rundlauf_gleiche_wirksame_werte` |
 | AK34 | Verfahrensdoku zum Stichtag | `test_pruefung_verfahrensdoku.py::test_stichtag_vor_aenderung_alter_wert`, `::test_stichtag_nach_aenderung_neuer_wert` |
@@ -2136,10 +2256,14 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 ## Sicherheit
 
 - **Nur anfügen, nachweisbar.** Die Versionen sind auf drei Ebenen gegen Änderung geschützt
-  (D10): ORM-Sperre, `GESCHUETZT` gegen Massenwege und Trigger unter SQLite **und** PostgreSQL.
+  (D10): ORM-Sperre, `GESCHUETZT` gegen Massenwege und Trigger unter SQLite (UPDATE, DELETE und
+  nach der gegnerischen Prüfung, db-1, auch das Ersetzen per `REPLACE INTO`/`INSERT OR
+  REPLACE`) **und** PostgreSQL (UPDATE, DELETE, Upsert, MERGE, TRUNCATE).
   Die Hash-Kette je Abschnitt und der Journal-Bezug je Version machen auch Wege an accounti
   vorbei sichtbar (rohes `INSERT`, Kette neu gerechnet, aber ohne Journaleintrag →
-  `einstellungen pruefen` meldet einen Fehler).
+  `einstellungen pruefen` meldet einen Fehler). Wer Schreibzugriff auf die SQLite-Datei hat
+  (bzw. unter PostgreSQL der Tabelleneigentümer), kann Trigger entfernen; gegen ihn sind die
+  Trigger keine Grenze, dort helfen nur Hash-Kette und Journal-Bezug (P4b).
 - **Geheimnisse:**
   - AES-GCM mit `ACCOUNTI_SCHLUESSEL`, an `<kuerzel>:<name>` gebunden (D22). Ein Chiffrat lässt
     sich keiner anderen Gesellschaft unterschieben.
@@ -2148,8 +2272,9 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - Der Wert kommt nur über stdin, nie als Argument (Prozessliste, Shell-Verlauf).
   - Ohne Schlüssel sind die Felder gesperrt, mit Hinweis.
 - **Pfade nur vom Betreiber.** Alle Pfadfelder sind Betriebsfelder (D7, Markierung und
-  Strukturtest). Weder CLI noch später der Browser können den Server über eine Einstellung eine
-  beliebige Datei lesen lassen (Kontenzuordnung, Rechtsstand, Zertifikat, Archiv).
+  Strukturtest), unter Alias und Feldname (`BETRIEBSFELD_NAMEN`, sicher-2). Weder CLI noch
+  später der Browser können den Server über eine Einstellung eine beliebige Datei lesen lassen
+  (Kontenzuordnung, Rechtsstand, Zertifikat, Archiv).
 - **Umgebung nur vom Betreiber** (D7, H1). Ein `${…}` aus der Datenbank wird nie aufgelöst,
   ein eigener `${…}` in neuen Daten wird abgewiesen. Wer Einstellungen ändern darf, kann so weder
   `ACCOUNTI_SCHLUESSEL` noch Datenbank-Passwörter über Betreff, Kopfzeilen oder ein
@@ -2162,6 +2287,8 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   ausschließen will, legt den Abschnitt in der Datei fest (G-N4, Grenzen).
 - **YAML.** Nur `yaml.safe_load`, zentral in `parse_text`/`lies_datei`, mit 64 KB, ohne Anker und
   Aliase (keine Vervielfachung beim Speichern als JSON). Der AST-Test verhindert neue Umgehungen.
+  Meldungen zu kaputtem YAML nennen nur Zeile, Spalte und Problem, nie den Ausschnitt der Zeile
+  (dort kann ein Passwort stehen; verhalten-5) — sie landen über den Planer auch in Logs.
 - **Kontrollen lassen sich nicht von der kontrollierten Person abschwächen** (E6).
   - K3 wird ein Antrag, bestätigt von einer zweiten Person mit dem Recht der Kontrolle und
     eigenem Code. Ohne Benutzer zählt der Anmeldename über die UID (D13).
@@ -2179,14 +2306,18 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   nehmen oder die Werte einer anderen Gesellschaft zeigen. Die Bindung hängt an derselben
   Gesellschaft wie die Rechteprüfung (`angemeldet` bzw. Token). In der CLI gilt dasselbe für den
   Pfad einer anderen Gesellschaft der Registry (D5, M2).
-- **Datenbank nicht erreichbar** heißt Abbruch, nicht still die Datei (Schritt 2). **Datei
-  fehlt** heißt nicht „Datenbank ignorieren“ (D25).
+- **Datenbank nicht erreichbar** heißt Abbruch, nicht still die Datei (Schritt 2), auch bei
+  einer ungültigen URL (sicher-5). Im Web scheitert nur das Lesen eines Datenbank-Abschnitts;
+  die Bindung öffnet die Datenbank nicht, `/gesellschaft`, Wechsel und Abmelden bleiben der
+  Ausweg (D4, sicher-3). **Datei fehlt** heißt nicht „Datenbank ignorieren“ (D25).
 - **Protokoll** (A116): Die Startmeldung nennt nur Anzahl und Abschnittsnamen. Fehlertexte nennen
   Feldpfade, keine Werte, außer dort, wo der Lader es schon heute tut (IBAN-Prüfziffer nennt die
   IBAN: Das bleibt so in der CLI-Ausgabe, landet aber nicht im Anwendungsprotokoll, Test
   Schritt 17).
 - **CSP, CSRF, WCAG:** Es gibt keine neuen Seiten, Routen, Vorlagen, Skripte oder Stile. Die eine
-  geänderte Meldung nutzt die vorhandene `meldung.html`. Der Vorlagen-Test (kein `style=`, kein
+  geänderte Meldung nutzt die vorhandene `meldung.html`; der Hinweis der Prüfen-Seite bei
+  ungültigem `llm`-Abschnitt (verhalten-3) nutzt das vorhandene `k.hinweis` mit Eintrag in
+  `i18n/en.yaml`. Der Vorlagen-Test (kein `style=`, kein
   Inline-Skript), die Rechte-Matrix, der CSRF-Test und der i18n-Vollständigkeitstest aus 10a/10b
   bleiben grün und decken das ab. Prüfbare Barrierefreiheit (axe-core, Fokus, Kontrast) beginnt
   mit den Seiten in P1 und P5.
@@ -2214,8 +2345,14 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   `init_db` werden übernommen, ergänzt wird nur, was fehlt (Muster `ddc9a184ddb4`).
 - **Gesellschafts- und Systemdatenbank** teilen die Kette. Die Systemdatenbank bekommt die
   Tabellen leer mit. Ohne Registry ist sie zugleich Gesellschaftsdatenbank.
-- **`accounti db upgrade`** (Paket A) erkennt den Schritt an den neuen Tabellen. Hat `init_db` sie
-  vorher angelegt, zählt der Schritt als offen, und die Migration verträgt das (Test Schritt 1).
+- **`accounti db upgrade`** (Paket A) erkennt den Schritt an den neuen Tabellen. ~~Hat `init_db`
+  sie vorher angelegt, zählt der Schritt als offen, und die Migration verträgt das.~~
+  **Berichtigt nach der gegnerischen Prüfung (db-2):** Hat `init_db` sie vorher angelegt, leitet
+  `db upgrade` `83dfa5750c7f` (bzw. einen Nachfolger) aus dem Schema ab und führt den Schritt
+  nicht aus; die Trigger stammen dann aus `after_create`
+  (`test_migration_einstellungen.py::test_db_upgrade_nach_init_db_leitet_rev_ab`). `alembic
+  upgrade` über von `init_db` angelegte Tabellen verträgt die Migration weiter
+  (`::test_migration_uebernimmt_was_init_db_anlegte`).
 - **Downgrade** nur mit leeren Tabellen (D24). Die Meldung nennt `accounti sicherung erstellen`,
   ab P4c auch `einstellungen export` (G-N5).
 - **Keine Datenmigration.** Bestehende Installationen bleiben unverändert, bis jemand speichert
@@ -2243,8 +2380,14 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 - **PostgreSQL-Trigger nur für `einstellungen`.** Journal, Korrekturen und USt-IdNr.-Protokoll
   bleiben unter PostgreSQL bei ORM-Sperre und Hash-Kette. `db/schutz.py` erlaubt das Nachrüsten
   als eigenen Schritt.
-- **`llm.auto_buchen_schwelle` wirkt jetzt** (D18). Wer in der Datei bisher wirkungslos einen
-  anderen Wert als 0,95 stehen hatte, bekommt ihn ab dem Update. `pruefen` weist darauf hin.
+- **`llm.auto_buchen_schwelle` wirkt jetzt** (D18), für jede Kontierung durch eine Regel (auch
+  mit Beleg und in `opos verbuchen`). Wer in der Datei bisher wirkungslos einen anderen Wert als
+  0,95 stehen hatte, bekommt ihn ab dem Update. `pruefen` weist darauf hin. Ein ungültiger
+  Abschnitt (`pruefung_schwelle` über `auto_buchen_schwelle`) hält `classify`, `bank lauf`,
+  `opos verbuchen` und den REST-Lauf an. **`aufgaben.pruefung.kontierung_schwelle`** bleibt eine
+  eigene Schwelle (Standard 0,95): Senkt man `llm.auto_buchen_schwelle`, wird jede automatisch
+  gebuchte Buchung unter 0,95 zur Aufgabe `kontierung_pruefen`, bis man sie passend setzt (ob
+  sie künftig der LLM-Schwelle folgt, ist offen).
   **`import.standard_bank`/`duplikat_check`** haben ein Modell, aber weiter keine Wirkung (die
   Erkennung ist automatisch, Dubletten prüft accounti immer).
 - **Periodenwerte** gibt es nur für die vier Felder aus A46. `sondervorauszahlung` bleibt „je
@@ -2279,6 +2422,52 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 - **Gleichzeitige Prozesse:** Der Datei-Cache ist je Prozess. Zwei Prozesse sehen eine geänderte
   Datei nach ihrem nächsten Stand. Datenbank-Versionen sind über die Unique-Bedingung und die
   Schreibsperre gegen doppelte Versionsnummern geschützt.
+
+*Nach der gegnerischen Prüfung von P4a ergänzt:*
+
+- **Rückfälle mit Absicht** (sicher-1): `bank.lauf.bank_lauf` ohne `bank_einstellungen`,
+  `FinTSProvider` ohne Einstellungen und der Prüflauf `beleg_fehlt` ohne
+  `mit_pruefeinstellungen` lesen `config/accounti.yaml` des Arbeitsordners. Das gilt nur für
+  Werkzeuge und Tests ohne Stand; `tests/test_bindung_struktur.py` stellt sicher, dass der
+  Quellcode diese Wege nicht erreicht.
+- **Web, später Schnappschuss** (D4, sicher-3): Eine Anfrage, die selbst eine Version schreibt,
+  bevor sie zum ersten Mal einen Datenbank-Abschnitt liest, sieht die neue Version (P4b:
+  speichern → Weiterleitung, oder vorher lesen, wenn der alte Stand gebraucht wird). Hält ein
+  anderer Prozess die SQLite-Datei gesperrt, scheitert das Lesen von Einstellungen nach 3 s
+  (`QUELLE_WARTEN`) mit `EinstellungenNichtLesbar` (500), statt wie die Datenseiten bis zu 30 s
+  zu warten (unter PostgreSQL begrenzt `connect_timeout` den Verbindungsaufbau, nicht eine
+  hängende Abfrage).
+- **P4b, Schreibweg:** Die Abweisung von Betriebsfeldern beim Schreiben prüft auch
+  `BETRIEBSFELD_NAMEN` (Feldname `rechtsstand_datei`), sonst landete der Pfad in der Version
+  (wirkungslos, denn der Leser entfernt ihn, sicher-2).
+- **Geheimfelder einer Version** (sicher-4, widerlegt): Der Leser entfernt Klartext in
+  Geheimfeldern einer roh angefügten Version nicht; D8 weist Klartext beim Schreiben ab (P4b).
+  In P4a gibt es keinen Schreibweg, und wer roh schreibt, setzt nur einen eigenen Wert.
+- **OSS ab Quartalsbeginn** (steuer-3, entschieden in Spec E3/D14): Den Beginn mitten im Quartal
+  durch Überschreiten der Lieferschwelle (§ 3c Abs. 4 UStG, Art. 57d Abs. 1 UAbs. 2 MwSt-DVO)
+  bildet accounti nicht ab; `2026-Q3: true` besteuert die Lieferungen vor der Überschreitung mit
+  OSS, `2026-Q4: true` die danach bis Quartalsende mit deutscher Steuer. Marktplatzposten meldet
+  `integrationen` im zweiten Fall als „lieferschwelle“, E-Rechnungen an EU-Privatkunden prüfen
+  die Lieferschwelle nicht (schon vor P4a so). Mögliche spätere Arbeit: Tagesschlüssel und eine
+  Warnung bei E-Rechnungen im Jahr der Überschreitung.
+- **Ein Leistungstag je Rechnung bzw. Korrektur** (steuer-1): Teilt eine Korrektur Leistungen
+  verschiedener Tage oder Quartale, gilt ein Tag für alle Positionen (eigenes Leistungsdatum,
+  sonst das der ursprünglichen Rechnung, sonst deren Rechnungsdatum).
+- **Wechsel der Gewinnermittlung** (steuer-2): kein Saldovortrag und keine Jahressperre über den
+  Wechsel; Übergangsbilanz und Übergangsgewinn rechnet accounti nicht. `abschluss eroeffnung`
+  nimmt die EB-Werte nur an, solange das Vorjahr keinen Jahresabschluss hat. Wer erst
+  vorgetragen und danach den Wechsel eingetragen hat, korrigiert die EB-Buchungen von Hand
+  (Bestand gibt es nicht, vor P4a war der Wechsel nicht eintragbar).
+- **REPLACE an älteren Tabellen** (db-1): `journal`, `buchungskorrekturen`, `kontierungsgruende`,
+  `ustid_pruefungen`, `kassenbuch`, die ELSTER-, Zahlungs- und Abschlussprotokolle,
+  `verrechnungen` u. a. haben unter SQLite nur `BEFORE UPDATE`/`BEFORE DELETE`; `REPLACE INTO`
+  ersetzt dort weiter Zeilen. Nachrüsten über `nur_anfuegen_sql(…, eindeutig=…)` mit eigener
+  Migration ist ein eigener Schritt. `einstellungsantraege` hat keine Trigger (nur ORM und
+  `GESCHUETZT`, D11), `geheimnisse` ist bewusst veränderlich.
+- **Entwicklungs-Datenbanken des PR-Stands vor der Prüfung** bekommen den Trigger
+  `einstellungen_kein_ersetzen` nicht nach (`after_create` feuert nur beim Anlegen, die Migration
+  ist gestempelt). Unveröffentlicht, betrifft nur Test- und Vorschau-Datenbanken; Abhilfe:
+  Downgrade auf `1dd2f6b7c6c8` und wieder hinauf (leere Tabellen).
 
 ---
 
@@ -2391,6 +2580,12 @@ stellt einen Antrag; wirksam wird er erst, wenn eine zweite Person mit Freigaber
 ````
 
 ### CHANGELOG.md
+
+*Stand P4a:* Der P4a-Teil steht im CHANGELOG und im Upgrade-Block von `docs/betrieb.md` und ist
+dort nach der gegnerischen Prüfung fortgeschrieben (Schwelle auch mit Beleg und in `opos
+verbuchen`, `llm` geprüft, `mandant.oss` als Schalter, OSS am Tag der Leistung, Wechsel der
+Gewinnermittlung, `--config` an `bank abrufen`/`fints freigeben`, Trigger gegen `REPLACE`). Die
+Bausteine hier sind der Entwurf für das ganze Paket P4; P4b und P4c übernehmen ihren Teil.
 
 **Unter `## [Unreleased]` → `### Hinzugefügt`** oben einfügen:
 
@@ -2530,8 +2725,10 @@ Wo Einstellungen leben und wie sie gelesen werden.
    in `stufen.py`.
 3. Ein Feld, das vom Zeitraum abhängt, als `Periodisch[...]` mit `…_fuer(zeitraum)` und Eintrag in
    `PERIODENFELDER` samt Sperrregel; das Rohfeld heißt `<name>_roh` mit Alias.
-4. Ein Pfadfeld als `Betriebsfeld[...]` (Strukturtest). `${…}` nur in der Datei — der Leser gibt
-   keinen Platzhalter aus der Datenbank weiter.
+4. Ein Pfadfeld als `Betriebsfeld[...]` (Strukturtest); nimmt das Modell es auch unter dem
+   Feldnamen an (Alias und `populate_by_name`), zusätzlich in `BETRIEBSFELD_NAMEN`. `${…}` nur in
+   der Datei — der Leser gibt keinen Platzhalter aus der Datenbank weiter. Aufrufer geben dem
+   Lader immer den Pfad mit (`tests/test_bindung_struktur.py`).
 5. Golden-Daten ergänzen (`tests/werkzeuge/golden_lader.py`). **Einen Standard ändern** heißt:
    Golden-Daten bewusst neu erzeugen und die Änderung mit altem und neuem Wert im CHANGELOG unter
    „Geändert“ nennen — Standards sind in Datenbank-Versionen nicht eingefroren; `db upgrade`
@@ -2834,3 +3031,42 @@ Kein Befund ist ganz zurückgewiesen. Teilweise nicht übernommen, jeweils oben 
 - G-M3: `wirksam_alle` im Leser (unnötig, `_Doku.abschnitt` über `lies_abschnitt`)
 - G-M4: `standard_hash` je Version bzw. Build-Kennung (ersetzt durch Journaleinträge der Standards)
 - G-N4: Ziel-Host-Felder bei `${VAR}`-Zugang als Betriebsfelder (D26 ist anders entschieden; Restrisiko benannt)
+
+### Gegnerische Prüfung P4a (PR #41)
+
+Prüfung des Branches `feat/oberflaeche-p4a-einstellungen-lesen` (d8a1223) in fünf Blicken
+(sicher, db, steuer, verhalten, tests) mit Gegenprüfung; die Schwere ist die nach der
+Gegenprüfung („n. g.“: nicht gegengeprüft, Schwere des Prüfers). Jeder Befund, der Code
+betrifft, ist testgetrieben behoben: Test zuerst rot gesehen (bzw. bei reinen Testlücken mit
+Mutationen in einer Kopie nachgewiesen, dass er anschlägt), dann grün.
+
+| Nr. | Schwere | Befund | Umgang |
+|-----|---------|--------|--------|
+| sicher-1 | Hoch | Lader mit Standardpfad scheitern an der strengen Bindung: REST-Banklauf mit FinTS-Konto 500, `-g b aufgaben lauf` bricht ab | **behoben mit Test** (zusammen mit verhalten-1): Einstellungen bis zum Verbraucher durchgereicht, Strukturtest gegen Lader ohne Pfad; Schritt 4 berichtigt |
+| sicher-2 | Mittel (von Hoch) | Betriebsfeld `anlagen.rechtsstand` kam über den Feldnamen `rechtsstand_datei` aus der Datenbank | **behoben mit Test:** `BETRIEBSFELD_NAMEN`, Strukturtest für Alias + `populate_by_name`; Grenze für den P4b-Schreibweg |
+| sicher-3 | Mittel | Bindung in `angemeldet` hängt jede Seite an die Datenbank der aktiven Gesellschaft (Wechsel, Abmelden, `/konto` 500) | **behoben mit Test:** eigene Quelle ohne `init_db`, Schnappschuss beim ersten Lesen (`sofort=False`); D4 berichtigt, Grenze „später Schnappschuss“ |
+| sicher-4 | — (widerlegt) | Geheimfelder im Klartext aus einer Version landen im Modell | **widerlegt:** D8 schützt beim Schreiben (P4b); kein Schreibweg in P4a, kein Gewinn für einen Rohschreiber; als Grenze benannt |
+| sicher-5 | Niedrig (n. g.) | `--db` mit ungültigem Port endet im Traceback | **behoben mit Test:** `ValueError` wie eine nicht lesbare Datenbank |
+| db-1 | Niedrig (von Hoch) | SQLite: `REPLACE INTO` ersetzt eine Version an beiden Triggern vorbei | **behoben mit Test:** Trigger `einstellungen_kein_ersetzen` (D10); ältere Tabellen als **Nacharbeit** (Grenzen) |
+| db-2 | Niedrig (n. g.) | Docstring und Plan: „db upgrade nach init_db zählt als offen“ | **behoben mit Test:** eigener Test, Docstring und Abschnitt Migration berichtigt |
+| steuer-1 | Hoch | E-Rechnung entscheidet OSS nach dem Rechnungs- statt nach dem Leistungsdatum | **behoben mit Test:** Tag der Leistung (Korrektur: ursprüngliche Rechnung) für OSS, Satz und BT-72; der Test schrieb den Fehler fest und ist berichtigt; Schritt 6 berichtigt |
+| steuer-2 | Mittel | Saldovortrag beim Wechsel EÜR → Bilanz ohne USt-Salden, Kapital zu hoch | **behoben mit Test:** kein Vortrag über den Wechsel (fail-closed), Prüfung `wechsel_gewinnermittlung`; Grenze |
+| steuer-3 | Niedrig (von Mittel) | OSS nur ab Quartalsbeginn, Beginn mitten im Quartal nicht abbildbar | **dokumentiert als Grenze** (entschieden in E3/D14): Spec E3, `docs/betrieb.md`, Grenzen; Tagesschlüssel mögliche spätere Arbeit |
+| steuer-4 | Niedrig (n. g.) | Jahresschlüssel als Text ohne Bereichsprüfung, doppelte Schlüssel still | **behoben mit Test:** 1900–2999 auch als Text und in `JJJJ-Qn`, doppelte Schlüssel ein Fehler |
+| verhalten-1 | Hoch | Registry: `bank lauf`, `bank abrufen`, `fints freigeben`, `aufgaben lauf\|pruefen` brechen für Gesellschaften mit eigener Datei ab | **behoben mit Test** (mit sicher-1): `--config` an `bank abrufen`/`fints freigeben`, `mit_pruefeinstellungen` in `aufgaben` |
+| verhalten-2 | Mittel | Schwelle gilt nicht für die Kontierung mit Beleg; Verfahrensdoku und Plan falsch | **behoben mit Test:** eine Schwelle für Belegbuchung und `opos verbuchen`; Grenze gestrichen, Doku berichtigt |
+| verhalten-3 | Niedrig (n. g.) | Ungültiger `llm`-Abschnitt stoppt Läufe, Doku sagt „bekommt ihn“, Prüfen-Seite zeigt still 95 % | **behoben mit Test** (Prüfen-Seite zeigt Hinweis) und **dokumentiert** (CHANGELOG, Upgrade-Block) |
+| verhalten-4 | Niedrig (n. g.) | `mandant.oss` streng als Schalter (`"false"` aus, `"ja"`/`"nein"` Fehler), fehlt im CHANGELOG | **dokumentiert** (CHANGELOG „Geändert“, Upgrade-Block); Verhalten mit Test festgehalten |
+| verhalten-5 | Niedrig (n. g.) | Kaputte Konfiguration: Meldung zeigt die Zeile im Klartext (Passwort) | **behoben mit Test:** nur Zeile, Spalte und Problem |
+| tests-1 | Mittel | „OSS ab Quartal“ in der Marktplatzbuchung und die Lieferschwelle ungetestet | **behoben mit Test** (nur Tests; Mutationen rot) |
+| tests-2 | Mittel | AK31-Test prüft nur das Modell: Kz 39, Fälligkeit, SVZ mit Periodenwerten ungetestet | **behoben mit Test** (nur Tests; Mutationen rot); AK-Zuordnung ergänzt |
+| tests-3 | Niedrig (von Mittel) | Gewinnermittlung je WJ: Abgrenzung, `opos verbuchen`, Prüfungen ungetestet | **behoben mit Test** (nur Tests, auch WJ 07-01; Mutationen rot) |
+| tests-4 | Niedrig (n. g.) | `llm.auto_buchen_schwelle` nur für `classify` getestet | **behoben mit Test** (`bank lauf`, REST je Gesellschaft; Mutationen rot) |
+| tests-5 | Niedrig (n. g.) | `pruefe_kette`: Zweige „Lücke“ und „Hash“ ungetestet | **behoben mit Test** (nur Tests; Mutationen rot) |
+
+Beim Zusammenführen ergänzt: PostgreSQL-Weg der Web-Quelle (`connect_timeout`, Pool) mit zwei
+Tests; Hilfe von `abschluss eroeffnung`, Kommentare der Vorlage (`oss`, `llm`, Gewinnermittlung,
+`kontierung_schwelle`) und Spec E3. **Nacharbeit außerhalb von P4a:** REPLACE-Lücke der älteren
+Tabellen, Trigger für `einstellungsantraege`, `aufgaben.pruefung.kontierung_schwelle` gegenüber
+`llm.auto_buchen_schwelle`, `ValueError` bei ungültigem Port in `api/lesezugriff.verbindung`
+und `Dienste._fabrik` (nur `serve --db` ohne Registry).
