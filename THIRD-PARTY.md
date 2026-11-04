@@ -11,3 +11,11 @@ Dritten und werden unverändert mit ihrer eigenen Lizenz mitgeliefert:
 
 Python-Abhängigkeiten installiert pip aus `pyproject.toml`; sie werden nicht
 mitgeliefert.
+
+Nur für die Entwicklung (nicht ausgeliefert, nicht im Abbild): Playwright 1.59.1
+(Apache-2.0) und axe-core 4.14.0 (MPL-2.0, unverändert benutzt) in `scripts/browserprobe/`,
+installiert mit `npm ci` aus der Lockdatei (Integritätswerte, `ignore-scripts`). Die
+Browser (Chromium, Firefox) lädt `npx playwright install` von Microsofts Playwright-CDN;
+sie stehen nicht in der Lockdatei und gelten unter den Lizenzen ihrer Hersteller.
+Playwright 1.59.1 nutzt Chromium-Revision 1217 (der Plan sah 1.64.0 vor; dafür fehlte auf
+dem Server das passende Chromium, ein Download war nicht freigegeben).

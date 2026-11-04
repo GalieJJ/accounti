@@ -87,11 +87,9 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     ("POST", "/einstellungen/sprache"): ("weiterleitung", "308 auf /konto/vorlieben"),
     ("GET", "/"): ("ganze_seite", BESTAND),
     ("GET", "/freigaben"): ("ganze_seite", BESTAND),
-    ("POST", "/freigaben/zahlungslauf/{nr}"): (
-        "weiterleitung",
-        "303, Fehler als Seite",
-    ),
-    ("POST", "/freigaben/ustva"): ("weiterleitung", "303, Fehler als Seite"),
+    # Ergebnis als Seite (meldung.html); Fehler als Seite, mit htmx als Fragment
+    ("POST", "/freigaben/zahlungslauf/{nr}"): ("ganze_seite", "Ergebnis als Seite"),
+    ("POST", "/freigaben/ustva"): ("ganze_seite", "Ergebnis als Seite"),
     ("GET", "/pruefen"): ("ganze_seite", BESTAND),
     ("GET", "/pruefen/regeln"): ("ganze_seite", BESTAND),
     ("GET", "/pruefen/{buchung_id:uuid}"): ("fragment", "Arbeitsfläche (10b)"),
@@ -107,13 +105,14 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
         "303 auf /pruefen/regeln",
     ),
     ("GET", "/buchungen/{buchung_id:uuid}"): ("ganze_seite", BESTAND),
+    # Ergebnis und Fehler als die Buchungsseite (Bestand 10b)
     ("POST", "/buchungen/{buchung_id:uuid}/korrigieren"): (
-        "weiterleitung",
-        "303, Fehler als Seite",
+        "ganze_seite",
+        "Ergebnis als Seite",
     ),
     ("POST", "/buchungen/{buchung_id:uuid}/stornieren"): (
-        "weiterleitung",
-        "303, Fehler als Seite",
+        "ganze_seite",
+        "Ergebnis als Seite",
     ),
     ("GET", "/belege/{beleg_id:uuid}"): ("ganze_seite", BESTAND),
     ("GET", "/belege/{beleg_id:uuid}/datei"): ("ganze_seite", "Datei, kein HTML"),
@@ -165,3 +164,99 @@ def test_jede_route_hat_eine_htmx_form(routen):
     assert set(HTMX_FORMEN) == routen
     for form, grund in HTMX_FORMEN.values():
         assert form in FORMEN and grund
+
+
+HX = {"HX-Request": "true"}
+
+
+def _wirkt(form: str, methode: str, pfad: str, ohne, mit) -> None:  # noqa: ANN001
+    """Die Form einer Route an zwei Antworten (ohne und mit ``HX-Request``)."""
+    wo = (methode, pfad, ohne.status_code, mit.status_code)
+    html = "text/html" in mit.headers.get("content-type", "")
+    if form == "fragment" and methode == "GET":
+        assert mit.status_code == 200 and "<html" not in mit.text, wo
+        if pfad == "/muster/beispiel":
+            assert ohne.status_code == 303, wo
+        else:
+            assert ohne.status_code == 200 and "<html" in ohne.text, wo
+    elif form == "fragment":  # Aktionen der Arbeitsfläche
+        assert "<html" not in mit.text, wo
+        assert mit.status_code in (200, 409, 422), wo
+        assert ohne.status_code == 303 or "<html" in ohne.text, wo
+    elif form == "ganze_seite":
+        if methode == "GET":
+            assert mit.status_code == ohne.status_code == 200, wo
+        for r in (ohne, mit):  # Ergebnis als ganze Seite (Fehler mit htmx: Fragment)
+            if r.status_code == 200 and html:
+                assert "<html" in r.text, wo
+        assert ohne.status_code == 200 or "<html" in ohne.text, wo
+    elif form == "neu_laden":
+        assert mit.status_code == 200 and mit.headers.get("hx-refresh") == "true", wo
+        assert ohne.status_code == 303, wo
+    else:  # weiterleitung: 303/308; ein Fehler (etwa ein zweiter Versuch) als Seite
+        assert ohne.status_code in (303, 308), wo
+        assert mit.status_code in (303, 308) or mit.status_code >= 400, wo
+
+
+def test_htmx_formen_wirken(tmp_path, monkeypatch):
+    """AK58, A99, A115 (Plan P1, Schritt 13): jede Route mit und ohne ``HX-Request`` —
+    Fragment ohne ``<html``, ``HX-Refresh``, 303 bzw. ganze Seite; jede neue GET-Route
+    liefert mit ``HX-Request`` ein Fragment."""
+    from accounti.models.auth import Rolle, rechte_der_rollen
+    from tests.api_hilfe import melde_an
+    from tests.auth_hilfe import PASSWORT, billige_hashes
+    from tests.gesellschaft_hilfe import zahlungslauf
+    from tests.test_api_rechte_matrix import (
+        ANGEMELDET,
+        OFFEN,
+        SEITEN,
+        EinesVon,
+        anfrage,
+        fachdaten,
+    )
+
+    billige_hashes(monkeypatch)
+    welt = webwelt(tmp_path)  # wie die Welt der Rechte-Matrix
+    for rolle in Rolle:
+        welt.person(rolle.value, rolle)
+    zahlungslauf(welt.umgebung, "a")
+    welt.daten = fachdaten(welt, tmp_path)  # type: ignore[attr-defined]
+    clients: dict[Rolle, object] = {}
+
+    def wer(recht: object) -> Rolle:
+        for rolle in Rolle:
+            rechte = rechte_der_rollen([rolle])
+            if (
+                recht in (OFFEN, ANGEMELDET)
+                or (isinstance(recht, EinesVon) and recht & rechte)
+                or recht in rechte
+            ):
+                return rolle
+        raise AssertionError(recht)
+
+    geprueft = set()
+    for (methode, pfad), (form, _) in sorted(
+        HTMX_FORMEN.items(), key=lambda x: (x[0][1] == "/abmelden", x[0])
+    ):
+        if (methode, pfad) == ("POST", "/anmelden"):
+            code = welt.code("buchhalter")
+            ohne = melde_an(welt.client(), "buchhalter", PASSWORT, code)
+            welt.uhr.weiter(30)
+            client = welt.client()
+            client.headers.update(HX)
+            mit = melde_an(client, "buchhalter", PASSWORT, welt.code("buchhalter"))
+            welt.uhr.weiter(30)
+        elif pfad == "/abmelden":  # je Aufruf eine eigene Sitzung
+            b = Rolle.BETRACHTER
+            ohne = anfrage(welt, welt.angemeldet(b.value), b, methode, pfad)
+            mit = anfrage(welt, welt.angemeldet(b.value), b, methode, pfad, HX)
+        else:
+            rolle = wer(SEITEN[(methode, pfad)])
+            if rolle not in clients:
+                clients[rolle] = welt.angemeldet(rolle.value)
+            client = clients[rolle]
+            ohne = anfrage(welt, client, rolle, methode, pfad)
+            mit = anfrage(welt, client, rolle, methode, pfad, HX)
+        _wirkt(form, methode, pfad, ohne, mit)
+        geprueft.add((methode, pfad))
+    assert geprueft == set(HTMX_FORMEN)

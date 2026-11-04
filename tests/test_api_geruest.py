@@ -496,3 +496,16 @@ def test_monogramm_gleich_fuer_alle_benutzer(welt):
     bea = _marke_im_kopf(welt.angemeldet("bea").get("/").text)
     jan = _marke_in_liste(welt.angemeldet("jan").get("/menue").text, "b")
     assert bea[1] == jan[1] == "BR"
+
+
+def test_lang_je_sprache_auf_jeder_seite(probe, alle):
+    """AK57, A112: ``<html lang>`` folgt der Sprache auf jeder HTML-Seite (angemeldet
+    und ohne Anmeldung)."""
+    for pfad in [*_html_seiten(probe), "/gibt/es/nicht"]:
+        client = probe.web.client() if pfad == "/anmelden" else alle
+        for sprache in ("de", "en"):
+            r = client.get(pfad, headers={"Accept-Language": sprache})
+            assert f'<html lang="{sprache}" ' in r.text, (pfad, sprache)
+    for sprache in ("de", "en"):
+        r = probe.web.client().get("/hilfe", headers={"Accept-Language": sprache})
+        assert f'<html lang="{sprache}" ' in r.text, sprache

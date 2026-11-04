@@ -139,6 +139,13 @@ def test_keine_inline_skripte_stile_oder_ereignisattribute(welt, tmp_path):
     quellen = {str(p): p.read_text(encoding="utf-8") for p in VORLAGEN.rglob("*.html")}
     quellen |= {f"seite {i}": t for i, t in enumerate(seiten_html(welt))}
     quellen |= {f"fach {i}": t for i, t in enumerate(fachseiten_html(tmp_path))}
+    # erweitert (Plan P1, Schritt 13): Hilfethema, 404 im Gerüst und die schlichte 500
+    from accounti.api.vorlagen import fehlerseite_500
+
+    client = welt.angemeldet("jan")
+    quellen["hilfe/pruefen"] = client.get("/hilfe/pruefen").text
+    quellen["404"] = client.get("/gibt-es-nicht").text
+    quellen["500"] = fehlerseite_500("de").body.decode()
     for name, text in quellen.items():
         for muster, art in INLINE:
             assert not muster.search(text), (name, art, muster.search(text))

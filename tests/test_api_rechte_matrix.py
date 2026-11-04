@@ -156,8 +156,9 @@ def test_jeder_endpunkt_steht_in_der_matrix(welt):
     assert vorhanden == set(SEITEN) | set(REST)
 
 
-def anfrage(welt, client, rolle, methode, pfad):
-    """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode."""
+def anfrage(welt, client, rolle, methode, pfad, kopf=None):
+    """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode (``kopf``:
+    zusätzliche Kopfzeilen, etwa ``HX-Request``)."""
     person = welt.personen[rolle.value]
     daten = {"csrf": csrf(client)}
     if pfad in MIT_EINMALCODE:
@@ -193,10 +194,12 @@ def anfrage(welt, client, rolle, methode, pfad):
         .replace("{beleg_id:uuid}", beleg)
         .replace("{regel_id:uuid}", d["regel"])
         .replace("{n:int}", "1")
+        .replace("{n}", "1")
+        .replace("{thema}", "pruefen")
     )
     if methode == "GET":
-        return client.get(pfad, follow_redirects=False)
-    return client.post(pfad, data=daten, follow_redirects=False)
+        return client.get(pfad, headers=kopf, follow_redirects=False)
+    return client.post(pfad, data=daten, headers=kopf, follow_redirects=False)
 
 
 @pytest.mark.parametrize("rolle", list(Rolle))
