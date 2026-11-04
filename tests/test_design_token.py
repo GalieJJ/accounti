@@ -17,7 +17,6 @@ from tests.design_hilfe import (
     CSS,
     DUNKEL,
     HELL,
-    PRUEFEN_CSS,
     css,
     kontrast,
     leinwand_token,
@@ -229,7 +228,7 @@ def _alle_deklarationen(datei=CSS):  # noqa: ANN001, ANN202
 
 def test_schriftgroessen_nur_aus_der_skala():
     assert {n: w for n, w in T.masse.items() if n.startswith("--gr-")} == SKALA
-    for datei in (CSS, PRUEFEN_CSS):
+    for datei in (CSS,):
         for stelle, name, wert in _alle_deklarationen(datei):
             if name == "font-size":
                 assert re.fullmatch(r"var\(--gr-[1-9]\)|inherit|1em", wert), (
@@ -278,7 +277,7 @@ FARBLITERAL = re.compile(
 
 
 def test_farben_nur_ueber_token():
-    for datei in (CSS, PRUEFEN_CSS):
+    for datei in (CSS,):
         for stelle, name, wert in _alle_deklarationen(datei):
             if stelle.ebene == "token" or "@media print" in stelle.medien:
                 continue
@@ -314,7 +313,7 @@ def test_formularelemente_aus_token():
 
 
 def test_nur_gewichte_400_und_600():
-    for datei in (CSS, PRUEFEN_CSS):
+    for datei in (CSS,):
         for stelle, name, wert in _alle_deklarationen(datei):
             if name == "font-weight":
                 assert wert in ("400", "600"), (stelle.regel.kopf, wert)
@@ -378,7 +377,7 @@ def test_nur_drei_breakpoints():
         r"|@media \(prefers-(color-scheme: dark|reduced-motion: reduce)\)"
         r"|@media \(pointer: coarse\)|@media print"
     )
-    for datei in (CSS, PRUEFEN_CSS):
+    for datei in (CSS,):
         for kopf in medienregeln(css(datei)):
             assert erlaubt.fullmatch(kopf), (datei.name, kopf)
 
@@ -389,12 +388,14 @@ def test_hidden_versteckt_immer():
 
 
 def test_css_budget():
-    """AK50: 40 KB für alle Stile — bis Schritt 12 zählt ``pruefen.css`` mit."""
-    groesse = CSS.stat().st_size + PRUEFEN_CSS.stat().st_size
+    """AK50: 40 KB für alle Stile in der einen Datei (umgestellt in Schritt 12: bis
+    dahin zählte ``pruefen.css`` mit)."""
+    groesse = CSS.stat().st_size
     assert groesse <= 40_960, groesse
 
 
-EBENEN = "token, basis, layout, bestand, komponenten, seiten, hilfen, druck"
+# umgestellt (Schritt 12): die Übergangsebene bestand ist gestrichen
+EBENEN = "token, basis, layout, komponenten, seiten, hilfen, druck"
 
 
 def test_ebenenfolge_wie_entschieden():
@@ -405,14 +406,14 @@ def test_ebenenfolge_wie_entschieden():
 def test_jede_regel_in_einer_ebene():
     for regel in css():
         assert regel.kopf.startswith("@layer "), regel.kopf
-    (bestand,) = css(PRUEFEN_CSS)
-    assert bestand.kopf == "@layer bestand" and not bestand.anweisung
+    # umgestellt (Schritt 12): pruefen.css und die Ebene bestand sind gestrichen
+    assert "@layer bestand" not in CSS.read_text(encoding="utf-8")
 
 
 def test_jeder_tokenverweis_definiert():
     hell = set(T.hell) | set(T.masse)
     dunkel = set(T.dunkel) | set(T.masse)
-    for datei in (CSS, PRUEFEN_CSS):
+    for datei in (CSS,):
         text = datei.read_text(encoding="utf-8")
         for name in set(re.findall(r"var\((--[\w-]+)", text)):
             assert name in hell and name in dunkel, (datei.name, name)

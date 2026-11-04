@@ -154,8 +154,8 @@ HILFE: dict[Hilfethema, Hilfe] = {
                         "dann selbst so."
                     ),
                     N_(
-                        "Gelernte Regeln lassen sich nicht bearbeiten, nur deaktivieren "
-                        "und neu lernen."
+                        "Gelernte Regeln lassen sich nicht bearbeiten, nur "
+                        "deaktivieren und neu lernen."
                     ),
                 ),
             ),

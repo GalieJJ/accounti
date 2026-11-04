@@ -16,7 +16,6 @@ from pathlib import Path
 WURZEL = Path(__file__).resolve().parents[1]
 STATISCH = WURZEL / "src" / "accounti" / "api" / "statisch"
 CSS = STATISCH / "accounti.css"
-PRUEFEN_CSS = STATISCH / "pruefen.css"
 LEINWAND = WURZEL / "docs" / "design" / "2026-10-26-leinwand"
 
 # --- Kontrast ------------------------------------------------------------------------

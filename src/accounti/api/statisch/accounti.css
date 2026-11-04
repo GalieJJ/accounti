@@ -1,6 +1,6 @@
 /* accounti — Design-System (10c P1), ohne Build-Schritt; Werte: Leinwand und Plan P1 L1–L6.
 Farben nur über Token, Breiten nur 40/64/90rem (schmaler: not all and (min-width: …)). */
-@layer token, basis, layout, bestand, komponenten, seiten, hilfen, druck;
+@layer token, basis, layout, komponenten, seiten, hilfen, druck;
 
 @layer token {
 :root, .thema-hell {
@@ -106,18 +106,6 @@ html{scroll-padding-block-end:calc(var(--leistenhoehe) + env(safe-area-inset-bot
 @media not all and (min-width: 64rem) {
 .layout-einstellungen > :first-child{flex-basis:100%;max-width:none}
 }
-}
-
-/* Alte Regeln aus 10a/10b auf neuen Token; Schritt 12 leert die Ebene */
-@layer bestand {
-.meldung{padding:0.6rem;border-left:4px solid var(--ok);background:var(--flaeche)}
-.fehler{padding:0.6rem;border-left:4px solid var(--fehler);background:var(--flaeche)}
-input, select, button{padding:0.4rem 0.5rem}
-.liste{width:100%;border-collapse:collapse;background:var(--flaeche);margin-top:1rem}
-.liste th, .liste td{padding:0.4rem 0.6rem;border-bottom:1px solid var(--linie);text-align:left}
-.liste .zahl{text-align:right}
-.htmx-request button[type="submit"], button[disabled]{opacity:0.6;cursor:progress}
-.fachmeldung{display:block;margin-top:0.3rem}
 }
 
 @layer komponenten {
@@ -436,6 +424,7 @@ body.geruest{padding-bottom:0}
 .hauptzeile{font-weight:600}
 .liste-kopf{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--a-3)}
 .quelle{font-weight:600}
+.konto-name{color:var(--text-2)}
 /* Arbeitsfläche: Positionszeile, Beleg | Vorschlag und Aktionen */
 .arbeitsflaeche, .arbeitsflaeche .layout-zweispaltig > section, .aktionen{display:flex;flex-direction:column;gap:var(--a-4)}
 .arbeitsflaeche h2, .vorschau p{margin:0}

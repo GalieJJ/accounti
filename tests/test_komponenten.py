@@ -65,8 +65,8 @@ def test_attribute_nur_aus_positivliste():
     assert " formnovalidate" in html and "hx-vals" not in html
     # Prüfungen des Browsers wie im Bestand (Schritt 12): dieselben Felder
     feld = render(
-        '{{ k.feld("soll", "Soll", attribute={"required": true, "pattern": "[0-9]{4,9}",'
-        ' "maxlength": 9, "minlength": 4}) }}'
+        '{{ k.feld("soll", "Soll", attribute={"required": true,'
+        ' "pattern": "[0-9]{4,9}", "maxlength": 9, "minlength": 4}) }}'
     )
     assert ' required pattern="[0-9]{4,9}" maxlength="9" minlength="4">' in feld
     code = render('{{ k.codefeld(attribute={"required": true}) }}')

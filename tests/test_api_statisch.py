@@ -241,3 +241,14 @@ def test_accounti_js_eingebunden_mit_den_mechanismen(welt):
     pruefen = (STATISCH / "pruefen.js").read_text(encoding="utf-8")
     assert "netzhinweis" not in pruefen  # der Fehlerhinweis steht nur in accounti.js
     assert "dataset.tastenkuerzel" in pruefen
+
+
+def test_nur_eine_css_datei(welt):
+    """Plan P1, Entscheidung „Eine CSS-Datei“: nur ``accounti.css`` — ``pruefen.css``
+    entfällt mit Schritt 12, keine Seite bindet ein zweites Stylesheet ein."""
+    assert sorted(p.name for p in STATISCH.glob("*.css")) == ["accounti.css"]
+    for text in seiten_html(welt):
+        verweise = re.findall(r'<link rel="stylesheet" href="([^"]+)"', text)
+        assert verweise == [f"/statisch/accounti.css?v={__version__}"], verweise
+    for datei in VORLAGEN.rglob("*.html"):
+        assert "pruefen.css" not in datei.read_text(encoding="utf-8"), datei.name
