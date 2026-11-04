@@ -36,8 +36,11 @@ from tests.werkzeuge.golden_lader import (
     serialisiere,
 )
 
-# Punktpfade je Lader, die nach 10c neu sind, mit ihrem Standard
-NEUE_FELDER: dict[str, dict[str, Any]] = {}
+# Punktpfade je Lader, die nach 10c neu sind, mit ihrem Standard (Schritt 5: Felder
+# von mandant; alle Golden-Konfigurationen haben sachkonten_laenge 4 bzw. keine)
+NEUE_FELDER: dict[str, dict[str, Any]] = {
+    "lade_firma": {"rechtsform": None, "kennfarbe": None, "sachkonten_laenge": 4},
+}
 ERLAUBT = {
     "neue_felder": NEUE_FELDER,
     "nur_monat_und_tag": ("wirtschaftsjahr_beginn",),

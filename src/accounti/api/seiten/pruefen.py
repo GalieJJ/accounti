@@ -134,9 +134,18 @@ def confidence_prozent(confidence: float) -> int:
     return math.floor(round(confidence * 100, 6))
 
 
-def auto_schwelle() -> float:
+def auto_schwelle(konfiguration: str | None = None) -> float:
+    """``llm.auto_buchen_schwelle`` der Gesellschaft (Baustein 10c P4) — ohne
+    Konfiguration bzw. bei einem Fehler im Abschnitt der Standard."""
     from accounti.buchung.mapper import zu_buchungssatz
+    from accounti.klassifikation.einstellungen import lade_llm
+    from accounti.konfiguration import KonfigurationError
 
+    if konfiguration is not None:
+        try:
+            return lade_llm(konfiguration).auto_buchen_schwelle
+        except KonfigurationError:
+            pass
     wert = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
     return float(wert)
 
@@ -313,7 +322,7 @@ def flaechenwerte(
         "kontonamen": kontonamen(a, konten),
         "steuernamen": steuernamen(),
         "quellen": QUELLEN,
-        "schwelle": auto_schwelle(),
+        "schwelle": auto_schwelle(a.gesellschaft.konfiguration),
         "confidence_prozent": confidence_prozent(b.confidence),
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic_core import PydanticCustomError
 
 from accounti.belege.extraktion import iban_gueltig
 from accounti.einstellungen.inventar import Betriebsfeld
@@ -93,10 +94,59 @@ class Rechnungseinstellungen(BaseModel):
         return wert
 
 
+# Rechtsformen (Baustein 10c, A124; mit P7 abgleichen — Werte kommen nur hinzu)
+Rechtsform = Literal[
+    "einzelunternehmen",
+    "ek",
+    "gbr",
+    "ohg",
+    "kg",
+    "gmbh",
+    "ug",
+    "gmbh_co_kg",
+    "ag",
+    "eg",
+    "partg",
+    "sonstige",
+]
+SACHKONTENLAENGE = range(4, 9)  # DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)
+
+
+def pruefe_sachkonten_laenge(laenge: object) -> int:
+    """``mandant.sachkonten_laenge``: eine ganze Zahl 4 bis 8, ohne Angabe 4. Eine ganze
+    Zahl als Float (``4.0``) gilt (Runde 7, g6w B-5), 4.5 und ``true`` nicht
+    (Runde 6, g5w-konten N2) — ``ValueError`` sonst."""
+    if laenge is None:
+        return 4
+    msg = f"{laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
+    if isinstance(laenge, float) and laenge.is_integer():
+        laenge = int(laenge)
+    if isinstance(laenge, bool) or not isinstance(laenge, int | str):
+        raise ValueError(msg)
+    try:
+        zahl = int(laenge)
+    except ValueError as fehler:
+        raise ValueError(msg) from fehler
+    if zahl not in SACHKONTENLAENGE:
+        raise ValueError(msg)
+    return zahl
+
+
 class Firma(BaseModel):
     name: str
     kuerzel: str | None = Field(
         default=None, description="Schlüssel des Nummernkreises"
+    )
+    rechtsform: Rechtsform | None = None
+    kennfarbe: int | None = Field(
+        default=None,
+        ge=1,
+        le=6,
+        strict=True,
+        description="Farbe der Gesellschaft in der Oberfläche (sonst aus dem Kürzel)",
+    )
+    sachkonten_laenge: int = Field(
+        default=4, description="DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)"
     )
     anschrift: Anschrift
     ust_id: str | None = None
@@ -110,11 +160,21 @@ class Firma(BaseModel):
         description="OSS-registriert: EU-Privatkunden zahlen den Satz ihres Landes",
     )
 
+    @field_validator("sachkonten_laenge", mode="before")
+    @classmethod
+    def _sachkonten_laenge(cls, wert: object) -> int:
+        return pruefe_sachkonten_laenge(wert)
+
     @model_validator(mode="after")
     def _pflichten(self) -> Firma:
         if not (self.ust_id or self.steuernummer):
-            msg = "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)"
-            raise ValueError(msg)
+            # eigene Fehlerart: ein unvollständiger mandant lässt sich als „fehlt
+            # noch“ speichern (Baustein 10c P4, M5) — der Text bleibt derselbe
+            raise PydanticCustomError(
+                "pflicht_fehlt",
+                "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)",
+                {"felder": ["ust_id", "steuernummer"]},
+            )
         if self.kuerzel is None:
             self.kuerzel = self.name
         return self

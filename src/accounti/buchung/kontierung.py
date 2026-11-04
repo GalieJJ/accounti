@@ -131,7 +131,13 @@ def kontiere_umsaetze(
             if ergebnis is None:
                 lauf.offen += 1
                 continue
-            buchung = zu_buchungssatz(tx, ergebnis, bank_konto=einstellungen.bank_konto)
+            # llm.auto_buchen_schwelle (Baustein 10c P4, D18)
+            buchung = zu_buchungssatz(
+                tx,
+                ergebnis,
+                auto_schwelle=engine.auto_buchen_schwelle,
+                bank_konto=einstellungen.bank_konto,
+            )
             begruendung = ergebnis.begruendung
             seite = bankseite(
                 tx, ergebnis.soll_konto, ergebnis.haben_konto, einstellungen.bank_konto

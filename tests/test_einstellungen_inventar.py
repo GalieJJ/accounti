@@ -166,3 +166,71 @@ def test_modelle_und_lader_sind_aufloesbar():
         assert abschnitte <= set(ABSCHNITTE), lader
     for pfad in (*PERIODENFELDER, *UMZUG, *UMZUG.values()):
         assert pfad.split(".")[0] in ABSCHNITTE, pfad
+
+
+def test_neue_felder_abwaertskompatibel():
+    """AK80/A124: Jede Golden-Konfiguration ergibt mit den neuen Modellen (datev, llm,
+    import, einrichtung, einstellungen) die Werte der Datei bzw. die Standards; die
+    neuen Felder von mandant haben ihren Standard (den Rest prüft
+    ``tests/test_lader_golden.py``)."""
+    from accounti.abschluss.konfiguration import TagMonat, lade_datev
+    from accounti.einstellungen.einrichtung import (
+        EinrichtungEinstellungen,
+        lade_einrichtung,
+    )
+    from accounti.importers.einstellungen import ImportEinstellungen, lade_import
+    from accounti.klassifikation.einstellungen import LlmEinstellungen, lade_llm
+    from accounti.konfiguration import lade_firma
+    from tests.werkzeuge.golden_lader import KONFIGURATIONEN, feste_umgebung
+
+    erwartet_datev = {
+        "beispiel": ("12345", "00001", TagMonat(1, 1)),
+        "skr04_abweichend": ("54321", "00042", TagMonat(7, 1)),
+        "leer": (None, None, None),
+        "einzelwerte": ("1234567", "99", TagMonat(4, 1)),
+    }
+    with feste_umgebung():
+        for konfig, pfad in KONFIGURATIONEN.items():
+            datev = lade_datev(pfad)
+            assert (
+                datev.berater_nummer,
+                datev.mandanten_nummer,
+                datev.wirtschaftsjahr_beginn,
+            ) == erwartet_datev[konfig], konfig
+            llm = lade_llm(pfad)
+            assert llm.auto_buchen_schwelle == 0.95, konfig
+            assert llm.model_copy(update={"api_key": None}) == LlmEinstellungen()
+            erwartet_import = (
+                ImportEinstellungen(standard_bank="sparkasse")
+                if konfig == "beispiel"
+                else ImportEinstellungen()
+            )
+            assert lade_import(pfad) == erwartet_import, konfig
+            assert lade_einrichtung(pfad) == EinrichtungEinstellungen()
+            if konfig != "leer":
+                firma = lade_firma(pfad)
+                assert (firma.rechtsform, firma.kennfarbe) == (None, None)
+                assert firma.sachkonten_laenge == 4
+
+
+def test_einstellungsquelle_und_einrichtung():
+    """Datei-Abschnitt ``einstellungen`` (E2) und Datenbank-Abschnitt ``einrichtung``
+    (nur Datenbank, P7) haben ihr Modell."""
+    import pytest
+    from pydantic import ValidationError
+
+    from accounti.einstellungen.einrichtung import EinrichtungEinstellungen
+    from accounti.einstellungen.leser import EinstellungsQuelle
+
+    assert EinstellungsQuelle() == EinstellungsQuelle(quelle="datenbank", festgelegt=[])
+    assert EinstellungsQuelle(festgelegt=["elster"]).festgelegt == ["elster"]
+    with pytest.raises(ValidationError, match="unbekannter Abschnitt"):
+        EinstellungsQuelle(festgelegt=["elstr"])
+    with pytest.raises(ValidationError, match="unbekannter Abschnitt"):
+        EinstellungsQuelle(festgelegt=["server"])  # Betrieb: ohnehin nur die Datei
+    with pytest.raises(ValidationError):
+        EinstellungsQuelle(quelle="beides")  # type: ignore[arg-type]
+    assert EinrichtungEinstellungen(ausgeblendet=["bank"]).ausgeblendet == ["bank"]
+    assert ABSCHNITTE["einrichtung"].ziel == "nur_db"
+    for abschnitt in ("datev", "llm", "import", "einrichtung", "einstellungen"):
+        assert abschnitt in MODELL, abschnitt

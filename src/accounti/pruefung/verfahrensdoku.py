@@ -310,8 +310,8 @@ def _bank(d: _Doku) -> None:
 
 def _kontierung(d: _Doku) -> None:
     from accounti.betrieb.kontext import regeln_datei as regeldatei_der_gesellschaft
-    from accounti.buchung.mapper import zu_buchungssatz
     from accounti.db.repo_kontierung import lade_kontierungsregeln
+    from accounti.klassifikation.einstellungen import LlmEinstellungen, lade_llm
     from accounti.klassifikation.engine import standard_regeln
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -331,7 +331,10 @@ def _kontierung(d: _Doku) -> None:
     except (KonfigurationError, ValueError):
         buchhaltung = Buchhaltung()  # der Fehler steht schon in Abschnitt 1
     standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
-    schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
+    # Schwelle und Modell, wie sie wirken (llm, Baustein 10c P4) — ein Fehler im
+    # Abschnitt steht im Dokument, dann gelten die Standards
+    ki = d.lade(lade_llm, "llm") or LlmEinstellungen()
+    schwelle = ki.auto_buchen_schwelle
     llm = inspect.signature(LLMEngine).parameters
     schalter = buchhaltung.gelernte_regeln
     verbindung = d.s.connection()
@@ -424,7 +427,7 @@ def _kontierung(d: _Doku) -> None:
             )
         )
     d(
-        f"LLM-Stufe: Modell {llm['model'].default}, Ergebnis nur ab Confidence "
+        f"LLM-Stufe: Modell {_zelle(ki.modell)}, Ergebnis nur ab Confidence "
         f"{llm['confidence_schwelle'].default}; Verwendungszweck und Name gehen "
         f"maskiert hinaus. **Automatisch gebucht** (Status auto) wird ab Confidence "
         f"{schwelle}; darunter geht die Buchung zur Prüfung.",

@@ -2776,6 +2776,7 @@ def bank_lauf_befehl(
     from accounti.betrieb.kontext import regeln_datei
     from accounti.db import init_db, session_factory
     from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.klassifikation.einstellungen import lade_llm
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
@@ -2784,6 +2785,7 @@ def bank_lauf_befehl(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        ki = lade_llm(config)
         marktplatz = lade_kontext(config)  # Auszahlungen vor dem Kontieren abgleichen
         # eigene Regeln der Gesellschaft (Registry regeln:), sonst config/regeln.yaml
         # — vor dem Lauf geprüft, geladen unter der Laufsperre
@@ -2808,7 +2810,8 @@ def bank_lauf_befehl(
                     einstellungen.gelernte_regeln,
                     buchhaltung=einstellungen,
                 ),
-                llm=LLMEngine() if llm else None,
+                llm=LLMEngine(model=ki.modell, api_key=ki.api_key) if llm else None,
+                auto_buchen_schwelle=ki.auto_buchen_schwelle,
             )
             ergebnis = bank_lauf(
                 s, engine, einstellungen, sichern=s.commit, marktplatz=marktplatz
@@ -2860,6 +2863,7 @@ def classify(
     from accounti.db import init_db, session_factory
     from accounti.integrationen.auszahlung import umsaetze_ohne_abgleich
     from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.klassifikation.einstellungen import lade_llm
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.llm import LLMEngine
@@ -2868,6 +2872,7 @@ def classify(
 
     try:
         einstellungen = lade_buchhaltung(config)
+        ki = lade_llm(config)
         kontext = lade_kontext(config)
         lade_regeln(regeln_datei())  # prüft die Regeldatei vor dem Lauf
     except KonfigurationError as fehler:
@@ -2890,7 +2895,8 @@ def classify(
                 einstellungen.gelernte_regeln,
                 buchhaltung=einstellungen,
             ),
-            llm=LLMEngine() if llm else None,
+            llm=LLMEngine(model=ki.modell, api_key=ki.api_key) if llm else None,
+            auto_buchen_schwelle=ki.auto_buchen_schwelle,
         )
         # Nur Offenes: schon gebuchte und offenen Posten zugeordnete Zahlungen bleiben
         # unangetastet (sonst Doppelbuchung bzw. doppelter Aufwand) — und wie in bank

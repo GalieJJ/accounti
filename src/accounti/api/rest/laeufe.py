@@ -30,6 +30,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
     from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.klassifikation.einstellungen import lade_llm
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.konfiguration import lade_buchhaltung
@@ -43,6 +44,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
             s, g.regeln, buchhaltung.gelernte_regeln, buchhaltung=buchhaltung
         ),
         llm=None,
+        auto_buchen_schwelle=lade_llm(g.konfiguration).auto_buchen_schwelle,
     )
     ergebnis = bank_lauf(
         s,

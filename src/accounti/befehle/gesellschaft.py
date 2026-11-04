@@ -38,11 +38,11 @@ def _eigene_einstellungen(g: Gesellschaft) -> Iterator[None]:
 
 
 def _wirtschaftsjahr(konfiguration: str) -> str:
-    """``datev.wirtschaftsjahr_beginn`` über den Leser (auch ohne Datei, D25)."""
-    from accounti.einstellungen.leser import lies_abschnitt
+    """``datev.wirtschaftsjahr_beginn`` (Tag und Monat; auch ohne Datei, D25)."""
+    from accounti.abschluss.konfiguration import lade_wirtschaftsjahr_beginn
 
-    beginn = lies_abschnitt(konfiguration, "datev").get("wirtschaftsjahr_beginn")
-    return str(beginn) if beginn else "Kalenderjahr"
+    beginn = lade_wirtschaftsjahr_beginn(konfiguration)
+    return f"{beginn:%d.%m.}" if beginn else "Kalenderjahr"
 
 
 @befehl.command("liste")

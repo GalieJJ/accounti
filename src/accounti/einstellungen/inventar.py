@@ -193,11 +193,14 @@ MELDEPFLICHTIG = frozenset(
 )
 
 # Abschnitt → Modell (Punktname, D16/M4); ``belegkanaele.connectoren[<typ>]`` prüft der
-# Typ des Connectors. ``datev``, ``import``, ``llm`` und ``einrichtung`` bekommen ihr
-# Modell in Schritt 5, ``bwa`` mit 10b-2.
+# Typ des Connectors. ``bwa`` bekommt sein Modell mit 10b-2.
 MODELL: dict[str, str] = {
     "mandant": "accounti.konfiguration.Firma",
     "buchhaltung": "accounti.konfiguration.Buchhaltung",
+    "datev": "accounti.abschluss.konfiguration.DatevEinstellungen",
+    "llm": "accounti.klassifikation.einstellungen.LlmEinstellungen",
+    "import": "accounti.importers.einstellungen.ImportEinstellungen",
+    "einrichtung": "accounti.einstellungen.einrichtung.EinrichtungEinstellungen",
     "ustid_pruefung": "accounti.konfiguration.UstIdEinstellungen",
     "abschluss": "accounti.abschluss.konfiguration.AbschlussEinstellungen",
     "kasse": "accounti.abschluss.konfiguration.KassenEinstellungen",
@@ -217,6 +220,7 @@ MODELL: dict[str, str] = {
     "server": "accounti.api.einstellungen.ServerEinstellungen",
     "auth": "accounti.auth.einstellungen.AuthEinstellungen",
     "gesellschaften": "accounti.betrieb.gesellschaften.Gesellschaften",
+    "einstellungen": "accounti.einstellungen.leser.EinstellungsQuelle",
 }
 
 # ältere Stelle → neue Stelle (D16, G-M2): wird beim ersten Speichern umgezogen
@@ -268,10 +272,10 @@ LADER: dict[str, frozenset[str]] = {
     "accounti.bank.einstellungen.lade_bank_einstellungen": frozenset({"bank"}),
     "accounti.zahlung.konfiguration.lade_zahlung": frozenset({"zahlung", "mandant"}),
     "accounti.export.datev_stammdaten.sachkontenlaenge": frozenset({"mandant"}),
-    "accounti.export.datev_stammdaten.lade_datev_mandant": frozenset(
-        {"datev", *_MANDANT_BUCHHALTUNG}
-    ),
-    "accounti.befehle.gesellschaft._wirtschaftsjahr": frozenset({"datev"}),
+    "accounti.abschluss.konfiguration.lade_datev": frozenset({"datev"}),
+    "accounti.klassifikation.einstellungen.lade_llm": frozenset({"llm"}),
+    "accounti.importers.einstellungen.lade_import": frozenset({"import"}),
+    "accounti.einstellungen.einrichtung.lade_einrichtung": frozenset({"einrichtung"}),
     # Verfahrensdokumentation: Kopf und Abschnitt 1 (mandant), Webhook (belegkanaele)
     "accounti.pruefung.verfahrensdoku._Doku.abschnitt": frozenset(
         {"mandant", "belegkanaele"}

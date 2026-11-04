@@ -180,31 +180,20 @@ def wirtschaftsjahr_beginn(stichtag: date, beginn: date | None = None) -> date:
     return kandidat
 
 
-SACHKONTENLAENGE = range(4, 9)  # DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)
-
-
 def _laenge(firma: dict[str, object]) -> int:
     """``mandant.sachkonten_laenge``: eine ganze Zahl 4 bis 8, ohne Angabe 4. Bisher
     stand jede Zahl im Kopf (0, 3, 9, -1, true als 1) — DATEV lehnt den Stapel ab
     (Runde 6, g5w-konten N2). Eine ganze Zahl als Float (``4.0``) galt bis Runde 5
-    und gilt weiter (Runde 7, g6w B-5); 4.5 nicht."""
-    from accounti.konfiguration import KonfigurationError
+    und gilt weiter (Runde 7, g6w B-5); 4.5 nicht. Dieselbe Prüfung wie das Feld
+    ``Firma.sachkonten_laenge`` (Baustein 10c P4)."""
+    from accounti.konfiguration import KonfigurationError, pruefe_sachkonten_laenge
 
     laenge = firma.get("sachkonten_laenge")
-    if laenge is None:
-        return 4
-    msg = f"mandant.sachkonten_laenge {laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
-    if isinstance(laenge, float) and laenge.is_integer():
-        laenge = int(laenge)
-    if isinstance(laenge, bool) or not isinstance(laenge, int | str):
-        raise KonfigurationError(msg)
     try:
-        zahl = int(laenge)
+        return pruefe_sachkonten_laenge(laenge)
     except ValueError as fehler:
+        msg = f"mandant.sachkonten_laenge {laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
         raise KonfigurationError(msg) from fehler
-    if zahl not in SACHKONTENLAENGE:
-        raise KonfigurationError(msg)
-    return zahl
 
 
 def sachkontenlaenge(pfad: str | Path) -> int:
@@ -229,15 +218,14 @@ def lade_datev_mandant(
     Wirtschaftsjahresbeginn aus ``datev.wirtschaftsjahr_beginn`` (Tag und Monat,
     Standard 1. Januar) für das Wirtschaftsjahr, in dem ``stichtag`` liegt.
     """
-    from accounti.einstellungen.leser import lies_abschnitt
+    from accounti.abschluss.konfiguration import lade_datev
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     datei = Path(pfad)
     # kaputtes YAML: Meldung wie export datev (Runde 7, g6w B-3)
-    datev = lies_abschnitt(datei, "datev")
-    firma = lies_abschnitt(datei, "mandant")
-    berater = berater or str(datev.get("berater_nummer") or "") or None
-    mandant = mandant or str(datev.get("mandanten_nummer") or "") or None
+    datev = lade_datev(datei)
+    berater = berater or datev.berater_nummer
+    mandant = mandant or datev.mandanten_nummer
     if not berater or not berater.isdigit():
         msg = "Beraternummer fehlt — --berater angeben oder datev.berater_nummer setzen"
         raise KonfigurationError(msg)
@@ -247,20 +235,14 @@ def lade_datev_mandant(
             "datev.mandanten_nummer setzen"
         )
         raise KonfigurationError(msg)
-    beginn = datev.get("wirtschaftsjahr_beginn")
-    if isinstance(beginn, str):
-        try:
-            beginn = date.fromisoformat(beginn)
-        except ValueError as fehler:
-            msg = f"datev.wirtschaftsjahr_beginn {beginn!r}: Format JJJJ-MM-TT"
-            raise KonfigurationError(msg) from fehler
-    wj = wirtschaftsjahr_beginn(stichtag, beginn if isinstance(beginn, date) else None)
+    beginn = datev.wirtschaftsjahr_beginn
+    wj = wirtschaftsjahr_beginn(stichtag, beginn.als_datum() if beginn else None)
     # eine Quelle mit USt, Abschluss und Prüfregeln (Gesamttest Betrieb B4)
     rahmen = lade_buchhaltung(datei).kontenrahmen
     return DatevMandant(
         berater=int(berater),
         mandant=int(mandant),
         wj_beginn=wj,
-        sachkontenlaenge=_laenge(firma),
+        sachkontenlaenge=sachkontenlaenge(datei),
         skr=rahmen.upper().removeprefix("SKR")[-2:].zfill(2),
     )

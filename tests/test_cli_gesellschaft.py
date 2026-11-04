@@ -215,7 +215,8 @@ def test_gesellschaft_liste_und_zeigen_ohne_passwort(umgebung, monkeypatch):
     assert "Datenbank nicht lesbar" in r.output and "nicht lesen" in r.output
     r = run("gesellschaft", "zeigen", "a")
     assert r.exit_code == 0, r.output
-    assert "SKR03" in r.output and "2026-01-01" in r.output  # eigene Werte von a
+    # eigene Werte von a; das Wirtschaftsjahr nur nach Tag und Monat (Schritt 5)
+    assert "SKR03" in r.output and "01.01." in r.output
 
 
 def test_kaputte_konfiguration_blockiert_befehle_ohne_konfigurationsbedarf_nicht(

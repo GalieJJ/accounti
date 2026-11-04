@@ -50,6 +50,7 @@ from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from accounti.einstellungen.inventar import ABSCHNITTE, BETRIEBSFELDER, info
 
@@ -227,26 +228,45 @@ def _abschnitt_der_datei(
     return wert
 
 
+_DATENBANK_ABSCHNITTE = frozenset(n for n, i in ABSCHNITTE.items() if i.ziel == "db")
+
+
+class EinstellungsQuelle(BaseModel):
+    """Datei-Abschnitt ``einstellungen`` (Spec E2): ``quelle: datei`` legt alle
+    Abschnitte in der Datei fest, ``festgelegt`` nur die genannten."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    quelle: Literal["datenbank", "datei"] = "datenbank"
+    festgelegt: list[str] = Field(default_factory=list)
+
+    @field_validator("festgelegt")
+    @classmethod
+    def _bekannt(cls, wert: list[str]) -> list[str]:
+        unbekannt = sorted(n for n in wert if n not in _DATENBANK_ABSCHNITTE)
+        if unbekannt:
+            msg = (
+                f"unbekannter Abschnitt {', '.join(unbekannt)} "
+                f"(möglich: {', '.join(sorted(_DATENBANK_ABSCHNITTE))})"
+            )
+            raise ValueError(msg)
+        return wert
+
+
 def _festlegung(datei: Mapping[str, Any], pfad: Path) -> tuple[bool, frozenset[str]]:
     """(``einstellungen.quelle: datei``?, ``einstellungen.festgelegt``) der Datei."""
     abschnitt = _abschnitt_der_datei(datei, pfad, "einstellungen") or {}
-    quelle = abschnitt.get("quelle", "datenbank")
-    if quelle not in ("datenbank", "datei"):
-        msg = f"{pfad}: einstellungen.quelle {quelle!r}: datenbank oder datei"
-        raise KonfigurationError(msg)
-    festgelegt = abschnitt.get("festgelegt") or []
-    if not isinstance(festgelegt, list):
-        msg = f"{pfad}: einstellungen.festgelegt: Liste von Abschnitten erwartet"
-        raise KonfigurationError(msg)
-    erlaubt = {n for n, i in ABSCHNITTE.items() if i.ziel == "db"}
-    unbekannt = sorted(str(n) for n in festgelegt if n not in erlaubt)
-    if unbekannt:
-        msg = (
-            f"{pfad}: einstellungen.festgelegt: unbekannter Abschnitt "
-            f"{', '.join(unbekannt)} (möglich: {', '.join(sorted(erlaubt))})"
-        )
-        raise KonfigurationError(msg)
-    return quelle == "datei", frozenset(str(n) for n in festgelegt)
+    try:
+        quelle = EinstellungsQuelle.model_validate(abschnitt)
+    except ValidationError as fehler:
+        teile = []
+        for f in fehler.errors():
+            feld = ".".join(str(x) for x in f["loc"][:1])
+            wert = f" {f['input']!r}" if feld == "quelle" else ""
+            grund = str(f["msg"]).removeprefix("Value error, ")
+            teile.append(f"einstellungen.{feld}{wert}: {grund}")
+        raise KonfigurationError(f"{pfad}: {'; '.join(teile)}") from fehler
+    return quelle.quelle == "datei", frozenset(quelle.festgelegt)
 
 
 # ---------------------------------------------------------------------------

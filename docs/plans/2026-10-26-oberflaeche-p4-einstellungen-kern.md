@@ -1291,12 +1291,12 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 5 — Neue und geänderte Felder, fehlende Modelle (A44, A124) · P4a
 
-- [ ] **`mandant`**: `rechtsform: Literal["einzelunternehmen", "ek", "gbr", "ohg", "kg", "gmbh",
+- [x] **`mandant`**: `rechtsform: Literal["einzelunternehmen", "ek", "gbr", "ohg", "kg", "gmbh",
   "ug", "gmbh_co_kg", "ag", "eg", "partg", "sonstige"] | None`, `kennfarbe: int | None` (1–6). Beides
   steht in `Firma` und wird nachsichtig in `lade_eigene_firma` gelesen (P5 macht `kennfarbe`
   wählbar; P1 leitet die Farbe aus dem Kürzel ab und liest keine YAML, P1-Plan B4). Dazu `sachkonten_laenge: int = 4` (heute nur von `datev_stammdaten` roh gelesen;
   D16, M4) und `_pflichten` mit der Fehlerart `pflicht_fehlt` (D16, M5; Text unverändert).
-- [ ] **`datev`**: Modell `DatevEinstellungen` (`berater_nummer: str | None`, `mandanten_nummer:
+- [x] **`datev`**: Modell `DatevEinstellungen` (`berater_nummer: str | None`, `mandanten_nummer:
   str | None`, je nur Ziffern; eine Zahl aus der YAML wird wie heute über `str()` zu Text, damit
   `berater_nummer: 12345` gültig bleibt, Prüfbefund N9; führende Nullen gehen dabei wie heute
   verloren, die Vorlage schreibt Text), `wirtschaftsjahr_beginn: TagMonat | None`) und
@@ -1313,7 +1313,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   `::test_wirtschaftsjahr_ungueltig_nennt_pfad`, `::test_rechtsform_und_kennfarbe`,
   `::test_kennfarbe_ausserhalb_1_bis_6`, `::test_datev_nummern_als_zahl_und_text` (N9),
   `::test_pflichten_fehlerart_pflicht_fehlt_text_gleich` (M5).
-- [ ] **`llm`** (D18): `LlmEinstellungen(provider, model, api_key: str | None, auto_buchen_schwelle
+- [x] **`llm`** (D18): `LlmEinstellungen(provider, model, api_key: str | None, auto_buchen_schwelle
   = 0.95, pruefung_schwelle = 0.70)` mit `pruefung_schwelle ≤ auto_buchen_schwelle`,
   `lade_llm(pfad)`.
   - **`${VAR}` nur in `api_key` und nachsichtig** (G-M5): Fehlt die Variable (die Vorlage hat
@@ -1336,18 +1336,67 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   `::test_verfahrensdoku_nennt_die_wirksame_schwelle`, `::test_ohne_api_key_variable_laeuft_no_llm`
   (Vorlage, `ANTHROPIC_API_KEY` nicht gesetzt → `lade_llm().api_key is None`, `bank lauf --no-llm`
   und `verfahrensdoku` mit Exit 0; G-M5).
-- [ ] **`import`**: `ImportEinstellungen(standard_bank: str | None, duplikat_check: bool = True)`,
+- [x] **`import`**: `ImportEinstellungen(standard_bank: str | None, duplikat_check: bool = True)`,
   `lade_import`. Die Wirkung bleibt unverändert (Grenzen).
-- [ ] **Datei-Abschnitt `einstellungen`**: `EinstellungsQuelle(quelle: Literal["datenbank",
+- [x] **Datei-Abschnitt `einstellungen`**: `EinstellungsQuelle(quelle: Literal["datenbank",
   "datei"] = "datenbank", festgelegt: list[str] = [])`. Unbekannte Abschnittsnamen sind ein
   Fehler mit Pfad.
-- [ ] **Datenbank-Abschnitt `einrichtung`**: `EinrichtungEinstellungen(ausgeblendet: list[str] =
+- [x] **Datenbank-Abschnitt `einrichtung`**: `EinrichtungEinstellungen(ausgeblendet: list[str] =
   [])`, nur Datenbank (für P7).
 - [ ] **`elster.vier_augen: bool = False`** kommt erst mit P4c in Schritt 11 (Feld, Stufen,
   Wirkung zusammen; D28).
 
   *Tests* `tests/test_einstellungen_inventar.py::test_neue_felder_abwaertskompatibel` (jede
   Golden-Konfiguration ergibt dieselben Werte, die neuen Felder ihren Standard; AK80).
+
+  *Umgesetzt (Schritt 5), Abweichungen und Ergänzungen:*
+  - `Firma.rechtsform` (Literal wie oben), `Firma.kennfarbe` (1–6, strikt ganzzahlig),
+    `Firma.sachkonten_laenge` (Standard 4) mit **derselben** Prüfung wie der DATEV-Export
+    (`konfiguration.pruefe_sachkonten_laenge`: 4 bis 8, `4.0` gilt, `4.5`/`true` nicht;
+    `datev_stammdaten._laenge` nutzt sie). Golden: `NEUE_FELDER["lade_firma"]`.
+    `lade_eigene_firma` bleibt nachsichtig (validiert `Firma` nicht).
+  - `_pflichten` wirft `PydanticCustomError("pflicht_fehlt", …, {"felder": [...]})`; der
+    Text in `_fehlertext` bleibt gleich (kein „Value error,“ davor).
+  - **`TagMonat`** und **`DatevEinstellungen`**/`lade_datev` liegen in
+    `abschluss/konfiguration.py`. `TagMonat(monat, tag)` ist eine Dataclass mit
+    Pydantic-Schema (liest „MM-TT“, „TT.MM.“, JJJJ-MM-TT und das YAML-Datum; JSON „MM-TT“),
+    `als_datum()` → `date(2000, m, t)`. Die Meldung nennt alle Formate (enthält weiter
+    „JJJJ-MM-TT“, `tests/test_abschluss_wirtschaftsjahr.py::test_falsches_format`).
+  - **Abweichung:** `lade_wirtschaftsjahr_beginn` prüft nur `wirtschaftsjahr_beginn` über
+    das Modell, nicht den ganzen Abschnitt — eine fehlerhafte Beraternummer hält so den
+    Abschluss nicht auf (die prüft `lade_datev` beim DATEV-Export). Er liefert jetzt
+    `date(2000, m, t)`; alle Verbraucher nutzen nur Tag und Monat (nachgeprüft).
+    `lade_datev_mandant` liest über `lade_datev` (eine ungültige Nummer in der Datei ist
+    jetzt auch mit `--berater` ein Fehler) und `sachkontenlaenge`; beide stehen damit
+    nicht mehr in `LADER`, ebenso `befehle/gesellschaft._wirtschaftsjahr` (zeigt jetzt
+    „01.07.“ statt des Rohwerts). `befehle/betrieb` nutzte schon den Lader (Schritt 4).
+  - **Abweichung:** `LlmEinstellungen`/`lade_llm` liegen in
+    `klassifikation/einstellungen.py` (neu), nicht in `klassifikation/llm.py` — dieses
+    importiert litellm beim Laden, das brauchte sonst jeder Lauf ohne LLM. `modell` =
+    `"<provider>/<model>"`. `${VAR}` nur in `api_key`, nachsichtig (fehlt eine Variable:
+    `None`). `pruefung_schwelle` ist geprüft (≤ `auto_buchen_schwelle`, 0–1), wirkt aber
+    nicht (wie bisher).
+  - Verdrahtet: `classify` und `bank lauf` (`LLMEngine(model=…, api_key=…)`,
+    `KlassifikationsEngine(auto_buchen_schwelle=…)`), `POST /api/v1/laeufe/bank`,
+    `kontiere_umsaetze` → `zu_buchungssatz(auto_schwelle=engine.auto_buchen_schwelle)`;
+    `LLMEngine` gibt `api_key` nur weiter, wenn er gesetzt ist. Verfahrensdokumentation
+    (Abschnitt 2.3: Schwelle, Modell, „Prüfen“-Spalte der eigenen Regeln) und die
+    Prüfen-Seite (`auto_schwelle(konfiguration)`, Anzeige der Schwelle) nehmen die
+    wirksamen Werte. **Grenze:** Die Kontierung **mit Beleg** (`buchung/mit_beleg.py`)
+    vergleicht die Confidence einer Regel weiter mit der festen 0,95 (nur der Hinweis
+    „zur Prüfung“ am Sachkonto); das bleibt außerhalb von P4a.
+  - `ImportEinstellungen`/`lade_import` in `importers/einstellungen.py` (neu, ohne
+    Wirkung). `EinrichtungEinstellungen`/`lade_einrichtung` in
+    `einstellungen/einrichtung.py` (neu; nur Datenbank). `EinstellungsQuelle` in
+    `einstellungen/leser.py` (`extra="forbid"`; `_festlegung` prüft über das Modell, die
+    Meldungen nennen weiter `einstellungen.quelle`/`einstellungen.festgelegt`).
+  - `inventar.MODELL` um `datev`, `llm`, `import`, `einrichtung`, `einstellungen`
+    ergänzt; `LADER` um `lade_datev`, `lade_llm`, `lade_import`, `lade_einrichtung`.
+  - Tests: `test_konfiguration.py` (Schritt-5-Block, auch
+    `::test_sachkonten_laenge_wie_der_datev_export`), `test_llm_einstellungen.py` (auch
+    `::test_classify_nimmt_die_schwelle_der_konfiguration`,
+    `::test_llm_stufe_bekommt_modell_und_schluessel`), `test_einstellungen_inventar.py::
+    test_neue_felder_abwaertskompatibel`, `::test_einstellungsquelle_und_einrichtung`.
 
 ### Schritt 6 — Periodenwerte (E3, A46 Teil 1) · P4a
 

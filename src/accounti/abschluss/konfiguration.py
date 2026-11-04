@@ -15,12 +15,20 @@ Rumpfwirtschaftsjahre unterstützt accounti nicht).
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import (
+    BaseModel,
+    Field,
+    GetCoreSchemaHandler,
+    ValidationError,
+    field_validator,
+)
+from pydantic_core import core_schema
 
 from accounti.abschluss.kontenrahmen import (
     Gewinnermittlung,
@@ -32,6 +40,7 @@ from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
+    _fehlertext,
     lade_buchhaltung,
 )
 
@@ -112,16 +121,120 @@ def wirtschaftsjahr_zum(tag: date, beginn: date | None = None) -> Wirtschaftsjah
     return wj if tag <= wj.bis else wirtschaftsjahr(tag.year + 1, beginn)
 
 
-def lade_wirtschaftsjahr_beginn(pfad: str | Path = STANDARD_PFAD) -> date | None:
-    """``datev.wirtschaftsjahr_beginn`` (Tag und Monat) — ohne: Kalenderjahr."""
-    wert = lies_abschnitt(Path(pfad), "datev").get("wirtschaftsjahr_beginn")
-    if wert is None or isinstance(wert, date):
-        return wert
+_TAG_MONAT = re.compile(r"^(\d{2})-(\d{2})$")
+_TT_MM = re.compile(r"^(\d{1,2})\.(\d{1,2})\.?$")
+_FORMAT = 'Tag und Monat als MM-TT (z. B. "07-01"), TT.MM. oder JJJJ-MM-TT'
+
+
+@dataclass(frozen=True, order=True)
+class TagMonat:
+    """Tag und Monat ohne Jahr (Beginn des Wirtschaftsjahres, Baustein 10c P4).
+
+    Gelesen werden „MM-TT“, „TT.MM.“, ein Datum mit Jahr (das Jahr zählt nicht, N2) und
+    das YAML-Datum; geschrieben wird „MM-TT“."""
+
+    monat: int
+    tag: int
+
+    def __post_init__(self) -> None:
+        self.als_datum()  # 31.02. o. Ä. ist ein ValueError
+
+    def als_datum(self) -> date:
+        """Ein Datum mit diesem Tag und Monat — im Schaltjahr 2000 (der 29.02. gilt,
+        ``wirtschaftsjahr`` nimmt in anderen Jahren den 28.)."""
+        return date(2000, self.monat, self.tag)
+
+    def __str__(self) -> str:
+        return f"{self.monat:02d}-{self.tag:02d}"
+
+    @property
+    def deutsch(self) -> str:
+        return f"{self.tag:02d}.{self.monat:02d}."
+
+    @classmethod
+    def lies(cls, wert: object) -> TagMonat:
+        if isinstance(wert, TagMonat):
+            return wert
+        if isinstance(wert, date):  # auch datetime
+            return cls(wert.month, wert.day)
+        if isinstance(wert, str):
+            text = wert.strip()
+            try:
+                if treffer := _TAG_MONAT.match(text):
+                    return cls(int(treffer[1]), int(treffer[2]))
+                if treffer := _TT_MM.match(text):
+                    return cls(int(treffer[2]), int(treffer[1]))
+                tag = date.fromisoformat(text)
+            except ValueError:
+                pass
+            else:
+                return cls(tag.month, tag.day)
+        raise ValueError(f"{wert!r}: {_FORMAT}")
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, quelle: Any, handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            cls.lies,
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str, when_used="json"
+            ),
+        )
+
+
+def _datev_nummer(wert: object) -> str | None:
+    """Beraternummer bzw. Mandantennummer: nur Ziffern; eine Zahl aus der YAML wird wie
+    bisher Text (N9: führende Nullen gehen dabei verloren, die Vorlage schreibt
+    Text)."""
+    if isinstance(wert, bool) or not isinstance(wert, int | str | None):
+        raise ValueError(f"{wert!r}: nur Ziffern")
+    text = str(wert).strip() if wert is not None else ""
+    if text and not text.isdigit():
+        raise ValueError(f"{wert!r}: nur Ziffern")
+    return text or None
+
+
+class DatevEinstellungen(BaseModel):
+    """Abschnitt ``datev`` (Baustein 10c P4, A44)."""
+
+    berater_nummer: str | None = None
+    mandanten_nummer: str | None = None
+    wirtschaftsjahr_beginn: TagMonat | None = Field(
+        default=None, description="nur Tag und Monat (abweichendes WJ, § 4a EStG)"
+    )
+
+    _nummern = field_validator("berater_nummer", "mandanten_nummer", mode="before")(
+        _datev_nummer
+    )
+
+
+def _datev_fehler(pfad: Path, fehler: ValidationError) -> KonfigurationError:
+    return KonfigurationError(f"{pfad}: {_fehlertext(fehler, 'datev')}")
+
+
+def lade_datev(pfad: str | Path = STANDARD_PFAD) -> DatevEinstellungen:
+    """Abschnitt ``datev``: Berater- und Mandantennummer, Beginn des
+    Wirtschaftsjahres."""
+    pfad = Path(pfad)
     try:
-        return date.fromisoformat(str(wert))
-    except ValueError as fehler:
-        msg = f"{pfad}: datev.wirtschaftsjahr_beginn {wert!r}: Format JJJJ-MM-TT"
-        raise KonfigurationError(msg) from fehler
+        return DatevEinstellungen.model_validate(lies_abschnitt(pfad, "datev"))
+    except ValidationError as fehler:
+        raise _datev_fehler(pfad, fehler) from fehler
+
+
+def lade_wirtschaftsjahr_beginn(pfad: str | Path = STANDARD_PFAD) -> date | None:
+    """``datev.wirtschaftsjahr_beginn`` (Tag und Monat, als Datum im Jahr 2000) — ohne:
+    Kalenderjahr. Liest nur dieses Feld: eine fehlerhafte Beraternummer hält den
+    Abschluss nicht auf (die prüft ``lade_datev`` beim DATEV-Export)."""
+    pfad = Path(pfad)
+    wert = lies_abschnitt(pfad, "datev").get("wirtschaftsjahr_beginn")
+    try:
+        datev = DatevEinstellungen.model_validate({"wirtschaftsjahr_beginn": wert})
+    except ValidationError as fehler:
+        raise _datev_fehler(pfad, fehler) from fehler
+    beginn = datev.wirtschaftsjahr_beginn
+    return beginn.als_datum() if beginn is not None else None
 
 
 class AbschlussEinstellungen(BaseModel):

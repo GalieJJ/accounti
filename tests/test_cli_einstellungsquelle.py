@@ -204,9 +204,9 @@ def test_gesellschaft_liste_zeigt_kontenrahmen_je_datenbank(tmp_path, monkeypatc
     assert "SKR03" in zeilen["a"] and "SKR04" in zeilen["b"]
     r = runner.invoke(app, ["gesellschaft", "zeigen", "b"], env={"COLUMNS": "250"})
     assert r.exit_code == 0, r.output
-    assert "SKR04" in r.output and "2025-10-01" in r.output
+    assert "SKR04" in r.output and "01.10." in r.output
     r = runner.invoke(app, ["gesellschaft", "zeigen", "a"], env={"COLUMNS": "250"})
-    assert "SKR03" in r.output and "2026-01-01" in r.output
+    assert "SKR03" in r.output and "01.01." in r.output
 
 
 def test_fremder_registry_pfad_fail_closed(tmp_path, monkeypatch):

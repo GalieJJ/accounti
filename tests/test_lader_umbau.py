@@ -190,9 +190,6 @@ def _doku_abschnitte(pfad: Path) -> Any:
 
 # Aufruf je Lader (Signaturen mit mehr als dem Pfad)
 AUFRUF: dict[str, Callable[[Path], Any]] = {
-    "accounti.export.datev_stammdaten.lade_datev_mandant": lambda p: objekt(
-        "accounti.export.datev_stammdaten.lade_datev_mandant"
-    )(p, date(2026, 3, 31)),
     "accounti.pruefung.verfahrensdoku._Doku.abschnitt": _doku_abschnitte,
 }
 
@@ -404,17 +401,29 @@ WIRKUNG: dict[str, tuple[str, dict[str, Any], Callable[[Any], Any], Any]] = {
         lambda n: n,
         6,
     ),
-    "accounti.export.datev_stammdaten.lade_datev_mandant": (
+    "accounti.abschluss.konfiguration.lade_datev": (
         "datev",
-        {"berater_nummer": "4711", "mandanten_nummer": "42"},
-        lambda m: (m.berater, m.mandant, m.sachkontenlaenge),
-        (4711, 42, 4),
+        {"berater_nummer": "4711", "wirtschaftsjahr_beginn": "07-01"},
+        lambda d: (d.berater_nummer, d.mandanten_nummer, str(d.wirtschaftsjahr_beginn)),
+        ("4711", None, "07-01"),
     ),
-    "accounti.befehle.gesellschaft._wirtschaftsjahr": (
-        "datev",
-        {"wirtschaftsjahr_beginn": "2025-07-01"},
-        lambda t: "07-01" in t,
-        True,
+    "accounti.klassifikation.einstellungen.lade_llm": (
+        "llm",
+        {"auto_buchen_schwelle": 0.9},
+        lambda k: (k.auto_buchen_schwelle, k.api_key),
+        (0.9, "golden-llm-schluessel"),  # ${ANTHROPIC_API_KEY} der Datei gilt
+    ),
+    "accounti.importers.einstellungen.lade_import": (
+        "import",
+        {"duplikat_check": False},
+        lambda i: (i.standard_bank, i.duplikat_check),
+        (None, False),
+    ),
+    "accounti.einstellungen.einrichtung.lade_einrichtung": (
+        "einrichtung",
+        {"ausgeblendet": ["bank"]},
+        lambda e: e.ausgeblendet,
+        ["bank"],
     ),
     "accounti.pruefung.verfahrensdoku._Doku.abschnitt": (
         "mandant",
