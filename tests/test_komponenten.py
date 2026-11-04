@@ -305,6 +305,34 @@ def test_tabellenrahmen_scrollt_statt_abzuschneiden():
                 assert wert not in ("hidden", "clip"), (r.kopf, name, wert)
 
 
+def test_sortieren_auch_in_der_kartenform():
+    """P1 Runde 2 (gp1-design B6): Unter 64rem ist der Tabellenkopf versteckt — die
+    Sortierlinks waren dort unsichtbar fokussierbar, Sortieren ging nicht. Eine Tabelle
+    mit sortierbaren Spalten (``tabelle-sortierbar``) zeigt in der Kartenform eine
+    Zeile mit den Sortierlinks; Spalten ohne Sortierung bleiben nur für Screenreader."""
+    from tests.design_hilfe import css, selektoren, stilregeln
+
+    html = render(
+        '{% call k.tabelle("Umsätze", [Spalte("Datum", sortierung="absteigend", '
+        'href="/x?s=datum"), Spalte("Text")]) %}{% endcall %}'
+    )
+    assert '<table class="tabelle tabelle-sortierbar" role="table">' in html
+    assert "tabelle-sortierbar" not in render(
+        '{% call k.tabelle("Umsätze", [Spalte("Text")]) %}{% endcall %}'
+    )
+    schmal = {}
+    for s in stilregeln(css()):
+        if any("not all and (min-width: 64rem)" in m for m in s.medien):
+            for sel in selektoren(s.regel.kopf):
+                schmal.setdefault(sel, {}).update(dict(s.regel.deklarationen))
+    kopf = schmal[".tabelle-sortierbar:not(.tabelle-kompakt) thead"]
+    assert kopf["position"] == "static" and kopf["clip-path"] == "none"
+    zeile = schmal[".tabelle-sortierbar:not(.tabelle-kompakt) thead tr"]
+    assert zeile["display"] == "flex"
+    ohne = schmal[".tabelle-sortierbar:not(.tabelle-kompakt) th:not([aria-sort])"]
+    assert ohne["clip-path"] == "inset(50%)"
+
+
 def test_spaltenkopf_aria_sort():
     for sortierung, aria, symbol in (
         ("aufsteigend", "ascending", "arrow-up"),

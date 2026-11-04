@@ -231,6 +231,10 @@ unter 64rem Karten */
 .tabelle:not(.tabelle-kompakt) td{display:grid;grid-template-columns:minmax(6rem, 40%) minmax(0, 1fr);gap:var(--a-3);padding:var(--a-1) 0;text-align:left;overflow-wrap:anywhere}
 .tabelle:not(.tabelle-kompakt) td::before{content:attr(data-label);content:attr(data-label) / "";color:var(--text-2)}
 .tabelle:not(.tabelle-kompakt) caption{display:block}
+/* Sortieren auch in der Kartenform: die Sortierlinks als Zeile über den Karten */
+.tabelle-sortierbar:not(.tabelle-kompakt) thead{position:static;width:auto;height:auto;clip-path:none}
+.tabelle-sortierbar:not(.tabelle-kompakt) thead tr{display:flex;flex-wrap:wrap;gap:0 var(--a-4);padding:var(--a-1) var(--a-4)}
+.tabelle-sortierbar:not(.tabelle-kompakt) th:not([aria-sort]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 }
 /* Angaben */
 .angaben{display:grid;grid-template-columns:fit-content(14rem) minmax(0, 1fr);gap:var(--a-3) var(--a-45);margin:0}
