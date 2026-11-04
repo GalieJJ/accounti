@@ -9,6 +9,7 @@ spätere Migration daran kettet.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from pathlib import Path
 
@@ -18,12 +19,18 @@ from typer.testing import CliRunner
 from accounti.cli import app
 from tests.pg_hilfe import mit_postgresql
 from tests.pg_hilfe import pg_datenbank as pg_datenbank  # noqa: F401 (Fixture)
+from tests.test_einstellungen_tabellen import ersetzen_wege
 from tests.test_migration_web import WURZEL, alembic, bestand, ok
 
 # Baustein 10c P4a: einstellungen, einstellungsantraege, geheimnisse
 REV = "83dfa5750c7f"
 NEU = {"einstellungen", "einstellungsantraege", "geheimnisse"}
-TRIGGER = {"einstellungen_kein_update", "einstellungen_kein_delete"}
+# Ändern, Löschen und Ersetzen (REPLACE INTO / INSERT OR REPLACE, db-1)
+TRIGGER = {
+    "einstellungen_kein_update",
+    "einstellungen_kein_delete",
+    "einstellungen_kein_ersetzen",
+}
 runner = CliRunner()
 
 
@@ -103,8 +110,22 @@ def test_upgrade_auf_bestand(tmp_path):
             v.execute("UPDATE einstellungen SET grund = 'x'")
         with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
             v.execute("DELETE FROM einstellungen")
+        for sql, werte in ersetzen_wege(v):
+            with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
+                v.execute(sql, werte)
+        assert v.execute("SELECT count(*) FROM einstellungen").fetchone() == (1,)
     ok(alembic(db, "upgrade", "head"))
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
+
+
+def test_migration_nutzt_die_werte_der_tabelle():
+    """Die Migration trägt Trigger-Text und eindeutige Schlüssel als eigene Konstanten
+    (eine Migration hängt nicht an späterem Code) — gleich denen der Tabelle."""
+    from accounti.db import tabellen_einstellungen as tabelle
+
+    modul = _skripte().get_revision(REV).module
+    assert modul.TRIGGER_TEXT == tabelle.TRIGGER_TEXT
+    assert modul.EINDEUTIG == tabelle.EINDEUTIG
 
 
 def test_migration_uebernimmt_was_init_db_anlegte(tmp_path):
@@ -169,8 +190,9 @@ def test_downgrade_mit_versionen_bricht_ab(tmp_path, tabelle):
 
 def test_db_upgrade_leitet_stand_ab(tmp_path):
     """Paket A: Eine Datenbank ohne Vermerk auf dem Stand ``VOR`` — ``db upgrade``
-    leitet ``VOR`` aus dem Schema ab (die neuen Tabellen fehlen) und holt ``REV`` nach;
-    hat ``init_db`` sie schon angelegt, zählt der Schritt trotzdem als offen."""
+    leitet ``VOR`` aus dem Schema ab (die neuen Tabellen fehlen) und holt ``REV`` nach
+    (Tabellen und Trigger aus der Migration). Den Fall „``init_db`` vorher“ prüft
+    ``test_db_upgrade_nach_init_db_leitet_rev_ab``."""
     db = tmp_path / "alt.db"
     ok(alembic(db, "upgrade", VOR))
     with sqlite3.connect(db) as v:
@@ -182,6 +204,40 @@ def test_db_upgrade_leitet_stand_ab(tmp_path):
     assert f"abgeleitet: {VOR}" in r.output
     tabellen, trigger = _schema(db)
     assert tabellen >= NEU and trigger == TRIGGER
+    assert "No new upgrade operations detected" in ok(alembic(db, "check"))
+
+
+def test_db_upgrade_nach_init_db_leitet_rev_ab(tmp_path):
+    """db-2: Ohne Vermerk auf dem Stand ``VOR``, dann legt ein Befehl des neuen Codes
+    per ``init_db`` die drei Tabellen an — ``db upgrade`` leitet ``REV`` ab (der Schritt
+    hinterlässt nur neue Tabellen, die da sind) und führt ihn nicht aus. Die Trigger
+    stammen dann aus ``after_create``; sie sind trotzdem alle da."""
+    from accounti.db import init_db, session_factory
+
+    db = tmp_path / "alt.db"
+    ok(alembic(db, "upgrade", VOR))
+    with sqlite3.connect(db) as v:
+        v.execute("DROP TABLE alembic_version")
+    engine, _ = session_factory(f"sqlite:///{db}")
+    init_db(engine)
+    engine.dispose()
+    tabellen, trigger = _schema(db)
+    assert tabellen >= NEU and trigger == TRIGGER  # aus after_create
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    (abgeleitet,) = re.findall(r"Stand aus dem Schema abgeleitet: (\w+)", r.output)
+    # REV oder — kettet sich später eine Migration an — ein Nachfolger von REV
+    kette = [x.revision for x in _skripte().iterate_revisions(abgeleitet, "base")]
+    assert REV in kette
+    assert "(0 Migration(en))" in r.output  # REV lief nicht
+    assert _schema(db) == (tabellen | {"alembic_version"}, TRIGGER)
+    with sqlite3.connect(db) as v:
+        _version_einfuegen(v)
+        for sql, werte in ersetzen_wege(v):
+            with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
+                v.execute(sql, werte)
     assert "No new upgrade operations detected" in ok(alembic(db, "check"))
 
 

@@ -7,9 +7,10 @@ Create Date: 2026-11-04 11:00:00.000000
 Drei Tabellen: ``einstellungen`` (Versionen je Abschnitt, nur anfügen, Hash-Kette),
 ``einstellungsantraege`` (Anträge auf eine Lockerung, K3) und ``geheimnisse``
 (Chiffrate). ``einstellungen`` lehnt Ändern und Löschen auch für rohes SQL ab — unter
-SQLite per Trigger, unter PostgreSQL über die Funktion ``accounti_nur_anfuegen()`` mit
-Triggern für UPDATE/DELETE je Zeile und TRUNCATE (``db/schutz.py``, dieselben
-Anweisungen wie ``after_create``, wiederholbar).
+SQLite per Trigger (UPDATE, DELETE und ein INSERT, das eine vorhandene Zeile ersetzen
+würde: REPLACE INTO / INSERT OR REPLACE), unter PostgreSQL über die Funktion
+``accounti_nur_anfuegen()`` mit Triggern für UPDATE/DELETE je Zeile und TRUNCATE
+(``db/schutz.py``, dieselben Anweisungen wie ``after_create``, wiederholbar).
 
 Hat ein Befehl des neuen Codes die Tabellen schon angelegt (``init_db`` vor der
 Migration), übernimmt die Migration sie und legt nur an, was fehlt. Sie läuft gegen jede
@@ -36,6 +37,9 @@ depends_on: Union[str, Sequence[str], None] = None
 TABELLEN = ('einstellungen', 'einstellungsantraege', 'geheimnisse')
 # Text der Trigger (wie tabellen_einstellungen.TRIGGER_TEXT)
 TRIGGER_TEXT = 'Die Einstellungsversion'
+# eindeutige Schlüssel für den SQLite-Trigger gegen REPLACE (wie
+# tabellen_einstellungen.EINDEUTIG)
+EINDEUTIG = (('id',), ('abschnitt', 'version'), ('hash',))
 
 
 def _tabellen() -> set[str]:
@@ -103,7 +107,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('name')
         )
-    for sql in nur_anfuegen_sql('einstellungen', TRIGGER_TEXT, op.get_bind().dialect.name):
+    for sql in nur_anfuegen_sql(
+        'einstellungen', TRIGGER_TEXT, op.get_bind().dialect.name, eindeutig=EINDEUTIG
+    ):
         op.execute(sql)
 
 

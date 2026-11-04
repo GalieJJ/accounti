@@ -1,13 +1,16 @@
 """Tabellen der Einstellungen in der Datenbank der Gesellschaft (Baustein 10c, P4).
 
-* ``einstellungen`` — je Abschnitt nummerierte Versionen, **nur anfügen**: Ändern und
-  Löschen scheitern am ORM, an ``db.GESCHUETZT`` (Massenwege) und an Triggern unter
-  SQLite und PostgreSQL (``db/schutz.py``, ``after_create`` und Migration). Jede
+* ``einstellungen`` — je Abschnitt nummerierte Versionen, **nur anfügen**: Ändern,
+  Löschen und Ersetzen scheitern am ORM, an ``db.GESCHUETZT`` (Massenwege) und an
+  Triggern unter SQLite (auch gegen ``REPLACE INTO``) und PostgreSQL
+  (``db/schutz.py``, ``after_create`` und Migration). Jede
   Version trägt den Hash ihrer Spalten und den ihres Vorgängers im selben Abschnitt
   (``repo_einstellungen.versionshash``); ``daten`` ist kanonisches JSON in Normalform.
 * ``einstellungsantraege`` — Anträge auf eine Lockerung (K3): veränderlich nur aus
-  „offen“ heraus und nur in Status und Entscheidungsfeldern, nie gelöscht.
-* ``geheimnisse`` — Chiffrate (Tresor, ``ACCOUNTI_SCHLUESSEL``), je Name eines.
+  „offen“ heraus und nur in Status und Entscheidungsfeldern, nie gelöscht — über ORM
+  und ``db.GESCHUETZT`` (D11), ohne Trigger.
+* ``geheimnisse`` — Chiffrate (Tresor, ``ACCOUNTI_SCHLUESSEL``), je Name eines;
+  veränderlich (Setzen ersetzt, Entfernen löscht).
 
 Die JSON-Spalten sind Text; Lesen und Schreiben geht über ``repo_einstellungen``.
 """
@@ -39,6 +42,9 @@ from accounti.db.tabellen import UnveraenderbarError
 QUELLEN = ("browser", "cli", "assistent", "datei_uebernahme", "antrag")
 ANTRAGSSTATUS = ("offen", "bestaetigt", "abgelehnt", "abgelaufen", "veraltet")
 TRIGGER_TEXT = "Die Einstellungsversion"
+# eindeutige Schlüssel von ``einstellungen`` — der SQLite-Trigger gegen ``REPLACE``
+# prüft jeden (``db/schutz.py``; Strukturtest gegen die Tabelle)
+EINDEUTIG = (("id",), ("abschnitt", "version"), ("hash",))
 
 
 class EinstellungRow(Base):
@@ -150,5 +156,7 @@ def _antrag_nur_entscheiden(_: Mapper[Any], verbindung: Connection, ziel: Any) -
 
 @event.listens_for(EinstellungRow.__table__, "after_create")
 def _version_trigger(_: object, verbindung: Connection, **__: object) -> None:
-    for sql in nur_anfuegen_sql("einstellungen", TRIGGER_TEXT, verbindung.dialect.name):
+    for sql in nur_anfuegen_sql(
+        "einstellungen", TRIGGER_TEXT, verbindung.dialect.name, eindeutig=EINDEUTIG
+    ):
         verbindung.execute(sql_text(sql))

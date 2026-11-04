@@ -101,6 +101,48 @@ def test_version_nur_anfuegen_orm(fabrik):
         assert s.scalars(select(EinstellungRow.grund)).all() == ["Probe"]
 
 
+SPALTEN = (
+    "abschnitt, version, daten, schema_version, vollstaendig, fehlend, person, grund, "
+    "quelle, erstellt_am, hash, vorgaenger_hash"
+)
+
+
+def _roh(abschnitt: str, version: int, daten: str, hash_: str) -> tuple[object, ...]:
+    zeit = str(JETZT)
+    return (abschnitt, version, daten, 1, 1, "[]", "mallory", "x", "cli", zeit, hash_)
+
+
+def ersetzen_wege(v: sqlite3.Connection) -> list[tuple[str, tuple[object, ...]]]:
+    """Rohe Anweisungen, die unter SQLite eine vorhandene Version ersetzen würden —
+    ``REPLACE`` löscht die alte Zeile an den DELETE-Triggern vorbei (db-1)."""
+    (alt,) = v.execute("SELECT hash FROM einstellungen WHERE version = 1").fetchone()
+    werte = ", ".join("?" * 12)
+    mallory = '{"name":"Mallory Ltd"}'
+    return [
+        # Konflikt auf id
+        (
+            f"REPLACE INTO einstellungen (id, {SPALTEN}) VALUES (1, {werte})",
+            (*_roh("mandant", 1, mallory, "b" * 64), GENESIS),
+        ),
+        # Konflikt auf (abschnitt, version)
+        (
+            f"INSERT OR REPLACE INTO einstellungen ({SPALTEN}) VALUES ({werte})",
+            (*_roh("mandant", 1, mallory, "c" * 64), GENESIS),
+        ),
+        # Konflikt auf hash
+        (
+            f"INSERT OR REPLACE INTO einstellungen ({SPALTEN}) VALUES ({werte})",
+            (*_roh("anderes", 1, mallory, alt), GENESIS),
+        ),
+        # Upsert
+        (
+            f"INSERT INTO einstellungen (id, {SPALTEN}) VALUES (1, {werte}) "
+            "ON CONFLICT (id) DO UPDATE SET daten = excluded.daten",
+            (*_roh("mandant", 1, mallory, "d" * 64), GENESIS),
+        ),
+    ]
+
+
 def test_version_nur_anfuegen_rohes_sql_sqlite(fabrik, tmp_path):
     with fabrik() as s:
         _version(s)
@@ -110,7 +152,72 @@ def test_version_nur_anfuegen_rohes_sql_sqlite(fabrik, tmp_path):
             v.execute("UPDATE einstellungen SET grund = 'x'")
         with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
             v.execute("DELETE FROM einstellungen")
-        assert v.execute("SELECT count(*) FROM einstellungen").fetchone() == (1,)
+        for sql, werte in ersetzen_wege(v):
+            with pytest.raises(sqlite3.DatabaseError, match="unveränderbar"):
+                v.execute(sql, werte)
+        assert v.execute("SELECT id, daten FROM einstellungen").fetchall() == [
+            (1, '{"name":"A GmbH"}')
+        ]
+        # Anfügen bleibt erlaubt (auch roh, die Kette meldet es)
+        werte = ", ".join("?" * 12)
+        v.execute(
+            f"INSERT INTO einstellungen ({SPALTEN}) VALUES ({werte})",
+            (*_roh("mandant", 2, "{}", "e" * 64), GENESIS),
+        )
+        assert v.execute("SELECT count(*) FROM einstellungen").fetchone() == (2,)
+
+
+def test_ersetzen_sperre_kennt_jeden_eindeutigen_schluessel():
+    """Strukturtest: Die Sperre gegen ``REPLACE`` prüft genau die eindeutigen Schlüssel
+    der Tabelle (Primärschlüssel, Unique) — ein neuer Unique-Schlüssel ohne Eintrag
+    in ``EINDEUTIG`` ließe ``INSERT OR REPLACE`` über ihn wieder durch."""
+    from sqlalchemy import UniqueConstraint
+
+    from accounti.db.tabellen_einstellungen import EINDEUTIG
+
+    t = EinstellungRow.__table__
+    schluessel = {tuple(c.name for c in t.primary_key.columns)}
+    schluessel |= {
+        tuple(c.name for c in u.columns)
+        for u in t.constraints
+        if isinstance(u, UniqueConstraint)
+    }
+    schluessel |= {(c.name,) for c in t.columns if c.unique}
+    assert set(EINDEUTIG) == schluessel
+
+
+def test_kette_findet_eine_an_accounti_vorbei_geaenderte_version(fabrik, tmp_path):
+    """tests-5: Trigger roh entfernt, ``daten`` von v1 geändert — ``pruefe_kette``
+    meldet v1 (Hash); v2 bleibt korrekt verkettet (``hash`` von v1 ist unverändert)."""
+    with fabrik() as s:
+        _version(s)
+        _version(s, daten={"name": "B GmbH"})
+        s.commit()
+    with sqlite3.connect(tmp_path / "e.db") as v:
+        v.execute("DROP TRIGGER einstellungen_kein_update")
+        v.execute(
+            'UPDATE einstellungen SET daten = \'{"name":"Mallory Ltd"}\' '
+            "WHERE version = 1"
+        )
+    with fabrik() as s:
+        assert pruefe_kette(s) == ["mandant v1: an accounti vorbei verändert (Hash)"]
+
+
+def test_kette_findet_eine_luecke(fabrik, tmp_path):
+    """tests-5: v2 von dreien roh gelöscht — ``pruefe_kette`` meldet für v3 die Lücke
+    und den Vorgänger, der nicht mehr passt."""
+    with fabrik() as s:
+        for name in ("A", "B", "C"):
+            _version(s, daten={"name": name})
+        s.commit()
+    with sqlite3.connect(tmp_path / "e.db") as v:
+        v.execute("DROP TRIGGER einstellungen_kein_delete")
+        v.execute("DELETE FROM einstellungen WHERE version = 2")
+    with fabrik() as s:
+        assert pruefe_kette(s) == [
+            "mandant v3: Version 2 erwartet (Lücke)",
+            "mandant v3: Vorgänger passt nicht zur Kette",
+        ]
 
 
 def test_massenaenderung_gesperrt(fabrik):
@@ -390,16 +497,31 @@ def _pruefe_trigger_pg(url: str) -> None:
         with fabrik() as s:
             _version(s)  # INSERT geht
             s.commit()
+        with engine.connect() as v:
+            zeile = dict(
+                v.execute(text("SELECT * FROM einstellungen")).mappings().one()
+            )
+        spalten = ", ".join(zeile)
+        werte = ", ".join(f":{k}" for k in zeile)
         for sql in (
             "UPDATE einstellungen SET grund = 'x'",
             "DELETE FROM einstellungen",
             "TRUNCATE einstellungen",
+            # Upsert und MERGE lösen den UPDATE- bzw. DELETE-Trigger aus (db-1)
+            f"INSERT INTO einstellungen ({spalten}) VALUES ({werte}) "
+            "ON CONFLICT (id) DO UPDATE SET daten = '{}'",
+            f"INSERT INTO einstellungen ({spalten}) VALUES ({werte}) "
+            "ON CONFLICT (hash) DO UPDATE SET grund = 'x'",
+            "MERGE INTO einstellungen e USING (SELECT 1 AS id) q ON e.id = q.id "
+            "WHEN MATCHED THEN UPDATE SET grund = 'x'",
+            "MERGE INTO einstellungen e USING (SELECT 1 AS id) q ON e.id = q.id "
+            "WHEN MATCHED THEN DELETE",
         ):
             with (
                 pytest.raises(DBAPIError, match="ist unveränderbar"),
                 engine.begin() as v,
             ):
-                v.execute(text(sql))
+                v.execute(text(sql), zeile)
         with engine.connect() as v:
             assert v.execute(text("SELECT count(*) FROM einstellungen")).scalar() == 1
     finally:
