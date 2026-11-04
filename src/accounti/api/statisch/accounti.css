@@ -272,9 +272,9 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .feld-meldung-ok{color:var(--ok)}
 /* Feldgruppe, Optionen, Haken, Etikett */
 .etikett{margin:0;font-size:var(--gr-2);font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-2)}
-.feldgruppe, .optionen, .segment{min-width:0;margin:0;padding:0;border:0}
+.feldgruppe, .optionen, .segment, .optionskarten{min-width:0;margin:0;padding:0;border:0}
 .feldgruppe{display:flex;flex-direction:column;gap:var(--a-4)}
-.feldgruppe > legend, .segment > legend{margin-bottom:var(--a-2);padding:0}
+.feldgruppe > legend, .segment > legend, .optionskarten > legend{margin-bottom:var(--a-2);padding:0}
 .optionen{display:flex;flex-direction:column;gap:var(--a-1)}
 .optionen > legend{margin-bottom:var(--a-2);padding:0;font-weight:600}
 .optionen.feld-fehler{padding-left:var(--a-3);border-left:2px solid var(--fehler)}
@@ -353,7 +353,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .leisten-ziel[aria-current="page"]{font-weight:600;color:var(--akzent)}
 .leisten-titel{overflow-wrap:anywhere}
 /* Aktionsleiste, Sammelleiste */
-.aktionsleiste{display:grid;grid-template-columns:1fr 1fr;gap:var(--a-2);padding:var(--a-3) var(--a-4) calc(var(--a-4) + env(safe-area-inset-bottom));background-color:var(--flaeche);border-top:1px solid var(--linie-stark)}
+.aktionsleiste{display:grid;grid-template-columns:repeat(auto-fit, minmax(min(8rem, 100%), 1fr));gap:var(--a-2);padding:var(--a-3) var(--a-4) calc(var(--a-4) + env(safe-area-inset-bottom));background-color:var(--flaeche);border-top:1px solid var(--linie-stark)}
 .aktionsleiste > :first-child{grid-column:1 / -1}
 .aktionsleiste .knopf{width:100%;min-height:3rem}
 .sammelleiste{position:sticky;bottom:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-3) var(--a-5);padding:var(--a-4) var(--a-65);background-color:var(--flaeche);border-top:1px solid var(--linie-stark)}

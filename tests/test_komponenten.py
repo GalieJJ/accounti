@@ -682,3 +682,30 @@ def test_sammelleiste_und_aktionsleiste():
         '<div class="aktionsleiste" role="region" aria-label="Aktionen der Prüfung">'
     )
     assert "knopf-gross knopf-breit" in aktion
+
+
+def test_aktionsleiste_bricht_schmal_um():
+    """P1 Runde 2 (gp1-design B7): Bei 320 px passten die beiden unteren Knöpfe der
+    Aktionsleiste nicht nebeneinander („Später klären“ und das ``kbd`` von „Passt –
+    freigeben“ abgeschnitten, mit Textabständen waagrechtes Scrollen). Die Spalten sind
+    jetzt mindestens 8rem breit und rücken sonst untereinander."""
+    from tests.design_hilfe import css, stilregeln
+
+    (regel,) = (s.regel for s in stilregeln(css()) if s.regel.kopf == ".aktionsleiste")
+    spalten = regel.wert("grid-template-columns")
+    assert spalten == "repeat(auto-fit, minmax(min(8rem, 100%), 1fr))", spalten
+
+
+def test_optionskarten_ohne_rahmen_des_browsers():
+    """P1 Runde 2 (/muster bei 320 px mit Textabständen waagrechtes Scrollen): Das
+    ``fieldset`` der Optionskarten behielt die Vorgaben des Browsers — ``min-width:
+    min-content`` (mit den Textabständen aus WCAG 1.4.12 breiter als 320 px) und einen
+    Rahmen. Es wird wie Feldgruppe, Optionen und Segment zurückgesetzt."""
+    from tests.design_hilfe import css, selektoren, stilregeln
+
+    werte: dict[str, str] = {}
+    for s in stilregeln(css()):
+        if ".optionskarten" in selektoren(s.regel.kopf):
+            werte.update(dict(s.regel.deklarationen))
+    assert werte.get("min-width") == "0" and werte.get("border") == "0", werte
+    assert werte.get("padding") == "0" and werte.get("margin") == "0", werte
