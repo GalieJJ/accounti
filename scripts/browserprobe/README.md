@@ -63,5 +63,17 @@ kill %1                                              # Welt beenden
   Pixelvergleich ist kein Abbruchgrund: Die Inhalte unterscheiden sich, solange P2 und P3
   fehlen.
 
+- **Abgeschnittenes** (P1 Runde 2, Messung `abschnitt`): je Seite und Breite, ohne und
+  (einmal je Breite) mit den Textabständen aus WCAG 1.4.12 — kein Inhalt breiter oder
+  höher als ein Rahmen mit `overflow: hidden/clip`, ein scrollender Rahmen ist
+  fokussierbar und benannt (`role="region"`, `aria-label`), jedes Bedienelement in Kopf
+  und Inhalt trifft `elementFromPoint` in seiner Mitte, der Seitentitel im schmalen Kopf
+  liegt ganz in der Kopfleiste, die Seite scrollt nicht waagrecht. Für den Abschluss
+  `--breiten 1920,1440,1280,1024,390,320` (axe läuft bei jeder Breite außer 320 px).
+- `--ablaeufe` misst außerdem AK8 im Hochformat (794 px) hell und dunkel und den
+  Rückweg nach einer htmx-Freigabe (Fokus auf der neuen Überschrift; „Übernehmen“ und
+  der Kürzel-Schalter bleiben auf der neuen Buchung). Die Abläufe geben Vorschläge frei:
+  je Lauf eine frische Welt.
+
 Der Rückgabewert ist 1, sobald eine Messung einen Befund hat. Die Zusammenfassung
 gehört in den PR.
