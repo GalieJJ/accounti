@@ -1,0 +1,70 @@
+# Golden-Test der Lader (Plan 10c P4, D20): SKR04 und abweichendes Wirtschaftsjahr
+# (1. Juli), dazu eine bilanzierende Gesellschaft mit Quartalsmeldung.
+mandant:
+  name: "Tochter Handels GmbH"
+  kuerzel: "TH"
+  sachkonten_laenge: 4
+  anschrift:
+    strasse: "Hafenweg 7"
+    plz: "20457"
+    ort: "Hamburg"
+    land: DE
+  steuernummer: "22/815/08154"
+  email: "rechnung@tochter.example"
+  kontakt:
+    name: "Max Beispiel"
+    telefon: "040 123456"
+    email: "max@tochter.example"
+  bank:
+    iban: "DE02 1203 0000 0000 2020 51"
+    bic: "BYLADEM1001"
+  oss: false
+  rechnung:
+    nummernformat: "TH-{jahr}-{nummer:05d}"
+    zahlungsziel_tage: 30
+
+datev:
+  berater_nummer: "54321"
+  mandanten_nummer: "00042"
+  wirtschaftsjahr_beginn: "2025-07-01"
+
+buchhaltung:
+  kontenrahmen: SKR04
+  bank_konto: "1800"
+  standard_aufwand: "6300"
+  skonto_erhalten: {"19": "5736", "7": "5731", "0": "5730"}
+  skonto_gewaehrt: {"19": "4736", "7": "4731", "0": "4730"}
+  gelernte_regeln: pruefen
+
+abschluss:
+  gewinnermittlung: bilanz
+  verrechnungskonten: ["1460", "1370"]
+
+elster:
+  voranmeldungszeitraum: quartal
+  dauerfristverlaengerung: false
+  bundesland: HH
+  finanzamt:
+    name: "Finanzamt Hamburg-Mitte"
+  kennziffern_konten: {"4150": 43}
+
+integrationen:
+  geldtransit_konto: "1460"
+  oss_erloes_konten: {DK: "4328"}
+
+anlagen:
+  konten:
+    afa: "6220"
+    gwg: "0670"
+
+zahlung:
+  vorlauf_tage: 5
+  vier_augen: true
+
+mahnwesen:
+  karenztage: 7
+  unbekannt_als: unternehmer
+
+pruefung:
+  kleinbetrag_grenze: 250.00
+  abgeschaltet: [kontoauszug_luecke]

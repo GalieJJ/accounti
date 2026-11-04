@@ -1,0 +1,653 @@
+{
+  "gewinnermittlung_angegeben": "euer",
+  "lade_abschluss": {
+    "arap_konto": "1900",
+    "bank_konto": "1200",
+    "debitoren": [
+      20000,
+      69999
+    ],
+    "ergebnis_konto": "2010",
+    "gewinnermittlung": "euer",
+    "kontenrahmen": "SKR04",
+    "kontenzuordnung": null,
+    "kreditoren": [
+      70000,
+      99999
+    ],
+    "marktplatz_konten": [
+      "1361",
+      "1362",
+      "1363"
+    ],
+    "prap_konto": "3900",
+    "rap_verzicht_bis_gwg": true,
+    "verrechnungskonten": [
+      "1460",
+      "1370",
+      "3630"
+    ],
+    "wirtschaftsjahr_beginn": "2025-04-01"
+  },
+  "lade_anlagen": {
+    "anlagekonten": [
+      [
+        "0010",
+        "0799"
+      ]
+    ],
+    "immaterielle_konten": [
+      [
+        "0010",
+        "0199"
+      ]
+    ],
+    "kfz_konten": [
+      "0520",
+      "0540"
+    ],
+    "konten": {
+      "abgang_buchgewinn": "4855",
+      "abgang_buchverlust": "6895",
+      "afa": "6220",
+      "afa_immateriell": "6200",
+      "afa_kfz": "6222",
+      "erloes_buchgewinn": "4845",
+      "erloes_buchgewinn_ohne_ust": "4849",
+      "erloes_buchverlust": "6885",
+      "erloes_buchverlust_ohne_ust": "6889",
+      "gwg": "0670",
+      "gwg_afa": "6260",
+      "sammelposten": "0675",
+      "sammelposten_afa": "6264"
+    },
+    "kontenrahmen": "SKR04",
+    "rechtsstand": null,
+    "wirtschaftsjahr_beginn": "2025-04-01"
+  },
+  "lade_aufgaben_einstellungen": {
+    "benachrichtigung": {
+      "absender": null,
+      "empfaenger": {},
+      "kanaele": [
+        "email"
+      ],
+      "neue_melden": true,
+      "webhook": null
+    },
+    "erinnerung": {
+      "arten": {},
+      "eskalation_an": null,
+      "stufen": [
+        0,
+        3,
+        7
+      ]
+    },
+    "fristen": {
+      "standard": 5
+    },
+    "ich": "eva",
+    "pruefung": {
+      "abgeschaltet": [],
+      "beleg_fehlt_ab_betrag": "0",
+      "beleg_fehlt_nach_tagen": 0,
+      "kontierung_schwelle": 0.95
+    },
+    "rollen": {},
+    "zustaendigkeit": []
+  },
+  "lade_auth": {
+    "aussteller": "accounti",
+    "einmalcode_bestaetigung": true,
+    "fehlversuche_obergrenze": 100,
+    "passwort_mindestlaenge": 14,
+    "sitzung_hoechstdauer_stunden": 8.0,
+    "sitzung_leerlauf_minuten": 20,
+    "sperre_minuten": 15,
+    "sperre_nach_fehlversuchen": 5,
+    "totp_toleranz_schritte": 1
+  },
+  "lade_bank_einstellungen": {
+    "fints": {
+      "erster_abruf_tage": 90,
+      "freigabe_intervall_sekunden": 3.0,
+      "freigabe_wartezeit_sekunden": 300.0,
+      "produkt_id": "GOLDENPRODUKT",
+      "produkt_version": "0.1",
+      "zeitlimit_sekunden": 120.0
+    },
+    "kreditkarte": {
+      "ausgleich_muster": "ihre zahlung|zahlung erhalten|zahlung.{0,3}danke|zahlungseingang|ausgleich|lastschrift|einzug|begleich|abbuchung",
+      "belastung_ausnahme": "debit",
+      "belastung_fenster_tage": 20,
+      "belastung_muster": "kreditkart|kartenabrechnung|visa|master ?card|american express|amex",
+      "geldtransit_konto": "1460"
+    }
+  },
+  "lade_belegkanaele": {
+    "connectoren": [],
+    "dateitypen": [
+      "pdf",
+      "xml"
+    ],
+    "email": [],
+    "max_groesse_mb": 10.0,
+    "webhook": {
+      "host": "127.0.0.1",
+      "max_anfrage_mb": 60.0,
+      "max_dateien": 10,
+      "port": 8410
+    }
+  },
+  "lade_buchhaltung": {
+    "bank_konto": "1200",
+    "debitoren_bis": 69999,
+    "debitoren_von": 20000,
+    "gelernte_regeln": "automatisch",
+    "kontenrahmen": "SKR04",
+    "kreditoren_bis": 99999,
+    "kreditoren_von": 70000,
+    "skonto_erhalten": {
+      "0": "3730",
+      "19": "3736",
+      "7": "3731"
+    },
+    "skonto_gewaehrt": {
+      "0": "8730",
+      "19": "8736",
+      "7": "8731"
+    },
+    "skonto_karenz_tage": 5,
+    "standard_aufwand": "4900",
+    "standard_zahlungsziel_tage": 21
+  },
+  "lade_datev_mandant": {
+    "berater": 1234567,
+    "mandant": 99,
+    "sachkontenlaenge": 4,
+    "skr": "04",
+    "wj_beginn": "2025-04-01"
+  },
+  "lade_eigene_firma": {
+    "email": null,
+    "iban": "DE89370400440532013000",
+    "land": null,
+    "name": "Einzel & Werte KG",
+    "ort": null,
+    "plz": null,
+    "strasse": null,
+    "ust_id": "DE987654321"
+  },
+  "lade_elster": {
+    "abweichung_mindestens": "1000",
+    "abweichung_prozent": "25",
+    "bundesland": "NW",
+    "dauerfristverlaengerung": true,
+    "eric": {
+      "bibliothek": "/opt/eric/lib/libericapi.so",
+      "druck_parameter_version": 2,
+      "log": null,
+      "pin_datei": "/etc/accounti/elster-pin.enc",
+      "plugins": null,
+      "verschluesselungs_parameter_version": 2,
+      "zertifikat": null
+    },
+    "finanzamt": {
+      "iban": null,
+      "name": null
+    },
+    "hersteller_id": null,
+    "kennziffern_konten": {},
+    "konten_ohne_kennziffer": [
+      "3817"
+    ],
+    "konto_sondervorauszahlung": null,
+    "konto_vorauszahlung": null,
+    "produkt_name": "accounti",
+    "sondervorauszahlung": {
+      "2026": "1200.0"
+    },
+    "steuernummer": null,
+    "steuerrelevante_konten": null,
+    "uebermittler": "attrappe",
+    "voranmeldungszeitraum": "quartal"
+  },
+  "lade_elster_konten": {
+    "abweichung_mindestens": "1000",
+    "abweichung_prozent": "50",
+    "bundesland": null,
+    "dauerfristverlaengerung": false,
+    "eric": {
+      "bibliothek": null,
+      "druck_parameter_version": 2,
+      "log": null,
+      "pin_datei": null,
+      "plugins": null,
+      "verschluesselungs_parameter_version": 2,
+      "zertifikat": null
+    },
+    "finanzamt": {
+      "iban": null,
+      "name": null
+    },
+    "hersteller_id": null,
+    "kennziffern_konten": {},
+    "konten_ohne_kennziffer": [
+      "3817"
+    ],
+    "konto_sondervorauszahlung": null,
+    "konto_vorauszahlung": null,
+    "produkt_name": "accounti",
+    "sondervorauszahlung": {},
+    "steuernummer": null,
+    "steuerrelevante_konten": null,
+    "uebermittler": "eric",
+    "voranmeldungszeitraum": "monat"
+  },
+  "lade_firma": {
+    "anschrift": {
+      "land": "DE",
+      "ort": "München",
+      "plz": "80331",
+      "strasse": "Ring 1"
+    },
+    "bank": {
+      "bic": null,
+      "iban": "DE89370400440532013000"
+    },
+    "email": "rechnung@einzel.example",
+    "kontakt": {
+      "email": "eva@einzel.example",
+      "name": "Eva Einzel",
+      "telefon": "089 1234"
+    },
+    "kuerzel": "Einzel & Werte KG",
+    "name": "Einzel & Werte KG",
+    "oss": true,
+    "rechnung": {
+      "nummernformat": "{nummer:06d}",
+      "zahlungsziel_tage": 21
+    },
+    "steuernummer": null,
+    "ust_id": "DE987654321"
+  },
+  "lade_gesellschaften": {
+    "eintraege": {
+      "einzel": {
+        "archiv": "archiv/einzel",
+        "datenbank": "sqlite:///einzel.db",
+        "konfiguration": null,
+        "name": "Einzel & Werte KG",
+        "regeln": null
+      }
+    },
+    "standard": "einzel",
+    "systemdatenbank": null
+  },
+  "lade_integrationen": {
+    "auszahlung_toleranz_prozent": "2",
+    "auszahlung_toleranz_tage": 10,
+    "bu_inland": {
+      "19": 3,
+      "7": 2
+    },
+    "erloes_ausfuhr": "8120",
+    "erloes_ig_lieferung": "8125",
+    "erloes_inland": {
+      "19": "8400",
+      "7": "8300"
+    },
+    "erloes_unbekannt": "8200",
+    "ermaessigte_artikel": [],
+    "eu_fernverkaeufe_sonstige": {},
+    "geldtransit_konto": "1360",
+    "kursdifferenz_aufwand": "6880",
+    "kursdifferenz_ertrag": "4840",
+    "marktplaetze": {
+      "amazon": {
+        "bank_stichworte": [
+          "AMAZON"
+        ],
+        "bu_gebuehren": null,
+        "bu_werbung": null,
+        "einbehalt_konto": "1500",
+        "ersatzleistung": "2700",
+        "klaerung": "1590",
+        "lager_nur_inland": false,
+        "lagergebuehr": "4780",
+        "sonstige_gebuehr": "4760",
+        "ust_gebuehren": "vorsteuer",
+        "ust_werbung": null,
+        "verkaufsgebuehr": "4760",
+        "verrechnungskonto": "1361",
+        "versandgebuehr": "4780",
+        "werbung": "4610",
+        "zahlungsgebuehr": "4970"
+      },
+      "ebay": {
+        "bank_stichworte": [
+          "EBAY"
+        ],
+        "bu_gebuehren": null,
+        "bu_werbung": null,
+        "einbehalt_konto": "1500",
+        "ersatzleistung": "2700",
+        "klaerung": "1590",
+        "lager_nur_inland": false,
+        "lagergebuehr": "4780",
+        "sonstige_gebuehr": "4760",
+        "ust_gebuehren": null,
+        "ust_werbung": null,
+        "verkaufsgebuehr": "4760",
+        "verrechnungskonto": "1362",
+        "versandgebuehr": "4780",
+        "werbung": "4610",
+        "zahlungsgebuehr": "4970"
+      },
+      "paypal": {
+        "bank_stichworte": [
+          "PAYPAL"
+        ],
+        "bu_gebuehren": null,
+        "bu_werbung": null,
+        "einbehalt_konto": "1500",
+        "ersatzleistung": "2700",
+        "klaerung": "1590",
+        "lager_nur_inland": false,
+        "lagergebuehr": "4780",
+        "sonstige_gebuehr": "4760",
+        "ust_gebuehren": "ohne",
+        "ust_werbung": "ohne",
+        "verkaufsgebuehr": "4970",
+        "verrechnungskonto": "1210",
+        "versandgebuehr": "4780",
+        "werbung": "4610",
+        "zahlungsgebuehr": "4970"
+      },
+      "shopify": {
+        "bank_stichworte": [
+          "SHOPIFY"
+        ],
+        "bu_gebuehren": null,
+        "bu_werbung": null,
+        "einbehalt_konto": "1500",
+        "ersatzleistung": "2700",
+        "klaerung": "1590",
+        "lager_nur_inland": false,
+        "lagergebuehr": "4780",
+        "sonstige_gebuehr": "4760",
+        "ust_gebuehren": null,
+        "ust_werbung": null,
+        "verkaufsgebuehr": "4970",
+        "verrechnungskonto": "1363",
+        "versandgebuehr": "4780",
+        "werbung": "4610",
+        "zahlungsgebuehr": "4970"
+      }
+    },
+    "oss_erloes_ermaessigt": {},
+    "oss_erloes_konten": {
+      "AT": "4326",
+      "BE": "4327",
+      "ES": "4322",
+      "FR": "4320",
+      "IT": "4321",
+      "NL": "4323",
+      "PL": "4325",
+      "SE": "4324"
+    },
+    "oss_ust_konten": {},
+    "oss_ust_konto": "3817",
+    "paypal_kontobezeichnung": "PPLXLULL/PAYPAL"
+  },
+  "lade_kasse": {
+    "konto": "1610"
+  },
+  "lade_kontext": {
+    "buchhaltung": {
+      "bank_konto": "1200",
+      "debitoren_bis": 69999,
+      "debitoren_von": 20000,
+      "gelernte_regeln": "automatisch",
+      "kontenrahmen": "SKR04",
+      "kreditoren_bis": 99999,
+      "kreditoren_von": 70000,
+      "skonto_erhalten": {
+        "0": "3730",
+        "19": "3736",
+        "7": "3731"
+      },
+      "skonto_gewaehrt": {
+        "0": "8730",
+        "19": "8736",
+        "7": "8731"
+      },
+      "skonto_karenz_tage": 5,
+      "standard_aufwand": "4900",
+      "standard_zahlungsziel_tage": 21
+    },
+    "einstellungen": {
+      "auszahlung_toleranz_prozent": "2",
+      "auszahlung_toleranz_tage": 10,
+      "bu_inland": {
+        "19": 3,
+        "7": 2
+      },
+      "erloes_ausfuhr": "8120",
+      "erloes_ig_lieferung": "8125",
+      "erloes_inland": {
+        "19": "8400",
+        "7": "8300"
+      },
+      "erloes_unbekannt": "8200",
+      "ermaessigte_artikel": [],
+      "eu_fernverkaeufe_sonstige": {},
+      "geldtransit_konto": "1360",
+      "kursdifferenz_aufwand": "6880",
+      "kursdifferenz_ertrag": "4840",
+      "marktplaetze": {
+        "amazon": {
+          "bank_stichworte": [
+            "AMAZON"
+          ],
+          "bu_gebuehren": null,
+          "bu_werbung": null,
+          "einbehalt_konto": "1500",
+          "ersatzleistung": "2700",
+          "klaerung": "1590",
+          "lager_nur_inland": false,
+          "lagergebuehr": "4780",
+          "sonstige_gebuehr": "4760",
+          "ust_gebuehren": "vorsteuer",
+          "ust_werbung": null,
+          "verkaufsgebuehr": "4760",
+          "verrechnungskonto": "1361",
+          "versandgebuehr": "4780",
+          "werbung": "4610",
+          "zahlungsgebuehr": "4970"
+        },
+        "ebay": {
+          "bank_stichworte": [
+            "EBAY"
+          ],
+          "bu_gebuehren": null,
+          "bu_werbung": null,
+          "einbehalt_konto": "1500",
+          "ersatzleistung": "2700",
+          "klaerung": "1590",
+          "lager_nur_inland": false,
+          "lagergebuehr": "4780",
+          "sonstige_gebuehr": "4760",
+          "ust_gebuehren": null,
+          "ust_werbung": null,
+          "verkaufsgebuehr": "4760",
+          "verrechnungskonto": "1362",
+          "versandgebuehr": "4780",
+          "werbung": "4610",
+          "zahlungsgebuehr": "4970"
+        },
+        "paypal": {
+          "bank_stichworte": [
+            "PAYPAL"
+          ],
+          "bu_gebuehren": null,
+          "bu_werbung": null,
+          "einbehalt_konto": "1500",
+          "ersatzleistung": "2700",
+          "klaerung": "1590",
+          "lager_nur_inland": false,
+          "lagergebuehr": "4780",
+          "sonstige_gebuehr": "4760",
+          "ust_gebuehren": "ohne",
+          "ust_werbung": "ohne",
+          "verkaufsgebuehr": "4970",
+          "verrechnungskonto": "1210",
+          "versandgebuehr": "4780",
+          "werbung": "4610",
+          "zahlungsgebuehr": "4970"
+        },
+        "shopify": {
+          "bank_stichworte": [
+            "SHOPIFY"
+          ],
+          "bu_gebuehren": null,
+          "bu_werbung": null,
+          "einbehalt_konto": "1500",
+          "ersatzleistung": "2700",
+          "klaerung": "1590",
+          "lager_nur_inland": false,
+          "lagergebuehr": "4780",
+          "sonstige_gebuehr": "4760",
+          "ust_gebuehren": null,
+          "ust_werbung": null,
+          "verkaufsgebuehr": "4970",
+          "verrechnungskonto": "1363",
+          "versandgebuehr": "4780",
+          "werbung": "4610",
+          "zahlungsgebuehr": "4970"
+        }
+      },
+      "oss_erloes_ermaessigt": {},
+      "oss_erloes_konten": {
+        "AT": "4326",
+        "BE": "4327",
+        "ES": "4322",
+        "FR": "4320",
+        "IT": "4321",
+        "NL": "4323",
+        "PL": "4325",
+        "SE": "4324"
+      },
+      "oss_ust_konten": {},
+      "oss_ust_konto": "3817",
+      "paypal_kontobezeichnung": "PPLXLULL/PAYPAL"
+    },
+    "firmen_land": "DE",
+    "oss_registriert": true,
+    "wirtschaftsjahr_beginn": "2025-04-01"
+  },
+  "lade_mahnwesen": {
+    "basiszinssaetze": [],
+    "entwurf_gueltig_tage": 3,
+    "hinweis_30_tage": true,
+    "karenztage": 3,
+    "mindestbetrag": "10.00",
+    "pauschale_anrechnen": true,
+    "pauschale_b2b": "40.00",
+    "stufen": [
+      {
+        "ab_tagen": 7,
+        "gebuehr": "0.0",
+        "name": "Erinnerung",
+        "text": null,
+        "verzugszinsen": false
+      }
+    ],
+    "stufenabstand_tage": 7,
+    "unbekannt_als": "verbraucher",
+    "zahlungsfrist_tage": 10,
+    "zahlungsziel_vereinbart": false,
+    "zugang_tage": 3
+  },
+  "lade_mandant": {
+    "name": "Einzel & Werte KG",
+    "ort": "München",
+    "plz": "80331",
+    "strasse": "Ring 1"
+  },
+  "lade_oss": true,
+  "lade_pruefung": {
+    "abgeschaltet": [],
+    "archiv": "archiv/einzel",
+    "belegfrei": [],
+    "eigene_namen": [
+      "Einzel und Werte"
+    ],
+    "kleinbetrag_grenze": "250.00",
+    "kontenrahmen_datei": null,
+    "nachforderung": {
+      "antwort_an": null,
+      "betreff": "Beleg zu unserer Zahlung vom {datum} über {betrag} €",
+      "text": "Sehr geehrte Damen und Herren,\n\nzu folgender Zahlung fehlt uns die Rechnung bzw. der Beleg:\n\n  Datum:            {datum}\n  Betrag:           {betrag} €\n  Verwendungszweck: {verwendungszweck}\n\nBitte senden Sie uns den Beleg als E-Rechnung oder PDF an {antwort}.\n\nVielen Dank und freundliche Grüße\n{firma}\n"
+    },
+    "regeln": {},
+    "schwere": {}
+  },
+  "lade_server": {
+    "anmeldung_warten_sekunden": 5.0,
+    "anmeldungen_gleichzeitig": 2,
+    "cookie_sicher": true,
+    "host": "127.0.0.1",
+    "max_beleg_mb": 20.0,
+    "max_formular_kb": 64,
+    "max_vorschau_megapixel": 40.0,
+    "port": 8500,
+    "sprache": "en",
+    "vertrauenswuerdige_proxies": [
+      "127.0.0.1"
+    ]
+  },
+  "lade_steuerangaben": [
+    true,
+    "DE"
+  ],
+  "lade_ustid_pruefung": {
+    "max_alter_tage": 10,
+    "timeout_sekunden": 60.0,
+    "url": "https://api.evatr.vies.bzst.de/app/v1/abfrage"
+  },
+  "lade_versand": {
+    "absender": "Einzel & Werte KG <rechnung@einzel.example>",
+    "antwort_an": null,
+    "bcc": null,
+    "betreff": "Ihre Rechnung {nummer}",
+    "smtp": {
+      "benutzer": "rechnung@einzel.example",
+      "host": "smtp.einzel.example",
+      "passwort": "golden-smtp-passwort",
+      "port": 465,
+      "timeout": 30,
+      "verschluesselung": "ssl"
+    },
+    "text": "Sehr geehrte Damen und Herren,\n\nanbei erhalten Sie unsere Rechnung {nummer} vom {datum} über {brutto} EUR.\nBitte überweisen Sie den Betrag bis zum {faellig} unter Angabe der Rechnungsnummer.\n\nDie Rechnung ist eine E-Rechnung im Format {format}.\n\nMit freundlichen Grüßen\n{firma}\n"
+  },
+  "lade_wirtschaftsjahr_beginn": "2025-04-01",
+  "lade_zahlung": {
+    "auftraggeber": {
+      "bic": null,
+      "iban": "DE89370400440532013000",
+      "name": "Einzel & Werte KG"
+    },
+    "einzelbuchung": true,
+    "ersteller_darf_freigeben": false,
+    "freigeber": [],
+    "hoechstbetrag": null,
+    "hoechstbetrag_zahlung": null,
+    "mindestbetrag": "5.0",
+    "skonto_ziehen": false,
+    "vier_augen": false,
+    "vorlauf_tage": 3
+  },
+  "sachkontenlaenge": 4
+}
