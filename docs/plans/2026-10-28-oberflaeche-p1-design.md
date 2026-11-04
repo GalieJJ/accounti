@@ -2731,3 +2731,189 @@ Was beim Umsetzen gegenüber dem Plan anders kam, mit Grund. Abschnitt A = Schri
   Korrektur grün; `test_langer_pfad_haelt_den_server_mit_keiner_methode_an[PATCH]` lag unter
   Last bei 1,3 s statt < 0,5 s und lief einzeln grün — Zeitmessung, keine Änderung am Pfad),
   übrige 628 (1 übersprungen), Migrationen 46 (4 übersprungen: PostgreSQL).
+
+### Abschnitt B — Schritte 5–11 (04.11.2026)
+
+Branch wie oben; vor Abschnitt B war `main` 8765dd7 (#38) eingeführt (279a4ce), Kopf und
+`SCHEMA_STAND` unverändert `1dd2f6b7c6c8`. Geprüft wurde ohne volle Suite: je Schritt die
+Web-, i18n-, Migrations- und Akzeptanztests und die Dateien der geänderten Module in Gruppen
+über `arbeit/schwer`; dazu `ruff` 0.16.2 und 0.17.1 und `mypy src/`.
+
+### Schritt 5 — Browserprobe als Werkzeug
+
+- **Node-Werkzeug wie geplant, kein Python-Playwright:** `scripts/browserprobe/` mit
+  `package.json` (genaue Versionen), `package-lock.json`, `.npmrc` (`ignore-scripts`,
+  `save-exact`), `probe.mjs`, `leinwand.mjs`, `README.md`. `pyproject.toml` und die CI bleiben
+  unverändert (B11, AK60 — auch `optional-dependencies` dürfen keinen neuen Paketnamen
+  bekommen); die Probe ist kein Teil von `pytest`, nur `tests/test_browserprobe_welt.py` läuft
+  in der CI (ohne Browser).
+- **Playwright 1.59.1 statt 1.64.0** (Rückfall nach Schritt 5, kein Browser-Download): nutzt
+  Chromium 1217 aus `~/.cache/ms-playwright`. `playwright`/`playwright-core` 1.59.1 lagen im
+  npm-Cache, `axe-core` 4.14.0 kam von `registry.npmjs.org`; alle drei Integritätswerte der
+  Lockdatei stimmen mit der Recherche, `probe.mjs` prüft vor dem Einspielen zusätzlich die
+  SHA-256 von `axe.min.js` (`20c09fe1…`). Firefox gibt es auf dem Server nicht.
+- **Welt** (`tests/browserprobe_welt.py`): echte Uhr (die Probe rechnet TOTP mit
+  `node:crypto`), `cookie_sicher=False` nur in der Welt (127.0.0.1 ohne TLS), billiges scrypt;
+  Benutzer `jan`, `fritz`, `leo`, `vera` und `alle` (alle Rollen); Prüfschlange mit PDF-, Bild-
+  und E-Rechnungsbeleg, freigegebene Buchung, gelernte Regel, Zahlungslauf. Jede GET-Seite steht
+  mit Beispiel-IDs, Art (`html`, `datei`, `fragment`) und dem erwarteten Status je Benutzer
+  (aus `SEITEN` der Rechte-Matrix) in `probe.json`; der Zielordner muss neu oder leer sein,
+  `probe.json` steht in `.gitignore`. Drei Tests statt einem (zusätzlich `probe.json` je
+  Benutzer, leerer Ordner); die Welt entstand vor ihrem Test, rot gezeigt per Mutation.
+- **`leinwand.mjs`:** 36 Referenzbilder (alle 18 Zeichenflächen, hell und dunkel), keine zu
+  breit; Kopien nur im Ergebnisordner.
+- **`probe.mjs`:** AK1 (320/390), AK2 (axe, Kontext mit `bypassCSP`, 1440/390), AK5 (Konsole
+  ohne Umgehung), Fokus nach dem Austausch auf `/muster`, Maßprobe nach L10 Punkt 4 (Token hell
+  und dunkel gleich L1, Karte, Knopf, Reiter, Optionskarte, Feldrand, Fokusring, Pille, Etikett,
+  Betrag; mit dem Gerüst Kopf 56, Seitenleiste 232 ± 1, untere Leiste 64), `--vergleich` mit
+  Gegenüberstellung. Später ergänzt: Fenstergröße je Seite (Fehler gefunden in Schritt 7, s. u.)
+  und `--fehlerseite` (Schritt 11).
+- **Erster Lauf gegen `/muster`** (Schritt 5): axe 0, keine CSP-Meldung, Maßprobe in beiden
+  Rahmen und mit `?theme=` grün; der Fokus nach dem Austausch fehlte (`accounti.js` erst mit
+  Schritt 9). **Achtung:** In diesem Lauf liefen alle Seiten mit 1280 × 720 —
+  `BrowserContext.newPage()` nimmt keine Optionen; behoben in 4a58388 (`setViewportSize` und
+  Abbruch bei falscher Breite). Der Lauf mit richtigen Breiten (Schritt 9: `/muster`, `/menue`,
+  `/konto`, `/gesellschaft`, `jan`/`fritz`, 1440/390/320, hell/dunkel) hatte 0 Befunde,
+  einschließlich Fokus nach dem Austausch. Bild von `/muster` bei 1440 px neben „Bausteine“: die
+  sieben Abschnitte der Zeichenfläche in Reihenfolge und Optik, dazu die Ergänzungen aus L9.
+
+### Schritt 6 — Registry, Bereiche, Lesezugriff, Zähler
+
+- **Messung** `anzahl_offen` bei 50 000 Buchungen (5 000 zur Prüfung) in SQLite: Median
+  6,3 ms, höchstens 7,2 ms (die Liste zum Vergleich 338 ms) — kein Index nötig.
+- `LeseFehler` heißt **`LeseError`** (ruff N818). `zaehle()` liefert je Zähler, was gelingt;
+  ein scheiternder Zähler fehlt allein, eine nicht erreichbare Datenbank oder eine abgelaufene
+  Frist ergibt `None`. Die Frist liest `FRIST` zur Laufzeit (Tests setzen sie herab). SQLite im
+  Lesezugriff ohne Verbindungspool (`NullPool`, keine offenen Dateien zwischen zwei Seiten).
+- **`seite()`** hat 20 Aufrufe (Plan: 19), alle mit `await`; `anmeldung._formular` und
+  `pruefen._antwort` sind `async`. Der Kontext trägt `geruest`; das Beispiel-Gerüst der
+  Musterseite heißt deshalb `beispiel_geruest`.
+- `navigation` bleibt bis Schritt 7 im Kontext (alter Kopf); `Navigationspunkt.erlaubt()` prüft
+  Recht oder Rechtemenge.
+- **Zusätzliche Tests:** `test_ein_eintrag_je_bereich_mit_kleinster_reihenfolge`,
+  `test_recht_als_menge_eines_genuegt`, `test_untere_leiste_und_aktiver_bereich`,
+  `test_api_lesezugriff.py::test_zaehler_fehler_laesst_die_anderen_stehen`,
+  `::test_verbindung_mit_fristen`. Gerüst-Werte lesen die Tests aus dem Vorlagenkontext
+  (`response.context["geruest"]` des Testclients).
+- **Umgestellt:** `test_api_app.py::test_registry_findet_router_module`,
+  `::test_navigation_nur_mit_recht`; außerdem (nicht im Plan für diesen Schritt)
+  `test_api_sprache.py::test_html_lang_und_navigation_englisch` — „Approvals“ fehlt für den
+  buchhalter jetzt schon mit der Registry (geprüft mit „Review“, „Approvals“ für `fritz`).
+
+### Schritt 7 — Gerüst
+
+- **CSS-Budget:** Vor dem Gerüst `accounti.css` weiter verdichtet (958b552, nur Form:
+  Deklarationen ohne Leerraum, keine Einrückung, Token mehrere je Zeile; der Parser der Tests
+  liest vorher und nachher dieselben Regeln). Die Commit-Nachricht nennt versehentlich die
+  Zahlen der Arbeitskopie (41 075 → 36 111); für die Datei des Commits gilt 36 984 → 32 442
+  Bytes. Die alten Kopfregeln (`.kopfleiste`, `.wortmarke`, `.navigation`, `.sitzung`, `main`,
+  `.aktive-gesellschaft`, `.fuss`, `.sprachwahl`, `body`-Flex) sind aus `bestand` gelöscht; die
+  Fußzeile mit der Version entfällt.
+- **Commits:** Kennfarbe/Monogramm (dc38066, mit den Regeltests aus Schritt 8 — das Gerüst
+  braucht die Marke), Kopfleiste mit Seitenleiste und unterer Leiste in **einem** Commit
+  (d25051d; ein Kopf ohne Leisten hätte keine Navigation gehabt), Brotkrumen, Statusbereich und
+  Druckkopf (d33cb6b).
+- **`_geruest.html`** (neu, nicht im Plan): Makros `kopfleiste`, `kopf_schlicht`, `druckkopf`
+  für `basis.html` und `schlicht.html` — nicht in `_komponenten.html`, weil dort jedes Makro auf
+  `/muster` stehen muss (AK51). `schlicht.html` erbt `basis.html` und ersetzt Kopf und Leisten;
+  ohne Anmeldung zeigt `basis.html` denselben schlichten Kopf.
+- **Ein Kopf für beide Breiten:** Wortmarke, Chip-Name, Chevron und Benutzermenü verschwinden
+  unter 64rem per CSS, Seitentitel (`aria-hidden`) und Avatar-Link erscheinen; der Name der
+  Gesellschaft bleibt als versteckter Text. Der Chip ist bei mehreren Gesellschaften ein Link
+  mit dem versteckten Vorsatz „Gesellschaft wechseln:“. Das Formular im Benutzermenü zeigt schon
+  auf `POST /konto/vorlieben` (Route mit Schritt 9); Sprache als Wahlpillen `auto`/`de`/`en`
+  mit `lang`.
+- **Druckkopf** nutzt die msgid „Gesellschaft: <strong>%(name)s</strong>“ weiter —
+  `test_i18n.py::test_platzhalter_werden_escaped` bleibt deshalb unverändert (Plan: umstellen).
+- **Ein `h1` auf der Arbeitsfläche** (unsichtbar, „Prüfen“): sie hatte keines (AK46).
+- **Maße:** Die untere Leiste ist mit ihrer Linie 64 px hoch (Ziel `calc(--leistenhoehe −
+  1px)`; die Probe fand zuerst 65). `test_design_token.py::test_abstaende_und_radien_aus_token`
+  erlaubt zusätzlich `var(--kopfhoehe)`/`var(--leistenhoehe)` in Abständen (Einrücken um die
+  feste Leiste).
+- **Zusätzliche Tests:** `test_marken_aus_registry`; der Kennfarben-Test lässt `/anmelden`
+  (schlicht) aus.
+- **Umgestellt:** wie geplant Akzeptanz 5 (`test_api_gesellschaften.py`, `test_akzeptanz_web.py`:
+  `data-gesellschaft` und Titel), `test_api_sprache.py` (Titel statt Zeile; dazu
+  `test_sprache_bleibt_nach_neuer_anmeldung`: Wahlpille statt `<option selected>`),
+  `test_api_muster.py::test_fragment_mit_hx_request` (Fragment ohne Kopfleiste).
+- **Browserprobe** (`jan`, `fritz`; `/`, `/pruefen`, `/pruefen/regeln`, `/freigaben`, `/muster`):
+  Gerüst-Maße grün, axe 0, keine CSP-Meldung. Waagrechtes Scrollen nur im **Bestandsinhalt**
+  (Schritt 12): `/pruefen` 732 px, `/pruefen/regeln` bis 1 229 px, `/freigaben` 724 px, `/` bei
+  320 px die Tabelle `.liste` (362 px).
+
+### Schritt 8 — `/menue`, `/gesellschaft`, Kennfarbe
+
+- Die Regeltests für Kennfarbe und Monogramm stehen seit Schritt 7; hier die Seitentests
+  `test_kennfarbe_gleich_fuer_alle_benutzer` und `test_monogramm_gleich_fuer_alle_benutzer`.
+- `_gesellschaften_liste.html` (neu) dient `/gesellschaft` und `/menue`; `/menue` zeigt wie die
+  Leinwand auch „n zu prüfen“ je Gesellschaft (über `gesellschaften_mit_zaehlern`). Eine
+  Gesellschaft ohne Antwort steht als „nicht erreichbar“ da; einzelne fehlende Zahlen fehlen
+  still. `marke(…, mit_name=false)` für Listen, in denen der Name sichtbar daneben steht.
+- **Akzeptanz 5** prüft die Auswahl jetzt auf `/gesellschaft` (der Kopf zeigt nur die aktive).
+- CSS-Kommentare gekürzt (Budget).
+
+### Schritt 9 — Mein Konto, Sprachwahl-Umzug, Tastenkürzel, `accounti.js`
+
+- `POST /konto/vorlieben`: Sprache `auto`/`de`/`en` (`""` vom alten Formular = automatisch),
+  ohne `weiter` zurück auf `/konto`, unsicheres `weiter` → `/`. Die an/aus-Optionen heißen
+  „eingeschaltet“/„ausgeschaltet“ (die msgid „an“ ist als Präposition belegt). Der alte Pfad
+  verlangt weiter eine Sitzung mit CSRF (403 wie bisher), dann 308.
+- **Tastenhilfe:** Formular „Tastenkürzel ausschalten“ bzw. „einschalten“ je nach Vorliebe.
+  `TASTEN_PRUEFEN` (in `api/hilfe_inhalt.py`, schon in Schritt 9) hat einen Eintrag je Taste;
+  „nächster / voriger Eintrag“ wird zu zwei msgids.
+- **`accounti.js`** fokussiert `[data-fokus]` nach dem Laden und nach jedem Austausch, aber nicht
+  innerhalb von `[data-beispiel]` — die Themenrahmen von `/muster` tragen das Attribut, sonst
+  spränge die Musterseite beim Laden zur Beispiel-Fehlerliste (offener Punkt aus Abschnitt A).
+- **Zusätzliche Tests:** `test_api_statisch.py::test_accounti_js_eingebunden_mit_den_mechanismen`,
+  `test_api_konto.py::test_vorlieben_ohne_ereignis`.
+- **Umgestellt** außer den geplanten: `test_api_web_nachpruefung.py` (drei Stellen
+  `/einstellungen/sprache` → `/konto/vorlieben`, Absicht: Sprachwahl nach einem POST führt auf
+  eine GET-Seite) und `test_api_journal_person.py::test_kein_web_eintrag_ohne_angemeldeten_benutzer`
+  (308 des alten Pfads zulässig).
+- Skripte zusammen 6 176 Bytes (`accounti.js` 3 058, `pruefen.js` 3 118).
+
+### Schritt 10 — Hilfe
+
+- `vielleicht_angemeldet` in `api/sitzung.py` (Kern `_lade`; `SQLAlchemyError` → `None`,
+  Protokoll „Sitzung nicht lesbar (Art)“).
+- Der Hilfe-Link im Kopf führt nur dann auf `/hilfe/<bereich>`, wenn es einen Eintrag gibt,
+  sonst auf `/hilfe` (Zusatztest `test_hilfe_link_im_kopf_je_bereich`).
+- Begriffe aus Anhang B als `Begriff(klar, fach, erklaerung)`; der Test vergleicht die
+  Fachbegriffe mit der Tabelle der abgelegten Spec. Ein „%“ steht in der msgid als „%%“
+  (Newstyle-gettext formatiert in den Vorlagen).
+- Die Hilfeseite eines Themas trägt eigene Brotkrumen „Hilfe › Thema“ im Inhalt.
+
+### Schritt 11 — Fehler- und Statusseiten
+
+- `fehler.html` bindet `_fehler.html` ein (dieselbe Meldung als Hinweis; `role="alert"` nur im
+  Fragment). `meldung.html` bleibt für die Erfolgsmeldungen der Freigaben (Bestand, Schritt 12).
+- `RECHT_TEXT` zählt im Katalogtest mit (aus Schritt 13 vorgezogen), die neun Namen stehen in
+  `en.yaml`.
+- 422 aus der Validierung kommt bei den Bestandsrouten kaum vor (Pfadparameter als `str`); die
+  Tests nutzen dafür eine Test-Route und `POST /freigaben/ustva` mit falschem Zeitraum
+  (`HTTPException(422)`).
+- `sicherheit.py` importiert `fehlerseite_500` erst im Fehlerfall (Kreis über `vorlagen` →
+  `geruest` → `lesezugriff` → `sicherheit`); scheitert selbst die Designseite, bleibt der
+  Klartext.
+- **Zusätzliche Tests:** `test_statusseiten_mit_h1_je_status` (413, 422 beider Wege, 503),
+  `test_500_mit_hilfe_in_derselben_relativen_reihenfolge`; `test_api_geruest.py` prüft `h1` und
+  die Stelle des Hilfe-Links jetzt auch auf 403/404/409/422/503.
+
+### Abschlusslauf der Browserprobe (Abschnitt B)
+
+Chromium 1217, alle fünf Benutzer der Welt, jede erlaubte HTML-Seite und die 404 im Gerüst
+(`--fehlerseite`), 1440/390/320 px, hell und dunkel: **480 Messungen, 100 mit Befund**.
+
+- **Ohne Befund** (axe 0, kein waagrechtes Scrollen, keine CSP-Meldung, Maßprobe und Fokus
+  nach dem Austausch grün): `/anmelden`, `/menue`, `/gesellschaft`, `/konto`, `/hilfe`,
+  `/hilfe/{thema}`, `/muster` (beide Rahmen und `?theme=`), die 404, `/belege/{id}`.
+- **Gerüst-Befund, behoben:** axe `target-size` am Brotkrumen-Link „Prüfen“ auf der
+  Arbeitsfläche (Text-Link kleiner als 24 px neben den Links der Positionszeile) — die Links der
+  Brotkrumen sind jetzt mindestens 24 px hoch; Nachlauf auf `/pruefen/{id}`, `/pruefen/regeln`
+  und `/hilfe/{thema}` ohne `target-size`.
+- **Bestandsinhalt (Schritt 12):** waagrechtes Scrollen auf `/pruefen` (732 px),
+  `/pruefen/regeln` (1 229 px), `/freigaben` (537–724 px je Rolle) und `/` bei 320 px (Tabelle
+  `.liste`, 362 px); axe `scrollable-region-focusable` auf `/buchungen/{id}` bei 390 px
+  (`.links`, nicht fokussierbarer Scrollbereich).
+- Gegenüberstellung mit der Leinwand (`--vergleich`): `…/p1b/probeB/2026-11-04-vergleich/`
+  (lokal, nicht eingecheckt).

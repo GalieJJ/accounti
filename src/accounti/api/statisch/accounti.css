@@ -349,7 +349,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 /* Brotkrumen, Seitenblättern */
 .brotkrumen ol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-2);margin:0;padding:0;list-style:none;font-size:var(--gr-3);color:var(--text-2)}
 .brotkrumen li{display:inline-flex;align-items:center;gap:var(--a-2)}
-.brotkrumen a{color:var(--text-2)}
+.brotkrumen a{display:inline-flex;align-items:center;min-height:1.5rem;color:var(--text-2)}
 .brotkrumen [aria-current="page"]{color:var(--text)}
 .seitenblaettern{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-2)}
 .seitenblaettern ol{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-1);margin:0;padding:0;list-style:none}
