@@ -330,5 +330,7 @@ def test_neue_db_option_an_den_vier_befehlen(tmp_path):
     assert r.exit_code == 0, r.output
     r = runner.invoke(app, ["kanaele", "connectoren", "--db", url, "--config", konfig])
     assert r.exit_code == 0, r.output
-    r = runner.invoke(app, ["elster", "pin", "--help"])
-    assert "--db" in r.output
+    # über die Parameter, nicht den Hilfetext: rich färbt ihn in der CI ein
+    elster = getattr(typer.main.get_command(app), "commands", {})["elster"]
+    db = {p.name: p for p in elster.commands["pin"].params}["db"]
+    assert "--db" in db.opts and db.default == STANDARD_DB
