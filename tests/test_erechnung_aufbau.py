@@ -226,21 +226,67 @@ def test_ustid_pflichtig(k, leistung, pflichtig):
     assert ustid_pflichtig(e, FIRMA) is pflichtig
 
 
-def test_oss_ab_quartal_nach_rechnungsdatum():
-    """D14: ``mandant.oss: {2026-Q1: false, 2027-Q1: true}`` — es gilt das Quartal des
-    Rechnungsdatums."""
-    firma = Firma.model_validate(
-        {
-            **FIRMA.model_dump(by_alias=True),
-            "oss": {"2026-Q1": False, "2027-Q1": True},
-        }
-    )
+def _firma_oss(oss):
+    return Firma.model_validate({**FIRMA.model_dump(by_alias=True), "oss": oss})
+
+
+def _satz_fr(firma, rechnungsdatum, leistungsdatum, **kw):
+    """Steuersatz einer Lieferung an eine Privatkundin in Frankreich."""
     privat = kunde(land="FR", ust_id=None, privat=True)
-    dezember = baue_rechnung(
-        entwurf(privat, pos("Rahmen", "100")), firma, "2026-0003", date(2026, 12, 15)
+    e = Ausgangsrechnung(
+        kunde=privat, positionen=[pos("Rahmen", "100")], leistungsdatum=leistungsdatum
     )
-    januar = baue_rechnung(
-        entwurf(privat, pos("Rahmen", "100")), firma, "2027-0001", date(2027, 1, 5)
+    r = baue_rechnung(e, firma, "R-1", rechnungsdatum, **kw)
+    return r.steuern[0].satz
+
+
+def test_oss_ab_quartal_nach_leistungsdatum():
+    """D14: ``mandant.oss: {2026-Q1: false, 2027-Q1: true}`` — es gilt das Quartal der
+    Leistung, nicht das der Rechnung: Leistungsort (§ 3c UStG) und Entstehung der
+    Steuer (§ 13 Abs. 1 Nr. 1 Buchst. a UStG) hängen an der Lieferung, und gebucht
+    wird die Rechnung im Leistungsmonat (``steuertag``)."""
+    firma = _firma_oss({"2026-Q1": False, "2027-Q1": True})
+    # Lieferung im Dezember 2026 (ohne OSS), Rechnung erst im Januar 2027
+    assert _satz_fr(firma, date(2027, 1, 5), date(2026, 12, 15)) == Decimal("19")
+    # Lieferung im Januar 2027 (mit OSS): Satz des Bestimmungslands
+    assert _satz_fr(firma, date(2027, 1, 20), date(2027, 1, 12)) == Decimal("20")
+    # ohne Leistungsdatum ist das Rechnungsdatum der Tag der Leistung
+    assert _satz_fr(firma, date(2026, 12, 15), None) == Decimal("19")
+    assert _satz_fr(firma, date(2027, 1, 5), None) == Decimal("20")
+
+
+def test_oss_ab_quartal_leistung_vor_dem_oss_quartal():
+    """OSS ab 2026-Q4, Lieferung am 20.09.2026, Rechnung am 02.10.2026: deutsche
+    Steuer — und dieselbe Lieferung gleich besteuert wie mit Rechnung vom 30.09."""
+    firma = _firma_oss({"2026-Q1": False, "2026-Q4": True})
+    leistung = date(2026, 9, 20)
+    assert _satz_fr(firma, date(2026, 10, 2), leistung) == Decimal("19")
+    assert _satz_fr(firma, date(2026, 9, 30), leistung) == Decimal("19")
+    assert _satz_fr(firma, date(2026, 10, 2), date(2026, 10, 1)) == Decimal("20")
+
+
+@pytest.mark.parametrize("typ", ["381", "384"])
+def test_oss_gutschrift_folgt_der_leistung_der_rechnung(typ):
+    """Gutschrift/Korrektur ohne eigenes Leistungsdatum zu einer Rechnung vom
+    15.12.2026 (ohne Leistungsdatum, also Leistung am Rechnungstag): Es gilt die
+    Leistung der ursprünglichen Rechnung, auch wenn die Korrektur im OSS-Quartal
+    liegt (§ 17 UStG berichtigt die ursprüngliche Steuer)."""
+    firma = _firma_oss({"2026-Q1": False, "2027-Q1": True})
+    privat = kunde(land="FR", ust_id=None, privat=True)
+    e = Ausgangsrechnung(
+        kunde=privat,
+        positionen=[pos("Minderung Rahmen", "-20")],
+        rechnungstyp=typ,
+        korrektur_zu="2026-0003",
     )
-    assert dezember.steuern[0].satz == Decimal("19")
-    assert januar.steuern[0].satz == Decimal("20")
+    r = baue_rechnung(
+        e, firma, "2027-0001", date(2027, 1, 10), vorgaenger_datum=date(2026, 12, 15)
+    )
+    assert r.steuern[0].satz == Decimal("19")
+    assert r.leistungsdatum == date(2026, 12, 15)
+    # mit eigenem Leistungsdatum zählt dieses
+    e2 = e.model_copy(update={"leistungsdatum": date(2027, 1, 8)})
+    r2 = baue_rechnung(
+        e2, firma, "2027-0002", date(2027, 1, 10), vorgaenger_datum=date(2026, 12, 15)
+    )
+    assert r2.steuern[0].satz == Decimal("20")
