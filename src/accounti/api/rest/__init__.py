@@ -22,6 +22,7 @@ from accounti.api.dienste import Dienste
 from accounti.api.sitzung import dienste_von
 from accounti.auth.token import pruefe_api_token
 from accounti.betrieb.gesellschaften import Gesellschaft
+from accounti.einstellungen.leser import aktueller_stand, binde_gesellschaft
 from accounti.models.auth import ApiToken, TokenRecht
 
 
@@ -74,7 +75,11 @@ async def api_zugang(request: Request) -> Zugang:
                 "WWW-Authenticate": 'Bearer realm="accounti", error="invalid_token"'
             },
         )
-    return Zugang(token, dienste.gesellschaften[token.gesellschaft])
+    zugang = Zugang(token, dienste.gesellschaften[token.gesellschaft])
+    stand = aktueller_stand()
+    if stand is not None:  # Einstellungen der Gesellschaft des Tokens (D4)
+        await run_in_threadpool(binde_gesellschaft, stand, dienste, zugang.gesellschaft)
+    return zugang
 
 
 ZugangDep = Annotated[Zugang, Depends(api_zugang)]

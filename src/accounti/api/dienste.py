@@ -26,6 +26,7 @@ from accounti.belege.pipeline import Erkenner
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.betrieb.kontext import Kontext
 from accounti.db import init_db, session_factory
+from accounti.einstellungen.leser import DatenbankQuelle
 from accounti.i18n import Text
 from accounti.konfiguration import lade_eigene_firma
 from accounti.models.auth import STANDARD_GESELLSCHAFT
@@ -66,6 +67,7 @@ class Dienste:
     _sperre: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _anmeldeplaetze: threading.BoundedSemaphore | None = field(default=None, repr=False)
     _einlieferung: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    _quellen: dict[str, DatenbankQuelle] = field(default_factory=dict, repr=False)
 
     def _fabrik(self, url: str) -> sessionmaker[Session]:
         with self._sperre:
@@ -84,6 +86,16 @@ class Dienste:
     def datenbank(self, kuerzel: str) -> Iterator[Session]:
         with self._fabrik(self.gesellschaften[kuerzel].datenbank)() as s:
             yield s
+
+    def quelle(self, kuerzel: str) -> DatenbankQuelle:
+        """Einstellungen der Gesellschaft — auf der vorhandenen Engine (Baustein 10c
+        P4, D4)."""
+        url = self.gesellschaften[kuerzel].datenbank
+        self._fabrik(url)
+        with self._sperre:
+            if url not in self._quellen:
+                self._quellen[url] = DatenbankQuelle(engine=self._engines[url][0])
+            return self._quellen[url]
 
     def pruefe_schema(self) -> None:
         """Systemdatenbank auf dem Stand dieser Version? Sonst ``SchemaError`` mit
@@ -142,6 +154,7 @@ class Dienste:
             for engine, _ in self._engines.values():
                 engine.dispose()
             self._engines.clear()
+            self._quellen.clear()
 
 
 def ocr_erkenner(g: Gesellschaft) -> Erkenner | None:

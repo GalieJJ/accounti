@@ -1084,7 +1084,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 3 — Bindung in CLI und Web · P4a
 
-- [ ] **CLI** (`betrieb/cli.py`):
+- [x] **CLI** (`betrieb/cli.py`):
   - `richte_kontext_ein` legt `neuer_stand()` an (Rücksetzen über `ctx.call_on_close`).
   - `binde_datenbank_parameter(ctx.command)` verkettet Callbacks an jedem Parameter `db` aller
     Ebenen, idempotent markiert (D3).
@@ -1114,7 +1114,31 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     und ruft dann `lade_buchhaltung` → kein Warten, < 1 s)
   - `::test_zwei_lader_ein_stand` (A54)
   - `::test_gruppe_mit_eigener_db_und_unterbefehl` (`ustva --db … pruefen`)
-- [ ] **Web**:
+
+  *Umgesetzt (Schritt 3, CLI):*
+  - `richte_kontext_ein` ruft `richte_stand_ein`: `ctx.with_resource(neuer_stand(ersatz=…,
+    fremde_pfade=…))`, Kürzel am Stand, dann `binde_datenbank_parameter(ctx.command)`
+    (Callback je Parameter `db`, vorhandener Callback läuft vorher, Marke am Parameter;
+    nicht bei `resilient_parsing`). Typer baut den Click-Baum je Aufruf neu, die Marke
+    wirkt also je Aufruf.
+  - **Gruppe und Unterbefehl:** Beide binden; es gilt der zuletzt geparste Parameter, also
+    der des Unterbefehls — dieselbe Datenbank, die sein Rumpf liest (`ustva --db X
+    pruefen` liest die Daten aus der Standarddatenbank des Unterbefehls; das ist das
+    bisherige Verhalten der Gruppen-Optionen). Der Test prüft genau diese Übereinstimmung.
+  - `EinstellungenNichtLesbar` und `EinstellungsquelleFehlt` fängt `Wurzelgruppe.invoke`:
+    Meldung, Exit 1 statt Traceback (Test `::test_unlesbare_datenbank_meldung_statt_traceback`).
+  - `gesellschaft liste|zeigen` lesen je Gesellschaft unter `mit_quelle(DatenbankQuelle(
+    g.datenbank), g.konfiguration)`; `_wirtschaftsjahr` liest über `lies_abschnitt`
+    (`inventar.LADER`), ohne Datei jetzt „Kalenderjahr“ statt „—“ (D25). **Abweichung:**
+    Ist die Datenbank einer Gesellschaft nicht erreichbar, zeigt `zeigen` alle übrigen
+    Angaben, bei Kontenrahmen und Wirtschaftsjahr „— (Datenbank nicht lesbar)“, und endet
+    mit der Meldung und Exit 1; `liste` zeigt die Meldung in der Zeile.
+    `tests/test_cli_gesellschaft.py::test_gesellschaft_liste_und_zeigen_ohne_passwort`
+    ist darauf umgestellt (bisher die Werte der Datei bei unerreichbarer Datenbank).
+  - Eine ungültige URL (`--db kein-url`) wirft beim Binden nicht; der Schnappschuss merkt
+    den Fehler (sonst endete `db upgrade --db kein-url` mit einem Traceback).
+  - Zusätzlich: `::test_neue_db_option_an_den_vier_befehlen`.
+- [x] **Web**:
   - `api/einstellungsstand.py`: reine ASGI-Middleware, in `erstelle_app` registriert, und zwar
     **vor** `app.add_middleware(Sicherheit)`. In Starlette liegt die zuletzt hinzugefügte
     Middleware außen. So bleibt Sicherheit mit der 500-Seite außen, wie mit P1 vereinbart (G-N1).
@@ -1142,6 +1166,18 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     mit ihren Kopfzeilen; G-N1)
 
   Die Rechte-Matrix und der CSP-Test aus 10a/10b bleiben unverändert grün (keine neue Route).
+
+  *Umgesetzt (Schritt 3, Web):* P1 ist gemergt — die Bindung sitzt im gemeinsamen Kern
+  `sitzung._lade_gebunden` (ein Sprung in den Threadpool: Sitzung lesen, dann
+  `binde_gesellschaft`), den `angemeldet` und `vielleicht_angemeldet` nutzen;
+  `merke_benutzersprache` bindet nicht. `api_zugang` bindet nach der Tokenprüfung.
+  `Dienste.quelle(kuerzel)` hält je URL eine `DatenbankQuelle` auf der vorhandenen Engine
+  (`schliesse` leert sie mit). `test_rest_token_bindet_seine_gesellschaft` fängt
+  `bank.lauf.bank_lauf` ab und prüft die übergebene `Buchhaltung` je Token (a: Datei, b:
+  Version) und den Stand einer Token-Route. Zusätzlich
+  `::test_dienste_quelle_nutzt_die_engine_der_gesellschaft`,
+  `::test_rechte_haengen_nicht_an_der_bindung`; `::test_gesellschaften_getrennt` wechselt
+  per `POST /gesellschaft` von a nach b.
 
 ### Schritt 4 — Lader-Umbau · P4a
 

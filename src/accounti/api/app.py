@@ -26,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from accounti.api import rest, seiten
 from accounti.api.dienste import Dienste
+from accounti.api.einstellungsstand import Einstellungsstand
 from accounti.api.geruest import zurueck_pfad
 from accounti.api.htmx import aktueller_pfad, ist_htmx
 from accounti.api.lesezugriff import Lesezugriff
@@ -141,6 +142,9 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
     app.state.lesezugriff = lesezugriff
     seitenmodule = routermodule(seiten)
     app.state.navigation = navigation(seitenmodule)
+    # innen der Stand der Einstellungen je Anfrage, außen Sicherheit mit der 500-Seite
+    # (in Starlette liegt die zuletzt hinzugefügte Middleware außen; G-N1)
+    app.add_middleware(Einstellungsstand)
     app.add_middleware(Sicherheit)
     app.mount(
         "/statisch",
