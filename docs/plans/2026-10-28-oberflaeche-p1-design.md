@@ -3272,3 +3272,45 @@ Niedrig. Behoben sind die zwei Niedrig-Befunde, die Runde 2 selbst verursacht ha
   `test_komponenten.py`, `test_symbole.py`: 106 passed, darunter der neue
   `test_druck_tabelle_ganz_auf_dem_papier`. ruff 0.16.2 sauber.
 - **CSS** 39 695 von 40 960 Bytes, eigene Skripte 7 251 von 20 480 (4 076 + 3 175).
+
+### Runde 3b — Nachprüfung von Runde 3 (90ea29e..f760b40) und CI
+
+Ein unabhängiger Prüfer hält Runde 3 für mergefähig. Er fand nur Niedrig-Befunde.
+
+**Behoben:**
+- **B1 und X3, veralteter Rückweg:** Bei `input type=hidden` ändert `.value` auch das
+  Attribut. Ein früher hineingeschriebener Wert blieb deshalb stehen, wenn die Adresse
+  wieder die geladene war, etwa nach Strg-Klick auf „Übernehmen“, nach einem abgebrochenen
+  Absenden oder nach „Nächster“ und wieder „Voriger“. Der Server-Wert steht jetzt vor dem
+  ersten Schreiben in `data-server`.
+- **B2, `?erledigt=` über die Tastenhilfe:** Das Feld wurde nach einer htmx-422 nicht mehr
+  bereinigt. Jetzt fällt `erledigt` auch beim Server-Wert weg.
+- **B4, Druck:** Inhalte der Zellen haben die Größe der Zelle. Vorher war `.neben` mit 14 px
+  größer als der Zelltext mit 12 px.
+- **B6, Browserprobe:** Der Schritt „Übernehmen unter POST-Pfad“ ist ohne aktive Regel ein
+  Befund. Die 422 ist jetzt Vorbedingung.
+
+**Nacharbeit:**
+- B3 (älter): Tastenhilfe nach einer htmx-422 auf einer Arbeitsfläche unter einem POST-Pfad.
+- B5 (kein Rückschritt): Ein langes Wort verkleinert die Druckseite der Regeln.
+
+**CI auf f760b40 rot,** unabhängig von P1. Die CI löst über litellm → openai 2.x jetzt
+`httpx2` 2.16.0 auf, und Starlette 1.10 nimmt es für den TestClient. Dessen INFO-Zeile
+„HTTP Request: GET https://…“ trug ganze Adressen ins Protokoll (6 Tests in
+`test_betrieb_protokoll.py`). `richte_protokoll_ein` dämpft jetzt auch `httpx2` und
+`httpcore2`. Neuer Test: `test_http_bibliotheken_schreiben_keine_adressen`, vorher rot für
+genau diese beiden Namen.
+
+**Prüfungen:**
+- Prüferskripte je frische Welt: `r3b` 3/3; `r3` 7/8, rot nur B3; `rueckweg2` 14/15, rot
+  nur der bekannte Fall ohne JS; `freigabe_uebernehmen` 200; `m2_rueckweg` 200/200;
+  `m3_schrift` ohne Befund im Druck.
+- Probe auf einer Welt ohne aktive Regel: Der Rückweg ist rot („keine aktive Regel“).
+- Browserprobe:
+  - Abschluss vor dem letzten JS-Commit: 974 Messungen, 0 mit Befund.
+  - Nach dem letzten JS-Commit (1440/390 px, `--fehlerseite --ablaeufe`): 184 Messungen,
+    0 mit Befund.
+- `test_betrieb_protokoll.py` 155 passed, die Gerüst-, Statik-, Token- und
+  Komponententests 94 passed, ruff sauber.
+- CSS 39 743 Bytes, eigene Skripte 4 457 + 3 175 = 7 632 Bytes.
+
