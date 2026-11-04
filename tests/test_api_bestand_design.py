@@ -34,6 +34,13 @@ UMGESTELLT: list[str] = [
     "/pruefen/regeln",
     "/buchungen/{buchung_id:uuid}",
     "/belege/{beleg_id:uuid}",
+    # die neuen Seiten aus P1 halten dieselben Regeln
+    "/menue",
+    "/gesellschaft",
+    "/konto",
+    "/hilfe",
+    "/hilfe/{thema}",
+    "/muster",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
@@ -180,9 +187,13 @@ def test_codefelder_mit_sichtbarem_label_und_ein_feld(probe, alle, vorlage):
         assert "aria-label" not in feld.attrs, (vorlage, feld.attrs)
         sichtbar = [lb for lb in labels.get(ident, []) if not lb.versteckt]
         assert sichtbar, (vorlage, ident)
-        assert feld.attrs.get("inputmode") == "numeric", (vorlage, ident)
+        # /muster zeigt beide Varianten; sonst ist Ziffern der Standard
+        erlaubt = ("numeric", "text") if vorlage == "/muster" else ("numeric",)
+        assert feld.attrs.get("inputmode") in erlaubt, (vorlage, ident)
         formular = feld.in_tag("form")
-        assert formular is not None, (vorlage, ident)
+        if formular is None:  # Beispiele auf /muster stehen ohne Formular
+            assert vorlage == "/muster", (vorlage, ident)
+            continue
         je_formular[id(formular)] = je_formular.get(id(formular), 0) + 1
     assert all(n == 1 for n in je_formular.values()), (vorlage, je_formular)
 
@@ -401,6 +412,14 @@ def test_code_parameter_je_seite(probe, alle, vorlage):
     assert "xyzzy" not in html, vorlage
     felder = _codefelder(Baum(html))
     assert felder and all(f.attrs.get("inputmode") == "numeric" for f in felder)
+
+
+def test_alle_seiten_im_querschnitt(probe):
+    """Am Ende von Schritt 12: alle HTML-Seiten der Registry (GET, mit Beispiel-IDs)
+    stehen im neuen Design."""
+    seiten = {s["vorlage"] for s in probe.seiten if s["art"] == "html"}
+    assert set(UMGESTELLT) == seiten
+    assert len(UMGESTELLT) == len(set(UMGESTELLT))
 
 
 def test_hilfe_hat_die_sprungziele_der_leeren_zustaende(leer):
