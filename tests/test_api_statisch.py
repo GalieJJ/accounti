@@ -176,7 +176,11 @@ def test_eigene_dateien_mit_versionsanhang(welt):
 
 
 def test_tasten_in_markup_und_skript_gleich(tmp_path):
-    """Jede Taste der Prüfseite ist im Skript bekannt — und umgekehrt."""
+    """Jede Taste der Prüfseite ist im Skript bekannt — und umgekehrt; die Tasten
+    kommen aus einer Quelle (``hilfe_inhalt.TASTEN_PRUEFEN``). Umgestellt (Plan P1,
+    Schritt 9): Strg+Enter über ``data-hauptknopf``, Tastenhilfe ohne Haken."""
+    from accounti.api.hilfe_inhalt import TASTEN_PRUEFEN
+
     texte = fachseiten_html(tmp_path)
     im_markup = set(re.findall(r'data-taste="([^"]+)"', "".join(texte)))
     skript = (STATISCH / "pruefen.js").read_text(encoding="utf-8")
@@ -184,9 +188,56 @@ def test_tasten_in_markup_und_skript_gleich(tmp_path):
     assert liste, "TASTEN fehlt"
     im_skript = set(re.findall(r'"([^"]+)"', liste.group(1)))
     assert im_markup | {"?"} == im_skript, (im_markup, im_skript)
-    # Strg+Enter löst den Hauptknopf aus, nicht den ersten Absendeknopf
-    assert 'querySelector("button.hauptknopf")' in skript
+    assert {taste for taste, _ in TASTEN_PRUEFEN} == im_skript
+    # Strg+Enter löst den Hauptknopf aus (Kennzeichen, nicht Optik), sonst den ersten
+    assert 'querySelector("button[data-hauptknopf]")' in skript
     hilfe = re.search(r'<details id="tastenhilfe".*?</details>', texte[0], re.S)
     assert hilfe is not None
     for taste in im_skript:
         assert f"<kbd>{taste}</kbd>" in hilfe.group(0), taste
+    assert 'id="tasten-aus"' not in hilfe.group(0)
+    assert 'name="tastenkuerzel" value="aus"' in hilfe.group(0)
+
+
+SKRIPTE = ("accounti.js", "pruefen.js")
+
+
+def test_skripte_ohne_speicher():
+    """AK45: Vorlieben stehen am Benutzer — kein Speicher im Browser."""
+    for name in SKRIPTE:
+        text = (STATISCH / name).read_text(encoding="utf-8")
+        for verboten in (
+            "localStorage",
+            "sessionStorage",
+            "indexedDB",
+            "document.cookie",
+        ):
+            assert verboten not in text, (name, verboten)
+
+
+def test_skripte_budget():
+    """AK50: eigene Skripte zusammen höchstens 20 KB."""
+    groesse = sum((STATISCH / name).stat().st_size for name in SKRIPTE)
+    assert groesse <= 20_480, groesse
+
+
+def test_accounti_js_eingebunden_mit_den_mechanismen(welt):
+    seite = seiten_html(welt)[0]
+    kopf = seite[: seite.index("</head>")]
+    assert (
+        f'<script src="/statisch/accounti.js?v={__version__}" defer></script>' in kopf
+    )
+    skript = (STATISCH / "accounti.js").read_text(encoding="utf-8")
+    for teil in (
+        "htmx:responseError",  # Fehlerhinweis
+        "htmx:beforeRequest",  # aria-busy am Ziel
+        "aria-busy",
+        "htmx:afterSettle",  # Fokus nach dem Austausch
+        "[data-fokus]",
+        "details.benutzermenue",  # Benutzermenü schließen (Esc, Klick daneben)
+        "Escape",
+    ):
+        assert teil in skript, teil
+    pruefen = (STATISCH / "pruefen.js").read_text(encoding="utf-8")
+    assert "netzhinweis" not in pruefen  # der Fehlerhinweis steht nur in accounti.js
+    assert "dataset.tastenkuerzel" in pruefen

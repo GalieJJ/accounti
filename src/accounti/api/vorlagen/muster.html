@@ -18,7 +18,7 @@
 <div class="muster-themen">
 {% for th in themen %}
 {%- set v = th.vorsilbe -%}
-<section class="thema{% if th.klasse %} {{ th.klasse }}{% endif %}" aria-labelledby="{{ v }}-titel">
+<section class="thema{% if th.klasse %} {{ th.klasse }}{% endif %}" aria-labelledby="{{ v }}-titel" data-beispiel>
 <h2 id="{{ v }}-titel">{{ _(th.titel) }}</h2>
 
 <section class="muster-abschnitt" aria-labelledby="{{ v }}-farben"><h3 class="etikett" id="{{ v }}-farben">{{ _("Farben") }}</h3>

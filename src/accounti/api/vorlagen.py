@@ -38,6 +38,7 @@ from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
 from accounti.api.geruest import geruest
+from accounti.api.hilfe_inhalt import TASTEN_PRUEFEN
 from accounti.api.htmx import ist_htmx
 from accounti.api.registry import Navigationspunkt
 from accounti.api.symbole import symbol_klasse, symbol_url
@@ -201,6 +202,7 @@ UMGEBUNG.globals["zusatzattribute"] = zusatzattribute
 UMGEBUNG.globals["Spalte"] = Spalte
 UMGEBUNG.globals["symbol_url"] = symbol_url
 UMGEBUNG.globals["symbol_klasse"] = symbol_klasse
+UMGEBUNG.globals["tasten_pruefen"] = TASTEN_PRUEFEN
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)
 
 # htmx 2.0.11 ohne eval, ohne Skripte aus Antworten, ohne Indikatorstil (CSP), ohne

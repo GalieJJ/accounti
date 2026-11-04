@@ -49,7 +49,8 @@ GLEICHLAUF: dict[tuple[str, str], str | Bestand | Ausnahme] = {
     ("POST", "/anmelden"): Ausnahme("Sitzung im Browser; die CLI prüft je Befehl"),
     ("POST", "/abmelden"): Ausnahme("Sitzung im Browser beenden"),
     ("POST", "/gesellschaft"): Ausnahme("Sitzungszustand; CLI: --gesellschaft"),
-    ("POST", "/einstellungen/sprache"): Ausnahme("Anzeige-Vorliebe (A87)"),
+    ("POST", "/einstellungen/sprache"): Ausnahme("308 auf /konto/vorlieben (A87)"),
+    ("POST", "/konto/vorlieben"): Ausnahme("Anzeige-Vorliebe (A87, A113)"),
     ("POST", "/freigaben/zahlungslauf/{nr}"): Bestand(PLAN_10A),
     ("POST", "/freigaben/ustva"): Bestand(PLAN_10A),
     ("POST", "/pruefen/{buchung_id:uuid}/freigeben"): (
@@ -83,7 +84,7 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     ("POST", "/anmelden"): ("weiterleitung", "303 auf weiter"),
     ("POST", "/abmelden"): ("weiterleitung", "303 auf /anmelden"),
     ("POST", "/gesellschaft"): ("weiterleitung", "303 auf /"),
-    ("POST", "/einstellungen/sprache"): ("weiterleitung", "303 auf weiter"),
+    ("POST", "/einstellungen/sprache"): ("weiterleitung", "308 auf /konto/vorlieben"),
     ("GET", "/"): ("ganze_seite", BESTAND),
     ("GET", "/freigaben"): ("ganze_seite", BESTAND),
     ("POST", "/freigaben/zahlungslauf/{nr}"): (
@@ -123,6 +124,8 @@ HTMX_FORMEN: dict[tuple[str, str], tuple[str, str]] = {
     ("GET", "/muster/beispiel"): ("fragment", "Austausch; ohne htmx 303"),
     ("GET", "/menue"): ("fragment", "neue Seite: Block inhalt"),
     ("GET", "/gesellschaft"): ("fragment", "neue Seite: Block inhalt"),
+    ("GET", "/konto"): ("fragment", "neue Seite: Block inhalt"),
+    ("POST", "/konto/vorlieben"): ("neu_laden", "HX-Refresh; ohne htmx 303 auf weiter"),
 }
 
 

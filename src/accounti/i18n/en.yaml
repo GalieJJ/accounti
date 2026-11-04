@@ -38,6 +38,20 @@ Zum Inhalt springen: Skip to content
 Hilfe: Help
 Mein Konto: My account
 Mein Konto und Menü: My account and menu
+Diese Einstellungen gelten für Sie auf jedem Gerät.: These settings apply to you on every device.
+"automatisch (wie der Browser)": "automatic (like the browser)"
+"automatisch (wie das Gerät)": "automatic (like the device)"
+"Fachansicht: Konten, Soll und Haben und Steuerschlüssel zeigen": "Expert view: show accounts, debit and credit and Steuerschlüssel"
+Beträge auf der Übersicht verbergen: Hide amounts on the overview
+Tastenkürzel auf der Prüfseite: Keyboard shortcuts on the review page
+eingeschaltet: "on"
+ausgeschaltet: "off"
+Speichern: Save
+Diese Wahl gibt es nicht: This choice is not available
+Tastenkürzel ausschalten: Turn keyboard shortcuts off
+Tastenkürzel einschalten: Turn keyboard shortcuts on
+nächster Eintrag: next entry
+voriger Eintrag: previous entry
 Sprache: Language
 automatisch: automatic
 Übernehmen: Apply
@@ -228,7 +242,6 @@ Dezember: December
 "offen": "open"
 # Tastenhilfe
 "Tastenkürzel": "Keyboard shortcuts"
-"nächster / voriger Eintrag": "next / previous entry"
 "freigeben": "approve"
 "korrigieren (Fokus auf Soll)": "correct (focus on debit)"
 "Regel daraus machen (an/aus)": "make a rule (on/off)"
@@ -237,7 +250,6 @@ Dezember: December
 "diese Hilfe": "this help"
 "im Eingabefeld: absenden / Feld verlassen": "in an input field: submit / leave the field"
 "Strg": "Ctrl"
-"Tastenkürzel aus (nur in diesem Browser)": "Keyboard shortcuts off (this browser only)"
 # Gelernte Regeln
 "Zurück zur Prüfung": "Back to review"
 "Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. A transaction in the opposite direction (such as a refund for a rule on payments out) is at most proposed as a counter-entry for review, never booked automatically. They are not edited, only deactivated and learned again."

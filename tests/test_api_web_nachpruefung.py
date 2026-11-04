@@ -264,7 +264,7 @@ def test_korrektur_fehler_bleibt_im_korrektur_formular(qw):
 def _sprache_auf(client, html, sprache="en"):  # noqa: ANN001, ANN201
     weiter = formularwert(html, "weiter")
     r = client.post(
-        "/einstellungen/sprache",
+        "/konto/vorlieben",  # umgestellt (Plan P1, Schritt 9): Menü statt Sprachwahl
         data={"csrf": csrf(client), "sprache": sprache, "weiter": weiter},
         follow_redirects=False,
     )
@@ -332,7 +332,7 @@ def test_sprachwahl_nach_post_fuehrt_auf_eine_get_seite(qw):
         "/pruefen/regeln"
     )
     r = client.post(
-        "/einstellungen/sprache",
+        "/konto/vorlieben",
         data={"csrf": csrf(client), "sprache": "", "weiter": "//evil.example/x"},
         follow_redirects=False,
     )
@@ -473,7 +473,7 @@ def test_formular_und_csrf_fehler_in_der_sprache_des_benutzers(qw):
     (b,) = vorschlaege(qw, 1)
     client = qw.web.angemeldet("jan")
     r = client.post(
-        "/einstellungen/sprache",
+        "/konto/vorlieben",
         data={"csrf": csrf(client), "sprache": "en", "weiter": "/"},
         follow_redirects=False,
     )

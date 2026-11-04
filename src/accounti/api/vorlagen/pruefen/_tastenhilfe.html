@@ -1,14 +1,10 @@
+{#- Tastenhilfe der Arbeitsfläche: Tasten aus hilfe_inhalt.TASTEN_PRUEFEN; abschalten
+    über die Vorlieben am Benutzer (gilt auf jedem Gerät, kein Speicher im Browser). -#}
 <details id="tastenhilfe" class="tastenhilfe">
   <summary>{{ _("Tastenkürzel") }} <kbd>?</kbd></summary>
   <dl>
-    <div><dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>{{ _("nächster / voriger Eintrag") }}</dd></div>
-    <div><dt><kbd>f</kbd></dt><dd>{{ _("freigeben") }}</dd></div>
-    <div><dt><kbd>e</kbd></dt><dd>{{ _("korrigieren (Fokus auf Soll)") }}</dd></div>
-    <div><dt><kbd>r</kbd></dt><dd>{{ _("Regel daraus machen (an/aus)") }}</dd></div>
-    <div><dt><kbd>z</kbd></dt><dd>{{ _("zurückstellen (Fokus auf die Rückfrage)") }}</dd></div>
-    <div><dt><kbd>b</kbd></dt><dd>{{ _("Beleg in neuem Tab") }}</dd></div>
-    <div><dt><kbd>?</kbd></dt><dd>{{ _("diese Hilfe") }}</dd></div>
+    {% for taste, text in tasten_pruefen %}<div><dt><kbd>{{ taste }}</kbd></dt><dd>{{ _(text) }}</dd></div>{% endfor %}
     <div><dt><kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd> / <kbd>Esc</kbd></dt><dd>{{ _("im Eingabefeld: absenden / Feld verlassen") }}</dd></div>
   </dl>
-  <label class="haken"><input type="checkbox" id="tasten-aus"> {{ _("Tastenkürzel aus (nur in diesem Browser)") }}</label>
+  <form method="post" action="/konto/vorlieben" class="tasten-schalter"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}">{% if geruest.tastenkuerzel %}<input type="hidden" name="tastenkuerzel" value="aus"><button type="submit">{{ _("Tastenkürzel ausschalten") }}</button>{% else %}<input type="hidden" name="tastenkuerzel" value="an"><button type="submit">{{ _("Tastenkürzel einschalten") }}</button>{% endif %}</form>
 </details>

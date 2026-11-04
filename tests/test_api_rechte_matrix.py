@@ -60,6 +60,9 @@ SEITEN: dict[tuple[str, str], object] = {
     # Schritt 8: „Mehr“ und Gesellschaft wechseln
     ("GET", "/menue"): ANGEMELDET,
     ("GET", "/gesellschaft"): ANGEMELDET,
+    # Schritt 9: Mein Konto (der alte Sprachpfad antwortet mit 308)
+    ("GET", "/konto"): ANGEMELDET,
+    ("POST", "/konto/vorlieben"): ANGEMELDET,
 }
 # Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
 # Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)

@@ -63,7 +63,12 @@ def test_kein_web_eintrag_ohne_angemeldeten_benutzer(tmp_path, monkeypatch):
     posts.sort(key=lambda p: next((i for i, w in enumerate(reihenfolge) if w in p), 9))
     for pfad in posts:
         r = anfrage(welt, client, Rolle.BUCHHALTER, "POST", pfad)
-        assert r.status_code in (200, 303, 409), (pfad, r.status_code, r.text[:300])
+        # 308: der alte Sprachpfad leitet auf /konto/vorlieben (Plan P1, Schritt 9)
+        assert r.status_code in (200, 303, 308, 409), (
+            pfad,
+            r.status_code,
+            r.text[:300],
+        )
     with fabrik() as s:
         werte: list[str] = []
         for abfrage in SPALTEN:

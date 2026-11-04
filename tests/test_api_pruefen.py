@@ -323,7 +323,8 @@ def test_tastenbelegung_im_markup(qw):
     seite = qw.web.angemeldet("jan").get(f"/pruefen/{zweite.id}").text
     tasten = set(re.findall(r'data-taste="([^"]+)"', seite))
     assert tasten == {"j", "k", "f", "e", "r", "z"}
-    assert 'id="tastenhilfe"' in seite and 'id="tasten-aus"' in seite
+    # umgestellt (Plan P1, Schritt 9): statt des Hakens ein Formular am Benutzer
+    assert 'id="tastenhilfe"' in seite and 'name="tastenkuerzel" value="aus"' in seite
     dritte = qw.web.angemeldet("jan").get("/pruefen").text
     assert 'data-taste="j"' in dritte
     del erste
@@ -338,7 +339,8 @@ def test_korrigieren_ist_der_standardknopf(qw):
     assert formular is not None
     knoepfe = re.findall(r'<button type="submit"[^>]*>', formular.group(0))
     assert len(knoepfe) == 2, knoepfe
-    assert 'class="hauptknopf"' in knoepfe[0] and "formaction" not in knoepfe[0]
+    # umgestellt (Plan P1, B21): Kennzeichen data-hauptknopf statt der Klasse
+    assert "data-hauptknopf" in knoepfe[0] and "formaction" not in knoepfe[0]
     neben = knoepfe[1]
     assert f'formaction="/pruefen/{b.id}/regelvorschau"' in neben
     # eigenes hx-disabled-elt: das geerbte „find button“ des Formulars fände unter dem

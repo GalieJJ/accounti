@@ -78,7 +78,8 @@ def _waehle(client, sprache: str, mit_csrf: bool = True):  # noqa: ANN001, ANN20
     daten = {"sprache": sprache, "weiter": "/freigaben"}
     if mit_csrf:
         daten["csrf"] = csrf(client)
-    return client.post("/einstellungen/sprache", data=daten, follow_redirects=False)
+    # umgestellt (Plan P1, Schritt 9): die Sprachwahl liegt bei den Vorlieben
+    return client.post("/konto/vorlieben", data=daten, follow_redirects=False)
 
 
 def test_sprache_wechseln_braucht_csrf(welt):
