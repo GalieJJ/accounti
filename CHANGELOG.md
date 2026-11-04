@@ -8,6 +8,33 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
 ### Hinzugefügt
 
+- **Einstellungen: Lesen aus der Datenbank** (Baustein 10c, Paket P4a): Tabellen
+  `einstellungen` (nur anfügende Versionen je Abschnitt mit Person, Grund, Quelle und
+  Hash-Kette je Abschnitt; SQLite- und PostgreSQL-Trigger gegen Ändern und Löschen),
+  `einstellungsantraege` und `geheimnisse` (Migration `83dfa5750c7f_add_einstellungen`). Ein
+  zentraler Abschnittsleser (`einstellungen.lies_abschnitt`) ersetzt jedes `yaml.safe_load`
+  der Konfiguration; alle Lader lesen über ihn, mit demselben Modell und denselben
+  Fehlertexten. Vorrang: Umgebung (`${VAR}` der Datei) vor Festlegung in der Datei
+  (`einstellungen.quelle: datei` bzw. `einstellungen.festgelegt: [...]`) vor Datenbank vor
+  Datei vor Standard; Betriebswerte (`database`, `server`, `auth`, `gesellschaften`,
+  `einstellungen`, alle Pfade, `elster.eric`, Webhook-Adresse, eVatR-URL, FinTS-Produkt-ID)
+  kommen immer aus Datei oder Umgebung, `${…}` nie aus der Datenbank. Innerhalb eines Befehls
+  bzw. einer Anfrage gilt ein Stand, und es gelten die Einstellungen der Datenbank, mit der der
+  Befehl arbeitet (`--db`, Gesellschaft, sonst `sqlite:///accounti.db`) bzw. der Gesellschaft
+  der Sitzung oder des Tokens; ist sie nicht lesbar, bricht der Befehl ab, statt still die
+  Datei zu nehmen. Geschrieben werden Einstellungen mit Paket P4b (`accounti einstellungen`);
+  ohne Datenbank-Version bleibt alles wie bisher. CI-Job `postgresql` (ganze Suite gegen
+  `postgres:16.15`).
+- **Periodenwerte:** `elster.voranmeldungszeitraum`, `elster.dauerfristverlaengerung` (je
+  Jahr), `mandant.oss` (je Quartal, `{2026-Q1: false, 2027-Q1: true}`) und
+  `abschluss.gewinnermittlung` (je Wirtschaftsjahr) gelten auch als „ab Zeitraum → Wert“, z. B.
+  `voranmeldungszeitraum: {2026: monat, 2027: quartal}`; ein Einzelwert gilt wie bisher immer.
+  USt-VA, Dauerfrist, Zahllast, Fristenkalender, Rechnungen, Marktplatz-Abrechnungen, Abschluss,
+  EÜR, Vortrag, Abgrenzungen, `opos verbuchen` und die Verfahrensdokumentation fragen je
+  Zeitraum (Dezember 2026 bleibt monatlich, auch wenn ab 2027 quartalsweise gilt).
+- Neue Felder `mandant.rechtsform` und `mandant.kennfarbe` (1–6); `mandant.sachkonten_laenge`
+  ist Modellfeld (geprüft wie im DATEV-Export, 4 bis 8). Modelle für `llm`, `import`, `datev`,
+  den Datei-Abschnitt `einstellungen` und den Datenbank-Abschnitt `einrichtung`.
 - **Oberfläche: Design-System und Seitengerüst** (Baustein 10c, Paket 1): eigene Token für hell
   und dunkel mit nachgerechneten Kontrasten (Test), Systemschrift, CSS ohne Framework in einer
   Datei (`accounti.css`, ≤ 40 KB), Symbole als lokales SVG-Sprite (Lucide 1.55.0, 36 Symbole,
@@ -358,6 +385,32 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
 ### Geändert
 
+- **`llm.auto_buchen_schwelle`, `llm.provider` und `llm.model` wirken jetzt** (Baustein 10c,
+  P4a; bisher galt immer 0,95 und das Standardmodell) — in `classify`, `bank lauf`, `POST
+  /api/v1/laeufe/bank`, der Verfahrensdokumentation und der Prüfen-Seite. Wer einen anderen Wert
+  in der Konfiguration stehen hat, bekommt ihn ab diesem Update. `${VAR}` gilt nur in
+  `llm.api_key` und nachsichtig: Ohne gesetzte Variable laufen `--no-llm` und die
+  Verfahrensdokumentation wie bisher. Die Kontierung mit Beleg vergleicht weiter mit 0,95.
+- `datev.wirtschaftsjahr_beginn` wird als Tag und Monat gelesen (`"07-01"`, `"01.07."`; ein
+  Datum mit Jahr bleibt gültig, das Jahr zählt nicht); `gesellschaft zeigen` nennt ihn als
+  „01.07.“. Eine fehlerhafte Berater- oder Mandantennummer (nur Ziffern) ist ein Fehler des
+  DATEV-Exports, auch mit `--berater`/`--mandant`.
+- `accounti fristen`, `pruefen regeln`, `kanaele connectoren` und `elster pin` haben `--db`;
+  ohne Angabe gilt wie bei allen Befehlen `sqlite:///accounti.db` bzw. die Gesellschaft.
+- Fehlt die Konfigurationsdatei, gelten die Einstellungen der Datenbank (bisher: Standards bzw.
+  „Vorlage kopieren“); `elster` liest eine fehlende Datei wie eine leere (mit den OSS-Konten aus
+  den Standards von `integrationen`).
+- `gesellschaft liste|zeigen` lesen Kontenrahmen und Wirtschaftsjahr aus der Datenbank jeder
+  Gesellschaft; ist sie nicht erreichbar, zeigt `zeigen` „— (Datenbank nicht lesbar)“ und endet
+  mit Exit 1 (bisher: die Werte der Datei). Ohne Registry kommt der Name der Gesellschaft für
+  `serve` aus ihrer Datenbank.
+- Ein Abschnitt, der keine Zuordnung ist (`kasse: 5`), und kaputtes YAML sind für jeden Lader
+  eine Meldung mit Datei (auch für die nachsichtig gelesenen Angaben aus `mandant`); Meldungen
+  zum Firmenstamm nennen zusätzlich „Einstellungen › Firma & Steuern“; `einstellungen.quelle`
+  und `einstellungen.festgelegt` werden geprüft (unbekannter Abschnitt mit Pfad).
+- `lade_oss`, `lade_steuerangaben` und `gewinnermittlung_angegeben` fragen mit einem Zeitraum;
+  `fristenkalender(oss=…)` nimmt auch die Quartale mit OSS.
+
 - **Oberfläche:** Alle Seiten aus 10a und 10b (Anmeldung, Übersicht, Freigaben, Prüfen,
   Buchung, Beleg) im neuen Design, fachlich unverändert. Die Sprachwahl zieht von der
   Kopfleiste nach „Mein Konto“ (`POST /konto/vorlieben`); `POST /einstellungen/sprache`
@@ -560,6 +613,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+
+- **REST:** `POST /api/v1/laeufe/aufgaben` liest für den Prüflauf `beleg_fehlt` den Abschnitt
+  `pruefung` der Gesellschaft des Tokens (bisher `config/accounti.yaml` des Arbeitsordners —
+  gefunden über die strenge Bindung der Einstellungen im Web, Baustein 10c P4a).
 
 - **Protokoll:** `httpx2` und `httpcore2` (kommen mit openai 2.x über litellm) schreiben keine
   Adressen mehr auf INFO ins Protokoll; gedämpft waren nur `httpx`, `httpcore` und `urllib3`.

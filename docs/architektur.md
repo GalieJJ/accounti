@@ -666,6 +666,33 @@ Fachbegriffe bleiben deutsch. CSV, CLI und E-Mails bleiben deutsch.
   `opos verbuchen`, `periode schliessen`; Art `aufgaben`: `aufgaben lauf`, `nachfordern`.
 - `protokoll.py` — Schwärzung (IBAN, E-Mail, Token, Passwörter in URLs) an jedem Handler.
 
+### `einstellungen/` *(teilweise — [Baustein 10c](specs/2026-10-26-oberflaeche-einrichtung.md), Paket P4)*
+
+Wo Einstellungen leben und wie sie gelesen werden. Paket P4a bringt das Lesen; das
+Schreiben (`einstellungen setzen`, Anträge, Geheimnisse) folgt mit P4b.
+
+- **`leser.py`** — `lies_abschnitt(pfad, name)` ist der einzige Weg an einen Abschnitt der
+  Konfiguration; jeder Lader (`lade_firma`, `lade_elster`, …) ruft ihn und validiert wie bisher
+  mit seinem Modell. Vorrang je Abschnitt: Umgebung (`${VAR}`-Blätter der Datei) → Festlegung
+  in der Datei (`einstellungen.quelle`/`festgelegt`) → neueste Version in der Datenbank → Datei
+  → Standard. Betriebsabschnitte und -felder (`inventar.BETRIEBSFELDER`, alle Pfade) kommen immer
+  aus der Datei. Ein `Stand` je CLI-Befehl bzw. Web-Anfrage (Kontextvariable) hält einen
+  Schnappschuss der Versionen und die gelesenen Dateien fest; die CLI bindet ihn an die
+  Datenbank aus `--db` bzw. der Gesellschaft (ohne beides `sqlite:///accounti.db`), das Web an
+  die Gesellschaft der Sitzung oder des Tokens (`api/einstellungsstand.py`). Ohne Stand
+  (Unit-Tests, Werkzeuge): nur die Datei. Eine fehlende Datei ist ein leerer Startwert. Ein
+  Web-Stand ohne Bindung und ein Pfad einer anderen Gesellschaft lesen keine
+  Datenbank-Abschnitte (fail-closed). `${…}` kommt nur aus der Datei.
+- **`inventar.py`** — Daten: Abschnitte (Datenbank, nur Datei, nur Datenbank), Betriebs-,
+  Geheim-, Perioden-, Konto- und meldepflichtige Felder, Modell je Abschnitt, gelesene
+  Abschnitte je Lader (`LADER`, auch mittelbar — Strukturtests in
+  `tests/test_einstellungen_inventar.py` und `tests/test_lader_umbau.py`).
+- **`perioden.py`** — Periodenwerte „ab Zeitraum → Wert“ (`{2026: monat, 2027: quartal}`,
+  OSS mit `"2027-Q1"`, Gewinnermittlung je Wirtschaftsjahr): Es gilt der größte Schlüssel ≤
+  Zeitraum, der früheste auch davor. Die Rohfelder heißen im Modell `<name>_roh` (Alias =
+  Dateiname); gelesen wird nur über `…_fuer(zeitraum)` bzw. `…_am(datum)`.
+- `einrichtung.py` — Modell des Datenbank-Abschnitts `einrichtung` (für den Assistenten, P7).
+
 ## Datenmodell
 
 Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungssatz`,
@@ -743,6 +770,23 @@ Der Kern steht in `models/` und ist umgesetzt: `Transaktion`, `Konto`, `Buchungs
   werden vor der Auslieferung gegen ihren Hash geprüft
 
 ## Erweiterungspunkte
+
+### Neuen Konfigurationsabschnitt anschließen
+
+1. Modell und Lader im Fachmodul wie bisher (`lade_x(pfad=STANDARD_PFAD) -> XEinstellungen`),
+   gelesen **nur** über `einstellungen.lies_abschnitt(pfad, "x")` — `yaml.safe_load`
+   außerhalb der Positivliste lässt `tests/test_lader_umbau.py` scheitern.
+2. In `einstellungen/inventar.py` eintragen: `ABSCHNITTE["x"]`, `MODELL["x"]`, der Lader in
+   `LADER` (mit allen Abschnitten, die er auch über andere Lader liest), Pfadfelder in
+   `BETRIEBSFELDER`, Geheimnisse in `GEHEIMFELDER`, Konten in `KONTOFELDER`.
+3. Ein Feld, das vom Zeitraum abhängt, als Periodenwert (`einstellungen/perioden.py`) mit
+   `…_fuer(zeitraum)` und Eintrag in `PERIODENFELDER`; das Rohfeld heißt `<name>_roh` mit
+   Alias.
+4. Ein Pfadfeld als `Betriebsfeld[...]` (Strukturtest). `${…}` nur in der Datei — der Leser
+   gibt keinen Platzhalter aus der Datenbank weiter.
+5. Golden-Daten ergänzen (`tests/werkzeuge/golden_lader.py`). **Einen Standard ändern** heißt:
+   Golden-Daten bewusst neu erzeugen und die Änderung mit altem und neuem Wert im CHANGELOG
+   unter „Geändert“ nennen — Standards sind in Datenbank-Versionen nicht eingefroren.
 
 ### Neuen Baustein anschließen
 

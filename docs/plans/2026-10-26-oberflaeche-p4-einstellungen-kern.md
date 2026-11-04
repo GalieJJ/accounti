@@ -2018,6 +2018,19 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 - [ ] **Gegnerische Prüfung** (Technik und Fachlich) je PR wie in 10a/10b; Befunde im Plan
   nachtragen.
 
+  *Stand P4a (Abschnitt B):* Doku-Bausteine des P4a-Teils eingearbeitet — CHANGELOG
+  („Hinzugefügt“: Lesen aus der Datenbank, Periodenwerte, neue Felder; „Geändert“: `llm`,
+  `datev.wirtschaftsjahr_beginn`, `--db` an den vier Befehlen, fehlende Datei, `gesellschaft
+  liste|zeigen` bei unerreichbarer Datenbank, Meldungen der Lader, neue Pflichtparameter;
+  „Behoben“: Prüflauf `beleg_fehlt` der REST-Route), `docs/architektur.md` (`einstellungen/`
+  mit `leser.py`, `inventar.py`, `perioden.py`, `einrichtung.py`; Erweiterungspunkt „Neuen
+  Konfigurationsabschnitt anschließen“ ohne `stufen.py` und ohne `einstellung_standards`, beides
+  P4b), `docs/betrieb.md` (Upgrade-Block P4a mit `llm`, WJ, Periodenwerten, fehlender Datei
+  und Festlegung; ohne `einstellungen pruefen` und ohne `db upgrade` nach späteren Updates),
+  Vorlage. **Abweichung Vorlage:** `rechtsform: gmbh` steht auskommentiert — die Vorlage ist
+  die Golden-Konfiguration „beispiel“, ein gesetzter Wert wäre kein Standard mehr
+  (`ERLAUBT` nur wie im Plan). Die gegnerische Prüfung von P4a steht noch aus (Orchestrator).
+
 ---
 
 ## Dateien

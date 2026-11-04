@@ -874,3 +874,50 @@ Bestehende Benutzer bekommen „automatisch“, Fachansicht aus, Beträge sichtb
 Wer die Tastenkürzel im Browser abgeschaltet hatte, schaltet sie einmal unter „Mein Konto“ ab.
 Der Reverse-Proxy braucht keine Änderung; alle Dateien (Stile, Symbole, Skripte) liefert
 accounti selbst unter `/statisch` aus, nichts kommt von fremden Servern.
+
+**Update auf Baustein 10c, Paket P4a** (Migration `83dfa5750c7f_add_einstellungen` auf
+`1dd2f6b7c6c8`: Tabellen `einstellungen`, `einstellungsantraege`, `geheimnisse`; Trigger gegen
+Ändern und Löschen der Versionen unter SQLite und PostgreSQL): `db upgrade` wie oben — die
+Systemdatenbank und jede Gesellschaftsdatenbank —, sonst nichts. Die Tabellen bleiben leer,
+bis Einstellungen in der Datenbank gepflegt werden (`accounti einstellungen`, mit Paket P4b);
+bis dahin gelten die Werte der Datei wie bisher. Jeder Befehl liest die Einstellungen aus der
+Datenbank, mit der er arbeitet (`--db`, Gesellschaft bzw. `ACCOUNTI_DB`, sonst
+`sqlite:///accounti.db`); `fristen`, `pruefen regeln`, `kanaele connectoren` und `elster pin`
+haben dafür jetzt `--db`. Ist diese Datenbank nicht erreichbar, bricht ein Befehl ab, statt
+still die Datei zu nehmen. Das Downgrade geht nur, solange die drei Tabellen leer sind.
+
+Drei Dinge wirken ab diesem Stand neu:
+
+- `llm.auto_buchen_schwelle`, `llm.provider` und `llm.model` (bisher ohne Wirkung, immer
+  0,95 und das Standardmodell) — wer in der Datei einen anderen Wert stehen hat, bekommt ihn
+  jetzt; vor dem Update prüfen. `llm.api_key: "${ANTHROPIC_API_KEY}"` ohne gesetzte Variable
+  stört nicht: `bank lauf --no-llm`, `classify --no-llm` und `verfahrensdoku` laufen wie
+  bisher.
+- `datev.wirtschaftsjahr_beginn` zählt nur nach Tag und Monat und darf so geschrieben werden
+  (`"07-01"` oder `"01.07."`); ein Datum mit Jahr bleibt gültig.
+- Werte, die vom Zeitraum abhängen, können ein „ab“ tragen — ein Einzelwert gilt wie bisher
+  für alle Zeiträume:
+
+  ```yaml
+  elster:
+    voranmeldungszeitraum: { 2026: monat, 2027: quartal }   # 2026 bleibt monatlich
+    dauerfristverlaengerung: { 2026: true, 2027: false }
+  mandant:
+    oss: { 2026-Q1: false, 2027-Q1: true }                  # ab einem Quartal
+  abschluss:
+    gewinnermittlung: { 2026: euer, 2027: bilanz }          # je Wirtschaftsjahr (Jahr des Endes)
+  ```
+
+  Es gilt der Eintrag mit dem größten Zeitraum, der nicht nach dem gefragten liegt; der
+  früheste gilt auch für alle Zeiträume davor. Ein Schlüssel in falscher Form (`2027` bei
+  `oss`, `2027-Q5`) ist ein Fehler mit Feldpfad.
+
+Fehlt die Konfigurationsdatei, ist sie ein leerer Startwert: Es gelten die Einstellungen der
+Datenbank, sonst die Standards (bzw. die bisherige Meldung „… fehlt — Vorlage …“).
+Optional legt die Datei Abschnitte fest — sie werden dann nie aus der Datenbank gelesen:
+
+```yaml
+einstellungen:
+  quelle: datei                   # alle Abschnitte aus der Datei
+  # festgelegt: [elster, zahlung]  # oder nur diese
+```

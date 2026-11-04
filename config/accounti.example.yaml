@@ -5,9 +5,17 @@
 database:
   url: "postgresql://accounti:accounti@localhost:5432/accounti"
 
+# Einstellungen (optional): Ab der ersten Änderung über "accounti einstellungen" (bzw. im
+# Browser) gilt je Abschnitt der Stand aus der Datenbank; diese Datei ist dann Startwert.
+# einstellungen:
+#   quelle: datei                # alle Abschnitte nur aus dieser Datei
+#   festgelegt: [elster, zahlung]  # oder nur diese Abschnitte
+
 # Mandant
 mandant:
   name: "Meine Firma GmbH"
+  # rechtsform: gmbh           # einzelunternehmen, ek, gbr, ohg, kg, gmbh, ug, gmbh_co_kg, ag, eg, partg, sonstige
+  # kennfarbe: 1               # 1–6: Farbe der Gesellschaft in der Oberfläche (sonst aus dem Kürzel)
   sachkonten_laenge: 4         # 4 oder 6 (Kontenrahmen: buchhaltung.kontenrahmen)
 
   # Für Ausgangsrechnungen (XRechnung verlangt Anschrift, Kontakt, E-Mail und Bank)
@@ -27,7 +35,8 @@ mandant:
   bank:
     iban: "DE89 3704 0044 0532 0130 00"
     bic: "COBADEFFXXX"
-  oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz
+  oss: false                   # OSS-registriert? Dann zahlen EU-Privatkunden ihren Landessatz;
+                               # ab einem Quartal: { 2026-Q1: false, 2027-Q1: true }
   rechnung:
     nummernformat: "{jahr}-{nummer:04d}"   # lückenlos je Kürzel und Jahr; ohne {jahr} jahresübergreifend
     zahlungsziel_tage: 14
@@ -36,9 +45,9 @@ mandant:
 datev:
   berater_nummer: "12345"
   mandanten_nummer: "00001"
-  wirtschaftsjahr_beginn: "2026-01-01"   # nur Tag und Monat zählen; abweichendes WJ (§ 4a
-                                         # EStG) z.B. "2025-07-01": abschluss --jahr 2026
-                                         # = 01.07.2025–30.06.2026 (Jahr des WJ-Endes)
+  wirtschaftsjahr_beginn: "01-01"   # MM-TT; abweichendes WJ (§ 4a EStG) z.B. "07-01":
+                                    # abschluss --jahr 2026 = 01.07.2025–30.06.2026 (Jahr des
+                                    # WJ-Endes); ein Datum mit Jahr wird weiter gelesen
 
 # Marktplätze & Zahlungsdienstleister (optional — ohne Abschnitt gelten diese Werte, SKR03;
 # OSS- und Kursdifferenzkonten folgen buchhaltung.kontenrahmen)
@@ -94,7 +103,7 @@ llm:
   model: "claude-sonnet-4-20250514"
   api_key: "${ANTHROPIC_API_KEY}"    # Umgebungsvariable
 
-  # Ab welcher Confidence automatisch buchen (0.0-1.0)?
+  # Ab welcher Confidence automatisch buchen (0.0-1.0)? Wirkt ab Baustein 10c
   auto_buchen_schwelle: 0.95
 
   # Ab welcher Confidence zur Prüfung vorlegen (darunter = manuell)?
@@ -197,6 +206,8 @@ belegkanaele:
 elster:
   voranmeldungszeitraum: monat     # monat oder quartal (§ 18 Abs. 2 UStG)
   dauerfristverlaengerung: false   # Frist + 1 Monat (§ 46 UStDV)
+  # voranmeldungszeitraum und dauerfristverlaengerung ab einem Jahr:
+  #   voranmeldungszeitraum: { 2026: monat, 2027: quartal }
   # sondervorauszahlung: {2026: 4000.00}  # festgesetzte SVZ je Jahr (Kz 39 im Dezember);
   #                                      # sonst die angemeldete aus dem Protokoll
   bundesland: BY                   # Feiertage (§ 108 Abs. 3 AO) und Steuernummer im ELSTER-Format
@@ -247,7 +258,8 @@ anlagen:
 # Jahresabschluss (optional)
 abschluss:
   gewinnermittlung: euer         # euer oder bilanz (nur bei bilanz: ARAP/PRAP); ohne Angabe
-                                 # bucht opos verbuchen --buchungsdatum nie ins Folgejahr
+                                 # bucht opos verbuchen --buchungsdatum nie ins Folgejahr;
+                                 # ab einem Wirtschaftsjahr: { 2026: euer, 2027: bilanz }
   ergebnis_konto: "0880"         # Kapitalkonto für Ergebnis und Privatkonten (SKR04: 2010)
   rap_verzicht_bis_gwg: false    # § 5 Abs. 5 Satz 2 EStG, einheitlich für alle
   verrechnungskonten: ["1360", "1590", "1792"]   # sollen zum Stichtag ausgeglichen sein
