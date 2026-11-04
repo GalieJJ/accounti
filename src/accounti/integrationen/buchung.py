@@ -17,6 +17,7 @@ gibt keine Ausgleichsbuchung — die Differenz bleibt auf dem Verrechnungskonto 
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
@@ -55,7 +56,8 @@ class Buchungskontext:
     """Was die Buchung über den Mandanten wissen muss."""
 
     einstellungen: Integrationen
-    oss_registriert: bool = False
+    # OSS-registriert am Tag eines Postens (mandant.oss ab Quartal, Baustein 10c P4)
+    oss_am: Callable[[date], bool] = field(default=lambda _tag: False)
     firmen_land: str = "DE"
     # EU-Fernverkäufe an Privatkunden (netto) je Kalenderjahr vor dieser Abrechnung
     eu_b2c_bisher: dict[int, Decimal] = field(default_factory=dict)
@@ -299,10 +301,11 @@ def _erloes(
         lauf.sammle("geschaeftskunde_ohne_ust_id", f"{bestellung} ({land})")
         pruefen = True
     b2b = bool(p.kaeufer_ust_id)
+    oss = k.oss_am(p.datum)
     berechner = UStBerechner(
         firmen_land=k.firmen_land,
-        oss_registriert=k.oss_registriert,
-        oss_schwelle_ueberschritten=k.oss_registriert,
+        oss_registriert=oss,
+        oss_schwelle_ueberschritten=oss,
     )
     vorfall = berechner.bestimme_vorfall(land, ist_b2b=b2b, kaeufer_hat_ust_id=b2b)
 

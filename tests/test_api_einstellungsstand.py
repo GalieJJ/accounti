@@ -98,7 +98,7 @@ def test_ungebunden_fail_closed(welt, caplog):
     pfad = welt.umgebung.config["a"]
 
     def ohne_anmeldung() -> dict[str, str]:
-        return {"zeitraum": lade_elster(pfad).voranmeldungszeitraum}
+        return {"zeitraum": lade_elster(pfad).voranmeldungszeitraum_fuer(2026)}
 
     client = _client(welt, ("/test/ungebunden", ohne_anmeldung))
     with caplog.at_level(logging.ERROR, logger="accounti"):

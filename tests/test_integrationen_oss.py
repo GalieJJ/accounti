@@ -54,7 +54,7 @@ def amazon(laender=None):
 def buche(a, tmp_path, oss=True, **kw):
     einstellungen = kw.pop("einstellungen", lade_integrationen(tmp_path / "x.yaml"))
     return buche_abrechnung(
-        a, Buchungskontext(einstellungen=einstellungen, oss_registriert=oss, **kw)
+        a, Buchungskontext(einstellungen=einstellungen, oss_am=lambda _tag: oss, **kw)
     )
 
 
@@ -66,7 +66,7 @@ def test_akzeptanz_3_drei_eu_laender_auf_oss_konten_und_in_der_meldung(tmp_path)
     engine, make = session_factory(f"sqlite:///{tmp_path / 'o.db'}")
     init_db(engine)
     kontext = Kontext(
-        einstellungen=lade_integrationen(tmp_path / "x.yaml"), oss_registriert=True
+        einstellungen=lade_integrationen(tmp_path / "x.yaml"), oss_roh=True
     )
     roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
     angaben = lies_laenderdatei((FIXTURES / "amazon_bestellungen.txt").read_bytes())
@@ -449,7 +449,7 @@ def oss_import(tmp_path, konfig=""):
     einstellungen = lade_integrationen(pfad)
     engine, make = session_factory(f"sqlite:///{tmp_path / 'e.db'}")
     init_db(engine)
-    kontext = Kontext(einstellungen=einstellungen, oss_registriert=True)
+    kontext = Kontext(einstellungen=einstellungen, oss_roh=True)
     roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
     angaben = lies_laenderdatei((FIXTURES / "amazon_bestellungen.txt").read_bytes())
     with make() as s:

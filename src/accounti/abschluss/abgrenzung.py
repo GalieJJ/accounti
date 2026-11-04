@@ -203,7 +203,7 @@ def schlage_abgrenzungen_vor(
 ) -> AbgrenzungsLauf:
     pruefe_jahr_offen(session, jahr)
     lauf = AbgrenzungsLauf()
-    if einst.gewinnermittlung != "bilanz":
+    if einst.gewinnermittlung_fuer(jahr) != "bilanz":
         lauf.hinweise.append(
             "Einnahmenüberschussrechnung: keine Rechnungsabgrenzung "
             "(Zufluss-/Abflussprinzip, § 11 EStG) — die 10-Tage-Regel für regelmäßig "

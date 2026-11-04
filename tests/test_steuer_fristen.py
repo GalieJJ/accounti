@@ -140,3 +140,41 @@ def test_faellige_fristen_fuer_erinnerungen():
     assert [(f.zeitraum, f.faellig_am) for f in naechste] == [
         ("2026-08", date(2026, 9, 10))
     ]
+
+
+def test_kalender_je_jahr_mit_periodenwert(tmp_path, monkeypatch):
+    """D14: ``fristen --jahr`` nimmt den Voranmeldungszeitraum und die Dauerfrist
+    des Jahres und die OSS-Meldung nur für die Quartale mit OSS."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_KONFIG"):
+        monkeypatch.delenv(name, raising=False)
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        "mandant:\n  oss: {2026-Q1: false, 2026-Q3: true}\n"
+        "elster:\n  voranmeldungszeitraum: {2026: monat, 2027: quartal}\n"
+        "  dauerfristverlaengerung: {2026: true, 2027: false}\n",
+        encoding="utf-8",
+    )
+    url = f"sqlite:///{tmp_path / 'a.db'}"
+
+    def kalender(jahr: int) -> str:
+        r = CliRunner().invoke(
+            app,
+            ["fristen", "--jahr", str(jahr), "--db", url, "--config", str(konfig)],
+            env={"COLUMNS": "200"},
+        )
+        assert r.exit_code == 0, r.output
+        return r.output
+
+    k2026, k2027 = kalender(2026), kalender(2027)
+    assert "2026-12" in k2026 and "2026-Q1" not in k2026.split("OSS")[0]
+    assert "Sondervorauszahlung" in k2026
+    oss_2026 = [z for z in k2026.splitlines() if "OSS" in z]
+    assert [z for z in oss_2026 if "2026-Q3" in z or "2026-Q4" in z]
+    assert not [z for z in oss_2026 if "2026-Q1" in z or "2026-Q2" in z]
+    assert "2027-Q1" in k2027 and "2027-01" not in k2027
+    assert "Sondervorauszahlung" not in k2027
+    assert [z for z in k2027.splitlines() if "OSS" in z and "2027-Q4" in z]

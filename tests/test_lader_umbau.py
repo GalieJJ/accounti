@@ -191,6 +191,16 @@ def _doku_abschnitte(pfad: Path) -> Any:
 # Aufruf je Lader (Signaturen mit mehr als dem Pfad)
 AUFRUF: dict[str, Callable[[Path], Any]] = {
     "accounti.pruefung.verfahrensdoku._Doku.abschnitt": _doku_abschnitte,
+    # Periodenwerte (Schritt 6): mit Zeitraum
+    "accounti.elster.konfiguration.lade_oss": lambda p: objekt(
+        "accounti.elster.konfiguration.lade_oss"
+    )(p, date(2026, 3, 31)),
+    "accounti.abschluss.konfiguration.gewinnermittlung_angegeben": lambda p: objekt(
+        "accounti.abschluss.konfiguration.gewinnermittlung_angegeben"
+    )(p, 2026),
+    "accounti.integrationen.einstellungen._steuerangaben": lambda p: objekt(
+        "accounti.integrationen.einstellungen._steuerangaben"
+    )(Path(p)),
 }
 
 
@@ -377,7 +387,7 @@ WIRKUNG: dict[str, tuple[str, dict[str, Any], Callable[[Any], Any], Any]] = {
         lambda i: i.geldtransit_konto,
         "1361",
     ),
-    "accounti.integrationen.einstellungen.lade_steuerangaben": (
+    "accounti.integrationen.einstellungen._steuerangaben": (
         "mandant",
         MANDANT,
         lambda s: s,

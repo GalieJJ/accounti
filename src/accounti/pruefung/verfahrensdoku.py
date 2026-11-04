@@ -97,6 +97,8 @@ class _Doku:
         self.system_db = system_db
         self.gesellschaft = gesellschaft
         self.zeilen: list[str] = []
+        # Stichtag: Periodenwerte gelten für seinen Zeitraum (Baustein 10c P4)
+        self.stand = date.today()
 
     def __call__(self, *zeilen: str) -> None:
         self.zeilen.extend(zeilen)
@@ -126,6 +128,7 @@ class _Doku:
 
 def _allgemein(d: _Doku) -> None:
     from accounti.abschluss.konfiguration import (
+        AbschlussEinstellungen,
         gewinnermittlung_angegeben,
         lade_abschluss,
     )
@@ -135,7 +138,7 @@ def _allgemein(d: _Doku) -> None:
         KontaktRow,
         TransaktionRow,
     )
-    from accounti.elster.konfiguration import lade_elster
+    from accounti.elster.konfiguration import ElsterEinstellungen, lade_elster
     from accounti.konfiguration import lade_buchhaltung
 
     mandant = d.abschnitt("mandant")
@@ -156,26 +159,28 @@ def _allgemein(d: _Doku) -> None:
             f"{buchhaltung.kreditoren_von}–{buchhaltung.kreditoren_bis}; Bank "
             f"{buchhaltung.bank_konto}, Standardaufwand {buchhaltung.standard_aufwand}",
         )
-    abschluss = d.lade(lade_abschluss, "abschluss")
+    abschluss: AbschlussEinstellungen | None = d.lade(lade_abschluss, "abschluss")
     if abschluss is not None:
+        wj = abschluss.wirtschaftsjahr_zum(d.stand).jahr  # WJ des Stichtags
         art = (
             "Einnahmenüberschussrechnung"
-            if abschluss.gewinnermittlung == "euer"
+            if abschluss.gewinnermittlung_fuer(wj) == "euer"
             else "Bilanz"
         )
-        if gewinnermittlung_angegeben(d.config) is None:
+        if gewinnermittlung_angegeben(d.config, wj) is None:
             # wie 2.6: ohne Angabe schützt accounti den Jahreswechsel wie bei Bilanz
             art += (
                 " (Standard, nicht ausdrücklich angegeben — ein Buchungsdatum im "
                 "Folgejahr lehnt accounti deshalb ab)"
             )
         d(f"- **Gewinnermittlung:** {art}")
-    elster = d.lade(lade_elster, "elster")
+    elster: ElsterEinstellungen | None = d.lade(lade_elster, "elster")
     if elster is not None:
+        jahr = d.stand.year
         d(
             "- **Umsatzsteuer-Voranmeldung:** "
-            f"{_ZEITRAUM[elster.voranmeldungszeitraum]}, "
-            f"Dauerfristverlängerung {_ja(elster.dauerfristverlaengerung)}",
+            f"{_ZEITRAUM[elster.voranmeldungszeitraum_fuer(jahr)]}, "
+            f"Dauerfristverlängerung {_ja(elster.dauerfrist_fuer(jahr))}",
         )
     dialekt = urlsplit(d.db_url).scheme.split("+")[0] if d.db_url else "unbekannt"
     zeitraum = d.s.execute(
@@ -671,11 +676,19 @@ def _pruefung(d: _Doku) -> None:
 
 
 def _perioden(d: _Doku) -> None:
-    from accounti.abschluss.konfiguration import gewinnermittlung_angegeben
+    from accounti.abschluss.konfiguration import (
+        gewinnermittlung_angegeben,
+        lade_wirtschaftsjahr_beginn,
+        wirtschaftsjahr_zum,
+    )
 
+    try:
+        wj = wirtschaftsjahr_zum(d.stand, lade_wirtschaftsjahr_beginn(d.config)).jahr
+    except KonfigurationError:  # der Fehler steht schon in Abschnitt 1
+        wj = d.stand.year
     ziel = (
         "— bei Einnahmenüberschussrechnung auch im Folgejahr, der Abfluss zählt —"
-        if gewinnermittlung_angegeben(d.config) == "euer"
+        if gewinnermittlung_angegeben(d.config, wj) == "euer"
         else "desselben Geschäftsjahres"
     )
     from accounti.db.repo_abschluss import lade_gesperrte_jahre
@@ -848,6 +861,7 @@ def erzeuge(
 
     d = _Doku(session, Path(config), db_url, system_db, gesellschaft)
     stand = stand or date.today()
+    d.stand = stand
     name = d.abschnitt("mandant").get("name") or "nicht eingerichtet"
     d(
         f"# Verfahrensdokumentation — {_zelle(name)}",

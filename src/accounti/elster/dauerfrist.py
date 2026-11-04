@@ -71,7 +71,7 @@ def berechne_svz(
     summe_vorjahr: Decimal | None = None,
     svz_vorjahr: Decimal | None = None,
 ) -> Sondervorauszahlung:
-    if einstellungen.voranmeldungszeitraum == "quartal":
+    if einstellungen.voranmeldungszeitraum_fuer(jahr) == "quartal":
         return Sondervorauszahlung(jahr, NULL, NULL, None)
     vorjahr = letzte_betraege(session, Meldeart.USTVA)
     monate = [f"{jahr - 1}-{m:02d}" for m in range(1, 13)]

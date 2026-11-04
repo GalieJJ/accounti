@@ -116,10 +116,12 @@ def _zeitraum_befunde(
     test: bool = False,
 ) -> list[Befund]:
     befunde = []
-    if zeitraum.art != einst.voranmeldungszeitraum:
+    # Periodenwert (Baustein 10c P4): der Zeitraum des Kalenderjahres der Meldung
+    erwartet = einst.voranmeldungszeitraum_fuer(zeitraum.jahr)
+    if zeitraum.art != erwartet:
         text = (
             f"{zeitraum} ist kein Voranmeldungszeitraum: elster.voranmeldungszeitraum "
-            f"ist „{einst.voranmeldungszeitraum}“"
+            f"ist {zeitraum.jahr} „{erwartet}“"
         )
         befunde.append(Befund("zeitraum", Schweregrad.FEHLER, text))
     heute = heute or date.today()
@@ -411,8 +413,8 @@ def _sondervorauszahlung(
     """Kz 39 in der letzten Voranmeldung des Jahres (Monatszahler mit DFV)."""
     z = e.zeitraum
     if not (
-        einstellungen.dauerfristverlaengerung
-        and einstellungen.voranmeldungszeitraum == "monat"
+        einstellungen.dauerfrist_fuer(z.jahr)
+        and einstellungen.voranmeldungszeitraum_fuer(z.jahr) == "monat"
         and z.monat == 12
     ):
         return []

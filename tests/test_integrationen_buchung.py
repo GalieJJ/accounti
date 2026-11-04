@@ -29,7 +29,7 @@ def lies(markt, datei, laender=None, inhalt=None):
 def kontext(tmp_path, oss=True, **kw):
     return Buchungskontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
-        oss_registriert=oss,
+        oss_am=lambda _tag: oss,
         **kw,
     )
 
@@ -285,7 +285,9 @@ def test_gebuehren_13b_mit_eingestelltem_schluessel(amazon, tmp_path):
         "      bu_gebuehren: 94\n      ust_werbung: ohne\n",
         encoding="utf-8",
     )
-    k = Buchungskontext(einstellungen=lade_integrationen(pfad), oss_registriert=True)
+    k = Buchungskontext(
+        einstellungen=lade_integrationen(pfad), oss_am=lambda _tag: True
+    )
     ergebnis = buche_abrechnung(amazon, k)
     verkauf = gebuehr(ergebnis.buchungen, "4760", "Gebühren verkauf")
     assert (verkauf.betrag_netto, verkauf.steuer_schluessel) == (D("67.55"), 94)
@@ -301,7 +303,9 @@ def test_gebuehren_13b_ohne_schluessel_zur_pruefung(amazon, tmp_path):
         "integrationen:\n  marktplaetze:\n    amazon:\n      ust_gebuehren: 13b\n",
         encoding="utf-8",
     )
-    k = Buchungskontext(einstellungen=lade_integrationen(pfad), oss_registriert=True)
+    k = Buchungskontext(
+        einstellungen=lade_integrationen(pfad), oss_am=lambda _tag: True
+    )
     ergebnis = buche_abrechnung(amazon, k)
     verkauf = gebuehr(ergebnis.buchungen, "4760", "Gebühren verkauf")
     assert verkauf.status is BuchungStatus.ZUR_PRUEFUNG

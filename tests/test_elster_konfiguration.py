@@ -7,6 +7,7 @@ from accounti.elster.konfiguration import (
     KonfigurationError,
     bereiche,
     lade_elster,
+    lade_oss,
 )
 
 
@@ -23,8 +24,9 @@ def test_ohne_datei_und_ohne_abschnitt_gelten_standards(tmp_path):
     datei = tmp_path / "a.yaml"
     datei.write_text("mandant:\n  name: X\n", encoding="utf-8")
     e = lade_elster(datei)
-    assert e.voranmeldungszeitraum == "monat"
-    assert e.dauerfristverlaengerung is False
+    # Periodenwerte (Baustein 10c P4): gefragt wird mit dem Jahr
+    assert e.voranmeldungszeitraum_fuer(2026) == "monat"
+    assert e.dauerfrist_fuer(2026) is False
     assert e.uebermittler == "eric"
     assert e.eric.bibliothek is None
     assert e.abweichung_prozent == Decimal("50")
@@ -49,8 +51,8 @@ elster:
         encoding="utf-8",
     )
     e = lade_elster(datei)
-    assert e.voranmeldungszeitraum == "quartal"
-    assert e.dauerfristverlaengerung is True
+    assert e.voranmeldungszeitraum_fuer(2026) == "quartal"
+    assert e.dauerfrist_fuer(2026) is True
     assert e.bundesland == "BY"
     assert e.finanzamt.name == "Finanzamt München"
     assert e.finanzamt.iban == "DE89370400440532013000"
@@ -100,3 +102,22 @@ def test_sondervorauszahlung_ohne_jahr_wird_erklaert(tmp_path):
     datei.write_text("elster:\n  sondervorauszahlung: 4000\n", encoding="utf-8")
     with pytest.raises(KonfigurationError, match="je Jahr"):
         lade_elster(datei)
+
+
+def test_lade_oss_mit_zuordnung_je_zeitraum(tmp_path):
+    """M6: ``{2026-Q1: false, 2027-Q1: true}`` → 2026 nein, 2027 ja (bisher ``True``
+    für jede Zuordnung)."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text("mandant:\n  oss: {2026-Q1: false, 2027-Q1: true}\n", "utf-8")
+    assert lade_oss(datei, date(2026, 12, 31)) is False
+    assert lade_oss(datei, date(2027, 1, 1)) is True
+    assert lade_oss(datei, date(2025, 6, 1)) is False  # frühester Eintrag gilt davor
+    assert lade_steuerangaben(datei, date(2027, 4, 1)) == (True, "DE")
+    kontext = lade_kontext(datei)
+    assert kontext.oss_am(date(2026, 3, 1)) is False
+    assert kontext.oss_am(date(2027, 3, 1)) is True
+    assert lade_oss(tmp_path / "fehlt.yaml", date(2027, 1, 1)) is False

@@ -224,3 +224,23 @@ def test_dienstleistung_ins_drittland_noch_nicht_unterstuetzt():
 def test_ustid_pflichtig(k, leistung, pflichtig):
     e = entwurf(k, pos("Rahmen", "100", sonstige_leistung=leistung))
     assert ustid_pflichtig(e, FIRMA) is pflichtig
+
+
+def test_oss_ab_quartal_nach_rechnungsdatum():
+    """D14: ``mandant.oss: {2026-Q1: false, 2027-Q1: true}`` — es gilt das Quartal des
+    Rechnungsdatums."""
+    firma = Firma.model_validate(
+        {
+            **FIRMA.model_dump(by_alias=True),
+            "oss": {"2026-Q1": False, "2027-Q1": True},
+        }
+    )
+    privat = kunde(land="FR", ust_id=None, privat=True)
+    dezember = baue_rechnung(
+        entwurf(privat, pos("Rahmen", "100")), firma, "2026-0003", date(2026, 12, 15)
+    )
+    januar = baue_rechnung(
+        entwurf(privat, pos("Rahmen", "100")), firma, "2027-0001", date(2027, 1, 5)
+    )
+    assert dezember.steuern[0].satz == Decimal("19")
+    assert januar.steuern[0].satz == Decimal("20")

@@ -79,8 +79,9 @@ KONFIGURATIONEN = {
 STICHTAG = date(2026, 3, 31)
 
 # Jeder Lader, der die Konfiguration der Gesellschaft liest, mit seiner Signatur
-# (``lade_oss`` und ``gewinnermittlung_angegeben`` bekommen in Schritt 6 den
-# Zeitraum). ``pruefung.storno.lade_korrekturumgebung`` fehlt: Sie setzt sich aus
+# (``lade_oss``, ``lade_steuerangaben`` und ``gewinnermittlung_angegeben`` fragen seit
+# Schritt 6 mit einem Zeitraum: dem Stichtag bzw. seinem Wirtschaftsjahr).
+# ``pruefung.storno.lade_korrekturumgebung`` fehlt: Sie setzt sich aus
 # lade_abschluss, lade_buchhaltung, lade_pruefung und lade_elster_konten zusammen und
 # trüge sonst die mitgelieferte Kontenzuordnung (Daten, keine Konfiguration) mit.
 GOLDEN_LADER: dict[str, Callable[[Path], Any]] = {
@@ -91,7 +92,7 @@ GOLDEN_LADER: dict[str, Callable[[Path], Any]] = {
     "lade_abschluss": lade_abschluss,
     "lade_kasse": lade_kasse,
     "lade_wirtschaftsjahr_beginn": lade_wirtschaftsjahr_beginn,
-    "gewinnermittlung_angegeben": gewinnermittlung_angegeben,
+    "gewinnermittlung_angegeben": lambda pfad: gewinnermittlung_angegeben(pfad, 2026),
     "lade_anlagen": lade_anlagen,
     "lade_server": lade_server,
     "lade_aufgaben_einstellungen": lade_aufgaben_einstellungen,
@@ -101,13 +102,13 @@ GOLDEN_LADER: dict[str, Callable[[Path], Any]] = {
     "lade_gesellschaften": lade_gesellschaften,
     "lade_elster": lade_elster,
     "lade_elster_konten": lade_elster_konten,
-    "lade_oss": lade_oss,
+    "lade_oss": lambda pfad: lade_oss(pfad, STICHTAG),
     "lade_mandant": lade_mandant,
     "lade_versand": lade_versand,
     "sachkontenlaenge": sachkontenlaenge,
     "lade_datev_mandant": lambda pfad: lade_datev_mandant(pfad, STICHTAG),
     "lade_integrationen": lade_integrationen,
-    "lade_steuerangaben": lade_steuerangaben,
+    "lade_steuerangaben": lambda pfad: lade_steuerangaben(pfad, STICHTAG),
     "lade_kontext": lade_kontext,
     "lade_mahnwesen": lade_mahnwesen,
     "lade_pruefung": lade_pruefung,
@@ -153,8 +154,9 @@ def serialisiere(wert: Any) -> Any:
     if isinstance(wert, BaseModel):
         return serialisiere(wert.model_dump(mode="json", by_alias=True))
     if dataclasses.is_dataclass(wert) and not isinstance(wert, type):
+        # wie ``by_alias``: ein umbenanntes Rohfeld (D14) unter seinem früheren Namen
         return {
-            f.name: serialisiere(getattr(wert, f.name))
+            f.metadata.get("alias", f.name): serialisiere(getattr(wert, f.name))
             for f in dataclasses.fields(wert)
         }
     if wert is None or isinstance(wert, bool | int | float | str):

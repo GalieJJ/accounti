@@ -96,13 +96,13 @@ class Abschlusskontext:
             self.session,
             self.jahr,
             self.kontenrahmen,
-            self.einstellungen.gewinnermittlung,
+            self.einstellungen.gewinnermittlung_fuer(self.jahr),
             wj=self.wirtschaftsjahr,
         )
 
     @property
     def euer(self) -> bool:
-        return self.einstellungen.gewinnermittlung == "euer"
+        return self.einstellungen.gewinnermittlung_fuer(self.jahr) == "euer"
 
 
 def kontext(session: Session, jahr: int, config: str | Path) -> Abschlusskontext:

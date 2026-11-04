@@ -1400,16 +1400,16 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 6 — Periodenwerte (E3, A46 Teil 1) · P4a
 
-- [ ] **`einstellungen/perioden.py`**: `wert_fuer(feldwert, zeitraum)`, `setze_ab(feldwert, ab,
+- [x] **`einstellungen/perioden.py`**: `wert_fuer(feldwert, zeitraum)`, `setze_ab(feldwert, ab,
   wert)` (D14), `schluessel_fuer(art, zeitraum)` (Jahr, `"JJJJ-Qn"`, WJ nach Paket F).
   Pydantic-Typen sind `Periodisch[T] = T | dict[int, T]` bzw. mit Quartalsschlüsseln, je mit
   Validator (Schlüsselform, mindestens ein Eintrag).
-- [ ] **Rohfelder umbenennen** (D14, M6): `voranmeldungszeitraum_roh`, `dauerfrist_roh`,
+- [x] **Rohfelder umbenennen** (D14, M6): `voranmeldungszeitraum_roh`, `dauerfrist_roh`,
   `oss_roh`, `gewinnermittlung_roh`, je mit `alias` auf den Dateinamen und
   `populate_by_name=True`. Zuerst umbenennen, `mypy src/` laufen lassen: Die Fehlerliste ist die
   vollständige Liste der Verbraucher. Sie wird mit der Liste unten abgeglichen und im PR
   genannt.
-- [ ] **Felder und Verbraucher** (jeder fragt mit seinem Zeitraum):
+- [x] **Felder und Verbraucher** (jeder fragt mit seinem Zeitraum):
   - `elster.voranmeldungszeitraum` und `elster.dauerfristverlaengerung` → `ElsterEinstellungen.
     voranmeldungszeitraum_fuer(jahr)`, `dauerfrist_fuer(jahr)`. Verbraucher: `elster/ustva.py`
     (Zeitraumprüfung, Dezember mit Dauerfrist), `elster/dauerfrist.py`, `elster/zahllast.py`,
@@ -1444,6 +1444,62 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   `tests/test_abschluss_euer.py::test_gewinnermittlung_je_wirtschaftsjahr` und
   `tests/test_abschluss_konfiguration.py::test_gewinnermittlung_angegeben_mit_zuordnung` (M6).
   Golden bleibt grün (Einzelwerte).
+
+  *Umgesetzt (Schritt 6), Abweichungen und Ergänzungen:*
+  - `einstellungen/perioden.py`: `wert_fuer`, `setze_ab` (auch vor dem frühesten Eintrag
+    behalten die Zeiträume davor ihren Wert), `schluessel_fuer(art, zeitraum, beginn=)`,
+    `quartal_von`, `pruefe(art, typ)` als `BeforeValidator` (Schlüsselform; Jahre
+    1900–2999, Quartale `JJJJ-Qn`; mindestens ein Eintrag; Schlüssel aus JSON als Text
+    werden Zahlen; eine Meldung mit Schlüssel statt der Meldungen jedes Zweigs der
+    Union) und die Feldtypen `JahresVoranmeldung`, `JahresSchalter`, `QuartalsSchalter`,
+    `WirtschaftsjahrGewinnermittlung`.
+  - Rohfelder: `ElsterEinstellungen.voranmeldungszeitraum_roh`/`dauerfrist_roh`,
+    `Firma.oss_roh`, `AbschlussEinstellungen.gewinnermittlung_roh` (Alias = Dateiname,
+    `populate_by_name`); Zugriff `voranmeldungszeitraum_fuer(jahr)`,
+    `dauerfrist_fuer(jahr)`, `oss_am(datum)`, `gewinnermittlung_fuer(wj)`.
+  - **Ergänzt:** Die drei Modelle erben von `perioden.Periodenmodell`, dessen
+    `model_copy(update=…)` auch den Dateinamen nimmt. Sonst legte
+    `model_copy(update={"oss": True})` (so in drei Tests auf `main`) still ein Attribut
+    neben das Rohfeld, und es bliebe beim alten Wert.
+  - **mypy-Liste nach dem Umbenennen** (abgeglichen mit der Liste oben):
+    `erechnung/erzeuger/aufbau.py` (2), `elster/zahllast.py`, `elster/ustva.py` (4),
+    `elster/dauerfrist.py`, `abschluss/abgrenzung.py`, `abschluss/pruefungen.py` (2),
+    `abschluss/vortrag.py` (6), `befehle/fristen.py` (2), `pruefung/verfahrensdoku.py`
+    (`gewinnermittlung_angegeben` 2), `cli.py` (`opos verbuchen`), dazu nach den neuen
+    Pflichtparametern `befehle/ustva.py`, `api/seiten/freigaben.py` (`lade_oss`). **Nicht
+    von mypy gefunden** (Werte aus `_Doku.lade` bzw. dem untypisierten
+    `befehle/abschluss._einstellungen`, beide `Any`): `pruefung/verfahrensdoku.py`
+    Z. 163 und 177 und `befehle/abschluss.py` (`susa`, `euer`) — per `grep` gefunden;
+    `_einstellungen` ist jetzt typisiert, die beiden Doku-Stellen tragen eine Annotation.
+    Im Plan nicht genannt, aber Verbraucher: `steuer/fristen.fristenkalender`
+    (`oss: bool | Collection[int]` — die Quartale mit OSS), `integrationen/buchung.py`
+    und `integrationen/lauf.py` (über `Kontext`), `elster/dauerfrist.berechne_svz`.
+  - **Wirtschaftsjahr in der Verfahrensdokumentation:** Abschnitt 1 nennt
+    Gewinnermittlung und Voranmeldungszeitraum für das WJ bzw. Jahr des Stichtags
+    (`_Doku.stand`); 2.6 ebenso.
+  - **`opos verbuchen`:** `verbuche_belege(gewinnermittlung=…)` nimmt auch eine
+    Funktion des Belegdatums; die CLI gibt je Beleg die Gewinnermittlung seines WJ
+    (`abschluss.wirtschaftsjahr_zum(belegdatum)`).
+  - **Vortrag:** Abschluss und Journal mit der Gewinnermittlung des abgeschlossenen
+    WJ, die Eröffnungsbuchungen mit der des Folgejahres.
+  - **OSS in `integrationen`:** `Kontext.oss_roh` (Alias im Golden-Serialisierer:
+    `oss_registriert`, über `dataclasses.field(metadata={"alias": …})`),
+    `Kontext.oss_am(datum)`, `Kontext.oss_immer`; `Buchungskontext.oss_am` ist eine
+    Funktion des Tages (der Posten), `buche_abrechnung` fragt je Posten. Die
+    Lieferschwelle (`eu_fernverkaeufe`) zählt, solange nicht in jedem Quartal OSS gilt.
+    `lade_steuerangaben(pfad, datum)` bekommt den Tag als Pflichtparameter (wie
+    `lade_oss`, auch ein Rohwert); `lade_kontext` liest über `_steuerangaben` (in
+    `LADER` statt `lade_steuerangaben`).
+  - **USt-VA:** OSS gilt im Quartal von `zeitraum.von` (`befehle/ustva`,
+    `/freigaben/ustva`); die Meldung „kein Voranmeldungszeitraum“ nennt das Jahr
+    („… ist 2027 „quartal““).
+  - `gewinnermittlung_angegeben(pfad, wj)` bleibt nachsichtig (ungültiger Wert →
+    `None`, `lade_abschluss` meldet ihn).
+  - Golden: `GOLDEN_LADER` ruft `lade_oss`, `lade_steuerangaben` mit dem Stichtag
+    31.03.2026 und `gewinnermittlung_angegeben` mit dem WJ 2026; die Golden-Daten sind
+    unverändert.
+  - Tests: `tests/test_einstellungen_perioden.py` (17; zusätzlich
+    `::test_rohfelder_heissen_anders_als_in_der_datei`) und die sechs Tests oben.
 
 > **PR P4b „Schreiben“: Schritte 7–10, 12, 13, 16** (D28), abzweigen nach dem Merge von P4a.
 > Vorher entscheidet der Nutzer D6 (Offener Punkt 5). D26 ist entschieden (Offener Punkt 6).

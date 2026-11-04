@@ -238,10 +238,11 @@ def test_pilot_lader_lesen_ueber_den_leser(tmp_path, db):
         b = lade_buchhaltung(pfad)
         e = lade_elster(pfad)
     assert (b.kontenrahmen, b.bank_konto) == ("SKR04", "1800")
-    assert (e.voranmeldungszeitraum, e.bundesland) == ("quartal", "HH")
+    assert (e.voranmeldungszeitraum_fuer(2026), e.bundesland) == ("quartal", "HH")
     # OSS-Umsatzsteuerkonto aus integrationen nach dem Kontenrahmen der Version
     assert "3817" in e.konten_ohne_kennziffer and "1767" not in e.konten_ohne_kennziffer
-    assert lade_elster(pfad).voranmeldungszeitraum == "monat"  # ohne Stand: Datei
+    # ohne Stand: Datei
+    assert lade_elster(pfad).voranmeldungszeitraum_fuer(2026) == "monat"
 
 
 def test_pilot_lader_fallback_mandant_kontenrahmen(tmp_path, db):

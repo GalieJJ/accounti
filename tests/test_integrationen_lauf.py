@@ -44,7 +44,7 @@ def umgebung(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=True,
+        oss_roh=True,
     )
     with make() as s:
         yield s, BelegArchiv(tmp_path / "archiv"), kontext
@@ -1046,7 +1046,7 @@ def _ohne_stichwort(kontext, markt="ebay"):
     return Kontext(
         einstellungen=einstellungen,
         buchhaltung=kontext.buchhaltung,
-        oss_registriert=kontext.oss_registriert,
+        oss_roh=kontext.oss_roh,
         firmen_land=kontext.firmen_land,
     )
 

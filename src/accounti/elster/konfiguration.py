@@ -7,6 +7,7 @@ bundeseinheitlichen Feiertagen und kann nur im Testmodus übermitteln (kein ERiC
 from __future__ import annotations
 
 import re
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -15,6 +16,15 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.einstellungen.leser import lies_abschnitt
+from accounti.einstellungen.perioden import (
+    JahresSchalter,
+    JahresVoranmeldung,
+    Periodenmodell,
+    Voranmeldungszeitraum,
+    pruefe,
+    quartal_von,
+    wert_fuer,
+)
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 __all__ = [
@@ -86,9 +96,14 @@ class EricEinstellungen(BaseModel):
     verschluesselungs_parameter_version: int = Field(default=2, ge=1)
 
 
-class ElsterEinstellungen(BaseModel):
-    voranmeldungszeitraum: Literal["monat", "quartal"] = "monat"
-    dauerfristverlaengerung: bool = False
+class ElsterEinstellungen(Periodenmodell):
+    # Periodenwerte (Baustein 10c P4, D14): gelesen nur über …_fuer(jahr)
+    voranmeldungszeitraum_roh: JahresVoranmeldung = Field(
+        default="monat", alias="voranmeldungszeitraum"
+    )
+    dauerfrist_roh: JahresSchalter = Field(
+        default=False, alias="dauerfristverlaengerung"
+    )
     sondervorauszahlung: dict[int, Decimal] = Field(
         default_factory=dict,
         description="festgesetzte SVZ je Jahr (Kz 39 im Dezember), vor dem Protokoll",
@@ -119,6 +134,14 @@ class ElsterEinstellungen(BaseModel):
     konto_sondervorauszahlung: str | None = Field(
         default=None, description="Standard 1781 (SKR03) bzw. 3830 (SKR04)"
     )
+
+    def voranmeldungszeitraum_fuer(self, jahr: int) -> Voranmeldungszeitraum:
+        """Voranmeldungszeitraum des Kalenderjahres ``jahr`` (D14)."""
+        return wert_fuer(self.voranmeldungszeitraum_roh, jahr)
+
+    def dauerfrist_fuer(self, jahr: int) -> bool:
+        """Dauerfristverlängerung im Kalenderjahr ``jahr`` (D14)."""
+        return wert_fuer(self.dauerfrist_roh, jahr)
 
     @field_validator("bundesland")
     @classmethod
@@ -251,9 +274,20 @@ def lade_elster_konten(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     return _mit_oss_konten(einstellungen, pfad)
 
 
-def lade_oss(pfad: str | Path = STANDARD_PFAD) -> bool:
-    """``mandant.oss`` — nachsichtig gelesen (fehlt der Mandant, gilt: kein OSS)."""
-    return bool(lies_abschnitt(Path(pfad), "mandant").get("oss"))
+def lade_oss(pfad: str | Path, zeitraum: date) -> bool:
+    """``mandant.oss`` im Quartal von ``zeitraum`` (Periodenwert ab Quartal, Baustein
+    10c P4) — nachsichtig gelesen (fehlt der Mandant, gilt: kein OSS); ein ungültiger
+    Periodenwert ist ein ``KonfigurationError`` mit Pfad."""
+    pfad = Path(pfad)
+    roh = lies_abschnitt(pfad, "mandant").get("oss")
+    try:
+        wert = _OSS(roh) if roh is not None else False
+    except ValueError as fehler:
+        raise KonfigurationError(f"{pfad}: mandant.oss: {fehler}") from fehler
+    return bool(wert_fuer(wert, quartal_von(zeitraum)))
+
+
+_OSS = pruefe("quartal", bool)
 
 
 def lade_mandant(pfad: str | Path = STANDARD_PFAD) -> dict[str, str]:

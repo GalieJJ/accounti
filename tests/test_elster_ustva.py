@@ -518,3 +518,26 @@ def test_saldenvortrag_ist_kein_umsatz(db):
         v = vorbereiten(s, einstellungen)
     assert not [b for b in v.befunde if "1576" in b.text]
     assert v.voranmeldung.formularwerte() == vorher
+
+
+def test_dezember_2026_monat_trotz_quartal_2027():
+    """AK31 (dritter Punkt): ``voranmeldungszeitraum: {2026: monat, 2027: quartal}`` —
+    die Voranmeldung Dezember 2026 ist monatlich und bleibt es, 2027 vierteljährlich;
+    die Sondervorauszahlung gehört zum Dezember 2026, solange 2026 Dauerfrist gilt."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import _zeitraum_befunde
+
+    einst = ElsterEinstellungen(
+        voranmeldungszeitraum={2026: "monat", 2027: "quartal"},
+        dauerfristverlaengerung={2026: True, 2027: False},
+    )
+    heute = date(2028, 1, 1)
+
+    def fehler(text: str) -> list[str]:
+        return [b.text for b in _zeitraum_befunde(Zeitraum.lies(text), einst, heute)]
+
+    assert fehler("2026-12") == []
+    assert fehler("2027-Q1") == []
+    assert any("kein Voranmeldungszeitraum" in t for t in fehler("2027-01"))
+    assert any("kein Voranmeldungszeitraum" in t for t in fehler("2026-Q4"))
+    assert einst.dauerfrist_fuer(2026) and not einst.dauerfrist_fuer(2027)

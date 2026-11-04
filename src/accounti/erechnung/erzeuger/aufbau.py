@@ -168,11 +168,13 @@ def _verkaeufer(firma: Firma) -> Partei:
     )
 
 
-def _berechner(firma: Firma) -> UStBerechner:
+def _berechner(firma: Firma, tag: date) -> UStBerechner:
+    """``mandant.oss`` im Quartal von ``tag`` (Periodenwert, Baustein 10c P4)."""
+    oss = firma.oss_am(tag)
     return UStBerechner(
         firmen_land=firma.anschrift.land,
-        oss_registriert=firma.oss,
-        oss_schwelle_ueberschritten=firma.oss,
+        oss_registriert=oss,
+        oss_schwelle_ueberschritten=oss,
     )
 
 
@@ -182,7 +184,8 @@ def ustid_pflichtig(entwurf: Ausgangsrechnung, firma: Firma) -> bool:
     k = entwurf.kunde
     if k.privat or not k.ust_id:
         return False
-    berechner = _berechner(firma)
+    # OSS betrifft nur Privatkunden — hier zählt der Tag nur der Form halber
+    berechner = _berechner(firma, entwurf.leistungsdatum or date.today())
     return any(
         berechner.bestimme_vorfall(
             k.land.upper(),
@@ -235,7 +238,7 @@ def baue_rechnung(
     _pruefe_entwurf(entwurf)
     k = entwurf.kunde
     land = k.land.upper()
-    berechner = _berechner(firma)
+    berechner = _berechner(firma, rechnungsdatum)
     ist_b2b = not k.privat
     hat_ust_id = bool(k.ust_id)
 

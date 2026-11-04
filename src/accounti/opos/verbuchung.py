@@ -1328,14 +1328,15 @@ def verbuche_belege(
     eigene_firma: Partnerdaten | None = None,
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
-    gewinnermittlung: str | None = None,
+    gewinnermittlung: str | None | Callable[[date], str | None] = None,
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
     Jeder Beleg läuft in einem eigenen Savepoint: Scheitert einer, bleiben die
     anderen verbucht und der Fehler steht im Ergebnis — auch eine Rechnung, deren
     Belegdatum in einem abgeschlossenen Geschäftsjahr liegt (Baustein 12).
-    """
+    ``gewinnermittlung``: ausdrücklich angegebene Gewinnermittlung, als Funktion des
+    Belegdatums ein Periodenwert je Wirtschaftsjahr (Baustein 10c P4)."""
     bereits = verbuchte_beleg_ids(session)
     lauf = Verbuchungslauf()
     for beleg in lade_belege(session, status={BelegStatus.ERFASST}):
@@ -1355,7 +1356,9 @@ def verbuche_belege(
                     eigene_firma,
                     ustid_max_alter_tage,
                     buchungsdatum,
-                    gewinnermittlung,
+                    gewinnermittlung(beleg.belegdatum or beleg.eingegangen_am.date())
+                    if callable(gewinnermittlung)
+                    else gewinnermittlung,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:

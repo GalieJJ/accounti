@@ -30,7 +30,7 @@ def umgebung(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=False,
+        oss_roh=False,
     )
     with make() as s:
         yield s, BelegArchiv(tmp_path / "archiv"), kontext

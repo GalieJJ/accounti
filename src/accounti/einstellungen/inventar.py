@@ -268,7 +268,7 @@ LADER: dict[str, frozenset[str]] = {
     "accounti.elster.konfiguration.lade_oss": frozenset({"mandant"}),
     "accounti.elster.konfiguration.lade_mandant": frozenset({"mandant"}),
     "accounti.integrationen.einstellungen.lade_integrationen": _INTEGRATIONEN,
-    "accounti.integrationen.einstellungen.lade_steuerangaben": frozenset({"mandant"}),
+    "accounti.integrationen.einstellungen._steuerangaben": frozenset({"mandant"}),
     "accounti.bank.einstellungen.lade_bank_einstellungen": frozenset({"bank"}),
     "accounti.zahlung.konfiguration.lade_zahlung": frozenset({"zahlung", "mandant"}),
     "accounti.export.datev_stammdaten.sachkontenlaenge": frozenset({"mandant"}),

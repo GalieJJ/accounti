@@ -221,7 +221,7 @@ def test_marktplatz_auszahlung_und_abrechnung_mit_grund(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=True,
+        oss_roh=True,
     )
     with fabrik() as s:
         eingang = il.bank(
@@ -307,7 +307,7 @@ def test_marktplatz_kursdifferenz_mit_grund(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=True,
+        oss_roh=True,
     )
     with fabrik() as s:
         eingang = il.bank(
@@ -353,7 +353,7 @@ def test_umbuchung_der_kursdifferenz_mit_grund(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=True,
+        oss_roh=True,
     )
     with fabrik() as s:
         tx = il.bank(

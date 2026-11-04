@@ -9,10 +9,17 @@ from __future__ import annotations
 import logging
 import os
 import string
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 from pydantic_core import PydanticCustomError
 
 from accounti.belege.extraktion import iban_gueltig
@@ -25,6 +32,12 @@ from accounti.einstellungen.leser import (
     datei_vorhanden,
     lies_abschnitt,
     quelle_vorhanden,
+)
+from accounti.einstellungen.perioden import (
+    Periodenmodell,
+    QuartalsSchalter,
+    quartal_von,
+    wert_fuer,
 )
 from accounti.kontakte.ustid import EVATR_URL
 
@@ -132,7 +145,7 @@ def pruefe_sachkonten_laenge(laenge: object) -> int:
     return zahl
 
 
-class Firma(BaseModel):
+class Firma(Periodenmodell):
     name: str
     kuerzel: str | None = Field(
         default=None, description="Schlüssel des Nummernkreises"
@@ -155,8 +168,10 @@ class Firma(BaseModel):
     kontakt: Kontakt
     bank: Bank
     rechnung: Rechnungseinstellungen = Field(default_factory=Rechnungseinstellungen)
-    oss: bool = Field(
+    # Periodenwert ab Quartal (Baustein 10c P4, D14): gelesen nur über oss_am(datum)
+    oss_roh: QuartalsSchalter = Field(
         default=False,
+        alias="oss",
         description="OSS-registriert: EU-Privatkunden zahlen den Satz ihres Landes",
     )
 
@@ -178,6 +193,10 @@ class Firma(BaseModel):
         if self.kuerzel is None:
             self.kuerzel = self.name
         return self
+
+    def oss_am(self, datum: date) -> bool:
+        """OSS-registriert im Quartal von ``datum``?"""
+        return wert_fuer(self.oss_roh, quartal_von(datum))
 
     @property
     def iban(self) -> str:

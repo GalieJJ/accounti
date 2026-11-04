@@ -37,6 +37,12 @@ from accounti.abschluss.kontenrahmen import (
 )
 from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.einstellungen.leser import lies_abschnitt
+from accounti.einstellungen.perioden import (
+    Periodenmodell,
+    WirtschaftsjahrGewinnermittlung,
+    pruefe,
+    wert_fuer,
+)
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
@@ -237,9 +243,13 @@ def lade_wirtschaftsjahr_beginn(pfad: str | Path = STANDARD_PFAD) -> date | None
     return beginn.als_datum() if beginn is not None else None
 
 
-class AbschlussEinstellungen(BaseModel):
+class AbschlussEinstellungen(Periodenmodell):
+    # Periodenwert je Wirtschaftsjahr (Baustein 10c P4, D14): gelesen nur über
+    # gewinnermittlung_fuer(wj)
     kontenrahmen: str = "SKR03"
-    gewinnermittlung: Gewinnermittlung = "euer"
+    gewinnermittlung_roh: WirtschaftsjahrGewinnermittlung = Field(
+        default="euer", alias="gewinnermittlung"
+    )
     ergebnis_konto: str
     arap_konto: str
     prap_konto: str
@@ -262,6 +272,10 @@ class AbschlussEinstellungen(BaseModel):
     def lade_kontenrahmen(self) -> Kontenrahmen:
         return lade_kontenrahmen(self.kontenrahmen, self.kontenzuordnung)
 
+    def gewinnermittlung_fuer(self, wj: int) -> Gewinnermittlung:
+        """Gewinnermittlung im Wirtschaftsjahr ``wj`` (Kalenderjahr seines Endes)."""
+        return wert_fuer(self.gewinnermittlung_roh, wj)
+
     def wirtschaftsjahr(self, jahr: int) -> Wirtschaftsjahr:
         """Das Wirtschaftsjahr ``jahr`` (Kalenderjahr seines Endes)."""
         return wirtschaftsjahr(jahr, self.wirtschaftsjahr_beginn)
@@ -272,6 +286,9 @@ class AbschlussEinstellungen(BaseModel):
     @property
     def abweichendes_wirtschaftsjahr(self) -> bool:
         return self.wirtschaftsjahr(2000).abweichend
+
+
+_GEWINNERMITTLUNG = pruefe("wirtschaftsjahr", Gewinnermittlung)
 
 
 class KassenEinstellungen(BaseModel):
@@ -308,12 +325,20 @@ def lade_abschluss(pfad: str | Path = STANDARD_PFAD) -> AbschlussEinstellungen:
         raise KonfigurationError(msg) from fehler
 
 
-def gewinnermittlung_angegeben(pfad: str | Path = STANDARD_PFAD) -> str | None:
-    """``abschluss.gewinnermittlung``, wenn sie ausdrücklich in der Konfiguration steht
-    (``bilanz`` oder ``euer``) — sonst ``None`` (der Standard ``euer`` gilt dann nur
-    dort, wo er nichts riskiert)."""
+def gewinnermittlung_angegeben(pfad: str | Path, wj: int) -> str | None:
+    """``abschluss.gewinnermittlung`` im Wirtschaftsjahr ``wj`` (Kalenderjahr seines
+    Endes), wenn sie ausdrücklich in der Konfiguration steht (``bilanz`` oder ``euer``,
+    auch als Periodenwert) — sonst ``None`` (der Standard ``euer`` gilt dann nur dort,
+    wo er nichts riskiert). Nachsichtig: einen ungültigen Wert meldet
+    ``lade_abschluss``."""
     wert = lies_abschnitt(Path(pfad), "abschluss").get("gewinnermittlung")
-    return wert if wert in ("bilanz", "euer") else None
+    if wert is None:
+        return None
+    try:
+        geprueft = _GEWINNERMITTLUNG(wert)
+    except ValueError:
+        return None
+    return str(wert_fuer(geprueft, wj))
 
 
 def lade_kasse(pfad: str | Path = STANDARD_PFAD) -> KassenEinstellungen:

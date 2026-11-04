@@ -1781,12 +1781,17 @@ def opos_verbuchen(
     try:
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
-        lade_abschluss(config)  # prüft den Abschnitt
-        gewinnermittlung = gewinnermittlung_angegeben(config)
+        abschluss = lade_abschluss(config)  # prüft den Abschnitt
         lade_regeln(regeln_datei())  # prüft die Regeldatei vor dem Lauf
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(1) from fehler
+
+    def gewinnermittlung(tag: "date") -> str | None:
+        """Je Belegdatum die Gewinnermittlung seines Wirtschaftsjahres (D14)."""
+        wj = abschluss.wirtschaftsjahr_zum(tag).jahr
+        return gewinnermittlung_angegeben(config, wj)
+
     from accounti.befehle import laufsperre_oder_ende
 
     engine, make_session = session_factory(db)
