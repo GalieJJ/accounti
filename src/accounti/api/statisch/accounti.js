@@ -91,9 +91,14 @@
       var form = e.target;
       var feld = form && form.querySelector ? form.querySelector("input[data-hier]") : null;
       if (feld) {
+        // sonst der Server-Wert, nicht ein früher hineingeschriebener (Runde 3); bei
+        // type=hidden ändert .value auch das Attribut, darum vor dem ersten Schreiben merken
+        if (!feld.hasAttribute("data-server")) {
+          feld.setAttribute("data-server", feld.value);
+        }
         var hier = window.location.pathname + window.location.search;
-        // sonst der Server-Wert, nicht ein früher hineingeschriebener (Runde 3)
-        var ziel = new URL(hier !== geladen ? hier : feld.defaultValue, window.location.origin);
+        var wert = hier !== geladen ? hier : feld.getAttribute("data-server");
+        var ziel = new URL(wert, window.location.origin);
         ziel.searchParams.delete("erledigt");
         var rest = ziel.searchParams.toString();
         feld.value = ziel.pathname + (rest ? "?" + rest : "");
