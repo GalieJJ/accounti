@@ -334,3 +334,19 @@ def test_neue_db_option_an_den_vier_befehlen(tmp_path):
     elster = getattr(typer.main.get_command(app), "commands", {})["elster"]
     db = {p.name: p for p in elster.commands["pin"].params}["db"]
     assert "--db" in db.opts and db.default == STANDARD_DB
+
+
+def test_ungueltiger_port_meldung_statt_traceback(tmp_path):
+    """Prüfung sicher-5: ``--db`` mit ungültigem Port endete beim Parsen in einem
+    ``ValueError`` — jetzt wie eine unlesbare Datenbank: Meldung, Exit 1."""
+    konfig = _konfig(tmp_path, ELSTER)
+    url = "postgresql://u:geheim@h:abc/db"
+    r = runner.invoke(
+        app,
+        ["fristen", "--jahr", "2027", "--db", url, "--config", konfig],
+        env={"COLUMNS": "250"},
+    )
+    assert r.exit_code == 1, r.output
+    assert isinstance(r.exception, SystemExit), repr(r.exception)
+    assert "nicht lesen" in " ".join(r.output.split())
+    assert "geheim" not in r.output

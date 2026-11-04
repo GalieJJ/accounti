@@ -658,3 +658,37 @@ def test_betriebsfeld_unter_dem_feldnamen_nie_aus_der_version(tmp_path, db):
         pfad = konfig(tmp_path, text, f"{schluessel}.yaml")
         with mit_quelle(DatenbankQuelle(db)):
             assert lade_anlagen(pfad).rechtsstand_datei == str(eigen), schluessel
+
+
+def test_ungueltiger_port_ist_nicht_lesbar_statt_traceback(tmp_path):
+    """Prüfung sicher-5: Bei einem ungültigen Port wirft ``make_url`` einen
+    ``ValueError`` (kein ``ArgumentError``) — die Quelle entsteht trotzdem, der
+    Schnappschuss merkt sich den Fehler (fail-closed beim Lesen, ohne Passwort)."""
+    pfad = konfig(tmp_path, "kasse:\n  konto: '1000'\nserver:\n  port: 8400\n")
+    for url in ("postgresql://u:geheim@h:abc/db", "sqlite://h:abc/x.db"):
+        quelle = DatenbankQuelle(url)
+        assert quelle.schluessel.startswith("ungueltig:"), url
+        assert "ValueError" in (quelle.schnappschuss().fehler or ""), url
+        with mit_quelle(quelle):
+            assert lies_abschnitt(pfad, "server") == {"port": 8400}  # Betrieb geht
+            with pytest.raises(EinstellungenNichtLesbar, match="nicht lesen") as f:
+                lies_abschnitt(pfad, "kasse")
+        assert "geheim" not in str(f.value)
+
+
+def test_kaputtes_yaml_ohne_ausschnitt_der_zeile(tmp_path):
+    """Prüfung verhalten-5: Die Meldung nennt Datei, Zeile, Spalte und das Problem,
+    aber keinen Ausschnitt der Zeile — dort kann ein Passwort stehen (wie
+    ``parse_text``)."""
+    for text in (
+        'versand:\n  smtp:\n    passwort: "Geheim123\n',  # nicht geschlossen
+        "versand:\n  smtp:\n    passwort: Geheim123: x\n",  # mapping values
+        "versand:\n  smtp: [Geheim123\n",
+    ):
+        pfad = konfig(tmp_path, text)
+        with pytest.raises(KonfigurationError, match="kein gültiges YAML") as fehler:
+            lies_abschnitt(pfad, "versand")
+        meldung = str(fehler.value)
+        assert "Geheim123" not in meldung, meldung
+        assert meldung.startswith(f"{pfad}: kein gültiges YAML (Zeile "), meldung
+        assert "\n" not in meldung, meldung

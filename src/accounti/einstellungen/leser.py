@@ -145,11 +145,18 @@ def parse_text(text: str, *, grenze: int = 64 * 1024) -> Any:
                 raise KonfigurationError(msg)
         return yaml.safe_load(text)
     except yaml.YAMLError as fehler:
-        stelle = getattr(fehler, "problem_mark", None)
-        wo = f"Zeile {stelle.line + 1}, Spalte {stelle.column + 1}: " if stelle else ""
-        grund = getattr(fehler, "problem", None) or fehler
-        msg = f"{wo}kein gültiges YAML ({grund})"
+        wo, grund = _yaml_fehler(fehler)
+        msg = f"{f'{wo}: ' if wo else ''}kein gültiges YAML ({grund})"
         raise KonfigurationError(msg) from fehler
+
+
+def _yaml_fehler(fehler: yaml.YAMLError) -> tuple[str | None, str]:
+    """(„Zeile z, Spalte s“, Problem) — nie die Meldung von PyYAML selbst: Die zeigt
+    einen Ausschnitt der Zeile, und dort kann ein Passwort stehen (Prüfung
+    verhalten-5)."""
+    stelle = getattr(fehler, "problem_mark", None)
+    wo = f"Zeile {stelle.line + 1}, Spalte {stelle.column + 1}" if stelle else None
+    return wo, getattr(fehler, "problem", None) or type(fehler).__name__
 
 
 _GEPARST: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -184,7 +191,9 @@ def _lies_datei(pfad: Path) -> tuple[str | None, dict[str, Any]]:
     try:
         daten: Any = yaml.safe_load(text) or {}
     except yaml.YAMLError as fehler:
-        raise KonfigurationError(f"{pfad}: kein gültiges YAML ({fehler})") from fehler
+        wo, grund = _yaml_fehler(fehler)
+        msg = f"{pfad}: kein gültiges YAML ({f'{wo}: ' if wo else ''}{grund})"
+        raise KonfigurationError(msg) from fehler
     geparst: dict[str, Any] = daten if isinstance(daten, dict) else {}
     with _SPERRE:
         _GEPARST[schluessel] = geparst
@@ -326,13 +335,13 @@ _ZEILE = (
 
 def _sqlite_datei(url: str) -> Path | None:
     """Die Datei einer SQLite-URL (``None`` für andere Datenbanken, ``:memory:`` und
-    eine ungültige URL)."""
+    eine ungültige URL — auch mit ungültigem Port, dann ``ValueError``)."""
     from sqlalchemy.engine import make_url
     from sqlalchemy.exc import ArgumentError
 
     try:
         adresse = make_url(url)
-    except ArgumentError:
+    except (ArgumentError, ValueError):
         return None
     if adresse.get_backend_name() != "sqlite":
         return None
@@ -351,7 +360,7 @@ def _url_schluessel(url: str) -> str:
         return f"sqlite:{_pfadschluessel(datei)}"
     try:
         return make_url(url).render_as_string(hide_password=True)
-    except ArgumentError:  # der Schnappschuss meldet den Fehler
+    except (ArgumentError, ValueError):  # der Schnappschuss meldet den Fehler
         return "ungueltig:" + hashlib.sha256(url.encode()).hexdigest()
 
 
@@ -401,7 +410,8 @@ class DatenbankQuelle:
                     return self._lies(verbindung, stichtag)
             finally:
                 engine.dispose()
-        except (SQLAlchemyError, ImportError, OSError) as fehler:
+        except (SQLAlchemyError, ImportError, OSError, ValueError) as fehler:
+            # ValueError: ungültige URL (Port) — wie eine nicht lesbare Datenbank
             return Schnappschuss(fehler=_fehlertext(fehler))
 
     @staticmethod
