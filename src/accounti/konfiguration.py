@@ -12,7 +12,6 @@ import string
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.belege.extraktion import iban_gueltig
@@ -21,7 +20,11 @@ from accounti.einstellungen.inventar import Betriebsfeld
 # KonfigurationError lebt beim Abschnittsleser (der keine Fachmodule importiert);
 # hier bleibt er für alle Lader erreichbar
 from accounti.einstellungen.leser import KonfigurationError as KonfigurationError
-from accounti.einstellungen.leser import lies_abschnitt
+from accounti.einstellungen.leser import (
+    datei_vorhanden,
+    lies_abschnitt,
+    quelle_vorhanden,
+)
 from accounti.kontakte.ustid import EVATR_URL
 
 if TYPE_CHECKING:
@@ -159,37 +162,27 @@ def _fehlertext(
     return "; ".join(teile)
 
 
-def lies_yaml(pfad: str | Path) -> Any:
-    """Die Konfigurationsdatei lesen (leer: ``{}``) — kaputtes YAML wird zum
-    ``KonfigurationError`` mit derselben Meldung für jeden Abschnitt. Sonst endete
-    jeder Befehl, dessen Lader die Datei roh las, mit einem ParserError-Traceback
-    (Runde 6, g5w-konten N2; Runde 7, g6w B-3)."""
-    pfad = Path(pfad)
-    try:
-        return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as fehler:
-        raise KonfigurationError(f"{pfad}: kein gültiges YAML ({fehler})") from fehler
-    except UnicodeDecodeError as fehler:
-        raise KonfigurationError(f"{pfad}: keine UTF-8-Datei ({fehler})") from fehler
+# Wo der Abschnitt mandant später im Browser gepflegt wird (Spec 10c, AK77)
+SEITE_FIRMA = "Einstellungen › Firma & Steuern"
 
 
 def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
+    """Abschnitt ``mandant`` über den Abschnittsleser (Datenbank vor Datei, D25: auch
+    ohne Datei)."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        msg = (
-            f"{pfad} fehlt — Vorlage: config/accounti.example.yaml kopieren und "
-            "den Abschnitt 'mandant' ausfüllen"
-        )
-        raise KonfigurationError(msg)
-    daten: Any = lies_yaml(pfad)
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    if not isinstance(mandant, dict):
-        msg = f"{pfad}: Abschnitt 'mandant' fehlt"
+    if not quelle_vorhanden(pfad, "mandant"):
+        if not datei_vorhanden(pfad):
+            msg = (
+                f"{pfad} fehlt — Vorlage: config/accounti.example.yaml kopieren und "
+                f"den Abschnitt 'mandant' ausfüllen ({SEITE_FIRMA})"
+            )
+        else:
+            msg = f"{pfad}: Abschnitt 'mandant' fehlt ({SEITE_FIRMA})"
         raise KonfigurationError(msg)
     try:
-        return Firma.model_validate(mandant)
+        return Firma.model_validate(lies_abschnitt(pfad, "mandant"))
     except ValidationError as fehler:
-        msg = f"{pfad}: {_fehlertext(fehler)}"
+        msg = f"{pfad}: {_fehlertext(fehler)} ({SEITE_FIRMA})"
         raise KonfigurationError(msg) from fehler
 
 
@@ -332,11 +325,7 @@ class UstIdEinstellungen(BaseModel):
 def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
     """Abschnitt ``ustid_pruefung``; ``ACCOUNTI_EVATR_URL`` ersetzt die URL."""
     pfad = Path(pfad)
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("ustid_pruefung") if isinstance(daten, dict) else None
-    werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    werte = lies_abschnitt(pfad, "ustid_pruefung")
     if os.environ.get("ACCOUNTI_EVATR_URL"):
         werte["url"] = os.environ["ACCOUNTI_EVATR_URL"]
     try:
@@ -355,12 +344,8 @@ def lade_eigene_firma(pfad: str | Path = STANDARD_PFAD) -> Partnerdaten | None:
     """
     from accounti.kontakte.dienst import Partnerdaten
 
-    pfad = Path(pfad)
-    if not pfad.is_file():
-        return None
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    if not isinstance(mandant, dict) or not mandant.get("name"):
+    mandant = lies_abschnitt(Path(pfad), "mandant")
+    if not mandant.get("name"):
         return None
     bank_roh = mandant.get("bank")
     bank: dict[str, Any] = bank_roh if isinstance(bank_roh, dict) else {}

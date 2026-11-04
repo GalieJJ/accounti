@@ -546,3 +546,29 @@ def test_connector_mit_ungueltiger_adresse_bricht_nicht_ab(tmp_path):
         in text
     )
     assert "## 3" in text  # das Dokument geht weiter
+
+
+def test_doku_liest_mandant_aus_der_datenbank(tmp_path):
+    """G-M3 (Schritt 4): Hat ``mandant`` eine Version, nennen Kopf und Abschnitt 1 deren
+    Namen — nicht den der Datei."""
+    from accounti.db.repo_einstellungen import fuege_version_an
+    from accounti.einstellungen.leser import DatenbankQuelle, mit_quelle
+
+    konfig = _konfig(tmp_path / "accounti.yaml")
+    engine, fabrik = _fabrik(tmp_path)
+    with fabrik() as s:
+        fuege_version_an(
+            s,
+            "mandant",
+            {"name": "Galerie Datenbank KG", "ust_id": "DE999999999"},
+            person="erika",
+            grund="Probe",
+            quelle="cli",
+        )
+        s.commit()
+    with fabrik() as s, mit_quelle(DatenbankQuelle(db_url(tmp_path)), konfig):
+        text = erzeuge(s, konfig, db_url=db_url(tmp_path))
+    engine.dispose()
+    assert "# Verfahrensdokumentation — Galerie Datenbank KG" in text
+    assert "- **Unternehmen:** Galerie Datenbank KG" in text
+    assert "Galerie Muster GmbH" not in text

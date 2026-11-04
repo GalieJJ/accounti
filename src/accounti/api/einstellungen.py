@@ -18,11 +18,12 @@ server:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 
 class ServerEinstellungen(BaseModel):
@@ -71,15 +72,8 @@ class ServerEinstellungen(BaseModel):
 
 def lade_server(pfad: str | Path = STANDARD_PFAD) -> ServerEinstellungen:
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return ServerEinstellungen()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("server") if isinstance(daten, dict) else None
-    if abschnitt is None:
-        return ServerEinstellungen()
-    if not isinstance(abschnitt, dict):
-        msg = f"{pfad}: Abschnitt 'server' muss eine Zuordnung sein"
-        raise KonfigurationError(msg)
+    # Betriebsabschnitt: immer aus der Datei (Baustein 10c P4)
+    abschnitt = lies_abschnitt(pfad, "server")
     try:
         return ServerEinstellungen.model_validate(abschnitt)
     except ValidationError as fehler:

@@ -13,7 +13,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.zahlung.iban import gueltig, normalisiere
 
 _BIC = re.compile(r"[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?")
@@ -89,17 +90,11 @@ def _fehlertext(fehler: ValidationError) -> str:
 
 def lade_zahlung(pfad: str | Path = STANDARD_PFAD) -> ZahlungEinstellungen:
     pfad = Path(pfad)
-    daten: Any = {}
-    if pfad.is_file():
-        daten = lies_yaml(pfad)
-    if not isinstance(daten, dict):
-        daten = {}
-    abschnitt = daten.get("zahlung")
-    werte: dict[str, Any] = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    werte: dict[str, Any] = lies_abschnitt(pfad, "zahlung")
     auftraggeber = werte.get("auftraggeber")
     auftraggeber = dict(auftraggeber) if isinstance(auftraggeber, dict) else {}
-    mandant = daten.get("mandant")
-    if isinstance(mandant, dict):
+    mandant = lies_abschnitt(pfad, "mandant")
+    if mandant:
         bank_roh = mandant.get("bank")
         bank: dict[str, Any] = bank_roh if isinstance(bank_roh, dict) else {}
         if not auftraggeber.get("iban"):

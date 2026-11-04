@@ -1181,7 +1181,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 4 — Lader-Umbau · P4a
 
-- [ ] **Jeder Lader liest über `lies_abschnitt`** (gleiche Signatur, gleicher Modelltyp, gleiche
+- [x] **Jeder Lader liest über `lies_abschnitt`** (gleiche Signatur, gleicher Modelltyp, gleiche
   Fehlertexte). Der `is_file`-Wächter fällt dabei weg (D25). Wo er eine Meldung trug („Vorlage
   kopieren“), steht sie hinter `not quelle_vorhanden(pfad, name)`:
 
@@ -1247,6 +1247,47 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     (Version von `mandant` mit anderem Namen → Kopf und Abschnitt 1 nennen ihn; G-M3)
 
   Der Golden-Test aus Schritt 0 bleibt **ohne Änderung** grün. Rot; Umbau Lader für Lader; grün.
+
+  *Umgesetzt (Schritt 4):*
+  - Alle Lader der Tabelle lesen über `lies_abschnitt`; `konfiguration.lies_yaml`,
+    `betrieb/gesellschaften.lies_yaml` und die Hilfen `abschluss._abschnitt`,
+    `integrationen._abschnitt` entfallen. `yaml.safe_load` außerhalb der Positivliste:
+    keine Stelle mehr. `inventar.LADER` hat 29 Einträge (jede Funktion, die
+    `lies_abschnitt` ruft, samt `_Doku.abschnitt` und den drei Betriebsladern; der
+    dynamische Test zeichnet die gelesenen Abschnitte über `leser._wirksam` auf).
+  - **Neu im Leser:** `datei_vorhanden(pfad)` — nur für den Wortlaut der Meldung ohne
+    Quelle („`<pfad>` fehlt — Vorlage …“ gegenüber „Abschnitt 'mandant' fehlt“), damit
+    kein Lader selbst `is_file()` fragt (D25).
+  - `lade_firma` hängt an jede Meldung „(Einstellungen › Firma & Steuern)“ an (AK77,
+    `konfiguration.SEITE_FIRMA`); der Golden-Test erlaubt die Ergänzung (Schritt 0).
+  - **Betriebslader** (`lade_auth`, `lade_server`, `lade_gesellschaften`) lesen ebenfalls
+    über `lies_abschnitt` (Betriebsabschnitt → immer die Datei); ihr Verhalten ist gleich,
+    der `is_file`-Wächter ist dabei überflüssig geworden. Die Meldungen für kaputtes YAML
+    und fremde Kodierung kommen jetzt aus dem Leser („kein gültiges YAML (…)“ statt
+    „…, Zeile N“). Der Leser liest Bytes: `tests/test_konfiguration_yaml_kaputt.py::
+    test_registry_nicht_lesbar_ist_ein_konfigurationsfehler` täuscht den
+    `PermissionError` darum an `Path.read_bytes` vor (bisher `read_text`).
+  - „Nachsichtige“ Lader (`lade_oss`, `lade_mandant`, `lade_eigene_firma`,
+    `lade_steuerangaben`, `lade_elster_konten`) melden einen Abschnitt, der keine
+    Zuordnung ist, jetzt wie alle Lader als `KonfigurationError` (Schritt 2), und
+    kaputtes YAML als Meldung statt `yaml.YAMLError`.
+  - `befehle/betrieb._wirtschaftsjahr_beginn` ruft `lade_wirtschaftsjahr_beginn`
+    (Meldung mit Pfad davor).
+  - `_Doku.abschnitt(name)` ersetzt `_Doku.roh()` (Kopf, Abschnitt 1, Webhook-Zeile).
+  - **D21:** `einzelne_gesellschaft` liest den Namen unter `mit_quelle(DatenbankQuelle(db),
+    config)`; ist die Datenbank nicht lesbar, bleibt es beim Kürzel (nur Etikett).
+  - **Gefunden über D5** (fail-closed im Web): `POST /api/v1/laeufe/aufgaben` las im
+    Prüflauf `beleg_fehlt` den Abschnitt `pruefung` aus `config/accounti.yaml` des
+    Arbeitsordners (`nachforderung._pruefeinstellungen` → `lade_pruefung()`), nicht aus
+    der Konfiguration der Gesellschaft — jetzt 500. Die Route setzt
+    `mit_pruefeinstellungen(lade_pruefung(<Konfiguration der Gesellschaft>))`
+    (`tests/test_api_rechte_matrix.py` deckt es ab). Die CLI (`aufgaben lauf|pruefen`)
+    hat dieselbe Lücke ohne Fehler (dort gilt E5, die Datenbank des Befehls); sie bleibt
+    wie bisher (außerhalb von P4).
+  - Tests: `tests/test_lader_umbau.py` (70 Fälle; `rechnung ausstellen` statt `rechnung
+    neu`, das die Firma nicht liest), `test_api_einstellungsstand.py::
+    test_name_ohne_registry_beim_start_aus_der_datenbank`,
+    `test_pruefung_verfahrensdoku.py::test_doku_liest_mandant_aus_der_datenbank`.
 
 ### Schritt 5 — Neue und geänderte Felder, fehlende Modelle (A44, A124) · P4a
 

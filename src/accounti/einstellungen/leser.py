@@ -187,20 +187,32 @@ def _lies_datei(pfad: Path) -> tuple[str | None, dict[str, Any]]:
     return schluessel, geparst
 
 
-def _datei(stand: Stand | None, pfad: Path) -> dict[str, Any]:
-    """Die Datei, wie der Stand sie sieht (beim ersten Lesen angeheftet). Nur lesen —
-    nach außen geht immer eine Kopie."""
+def _angeheftet(stand: Stand | None, pfad: Path) -> tuple[str | None, dict[str, Any]]:
+    """(Inhalts-Hash, Datei), wie der Stand sie sieht (beim ersten Lesen angeheftet)."""
     if stand is None:
-        return _lies_datei(pfad)[1]
+        return _lies_datei(pfad)
     schluessel = _pfadschluessel(pfad)
     if schluessel not in stand.dateien:
         stand.dateien[schluessel] = _lies_datei(pfad)
-    return stand.dateien[schluessel][1]
+    return stand.dateien[schluessel]
+
+
+def _datei(stand: Stand | None, pfad: Path) -> dict[str, Any]:
+    """Die Datei, wie der Stand sie sieht. Nur lesen — nach außen geht immer eine
+    Kopie."""
+    return _angeheftet(stand, pfad)[1]
 
 
 def lies_datei(pfad: str | Path) -> dict[str, Any]:
     """Die ganze Datei (Registry, Export) — eine Kopie; fehlt sie: ``{}``."""
     return copy.deepcopy(_datei(_STAND.get(), Path(pfad)))
+
+
+def datei_vorhanden(pfad: str | Path) -> bool:
+    """Gibt es die Datei (wie der Stand sie sieht)? Nur für den Wortlaut der Meldung
+    ohne Quelle („fehlt — Vorlage kopieren“ statt „Abschnitt fehlt“, D25) — die Lader
+    fragen nicht selbst nach der Datei."""
+    return _angeheftet(_STAND.get(), Path(pfad))[0] is not None
 
 
 def _abschnitt_der_datei(

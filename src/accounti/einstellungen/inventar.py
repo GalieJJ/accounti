@@ -222,15 +222,66 @@ MODELL: dict[str, str] = {
 # ältere Stelle → neue Stelle (D16, G-M2): wird beim ersten Speichern umgezogen
 UMZUG = {"mandant.kontenrahmen": "buchhaltung.kontenrahmen"}
 
-# Lader (Punktname) → gelesene Abschnitte, auch mittelbar (über andere Lader). Schritt 2
-# trägt die Piloten ein, Schritt 4 alle übrigen (test_jeder_lader_ist_registriert).
+# Lader (Punktname) → gelesene Abschnitte, auch mittelbar (über andere Lader): jede
+# Funktion, die lies_abschnitt aufruft (tests/test_lader_umbau.py, statisch und unter
+# einem aufzeichnenden Stand). Die Validierung (P4b) führt je geändertem Abschnitt jeden
+# Lader aus, der ihn liest (D16).
+_MANDANT_BUCHHALTUNG = frozenset({"buchhaltung", "mandant"})
+_INTEGRATIONEN = frozenset({"integrationen", *_MANDANT_BUCHHALTUNG})
 LADER: dict[str, frozenset[str]] = {
-    "accounti.konfiguration.lade_buchhaltung": frozenset({"buchhaltung", "mandant"}),
-    "accounti.elster.konfiguration.lade_elster": frozenset(
-        {"elster", "integrationen", "buchhaltung", "mandant"}
+    "accounti.konfiguration.lade_firma": frozenset({"mandant"}),
+    "accounti.konfiguration.lade_buchhaltung": _MANDANT_BUCHHALTUNG,
+    "accounti.konfiguration.lade_ustid_pruefung": frozenset({"ustid_pruefung"}),
+    "accounti.konfiguration.lade_eigene_firma": frozenset({"mandant"}),
+    "accounti.abschluss.konfiguration.lade_wirtschaftsjahr_beginn": frozenset(
+        {"datev"}
     ),
-    # Schritt 3 (M2): je Gesellschaft unter ihrer Datenbank
+    "accounti.abschluss.konfiguration.lade_abschluss": frozenset(
+        {"abschluss", "datev", *_INTEGRATIONEN}
+    ),
+    "accounti.abschluss.konfiguration.gewinnermittlung_angegeben": frozenset(
+        {"abschluss"}
+    ),
+    "accounti.abschluss.konfiguration.lade_kasse": frozenset(
+        {"kasse", *_MANDANT_BUCHHALTUNG}
+    ),
+    "accounti.aufgaben.einstellungen.lade_aufgaben_einstellungen": frozenset(
+        {"aufgaben"}
+    ),
+    "accounti.erechnung.versand.lade_versand": frozenset({"versand"}),
+    "accounti.mahnwesen.konfiguration.lade_mahnwesen": frozenset({"mahnwesen"}),
+    "accounti.pruefung.einstellungen.lade_pruefung": frozenset({"pruefung"}),
+    "accounti.belege.kanaele.einstellungen.lade_belegkanaele": frozenset(
+        {"belegkanaele"}
+    ),
+    "accounti.anlagen.konfiguration.lade_anlagen": frozenset(
+        {"anlagen", "datev", *_MANDANT_BUCHHALTUNG}
+    ),
+    "accounti.elster.konfiguration.lade_elster": frozenset({"elster", *_INTEGRATIONEN}),
+    "accounti.elster.konfiguration.lade_elster_konten": frozenset(
+        {"elster", *_INTEGRATIONEN}
+    ),
+    "accounti.elster.konfiguration.lade_oss": frozenset({"mandant"}),
+    "accounti.elster.konfiguration.lade_mandant": frozenset({"mandant"}),
+    "accounti.integrationen.einstellungen.lade_integrationen": _INTEGRATIONEN,
+    "accounti.integrationen.einstellungen.lade_steuerangaben": frozenset({"mandant"}),
+    "accounti.bank.einstellungen.lade_bank_einstellungen": frozenset({"bank"}),
+    "accounti.zahlung.konfiguration.lade_zahlung": frozenset({"zahlung", "mandant"}),
+    "accounti.export.datev_stammdaten.sachkontenlaenge": frozenset({"mandant"}),
+    "accounti.export.datev_stammdaten.lade_datev_mandant": frozenset(
+        {"datev", *_MANDANT_BUCHHALTUNG}
+    ),
     "accounti.befehle.gesellschaft._wirtschaftsjahr": frozenset({"datev"}),
+    # Verfahrensdokumentation: Kopf und Abschnitt 1 (mandant), Webhook (belegkanaele)
+    "accounti.pruefung.verfahrensdoku._Doku.abschnitt": frozenset(
+        {"mandant", "belegkanaele"}
+    ),
+    # Betrieb: immer aus der Datei
+    "accounti.auth.einstellungen.lade_auth": frozenset({"auth"}),
+    "accounti.api.einstellungen.lade_server": frozenset({"server"}),
+    "accounti.betrieb.gesellschaften.lade_gesellschaften": frozenset(
+        {"gesellschaften"}
+    ),
 }
 
 

@@ -10,11 +10,12 @@ import string
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.mahnwesen.basiszins import Basiszins, halbjahresende, tabelle
 
 PLATZHALTER = frozenset(
@@ -148,12 +149,8 @@ def _fehlertext(fehler: ValidationError) -> str:
 
 def lade_mahnwesen(pfad: str | Path = STANDARD_PFAD) -> MahnEinstellungen:
     pfad = Path(pfad)
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("mahnwesen") if isinstance(daten, dict) else None
     try:
-        return MahnEinstellungen.model_validate(abschnitt or {})
+        return MahnEinstellungen.model_validate(lies_abschnitt(pfad, "mahnwesen"))
     except ValidationError as fehler:
         msg = f"{pfad}: Abschnitt 'mahnwesen': {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

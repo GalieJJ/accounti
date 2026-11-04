@@ -26,8 +26,8 @@ from pydantic import (
 
 from accounti.belege.kanaele.pruefung import DATEITYPEN, Dateipruefung
 from accounti.einstellungen.inventar import Betriebsfeld
-from accounti.einstellungen.leser import im_pruefmodus
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import im_pruefmodus, lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 ABSCHNITT = "belegkanaele"
 LOKALE_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -211,12 +211,8 @@ def _fehlertext(fehler: ValidationError) -> str:
 def lade_belegkanaele(pfad: str | Path = STANDARD_PFAD) -> KanalEinstellungen:
     """Abschnitt ``belegkanaele``; ohne Datei oder Abschnitt gelten die Standards."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return KanalEinstellungen()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get(ABSCHNITT) if isinstance(daten, dict) else None
     try:
-        return KanalEinstellungen.model_validate(abschnitt or {})
+        return KanalEinstellungen.model_validate(lies_abschnitt(pfad, ABSCHNITT))
     except ValidationError as fehler:
         msg = f"{pfad}: {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

@@ -46,24 +46,9 @@ def lauf(
 
 def _wirtschaftsjahr_beginn(config: str) -> date | None:
     """``datev.wirtschaftsjahr_beginn`` (Tag und Monat) — ohne: Kalenderjahr."""
-    from pathlib import Path
+    from accounti.abschluss.konfiguration import lade_wirtschaftsjahr_beginn
 
-    from accounti.betrieb.gesellschaften import lies_yaml
-    from accounti.konfiguration import KonfigurationError
-
-    pfad = Path(config)
-    if not pfad.is_file():
-        return None
-    daten = lies_yaml(pfad)
-    datev = daten.get("datev") if isinstance(daten, dict) else None
-    wert = datev.get("wirtschaftsjahr_beginn") if isinstance(datev, dict) else None
-    if wert is None or isinstance(wert, date):
-        return wert
-    try:
-        return date.fromisoformat(str(wert))
-    except ValueError as fehler:
-        msg = f"datev.wirtschaftsjahr_beginn {wert!r}: Format JJJJ-MM-TT"
-        raise KonfigurationError(msg) from fehler
+    return lade_wirtschaftsjahr_beginn(config)
 
 
 @befehl.command("aufbewahrung")

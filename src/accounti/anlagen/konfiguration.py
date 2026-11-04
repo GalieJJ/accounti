@@ -14,11 +14,11 @@ from pydantic import BaseModel, Field, ValidationError
 
 from accounti.anlagen.rechtsstand import Rechtsstand, lade_rechtsstand
 from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
     lade_buchhaltung,
-    lies_yaml,
 )
 from accounti.models.anlagen import AfaArt, Anlagegut
 
@@ -149,11 +149,7 @@ def lade_anlagen(pfad: str | Path = STANDARD_PFAD) -> AnlagenEinstellungen:
     pfad = Path(pfad)
     kontenrahmen = lade_buchhaltung(pfad).kontenrahmen.upper()
     standard = STANDARDS.get(kontenrahmen, STANDARDS["SKR03"])
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("anlagen") if isinstance(daten, dict) else None
-    eigene: dict[str, Any] = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    eigene: dict[str, Any] = lies_abschnitt(pfad, "anlagen")
     try:
         konten = eigene.pop("konten", None) or {}
         if not isinstance(konten, dict):

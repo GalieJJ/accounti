@@ -33,7 +33,8 @@ from sqlalchemy.orm import Session
 from accounti import __version__
 from accounti.anzeige import datum_de
 from accounti.betrieb.protokoll import rechner_der_adresse
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.pruefung import Journaleintrag
 
 VORGANG = "verfahrensdoku_erstellt"
@@ -108,13 +109,11 @@ class _Doku:
             self(f"> **Konfiguration {name} fehlerhaft:** {_zelle(fehler)}", "")
             return None
 
-    def roh(self) -> dict[str, Any]:
-        """Die Konfiguration roh — kaputtes YAML ist ein ``KonfigurationError`` (die
-        CLI meldet ihn, statt mit ParserError abzubrechen; Runde 7, g6w B-3)."""
-        if not self.config.is_file():
-            return {}
-        daten: Any = lies_yaml(self.config)
-        return daten if isinstance(daten, dict) else {}
+    def abschnitt(self, name: str) -> dict[str, Any]:
+        """Ein Abschnitt, wie er wirkt (Datenbank vor Datei, Baustein 10c P4) — kaputtes
+        YAML ist ein ``KonfigurationError`` (die CLI meldet ihn, statt mit ParserError
+        abzubrechen; Runde 7, g6w B-3)."""
+        return lies_abschnitt(self.config, name)
 
     def anzahl(self, tabelle: Any) -> int:
         return int(
@@ -139,7 +138,7 @@ def _allgemein(d: _Doku) -> None:
     from accounti.elster.konfiguration import lade_elster
     from accounti.konfiguration import lade_buchhaltung
 
-    mandant = d.roh().get("mandant") or {}
+    mandant = d.abschnitt("mandant")
     anschrift = mandant.get("anschrift") or {}
     d("## 1 Allgemeine Beschreibung", "")
     d(
@@ -219,7 +218,7 @@ def _belegeingang(d: _Doku) -> None:
                     f"{p.nach_abholen}",
                 ]
             )
-        if "webhook" in (d.roh().get("belegkanaele") or {}):
+        if "webhook" in d.abschnitt("belegkanaele"):
             w = kanaele.webhook
             zeilen.append(["webhook", "—", f"{w.host}:{w.port}, Bearer-Token"])
         fehlerhaft = []
@@ -846,7 +845,7 @@ def erzeuge(
 
     d = _Doku(session, Path(config), db_url, system_db, gesellschaft)
     stand = stand or date.today()
-    name = (d.roh().get("mandant") or {}).get("name") or "nicht eingerichtet"
+    name = d.abschnitt("mandant").get("name") or "nicht eingerichtet"
     d(
         f"# Verfahrensdokumentation — {_zelle(name)}",
         "",

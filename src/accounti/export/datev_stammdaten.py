@@ -211,14 +211,9 @@ def sachkontenlaenge(pfad: str | Path) -> int:
     """``mandant.sachkonten_laenge`` der Konfiguration (Standard 4) — für den
     Buchungsstapel von ``export datev`` wie für ``datev belege`` und die Stammdaten
     (Runde 5, g4w N5: der Stapel nannte immer 4)."""
-    from accounti.konfiguration import lies_yaml
+    from accounti.einstellungen.leser import lies_abschnitt
 
-    datei = Path(pfad)
-    if not datei.is_file():
-        return 4
-    geladen = lies_yaml(datei)
-    firma = geladen.get("mandant") if isinstance(geladen, dict) else None
-    return _laenge(firma if isinstance(firma, dict) else {})
+    return _laenge(lies_abschnitt(Path(pfad), "mandant"))
 
 
 def lade_datev_mandant(
@@ -234,21 +229,13 @@ def lade_datev_mandant(
     Wirtschaftsjahresbeginn aus ``datev.wirtschaftsjahr_beginn`` (Tag und Monat,
     Standard 1. Januar) für das Wirtschaftsjahr, in dem ``stichtag`` liegt.
     """
-    from accounti.konfiguration import KonfigurationError, lade_buchhaltung, lies_yaml
+    from accounti.einstellungen.leser import lies_abschnitt
+    from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
-    daten: dict[str, object] = {}
     datei = Path(pfad)
-    if datei.is_file():
-        # kaputtes YAML: Meldung wie export datev (Runde 7, g6w B-3)
-        geladen = lies_yaml(datei)
-        daten = geladen if isinstance(geladen, dict) else {}
-
-    def abschnitt(name: str) -> dict[str, object]:
-        wert = daten.get(name)
-        return wert if isinstance(wert, dict) else {}
-
-    datev = abschnitt("datev")
-    firma = abschnitt("mandant")
+    # kaputtes YAML: Meldung wie export datev (Runde 7, g6w B-3)
+    datev = lies_abschnitt(datei, "datev")
+    firma = lies_abschnitt(datei, "mandant")
     berater = berater or str(datev.get("berater_nummer") or "") or None
     mandant = mandant or str(datev.get("mandanten_nummer") or "") or None
     if not berater or not berater.isdigit():

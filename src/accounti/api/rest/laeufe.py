@@ -92,12 +92,20 @@ def _aufgaben(zugang: Zugang, s: Session) -> dict[str, Any]:
     )
     from accounti.aufgaben.einstellungen import lade_aufgaben_einstellungen
     from accounti.aufgaben.prueflaeufe import fuehre_prueflaeufe_aus
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.nachforderung import mit_pruefeinstellungen
 
     pfad = zugang.gesellschaft.konfiguration
     einstellungen = lade_aufgaben_einstellungen(pfad)
     stichtag = date.today()
     jetzt = datetime.now()
-    laeufe = fuehre_prueflaeufe_aus(s, einstellungen, stichtag=stichtag, jetzt=jetzt)
+    # Abschnitt pruefung der Gesellschaft für den Prüflauf beleg_fehlt — sonst läse er
+    # config/accounti.yaml des Arbeitsordners (im Web seit Baustein 10c P4 abgewiesen,
+    # D5: nicht die Konfiguration der gebundenen Gesellschaft)
+    with mit_pruefeinstellungen(lade_pruefung(pfad)):
+        laeufe = fuehre_prueflaeufe_aus(
+            s, einstellungen, stichtag=stichtag, jetzt=jetzt
+        )
     s.commit()
     kanaele, kanalfehler = baue_kanaele(einstellungen, pfad)
     versand = versende_tagesuebersichten(

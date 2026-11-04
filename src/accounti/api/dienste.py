@@ -26,7 +26,11 @@ from accounti.belege.pipeline import Erkenner
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.betrieb.kontext import Kontext
 from accounti.db import init_db, session_factory
-from accounti.einstellungen.leser import DatenbankQuelle
+from accounti.einstellungen.leser import (
+    DatenbankQuelle,
+    EinstellungenNichtLesbar,
+    mit_quelle,
+)
 from accounti.i18n import Text
 from accounti.konfiguration import lade_eigene_firma
 from accounti.models.auth import STANDARD_GESELLSCHAFT
@@ -171,7 +175,14 @@ def ocr_erkenner(g: Gesellschaft) -> Erkenner | None:
 
 
 def einzelne_gesellschaft(db: str, archiv: str, config: str) -> Gesellschaft:
-    firma = lade_eigene_firma(config)
+    """Die eine Gesellschaft ohne Registry — ihr Name aus ``mandant.name``, wie er in
+    ihrer Datenbank gilt (D21: ein im Browser geänderter Name folgt nach dem Neustart);
+    ohne Datei und Version bzw. mit unlesbarer Datenbank bleibt es beim Kürzel."""
+    try:
+        with mit_quelle(DatenbankQuelle(db), config):
+            firma = lade_eigene_firma(config)
+    except EinstellungenNichtLesbar:
+        firma = None
     return Gesellschaft(
         kuerzel=STANDARD_GESELLSCHAFT,
         name=firma.name if firma else STANDARD_GESELLSCHAFT,

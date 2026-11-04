@@ -11,12 +11,11 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from accounti.einstellungen.inventar import Betriebsfeld
 from accounti.einstellungen.leser import lies_abschnitt
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 __all__ = [
     "BUNDESLAENDER",
@@ -234,23 +233,16 @@ def lade_elster_konten(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
     (Bundesland, ERiC …) hält die Korrektur nicht auf; ein Fehler in diesen Angaben
     ist ein ``KonfigurationError`` wie bei ``lade_elster``."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return ElsterEinstellungen()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("elster") if isinstance(daten, dict) else None
-    teil = (
-        {
-            k: abschnitt[k]
-            for k in (
-                "kennziffern_konten",
-                "steuerrelevante_konten",
-                "konten_ohne_kennziffer",
-            )
-            if k in abschnitt
-        }
-        if isinstance(abschnitt, dict)
-        else {}
-    )
+    abschnitt = lies_abschnitt(pfad, "elster")
+    teil = {
+        k: abschnitt[k]
+        for k in (
+            "kennziffern_konten",
+            "steuerrelevante_konten",
+            "konten_ohne_kennziffer",
+        )
+        if k in abschnitt
+    }
     try:
         einstellungen = ElsterEinstellungen.model_validate(teil)
     except ValidationError as fehler:
@@ -261,22 +253,12 @@ def lade_elster_konten(pfad: str | Path = STANDARD_PFAD) -> ElsterEinstellungen:
 
 def lade_oss(pfad: str | Path = STANDARD_PFAD) -> bool:
     """``mandant.oss`` — nachsichtig gelesen (fehlt der Mandant, gilt: kein OSS)."""
-    pfad = Path(pfad)
-    if not pfad.is_file():
-        return False
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    return bool(isinstance(mandant, dict) and mandant.get("oss"))
+    return bool(lies_abschnitt(Path(pfad), "mandant").get("oss"))
 
 
 def lade_mandant(pfad: str | Path = STANDARD_PFAD) -> dict[str, str]:
     """Name, Anschrift und Steuernummer aus ``mandant`` — nachsichtig gelesen."""
-    pfad = Path(pfad)
-    daten: Any = {}
-    if pfad.is_file():
-        daten = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    mandant = mandant if isinstance(mandant, dict) else {}
+    mandant = lies_abschnitt(Path(pfad), "mandant")
     anschrift = mandant.get("anschrift")
     anschrift = anschrift if isinstance(anschrift, dict) else {}
     werte = {

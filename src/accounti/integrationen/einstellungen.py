@@ -26,12 +26,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import (
     STANDARD_PFAD,
     Buchhaltung,
     KonfigurationError,
     lade_buchhaltung,
-    lies_yaml,
 )
 from accounti.steuer.eu_steuersaetze import ist_oss_land
 from accounti.steuer.umsatzsteuer import (
@@ -266,18 +266,10 @@ def _fehlertext(fehler: ValidationError) -> str:
     )
 
 
-def _abschnitt(pfad: Path, name: str) -> Any:
-    if not pfad.is_file():
-        return None
-    daten: Any = lies_yaml(pfad)
-    return daten.get(name) if isinstance(daten, dict) else None
-
-
 def lade_integrationen(pfad: str | Path = STANDARD_PFAD) -> Integrationen:
     """Liest den Abschnitt ``integrationen``; fehlende Werte bleiben Standard."""
     pfad = Path(pfad)
-    abschnitt = _abschnitt(pfad, "integrationen")
-    werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    werte = lies_abschnitt(pfad, "integrationen")
     eigene = werte.pop("marktplaetze", None) or {}
     rahmen = lade_buchhaltung(pfad).kontenrahmen.upper()
     standard = KONTEN_STANDARD.get(rahmen, KONTEN_STANDARD["SKR03"])
@@ -364,9 +356,7 @@ def _pruefe_laenderkonten(pfad: Path, rahmen: str, e: Integrationen) -> None:
 
 def lade_steuerangaben(pfad: str | Path = STANDARD_PFAD) -> tuple[bool, str]:
     """(OSS-registriert?, Land des Firmensitzes) aus ``mandant``, nachsichtig."""
-    mandant = _abschnitt(Path(pfad), "mandant")
-    if not isinstance(mandant, dict):
-        return False, "DE"
+    mandant = lies_abschnitt(Path(pfad), "mandant")
     anschrift = mandant.get("anschrift")
     land = anschrift.get("land") if isinstance(anschrift, dict) else None
     return bool(mandant.get("oss", False)), str(land or "DE").upper()

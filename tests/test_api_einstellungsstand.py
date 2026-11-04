@@ -269,3 +269,37 @@ def test_rechte_haengen_nicht_an_der_bindung(welt):
     """Die Bindung ändert keine Rechte: ohne Anmeldung weiter zur Anmeldung."""
     r = welt.client().get("/freigaben", follow_redirects=False)
     assert r.status_code == 303 and "/anmelden" in r.headers["location"]
+
+
+def test_name_ohne_registry_beim_start_aus_der_datenbank(tmp_path, monkeypatch):
+    """D21 (Schritt 4, G-M3): Ohne Registry kommt der Name der Gesellschaft beim Start
+    aus ``mandant.name`` ihrer Datenbank; ohne Datei und Version bleibt das Kürzel. Mit
+    Registry bleibt der Name der Registry."""
+    from accounti.api.dienste import dienste_aus_kontext, einzelne_gesellschaft
+    from accounti.betrieb.kontext import bestimme_kontext
+    from accounti.db import init_db
+    from tests.gesellschaft_hilfe import zwei_gesellschaften
+
+    url = f"sqlite:///{tmp_path / 'x.db'}"
+    engine, _ = session_factory(url)
+    init_db(engine)
+    engine.dispose()
+    konfig = tmp_path / "x.yaml"
+    konfig.write_text("mandant:\n  name: Datei GmbH\n", encoding="utf-8")
+    archiv = str(tmp_path / "archiv")
+    assert einzelne_gesellschaft(url, archiv, str(konfig)).name == "Datei GmbH"
+    version(url, "mandant", {"name": "Datenbank GmbH"})
+    assert einzelne_gesellschaft(url, archiv, str(konfig)).name == "Datenbank GmbH"
+    fehlt = str(tmp_path / "fehlt.yaml")
+    leer = f"sqlite:///{tmp_path / 'leer.db'}"
+    assert einzelne_gesellschaft(leer, archiv, fehlt).name == "standard"
+    assert einzelne_gesellschaft(url, archiv, fehlt).name == "Datenbank GmbH"
+    (tmp_path / "reg").mkdir()
+    u = zwei_gesellschaften(tmp_path / "reg")
+    version(u.db["b"], "mandant", {"name": "Anderer Name KG"})
+    monkeypatch.setenv("ACCOUNTI_KONFIG", str(u.registry))
+    dienste = dienste_aus_kontext(bestimme_kontext(None), url, archiv, str(konfig))
+    try:
+        assert dienste.gesellschaften["b"].name == "Beta Rahmen KG"
+    finally:
+        dienste.schliesse()

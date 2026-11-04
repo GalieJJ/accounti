@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from accounti.aufgaben.zustaendigkeit import Zustaendigkeitsregel
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.erechnung.versand import _ersetze_variablen
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 # Tage bis zur Fälligkeit, wenn der Erzeuger keine nennt. Zehn Tage für Vorgänge,
 # die die laufende Erfassung betreffen: GoBD Rz. 47 hält die Erfassung unbarer
@@ -181,15 +181,7 @@ def lade_aufgaben_einstellungen(
 ) -> AufgabenEinstellungen:
     """Abschnitt ``aufgaben``; fehlt Datei oder Abschnitt, gelten die Standardwerte."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return AufgabenEinstellungen()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("aufgaben") if isinstance(daten, dict) else None
-    if abschnitt is None:
-        return AufgabenEinstellungen()
-    if not isinstance(abschnitt, dict):
-        msg = f"{pfad}: Abschnitt 'aufgaben' muss eine Zuordnung sein"
-        raise KonfigurationError(msg)
+    abschnitt = lies_abschnitt(pfad, "aufgaben")
     try:
         return AufgabenEinstellungen.model_validate(_ersetze_variablen(abschnitt))
     except ValidationError as fehler:

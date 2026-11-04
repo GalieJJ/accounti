@@ -40,6 +40,20 @@ def _objekt(punktname: str, trenner: str = ".") -> Any:
     return getattr(importlib.import_module(modul), name)
 
 
+def _lader(punktname: str) -> Any:
+    """Auch eine Methode (``modul.Klasse.methode``)."""
+    teile = punktname.split(".")
+    for i in range(len(teile) - 1, 0, -1):
+        try:
+            ziel: Any = importlib.import_module(".".join(teile[:i]))
+        except ModuleNotFoundError:
+            continue
+        for teil in teile[i:]:
+            ziel = getattr(ziel, teil)
+        return ziel
+    raise AssertionError(punktname)
+
+
 def _modelle(typ: Any) -> Iterator[tuple[str, type[BaseModel]]]:
     """Untermodelle in einem Feldtyp mit dem Pfadzusatz (``[]`` für Listen)."""
     herkunft = typing.get_origin(typ)
@@ -148,7 +162,7 @@ def test_modelle_und_lader_sind_aufloesbar():
     for abschnitt, punktname in MODELL.items():
         assert issubclass(_objekt(punktname), BaseModel), abschnitt
     for lader, abschnitte in LADER.items():
-        assert callable(_objekt(lader)), lader
+        assert callable(_lader(lader)), lader
         assert abschnitte <= set(ABSCHNITTE), lader
     for pfad in (*PERIODENFELDER, *UMZUG, *UMZUG.values()):
         assert pfad.split(".")[0] in ABSCHNITTE, pfad

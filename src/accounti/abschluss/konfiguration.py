@@ -28,11 +28,11 @@ from accounti.abschluss.kontenrahmen import (
     lade_kontenrahmen,
 )
 from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import (
     STANDARD_PFAD,
     KonfigurationError,
     lade_buchhaltung,
-    lies_yaml,
 )
 
 _STANDARDS: dict[str, dict[str, Any]] = {
@@ -114,7 +114,7 @@ def wirtschaftsjahr_zum(tag: date, beginn: date | None = None) -> Wirtschaftsjah
 
 def lade_wirtschaftsjahr_beginn(pfad: str | Path = STANDARD_PFAD) -> date | None:
     """``datev.wirtschaftsjahr_beginn`` (Tag und Monat) — ohne: Kalenderjahr."""
-    wert = _abschnitt(Path(pfad), "datev").get("wirtschaftsjahr_beginn")
+    wert = lies_abschnitt(Path(pfad), "datev").get("wirtschaftsjahr_beginn")
     if wert is None or isinstance(wert, date):
         return wert
     try:
@@ -165,14 +165,6 @@ class KassenEinstellungen(BaseModel):
     konto: str
 
 
-def _abschnitt(pfad: Path, name: str) -> dict[str, Any]:
-    if not pfad.is_file():
-        return {}
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get(name) if isinstance(daten, dict) else None
-    return dict(abschnitt) if isinstance(abschnitt, dict) else {}
-
-
 def lade_abschluss(pfad: str | Path = STANDARD_PFAD) -> AbschlussEinstellungen:
     from accounti.integrationen.einstellungen import lade_integrationen
 
@@ -182,7 +174,7 @@ def lade_abschluss(pfad: str | Path = STANDARD_PFAD) -> AbschlussEinstellungen:
     marktplaetze = lade_integrationen(pfad).marktplaetze
     werte = {
         **_STANDARDS.get(kontenrahmen, _STANDARDS["SKR03"]),
-        **_abschnitt(pfad, "abschluss"),
+        **lies_abschnitt(pfad, "abschluss"),
         "marktplatz_konten": sorted(
             {
                 k.verrechnungskonto
@@ -207,14 +199,14 @@ def gewinnermittlung_angegeben(pfad: str | Path = STANDARD_PFAD) -> str | None:
     """``abschluss.gewinnermittlung``, wenn sie ausdrücklich in der Konfiguration steht
     (``bilanz`` oder ``euer``) — sonst ``None`` (der Standard ``euer`` gilt dann nur
     dort, wo er nichts riskiert)."""
-    wert = _abschnitt(Path(pfad), "abschluss").get("gewinnermittlung")
+    wert = lies_abschnitt(Path(pfad), "abschluss").get("gewinnermittlung")
     return wert if wert in ("bilanz", "euer") else None
 
 
 def lade_kasse(pfad: str | Path = STANDARD_PFAD) -> KassenEinstellungen:
     pfad = Path(pfad)
     kontenrahmen = lade_buchhaltung(pfad).kontenrahmen.upper()
-    werte = {"konto": _KASSE.get(kontenrahmen, "1000"), **_abschnitt(pfad, "kasse")}
+    werte = {"konto": _KASSE.get(kontenrahmen, "1000"), **lies_abschnitt(pfad, "kasse")}
     try:
         return KassenEinstellungen.model_validate(werte)
     except ValidationError as fehler:

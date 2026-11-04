@@ -19,11 +19,11 @@ auth:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 
 class AuthEinstellungen(BaseModel):
@@ -66,17 +66,9 @@ def _fehlertext(fehler: ValidationError) -> str:
 def lade_auth(pfad: str | Path = STANDARD_PFAD) -> AuthEinstellungen:
     """Abschnitt ``auth``; fehlt Datei oder Abschnitt, gelten die Standardwerte."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return AuthEinstellungen()
-    # über lies_yaml: auch eine Datei in anderer Kodierung als UTF-8 ist eine Meldung,
-    # kein Traceback (Runde 8, g7w B7-5)
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("auth") if isinstance(daten, dict) else None
-    if abschnitt is None:
-        return AuthEinstellungen()
-    if not isinstance(abschnitt, dict):
-        msg = f"{pfad}: Abschnitt 'auth' muss eine Zuordnung sein"
-        raise KonfigurationError(msg)
+    # Betriebsabschnitt: immer aus der Datei (Baustein 10c P4); auch eine Datei in
+    # anderer Kodierung als UTF-8 ist eine Meldung, kein Traceback (Runde 8, g7w B7-5)
+    abschnitt = lies_abschnitt(pfad, "auth")
     try:
         return AuthEinstellungen.model_validate(abschnitt)
     except ValidationError as fehler:
