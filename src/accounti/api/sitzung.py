@@ -113,7 +113,9 @@ def _lade_gebunden(
 ) -> Angemeldet | None:
     """Wie ``_lade``, dazu den Stand der Anfrage an die aktive Gesellschaft binden
     (Baustein 10c P4, D4) — der gemeinsame Kern von ``angemeldet`` und
-    ``vielleicht_angemeldet``."""
+    ``vielleicht_angemeldet``. Die Bindung legt keine Datenbank an und scheitert nicht
+    an ihr (``Dienste.quelle``): Ist sie nicht lesbar, steht das im Schnappschuss, und
+    nur das Lesen eines Datenbank-Abschnitts scheitert — Wechsel und Abmelden nicht."""
     a = _lade(dienste, token)
     if a is not None and stand is not None:
         binde_gesellschaft(stand, dienste, a.gesellschaft)

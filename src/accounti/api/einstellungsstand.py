@@ -2,11 +2,14 @@
 
 Reine ASGI-Middleware: Jede HTTP-Anfrage bekommt einen neuen, **ungebundenen** Stand
 (``web=True``) und gibt ihn am Ende zurück. Binden tun ``angemeldet`` (Sitzung) und
-``api_zugang`` (Token) — an die Gesellschaft, deren Rechte sie prüfen, mit sofortigem
-Schnappschuss (``leser.binde_gesellschaft``). Gebunden wird das Stand-Objekt selbst; so
-sieht auch ein Endpunkt im Threadpool (kopierter Kontext) die Bindung. Liest eine
-Anfrage ohne Bindung oder aus einer anderen Konfiguration einen Datenbank-Abschnitt,
-folgt ``EinstellungsquelleFehlt`` — die 500-Seite der Sicherheits-Middleware (D5).
+``api_zugang`` (Token) — an die Gesellschaft, deren Rechte sie prüfen
+(``leser.binde_gesellschaft``); der Schnappschuss entsteht beim ersten Lesen eines
+Datenbank-Abschnitts, die Bindung öffnet die Datenbank nicht (eine nicht erreichbare
+hält ``/gesellschaft``, Wechsel und Abmelden nicht auf). Gebunden wird das Stand-Objekt
+selbst; so sieht auch ein Endpunkt im Threadpool (kopierter Kontext) die Bindung. Liest
+eine Anfrage ohne Bindung oder aus einer anderen Konfiguration einen
+Datenbank-Abschnitt, folgt ``EinstellungsquelleFehlt`` — die 500-Seite der
+Sicherheits-Middleware (D5).
 
 Registriert vor ``Sicherheit``: In Starlette liegt die zuletzt hinzugefügte Middleware
 außen, Sicherheit bleibt so die äußerste (Absprache mit P1, G-N1).

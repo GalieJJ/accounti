@@ -18,14 +18,16 @@ prüfen ihn wie bisher mit ihrem Modell. Vorrang (Spec E2, Plan D7):
 Ein ``nur_db``-Abschnitt (``einrichtung``) liest nie die Datei.
 
 **Stand** (``ContextVar``): Je CLI-Befehl bzw. Web-Anfrage einer (A54). Er heftet jede
-Datei beim ersten Lesen an und hält einen Schnappschuss der Datenbank, genommen beim
-Binden in einer kurzen Lesetransaktion (D3, D4, N10). Ohne Stand (Unit-Tests, Werkzeuge)
-gilt nur die Datei. Im Web liest ein ungebundener Stand keinen Datenbank-Abschnitt
-(``EinstellungsquelleFehlt``, D5), ebenso nicht aus einer anderen Konfiguration als der
-der gebundenen Gesellschaft; in der CLI gilt die Datenbank des Befehls auch für eine
-andere ``--config`` (E5), nur nicht für die Konfiguration einer anderen Gesellschaft der
-Registry. Ist die Datenbank nicht lesbar, scheitert das erste Lesen eines
-Datenbank-Abschnitts mit ``EinstellungenNichtLesbar`` statt still die Datei zu nehmen.
+Datei beim ersten Lesen an und hält einen Schnappschuss der Datenbank, genommen in einer
+kurzen Lesetransaktion — in der CLI beim Binden (D3, N10), im Web beim ersten Lesen
+eines Datenbank-Abschnitts (D4; die Bindung öffnet die Datenbank nicht, Prüfung
+sicher-3). Ohne Stand (Unit-Tests, Werkzeuge) gilt nur die Datei. Im Web liest ein
+ungebundener Stand keinen Datenbank-Abschnitt (``EinstellungsquelleFehlt``, D5), ebenso
+nicht aus einer anderen Konfiguration als der der gebundenen Gesellschaft; in der CLI
+gilt die Datenbank des Befehls auch für eine andere ``--config`` (E5), nur nicht für
+die Konfiguration einer anderen Gesellschaft der Registry. Ist die Datenbank nicht
+lesbar, scheitert das erste Lesen eines Datenbank-Abschnitts mit
+``EinstellungenNichtLesbar`` statt still die Datei zu nehmen.
 
 **Caches** je Prozess: geparste Dateien je Inhalts-Hash (M7), Versionen je
 (Datenbank, Abschnitt, Zeilen-Hash) (G-N7) — beide unter einer Sperre (Threadpool).
@@ -371,16 +373,33 @@ def _fehlertext(fehler: BaseException) -> str:
 
 
 class DatenbankQuelle:
-    """Einstellungen aus einer Datenbank — über eine URL (eigene Engine je
-    Schnappschuss, ohne Pool) oder eine vorhandene Engine (Web, ``Dienste``). Legt keine
-    SQLite-Datei an; ohne Tabelle ``einstellungen`` (Schema vor P4) ist sie leer."""
+    """Einstellungen aus einer Datenbank — über eine URL oder eine vorhandene Engine.
 
-    def __init__(self, url: str | None = None, *, engine: Engine | None = None) -> None:
+    Über die URL eine eigene Engine je Schnappschuss, ohne Pool (CLI); mit
+    ``behalten`` eine Engine für alle Schnappschüsse, angelegt beim ersten (Web,
+    ``Dienste.quelle``: ohne ``init_db``, ohne Sperre über einem Verbindungsaufbau;
+    ``schliesse`` gibt sie frei). ``wartezeit``: Sekunden für eine gesperrte
+    SQLite-Datei bzw. den Verbindungsaufbau zu PostgreSQL (ohne: 30 s für SQLite).
+    Legt keine SQLite-Datei an; ohne Tabelle ``einstellungen`` (Schema vor P4) ist sie
+    leer; ist die Datenbank nicht lesbar, steht der Fehler im Schnappschuss."""
+
+    def __init__(
+        self,
+        url: str | None = None,
+        *,
+        engine: Engine | None = None,
+        wartezeit: float | None = None,
+        behalten: bool = False,
+    ) -> None:
         if (url is None) == (engine is None):
             msg = "DatenbankQuelle braucht genau eines: url oder engine"
             raise ValueError(msg)
         self._url = url
         self._engine = engine
+        self._wartezeit = wartezeit
+        self._behalten = behalten
+        self._eigene: Engine | None = None
+        self._sperre = threading.Lock()
         if engine is not None:
             url = engine.url.render_as_string(hide_password=False)
         assert url is not None
@@ -404,23 +423,56 @@ class DatenbankQuelle:
             datei = _sqlite_datei(self._url)
             if datei is not None and not datei.exists():
                 return LEER  # keine neue Datei anlegen
-            engine = self._neue_engine(self._url)
+            engine = self._engine_der_url(self._url)
             try:
                 with engine.connect() as verbindung:
                     return self._lies(verbindung, stichtag)
             finally:
-                engine.dispose()
+                if not self._behalten:
+                    engine.dispose()
         except (SQLAlchemyError, ImportError, OSError, ValueError) as fehler:
             # ValueError: ungültige URL (Port) — wie eine nicht lesbare Datenbank
             return Schnappschuss(fehler=_fehlertext(fehler))
 
+    def schliesse(self) -> None:
+        """Die behaltene Engine freigeben (``Dienste.schliesse``)."""
+        with self._sperre:
+            engine, self._eigene = self._eigene, None
+        if engine is not None:
+            engine.dispose()
+
+    def _engine_der_url(self, url: str) -> Engine:
+        if not self._behalten:
+            return self._neue_engine(url, self._wartezeit, pool=False)
+        with self._sperre:  # create_engine verbindet noch nicht
+            if self._eigene is None:
+                self._eigene = self._neue_engine(url, self._wartezeit, pool=True)
+            return self._eigene
+
     @staticmethod
-    def _neue_engine(url: str) -> Engine:
+    def _neue_engine(url: str, wartezeit: float | None, *, pool: bool) -> Engine:
+        """SQLite immer ohne Pool (keine offenen Dateien zwischen zwei Schnappschüssen),
+        sonst mit ``pool`` ein Pool, der tote Verbindungen vor dem Gebrauch erkennt."""
         from sqlalchemy import create_engine
+        from sqlalchemy.engine import make_url
         from sqlalchemy.pool import NullPool
 
-        zusatz = {"connect_args": {"timeout": 30}} if url.startswith("sqlite") else {}
-        return create_engine(url, poolclass=NullPool, hide_parameters=True, **zusatz)
+        adresse = make_url(url)
+        verbinden: dict[str, Any] = {}
+        zusatz: dict[str, Any] = {"poolclass": NullPool}
+        if adresse.get_backend_name() == "sqlite":
+            verbinden["timeout"] = 30 if wartezeit is None else wartezeit
+        else:
+            if wartezeit is not None and adresse.get_driver_name() in (
+                "psycopg",
+                "psycopg2",
+            ):
+                verbinden["connect_timeout"] = max(1, math.ceil(wartezeit))
+            if pool:
+                zusatz = {"pool_pre_ping": True}
+        return create_engine(
+            adresse, hide_parameters=True, connect_args=verbinden, **zusatz
+        )
 
     def _lies(self, verbindung: Connection, stichtag: datetime | None) -> Schnappschuss:
         """Eine kurze Lesetransaktion: neueste Version je Abschnitt (bis ``stichtag``),
@@ -498,6 +550,7 @@ class Stand:
     ueberlagerung: dict[str, dict[str, Any]] = field(default_factory=dict)
     _schnappschuss: Schnappschuss | None = None
     _basis: Stand | None = None
+    _sperre: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
     @property
     def gebunden(self) -> bool:
@@ -513,10 +566,14 @@ class Stand:
         *,
         streng: bool = False,
         kuerzel: str | None = None,
+        sofort: bool = True,
     ) -> None:
-        """An ``quelle`` binden und **sofort** den Schnappschuss nehmen (D3, D4) — vor
-        dem Rumpf des Befehls bzw. dem Endpunkt; dieselbe Quelle noch einmal ändert
-        nichts (ein Stand je Befehl)."""
+        """An ``quelle`` binden und **sofort** den Schnappschuss nehmen (D3) — vor dem
+        Rumpf des Befehls, also vor seiner eigenen Schreibsperre; dieselbe Quelle noch
+        einmal ändert nichts (ein Stand je Befehl). Ohne ``sofort`` (Web, D4) entsteht
+        der Schnappschuss beim ersten Lesen eines Datenbank-Abschnitts: Die Bindung
+        jeder angemeldeten Anfrage öffnet die Datenbank nicht — eine nicht erreichbare
+        hält ``/gesellschaft``, Wechsel und Abmelden nicht auf (Prüfung sicher-3)."""
         ziel = self._wurzel()
         pfad = _pfadschluessel(konfiguration) if konfiguration is not None else None
         if (
@@ -529,10 +586,15 @@ class Stand:
         ziel.konfiguration = pfad
         ziel.streng = streng
         ziel.kuerzel = kuerzel
-        ziel._schnappschuss = quelle.schnappschuss(ziel.stichtag)
+        ziel._schnappschuss = quelle.schnappschuss(ziel.stichtag) if sofort else None
 
     def schnappschuss(self) -> Schnappschuss:
         ziel = self._wurzel()
+        if ziel._schnappschuss is None and ziel.quelle is not None:
+            # gebunden ohne sofort (Web): einmal je Stand, beim ersten Lesen
+            with ziel._sperre:
+                if ziel._schnappschuss is None:
+                    ziel._schnappschuss = ziel.quelle.schnappschuss(ziel.stichtag)
         if ziel._schnappschuss is None:
             if ziel.ersatz is not None:
                 ziel.binde(ziel.ersatz(), kuerzel=ziel.kuerzel)
@@ -672,9 +734,15 @@ class _Gesellschaft(Protocol):
 
 
 def binde_gesellschaft(stand: Stand, dienste: _HatQuelle, g: _Gesellschaft) -> None:
-    """Web: den Stand der Anfrage an die Gesellschaft binden (streng, D4, D5)."""
+    """Web: den Stand der Anfrage an die Gesellschaft binden (streng, D4, D5) — ohne
+    die Datenbank zu öffnen; der Schnappschuss entsteht beim ersten Lesen eines
+    Datenbank-Abschnitts, ein Fehler dabei steht in ihm (fail-closed beim Lesen)."""
     stand.binde(
-        dienste.quelle(g.kuerzel), g.konfiguration, streng=True, kuerzel=g.kuerzel
+        dienste.quelle(g.kuerzel),
+        g.konfiguration,
+        streng=True,
+        kuerzel=g.kuerzel,
+        sofort=False,
     )
 
 

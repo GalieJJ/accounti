@@ -40,6 +40,11 @@ class SchemaError(RuntimeError):
     """Die Datenbank ist nicht auf dem Stand dieser Version (Migration fehlt)."""
 
 
+# Einstellungen je Anfrage: so lange wartet der Schnappschuss höchstens auf eine
+# gesperrte SQLite-Datei bzw. den Verbindungsaufbau zu PostgreSQL (Sekunden; wie die
+# Frist des Lesezugriffs, P1)
+QUELLE_WARTEN = 3
+
 # Spalten, die ``init_db`` (create_all) in einer bestehenden Tabelle nicht anlegt —
 # ohne sie scheitert jede Anmeldung mit einem SQL-Fehler
 PFLICHTSPALTEN = {
@@ -92,13 +97,19 @@ class Dienste:
             yield s
 
     def quelle(self, kuerzel: str) -> DatenbankQuelle:
-        """Einstellungen der Gesellschaft — auf der vorhandenen Engine (Baustein 10c
-        P4, D4)."""
+        """Einstellungen der Gesellschaft (Baustein 10c P4, D4) — eine eigene Engine je
+        Datenbank, nie über ``_fabrik``: Die Bindung jeder angemeldeten Anfrage legt so
+        keine Datenbank an (``init_db``) und verbindet nie unter der globalen Sperre;
+        der Schnappschuss beim ersten Lesen eines Datenbank-Abschnitts wartet höchstens
+        ``QUELLE_WARTEN`` Sekunden. Ist die Datenbank nicht lesbar, steht das im
+        Schnappschuss; nur dieses Lesen scheitert, ``/gesellschaft``, Wechsel und
+        Abmelden gehen weiter (Prüfung sicher-3)."""
         url = self.gesellschaften[kuerzel].datenbank
-        self._fabrik(url)
-        with self._sperre:
+        with self._sperre:  # DatenbankQuelle(…) verbindet noch nicht
             if url not in self._quellen:
-                self._quellen[url] = DatenbankQuelle(engine=self._engines[url][0])
+                self._quellen[url] = DatenbankQuelle(
+                    url, wartezeit=QUELLE_WARTEN, behalten=True
+                )
             return self._quellen[url]
 
     def pruefe_schema(self) -> None:
@@ -158,7 +169,10 @@ class Dienste:
             for engine, _ in self._engines.values():
                 engine.dispose()
             self._engines.clear()
+            quellen = list(self._quellen.values())
             self._quellen.clear()
+        for quelle in quellen:
+            quelle.schliesse()
 
 
 def ocr_erkenner(g: Gesellschaft) -> Erkenner | None:

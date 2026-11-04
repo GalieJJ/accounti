@@ -35,6 +35,7 @@ from accounti.einstellungen.leser import (
     ueberlagert,
 )
 from accounti.konfiguration import Buchhaltung, lade_buchhaltung
+from tests.pg_hilfe import mit_postgresql
 
 JETZT = datetime(2026, 11, 4, 10, 0, 0)
 
@@ -692,3 +693,82 @@ def test_kaputtes_yaml_ohne_ausschnitt_der_zeile(tmp_path):
         assert "Geheim123" not in meldung, meldung
         assert meldung.startswith(f"{pfad}: kein gültiges YAML (Zeile "), meldung
         assert "\n" not in meldung, meldung
+
+
+def test_bindung_ohne_sofort_liest_beim_ersten_abschnitt(tmp_path, db):
+    """Web (Prüfung sicher-3): ``binde(sofort=False)`` öffnet die Datenbank nicht —
+    der Schnappschuss entsteht beim ersten Lesen eines Datenbank-Abschnitts, einmal je
+    Stand; ein Betriebsabschnitt liest sie nie."""
+    pfad = konfig(tmp_path, "kasse:\n  konto: '1000'\nserver:\n  port: 8400\n")
+    version(db, "kasse", {"konto": "1600"})
+    gelesen: list[int] = []
+
+    class Zaehlend(DatenbankQuelle):
+        def schnappschuss(self, stichtag: datetime | None = None):  # noqa: ANN201
+            gelesen.append(1)
+            return super().schnappschuss(stichtag)
+
+    with neuer_stand(web=True) as stand:
+        stand.binde(Zaehlend(db), pfad, streng=True, sofort=False)
+        assert stand.gebunden and gelesen == []
+        assert lies_abschnitt(pfad, "server") == {"port": 8400}
+        assert gelesen == []
+        version(db, "kasse", {"konto": "1610"})  # vor dem ersten Lesen: gilt schon
+        assert lies_abschnitt(pfad, "kasse") == {"konto": "1610"}
+        version(db, "kasse", {"konto": "1620"})
+        assert lies_abschnitt(pfad, "kasse") == {"konto": "1610"}  # ein Stand
+    assert gelesen == [1]
+
+
+def test_behaltene_quelle_wartet_hoechstens_die_wartezeit():
+    """Web (``Dienste.quelle``, Prüfung sicher-3): Unter PostgreSQL begrenzt
+    ``wartezeit`` den Verbindungsaufbau (``connect_timeout``) — ein Server, der die
+    Verbindung annimmt, aber nie antwortet, hält das Lesen der Einstellungen nicht auf;
+    der Fehler steht im Schnappschuss, ohne Passwort."""
+    import socket
+
+    stumm = socket.create_server(("127.0.0.1", 0))  # nimmt an, antwortet nie
+    port = stumm.getsockname()[1]
+    quelle = DatenbankQuelle(
+        f"postgresql+psycopg://u:geheim@127.0.0.1:{port}/x", wartezeit=1, behalten=True
+    )
+    ergebnis: list = []
+    faden = threading.Thread(
+        target=lambda: ergebnis.append(quelle.schnappschuss()), daemon=True
+    )
+    try:
+        anfang = time.monotonic()
+        faden.start()
+        faden.join(timeout=10)
+        assert not faden.is_alive(), "Verbindungsaufbau ohne Frist"
+        assert time.monotonic() - anfang < 8
+        assert ergebnis[0].fehler and "geheim" not in ergebnis[0].fehler
+    finally:
+        stumm.close()
+        quelle.schliesse()
+
+
+@mit_postgresql
+def test_behaltene_quelle_unter_postgresql(tmp_path, pg_datenbank):
+    """Web unter PostgreSQL: eine Engine (mit Pool) für alle Schnappschüsse der
+    Gesellschaft, jeder Schnappschuss sieht den neuesten Stand, ``schliesse`` gibt die
+    Engine frei (Prüfung sicher-3; bisher nur unter SQLite geprüft)."""
+    url = pg_datenbank()
+    engine, _ = session_factory(url)
+    init_db(engine)
+    engine.dispose()
+    version(url, "kasse", {"konto": "1600"})
+    pfad = konfig(tmp_path, "kasse:\n  konto: '1000'\n")
+    quelle = DatenbankQuelle(url, wartezeit=3, behalten=True)
+    try:
+        with mit_quelle(quelle, pfad):
+            assert lies_abschnitt(pfad, "kasse") == {"konto": "1600"}
+        eigene = quelle._eigene
+        assert eigene is not None and eigene.pool.__class__.__name__ != "NullPool"
+        version(url, "kasse", {"konto": "1610"})
+        with mit_quelle(quelle, pfad):
+            assert lies_abschnitt(pfad, "kasse") == {"konto": "1610"}
+        assert quelle._eigene is eigene  # dieselbe Engine
+    finally:
+        quelle.schliesse()
+    assert quelle._eigene is None

@@ -215,7 +215,9 @@ def test_rest_token_bindet_seine_gesellschaft(welt, monkeypatch):
     assert r.json() == {"gebunden": True, "kuerzel": "b"}
 
 
-def test_dienste_quelle_nutzt_die_engine_der_gesellschaft(welt):
+def test_dienste_quelle_je_datenbank_der_gesellschaft(welt):
+    """Eine Quelle je Datenbank — mit eigener Engine statt der aus ``Dienste._fabrik``
+    (ohne ``init_db``, Prüfung sicher-3; tests/test_bindung_web.py)."""
     q = welt.dienste.quelle("b")
     assert isinstance(q, DatenbankQuelle)
     assert q is welt.dienste.quelle("b")
