@@ -1,7 +1,10 @@
 """Abschnitt ``llm`` in ``config/accounti.yaml`` — wirkt seit Baustein 10c (P4, D18).
 
 ``auto_buchen_schwelle``: ab dieser Confidence bucht ein Vorschlag automatisch (bisher
-fest 0,95), über die ``KlassifikationsEngine`` an ``zu_buchungssatz``. ``provider`` und
+fest 0,95, ``buchung.mapper.AUTO_SCHWELLE`` ist der Standard), über die
+``KlassifikationsEngine`` an ``zu_buchungssatz`` und an das Sachkonto einer
+Belegbuchung (``kontiere_beleg``), dazu an ``opos verbuchen`` — eine Schwelle für
+jeden Weg, auf dem eine Regel kontiert. ``provider`` und
 ``model`` bestimmen die LLM-Stufe (``LLMEngine(model="<provider>/<model>")``).
 ``api_key``: ``${VAR}`` wird nur hier und nachsichtig eingesetzt — fehlt die Variable,
 bleibt der Schlüssel leer, und litellm liest ihn wie bisher selbst aus der Umgebung;
@@ -17,6 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.einstellungen.leser import lies_abschnitt
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, _fehlertext
 
@@ -27,7 +31,7 @@ class LlmEinstellungen(BaseModel):
     provider: str = Field(default="anthropic", min_length=1)
     model: str = Field(default="claude-sonnet-4-20250514", min_length=1)
     api_key: str | None = None
-    auto_buchen_schwelle: float = Field(default=0.95, ge=0, le=1)
+    auto_buchen_schwelle: float = Field(default=AUTO_SCHWELLE, ge=0, le=1)
     pruefung_schwelle: float = Field(default=0.70, ge=0, le=1)
 
     @model_validator(mode="after")

@@ -63,6 +63,7 @@ from accounti.belege.archiv import BelegArchiv
 from accounti.belege.erkennung import erkenne_format
 from accounti.belege.kanaele import RohBeleg
 from accounti.buchung.konten import Erloeskonten, erloeskonten
+from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.buchung.mit_beleg import Sachkonto, sachkonto_fuer_beleg
 from accounti.buchung.steuergruppe import (
     SCHLUESSEL_FUER_STEUERFALL,
@@ -195,10 +196,13 @@ def _sachkonto_eingang(
     treffer: KontaktTreffer,
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Sachkonto:
     """Sachkonto (mit „zur Prüfung?“ und Quelle) — Kontakt-Vorschlag, Regelwerk,
-    Standard."""
-    return sachkonto_fuer_beleg(beleg, treffer.kontakt, einstellungen, regelwerk)
+    Standard; eine Regel unter ``auto_schwelle`` geht zur Prüfung."""
+    return sachkonto_fuer_beleg(
+        beleg, treffer.kontakt, einstellungen, regelwerk, auto_schwelle=auto_schwelle
+    )
 
 
 def _gruppen(
@@ -361,6 +365,7 @@ def verbuche_beleg(
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
     gewinnermittlung: str | None = None,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Verbuchung:
     eingang = beleg.belegart is Belegart.EINGANGSRECHNUNG
     rechnung = _rechnung_aus_archiv(beleg, archiv)
@@ -483,7 +488,7 @@ def verbuche_beleg(
         raise VerbuchungError(f"{anlass}: kein Personenkonto")
 
     sk = (
-        _sachkonto_eingang(beleg, treffer, einstellungen, regelwerk)
+        _sachkonto_eingang(beleg, treffer, einstellungen, regelwerk, auto_schwelle)
         if eingang
         else None
     )
@@ -1329,6 +1334,7 @@ def verbuche_belege(
     ustid_max_alter_tage: int = 30,
     buchungsdatum: Buchungsdatum = "beleg",
     gewinnermittlung: str | None | Callable[[date], str | None] = None,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Verbuchungslauf:
     """Verbucht alle erfassten, noch nicht verbuchten Rechnungen.
 
@@ -1336,7 +1342,9 @@ def verbuche_belege(
     anderen verbucht und der Fehler steht im Ergebnis — auch eine Rechnung, deren
     Belegdatum in einem abgeschlossenen Geschäftsjahr liegt (Baustein 12).
     ``gewinnermittlung``: ausdrücklich angegebene Gewinnermittlung, als Funktion des
-    Belegdatums ein Periodenwert je Wirtschaftsjahr (Baustein 10c P4)."""
+    Belegdatums ein Periodenwert je Wirtschaftsjahr (Baustein 10c P4).
+    ``auto_schwelle``: ``llm.auto_buchen_schwelle`` — dieselbe Schwelle wie bei
+    classify und bank lauf für das Sachkonto aus einer Regel (verhalten-2)."""
     bereits = verbuchte_beleg_ids(session)
     lauf = Verbuchungslauf()
     for beleg in lade_belege(session, status={BelegStatus.ERFASST}):
@@ -1359,6 +1367,7 @@ def verbuche_belege(
                     gewinnermittlung(beleg.belegdatum or beleg.eingegangen_am.date())
                     if callable(gewinnermittlung)
                     else gewinnermittlung,
+                    auto_schwelle,
                 )
             lauf.verbucht.append(verbuchung)
         except (VerbuchungError, JahrGesperrtError, ValueError) as fehler:

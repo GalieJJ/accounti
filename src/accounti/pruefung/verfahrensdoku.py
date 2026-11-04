@@ -435,7 +435,9 @@ def _kontierung(d: _Doku) -> None:
         f"LLM-Stufe: Modell {_zelle(ki.modell)}, Ergebnis nur ab Confidence "
         f"{llm['confidence_schwelle'].default}; Verwendungszweck und Name gehen "
         f"maskiert hinaus. **Automatisch gebucht** (Status auto) wird ab Confidence "
-        f"{schwelle}; darunter geht die Buchung zur Prüfung.",
+        f"{schwelle}; darunter geht die Buchung zur Prüfung. Dieselbe Schwelle gilt "
+        "für das Sachkonto aus einer Regel bei der Buchung aus dem Beleg (classify, "
+        "bank lauf) und bei accounti opos verbuchen (llm.auto_buchen_schwelle).",
         "",
         "Immer zur Prüfung, unabhängig von der Confidence: Treffer einer Regel mit "
         "`pruefen` (z. B. Miete, § 4 Nr. 12/§ 9 UStG; § 13b-Leistungen); ein Umsatz "
@@ -458,7 +460,7 @@ def _kontierung(d: _Doku) -> None:
         "auto; sie gelten wie jede Freigabe und sind nur per Storno korrigierbar):",
         "",
         "- Eingangs- und Ausgangsrechnungen über accounti opos verbuchen — Sachkonto "
-        "aus Kontakt oder Regel, sonst zur Prüfung;",
+        "aus Kontakt oder Regel (ab der Schwelle oben), sonst zur Prüfung;",
         "- Belegabgleich: Bankumsatz mit passendem Beleg, Konten aus dem Beleg "
         "(classify);",
         "- Zahlungsausgleich offener Posten (opos zuordnen, bank lauf), auch Skonto;",

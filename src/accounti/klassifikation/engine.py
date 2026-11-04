@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 
+from accounti.buchung.mapper import AUTO_SCHWELLE
 from accounti.klassifikation.llm import LLMEngine
 from accounti.models import (
     Klassifikationsergebnis,
@@ -291,7 +292,7 @@ class KlassifikationsEngine:
         self,
         regelwerk: RegelwerkEngine | None = None,
         llm: LLMEngine | None = None,
-        auto_buchen_schwelle: float = 0.95,
+        auto_buchen_schwelle: float = AUTO_SCHWELLE,
     ) -> None:
         self.regelwerk = regelwerk or RegelwerkEngine()
         self.llm = llm

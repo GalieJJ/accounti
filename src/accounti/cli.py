@@ -1756,6 +1756,7 @@ def opos_verbuchen(
     from accounti.anzeige import betrag_de, datum_de
     from accounti.belege.archiv import BelegArchiv
     from accounti.db import init_db, session_factory
+    from accounti.klassifikation.einstellungen import lade_llm
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.klassifikation.regeln_loader import lade_regeln
     from accounti.konfiguration import (
@@ -1782,6 +1783,9 @@ def opos_verbuchen(
         einstellungen = lade_buchhaltung(config)
         ustid_einstellungen = lade_ustid_pruefung(config)
         abschluss = lade_abschluss(config)  # prüft den Abschnitt
+        # Schwelle für das Sachkonto aus einer Regel — dieselbe wie in classify und
+        # bank lauf (llm.auto_buchen_schwelle); ein ungültiger Abschnitt hält an
+        ki = lade_llm(config)
         lade_regeln(regeln_datei())  # prüft die Regeldatei vor dem Lauf
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
@@ -1816,6 +1820,7 @@ def opos_verbuchen(
             ustid_max_alter_tage=ustid_einstellungen.max_alter_tage,
             buchungsdatum=tag,
             gewinnermittlung=gewinnermittlung,
+            auto_schwelle=ki.auto_buchen_schwelle,
         )
         s.commit()
     for v in lauf.verbucht:

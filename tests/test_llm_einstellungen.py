@@ -115,6 +115,110 @@ def test_classify_nimmt_die_schwelle_der_konfiguration(tmp_path, monkeypatch):
     assert buchung.status is BuchungStatus.AUTO_GEBUCHT
 
 
+TANKEN = (
+    "- name: tanken\n  muster: shell\n  feld: beide\n  soll_konto: '4530'\n"
+    "  haben_konto: '1200'\n  steuer_schluessel: 9\n  confidence: {confidence}\n"
+)
+
+
+@pytest.mark.parametrize(
+    ("schwelle", "confidence", "status"),
+    [
+        pytest.param("0.85", "0.9", BuchungStatus.AUTO_GEBUCHT, id="locker"),
+        pytest.param("0.99", "0.97", BuchungStatus.ZUR_PRUEFUNG, id="streng"),
+    ],
+)
+def test_bank_lauf_nimmt_die_schwelle_der_konfiguration(
+    tmp_path, monkeypatch, schwelle, confidence, status
+):
+    """tests-4: ``bank lauf --no-llm`` liest ``llm.auto_buchen_schwelle`` wie classify —
+    für den Umsatz ohne Beleg und für den, den der Lauf selbst mit einer Quittung
+    abgleicht (verhalten-2). Mit dem festen Standard 0,95 stünde in beiden Fällen der
+    andere Status."""
+    from accounti.db import init_db, session_factory
+    from accounti.db.repository import speichere_beleg, speichere_transaktion
+    from tests.test_bank_abgleich import umsatz as bankumsatz
+    from tests.test_schwelle_ueberall import tankquittung
+
+    monkeypatch.chdir(tmp_path)
+    for name in ("ACCOUNTI_DB", "ACCOUNTI_GESELLSCHAFT", "ACCOUNTI_KONFIG"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "regeln.yaml").write_text(
+        TANKEN.format(confidence=confidence), encoding="utf-8"
+    )
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        f"llm:\n  auto_buchen_schwelle: {schwelle}\n  pruefung_schwelle: 0.5\n",
+        encoding="utf-8",
+    )
+    url = db_url(tmp_path)
+    engine, fabrik = session_factory(url)
+    init_db(engine)
+    with fabrik() as s:
+        speichere_transaktion(s, bankumsatz(betrag="-59.50", tag=0))
+        speichere_transaktion(s, bankumsatz(betrag="-33.00", tag=5))
+        speichere_beleg(s, tankquittung())
+        s.commit()
+    r = runner.invoke(
+        app, ["bank", "lauf", "--db", url, "--no-llm", "--config", str(konfig)]
+    )
+    assert r.exit_code == 0, r.output
+    assert "Kontierung: 2 kontiert (davon 1 mit Beleg)" in r.output
+    with fabrik() as s:
+        buchungen = lade_buchungen(s)
+    engine.dispose()
+    assert {(b.beleg_id is not None, b.status) for b in buchungen} == {
+        (True, status),
+        (False, status),
+    }
+
+
+def test_rest_banklauf_nimmt_die_schwelle_der_gesellschaft(tmp_path, monkeypatch):
+    """tests-4: ``POST /api/v1/laeufe/bank`` gibt ``bank_lauf`` eine Engine mit
+    ``llm.auto_buchen_schwelle`` der Gesellschaft des Tokens — a aus ihrer Datei, b aus
+    einer Version ihrer Datenbank; ohne Abschnitt der Standard."""
+    import accounti.bank.lauf as lauf
+    from accounti.db import session_factory
+    from accounti.db.repo_einstellungen import fuege_version_an
+    from accounti.models.auth import TokenRecht
+    from tests.api_hilfe import webwelt
+    from tests.auth_hilfe import billige_hashes
+
+    billige_hashes(monkeypatch)
+    welt = webwelt(tmp_path)
+    pfad = welt.umgebung.config["a"]
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8") + "llm:\n  auto_buchen_schwelle: 0.85\n",
+        encoding="utf-8",
+    )
+    engine, fabrik = session_factory(welt.umgebung.db["b"])
+    with fabrik() as s:
+        fuege_version_an(
+            s,
+            "llm",
+            {"auto_buchen_schwelle": 0.99},
+            person="erika",
+            grund="Probe",
+            quelle="cli",
+        )
+        s.commit()
+    engine.dispose()
+    gesehen: list[float] = []
+
+    def bank_lauf(s, engine, buchhaltung, **_):  # noqa: ANN001, ANN003, ANN202
+        gesehen.append(engine.auto_buchen_schwelle)
+        raise RuntimeError("nur bis hierher")
+
+    monkeypatch.setattr(lauf, "bank_lauf", bank_lauf)
+    for kuerzel in ("a", "b"):
+        token = welt.token(kuerzel, TokenRecht.LAEUFE_STARTEN, name=f"erp-{kuerzel}")
+        welt.client().post(
+            "/api/v1/laeufe/bank", headers={"Authorization": f"Bearer {token}"}
+        )
+    assert gesehen == [0.85, 0.99]
+
+
 def test_llm_stufe_bekommt_modell_und_schluessel(tmp_path, monkeypatch):
     """Anbieter und Modell (und ein Schlüssel aus ``${VAR}``) gehen an die LLM-Stufe."""
     from accounti.klassifikation import llm as llm_modul

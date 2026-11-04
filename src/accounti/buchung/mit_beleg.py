@@ -58,6 +58,8 @@ def sachkonto_fuer_beleg(
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None,
     umsatz: Transaktion | None = None,
+    *,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Sachkonto:
     """Aufwandskonto: Kontakt-Vorschlag, Regelwerk auf die Belegdaten, Regelwerk auf
     den Umsatz, sonst der Standardaufwand (zur Prüfung).
@@ -66,7 +68,9 @@ def sachkonto_fuer_beleg(
     verlangt die Regel die Prüfung (``pruefen``, z.B. Miete; gelernte Regeln mit
     ``buchhaltung.gelernte_regeln: pruefen``), geht auch die Belegbuchung zur
     Prüfung — der Schalter gilt für jede Buchung, die die Regel kontiert, nicht nur
-    für reine Umsätze.
+    für reine Umsätze. ``auto_schwelle``: die wirksame ``llm.auto_buchen_schwelle``
+    (``KlassifikationsEngine.auto_buchen_schwelle``), dieselbe wie für Umsätze ohne
+    Beleg — ohne Angabe der Standard (Baustein 10c P4a, verhalten-2).
 
     Ein Zahlungsmittel, Personen- oder LuL-Konto ist kein Sachkonto eines Belegs
     (``konten.kein_sachkonto``): Eine Regel „1210 an 1200“ (Umbuchung) oder „70001 an
@@ -123,7 +127,7 @@ def sachkonto_fuer_beleg(
                 and ergebnis.haben_konto == einstellungen.bank_konto
                 and taugt(ergebnis.soll_konto, f"Regel '{ergebnis.regel}'")
             ):
-                unsicher = ergebnis.pruefen or ergebnis.confidence < AUTO_SCHWELLE
+                unsicher = ergebnis.pruefen or ergebnis.confidence < auto_schwelle
                 regel = next(
                     (r for r in regelwerk.regeln if r.name == ergebnis.regel), None
                 )
@@ -184,9 +188,13 @@ def kontiere_mit_beleg(
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None = None,
     kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
+    *,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> list[Buchungssatz]:
     """Bucht den Umsatz aus dem Beleg: je Steuersatz ein Buchungssatz."""
-    return kontiere_beleg(tx, beleg, einstellungen, regelwerk, kontakte).buchungen
+    return kontiere_beleg(
+        tx, beleg, einstellungen, regelwerk, kontakte, auto_schwelle=auto_schwelle
+    ).buchungen
 
 
 def kontiere_beleg(
@@ -195,6 +203,8 @@ def kontiere_beleg(
     einstellungen: Buchhaltung,
     regelwerk: RegelwerkEngine | None = None,
     kontakte: list[Kontakt] | tuple[Kontakt, ...] = (),
+    *,
+    auto_schwelle: float = AUTO_SCHWELLE,
 ) -> Belegkontierung:
     """Wie ``kontiere_mit_beleg`` — dazu woher das Sachkonto kommt und warum."""
     eingang = beleg.richtung is Belegrichtung.EINGANG
@@ -206,7 +216,9 @@ def kontiere_beleg(
             ust_id=beleg.lieferant_ust_id,
             name=beleg.lieferant_name,
         )
-        sachkonto = sachkonto_fuer_beleg(beleg, kontakt, einstellungen, regelwerk, tx)
+        sachkonto = sachkonto_fuer_beleg(
+            beleg, kontakt, einstellungen, regelwerk, tx, auto_schwelle=auto_schwelle
+        )
 
     # Erlöskonten des Kontenrahmens der Buchhaltung (SKR04: 4400/4300/4200)
     erloese = erloeskonten(einstellungen.kontenrahmen)
