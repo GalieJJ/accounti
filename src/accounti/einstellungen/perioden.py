@@ -31,6 +31,7 @@ Art = Literal["jahr", "quartal", "wirtschaftsjahr"]
 Schluessel = int | str
 _QUARTAL = re.compile(r"^(\d{4})-Q([1-4])$")
 _JAHR = re.compile(r"^\d{4}$")
+_JAHRE = range(1900, 3000)  # Jahre der Schlüssel — als Zahl, als Text und in JJJJ-Qn
 _HINWEIS = {
     "jahr": "ein Jahr (z. B. 2027)",
     "wirtschaftsjahr": "ein Wirtschaftsjahr, benannt nach dem Jahr seines Endes "
@@ -112,16 +113,19 @@ def setze_ab(
 
 
 def _schluessel(art: Art, roh: object) -> Schluessel:
-    """Ein Schlüssel aus Datei oder Datenbank (JSON: Text) in seiner Form."""
+    """Ein Schlüssel aus Datei oder Datenbank (JSON: Text) in seiner Form — das Jahr
+    1900–2999 auch als Text und in ``JJJJ-Qn`` (Prüfung steuer-4: „0207“ schaltete
+    sonst still alle früheren Jahre um, „3027“ wirkte nie)."""
     if art == "quartal":
-        if isinstance(roh, str) and _QUARTAL.match(roh.strip()):
-            return roh.strip()
+        treffer = _QUARTAL.match(roh.strip()) if isinstance(roh, str) else None
+        if treffer is not None and int(treffer[1]) in _JAHRE:
+            return treffer[0]
     elif isinstance(roh, int) and not isinstance(roh, bool):
-        if 1900 <= roh <= 2999:
+        if roh in _JAHRE:
             return roh
-    elif isinstance(roh, str) and _JAHR.match(roh.strip()):
+    elif isinstance(roh, str) and _JAHR.match(roh.strip()) and int(roh) in _JAHRE:
         return int(roh)
-    msg = f"Schlüssel {roh!r}: {_HINWEIS[art]}"
+    msg = f"Schlüssel {roh!r}: {_HINWEIS[art]}, Jahre 1900–2999"
     raise ValueError(msg)
 
 
@@ -147,6 +151,9 @@ def pruefe(art: Art, typ: Any) -> Callable[[Any], Any]:
         neu: dict[Schluessel, Any] = {}
         for roh, eintrag in wert.items():
             schluessel = _schluessel(art, roh)
+            if schluessel in neu:  # 2026 und "2026": sonst gewönne still der letzte
+                msg = f"Schlüssel {roh!r}: doppelt ({schluessel} steht schon da)"
+                raise ValueError(msg)
             neu[schluessel] = einzeln(eintrag, f"{schluessel}: ")
         return dict(sorted(neu.items(), key=lambda e: _ordnung(e[0])))
 

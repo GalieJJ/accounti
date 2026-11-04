@@ -201,3 +201,61 @@ def test_model_copy_nimmt_auch_den_dateinamen():
     assert FIRMA.model_copy(update={"oss_roh": True}).oss_am(date(2026, 3, 1)) is True
     elster = ElsterEinstellungen().model_copy(update={"dauerfristverlaengerung": True})
     assert elster.dauerfrist_fuer(2026) is True
+
+
+@pytest.mark.parametrize(
+    ("art", "roh", "grund"),
+    [
+        # Datenbank (JSON) und gequotete YAML-Schlüssel sind Text: dieselbe Prüfung
+        ("jahr", {"2026": "monat", "3027": "quartal"}, "3027"),
+        ("jahr", {"2026": "monat", "0207": "quartal"}, "0207"),
+        ("jahr", {"1899": "monat"}, "1899"),
+        ("wirtschaftsjahr", {"2026": "euer", "3000": "bilanz"}, "3000"),
+        ("quartal", {"2026-Q1": False, "0207-Q1": True}, "0207-Q1"),
+        ("quartal", {"3027-Q1": True}, "3027-Q1"),
+        ("jahr", {3027: "quartal"}, "3027"),
+    ],
+)
+def test_schluessel_als_text_im_bereich(art, roh, grund):
+    """Prüfung steuer-4: Die Bereichsprüfung 1900–2999 gilt auch für Text-Schlüssel
+    und das Jahr in ``JJJJ-Qn`` — „0207“ schaltete sonst still alle Jahre vor 2026
+    um, „3027“ wirkte nie."""
+    from accounti.einstellungen.perioden import pruefe
+
+    typ = {"jahr": str, "wirtschaftsjahr": str, "quartal": bool}[art]
+    with pytest.raises(ValueError, match=f"Schlüssel '?{grund}'?") as fehler:
+        pruefe(art, typ)(roh)
+    assert "1900" in str(fehler.value) and "2999" in str(fehler.value)
+
+
+@pytest.mark.parametrize(
+    ("art", "roh"),
+    [
+        ("jahr", {2026: "monat", "2026": "quartal"}),
+        ("jahr", {"2026": "monat", " 2026": "quartal"}),
+        ("quartal", {"2026-Q1": False, " 2026-Q1": True}),
+        ("wirtschaftsjahr", {2027: "euer", "2027": "bilanz"}),
+    ],
+)
+def test_doppelter_schluessel_nach_normalisierung_ist_ein_fehler(art, roh):
+    """Prüfung steuer-4: 2026 und "2026" fielen still zu einem Eintrag zusammen (der
+    letzte gewann)."""
+    from accounti.einstellungen.perioden import pruefe
+
+    typ = {"jahr": str, "wirtschaftsjahr": str, "quartal": bool}[art]
+    with pytest.raises(ValueError, match="doppelt"):
+        pruefe(art, typ)(roh)
+
+
+def test_gueltige_text_schluessel_wie_bisher():
+    from accounti.einstellungen.perioden import pruefe
+
+    assert pruefe("jahr", str)({"2027": "quartal", 2026: "monat"}) == {
+        2026: "monat",
+        2027: "quartal",
+    }
+    assert pruefe("quartal", bool)({" 2027-Q1": True, "1900-Q4": False}) == {
+        "1900-Q4": False,
+        "2027-Q1": True,
+    }
+    assert pruefe("jahr", str)({"2999": "monat"}) == {2999: "monat"}
