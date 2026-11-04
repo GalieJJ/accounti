@@ -1,32 +1,36 @@
+{#- Beleg (Plan P1, Schritt 12): Vorschau im Rahmen mit --beleg-hintergrund, Angaben,
+    Buchungen und Rückfragen. -#}
 {% extends "basis.html" %}
 {% block titel %}{{ _("Beleg") }} {{ belegdaten.belegnummer or "" }}{% endblock %}
-{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Beleg") }} {{ belegdaten.belegnummer or "" }}</h1>
-<div class="flaeche">
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Beleg") }} {{ belegdaten.belegnummer or "" }}</h1></div>
+<div class="layout-zweispaltig beleg-seite">
   <section class="links" aria-label="{{ _('Vorschau') }}">
     <p><a href="/belege/{{ bid }}/datei" target="_blank" rel="noopener">{{ _("In neuem Tab öffnen") }}</a> · <a href="/belege/{{ bid }}/download">{{ _("Herunterladen") }}</a></p>
     {% include "belege/_vorschau.html" %}
   </section>
   <section class="rechts" aria-label="{{ _('Angaben') }}">
-    <dl class="daten">
-      <div><dt>{{ _("Belegart") }}</dt><dd>{{ belegdaten.belegart | bezeichnung }}</dd></div>
-      <div><dt>{{ _("Belegdatum") }}</dt><dd>{{ belegdaten.belegdatum | datum }}</dd></div>
-      <div><dt>{{ _("Lieferant") }}</dt><dd>{{ belegdaten.lieferant_name or "—" }}</dd></div>
-      <div><dt>{{ _("Netto") }}</dt><dd>{{ belegdaten.netto | euro }}</dd></div>
-      <div><dt>{{ _("Steuer") }}</dt><dd>{{ belegdaten.steuer | euro }}</dd></div>
-      <div><dt>{{ _("Brutto") }}</dt><dd>{{ belegdaten.brutto | euro }}</dd></div>
-      <div><dt>{{ _("Eingang") }}</dt><dd>{{ belegdaten.eingegangen_am.date() | datum }} · {{ belegdaten.kanal }}</dd></div>
-      <div><dt>{{ _("Status") }}</dt><dd>{{ belegdaten.status | bezeichnung }}{% if belegdaten.pruef_grund %} — <span lang="de">{{ belegdaten.pruef_grund }}</span>{% endif %}</dd></div>
-    </dl>
+    {% call k.angaben() %}
+      {% call k.angabe(_("Belegart")) %}{{ belegdaten.belegart | bezeichnung }}{% endcall %}
+      {% call k.angabe(_("Belegdatum")) %}{{ belegdaten.belegdatum | datum }}{% endcall %}
+      {% call k.angabe(_("Lieferant")) %}{{ belegdaten.lieferant_name or "—" }}{% endcall %}
+      {% call k.angabe(_("Netto")) %}{{ belegdaten.netto | euro }}{% endcall %}
+      {% call k.angabe(_("Steuer")) %}{{ belegdaten.steuer | euro }}{% endcall %}
+      {% call k.angabe(_("Brutto")) %}{{ belegdaten.brutto | euro }}{% endcall %}
+      {% call k.angabe(_("Eingang")) %}{{ belegdaten.eingegangen_am.date() | datum }} · {{ belegdaten.kanal }}{% endcall %}
+      {% call k.angabe(_("Status")) %}{{ belegdaten.status | bezeichnung }}{% if belegdaten.pruef_grund %} — <span lang="de">{{ belegdaten.pruef_grund }}</span>{% endif %}{% endcall %}
+    {% endcall %}
     {% if buchungen %}
     <h2>{{ _("Buchungen") }}</h2>
     <ul>{% for x in buchungen %}<li><a href="/buchungen/{{ x.id }}">{{ x.datum | datum }} · {{ x.soll_konto }} {{ _("an") }} {{ x.haben_konto }} · {{ (x.betrag_netto + (x.steuer_betrag or 0)) | euro }}</a> ({{ x.status | bezeichnung }})</li>{% endfor %}</ul>
     {% endif %}
     {% if rueckfragen %}
     <h2>{{ _("Rückfragen") }}</h2>
-    <ul>{% for k in rueckfragen %}<li><strong>{{ k.autor }}</strong>: {{ k.text }}</li>{% endfor %}</ul>
+    <ul>{% for r in rueckfragen %}<li><strong>{{ r.autor }}</strong>: {{ r.text }}</li>{% endfor %}</ul>
     {% endif %}
   </section>
+</div>
 </div>
 {% endblock %}

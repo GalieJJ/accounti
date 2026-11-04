@@ -7,8 +7,6 @@
   .gedaempft { color: var(--text-2); }
   .flaeche { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 1rem; align-items: start; }
   .flaeche > section { background: var(--flaeche); border: 1px solid var(--linie); padding: 0.8rem; min-width: 0; }
-  iframe.beleg { width: 100%; height: 75vh; border: 1px solid var(--linie); background: var(--beleg-hintergrund); }
-  .beleg-bild { display: block; max-width: 100%; height: auto; margin-bottom: 0.6rem; border: 1px solid var(--linie); }
   .daten { display: grid; gap: 0.3rem; margin: 0; }
   .daten div { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 0.5rem; }
   .daten dt { color: var(--text-2); }
