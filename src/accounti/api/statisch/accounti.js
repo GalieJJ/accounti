@@ -82,12 +82,15 @@
     fokus(document);
   });
 
+  // Rückweg der Vorlieben: der Server-Wert gilt, solange htmx die Adresse nicht geändert
+  // hat — eine Seite als Antwort auf ein POST steht unter dem Pfad des POST (GET → 405)
+  var geladen = window.location.pathname + window.location.search;
   document.addEventListener(
     "submit",
     function (e) {
       var form = e.target;
       var feld = form && form.querySelector ? form.querySelector("input[data-hier]") : null;
-      if (feld) {
+      if (feld && window.location.pathname + window.location.search !== geladen) {
         var abfrage = new URLSearchParams(window.location.search);
         abfrage.delete("erledigt");
         var rest = abfrage.toString();
