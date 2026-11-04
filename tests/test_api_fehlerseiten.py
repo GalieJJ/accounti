@@ -150,6 +150,41 @@ def test_409_im_design(welt):
     assert '<a href="/freigaben">Zurück</a>' in inhalt
 
 
+def test_ueberschrift_passt_zum_fehler(welt):
+    """P1 Runde 2 (gp1-bestand N2): Die Überschrift folgte nur dem Status — ein falscher
+    Einmalcode oder ein fehlendes CSRF-Token hießen „Keine Berechtigung“, Fachfehler der
+    Freigabe (USt-VA-Zeitraum, Lauf gesperrt) „Inzwischen geändert“. Jetzt: „Keine
+    Berechtigung“ nur bei fehlender Rolle bzw. Gesellschaft, „Inzwischen geändert“ nur
+    bei geänderten Daten, sonst „Nicht ausgeführt“."""
+    fritz = welt.angemeldet("fritz")
+    gesehen = freigabe_hash(fritz, 1)
+    falsch = fritz.post(
+        "/freigaben/zahlungslauf/1",
+        data={"csrf": csrf(fritz), "einmalcode": "000000", "freigabe_hash": gesehen},
+    )
+    ohne_csrf = fritz.post(
+        "/freigaben/zahlungslauf/1",
+        data={"einmalcode": "000000", "freigabe_hash": gesehen},
+    )
+    quartal = fritz.post(
+        "/freigaben/ustva",
+        data={"csrf": csrf(fritz), "einmalcode": "000000", "zeitraum": "2026-Q3"},
+    )
+    for r, status in ((falsch, 403), (ohne_csrf, 403), (quartal, 409)):
+        assert r.status_code == status, (status, r.text[:300])
+        inhalt = _inhalt(r.text)
+        assert "<h1>Nicht ausgeführt</h1>" in inhalt, (status, inhalt[:400])
+        assert "Keine Berechtigung" not in r.text and "Inzwischen" not in r.text
+    englisch = fritz.post(
+        "/freigaben/zahlungslauf/1",
+        data={"einmalcode": "000000", "freigabe_hash": gesehen},
+        headers=EN,
+    )
+    assert "<h1>Not carried out</h1>" in englisch.text
+    fremd = fritz.post("/gesellschaft", data={"csrf": csrf(fritz), "kuerzel": "zz"})
+    assert fremd.status_code == 403 and "<h1>Keine Berechtigung</h1>" in fremd.text
+
+
 def test_htmx_fehler_als_fragment(welt, monkeypatch):
     from accounti.api.seiten import start
 

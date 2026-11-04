@@ -6,14 +6,14 @@ steht als „nicht erreichbar“ da); gewechselt wird mit ``POST /gesellschaft``
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from accounti.api.formular import formular
 from accounti.api.geruest import gesellschaften_mit_zaehlern
 from accounti.api.sitzung import AngemeldetDep, dienste_von
-from accounti.api.vorlagen import seite
+from accounti.api.vorlagen import Seitenfehler, seite
 from accounti.auth.dienst import ereignis, wechsle_gesellschaft
 from accounti.i18n import N_, Text
 
@@ -31,7 +31,11 @@ async def liste(request: Request, a: AngemeldetDep) -> HTMLResponse:
 async def wechseln(request: Request, a: AngemeldetDep) -> Response:
     kuerzel = (await formular(request)).get("kuerzel", "")
     if kuerzel not in {g.kuerzel for g in a.gesellschaften}:
-        raise HTTPException(403, Text("Kein Zugriff auf diese Gesellschaft"))
+        raise Seitenfehler(
+            403,
+            Text("Kein Zugriff auf diese Gesellschaft"),
+            titel=N_("Keine Berechtigung"),
+        )
     dienste = dienste_von(request)
 
     def speichern() -> None:

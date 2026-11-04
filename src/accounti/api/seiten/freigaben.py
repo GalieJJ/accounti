@@ -38,7 +38,7 @@ from accounti.api.sitzung import (
     erfordert,
     gesellschaft_db,
 )
-from accounti.api.vorlagen import seite
+from accounti.api.vorlagen import Seitenfehler, seite
 from accounti.db.repo_zahlung import anzahl_laeufe, lade_laeufe, lade_lauf
 from accounti.i18n import N_, Text
 from accounti.models.auth import Recht
@@ -113,7 +113,7 @@ def _gesehen(s: Session, nr: int, gesehen: str) -> None:
             "und erneut prüfen",
             nr=nr,
         )
-        raise HTTPException(409, msg)
+        raise Seitenfehler(409, msg, titel=N_("Inzwischen geändert"))
 
 
 def _laufnummer(nr: str) -> int:

@@ -67,11 +67,14 @@ def fehlertext(fehler: StarletteHTTPException) -> object:
     )
 
 
-# h1 je Status (Spec 10c A9; Plan P1, Entscheidung „Fehlerseiten“)
+# h1 je Status (Spec 10c A9; Plan P1, Entscheidung „Fehlerseiten“). P1 Runde 2: 403
+# und 409 neutral — „Keine Berechtigung“ nur bei fehlender Rolle (Verweigerung) oder
+# Gesellschaft, „Inzwischen geändert“ nur bei geänderten Daten (Seitenfehler mit titel);
+# falscher Einmalcode, fehlendes CSRF-Token, Fachfehler der Freigabe: „Nicht ausgeführt“
 FEHLERTITEL = {
-    403: N_("Keine Berechtigung"),
+    403: N_("Nicht ausgeführt"),
     404: N_("Nicht gefunden"),
-    409: N_("Inzwischen geändert"),
+    409: N_("Nicht ausgeführt"),
     413: N_("Zu groß"),
     422: N_("Angaben prüfen"),
     503: N_("Gerade beschäftigt"),
@@ -83,12 +86,15 @@ async def fehlerseite(
     status: int,
     meldung: object,
     verweigerung: Verweigerung | None = None,
+    titel: str | None = None,
 ) -> Response:
     """Fehlerseite im Gerüst ohne Zähler; mit ``HX-Request`` als Fragment (Hinweis mit
-    ``role="alert"``, AK58)."""
+    ``role="alert"``, AK58). ``titel`` (msgid) vor dem Titel des Status."""
     fragment = ist_htmx(request) and status in FEHLERTITEL
+    if titel is None and verweigerung is not None:
+        titel = N_("Keine Berechtigung")
     werte = {
-        "titel": FEHLERTITEL.get(status, N_("Fehler")),
+        "titel": titel or FEHLERTITEL.get(status, N_("Fehler")),
         "fehlermeldung": meldung,
         "verweigerung": verweigerung,
         "recht_text": RECHT_TEXT,
@@ -185,7 +191,12 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         if isinstance(detail, Verweigerung):
             antwort = await fehlerseite(request, 403, detail.text, detail)
         else:
-            antwort = await fehlerseite(request, fehler.status_code, fehlertext(fehler))
+            antwort = await fehlerseite(
+                request,
+                fehler.status_code,
+                fehlertext(fehler),
+                titel=getattr(fehler, "titel", None),
+            )
         antwort.headers.update(kopf)
         return antwort
 

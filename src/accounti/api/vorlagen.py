@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from jinja2 import (
     Environment,
@@ -209,6 +209,15 @@ class Spalte:
     zahl: bool = False
     sortierung: str | None = None
     href: str | None = None
+
+
+class Seitenfehler(HTTPException):
+    """``HTTPException`` mit eigener Überschrift der Fehlerseite (Spec 10c A9; P1 Runde 2,
+    gp1-bestand N2): ohne sie folgt das ``h1`` dem Status (``app.FEHLERTITEL``)."""
+
+    def __init__(self, status_code: int, detail: Any, titel: str) -> None:
+        super().__init__(status_code, detail)
+        self.titel = titel
 
 
 # Seitentitel im schmalen Kopf (P1 Runde 2, D-M1): nur, was in zwei Zeilen der 56 px
