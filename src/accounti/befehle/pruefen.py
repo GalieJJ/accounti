@@ -132,7 +132,10 @@ def pruefen(
 
 
 @befehl.command("regeln")
-def regeln(config: str = KONFIG_OPTION) -> None:
+def regeln(
+    db: str = DB_OPTION,  # bindet den Stand der Einstellungen (Baustein 10c P4)
+    config: str = KONFIG_OPTION,
+) -> None:
     """Alle Prüfregeln mit Kategorie, Schweregrad und Schwellen."""
     from accounti.konfiguration import KonfigurationError
     from accounti.pruefung.einstellungen import lade_pruefung

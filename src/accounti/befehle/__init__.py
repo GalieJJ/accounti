@@ -23,7 +23,10 @@ if TYPE_CHECKING:
     from accounti.models.auth import Recht
 
 console = Console()
-DB_OPTION = typer.Option("sqlite:///accounti.db", help="DB-URL")
+# Datenbank jedes Befehls ohne --db, Gesellschaft und ACCOUNTI_DB — auch die, aus der
+# ein Befehl ohne Parameter db seine Einstellungen liest (Baustein 10c P4, D3)
+STANDARD_DB = "sqlite:///accounti.db"
+DB_OPTION = typer.Option(STANDARD_DB, help="DB-URL")
 KONFIG_OPTION = typer.Option("config/accounti.yaml", "--config", help="Konfiguration")
 
 

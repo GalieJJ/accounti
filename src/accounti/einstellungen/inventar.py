@@ -229,6 +229,8 @@ LADER: dict[str, frozenset[str]] = {
     "accounti.elster.konfiguration.lade_elster": frozenset(
         {"elster", "integrationen", "buchhaltung", "mandant"}
     ),
+    # Schritt 3 (M2): je Gesellschaft unter ihrer Datenbank
+    "accounti.befehle.gesellschaft._wirtschaftsjahr": frozenset({"datev"}),
 }
 
 

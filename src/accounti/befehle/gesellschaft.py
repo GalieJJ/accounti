@@ -1,16 +1,20 @@
-"""``accounti gesellschaft`` — eingetragene Gesellschaften anzeigen (Spec 4.4, 4.7)."""
+"""``accounti gesellschaft`` — eingetragene Gesellschaften anzeigen (Spec 4.4, 4.7).
+
+Kontenrahmen und Wirtschaftsjahr liest jede Gesellschaft aus **ihrer** Datenbank
+(``mit_quelle``, Baustein 10c P4, M2) — nicht unter dem Stand des Befehls.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
+from collections.abc import Iterator
+from contextlib import contextmanager
 
 import typer
-import yaml
 from rich.markup import escape
 from rich.table import Table
 
 from accounti.befehle import console
+from accounti.betrieb.gesellschaften import Gesellschaft
 
 NAME = "gesellschaft"
 befehl = typer.Typer(
@@ -24,13 +28,20 @@ def _ende(text: str) -> typer.Exit:
     return typer.Exit(1)
 
 
+@contextmanager
+def _eigene_einstellungen(g: Gesellschaft) -> Iterator[None]:
+    """Die Einstellungen der Gesellschaft: ihre Datenbank, ihre Datei."""
+    from accounti.einstellungen.leser import DatenbankQuelle, mit_quelle
+
+    with mit_quelle(DatenbankQuelle(g.datenbank), g.konfiguration):
+        yield
+
+
 def _wirtschaftsjahr(konfiguration: str) -> str:
-    pfad = Path(konfiguration)
-    if not pfad.is_file():
-        return "—"
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    datev = daten.get("datev") if isinstance(daten, dict) else None
-    beginn = datev.get("wirtschaftsjahr_beginn") if isinstance(datev, dict) else None
+    """``datev.wirtschaftsjahr_beginn`` über den Leser (auch ohne Datei, D25)."""
+    from accounti.einstellungen.leser import lies_abschnitt
+
+    beginn = lies_abschnitt(konfiguration, "datev").get("wirtschaftsjahr_beginn")
     return str(beginn) if beginn else "Kalenderjahr"
 
 
@@ -58,14 +69,16 @@ def liste() -> None:
     tabelle = Table(title="Gesellschaften")
     for spalte in ("Kürzel", "Name", "Kontenrahmen", "Standard"):
         tabelle.add_column(spalte, overflow="fold")
+    from accounti.einstellungen.leser import EinstellungenNichtLesbar
     from accounti.konfiguration import lade_buchhaltung
 
     for kuerzel in sorted(registry.eintraege):
         eintrag = registry.eintraege[kuerzel]
         try:
             g = registry.finde(kuerzel)
-            rahmen = lade_buchhaltung(g.konfiguration).kontenrahmen
-        except KonfigurationError as fehler:
+            with _eigene_einstellungen(g):
+                rahmen = lade_buchhaltung(g.konfiguration).kontenrahmen
+        except (KonfigurationError, EinstellungenNichtLesbar) as fehler:
             rahmen = f"[red]{escape(str(fehler))}[/red]"
         tabelle.add_row(
             kuerzel,
@@ -80,13 +93,22 @@ def liste() -> None:
 def zeigen(kuerzel: str = typer.Argument(help="Kürzel der Gesellschaft")) -> None:
     """Datenbank, Archiv, Konfiguration, Kontenrahmen und Wirtschaftsjahr."""
     from accounti.betrieb.kontext import aktueller_kontext, ohne_passwort
+    from accounti.einstellungen.leser import EinstellungenNichtLesbar
     from accounti.konfiguration import KonfigurationError, lade_buchhaltung
 
     kontext = aktueller_kontext()
+    nicht_lesbar: EinstellungenNichtLesbar | None = None
     try:
         g = kontext.pruefe().registry.finde(kuerzel)
-        rahmen = lade_buchhaltung(g.konfiguration).kontenrahmen
         system = kontext.systemdatenbank(g.datenbank)
+        try:
+            with _eigene_einstellungen(g):
+                rahmen = lade_buchhaltung(g.konfiguration).kontenrahmen
+                wirtschaftsjahr = _wirtschaftsjahr(g.konfiguration)
+        except EinstellungenNichtLesbar as fehler:
+            # die übrigen Angaben helfen gerade dann — die Einstellungen nicht raten
+            nicht_lesbar = fehler
+            rahmen = wirtschaftsjahr = "— (Datenbank nicht lesbar)"
     except KonfigurationError as fehler:
         raise _ende(str(fehler)) from fehler
     for titel, wert in (
@@ -97,7 +119,9 @@ def zeigen(kuerzel: str = typer.Argument(help="Kürzel der Gesellschaft")) -> No
         ("Konfiguration", g.konfiguration),
         ("Regeln", g.regeln),
         ("Kontenrahmen", rahmen),
-        ("Wirtschaftsjahr ab", _wirtschaftsjahr(g.konfiguration)),
+        ("Wirtschaftsjahr ab", wirtschaftsjahr),
         ("Systemdatenbank", ohne_passwort(system)),
     ):
         console.print(f"{titel:<20} {escape(wert)}", soft_wrap=True)
+    if nicht_lesbar is not None:
+        raise _ende(str(nicht_lesbar))

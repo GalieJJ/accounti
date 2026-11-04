@@ -288,10 +288,15 @@ _ZEILE = (
 
 
 def _sqlite_datei(url: str) -> Path | None:
-    """Die Datei einer SQLite-URL (``None`` für andere Datenbanken und ``:memory:``)."""
+    """Die Datei einer SQLite-URL (``None`` für andere Datenbanken, ``:memory:`` und
+    eine ungültige URL)."""
     from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
 
-    adresse = make_url(url)
+    try:
+        adresse = make_url(url)
+    except ArgumentError:
+        return None
     if adresse.get_backend_name() != "sqlite":
         return None
     datenbank = adresse.database or ""
@@ -302,11 +307,15 @@ def _sqlite_datei(url: str) -> Path | None:
 
 def _url_schluessel(url: str) -> str:
     from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
 
     datei = _sqlite_datei(url)
     if datei is not None:
         return f"sqlite:{_pfadschluessel(datei)}"
-    return make_url(url).render_as_string(hide_password=True)
+    try:
+        return make_url(url).render_as_string(hide_password=True)
+    except ArgumentError:  # der Schnappschuss meldet den Fehler
+        return "ungueltig:" + hashlib.sha256(url.encode()).hexdigest()
 
 
 def _fehlertext(fehler: BaseException) -> str:
@@ -479,7 +488,7 @@ class Stand:
         ziel = self._wurzel()
         if ziel._schnappschuss is None:
             if ziel.ersatz is not None:
-                ziel.binde(ziel.ersatz())
+                ziel.binde(ziel.ersatz(), kuerzel=ziel.kuerzel)
             elif ziel.web:
                 msg = "Die Anfrage ist an keine Gesellschaft gebunden"
                 raise EinstellungsquelleFehlt(msg)

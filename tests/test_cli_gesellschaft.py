@@ -204,12 +204,18 @@ def test_gesellschaft_liste_und_zeigen_ohne_passwort(umgebung, monkeypatch):
     r = run("gesellschaft", "liste")
     assert r.exit_code == 0, r.output
     assert "Alpha Papier GmbH" in r.output and "Beta Rahmen KG" in r.output
+    assert "streng-geheim" not in r.output
     r = run("gesellschaft", "zeigen", "b")
-    assert r.exit_code == 0, r.output
     assert "streng-geheim" not in r.output
     assert "accounti:***@db/b" in r.output
-    assert "SKR04" in r.output  # eigener Kontenrahmen
-    assert "2026-07-01" in r.output  # eigenes Wirtschaftsjahr
+    # Baustein 10c P4 (M2, D5): Kontenrahmen und Wirtschaftsjahr kommen aus der
+    # Datenbank von b — ist sie nicht erreichbar, zeigt zeigen das (Exit 1) statt die
+    # Werte der Datei zu raten
+    assert r.exit_code == 1, r.output
+    assert "Datenbank nicht lesbar" in r.output and "nicht lesen" in r.output
+    r = run("gesellschaft", "zeigen", "a")
+    assert r.exit_code == 0, r.output
+    assert "SKR03" in r.output and "2026-01-01" in r.output  # eigene Werte von a
 
 
 def test_kaputte_konfiguration_blockiert_befehle_ohne_konfigurationsbedarf_nicht(

@@ -172,7 +172,10 @@ def nachrichten(
 
 
 @befehl.command("connectoren")
-def connectoren(config: str = KONFIG_OPTION) -> None:
+def connectoren(
+    db: str = DB_OPTION,  # bindet den Stand der Einstellungen (Baustein 10c P4)
+    config: str = KONFIG_OPTION,
+) -> None:
     """Connector-Typen und die konfigurierten Connectoren mit Prüfergebnis."""
     from rich.markup import escape
 

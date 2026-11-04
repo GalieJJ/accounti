@@ -7,7 +7,7 @@ from datetime import date
 import typer
 from rich.markup import escape
 
-from accounti.befehle import KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 NAME = "fristen"
 befehl = typer.Typer(help="Fristenkalender: UStVA, Sondervorauszahlung, ZM, OSS.")
@@ -29,6 +29,7 @@ def fristen(
     bundesland: str | None = typer.Option(
         None, "--bundesland", help="Feiertage des Landes, z.B. BY"
     ),
+    db: str = DB_OPTION,  # bindet den Stand der Einstellungen (Baustein 10c P4)
     config: str = KONFIG_OPTION,
 ) -> None:
     """Fristen eines Jahres — verschoben nach § 108 Abs. 3 AO."""
