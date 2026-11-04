@@ -618,15 +618,19 @@ def test_rueckkehrziel_der_vorlieben_folgt_der_angezeigten_seite(qw):
     """P1 Runde 2 (gp1-bestand N1/N3): „Tastenkürzel ausschalten“ und „Übernehmen“
     führen auf die Buchung und Ansicht zurück, die der Browser gerade zeigt — mit
     ``?ansicht=``, und nach einer htmx-Aktion auf die neue Buchung (Push-URL), nicht
-    auf die eben freigegebene. ``?erledigt=`` (einmalige Meldung) fällt weg."""
+    auf die eben freigegebene. ``?erledigt=`` (einmalige Meldung) und Fremdes fallen
+    weg."""
     erste = qw.unsicher(tag=date(2026, 10, 1))
     zweite = qw.unsicher(tag=date(2026, 10, 2), name="Papier Paul")
     client = qw.web.angemeldet("jan")
     seite = client.get(f"/pruefen/{erste.id}?ansicht=offen").text
     assert _weiter(seite, "tasten-schalter") == f"/pruefen/{erste.id}?ansicht=offen"
     assert _weiter(seite, "benutzermenue-wahl") == f"/pruefen/{erste.id}?ansicht=offen"
-    liste = client.get("/pruefen?ansicht=zurueckgestellt&erledigt=freigegeben").text
+    liste = client.get(
+        "/pruefen?ansicht=zurueckgestellt&erledigt=freigegeben&x=%3Cy%3E"
+    ).text
     assert _weiter(liste, "benutzermenue-wahl") == "/pruefen?ansicht=zurueckgestellt"
+    assert "%3Cy%3E" not in liste and "&lt;y" not in liste  # nichts Fremdes gespiegelt
     r = aktion(client, erste.id, "freigeben", kopf=HX)
     push = r.headers["hx-push-url"]
     assert push == f"/pruefen/{zweite.id}?ansicht=offen"

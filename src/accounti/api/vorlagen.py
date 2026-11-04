@@ -286,13 +286,16 @@ def _beantwortet_get(request: Request, pfad: str) -> bool:
 ABSCHNITTE = 16
 
 
-# Abfrageteile, die nur einmal gelten (Meldung nach einer Aktion) — nicht im Rückweg
-EINMALIG = frozenset({"erledigt"})
+# Abfrageteile, die zur Ansicht gehören und in den Rückweg kommen (P1 Runde 2) — nur
+# schlichte Werte; anderes (etwa die einmalige Meldung ?erledigt=) spiegelt die Seite
+# nicht zurück
+RUECKWEG_ABFRAGE = frozenset({"ansicht", "seite"})
+_RUECKWEG_WERT = re.compile(r"[a-z0-9_-]{1,40}")
 
 
 def ansichtspfad(request: Request) -> str:
     """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst samt
-    Abfrage (``?ansicht=``; ohne ``EINMALIG``, P1 Runde 2), nach einem POST die nächste
+    Ansicht (``RUECKWEG_ABFRAGE``, P1 Runde 2), nach einem POST die nächste
     Seite darüber, die GET beantwortet
     (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
     ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
@@ -306,7 +309,9 @@ def ansichtspfad(request: Request) -> str:
     pfad = request.url.path
     if request.method in ("GET", "HEAD"):
         abfrage = [
-            (k, v) for k, v in request.query_params.multi_items() if k not in EINMALIG
+            (k, v)
+            for k, v in request.query_params.multi_items()
+            if k in RUECKWEG_ABFRAGE and _RUECKWEG_WERT.fullmatch(v)
         ]
         return f"{pfad}?{urlencode(abfrage)}" if abfrage else pfad
     if request.scope.get("route") is None:
