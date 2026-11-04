@@ -119,10 +119,10 @@ def ersetzen_wege(v: sqlite3.Connection) -> list[tuple[str, tuple[object, ...]]]
     werte = ", ".join("?" * 12)
     mallory = '{"name":"Mallory Ltd"}'
     return [
-        # Konflikt auf id
+        # Konflikt nur auf id (anderer Abschnitt, anderer Hash)
         (
             f"REPLACE INTO einstellungen (id, {SPALTEN}) VALUES (1, {werte})",
-            (*_roh("mandant", 1, mallory, "b" * 64), GENESIS),
+            (*_roh("anderes", 1, mallory, "b" * 64), GENESIS),
         ),
         # Konflikt auf (abschnitt, version)
         (

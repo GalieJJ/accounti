@@ -3070,3 +3070,15 @@ Tests; Hilfe von `abschluss eroeffnung`, Kommentare der Vorlage (`oss`, `llm`, G
 Tabellen, Trigger für `einstellungsantraege`, `aufgaben.pruefung.kontierung_schwelle` gegenüber
 `llm.auto_buchen_schwelle`, `ValueError` bei ungültigem Port in `api/lesezugriff.verbindung`
 und `Dienste._fabrik` (nur `serve --db` ohne Registry).
+
+**Nachprüfung der Behebung** (zwei gegnerische Nachprüfer, Technik und Fachlich, mit den
+Proben der ersten Prüfung): alle Befunde behoben bzw. richtig dokumentiert, außer
+verhalten-5 (teilweise: PyYAML zitiert Werte auch im Problem, `!…`-Tag und `*…`-Alias).
+Dazu vier neue Niedrig-Befunde, alle **behoben mit Test**: (1) Fehlt das Verzeichnis der
+SQLite-Datei (Volume nicht eingehängt), las eine Seite still die Datei — jetzt ein Fehler im
+Schnappschuss (fail-closed), nur eine fehlende Datei allein ist leer; (2) der Test des
+REPLACE-Triggers prüfte den Konflikt nur auf `id` nicht (Mutation blieb grün); (3) die
+Wartezeit von höchstens 3 s auf eine gesperrte SQLite-Datei war ungetestet (Mutation auf
+30 s blieb grün); (4) `docs/betrieb.md` behauptete den Befund „lieferschwelle“ für beide
+Schreibweisen des OSS-Beginns, er entsteht nur bei `2026-Q4: true`. verhalten-5 ist mit
+Test geschlossen: zitierte Werte im Problem werden ausgelassen.

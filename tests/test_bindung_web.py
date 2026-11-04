@@ -87,6 +87,21 @@ def test_nicht_erreichbare_aktive_gesellschaft_wechseln_und_abmelden(welt, tmp_p
     assert weg not in welt.dienste._engines
 
 
+def test_fehlendes_verzeichnis_fail_closed_beim_lesen(welt, tmp_path, caplog):
+    """Nachprüfung: Fehlt das Verzeichnis der Datenbank (Volume nicht eingehängt),
+    nimmt eine Seite mit Datenbank-Abschnitt nicht still die Datei, sondern scheitert
+    (500) — eine fehlende Datei allein ist dagegen leer (Test unten)."""
+    client = _client(welt)
+    weg = f"sqlite:///{(tmp_path / 'volume' / 'a.db').as_posix()}"
+    _datenbank_von_a(welt, weg)
+    assert client.get("/gesellschaft").status_code == 200
+    with caplog.at_level(logging.ERROR, logger="accounti"):
+        r = client.get("/test/buchhaltung")
+    assert r.status_code == 500
+    assert "EinstellungenNichtLesbar" in caplog.text
+    assert not (tmp_path / "volume").exists()
+
+
 def test_unlesbare_datenbank_fail_closed_nur_beim_lesen(welt, tmp_path, caplog):
     """Keine Datenbank, sondern Unsinn: ``/gesellschaft`` und ``/konto`` gehen, die
     Seite mit einem Datenbank-Abschnitt scheitert (500), statt still die Datei zu

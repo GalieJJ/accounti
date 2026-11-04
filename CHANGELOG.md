@@ -432,9 +432,10 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 - Ein Abschnitt, der keine Zuordnung ist (`kasse: 5`), und kaputtes YAML sind für jeden Lader
   eine Meldung mit Datei (auch für die nachsichtig gelesenen Angaben aus `mandant`). Kaputtes
   YAML nennt nur Zeile, Spalte und Problem (`<datei>: kein gültiges YAML (Zeile 4, Spalte 1:
-  …)`), nie den Ausschnitt der Zeile — dort kann ein Passwort stehen; Meldungen
-  zum Firmenstamm nennen zusätzlich „Einstellungen › Firma & Steuern“; `einstellungen.quelle`
-  und `einstellungen.festgelegt` werden geprüft (unbekannter Abschnitt mit Pfad).
+  …)`), nie den Ausschnitt der Zeile und keine zitierten Werte (Tag, Alias) — dort kann ein
+  Passwort stehen; Meldungen zum Firmenstamm nennen zusätzlich „Einstellungen › Firma &
+  Steuern“; `einstellungen.quelle` und `einstellungen.festgelegt` werden geprüft (unbekannter
+  Abschnitt mit Pfad).
 - `lade_oss`, `lade_steuerangaben` und `gewinnermittlung_angegeben` fragen mit einem Zeitraum;
   `fristenkalender(oss=…)` nimmt auch die Quartale mit OSS. `bank.kreditkarte`
   (`gleiche_sammelbelastungen_ab`, `loese_zuordnung`, `trenne_belastung`) verlangt `einst`,

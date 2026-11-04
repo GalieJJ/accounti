@@ -947,8 +947,9 @@ Neu bzw. anders wirken ab diesem Stand — vor dem Update prüfen:
   von 10.000 € (§ 3c Abs. 4 UStG, Art. 57d MwSt-DVO: OSS ab dieser Lieferung) bildet accounti
   nicht ab: Mit `2026-Q4: true` rechnet es die Lieferungen bis Quartalsende mit deutscher
   Steuer, mit `2026-Q3: true` schon die vor der Überschreitung mit OSS. Die Rechnungen dieses
-  Quartals mit dem Steuerberater prüfen; Marktplatzposten meldet accounti als
-  „lieferschwelle“ zur Prüfung, E-Rechnungen nicht.
+  Quartals mit dem Steuerberater prüfen. Im ersten Fall (`2026-Q4: true`) meldet accounti
+  Marktplatzposten als „lieferschwelle“ zur Prüfung, im zweiten (`2026-Q3: true`) bucht es
+  sie ohne Befund mit OSS; E-Rechnungen meldet es in keinem Fall.
 
   Beim **Wechsel der Gewinnermittlung** lehnt `abschluss vortrag` den Saldovortrag über den
   Wechsel ab (unter EÜR gingen sonst die Umsatzsteuerkonten ins Kapital), `abschluss pruefen`

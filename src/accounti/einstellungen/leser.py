@@ -40,6 +40,7 @@ import enum
 import hashlib
 import json
 import math
+import re
 import threading
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Mapping
@@ -158,7 +159,9 @@ def _yaml_fehler(fehler: yaml.YAMLError) -> tuple[str | None, str]:
     verhalten-5)."""
     stelle = getattr(fehler, "problem_mark", None)
     wo = f"Zeile {stelle.line + 1}, Spalte {stelle.column + 1}" if stelle else None
-    return wo, getattr(fehler, "problem", None) or type(fehler).__name__
+    problem = getattr(fehler, "problem", None) or type(fehler).__name__
+    # auch das Problem zitiert Werte („the tag '!…'“, „undefined alias '…'“)
+    return wo, re.sub(r"'[^']*'", "'…'", problem)
 
 
 _GEPARST: OrderedDict[str, dict[str, Any]] = OrderedDict()
@@ -422,7 +425,9 @@ class DatenbankQuelle:
             assert self._url is not None
             datei = _sqlite_datei(self._url)
             if datei is not None and not datei.exists():
-                return LEER  # keine neue Datei anlegen
+                if not datei.parent.is_dir():  # z. B. Volume nicht eingehängt
+                    return Schnappschuss(fehler=f"Verzeichnis fehlt: {datei.parent}")
+                return LEER  # noch keine Versionen; keine neue Datei anlegen
             engine = self._engine_der_url(self._url)
             try:
                 with engine.connect() as verbindung:

@@ -685,6 +685,8 @@ def test_kaputtes_yaml_ohne_ausschnitt_der_zeile(tmp_path):
         'versand:\n  smtp:\n    passwort: "Geheim123\n',  # nicht geschlossen
         "versand:\n  smtp:\n    passwort: Geheim123: x\n",  # mapping values
         "versand:\n  smtp: [Geheim123\n",
+        "versand:\n  smtp:\n    passwort: !Geheim123\n",  # Tag im problem
+        "versand:\n  smtp:\n    passwort: *Geheim123\n",  # Alias im problem
     ):
         pfad = konfig(tmp_path, text)
         with pytest.raises(KonfigurationError, match="kein gültiges YAML") as fehler:
@@ -693,6 +695,41 @@ def test_kaputtes_yaml_ohne_ausschnitt_der_zeile(tmp_path):
         assert "Geheim123" not in meldung, meldung
         assert meldung.startswith(f"{pfad}: kein gültiges YAML (Zeile "), meldung
         assert "\n" not in meldung, meldung
+
+
+def test_fehlendes_verzeichnis_ist_nicht_lesbar(tmp_path):
+    """Nachprüfung zu sicher-3: Fehlt nur die SQLite-Datei, gibt es noch keine
+    Versionen (leer, nichts angelegt). Fehlt ihr Verzeichnis (Volume nicht
+    eingehängt), ist die Datenbank nicht erreichbar — fail-closed statt still die
+    Datei."""
+    neu = tmp_path / "neu.db"
+    assert DatenbankQuelle(f"sqlite:///{neu.as_posix()}").schnappschuss().fehler is None
+    assert not neu.exists()
+    weg = tmp_path / "volume" / "a.db"
+    fehler = DatenbankQuelle(f"sqlite:///{weg.as_posix()}").schnappschuss().fehler
+    assert fehler and "volume" in fehler, fehler
+    assert not weg.parent.exists()
+
+
+def test_sqlite_wartet_hoechstens_die_wartezeit(tmp_path):
+    """Web (``QUELLE_WARTEN``): Auf eine gesperrte SQLite-Datei wartet der Schnappschuss
+    höchstens ``wartezeit``, nicht die 30 s der Engine."""
+    pfad = tmp_path / "a.db"
+    sperre = sqlite3.connect(pfad, isolation_level=None)
+    sperre.execute("CREATE TABLE x (y)")
+    sperre.execute("BEGIN EXCLUSIVE")
+    try:
+        quelle = DatenbankQuelle(
+            f"sqlite:///{pfad.as_posix()}", wartezeit=0.2, behalten=True
+        )
+        anfang = time.monotonic()
+        ergebnis = quelle.schnappschuss()
+        assert time.monotonic() - anfang < 5
+        assert ergebnis.fehler and "locked" in ergebnis.fehler, ergebnis.fehler
+        quelle.schliesse()
+    finally:
+        sperre.rollback()
+        sperre.close()
 
 
 def test_bindung_ohne_sofort_liest_beim_ersten_abschnitt(tmp_path, db):
