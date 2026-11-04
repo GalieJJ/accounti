@@ -548,9 +548,11 @@ class Stand:
             )
             raise EinstellungsquelleFehlt(msg)
         if schluessel in ziel.fremde_pfade:
+            # CLI: --config einer anderen Gesellschaft als der gewählten (-g)
+            wem = f" — nicht der Gesellschaft {ziel.kuerzel}" if ziel.kuerzel else ""
             msg = (
                 f"Einstellungen '{name}' aus der Konfiguration einer anderen "
-                "Gesellschaft — je Gesellschaft unter mit_quelle lesen"
+                f"Gesellschaft{wem} (--config und --gesellschaft passend wählen)"
             )
             raise EinstellungsquelleFehlt(msg)
 

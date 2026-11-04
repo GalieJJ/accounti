@@ -103,6 +103,8 @@ gilt `main`; die Stellen stehen hier und an den Schritten.
   `angemeldet`/`api_zugang` (async), `richte_kontext_ein(ctx, gesellschaft)`. P1 ist
   gemergt: `angemeldet` und `vielleicht_angemeldet` teilen den Kern `_lade` (Offener
   Punkt 7).
+- **Abschnitt B (Schritte 4–6 und 17 für P4a):** Abweichungen und Ergänzungen stehen als
+  „Umgesetzt“ an den Schritten 4, 5, 6 und 17.
 - **Kopf-Tests (G-M1, Offener Punkt 8):** P1 hat die Regel schon eingeführt
   (`tests/test_migration_regeln.py`: kein relatives Downgrade, kein `get_current_head()`,
   keine Aussage über „(head)“ außer der Zählung). `git grep` auf dem Abzweigpunkt findet
@@ -1284,6 +1286,12 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
     (`tests/test_api_rechte_matrix.py` deckt es ab). Die CLI (`aufgaben lauf|pruefen`)
     hat dieselbe Lücke ohne Fehler (dort gilt E5, die Datenbank des Befehls); sie bleibt
     wie bisher (außerhalb von P4).
+  - **Meldung bei fremder Konfiguration (CLI):** Seit `lade_zahlung` über den Leser liest,
+    scheitert `-g b zahlung freigeben --db <a> --config <a.yaml>` schon beim Laden von
+    `zahlung` (D5) statt erst an `_pruefe_registry`. Die Meldung nennt jetzt die gewählte
+    Gesellschaft und den Weg („… einer anderen Gesellschaft — nicht der Gesellschaft b
+    (--config und --gesellschaft passend wählen)“) statt `mit_quelle`;
+    `tests/test_cli_bindung.py` bleibt unverändert grün.
   - Tests: `tests/test_lader_umbau.py` (70 Fälle; `rechnung ausstellen` statt `rechnung
     neu`, das die Firma nicht liest), `test_api_einstellungsstand.py::
     test_name_ohne_registry_beim_start_aus_der_datenbank`,
@@ -1498,8 +1506,9 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - Golden: `GOLDEN_LADER` ruft `lade_oss`, `lade_steuerangaben` mit dem Stichtag
     31.03.2026 und `gewinnermittlung_angegeben` mit dem WJ 2026; die Golden-Daten sind
     unverändert.
-  - Tests: `tests/test_einstellungen_perioden.py` (17; zusätzlich
-    `::test_rohfelder_heissen_anders_als_in_der_datei`) und die sechs Tests oben.
+  - Tests: `tests/test_einstellungen_perioden.py` (16; zusätzlich
+    `::test_rohfelder_heissen_anders_als_in_der_datei`,
+    `::test_model_copy_nimmt_auch_den_dateinamen`) und die sechs Tests oben.
 
 > **PR P4b „Schreiben“: Schritte 7–10, 12, 13, 16** (D28), abzweigen nach dem Merge von P4a.
 > Vorher entscheidet der Nutzer D6 (Offener Punkt 5). D26 ist entschieden (Offener Punkt 6).
@@ -2278,8 +2287,15 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 1. Beim Abzweigen `alembic heads` und `SCHEMA_STAND` lesen und die Kette eintragen (Schritt 0).
 2. Prüfen, ob 10b-1 bzw. P1 neue Lader mitbringen (etwa `lade_korrekturumgebung`, Vorlieben) und
    ob sie in `inventar.LADER` gehören. Der AST-Test findet sie ohnehin.
+   *Erledigt (P4a, Schritt 4):* `pruefung.storno.lade_korrekturumgebung` setzt sich aus
+   Ladern zusammen und ruft `lies_abschnitt` nicht selbst — kein Eintrag; P1 liest keine YAML
+   (Vorlieben am Benutzer).
 3. Nach dem Merge von Paket E die Verbraucher von `mandant.oss` in `integrationen/` neu zählen
    (OSS-Konten je Land), bevor Schritt 6 beginnt.
+   *Erledigt (P4a, Schritt 6):* `integrationen/einstellungen.Kontext` (`lade_kontext`,
+   `lade_steuerangaben`), `integrationen/lauf._buchungskontext` (Lieferschwelle) und
+   `integrationen/buchung.buche_abrechnung` (je Posten); die OSS-Konten je Land hängen
+   nicht an `mandant.oss`.
 4. Die Liste der Rechtsformen mit P7 (Assistent, Vorschläge nach Rechtsform, A74) abgleichen.
    Werte dürfen nur hinzukommen, nicht wegfallen.
 5. **Entscheidung des Nutzers zu D6** (vor Schritt 7): Standards nicht einfrieren (Vorschlag,
