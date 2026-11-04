@@ -15,10 +15,13 @@
 {% call k.angabe(_("Brutto")) %}{{ brutto | euro }}{% endcall %}
 {% call k.angabe(_("Datum")) %}{{ b.datum | datum }}{% endcall %}
 {% call k.angabe(_("Buchungstext")) %}{{ b.buchungstext }}{% endcall %}
-{% call k.angabe(_("Confidence")) %}<span class="confidence">{{ confidence_prozent | prozent_ganz }}</span> <span class="neben">{{ _("automatisch gebucht ab %(schwelle)s", schwelle=(schwelle * 100) | int | prozent_ganz) }}</span>{% endcall %}
+{% call k.angabe(_("Confidence")) %}<span class="confidence">{{ confidence_prozent | prozent_ganz }}</span>{% if schwelle_prozent is not none %} <span class="neben">{{ _("automatisch gebucht ab %(schwelle)s", schwelle=schwelle_prozent | prozent_ganz) }}</span>{% endif %}{% endcall %}
 {% call k.angabe(_("Herkunft")) %}{% if e.herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span>{% if e.herkunft.regel %} · {{ _("Regel %(name)s", name=e.herkunft.regel) }}{% endif %}{% if e.herkunft.modell %} · {{ _("Modell %(name)s", name=e.herkunft.modell) }}{% endif %}<span class="begruendung" lang="de">{{ e.herkunft.text }}</span>{% else %}<span class="neben">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}{% endcall %}
 {% if e.kontakt %}{% call k.angabe(_("Kontakt")) %}{{ e.kontakt.name }}{% endcall %}{% endif %}
 {% endcall %}
+{% if schwelle_fehler and not konfig_fehler %}
+{% call k.hinweis("warn") %}{{ _("Der Abschnitt llm der Konfiguration ist fehlerhaft — automatisch kontiert und verbucht wird erst nach seiner Berichtigung:") }} <span lang="de">{{ schwelle_fehler }}</span>{% endcall %}
+{% endif %}
 {% if e.geschwister %}
 <h3>{{ _("Weitere Buchungen zu Umsatz bzw. Beleg") }}</h3>
 <ul class="geschwister">

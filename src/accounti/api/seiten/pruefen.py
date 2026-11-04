@@ -13,7 +13,6 @@ markiertem Feld, sonst der nächste Eintrag und ``HX-Push-Url``).
 
 from __future__ import annotations
 
-import inspect
 import math
 from dataclasses import dataclass, field
 from datetime import date
@@ -134,20 +133,22 @@ def confidence_prozent(confidence: float) -> int:
     return math.floor(round(confidence * 100, 6))
 
 
-def auto_schwelle(konfiguration: str | None = None) -> float:
-    """``llm.auto_buchen_schwelle`` der Gesellschaft (Baustein 10c P4) — ohne
-    Konfiguration bzw. bei einem Fehler im Abschnitt der Standard."""
-    from accounti.buchung.mapper import zu_buchungssatz
+def auto_schwelle(konfiguration: str | None = None) -> tuple[float | None, str | None]:
+    """``llm.auto_buchen_schwelle`` der Gesellschaft (Baustein 10c P4) als (Schwelle,
+    Fehler) — ohne Konfiguration der Standard. Ist der Abschnitt ungültig (etwa
+    ``pruefung_schwelle`` über ``auto_buchen_schwelle``), ``(None, Meldung)``: classify,
+    bank lauf, der REST-Lauf und opos verbuchen halten dann an, die Seite zeigt die
+    Meldung statt still des Standards (verhalten-3)."""
+    from accounti.buchung.mapper import AUTO_SCHWELLE
     from accounti.klassifikation.einstellungen import lade_llm
     from accounti.konfiguration import KonfigurationError
 
-    if konfiguration is not None:
-        try:
-            return lade_llm(konfiguration).auto_buchen_schwelle
-        except KonfigurationError:
-            pass
-    wert = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
-    return float(wert)
+    if konfiguration is None:
+        return AUTO_SCHWELLE, None
+    try:
+        return lade_llm(konfiguration).auto_buchen_schwelle, None
+    except (KonfigurationError, ValueError) as fehler:
+        return None, str(fehler)
 
 
 def _ansicht(wert: str | None) -> Ansicht:
@@ -312,6 +313,7 @@ def flaechenwerte(
     konten = [b.soll_konto, b.haben_konto] + [
         k for x in e.geschwister for k in (x.soll_konto, x.haben_konto)
     ]
+    schwelle, schwelle_fehler = auto_schwelle(a.gesellschaft.konfiguration)
     werte = {
         "titel": N_("Prüfen"),
         "e": e,
@@ -322,7 +324,8 @@ def flaechenwerte(
         "kontonamen": kontonamen(a, konten),
         "steuernamen": steuernamen(),
         "quellen": QUELLEN,
-        "schwelle": auto_schwelle(a.gesellschaft.konfiguration),
+        "schwelle_prozent": None if schwelle is None else confidence_prozent(schwelle),
+        "schwelle_fehler": schwelle_fehler,
         "confidence_prozent": confidence_prozent(b.confidence),
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,
