@@ -2176,6 +2176,37 @@ Abschnitt 5. Je Frage folgen die Antwort und die Stellen, die sie ändert.
      A118 und AK61 (ein Alembic-Kopf bei parallelen Migrationen); R2 und R10 angepasst. Die
      Paketnummern bleiben.
 
+### Nachträge aus P1 (04.11.2026)
+
+Folgen der Leinwand-Freigabe und der Umsetzung von Paket 1 (Plan
+`docs/plans/2026-10-28-oberflaeche-p1-design.md`, Abschnitte „Abweichungen von der Spec“ und
+„Umsetzung“). Keine neuen Fragen; der Nutzer bestätigt sie mit dem PR.
+
+- **A6:** Sprache und Darstellung im Benutzermenü werden auch mit htmx erst mit „Übernehmen“
+  gespeichert, nicht schon bei der Auswahl (WCAG 3.2.2).
+- **A4:** Die schmale Kopfleiste trägt zusätzlich das Hilfe-Symbol (A8, AK47; WCAG 3.2.6).
+- **A90/A91:** Schriftskala mit 12, 13, 20 und 40 px neben 14/16/18/22/28 px; zum 4-px-Raster
+  die Zwischenstufen 20/28/40 px und, nur in Komponenten, 2/6/10 px; Radien 2, 4, 6, 8, 10,
+  12 px und „rund“ (Leinwand).
+- **A5/A89:** Kennfarben aus der Leinwand plus Oliv als sechste; das Kürzel auf der Marke ist
+  ein Monogramm aus dem Namen (das Registry-Kürzel ist dafür zu lang).
+- **A92:** zusätzliche Komponenten Aufklapper, Sammelleiste, Marke und Avatar; `feld` mit
+  „Warnung“ und „bestätigt“; `karte` mit Summe rechts im Kopf.
+- **A93/A111:** Tabellen werden unter **64rem** (statt 40rem) zu Karten — bei 200 % Zoom mit
+  Textabständen (AK56) schnitt der Tabellenrahmen sonst breite Tabellen ab.
+- **A96:** 36 statt „etwa 25“ Symbole (Auswahl nach der Leinwand), Budget eingehalten.
+- **A99/A92:** alle Stile in einer Datei `accounti.css`; je Bereich eigene Dateien gibt es nicht
+  mehr (`pruefen.css` entfällt).
+- **Auslegungen:** A104 „2-px-Ring“ als Mindestmaß (3 px wie die Leinwand); A91 „zweispaltig ab
+  64rem“ als „zwei Spalten, sobald beide Platz haben“; AK47 gleicher Index je angemeldetem
+  Benutzer, gleiche relative Reihenfolge auf schlichten Seiten; AK54 Link auf den
+  Hilfeabschnitt, wo die nächste Aktion keine Seite hat; AK55 an `/konto` statt einer
+  Einstellungsseite gemessen; AK61 nennt `accounti db upgrade` und `alembic upgrade head` als
+  Gleichwert mit Vermerk; A117 gilt für `pyproject.toml` und Ausgeliefertes (axe-core,
+  MPL-2.0, ist ein Entwicklungswerkzeug).
+- **Werkzeug:** Die Browserprobe läuft mit Playwright 1.59.1 und Chromium 1217 (vorhanden)
+  statt 1.64.0 (Download nicht freigegeben); Firefox, NVDA und VoiceOver prüft der Nutzer.
+
 ---
 
 ## 13. Recherche (Stand 26.10.2026)
