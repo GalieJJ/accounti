@@ -56,6 +56,24 @@ def test_vorschau_fragment_und_ohne_js(qw):
     assert regeln(qw) == []  # die Vorschau speichert nichts
 
 
+def test_fokus_nach_der_vorschau(qw):
+    """A104 (P1 Runde 2): htmx sperrt „Regelvorschau“ während der Anfrage
+    (``hx-disabled-elt``) — ein gesperrter Knopf verliert in Chromium den Fokus an
+    ``body``. Das Ergebnis trägt im Fragment ``tabindex="-1"`` und ``data-fokus``
+    (accounti.js setzt den Fokus darauf), auch die Fehlermeldung; die ganze Seite ohne
+    JavaScript nicht."""
+    import re
+
+    b = qw.unsicher()
+    client = qw.web.angemeldet("jan")
+    teil = vorschau(client, b, HX).text
+    (fokus,) = re.findall(r"<div [^>]*data-fokus[^>]*>", teil)
+    assert 'class="vorschau"' in fokus and 'tabindex="-1"' in fokus
+    fehler = vorschau(client, b, HX, haben="4980").text
+    assert re.search(r'<div tabindex="-1" data-fokus><div class="hinweis', fehler)
+    assert "data-fokus" not in vorschau(client, b).text.split('id="regelvorschau"')[1]
+
+
 def test_vorschau_nur_per_post(qw):
     b = qw.unsicher()
     client = qw.web.angemeldet("jan")
