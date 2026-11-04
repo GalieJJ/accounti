@@ -97,8 +97,8 @@
     if (TASTEN.indexOf(taste) < 0) {
       return;
     }
-    if (taste !== "?" && abgeschaltet()) {
-      return;
+    if (abgeschaltet()) {
+      return; /* auch „?“: jedes Einzeichen-Kürzel ist abschaltbar (WCAG 2.1.4) */
     }
     if (ausloesen(taste)) {
       e.preventDefault();

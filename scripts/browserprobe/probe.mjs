@@ -599,6 +599,11 @@ async function ak45(browser, welt, name, arbeitsflaeche) {
   await seite.keyboard.press('f');
   await seite.waitForTimeout(500);
   befunde.push({ name: 'Taste f ohne Anfrage', ok: anfragen.length === 0, wert: [...anfragen] });
+  // Runde 2: auch „?“ ist ein Einzeichen-Kürzel (WCAG 2.1.4) — die Tastenhilfe bleibt zu
+  await seite.keyboard.press('?');
+  await seite.waitForTimeout(200);
+  const offen = await seite.evaluate(() => document.querySelector('#tastenhilfe')?.open ?? null);
+  befunde.push({ name: 'Taste ? ohne Wirkung', ok: offen === false, wert: offen });
   await vorliebe(seite, welt.basis, { darstellung: 'auto', tastenkuerzel: 'an' });
   for (const [schema, grund] of [['dark', 'rgb(18, 20, 23)'], ['light', 'rgb(245, 244, 241)']]) {
     await seite.emulateMedia({ colorScheme: schema });
