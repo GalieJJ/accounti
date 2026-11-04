@@ -209,10 +209,32 @@ def test_tasten_in_markup_und_skript_gleich(tmp_path):
 SKRIPTE = ("accounti.js", "pruefen.js")
 
 
+def eigene_skripte(ordner: Path = STATISCH) -> list[Path]:
+    """Jedes eigene Skript unter ``statisch`` (auch in Unterordnern), ohne htmx."""
+    return sorted(p for p in ordner.rglob("*.js") if not p.name.startswith("htmx-"))
+
+
+def test_jedes_eigene_skript_zaehlt(tmp_path):
+    """P1 Runde 2 (gp1-design B8): Budget und Speicherverbot galten nur für fest
+    benannte Dateien — ein drittes Skript (auch in einem Unterordner) blieb unbemerkt.
+    ``eigene_skripte`` findet jedes ``*.js`` unter ``statisch`` außer htmx."""
+    import shutil
+
+    kopie = tmp_path / "statisch"
+    shutil.copytree(STATISCH, kopie)
+    (kopie / "neu").mkdir()
+    (kopie / "neu" / "drittes.js").write_text("localStorage;" + " " * 30_000)
+    namen = {p.relative_to(kopie).as_posix() for p in eigene_skripte(kopie)}
+    assert namen == {*SKRIPTE, "neu/drittes.js"}, namen
+    assert {p.name for p in eigene_skripte()} == set(SKRIPTE)
+
+
 def test_skripte_ohne_speicher():
-    """AK45: Vorlieben stehen am Benutzer — kein Speicher im Browser."""
-    for name in SKRIPTE:
-        text = (STATISCH / name).read_text(encoding="utf-8")
+    """AK45: Vorlieben stehen am Benutzer — kein Speicher im Browser (umgestellt in
+    P1 Runde 2: jedes eigene Skript, nicht nur die fest benannten)."""
+    for datei in eigene_skripte():
+        name = datei.name
+        text = datei.read_text(encoding="utf-8")
         for verboten in (
             "localStorage",
             "sessionStorage",
@@ -223,8 +245,9 @@ def test_skripte_ohne_speicher():
 
 
 def test_skripte_budget():
-    """AK50: eigene Skripte zusammen höchstens 20 KB."""
-    groesse = sum((STATISCH / name).stat().st_size for name in SKRIPTE)
+    """AK50: eigene Skripte zusammen höchstens 20 KB (umgestellt in P1 Runde 2: jedes
+    eigene Skript)."""
+    groesse = sum(datei.stat().st_size for datei in eigene_skripte())
     assert groesse <= 20_480, groesse
 
 
