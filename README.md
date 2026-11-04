@@ -120,6 +120,7 @@ Was gebaut wird, steht im [Bauplan](docs/bauplan.md) — zwölf Bausteine, jeder
 | ✅ | **Mehrere Gesellschaften** | Je eigene Gesellschaft eine Datenbank, ein Belegarchiv und eine Konfiguration (Kontenrahmen, Wirtschaftsjahr, Nummernkreise, Bankkonten); `accounti --gesellschaft K …` für alle Befehle, Wechsel im Browser |
 | ✅ | **Benutzer & Rollen** | Anmeldung mit Passwort (scrypt) und zweitem Faktor (TOTP, Wiederherstellungscodes), Sperre nach Fehlversuchen (Browser und Server-Shell getrennt gezählt), Rollen betrachter/buchhalter/freigeber/verwalter je Gesellschaft; Zahlungsläufe, Steuermeldungen und Storno freigegebener Buchungen nur mit Rolle und Einmalcode (Browser und CLI), in der CLI auch Buchungsfreigabe, Korrektur und Festschreibung; Vier-Augen-Freigabe |
 | ✅ | **Deutsch/Englisch** | Oberfläche zweisprachig, Sprache je Benutzer oder nach Browser; Fachbegriffe wie „Buchungssatz“ bleiben deutsch |
+| ✅ | **Oberfläche** | Eigenes ruhiges Design ohne fremde Server: hell, dunkel oder automatisch je Benutzer, Systemschrift, Symbole lokal; links eine Seitenleiste mit Zählern, auf dem Handy eine untere Leiste und die Seite „Mehr“; die aktive Gesellschaft mit Kennfarbe und Kürzel im Kopf; Hilfe je Bereich; „Mein Konto“ mit Sprache, Darstellung und Tastenkürzeln; Ziel WCAG 2.2 AA (Kontrast, Fokus, Tastatur, ohne JavaScript bedienbar) |
 | ✅ | **Betrieb** | `docker compose up` mit PostgreSQL und geplantem Lauf, Geheimnisse nur aus der Umgebung, verschlüsselte Sicherung von Datenbank und Belegarchiv mit Wiederherstellung, Aufbewahrungsfristen nach § 147 AO, Protokoll ohne Personenbezug — [Betrieb](docs/betrieb.md) |
 
 Legende: ✅ vorhanden · 🟨 teilweise · 🔲 geplant
@@ -701,11 +702,17 @@ Eine Buchung mit demselben Konto im Soll und im Haben legt accounti nie an: auto
 der Umsatz offen und der Lauf nennt ihn, von Hand (Korrektur, `kasse buchen --konto`) lehnt
 accounti sie ab, und ein älterer Vorschlag dieser Art lässt sich nicht freigeben; `accounti
 pruefen` meldet ältere Fälle (Prüfregel `soll_gleich_haben`). Tasten in der Queue: `j`/`k` weiter/zurück, `f` freigeben, `e` korrigieren, `r` Regel, `z` zurückstellen,
-`b` Beleg öffnen, `?` Hilfe (dort auch abschaltbar). Ändert eine Korrektur das Sachkonto, fragt
+`b` Beleg öffnen, `?` Hilfe; abschalten lassen sich die Kürzel unter „Mein Konto“ (gilt auf jedem Gerät). Ändert eine Korrektur das Sachkonto, fragt
 accounti den Steuerschlüssel ausdrücklich ab. Vorschläge entscheidet man in der
 angemeldeten Sitzung (Passwort und zweiter Faktor); freigegebene Buchungen korrigiert accounti als
 Storno mit Neubuchung, mit frischem Einmalcode. Jede Aktion steht mit dem angemeldeten Benutzer im
 Journal.
+
+Die Oberfläche folgt einem Design-System mit Token für hell und dunkel; Vorlage ist eine
+Design-Leinwand (`docs/design/2026-10-26-leinwand/`). Alle Bausteine stehen auf der Musterseite
+`/muster` (angemeldet), hell und dunkel nebeneinander. Hilfe gibt es je Bereich unter `/hilfe`, auch ohne
+Anmeldung. Auf dem Handy führt „Mehr“ (`/menue`) zu allen Bereichen, zum Wechsel der
+Gesellschaft und zu „Mein Konto“.
 
 ---
 
@@ -1000,6 +1007,8 @@ kontieren will, braucht nur v0.1.
 - [x] Benutzer, Rollen, 2FA, Vier-Augen-Freigabe, mehrere Gesellschaften, REST-API
 - [x] Docker-Setup, verschlüsselte Sicherungen, Löschkonzept
 - [x] DE/EN in der Oberfläche
+- [x] Design-System und Seitengerüst: hell/dunkel je Benutzer, Handy-Navigation, Hilfe je Bereich, Fehlerseiten (Baustein 10c, Paket 1)
+- [ ] Übersicht „Heute zu tun“, neue Prüfschlange, Einstellungen und Einrichtung im Browser (Baustein 10c, Pakete 2–7)
 
 ### v0.6 — Integrationen *(Baustein 11)*
 - [ ] JTL-Wawi, Amazon (DE/FR/IT/ES/NL/UK/SE/PL), eBay, Shopify, PayPal

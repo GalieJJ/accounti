@@ -130,7 +130,14 @@ Supervisions-Queue mit Belegansicht, Korrektur → Regel, Auswertungen und Zweis
 Dazu aus 10b, Teil 1: die Supervisions-Queue mit Belegansicht (PDF, Bild, E-Rechnung),
 gespeicherter Herkunft und Begründung, Korrektur in einem Schritt und per Tastatur, Korrektur →
 Regel mit Vorschau und Vorrang (in der Datenbank, im Journal), Storno-Korrektur freigegebener
-Buchungen über Baustein 7 mit Einmalcode, Deutsch und Englisch. Offen (10b, Teil 2): BWA mit
+Buchungen über Baustein 7 mit Einmalcode, Deutsch und Englisch.
+Dazu aus 10c, Paket 1 ([Spec 10c](specs/2026-10-26-oberflaeche-einrichtung.md),
+[Plan](plans/2026-10-28-oberflaeche-p1-design.md)): ein eigenes Design-System (Token hell und
+dunkel, Komponenten, Musterseite, Symbole) und ein neues Seitengerüst mit Seitenleiste, unterer
+Leiste für das Handy, Gesellschaft mit Kennfarbe, Hilfe je Bereich, Fehlerseiten und „Mein Konto“
+mit den Anzeige-Vorlieben; die bestehenden Seiten sind umgestellt. Offen aus 10c: Übersicht
+„Heute zu tun“ (P2), neue Bedienung der Prüfschlange (P3), Einstellungen im Browser (P4, P5),
+Benutzerverwaltung (P6) und der Einrichtungsassistent (P7). Offen (10b, Teil 2): BWA mit
 Vorjahresvergleich im Einklang mit der EÜR, Summen- und Saldenliste, Kontenblätter mit Absprung
 zum Beleg, OPOS-Auswertungen, CSV und PDF im Browser. Weitere Seiten des Spec-Baums (Belegliste,
 OPOS-Zuordnung, Zahlungsvorschlag, Aufgaben, Prüfbefunde und Periodenabschluss, Einstellungen)

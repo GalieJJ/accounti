@@ -30,6 +30,38 @@ ruff format src/ tests/
 mypy src/
 ```
 
+## Oberfläche prüfen (Browserprobe)
+
+```bash
+cd scripts/browserprobe && npm ci && npx playwright install chromium firefox && cd ../..
+python -m tests.browserprobe_welt --port 8473 --ziel /tmp/accounti-probe &   # Wegwerf-Bestand
+node scripts/browserprobe/probe.mjs --welt /tmp/accounti-probe/probe.json --browser chromium --ablaeufe
+node scripts/browserprobe/probe.mjs --welt /tmp/accounti-probe/probe.json --browser firefox
+node scripts/browserprobe/leinwand.mjs --quelle docs/design/2026-10-26-leinwand --ziel scripts/browserprobe/ergebnisse/leinwand
+node scripts/browserprobe/probe.mjs --welt /tmp/accounti-probe/probe.json --browser chromium --vergleich scripts/browserprobe/ergebnisse/leinwand
+```
+
+Die Probe nutzt Playwright 1.59.1 und axe-core 4.14.0 (genaue Versionen, Lockdatei mit
+Integrität, `ignore-scripts`). `npx playwright install` lädt die Browser von Microsofts
+Playwright-CDN (Chromium-Revision 1217 aus `playwright-core/browsers.json`, nicht durch die
+Lockdatei abgesichert). Die Probe misst je Rolle, hell und dunkel, bei 1440, 390 und 320 px:
+waagrechtes Scrollen, axe-core (WCAG 2.2 A/AA), CSP-Meldungen, Leisten und Kopf, Zielgrößen
+(24 bzw. 44 px), Tastatur, Zoom und Textabstände; mit `--ablaeufe` Gesellschaftswechsel, Druck,
+Darstellung am Benutzer, Einfügen in Codefelder, Wiederherstellungscode ohne JavaScript und
+den Statusbereich nach einer Freigabe. `leinwand.mjs` macht Referenzbilder aus der
+Design-Leinwand; `--vergleich` legt die Bilder der Anwendung daneben
+(`ergebnisse/<datum>-vergleich.html`) und prüft Token und Maße gegen den Plan. Das Ergebnis
+(`scripts/browserprobe/ergebnisse/`) gehört zusammengefasst in den PR. Neue Seiten brauchen
+Rechte-Matrix, `GLEICHLAUF`/`HTMX_FORMEN`, Übersetzungen und bei einem neuen Bereich eine
+Hilfeseite (siehe `docs/architektur.md`, „Neue Seite anschließen“).
+
+Migrationstests hängen nie am Kopf der Kette, weil parallele Branches neu ketten: die eigene
+Revision als Konstante, den Vorgänger über `ScriptDirectory.get_revision(REVISION).down_revision`,
+Downgrades auf ausdrückliche Revisionen (kein `downgrade -1`), Vermerke gegen
+`accounti.db.SCHEMA_STAND`. „Genau ein Kopf“ prüft nur
+`tests/test_db_upgrade.py::test_schema_stand_ist_der_kopf_der_migrationen`; der Test
+`tests/test_migration_regeln.py` weist die üblichen Kopfannahmen ab.
+
 ## Pull Requests
 
 - Ein PR pro Feature/Fix
