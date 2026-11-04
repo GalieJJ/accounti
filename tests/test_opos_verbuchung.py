@@ -1385,3 +1385,74 @@ def test_gutschrift_spaet_erfasst_ohne_paragraf_15_hinweis(umgebung, gewinnermit
     assert not any("§ 15 Abs. 1" in h for h in v.hinweise), v.hinweise
     assert any("§ 17 Abs. 1 S. 8" in h and "03/2026" in h for h in v.hinweise)
     assert {b.datum for b in v.buchungen} == {date(2026, 3, 5)}
+
+
+# --- Gewinnermittlung je Wirtschaftsjahr (Periodenwert, Baustein 10c P4) ----------
+
+
+@pytest.mark.parametrize(
+    ("beginn", "bilanz_jahr", "euer_jahr"),
+    [(None, 2026, 2027), ("07-01", 2025, 2026)],
+    ids=["kalenderjahr", "wj_juli"],
+)
+def test_cli_vorsteuer_folgejahr_nach_dem_wirtschaftsjahr_des_belegs(
+    tmp_path, beginn, bilanz_jahr, euer_jahr
+):
+    """``abschluss.gewinnermittlung: {2026: bilanz, 2027: euer}``, je eine
+    Eingangsrechnung vom 20.12., eingegangen am 05.01.: Die Umbuchung „Vorsteuer im
+    Folgejahr“ gibt es nur, wenn das WJ des Belegdatums bilanziert. Beim WJ ab 01.07.
+    gehört der 20.12.2026 zum WJ 2027 (EÜR), der 20.12.2025 zum WJ 2026 (Bilanz)."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+
+    url = f"sqlite:///{tmp_path / 'wj.db'}"
+    engine, make_session = session_factory(url)
+    init_db(engine)
+    with make_session() as s:
+        for jahr, zeichen in ((bilanz_jahr, "b"), (euer_jahr, "e")):
+            speichere_beleg(
+                s,
+                eingangsrechnung(
+                    datei_hash=zeichen * 64,
+                    belegnummer=f"RW-{jahr}",
+                    belegdatum=date(jahr, 12, 20),
+                    zahlungsziel=None,
+                    skonto_prozent=None,
+                    skonto_tage=None,
+                    eingegangen_am=datetime(jahr + 1, 1, 5, 9, 0),
+                ),
+            )
+        s.commit()
+    konfig = tmp_path / "accounti.yaml"
+    datev = f"datev:\n  wirtschaftsjahr_beginn: {beginn}\n" if beginn else ""
+    konfig.write_text(
+        f"{datev}abschluss:\n  gewinnermittlung: {{2026: bilanz, 2027: euer}}\n",
+        encoding="utf-8",
+    )
+    r = CliRunner().invoke(
+        app,
+        [
+            "opos", "verbuchen", "--db", url, "--archiv", str(tmp_path / "archiv"),
+            "--config", str(konfig),
+        ],
+    )  # fmt: skip
+    assert r.exit_code == 0, r.output
+    with make_session() as s:
+        buchungen = lade_buchungen(s)
+    engine.dispose()
+
+    def umbuchungen(jahr):
+        return sorted(
+            (b.datum, b.soll_konto, b.betrag_netto)
+            for b in buchungen
+            if b.beleg_nummer == f"RW-{jahr}" and b.haben_konto == "1548"
+        )
+
+    assert umbuchungen(bilanz_jahr) == [
+        (date(bilanz_jahr + 1, 1, 1), "1571", Decimal("3.50")),
+        (date(bilanz_jahr + 1, 1, 1), "1576", Decimal("19.00")),
+    ]
+    assert umbuchungen(euer_jahr) == []
+    euer = [b for b in buchungen if b.beleg_nummer == f"RW-{euer_jahr}"]
+    assert euer and not [b for b in euer if "1548" in (b.soll_konto, b.haben_konto)]

@@ -121,3 +121,43 @@ def test_lade_oss_mit_zuordnung_je_zeitraum(tmp_path):
     assert kontext.oss_am(date(2026, 3, 1)) is False
     assert kontext.oss_am(date(2027, 3, 1)) is True
     assert lade_oss(tmp_path / "fehlt.yaml", date(2027, 1, 1)) is False
+
+
+@pytest.mark.parametrize(
+    ("wert", "erwartet"),
+    [('"false"', False), ('"true"', True), ('{"2026-Q1": "false"}', False)],
+)
+def test_oss_als_text_ist_ein_schalter(tmp_path, wert, erwartet):
+    """Prüfung verhalten-4 (CHANGELOG): ``mandant.oss`` wird überall wie ein Schalter
+    geprüft — ``"false"`` in Anführungszeichen ist aus (vor P4a galt jeder nicht leere
+    Text als OSS-registriert), für jeden Leser gleich."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text(f"mandant:\n  oss: {wert}\n", "utf-8")
+    tag = date(2026, 5, 1)
+    assert lade_oss(datei, tag) is erwartet
+    assert lade_steuerangaben(datei, tag) == (erwartet, "DE")
+    assert lade_kontext(datei).oss_am(tag) is erwartet
+
+
+@pytest.mark.parametrize("wert", ['"ja"', '"nein"', '{"2026-Q1": "ja"}'])
+def test_oss_ja_nein_ist_ein_fehler(tmp_path, wert):
+    """``"ja"``/``"nein"`` sind kein Schalter: eine Meldung mit Feldpfad, statt dass
+    accounti still OSS annimmt (verhalten-4)."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text(f"mandant:\n  oss: {wert}\n", "utf-8")
+    tag = date(2026, 5, 1)
+    for lies in (
+        lambda: lade_oss(datei, tag),
+        lambda: lade_steuerangaben(datei, tag),
+        lambda: lade_kontext(datei),
+    ):
+        with pytest.raises(KonfigurationError, match="mandant.oss"):
+            lies()

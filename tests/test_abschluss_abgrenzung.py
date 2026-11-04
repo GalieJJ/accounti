@@ -475,3 +475,50 @@ def test_storno_paar_wird_nicht_abgegrenzt(make_session, bilanz):
     assert [(v.buchung_id, v.konto, v.art) for v in lauf.vorschlaege] == [
         (k.neu.id, "4380", AbgrenzungArt.ARAP)
     ]
+
+
+@pytest.mark.parametrize(
+    ("beginn", "tag_2026", "text_2026", "tag_2027", "text_2027"),
+    [
+        (
+            None,
+            date(2026, 12, 15),
+            "Versicherung 01.01.2027 - 31.12.2027",
+            date(2027, 12, 15),
+            "Versicherung 01.01.2028 - 31.12.2028",
+        ),
+        (
+            "07-01",  # WJ 2027: 01.07.2026–30.06.2027
+            date(2026, 6, 15),
+            "Versicherung 01.07.2026 - 30.06.2027",
+            date(2027, 6, 15),
+            "Versicherung 01.07.2027 - 30.06.2028",
+        ),
+    ],
+    ids=["kalenderjahr", "wj_juli"],
+)
+def test_rechnungsabgrenzung_nach_der_gewinnermittlung_des_wirtschaftsjahres(
+    make_session, tmp_path, beginn, tag_2026, text_2026, tag_2027, text_2027
+):
+    """Periodenwert ``abschluss.gewinnermittlung: {2026: euer, 2027: bilanz}``: im
+    ersten Bilanzjahr 2027 wird abgegrenzt, im EÜR-Jahr 2026 nicht — auch beim
+    abweichenden Wirtschaftsjahr, dessen WJ 2027 im Kalenderjahr 2026 beginnt."""
+    datei = tmp_path / "wechsel.yaml"
+    datev = f"datev:\n  wirtschaftsjahr_beginn: {beginn}\n" if beginn else ""
+    datei.write_text(
+        f"{datev}abschluss:\n  gewinnermittlung: {{2026: euer, 2027: bilanz}}\n",
+        encoding="utf-8",
+    )
+    einst = lade_abschluss(datei)
+    buche(make_session, tag_2026, "4360", "1200", "1200", text_2026)
+    buche(make_session, tag_2027, "4360", "1200", "1200", text_2027)
+    lauf_2026 = vorschlagen(make_session, einst, 2026)
+    assert lauf_2026.vorschlaege == []
+    assert any("§ 11 EStG" in h for h in lauf_2026.hinweise)
+    (v,) = vorschlagen(make_session, einst, 2027).vorschlaege
+    assert (v.art, v.konto, v.rap_konto, v.betrag) == (
+        AbgrenzungArt.ARAP,
+        "4360",
+        "0980",
+        D("1200.00"),
+    )

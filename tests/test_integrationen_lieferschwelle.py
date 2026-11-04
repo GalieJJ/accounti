@@ -115,3 +115,33 @@ def test_unter_der_schwelle_kein_befund(umgebung):
 
 def test_standard_ohne_sonstige_fernverkaeufe():
     assert Integrationen().eu_fernverkaeufe_sonstige == {}
+
+
+def test_oss_erst_ab_einem_spaeteren_quartal_zaehlt_die_lieferschwelle(tmp_path):
+    """``mandant.oss: {2026-Q1: false, 2027-Q1: true}`` (Periodenwert, Baustein 10c
+    P4): Nicht jedes Quartal hat OSS, die Fernverkäufe zählen also. Nach einem
+    Vorjahr über 10.000 € geht der erste FR-Verkauf im Januar 2026 zur Prüfung."""
+    engine, make = session_factory(f"sqlite:///{tmp_path / 'l.db'}")
+    init_db(engine)
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
+        buchhaltung=Buchhaltung(),
+        oss_roh={"2026-Q1": False, "2027-Q1": True},
+    )
+    archiv = BelegArchiv(tmp_path / "archiv")
+    with make() as s:
+        vorjahr = ebay_bericht(
+            ("10.12.2025", "Bestellung", "25-1", "Frankreich", "17850,00", "P25", ""),
+            ("15.12.2025", "Auszahlung", "", "", "-17850,00", "P25", "15.12.2025"),
+        )
+        importiere(s, archiv, kontext, "ebay", vorjahr, "2025.csv")
+        januar = ebay_bericht(
+            ("05.01.2026", "Bestellung", "26-1", "Frankreich", "119,00", "P26", ""),
+            ("08.01.2026", "Auszahlung", "", "", "-119,00", "P26", "08.01.2026"),
+        )
+        (ergebnis,) = importiere(s, archiv, kontext, "ebay", januar, "2026.csv")
+        befunde = [b for b in ergebnis.abrechnung.befunde if b.code == "lieferschwelle"]
+        (befund,) = befunde
+        assert "Vorjahr" in befund.text and "26-1" in befund.text
+        assert fr_buchung(s, "26-1").status is BuchungStatus.ZUR_PRUEFUNG
+    engine.dispose()
