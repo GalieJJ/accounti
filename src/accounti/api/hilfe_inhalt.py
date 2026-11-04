@@ -131,6 +131,35 @@ HILFE: dict[Hilfethema, Hilfe] = {
                 "abschalten."
             ),
         ),
+        (
+            Abschnitt(
+                "vorschlaege",
+                N_("Woher die Vorschläge kommen"),
+                (
+                    N_(
+                        "accounti kontiert neue Umsätze und Belege selbst. Wo es nicht "
+                        "sicher genug ist, bucht es nicht, sondern legt hier einen "
+                        "Vorschlag ab."
+                    ),
+                    N_("Neue Umsätze holt accounti bank abrufen von der Bank."),
+                ),
+            ),
+            Abschnitt(
+                "regeln",
+                N_("Wie accounti Regeln lernt"),
+                (
+                    N_(
+                        "Beim Korrigieren eines Vorschlags „Regel daraus machen“ "
+                        "wählen: accounti kontiert künftige Umsätze mit diesem Muster "
+                        "dann selbst so."
+                    ),
+                    N_(
+                        "Gelernte Regeln lassen sich nicht bearbeiten, nur deaktivieren "
+                        "und neu lernen."
+                    ),
+                ),
+            ),
+        ),
         tasten=TASTEN_PRUEFEN,
     ),
     Hilfethema.FREIGABEN: Hilfe(

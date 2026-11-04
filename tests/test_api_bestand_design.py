@@ -29,6 +29,7 @@ UMGESTELLT: list[str] = [
     "/anmelden",
     "/",
     "/freigaben",
+    "/pruefen",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs

@@ -85,6 +85,12 @@ Belege zur Prüfung: Documents to review
 Zahlungsläufe im Entwurf: Payment runs in draft
 Fällige offene Posten: Open items due
 Kennzahlen: Key figures
+Woher die Vorschläge kommen: Where the suggestions come from
+"accounti kontiert neue Umsätze und Belege selbst. Wo es nicht sicher genug ist, bucht es nicht, sondern legt hier einen Vorschlag ab.": "accounti assigns accounts to new transactions and documents itself. Where it is not certain enough, it does not book but leaves a suggestion here."
+Neue Umsätze holt accounti bank abrufen von der Bank.: accounti bank abrufen fetches new transactions from the bank.
+Wie accounti Regeln lernt: How accounti learns rules
+"Beim Korrigieren eines Vorschlags „Regel daraus machen“ wählen: accounti kontiert künftige Umsätze mit diesem Muster dann selbst so.": "When correcting a suggestion, choose “Make a rule from this”: accounti then assigns future transactions with this pattern the same way itself."
+Gelernte Regeln lassen sich nicht bearbeiten, nur deaktivieren und neu lernen.: Learned rules cannot be edited, only deactivated and learned again.
 Keine offenen Posten sind fällig.: No open items are due.
 Woher die offenen Posten kommen: Where open items come from
 "Offene Posten sind gebuchte Rechnungen, die noch nicht ganz bezahlt sind. In der Kommandozeile zeigt sie accounti opos liste; in der Übersicht stehen die fälligen.": "Open items are booked invoices that are not yet fully paid. On the command line, accounti opos liste shows them; the overview lists those that are due."

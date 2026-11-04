@@ -3,14 +3,9 @@
    Bis Schritt 12 von P1 ganz in der Übergangsebene „bestand“ (vor „komponenten“), auf
    die Token aus accounti.css umgeschrieben; danach entfällt die Datei. */
 @layer bestand {
-  .reiter { display: flex; gap: 1rem; margin: 0.5rem 0 1rem; flex-wrap: wrap; }
-  .reiter a[aria-current="page"] { font-weight: 600; text-decoration: none; }
-  .knopf { display: inline-block; padding: 0.4rem 0.8rem; border: 1px solid var(--akzent); text-decoration: none; }
-  .aktionen-kopf { display: flex; gap: 1rem; align-items: center; }
   .klein { font-size: var(--gr-3); }
   .gedaempft { color: var(--text-2); }
   .quelle { font-weight: 600; }
-  .queue td { vertical-align: top; }
   .queue-kopf { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin-bottom: 0.6rem; }
   .position { font-weight: 600; }
   .arbeitsflaeche-rahmen { width: 100%; }
@@ -42,7 +37,6 @@
   .tastenhilfe dl div { display: grid; grid-template-columns: 10rem 1fr; }
   .inline { display: flex; gap: 0.4rem; align-items: center; }
   .unsichtbar { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
-  .seiten { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
   .kette { padding-left: 1.2rem; }
   @media not all and (min-width: 64rem) {
     .flaeche { grid-template-columns: 1fr; }

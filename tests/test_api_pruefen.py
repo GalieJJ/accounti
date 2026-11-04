@@ -571,7 +571,9 @@ def test_zurueckstellen_und_ansicht_zurueckgestellt(qw):
         == f"/pruefen/{zweite.id}?ansicht=offen&erledigt=zurueckgestellt"
     )
     offen = client.get("/pruefen").text
-    assert "Zurückgestellt (1)" in offen and f"/pruefen/{erste.id}" not in offen
+    # umgestellt (Plan P1, Schritt 12): die Anzahl steht im Reiter als eigene Zahl
+    assert 'Zurückgestellt <span class="reiter-anzahl">1</span>' in offen
+    assert f"/pruefen/{erste.id}" not in offen
     zurueck = client.get("/pruefen?ansicht=zurueckgestellt").text
     assert f"/pruefen/{erste.id}?ansicht=zurueckgestellt" in zurueck
     seite = client.get(f"/pruefen/{erste.id}?ansicht=zurueckgestellt").text

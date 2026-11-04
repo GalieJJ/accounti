@@ -432,6 +432,9 @@ body.geruest{padding-bottom:0}
 /* Formulare der Seiten: Felder untereinander (Anmeldung, Freigaben, Buchung) */
 .formular{display:flex;flex-direction:column;gap:var(--a-4)}
 @media not all and (min-width: 40rem) { .freigabe .knopf { width: 100%; } }
+.neben{font-size:var(--gr-3);color:var(--text-2)}
+.hauptzeile{font-weight:600}
+.liste-kopf{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--a-3)}
 /* Musterseite /muster (L9) */
 .muster{display:flex;flex-direction:column;gap:var(--a-5)}
 .muster-kopf{display:flex;flex-direction:column;gap:var(--a-1);max-width:56.25rem}
