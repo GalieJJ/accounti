@@ -98,6 +98,9 @@ Freigaben: Approvals
 Freigeben: Approve
 Nr.: No.
 Ausführung: Execution
+Zahlungslauf %(nr)s: Payment run %(nr)s
+Monat (2026-09) oder Quartal (2026-Q3): Month (2026-09) or quarter (2026-Q3)
+Ergebnis der Freigabe: Approval result
 Zahlungen: Payments
 Summe: Total
 Angelegt von: Created by

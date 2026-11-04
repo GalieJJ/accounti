@@ -1,67 +1,43 @@
+{#- Freigaben (Plan P1, Schritt 12, Optik von „Handy-Freigaben“): je Zahlungslauf eine
+    Karte mit Summe, Angaben, Zahlungstabelle und Formular mit Codefeld; die USt-VA mit
+    Zeitraum und Codefeld. Aufklapper und Werte der USt-VA bringt P2 (A126). -#}
 {% extends "basis.html" %}
 {% block titel %}{{ _("Freigaben") }}{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Freigaben") }}</h1>
-<section>
-  <h2>{{ _("Zahlungsläufe im Entwurf") }}</h2>
-  {% if laeufe %}
-  <table class="liste">
-    <thead><tr><th>{{ _("Nr.") }}</th><th>{{ _("Ausführung") }}</th><th class="zahl">{{ _("Zahlungen") }}</th><th class="zahl">{{ _("Summe") }} (EUR)</th><th>{{ _("Angelegt von") }}</th><th></th></tr></thead>
-    <tbody>
-    {% for lauf in laeufe %}
-      <tr>
-        <td>{{ lauf.nr }}</td>
-        <td>{{ lauf.ausfuehrung | datum }}</td>
-        <td class="zahl">{{ lauf.zahlungen | length }}</td>
-        <td class="zahl">{{ lauf.summe | betrag }}</td>
-        <td>{{ lauf.erstellt_von }}</td>
-        <td>
-          {% if darf_zahlung %}
-          <form method="post" action="/freigaben/zahlungslauf/{{ lauf.nr }}" class="freigabe">
-            <input type="hidden" name="csrf" value="{{ csrf }}">
-            <input type="hidden" name="freigabe_hash" value="{{ inhalt[lauf.nr] }}">
-            {% if mit_einmalcode %}<input name="einmalcode" autocomplete="one-time-code" placeholder="{{ _('Einmalcode') }}" required aria-label="{{ _('Einmalcode') }}">{% endif %}
-            <button type="submit">{{ _("Freigeben") }}</button>
-          </form>
-          {% endif %}
-        </td>
-      </tr>
-      <tr class="zahlungen">
-        <td></td>
-        <td colspan="5">
-          <table class="liste">
-            <caption>{{ _("Zahlungen in Lauf %(nr)s — freigegeben wird genau dieser Inhalt", nr=lauf.nr) }}</caption>
-            <thead><tr><th>{{ _("Empfänger") }}</th><th>IBAN</th><th class="zahl">{{ _("Betrag") }} (EUR)</th><th>{{ _("Verwendungszweck") }}</th></tr></thead>
-            <tbody>
-            {% for z in lauf.zahlungen %}
-              <tr>
-                <td>{{ z.empfaenger }}</td>
-                <td class="iban">{{ z.iban | iban }}</td>
-                <td class="zahl">{{ z.betrag | betrag }}</td>
-                <td>{{ z.verwendungszweck }}</td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p>{{ _("Kein Zahlungslauf wartet auf Freigabe.") }}</p>
-  {% endif %}
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Freigaben") }}</h1></div>
+<section class="abschnitt" aria-labelledby="laeufe-titel">
+<h2 class="etikett" id="laeufe-titel">{{ _("Zahlungsläufe im Entwurf") }}</h2>
+{% for lauf in laeufe %}
+{% call k.karte(_("Zahlungslauf %(nr)s", nr=lauf.nr), summe=lauf.summe, ebene=3) %}
+{% call k.angaben() %}{% call k.angabe(_("Ausführung")) %}{{ lauf.ausfuehrung | datum }}{% endcall %}{% call k.angabe(_("Zahlungen")) %}{{ lauf.zahlungen | length }}{% endcall %}{% call k.angabe(_("Angelegt von")) %}{{ lauf.erstellt_von }}{% endcall %}{% endcall %}
+{% call k.tabelle(_("Zahlungen in Lauf %(nr)s — freigegeben wird genau dieser Inhalt", nr=lauf.nr), [Spalte(_("Empfänger")), Spalte("IBAN"), Spalte(_("Betrag"), zahl=true), Spalte(_("Verwendungszweck"))], in_karte=true) %}
+{% for z in lauf.zahlungen %}{% call k.zeile() %}{% call k.zelle(_("Empfänger")) %}{{ z.empfaenger }}{% endcall %}{% call k.zelle("IBAN") %}<span class="iban">{{ z.iban | iban }}</span>{% endcall %}{% call k.zelle(_("Betrag"), zahl=true) %}{{ k.betrag(z.betrag) }}{% endcall %}{% call k.zelle(_("Verwendungszweck")) %}{{ z.verwendungszweck }}{% endcall %}{% endcall %}{% endfor %}
+{% endcall %}
+{% if darf_zahlung %}
+<form method="post" action="/freigaben/zahlungslauf/{{ lauf.nr }}" class="formular freigabe">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="freigabe_hash" value="{{ inhalt[lauf.nr] }}">
+  {% if mit_einmalcode %}{{ k.codefeld(code_variante, wechsel_href=code_wechsel, id="einmalcode-lauf-" ~ lauf.nr, attribute={"required": true}) }}{% endif %}
+  <div class="knopfreihe">{{ k.knopf(_("Freigeben")) }}</div>
+</form>
+{% endif %}
+{% endcall %}
+{% else %}
+{{ k.leer(_("Kein Zahlungslauf wartet auf Freigabe."), aktion_text=_("So entsteht ein Zahlungslauf"), aktion_href="/hilfe/freigaben#zahlungslauf") }}
+{% endfor %}
 </section>
 {% if darf_steuer %}
-<section>
-  <h2>{{ _("Umsatzsteuer-Voranmeldung") }}</h2>
-  <form method="post" action="/freigaben/ustva" class="freigabe">
-    <input type="hidden" name="csrf" value="{{ csrf }}">
-    <label for="zeitraum">{{ _("Zeitraum") }}</label>
-    <input id="zeitraum" name="zeitraum" placeholder="2026-09 / 2026-Q3" required>
-    {% if mit_einmalcode %}<input name="einmalcode" autocomplete="one-time-code" placeholder="{{ _('Einmalcode') }}" required aria-label="{{ _('Einmalcode') }}">{% endif %}
-    <button type="submit">{{ _("Werte freigeben") }}</button>
-  </form>
+<section class="abschnitt" aria-labelledby="ustva-titel">
+<h2 class="etikett" id="ustva-titel">{{ _("Umsatzsteuer-Voranmeldung") }}</h2>
+<form method="post" action="/freigaben/ustva" class="formular freigabe">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {{ k.feld("zeitraum", _("Zeitraum"), hilfe=_("Monat (2026-09) oder Quartal (2026-Q3)"), breite="mittel", attribute={"required": true}) }}
+  {% if mit_einmalcode %}{{ k.codefeld(code_variante, wechsel_href=code_wechsel, id="einmalcode-ustva", attribute={"required": true}) }}{% endif %}
+  <div class="knopfreihe">{{ k.knopf(_("Werte freigeben")) }}</div>
+</form>
 </section>
 {% endif %}
+</div>
 {% endblock %}

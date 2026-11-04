@@ -24,7 +24,12 @@ from starlette.concurrency import run_in_threadpool
 
 from accounti.anzeige import betrag_de
 from accounti.api.dienste import Dienste
-from accounti.api.einmalcode import bestaetige_einmalcode, freigabesperre
+from accounti.api.einmalcode import (
+    bestaetige_einmalcode,
+    code_variante,
+    code_wechsel,
+    freigabesperre,
+)
 from accounti.api.formular import formular
 from accounti.api.registry import Bereich, Navigationspunkt
 from accounti.api.sitzung import (
@@ -41,6 +46,7 @@ from accounti.models.zahlung import LaufStatus, Zahlungslauf
 from accounti.pruefung.person import geprueft_als
 
 router = APIRouter()
+ERGEBNIS = N_("Ergebnis der Freigabe")  # Titel der Seite nach einer Freigabe
 
 
 def laeufe_im_entwurf(s: Session) -> int:
@@ -67,9 +73,11 @@ async def uebersicht(
     request: Request,
     a: Annotated[Angemeldet, Depends(erfordert(Recht.LESEN))],
     s: Annotated[Session, Depends(gesellschaft_db)],
+    code: str | None = None,
 ) -> HTMLResponse:
     from accounti.zahlung.freigabe import freigabe_hash
 
+    variante = code_variante(code)
     laeufe: list[Zahlungslauf] = await run_in_threadpool(
         lade_laeufe, s, [LaufStatus.ENTWURF]
     )
@@ -83,6 +91,8 @@ async def uebersicht(
             "darf_zahlung": a.darf(Recht.ZAHLUNG_FREIGEBEN),
             "darf_steuer": a.darf(Recht.STEUER_FREIGEBEN),
             "mit_einmalcode": dienste_von(request).auth.einmalcode_bestaetigung,
+            "code_variante": variante,
+            "code_wechsel": code_wechsel("/freigaben", variante),
         },
     )
 
@@ -209,7 +219,9 @@ async def zahlungslauf_freigeben(
 
     text = await run_in_threadpool(abschliessen)
     return await seite(
-        request, "meldung.html", {"meldung": text, "zurueck": "/freigaben"}
+        request,
+        "meldung.html",
+        {"titel": ERGEBNIS, "ergebnis": text, "zurueck": "/freigaben"},
     )
 
 
@@ -282,7 +294,8 @@ def _ustva_freigeben(
     else:
         s.commit()
     return {
-        "meldung": Text(
+        "titel": ERGEBNIS,
+        "ergebnis": Text(
             "Umsatzsteuer-Voranmeldung %(zeitraum)s freigegeben von %(person)s — "
             "Kz 83 %(kz83)s €.",
             zeitraum=str(zeitraum),

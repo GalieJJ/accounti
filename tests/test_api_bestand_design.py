@@ -28,6 +28,7 @@ from tests.pruefen_hilfe import queuewelt, stand_aus
 UMGESTELLT: list[str] = [
     "/anmelden",
     "/",
+    "/freigaben",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
@@ -404,3 +405,29 @@ def test_hilfe_hat_die_sprungziele_der_leeren_zustaende(leer):
     for ziel in sorted(set(re.findall(r'href="(/hilfe/[a-z]+)#([a-z-]+)"', texte))):
         hilfe = leer.get(ziel[0]).text
         assert f'id="{ziel[1]}"' in hilfe, ziel
+
+
+def test_ergebnis_einer_freigabe_mit_h1_und_hinweis(tmp_path, monkeypatch):
+    """B8: die Seite nach einer Freigabe (``meldung.html``) hat ein ``h1``, die Meldung
+    als neuen Hinweis (``role="status"``) und den Weg zurück."""
+    if "/freigaben" not in UMGESTELLT:
+        pytest.skip("Freigaben noch nicht umgestellt")
+    from tests.api_hilfe import freigabe_hash
+    from tests.gesellschaft_hilfe import zahlungslauf
+
+    billige_hashes(monkeypatch)
+    w = webwelt(tmp_path)
+    w.person("fritz", Rolle.FREIGEBER)
+    zahlungslauf(w.umgebung, "a")
+    client = w.angemeldet("fritz")
+    daten = {
+        "csrf": csrf(client),
+        "einmalcode": w.personen["fritz"].codes[0],
+        "freigabe_hash": freigabe_hash(client, 1),
+    }
+    r = client.post("/freigaben/zahlungslauf/1", data=daten)
+    assert r.status_code == 200, r.text
+    assert r.text.count("<h1") == 1 and "<h1>Ergebnis der Freigabe</h1>" in r.text
+    assert '<div class="hinweis hinweis-ok" role="status">' in r.text
+    assert "Zahlungslauf 1 freigegeben von fritz" in r.text
+    assert '<a href="/freigaben">Zurück</a>' in r.text

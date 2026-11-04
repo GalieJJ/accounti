@@ -90,6 +90,7 @@
 <div class="layout-karten">
 {% call k.karte(_("Prüfen"), anzahl=12, status=("warn", _("3 unsicher")), hauptaktion=(_("Durcharbeiten"), "#" ~ v ~ "-weitere", "primaer"), ebene=4) %}<ul class="karte-liste"><li><span>Telekom</span>{{ k.betrag(beispiel.telefon) }}</li><li><span>{{ _("Bürobedarf") }}</span>{{ k.betrag(beispiel.buero) }}</li></ul>{% endcall %}
 {% call k.karte(_("Offene Posten"), kennzahl=("4", _("Rechnungen offen")), hauptaktion=(_("Alle ansehen"), "#" ~ v ~ "-weitere", "link"), ebene=4) %}{% endcall %}
+{% call k.karte(_("Zahlungslauf %(nr)s", nr=3), summe=beispiel.summe, ebene=4) %}<p>{{ _("Ausführung") }}: 05.11.2026</p>{% endcall %}
 </div>
 {{ k.reiter(_("Ansicht"), [("offen", _("Offen"), "#" ~ v ~ "-weitere", 12), ("zurueck", _("Zurückgestellt"), "#" ~ v ~ "-weitere", 2), ("regeln", _("Gelernte Regeln"), "#" ~ v ~ "-weitere")], "offen") }}
 {{ k.reiter(_("Ansicht auf dem Handy"), [("vorschlag", _("Vorschlag"), "#" ~ v ~ "-weitere"), ("beleg", _("Beleg"), "#" ~ v ~ "-weitere")], "vorschlag", geteilt=true) }}

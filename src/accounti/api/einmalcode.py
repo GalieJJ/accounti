@@ -10,6 +10,7 @@ der Anmeldung.
 from __future__ import annotations
 
 import threading
+from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
@@ -59,3 +60,17 @@ def bestaetige_einmalcode(dienste: Dienste, a: Angemeldet, einmalcode: str) -> N
         except (AuthError, TresorError) as fehler:
             raise HTTPException(403, str(fehler)) from fehler
         s.commit()
+
+
+def code_variante(code: str | None) -> str:
+    """``?code=wiederherstellung`` schaltet die Codefelder einer Seite auf den
+    Wiederherstellungscode (Text); jeder andere Wert wird ignoriert (A109)."""
+    return "wiederherstellung" if code == "wiederherstellung" else "app"
+
+
+def code_wechsel(pfad: str, variante: str, **abfrage: str) -> str:
+    """Link „Wiederherstellungscode verwenden“ bzw. zurück „Code aus der App
+    verwenden“ auf dieselbe Seite (ohne Skript); ``abfrage`` (``weiter``) bleibt."""
+    if variante == "app":
+        abfrage = {**abfrage, "code": "wiederherstellung"}
+    return f"{pfad}?{urlencode(abfrage)}" if abfrage else pfad

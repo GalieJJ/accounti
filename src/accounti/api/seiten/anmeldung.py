@@ -12,13 +12,13 @@ import hmac
 import math
 import secrets
 import time
-from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from accounti.api.dienste import Dienste
+from accounti.api.einmalcode import code_variante, code_wechsel
 from accounti.api.formular import formular
 from accounti.api.sitzung import AngemeldetDep, cookie_name, dienste_von
 from accounti.api.vorlagen import seite
@@ -53,20 +53,6 @@ def sicheres_ziel(weiter: str | None) -> str:
     ):
         return "/"
     return weiter
-
-
-def code_variante(code: str | None) -> str:
-    """``?code=wiederherstellung`` schaltet die Codefelder einer Seite auf den
-    Wiederherstellungscode (Text); jeder andere Wert wird ignoriert (A109)."""
-    return "wiederherstellung" if code == "wiederherstellung" else "app"
-
-
-def code_wechsel(pfad: str, variante: str, **abfrage: str) -> str:
-    """Link „Wiederherstellungscode verwenden“ bzw. zurück „Code aus der App
-    verwenden“ auf dieselbe Seite (ohne Skript); ``abfrage`` (``weiter``) bleibt."""
-    if variante == "app":
-        abfrage = {**abfrage, "code": "wiederherstellung"}
-    return f"{pfad}?{urlencode(abfrage)}" if abfrage else pfad
 
 
 async def _formular(

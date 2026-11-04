@@ -72,15 +72,17 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 
 {%- macro _symbol_von_leer(name, groesse) -%}{{ symbol(name, groesse=groesse) }}{%- endmacro -%}
 
-{#- Karte (Aufruf): Titel mit Anzahl, rechts die Status-Pille, darunter Kennzahl und Inhalt,
-    unten die Hauptaktion als Link oder Knopf. status = (art, wort), hauptaktion = (text,
-    href, art) mit art link, primaer oder sekundaer; kennzahl = (zahl, satz). -#}
-{% macro karte(titel, anzahl=none, status=none, hauptaktion=none, kennzahl=none, ebene=2) -%}
+{#- Karte (Aufruf): Titel mit Anzahl, rechts die Status-Pille oder eine Summe (Betrag
+    20 px, Handy-Freigaben), darunter Kennzahl und Inhalt, unten die Hauptaktion als
+    Link oder Knopf. status = (art, wort), hauptaktion = (text, href, art) mit art link,
+    primaer oder sekundaer; kennzahl = (zahl, satz). -#}
+{% macro karte(titel, anzahl=none, status=none, hauptaktion=none, kennzahl=none, ebene=2, summe=none) -%}
 {%- set h = {2: "h2", 3: "h3", 4: "h4"}[ebene] -%}
-<section class="karte"><div class="karte-kopf"><{{ h }} class="karte-titel">{{ titel }}{% if anzahl is not none %} <span class="karte-anzahl">{{ anzahl }}</span>{% endif %}</{{ h }}>{% if status %}{{ _status_von_karte(status) }}{% endif %}</div>{% if kennzahl %}<p class="kennzahl"><span class="kennzahl-wert">{{ kennzahl[0] }}</span> <span class="kennzahl-satz">{{ kennzahl[1] }}</span></p>{% endif %}{{ caller() if caller else "" }}{% if hauptaktion %}<div class="karte-fuss">{% if hauptaktion[2] == "link" %}<a class="karte-aktion" href="{{ hauptaktion[1] }}">{{ hauptaktion[0] }}</a>{% else %}{{ linkknopf(hauptaktion[0], hauptaktion[1], art={"primaer": "primaer", "sekundaer": "sekundaer"}[hauptaktion[2]]) }}{% endif %}</div>{% endif %}</section>
+<section class="karte"><div class="karte-kopf"><{{ h }} class="karte-titel">{{ titel }}{% if anzahl is not none %} <span class="karte-anzahl">{{ anzahl }}</span>{% endif %}</{{ h }}>{% if status %}{{ _status_von_karte(status) }}{% endif %}{% if summe is not none %}{{ _summe_von_karte(summe) }}{% endif %}</div>{% if kennzahl %}<p class="kennzahl"><span class="kennzahl-wert">{{ kennzahl[0] }}</span> <span class="kennzahl-satz">{{ kennzahl[1] }}</span></p>{% endif %}{{ caller() if caller else "" }}{% if hauptaktion %}<div class="karte-fuss">{% if hauptaktion[2] == "link" %}<a class="karte-aktion" href="{{ hauptaktion[1] }}">{{ hauptaktion[0] }}</a>{% else %}{{ linkknopf(hauptaktion[0], hauptaktion[1], art={"primaer": "primaer", "sekundaer": "sekundaer"}[hauptaktion[2]]) }}{% endif %}</div>{% endif %}</section>
 {%- endmacro %}
 
 {%- macro _status_von_karte(paar) -%}{{ status(paar[0], paar[1]) }}{%- endmacro -%}
+{%- macro _summe_von_karte(wert) -%}{{ betrag(wert, groesse="mittel") }}{%- endmacro -%}
 
 {#- Aufklapper (Aufruf) als details/summary: art "linie" (Linie oben, Markierung des
     Browsers) oder "karte" (eigener Chevron, „aufklappen“/„zuklappen“ wechselt per CSS). -#}
