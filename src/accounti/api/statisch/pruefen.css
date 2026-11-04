@@ -17,7 +17,6 @@
   .hinweis { padding: 0.5rem; border-left: 4px solid var(--akzent); background: var(--flaeche-2); }
   .sperre { border-left-color: var(--fehler); }
   .markiert { outline: 2px solid var(--fehler); }
-  .inline { display: flex; gap: 0.4rem; align-items: center; }
   .kette { padding-left: 1.2rem; }
   @media not all and (min-width: 64rem) {
     .flaeche { grid-template-columns: 1fr; }

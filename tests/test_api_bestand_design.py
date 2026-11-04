@@ -31,6 +31,7 @@ UMGESTELLT: list[str] = [
     "/freigaben",
     "/pruefen",
     "/pruefen/{buchung_id:uuid}",
+    "/pruefen/regeln",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
