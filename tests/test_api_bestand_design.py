@@ -25,7 +25,9 @@ from tests.browserprobe_welt import baue
 from tests.pruefen_hilfe import queuewelt, stand_aus
 
 # Seiten im neuen Design (Routenvorlagen); Reihenfolge wie in Schritt 12
-UMGESTELLT: list[str] = []
+UMGESTELLT: list[str] = [
+    "/anmelden",
+]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
 CODESEITEN = {"/anmelden", "/freigaben", "/buchungen/{buchung_id:uuid}"}

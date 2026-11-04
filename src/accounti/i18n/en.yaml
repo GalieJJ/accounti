@@ -19,7 +19,6 @@ Anmelden: Sign in
 Anmeldung fehlgeschlagen.: Sign-in failed.
 Benutzer: User
 Passwort: Password
-Einmalcode aus der App oder Wiederherstellungscode: One-time code from the app or recovery code
 Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — please submit it again.
 Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
 "Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
