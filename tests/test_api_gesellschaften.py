@@ -295,6 +295,51 @@ def test_fehlende_datenbankdatei_wird_nicht_angelegt(welt):
     assert not datei.exists()
 
 
+@pytest.mark.parametrize("fall", ["keine_sqlite_datei", "tabellen_fehlen"])
+def test_kaputte_datenbank_ist_nicht_erreichbar(welt, fall):
+    """P1 Runde 2 (gp1-sicherheit N2): Ist die Datei keine SQLite-Datenbank oder fehlen
+    die Tabellen, scheiterte jeder Zähler einzeln — die Zeile zeigte still nichts.
+    Scheitern alle Zähler einer Gesellschaft, gilt sie als „nicht erreichbar“."""
+    import sqlite3
+    from pathlib import Path
+
+    datei = Path(welt.umgebung.db["b"].removeprefix("sqlite:///"))
+    if fall == "keine_sqlite_datei":
+        datei.write_bytes(b"kaputt" * 1000)
+    else:
+        v = sqlite3.connect(datei)
+        v.execute("DROP TABLE buchungssaetze")
+        v.execute("DROP TABLE zahlungslaeufe")
+        v.commit()
+        v.close()
+    zeilen = _zeilen(welt.angemeldet("jan").get("/gesellschaft").text)
+    assert "nicht erreichbar" in zeilen["b"], zeilen["b"]
+    assert "nicht erreichbar" not in zeilen["a"] and "0 zu prüfen" in zeilen["a"]
+
+
+@pytest.mark.parametrize("pfad", ["/gesellschaft", "/menue"])
+def test_aktive_gesellschaft_nur_einmal_gezaehlt(welt, monkeypatch, pfad):
+    """P1 Runde 2 (gp1-sicherheit N1): /gesellschaft und /menue zählten die aktive
+    Gesellschaft zweimal nacheinander (Liste, dann Navigation) — gesperrt hieß das zwei
+    Fristen (4–6 s). Die Navigation übernimmt jetzt die Zahlen der Liste: jede
+    Datenbank wird je Seite einmal gefragt, die Seite wartet höchstens eine Frist."""
+    from accounti.api import geruest
+
+    echte = geruest.zaehle
+    gefragt: list[str] = []
+
+    async def zaehlt(lesezugriff, url, funktionen, frist=None):  # noqa: ANN001, ANN202
+        gefragt.append(url)
+        return await echte(lesezugriff, url, funktionen, frist)
+
+    monkeypatch.setattr(geruest, "zaehle", zaehlt)
+    _vorschlaege(welt, "a", 2)
+    r = welt.angemeldet("jan").get(pfad)
+    assert r.status_code == 200
+    assert sorted(gefragt) == sorted(welt.umgebung.db[k] for k in ("a", "b")), gefragt
+    assert '<span class="zaehler zaehler-betont">2<' in r.text  # Navigation wie bisher
+
+
 def test_gesellschaft_fragment_mit_hx_request(welt):
     jan = welt.angemeldet("jan")
     teil = jan.get("/gesellschaft", headers={"HX-Request": "true"})

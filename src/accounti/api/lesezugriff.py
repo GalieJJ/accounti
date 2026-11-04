@@ -150,9 +150,11 @@ async def zaehle(
 ) -> dict[str, int] | None:
     """Alle ``funktionen`` mit **einer** Sitzung in **einem** Aufruf des Pools.
     ``None``: Datenbank nicht erreichbar oder Frist abgelaufen (Standard ``FRIST``);
-    ein einzelner Zähler, der scheitert, fehlt nur im Ergebnis."""
+    ein einzelner Zähler, der scheitert, fehlt nur im Ergebnis. Scheitern **alle**
+    (keine SQLite-Datei, Tabellen fehlen), gilt die Datenbank als nicht erreichbar
+    (P1 Runde 2)."""
 
-    def lauf() -> dict[str, int]:
+    def lauf() -> dict[str, int] | None:
         ergebnis: dict[str, int] = {}
         with lesezugriff.sitzung(url) as s:
             for name, funktion in funktionen.items():
@@ -163,7 +165,7 @@ async def zaehle(
                         "Zähler %s nicht verfügbar (%s)", name, type(fehler).__name__
                     )
                     s.rollback()
-        return ergebnis
+        return ergebnis if ergebnis or not funktionen else None
 
     try:
         return await asyncio.wait_for(

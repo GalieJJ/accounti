@@ -272,12 +272,19 @@ def _aktiver_bereich(
     return treffer.bereich if treffer is not None else None
 
 
+# request.state: Zahlen der aktiven Gesellschaft aus gesellschaften_mit_zaehlern
+# (/gesellschaft, /menue) — die Navigation fragt nicht ein zweites Mal (P1 Runde 2)
+ZAHLEN_AKTIV = "zahlen_der_aktiven_gesellschaft"
+
+
 async def geruest(
     request: Request, a: Angemeldet | None, *, zaehler: bool = True
 ) -> Geruest:
     """Alles, was ``basis.html`` braucht. Zähler nur mit ``zaehler`` (ganze Seiten mit
     Status < 400, ``seite()`` entscheidet) — in **einem** Aufruf des Lesezugriffs mit
-    **einer** Sitzung der aktiven Gesellschaft; fehlt eine Zahl, fehlt nur sie."""
+    **einer** Sitzung der aktiven Gesellschaft; fehlt eine Zahl, fehlt nur sie. Hat die
+    Seite die Gesellschaften schon gezählt (``gesellschaften_mit_zaehlern``), nimmt die
+    Navigation deren Zahlen der aktiven Gesellschaft — höchstens eine Frist je Seite."""
     pfad = request.url.path
     if a is None:
         return Geruest(hilfe_pfad=hilfe_pfad(None, pfad))
@@ -287,7 +294,12 @@ async def geruest(
     funktionen = zaehlfunktionen(punkte, a.rechte)
     lesezugriff = getattr(request.app.state, "lesezugriff", None)
     if zaehler and funktionen and lesezugriff is not None:
-        zahlen = await zaehle(lesezugriff, a.gesellschaft.datenbank, funktionen) or {}
+        if hasattr(request.state, ZAHLEN_AKTIV):
+            zahlen = getattr(request.state, ZAHLEN_AKTIV) or {}
+        else:
+            zahlen = (
+                await zaehle(lesezugriff, a.gesellschaft.datenbank, funktionen) or {}
+            )
     bereiche, einstellungen, unten = navigation_des_geruests(
         punkte, a.rechte, pfad, zahlen
     )
@@ -346,7 +358,10 @@ async def gesellschaften_mit_zaehlern(
     rechte = await run_in_threadpool(rechte_lesen)
     alle = marken(dienste.gesellschaften)
 
+    aktiv: dict[str, int] | None = None
+
     async def zeile(g: Gesellschaft) -> GesellschaftsZeile:
+        nonlocal aktiv
         funktionen = zaehlfunktionen(punkte, rechte[g.kuerzel])
         zahlen: dict[str, int] | None
         try:
@@ -354,6 +369,8 @@ async def gesellschaften_mit_zaehlern(
         except Exception as fehler:  # noqa: BLE001 - die Seite bleibt, nur die Zahlen fehlen
             FEHLER.warning("Zähler nicht verfügbar (%s)", type(fehler).__name__)
             zahlen = None
+        if g.kuerzel == a.gesellschaft.kuerzel:
+            aktiv = zahlen
         return GesellschaftsZeile(
             gesellschaft=g,
             marke=alle[g.kuerzel],
@@ -363,4 +380,6 @@ async def gesellschaften_mit_zaehlern(
             aktiv=g.kuerzel == a.gesellschaft.kuerzel,
         )
 
-    return list(await asyncio.gather(*(zeile(g) for g in a.gesellschaften)))
+    zeilen = list(await asyncio.gather(*(zeile(g) for g in a.gesellschaften)))
+    setattr(request.state, ZAHLEN_AKTIV, aktiv)
+    return zeilen
