@@ -72,8 +72,12 @@ kill %1                                              # Welt beenden
   `--breiten 1920,1440,1280,1024,390,320` (axe läuft bei jeder Breite außer 320 px).
 - `--ablaeufe` misst außerdem AK8 im Hochformat (794 px) hell und dunkel und den
   Rückweg nach einer htmx-Freigabe (Fokus auf der neuen Überschrift; „Übernehmen“ und
-  der Kürzel-Schalter bleiben auf der neuen Buchung). Die Abläufe geben Vorschläge frei:
-  je Lauf eine frische Welt.
+  der Kürzel-Schalter bleiben auf der neuen Buchung). Seit Runde 3 prüft AK8 auch, dass
+  auf dem Papier keine Tabelle breiter ist als ihr Rahmen, die Zellen Abstand haben und
+  Beträge rechtsbündig stehen. Der Rückweg prüft zusätzlich „Übernehmen“ auf einer Seite
+  unter einem POST-Pfad (422 beim Deaktivieren einer Regel): Er muss auf `/pruefen/regeln`
+  führen, nicht auf ein GET mit 405. Die Abläufe geben Vorschläge frei: je Lauf eine
+  frische Welt.
 
 Der Rückgabewert ist 1, sobald eine Messung einen Befund hat. Die Zusammenfassung
 gehört in den PR.

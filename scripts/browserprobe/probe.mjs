@@ -572,10 +572,19 @@ async function ak8(browser, welt, stand, pfad, breite = 1440, schema = 'light') 
     const kopf = [...document.querySelectorAll('main table thead')].map((t) => `${getComputedStyle(t).display} ${Math.round(t.getBoundingClientRect().height)}`);
     const farben = [...document.querySelectorAll('main .karte, main .tabelle-rahmen, main td, main a, main h1, main p')].map((e) => getComputedStyle(e)).flatMap((c) => [c.color, c.backgroundColor]);
     const fremd = [...new Set(farben)].filter((f) => !['rgb(0, 0, 0)', 'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'].includes(f));
-    return { navigation: zu('.kopfleiste, .seitenleiste, .untere-leiste, main nav'), knoepfe: zu('button, .knopf'), druckkopf: getComputedStyle(document.querySelector('.druckkopf')).display, h1: h1 ? Math.round(h1.getBoundingClientRect().height) : 0, kopf, fremd };
+    // Runde 3 (gp1-2-design N-2): auf dem Papier scrollt kein Rahmen — keine Tabelle
+    // breiter als ihr Rahmen, Zellen mit waagrechtem Abstand, Beträge rechtsbündig
+    const tabellen = [...document.querySelectorAll('main .tabelle-rahmen')].filter((r) => r.getBoundingClientRect().height > 0).map((r) => {
+      const td = r.querySelector('tbody td');
+      const zahl = r.querySelector('tbody td.zahl');
+      const c = td ? getComputedStyle(td) : null;
+      return { breiter: r.scrollWidth > r.clientWidth + 1, abstand: c ? parseFloat(c.paddingLeft) + parseFloat(c.paddingRight) : 99, zahl: zahl ? getComputedStyle(zahl).textAlign : 'right' };
+    });
+    return { navigation: zu('.kopfleiste, .seitenleiste, .untere-leiste, main nav'), knoepfe: zu('button, .knopf'), druckkopf: getComputedStyle(document.querySelector('.druckkopf')).display, h1: h1 ? Math.round(h1.getBoundingClientRect().height) : 0, kopf, fremd, tabellen };
   });
   await kontext.close();
-  const ok = w.navigation === 0 && w.knoepfe === 0 && w.druckkopf !== 'none' && w.h1 > 1 && w.kopf.every((k) => /^table-header-group [1-9]/.test(k)) && w.fremd.length === 0;
+  const papier = w.tabellen.every((t) => !t.breiter && t.abstand >= 4 && ['right', 'end'].includes(t.zahl));
+  const ok = w.navigation === 0 && w.knoepfe === 0 && w.druckkopf !== 'none' && w.h1 > 1 && w.kopf.every((k) => /^table-header-group [1-9]/.test(k)) && w.fremd.length === 0 && papier;
   return { ok, pfad, breite, schema, ...w };
 }
 
@@ -682,6 +691,19 @@ async function rueckweg(browser, welt, name) {
   await seite.locator('form.tasten-schalter button[type=submit]').click();
   await seite.waitForLoadState('load');
   befunde.push({ name: 'Tastenkürzel-Schalter bleibt auf der Buchung', ok: seite.url() === nachher, wert: { erwartet: nachher, ist: seite.url() } });
+  // Runde 3 (gp1-2 N-1, gw-web N4): eine Seite als Antwort auf ein POST steht unter dem
+  // Pfad des POST — „Übernehmen“ führt auf die Seite darüber, nicht auf ein GET mit 405
+  await seite.goto(`${welt.basis}/pruefen/regeln`);
+  const regel = seite.locator('form[action$="/deaktivieren"]').first();
+  if (await regel.count()) {
+    await regel.evaluate((f) => { f.noValidate = true; });
+    await Promise.all([seite.waitForNavigation(), regel.locator('button[type=submit]').click()]);
+    const unter = new URL(seite.url()).pathname;
+    await seite.locator('summary.benutzermenue-ausloeser').click();
+    const [antwort] = await Promise.all([seite.waitForNavigation(), seite.locator('form.benutzermenue-wahl button[type=submit]').click()]);
+    const ist = new URL(seite.url()).pathname;
+    befunde.push({ name: 'Übernehmen nach einer Seite unter POST-Pfad', ok: ist === '/pruefen/regeln' && antwort?.status() === 200, wert: { unter, ist, status: antwort?.status() } });
+  }
   await vorliebe(seite, welt.basis, { tastenkuerzel: 'an' });
   await kontext.close();
   return { ok: befunde.every((b) => b.ok), befunde };
