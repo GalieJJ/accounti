@@ -51,6 +51,7 @@ from accounti.db.repository import (
     lade_transaktion,
 )
 from accounti.db.tabellen import BuchungssatzRow
+from accounti.db.tabellen_aufgaben import AufgabeRow
 from accounti.konfiguration import Buchhaltung
 from accounti.models import (
     Beleg,
@@ -305,22 +306,23 @@ def _zurueckgestellte(session: Session) -> set[str]:
 
 def anzahl_offen(session: Session) -> int:
     """Offene Vorschläge ohne die zurückgestellten — dieselbe Zahl wie die Ansicht
-    „Offen“, aber als ``COUNT`` (Zähler der Navigation, Baustein 10c P1)."""
-    pruefung = BuchungssatzRow.status == BuchungStatus.ZUR_PRUEFUNG.value
-    alle = session.scalar(
-        select(func.count()).select_from(BuchungssatzRow).where(pruefung)
+    „Offen“, aber als **ein** ``COUNT`` mit Unterabfrage auf die offenen Rückfragen
+    (dieselben Bedingungen wie ``_zurueckgestellte``), ohne sie zu laden (Zähler der
+    Navigation, Baustein 10c P1; Runde 2: vorher wuchs die Zeit mit den Rückfragen)."""
+    zurueck = select(AufgabeRow.objekt_id).where(
+        AufgabeRow.art == RUECKFRAGE,
+        AufgabeRow.status.in_([s.value for s in AKTIVE_STATUS]),
+        AufgabeRow.objekt_typ == "buchung",
     )
-    zurueck = _zurueckgestellte(session)
-    davon = (
-        session.scalar(
-            select(func.count())
-            .select_from(BuchungssatzRow)
-            .where(pruefung, BuchungssatzRow.id.in_(zurueck))
+    anzahl = session.scalar(
+        select(func.count())
+        .select_from(BuchungssatzRow)
+        .where(
+            BuchungssatzRow.status == BuchungStatus.ZUR_PRUEFUNG.value,
+            BuchungssatzRow.id.not_in(zurueck),
         )
-        if zurueck
-        else 0
     )
-    return int(alle or 0) - int(davon or 0)
+    return int(anzahl or 0)
 
 
 def _reihe(session: Session) -> tuple[list[Buchungssatz], set[str]]:
