@@ -3,14 +3,19 @@
 //   node scripts/browserprobe/probe.mjs --welt DIR/probe.json [--browser chromium]
 //        [--benutzer jan,fritz] [--seiten /muster,/pruefen] [--breiten 1440,390,320]
 //        [--themen hell,dunkel] [--auslassen geruest] [--bilder]
-//        [--vergleich scripts/browserprobe/ergebnisse/leinwand]
+//        [--vergleich scripts/browserprobe/ergebnisse/leinwand] [--fehlerseite] [--ablaeufe]
 //
 // Meldet sich je Benutzer an (TOTP aus probe.json mit node:crypto), öffnet jede
 // erlaubte HTML-Seite der Welt je Breite und Thema und misst: kein waagrechtes Scrollen
 // (AK1, 320/390 px), axe-core 4.14.0 mit WCAG 2.0–2.2 A/AA (AK2, 1440/390 px, in einem
 // Kontext mit bypassCSP), keine CSP-Meldung in der Konsole (AK5, Kontext ohne
 // Umgehung). Auf /muster dazu der Fokus nach dem Austausch (A104) und die Maßprobe
-// (L10 Punkt 4) in beiden Themenrahmen und mit ?theme=. --vergleich legt Bilder der
+// (L10 Punkt 4) in beiden Themenrahmen und mit ?theme=. Schritt 14 misst je Seite
+// AK4 (Dunkelmodus: Bedienelemente, kbd), AK6/AK44 (Leisten, Kopf, Ziele, Inhaltsbreite,
+// Kurztitel bei 320 px), AK49 (Angaben überlappen nicht, Codefeld-Label), AK50
+// (tabular-nums, Symbole, Gewichte, reduzierte Bewegung), AK52 (Rollen, ARIA-Schnappschuss),
+// AK55 (Zielgrößen 24/44, Tastatur auf /pruefen, Arbeitsfläche, /konto), AK56 (640 × 400
+// mit Textabständen); --ablaeufe dazu AK7, AK8, AK45, AK53 und AK54. --vergleich legt Bilder der
 // Anwendung neben die Referenzbilder aus leinwand.mjs (ergebnisse/<datum>-vergleich.html).
 // Ergebnis: ergebnisse/<datum>-<browser>.json; Rückgabewert 1 bei einem Befund.
 import { chromium, firefox } from 'playwright';
@@ -67,6 +72,7 @@ const { values: opt } = parseArgs({
     bilder: { type: 'boolean', default: false },
     vergleich: { type: 'string' },
     fehlerseite: { type: 'boolean', default: false },
+    ablaeufe: { type: 'boolean', default: false },
     ziel: { type: 'string', default: path.join(HIER, 'ergebnisse') },
   },
 });
@@ -243,6 +249,359 @@ async function massprobe(seite, rahmen, thema, breite, geruest) {
   return { ok: befunde.every((b) => b.ok), fehler: befunde.filter((b) => !b.ok), anzahl: befunde.length };
 }
 
+// --- Schritt 14: Messungen je Seite (AK4, AK6/AK44, AK49, AK50, AK52) — laufen in der Seite
+function seitenmessungInSeite({ breite, thema }) {
+  const befunde = [];
+  const pruefe = (ak, name, ok, wert) => befunde.push({ ak, name, ok: Boolean(ok), wert });
+  const sichtbar = (e) => {
+    if (!e) return false;
+    const cs = getComputedStyle(e);
+    const r = e.getBoundingClientRect();
+    return cs.display !== 'none' && cs.visibility !== 'hidden' && r.width > 0 && r.height > 0 && !e.closest('.unsichtbar, [hidden], .muster-rahmen');
+  };
+  const rgb = (text) => (text.match(/[\d.]+/g) || []).map(Number);
+  const leucht = ([r, g, b]) => {
+    const lin = (k) => { k /= 255; return k <= 0.04045 ? k / 12.92 : ((k + 0.055) / 1.055) ** 2.4; };
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  };
+  const kontrast = (a, b) => { const [h, d] = [leucht(a), leucht(b)].sort((x, y) => y - x); return (h + 0.05) / (d + 0.05); };
+  const hintergrund = (e) => {
+    for (let x = e; x; x = x.parentElement) {
+      const f = rgb(getComputedStyle(x).backgroundColor);
+      if (f.length >= 3 && (f.length < 4 || f[3] === 1)) return f;
+    }
+    return rgb(getComputedStyle(document.body).backgroundColor);
+  };
+  // AK4: im Dunkelmodus keine weißen Bedienelemente; kbd ≥ 4,5 : 1, Deckkraft 1
+  if (thema === 'dunkel') {
+    for (const e of document.querySelectorAll('input:not([type=hidden]):not([type=checkbox]):not([type=radio]), select, textarea, button')) {
+      if (!sichtbar(e) || e.closest('.thema-hell')) continue; // der helle Rahmen auf /muster
+      const f = getComputedStyle(e).backgroundColor;
+      if (f === 'rgb(255, 255, 255)') pruefe('AK4', `weiß: ${e.tagName} ${e.id || e.className}`, false, f);
+    }
+    for (const k of document.querySelectorAll('kbd')) {
+      if (!sichtbar(k)) continue;
+      const cs = getComputedStyle(k);
+      const wert = kontrast(rgb(cs.color), hintergrund(k));
+      pruefe('AK4', 'kbd', wert >= 4.5 && cs.opacity === '1', `${wert.toFixed(2)} / ${cs.opacity}`);
+    }
+  }
+  // AK6/AK44: Seitenleiste ab 64rem, sonst untere Leiste; Kopf ≤ 56; ≤ 5 Ziele; Inhalt ≤ 90rem
+  const seitenleiste = document.querySelector('.geruest-rumpf > .seitenleiste');
+  const leiste = document.querySelector('body > .untere-leiste');
+  const kopf = document.querySelector('body > header.kopfleiste');
+  if (leiste || seitenleiste) {
+    const breit = breite >= 1024;
+    pruefe('AK6', 'Seitenleiste', breit ? sichtbar(seitenleiste) : !sichtbar(seitenleiste), seitenleiste ? getComputedStyle(seitenleiste).display : 'fehlt');
+    pruefe('AK6', 'untere Leiste', breit ? !sichtbar(leiste) : sichtbar(leiste), leiste ? getComputedStyle(leiste).display : 'fehlt');
+    if (leiste) pruefe('AK6', '≤ 5 Ziele', leiste.querySelectorAll('a').length <= 5, leiste.querySelectorAll('a').length);
+    if (!breit && kopf) pruefe('AK6', 'Kopf ≤ 56', kopf.getBoundingClientRect().height <= 56.5, kopf.getBoundingClientRect().height);
+    if (breite <= 320 && leiste) {
+      for (const t of leiste.querySelectorAll('.leisten-titel')) {
+        const ziel = t.closest('a').getBoundingClientRect();
+        const r = t.getBoundingClientRect();
+        // nicht abgeschnitten: ganz im Ziel (ein Umbruch in zwei Zeilen ist erlaubt)
+        pruefe('AK6', `Titel ganz: ${t.textContent.trim()}`, t.scrollWidth <= t.clientWidth + 1 && r.left >= ziel.left - 1 && r.right <= ziel.right + 1 && r.top >= ziel.top - 1 && r.bottom <= ziel.bottom + 1, `${Math.round(r.width)}×${Math.round(r.height)} in ${Math.round(ziel.width)}×${Math.round(ziel.height)}`);
+      }
+    }
+  }
+  const inhalt = document.querySelector('#inhalt');
+  if (inhalt) pruefe('AK44', 'Inhalt ≤ 90rem', inhalt.getBoundingClientRect().width <= 1440, inhalt.getBoundingClientRect().width);
+  // AK49: Label und Wert jeder Angabenliste überlappen nicht; Codefeld mit sichtbarem Label
+  for (const dl of document.querySelectorAll('dl.angaben')) {
+    if (!sichtbar(dl)) continue;
+    for (const dt of dl.querySelectorAll('dt')) {
+      const dd = dt.nextElementSibling;
+      if (!dd) continue;
+      const a = dt.getBoundingClientRect();
+      const b = dd.getBoundingClientRect();
+      const ueber = a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1;
+      if (ueber) pruefe('AK49', `überlappt: ${dt.textContent.trim()}`, false, null);
+    }
+  }
+  for (const c of document.querySelectorAll('input[name=einmalcode]')) {
+    const l = document.querySelector(`label[for="${c.id}"]`);
+    pruefe('AK49', `Codefeld-Label ${c.id}`, sichtbar(l), l?.textContent.trim());
+  }
+  // AK50: Beträge mit gleich breiten Ziffern; Symbole beschriftet oder versteckt; 400/600
+  for (const b of document.querySelectorAll('.betrag-wert, td.zahl')) {
+    if (!/tabular-nums/.test(getComputedStyle(b).fontVariantNumeric)) pruefe('AK50', 'tabular-nums', false, b.textContent.trim());
+  }
+  for (const s of document.querySelectorAll('svg.symbol')) {
+    const ok = s.getAttribute('aria-hidden') === 'true' || (s.getAttribute('role') === 'img' && s.getAttribute('aria-label'));
+    if (!ok) pruefe('AK50', 'Symbol ohne Beschriftung', false, s.outerHTML.slice(0, 60));
+  }
+  const gewichte = new Set();
+  for (const e of document.body.querySelectorAll('*')) {
+    if (![...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+    gewichte.add(getComputedStyle(e).fontWeight);
+  }
+  pruefe('AK50', 'Gewichte 400/600', [...gewichte].every((g) => g === '400' || g === '600'), [...gewichte].join(','));
+  // AK52: Tabellen tragen die Rollen auch in der Kartenform
+  for (const t of document.querySelectorAll('main table')) {
+    const ok = t.getAttribute('role') === 'table' && [...t.querySelectorAll('tr')].every((r) => r.getAttribute('role') === 'row') && [...t.querySelectorAll('td')].every((d) => d.getAttribute('role') === 'cell');
+    pruefe('AK52', 'Rollen', ok, t.querySelector('caption')?.textContent.trim());
+  }
+  return befunde;
+}
+
+async function seitenmessung(seite, breite, thema) {
+  const befunde = await seite.evaluate(seitenmessungInSeite, { breite, thema });
+  return { ok: befunde.every((b) => b.ok), fehler: befunde.filter((b) => !b.ok), anzahl: befunde.length };
+}
+
+// AK50: mit prefers-reduced-motion jede transition-duration 0 s
+async function bewegung(seite) {
+  await seite.emulateMedia({ reducedMotion: 'reduce' });
+  const lang = await seite.evaluate(() => [...document.querySelectorAll('*')]
+    .map((e) => getComputedStyle(e).transitionDuration)
+    .filter((d) => d.split(',').some((x) => parseFloat(x) > 0)).length);
+  await seite.emulateMedia({ reducedMotion: 'no-preference' });
+  return { ok: lang === 0, mit_dauer: lang };
+}
+
+// AK52: ARIA-Schnappschuss der ersten Tabelle bei 390 px (Kartenform) zeigt Zeilen und Zellen
+async function ariaTabelle(seite) {
+  const t = seite.locator('main table').first();
+  if ((await t.count()) === 0) return { ok: true, tabelle: false };
+  const schnapp = await t.ariaSnapshot();
+  return { ok: /- row/.test(schnapp) && /- cell/.test(schnapp), auszug: schnapp.slice(0, 160) };
+}
+
+// AK55: Tab durch die Seite — Sprunglink zuerst, Fokus nie ganz verdeckt, Ring ≥ 2 px,
+// nach endlich vielen Tabs wieder oben; Ziele ≥ 24 × 24 (grob: ≥ 44 × 44)
+async function tastatur(seite) {
+  const befunde = [];
+  await seite.keyboard.press('Tab');
+  const erstes = await seite.evaluate(() => document.activeElement?.className ?? '');
+  befunde.push({ name: 'erster Tab-Stopp Sprunglink', ok: /sprunglink/.test(erstes), wert: erstes });
+  let zurueck = false;
+  for (let i = 0; i < 250; i += 1) {
+    const info = await seite.evaluate(() => {
+      const e = document.activeElement;
+      if (!e || e === document.body) return { body: true };
+      const r = e.getBoundingClientRect();
+      const verdeckt = (sel) => {
+        const x = document.querySelector(sel);
+        if (!x || getComputedStyle(x).position !== 'fixed' && getComputedStyle(x).position !== 'sticky') return false;
+        const b = x.getBoundingClientRect();
+        if (x.contains(e)) return false;
+        return r.top >= b.top && r.bottom <= b.bottom && r.left >= b.left && r.right <= b.right;
+      };
+      const cs = getComputedStyle(e);
+      return {
+        klasse: e.className?.baseVal ?? e.className,
+        text: (e.textContent || e.getAttribute('aria-label') || e.name || '').trim().slice(0, 40),
+        verdeckt: verdeckt('body > header.kopfleiste') || verdeckt('body > .untere-leiste'),
+        ring: parseFloat(cs.outlineWidth) || 0,
+        stil: cs.outlineStyle,
+        sprung: /sprunglink/.test(e.className),
+        iframe: e.tagName === 'IFRAME',
+      };
+    });
+    if (info.body || (i > 0 && info.sprung)) { zurueck = true; break; }
+    if (info.verdeckt) befunde.push({ name: `verdeckt: ${info.text}`, ok: false, wert: info.klasse });
+    // ein iframe (PDF-Vorschau) zeigt den Fokus in seinem eigenen Dokument
+    if (!info.iframe && (info.ring < 2 || info.stil === 'none')) befunde.push({ name: `Ring: ${info.text}`, ok: false, wert: `${info.ring} ${info.stil}` });
+    await seite.keyboard.press('Tab');
+  }
+  befunde.push({ name: 'keine Falle (wieder am Anfang)', ok: zurueck, wert: null });
+  return { ok: befunde.every((b) => b.ok), fehler: befunde.filter((b) => !b.ok), anzahl: befunde.length };
+}
+
+function zieleInSeite(mindest) {
+  const fehler = [];
+  const ziele = document.querySelectorAll('a[href], button, select, textarea, summary, input:not([type=hidden])');
+  for (const e of ziele) {
+    if (e.closest('.unsichtbar, [hidden], details:not([open]) > :not(summary), .muster-rahmen, .druckkopf')) continue;
+    const cs = getComputedStyle(e);
+    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+    if (e.classList.contains('sprunglink') && document.activeElement !== e) continue;
+    // Kontrollkästchen und Optionsfelder: Ziel ist das umschließende label (L7 Nr. 20)
+    let ziel = e;
+    if (e.matches('input[type=checkbox], input[type=radio]')) ziel = e.closest('label') ?? e;
+    // Links im Fließtext sind ausgenommen (WCAG 2.5.8)
+    if (e.tagName === 'A' && !e.matches('.knopf, .nav-eintrag, .leisten-ziel') && e.closest('p, li, dd, td, .hinweis-text, .neben, h1, h2, h3, .brotkrumen li')) {
+      const block = getComputedStyle(e).display;
+      if (block === 'inline') continue;
+    }
+    const r = ziel.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;
+    if (r.width + 0.5 < mindest || r.height + 0.5 < mindest) fehler.push(`${e.tagName.toLowerCase()} ${(e.textContent || e.name || '').trim().slice(0, 30)} ${Math.round(r.width)}×${Math.round(r.height)}`);
+  }
+  return fehler;
+}
+
+async function zielgroessen(seite, mindest) {
+  const fehler = await seite.evaluate(zieleInSeite, mindest);
+  return { ok: fehler.length === 0, mindest, fehler: fehler.slice(0, 12), anzahl: fehler.length };
+}
+
+// AK56: 640 × 400 (1280 px bei 200 %) mit dem Textabstands-Stylesheet aus WCAG 1.4.12
+const TEXTABSTAND = '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; } p { margin-bottom: 2em !important; }';
+async function zoom(seite) {
+  await seite.addStyleTag({ content: TEXTABSTAND });
+  await seite.waitForTimeout(100);
+  return seite.evaluate(() => {
+    const abgeschnitten = [];
+    for (const e of document.querySelectorAll('main *, header *')) {
+      if (e.closest('.unsichtbar, svg, [hidden], .sprunglink, .kopf-titel') || e.matches('input, select, textarea')) continue;
+      const cs = getComputedStyle(e);
+      // visuell versteckt (Screenreader-Text, etwa der Name der Gesellschaft im schmalen Kopf)
+      if (cs.clipPath === 'inset(50%)' || (e.getBoundingClientRect().width <= 1 && e.getBoundingClientRect().height <= 1)) continue;
+      if (!['hidden', 'clip'].includes(cs.overflowY) && !['hidden', 'clip'].includes(cs.overflowX)) continue;
+      if (e.scrollHeight > e.clientHeight + 1 || e.scrollWidth > e.clientWidth + 1) abgeschnitten.push(`${e.tagName.toLowerCase()}.${e.className} ${e.scrollWidth}/${e.clientWidth} ${e.scrollHeight}/${e.clientHeight}`);
+    }
+    const scroll = document.documentElement.scrollWidth;
+    return { ok: scroll <= window.innerWidth && abgeschnitten.length === 0, scroll, fenster: window.innerWidth, abgeschnitten: abgeschnitten.slice(0, 8) };
+  });
+}
+
+// --- Schritt 14: Abläufe über mehrere Seiten (AK7, AK8, AK45, AK53, AK54) --------------
+async function neueSeite(kontext, breite = 1440) {
+  const seite = await kontext.newPage();
+  await seite.setViewportSize({ width: breite, height: HOEHEN[breite] ?? 900 });
+  return seite;
+}
+
+// AK7: Wechsel über /gesellschaft ändert Titel und Kennfarbe
+async function ak7(browser, welt, name) {
+  const kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]) });
+  const seite = await neueSeite(kontext);
+  const lies = async () => seite.evaluate(() => ({ titel: document.title, marke: document.querySelector('.kopf-gesellschaft .marke')?.className, kuerzel: document.querySelector('.kopf-gesellschaft')?.dataset.gesellschaft }));
+  await seite.goto(`${welt.basis}/`);
+  const vorher = await lies();
+  await seite.goto(`${welt.basis}/gesellschaft`);
+  const knopf = seite.locator('form[action="/gesellschaft"] button').first();
+  await knopf.click();
+  await seite.waitForLoadState('load');
+  const nachher = await lies();
+  // zurück in die erste Gesellschaft (für die übrigen Messungen)
+  await seite.goto(`${welt.basis}/gesellschaft`);
+  await seite.locator('form[action="/gesellschaft"] button').first().click();
+  await seite.waitForLoadState('load');
+  await kontext.close();
+  const ok = vorher.kuerzel !== nachher.kuerzel && vorher.titel !== nachher.titel && / · accounti$/.test(nachher.titel) && vorher.marke !== nachher.marke;
+  return { ok, vorher, nachher };
+}
+
+// AK8: Druckansicht einer Liste ohne Navigation und Knöpfe, mit Druckkopf
+async function ak8(browser, welt, name, pfad) {
+  const kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]) });
+  const seite = await neueSeite(kontext);
+  await seite.goto(welt.basis + pfad);
+  await seite.emulateMedia({ media: 'print' });
+  const w = await seite.evaluate(() => {
+    const zu = (sel) => [...document.querySelectorAll(sel)].filter((e) => getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0).length;
+    return { navigation: zu('.kopfleiste, .seitenleiste, .untere-leiste'), knoepfe: zu('button, .knopf'), druckkopf: getComputedStyle(document.querySelector('.druckkopf')).display };
+  });
+  await kontext.close();
+  return { ok: w.navigation === 0 && w.knoepfe === 0 && w.druckkopf !== 'none', pfad, ...w };
+}
+
+async function vorliebe(seite, basis, felder) {
+  await seite.goto(`${basis}/konto`);
+  for (const [name, wert] of Object.entries(felder)) await seite.check(`form.layout-formular input[name="${name}"][value="${wert}"]`);
+  await seite.locator('form[action="/konto/vorlieben"].layout-formular button[type=submit]').click();
+  await seite.waitForLoadState('load');
+}
+
+// AK45: Darstellung am Benutzer gilt im neuen Kontext; „auto“ folgt der Emulation;
+// „Tastenkürzel aus“: f löst auf der Arbeitsfläche keine Anfrage aus
+async function ak45(browser, welt, name, arbeitsflaeche) {
+  const befunde = [];
+  const stand = await anmelden(browser, welt.basis, name, welt.benutzer[name]);
+  let kontext = await browser.newContext({ storageState: stand });
+  let seite = await neueSeite(kontext);
+  await vorliebe(seite, welt.basis, { darstellung: 'dunkel', tastenkuerzel: 'aus' });
+  await kontext.close();
+  kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]), colorScheme: 'light' });
+  seite = await neueSeite(kontext);
+  await seite.goto(`${welt.basis}/`);
+  const dunkel = await seite.evaluate(() => ({ theme: document.documentElement.dataset.theme, schema: getComputedStyle(document.documentElement).colorScheme, grund: getComputedStyle(document.body).backgroundColor }));
+  befunde.push({ name: 'dunkel im neuen Kontext', ok: dunkel.theme === 'dunkel' && dunkel.schema === 'dark' && dunkel.grund === 'rgb(18, 20, 23)', wert: dunkel });
+  const anfragen = [];
+  seite.on('request', (r) => { if (r.method() === 'POST') anfragen.push(r.url()); });
+  await seite.goto(welt.basis + arbeitsflaeche);
+  await seite.locator('main h1').focus().catch(() => {});
+  await seite.keyboard.press('f');
+  await seite.waitForTimeout(500);
+  befunde.push({ name: 'Taste f ohne Anfrage', ok: anfragen.length === 0, wert: [...anfragen] });
+  await vorliebe(seite, welt.basis, { darstellung: 'auto', tastenkuerzel: 'an' });
+  for (const [schema, grund] of [['dark', 'rgb(18, 20, 23)'], ['light', 'rgb(245, 244, 241)']]) {
+    await seite.emulateMedia({ colorScheme: schema });
+    await seite.goto(`${welt.basis}/`);
+    const w = await seite.evaluate(() => ({ theme: document.documentElement.dataset.theme, grund: getComputedStyle(document.body).backgroundColor }));
+    befunde.push({ name: `auto folgt ${schema}`, ok: w.theme === 'auto' && w.grund === grund, wert: w });
+  }
+  await kontext.close();
+  return { ok: befunde.every((b) => b.ok), befunde };
+}
+
+// AK53: Einfügen in jedes Codefeld; „Wiederherstellungscode verwenden“ ohne JS, weiter bleibt
+async function ak53(browser, welt, name) {
+  const befunde = [];
+  const stand = await anmelden(browser, welt.basis, name, welt.benutzer[name]);
+  const kontext = await browser.newContext({ storageState: stand, permissions: ['clipboard-read', 'clipboard-write'] });
+  for (const pfad of ['/freigaben', `/buchungen/${welt.seiten.find((s) => s.vorlage === '/buchungen/{buchung_id:uuid}').pfad.split('/').pop()}`]) {
+    const seite = await neueSeite(kontext);
+    await seite.goto(welt.basis + pfad);
+    for (const id of await seite.locator('input[name=einmalcode]').evaluateAll((l) => l.map((e) => e.id))) {
+      await seite.evaluate(() => navigator.clipboard.writeText('123 456'));
+      await seite.locator(`#${id}`).focus();
+      await seite.keyboard.press('Control+V');
+      const wert = await seite.locator(`#${id}`).inputValue();
+      befunde.push({ name: `Einfügen ${pfad} #${id}`, ok: wert === '123 456', wert });
+    }
+    await seite.close();
+  }
+  await kontext.close();
+  const ohneJs = await browser.newContext({ javaScriptEnabled: false });
+  const seite = await neueSeite(ohneJs, 390);
+  await seite.goto(`${welt.basis}/anmelden?weiter=/pruefen`);
+  await seite.evaluate(() => navigator.clipboard?.writeText).catch(() => {});
+  await seite.getByText('Wiederherstellungscode verwenden').click();
+  await seite.waitForLoadState('load');
+  const w = { url: seite.url(), modus: await seite.locator('#einmalcode').getAttribute('inputmode'), weiter: await seite.locator('input[name=weiter]').inputValue() };
+  befunde.push({ name: 'Wiederherstellungscode ohne JS', ok: /code=wiederherstellung/.test(w.url) && w.modus === 'text' && w.weiter === '/pruefen', wert: w });
+  await ohneJs.close();
+  return { ok: befunde.every((b) => b.ok), befunde };
+}
+
+// AK54: nach einer Freigabe per htmx steht das Ergebnis in #status; während der Anfrage
+// trägt das Ziel aria-busy="true" (Antwort verzögert über page.route)
+async function ak54(browser, welt, name, arbeitsflaeche) {
+  const kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]) });
+  const seite = await neueSeite(kontext);
+  await seite.goto(welt.basis + arbeitsflaeche);
+  await seite.route('**/freigeben', async (route) => { await new Promise((r) => setTimeout(r, 800)); await route.continue(); });
+  await seite.locator('form.freigeben button[type=submit]').click();
+  await seite.waitForTimeout(300);
+  const busy = await seite.locator('#arbeitsflaeche').getAttribute('aria-busy');
+  await seite.waitForFunction(() => document.querySelector('#status')?.textContent.trim().length > 0, null, { timeout: 8000 }).catch(() => {});
+  const status = await seite.evaluate(() => ({ text: document.querySelector('#status')?.textContent.trim(), rolle: document.querySelector('#status')?.getAttribute('role'), busy: document.querySelector('#arbeitsflaeche')?.getAttribute('aria-busy') }));
+  await kontext.close();
+  return { ok: busy === 'true' && status.rolle === 'status' && /freigegeben|approved/i.test(status.text ?? '') && status.busy !== 'true', waehrend: busy, ...status };
+}
+
+const TASTATUR = new Set(['/pruefen', '/pruefen/{buchung_id:uuid}', '/konto']);
+
+// Abläufe einmal je Lauf (--ablaeufe): AK7 (jan: zwei Gesellschaften), AK8, AK45, AK53,
+// zuletzt AK54 (gibt den Vorschlag der Welt frei)
+async function ablaeufe(browser, welt) {
+  const flaeche = welt.seiten.find((s) => s.vorlage === '/pruefen/{buchung_id:uuid}').pfad;
+  const eintrag = (name, messung) => ({ benutzer: 'ablauf', pfad: name, thema: 'hell', breite: 1440, status: 200, messungen: { [name]: messung }, ok: messung.ok });
+  const sicher = async (lauf) => { try { return await lauf(); } catch (f) { return { ok: false, fehler: String(f).slice(0, 300) }; } };
+  const liste = [];
+  liste.push(eintrag('ak7', await sicher(() => ak7(browser, welt, 'jan'))));
+  for (const pfad of ['/pruefen', '/freigaben']) liste.push(eintrag(`ak8 ${pfad}`, await sicher(() => ak8(browser, welt, 'alle', pfad))));
+  liste.push(eintrag('ak45', await sicher(() => ak45(browser, welt, 'alle', flaeche))));
+  liste.push(eintrag('ak53', await sicher(() => ak53(browser, welt, 'alle'))));
+  liste.push(eintrag('ak54', await sicher(() => ak54(browser, welt, 'alle', flaeche))));
+  for (const e of liste) process.stdout.write(e.ok ? '.' : 'F');
+  return liste;
+}
+
 // --- Ablauf ---------------------------------------------------------------------------
 function datei(text) {
   return text.replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '') || 'start';
@@ -286,6 +645,10 @@ async function main() {
       const stand = await anmelden(browser, welt.basis, name, welt.benutzer[name]);
       const normal = await browser.newContext({ storageState: stand });
       const umgangen = await browser.newContext({ storageState: stand, bypassCSP: true });
+      // grober Zeiger (pointer: coarse) für die Zielgrößen 44 × 44 — Firefox kennt isMobile nicht
+      const grob = opt.browser === 'chromium'
+        ? await browser.newContext({ storageState: stand, hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 } })
+        : null;
       for (const s of seiten) {
         if (s.erwartet[name] !== (s.status ?? 200)) continue;
         for (const thema of s.thema ? [s.thema] : themen) {
@@ -322,6 +685,12 @@ async function main() {
             if (opt.bilder) {
               await seite.screenshot({ path: path.join(bildordner, `${name}-${datei(s.pfad)}-${breite}-${thema}.png`), fullPage: true });
             }
+            if (!auslassen.has('seite')) {
+              eintrag.messungen.seite = await seitenmessung(seite, breite, thema);
+              if (breite !== 320) eintrag.messungen.ziele = await zielgroessen(seite, 24);
+              if (breite === 390) eintrag.messungen.ak52 = await ariaTabelle(seite);
+              if (breite === 1440 && thema === 'hell') eintrag.messungen.bewegung = await bewegung(seite);
+            }
             if (s.vorlage === '/muster' && !s.thema && breite === 1440 && !auslassen.has('fokus')) {
               eintrag.messungen.fokus = await MESSUNGEN.fokus(seite);
             }
@@ -337,6 +706,32 @@ async function main() {
               eintrag.messungen.ak2 = await MESSUNGEN.ak2(p, { axe });
               await p.close();
             }
+            // AK55: Tastatur durch /pruefen, die Arbeitsfläche und /konto
+            if (TASTATUR.has(s.vorlage) && breite !== 320 && !auslassen.has('tastatur')) {
+              const t = await normal.newPage();
+              await t.setViewportSize(viewport);
+              await t.emulateMedia({ colorScheme });
+              await t.goto(welt.basis + s.pfad, { waitUntil: 'load' });
+              eintrag.messungen.ak55 = await tastatur(t);
+              await t.close();
+            }
+            // AK55 mit grobem Zeiger: Ziele ≥ 44 × 44
+            if (grob && breite === 390 && !auslassen.has('seite')) {
+              const g = await grob.newPage();
+              await g.emulateMedia({ colorScheme });
+              await g.goto(welt.basis + s.pfad, { waitUntil: 'load' });
+              eintrag.messungen.ziele_grob = await zielgroessen(g, 44);
+              await g.close();
+            }
+            // AK56: 640 × 400 (200 % Zoom) mit Textabständen — einmal je Seite und Thema
+            if (breite === 1440 && !auslassen.has('zoom')) {
+              const z = await umgangen.newPage();
+              await z.setViewportSize({ width: 640, height: 400 });
+              await z.emulateMedia({ colorScheme });
+              await z.goto(welt.basis + s.pfad, { waitUntil: 'load' });
+              eintrag.messungen.ak56 = await zoom(z);
+              await z.close();
+            }
             eintrag.ok = Object.values(eintrag.messungen).every((m) => m.ok) && eintrag.status === (s.status ?? 200);
             ergebnisse.push(eintrag);
             process.stdout.write(eintrag.ok ? '.' : 'F');
@@ -345,7 +740,9 @@ async function main() {
       }
       await normal.close();
       await umgangen.close();
+      if (grob) await grob.close();
     }
+    if (opt.ablaeufe) ergebnisse.push(...(await ablaeufe(browser, welt)));
     if (opt.vergleich) await vergleich(browser, welt, opt.vergleich, tag, benutzer[0]);
   } finally {
     await browser.close();
@@ -373,6 +770,8 @@ const VERGLEICH = [
   { pfad: '/pruefen', breite: 390, themen: ['hell', 'dunkel'], leinwand: 'Handy-Pruefen', satz: 'P1: Tabelle als Karten; geteilte Reiter und Aktionsleiste P3.' },
   { pfad: '/freigaben', breite: 390, themen: ['hell'], leinwand: 'Handy-Freigaben', satz: 'P1: Karte je Lauf mit Codefeld; Aufklapper und USt-VA-Karte P2.' },
   { pfad: '/menue', breite: 390, themen: ['hell'], leinwand: 'Handy-Mehr', satz: 'P1 vollständig.' },
+  { vorlage: '/pruefen/{buchung_id:uuid}', breite: 1440, themen: ['hell', 'dunkel'], leinwand: 'Pruefen-Arbeitsflaeche', satz: 'P1: Positionszeile, Beleg | Vorschlag-Karte und Aktionen im Gerüst; drei Schritte, Tasten 1–3 und Fokusmodus P3.' },
+  { vorlage: '/pruefen/{buchung_id:uuid}', breite: 390, themen: ['hell'], leinwand: 'Handy-Pruefen', satz: 'P1: Arbeitsfläche untereinander mit unterer Leiste; Aktionsleiste und geteilte Reiter P3.' },
 ];
 
 async function vergleich(browser, welt, leinwandOrdner, tag, name) {
@@ -381,7 +780,8 @@ async function vergleich(browser, welt, leinwandOrdner, tag, name) {
   const stand = await anmelden(browser, welt.basis, name, welt.benutzer[name]);
   const kontext = await browser.newContext({ storageState: stand });
   const zeilen = [];
-  for (const v of VERGLEICH) {
+  for (const eintrag of VERGLEICH) {
+    const v = eintrag.vorlage ? { ...eintrag, pfad: welt.seiten.find((s) => s.vorlage === eintrag.vorlage).pfad } : eintrag;
     for (const thema of v.themen) {
       const seite = await kontext.newPage();
       await seite.setViewportSize({ width: v.breite, height: HOEHEN[v.breite] ?? 900 });
