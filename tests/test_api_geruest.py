@@ -346,6 +346,37 @@ def test_masse_des_geruests():
     assert ziel == "calc(var(--leistenhoehe) - 1px)"
 
 
+def test_seitentitel_schmal_ohne_informationsverlust(welt):
+    """P1 Runde 2 (D-M1, WCAG 1.4.10): unter 64rem steht der Seitentitel nur dann im Kopf
+    (und das ``h1`` ist nur für Screenreader da), wenn er in zwei Zeilen der Kopfleiste
+    passt; er bricht dort um, statt mit Ellipse abgeschnitten zu werden. Ein längerer
+    Titel (Gesellschaft wechseln, Belegnummer, Fehlerseiten) bleibt als ``h1`` im
+    Inhalt sichtbar."""
+    from accounti.api.vorlagen import passt_in_den_kopf
+
+    c = welt.angemeldet("jan")
+    assert '<body class="geruest mit-kopftitel"' in c.get("/pruefen").text
+    assert '<body class="geruest mit-kopftitel"' in c.get("/konto").text
+    lang = c.get("/gesellschaft").text
+    assert '<body class="geruest"' in lang and "<h1>Gesellschaft wechseln</h1>" in lang
+    for titel in ("Prüfen", "Gelernte Regeln", "Buchung f3fa55d2", "Hilfe: Freigaben"):
+        assert passt_in_den_kopf(titel), titel
+    for titel in (
+        "Gesellschaft wechseln",
+        "Beleg RE-2026-000123",
+        "Keine Berechtigung",
+        "Ergebnis der Freigabe",
+        "",
+    ):
+        assert not passt_in_den_kopf(titel), titel
+    kopf = _deklarationen(".kopf-titel", SCHMAL) | _deklarationen(
+        ".mit-kopftitel .kopf-titel", SCHMAL
+    )
+    assert "text-overflow" not in kopf and kopf.get("white-space") != "nowrap"
+    assert kopf.get("overflow-wrap") == "anywhere" and "overflow" not in kopf
+    assert _deklarationen(".kopf-titel", SCHMAL).get("display") != "block"
+
+
 def test_druckkopf(welt):
     html = welt.angemeldet("jan").get("/pruefen").text
     druck = re.search(r'<div class="druckkopf">(.*?)</div>', html, re.S)

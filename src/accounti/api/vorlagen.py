@@ -210,7 +210,26 @@ class Spalte:
     href: str | None = None
 
 
+# Seitentitel im schmalen Kopf (P1 Runde 2, D-M1): nur, was in zwei Zeilen der 56 px
+# hohen Kopfleiste passt — bei 320 px bleiben ihm 132 px je Zeile, mit den Textabständen
+# aus WCAG 1.4.12 etwa zehn Zeichen. Längere Titel bleiben als h1 im Inhalt sichtbar.
+KOPFTITEL_ZEICHEN = 16
+KOPFTITEL_WORT = 10
+
+
+def passt_in_den_kopf(titel: str) -> bool:
+    """Steht der Titel unter 64rem im Kopf (statt als sichtbares ``h1``)? Höchstens
+    ``KOPFTITEL_ZEICHEN`` Zeichen, kein Wort länger als ``KOPFTITEL_WORT``."""
+    worte = str(titel).split()
+    return (
+        bool(worte)
+        and len(" ".join(worte)) <= KOPFTITEL_ZEICHEN
+        and max(len(w) for w in worte) <= KOPFTITEL_WORT
+    )
+
+
 UMGEBUNG.globals["zusatzattribute"] = zusatzattribute
+UMGEBUNG.globals["passt_in_den_kopf"] = passt_in_den_kopf
 UMGEBUNG.globals["Spalte"] = Spalte
 UMGEBUNG.globals["symbol_url"] = symbol_url
 UMGEBUNG.globals["symbol_klasse"] = symbol_klasse

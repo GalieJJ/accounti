@@ -15,7 +15,7 @@
   <script src="/statisch/pruefen.js?v={{ version }}" defer></script>
   {% block kopf %}{% endblock %}
 </head>
-<body class="{% block koerperklasse %}{% if angemeldet %}geruest mit-kopftitel{% else %}schlicht{% endif %}{% endblock %}" data-tastenkuerzel="{{ 'an' if geruest.tastenkuerzel else 'aus' }}" hx-history="false" hx-headers="{{ hx_kopf }}">
+<body class="{% block koerperklasse %}{% if angemeldet %}geruest{% if passt_in_den_kopf(self.titel() | striptags) %} mit-kopftitel{% endif %}{% else %}schlicht{% endif %}{% endblock %}" data-tastenkuerzel="{{ 'an' if geruest.tastenkuerzel else 'aus' }}" hx-history="false" hx-headers="{{ hx_kopf }}">
   {% block kopfleiste %}{% if angemeldet %}{{ gr.druckkopf(geruest, self.titel()) }}{{ gr.kopfleiste(geruest, self.titel()) }}{% else %}{{ gr.kopf_schlicht(geruest.hilfe_pfad) }}{% endif %}{% endblock %}
   <div class="geruest-rumpf">
     {% block seitenleiste %}{% if angemeldet %}{{ k.seitenleiste(geruest) }}{% endif %}{% endblock %}
