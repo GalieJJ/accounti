@@ -96,6 +96,19 @@ HILFE: dict[Hilfethema, Hilfe] = {
             ),
             N_("Fällige offene Rechnungen stehen in der Liste darunter."),
         ),
+        (
+            Abschnitt(
+                "offene-posten",
+                N_("Woher die offenen Posten kommen"),
+                (
+                    N_(
+                        "Offene Posten sind gebuchte Rechnungen, die noch nicht ganz "
+                        "bezahlt sind. In der Kommandozeile zeigt sie accounti opos "
+                        "liste; in der Übersicht stehen die fälligen."
+                    ),
+                ),
+            ),
+        ),
     ),
     Hilfethema.PRUEFEN: Hilfe(
         N_("Prüfen"),

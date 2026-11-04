@@ -27,6 +27,7 @@ from tests.pruefen_hilfe import queuewelt, stand_aus
 # Seiten im neuen Design (Routenvorlagen); Reihenfolge wie in Schritt 12
 UMGESTELLT: list[str] = [
     "/anmelden",
+    "/",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
@@ -350,6 +351,9 @@ def leer(tmp_path_factory):
     try:
         w = webwelt(tmp_path_factory.mktemp("leer"))
         w.person("alle", *Rolle)
+        from tests.test_api_app import _leere_posten
+
+        _leere_posten(w)  # die Welt bringt einen offenen Posten mit
         yield w.angemeldet("alle")
     finally:
         mp.undo()

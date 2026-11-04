@@ -3,7 +3,7 @@
 {% block titel %}{{ _("Hilfe: %(thema)s", thema=_(hilfe.titel)) }}{% endblock %}
 {% block inhalt %}
 {% import "_komponenten.html" as k with context %}
-<div class="menue">
+<div class="seite">
 {{ k.brotkrumen([(_("Hilfe"), "/hilfe"), (_(hilfe.titel), none)]) }}
 <h1>{{ _("Hilfe: %(thema)s", thema=_(hilfe.titel)) }}</h1>
 <p>{{ _(hilfe.einleitung) }}</p>

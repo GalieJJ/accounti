@@ -5,7 +5,7 @@
 {% block inhalt %}
 {% import "_komponenten.html" as k with context %}
 {% set bereiche = geruest.bereiche + ((geruest.einstellungen,) if geruest.einstellungen else ()) %}
-<div class="menue">
+<div class="seite">
 <h1>{{ _("Mehr") }}</h1>
 <section aria-labelledby="menue-bereiche"><h2 class="etikett" id="menue-bereiche">{{ _("Bereiche") }}</h2>
 <ul class="gruppenliste">{% for e in bereiche %}<li><a href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ k.symbol(e.symbol) }}<span class="gruppenliste-text">{{ _(e.titel) }}</span>{% if e.zaehler is not none %}<span class="gruppenliste-neben">{{ e.zaehler }}<span class="unsichtbar"> {{ _("offen") }}</span></span>{% endif %}{{ k.symbol("chevron-right") }}</a></li>{% endfor %}</ul></section>

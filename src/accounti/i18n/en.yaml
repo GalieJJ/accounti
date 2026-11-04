@@ -84,6 +84,10 @@ Buchungen zur Prüfung: Bookings to review
 Belege zur Prüfung: Documents to review
 Zahlungsläufe im Entwurf: Payment runs in draft
 Fällige offene Posten: Open items due
+Kennzahlen: Key figures
+Keine offenen Posten sind fällig.: No open items are due.
+Woher die offenen Posten kommen: Where open items come from
+"Offene Posten sind gebuchte Rechnungen, die noch nicht ganz bezahlt sind. In der Kommandozeile zeigt sie accounti opos liste; in der Übersicht stehen die fälligen.": "Open items are booked invoices that are not yet fully paid. On the command line, accounti opos liste shows them; the overview lists those that are due."
 Fällig: Due
 Kontakt: Contact
 Beleg: Document

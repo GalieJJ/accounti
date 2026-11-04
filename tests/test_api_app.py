@@ -96,3 +96,49 @@ def test_vorlagen_escapen(tmp_path):
     seite = client.get("/").text
     assert "<script>x()</script>" not in seite
     assert "&lt;script&gt;" in seite
+
+
+def _leere_posten(welt) -> None:  # noqa: ANN001
+    from sqlalchemy import text
+
+    from accounti.db import session_factory
+
+    engine, fabrik = session_factory(welt.umgebung.db["a"])
+    with fabrik() as s:
+        s.execute(text("DELETE FROM offene_posten"))
+        s.commit()
+    engine.dispose()
+
+
+def test_uebersicht_im_design(tmp_path):
+    """Plan P1, Schritt 12: die vier Zahlen aus 10a/10b als Kennzahl-Karten in
+    ``.layout-karten``, die fälligen Posten als Tabelle mit caption, leer ein Satz mit
+    Link."""
+    import re
+
+    welt = webwelt(tmp_path)
+    welt.person("jan", Rolle.BUCHHALTER)
+    client = welt.angemeldet("jan")
+    html = client.get("/").text
+    karten = html[html.index('<div class="layout-karten">') :]
+    karten = karten[: karten.index('aria-labelledby="posten-titel"')]
+    zahlen = re.findall(
+        r'<h3 class="karte-titel">([^<]+)</h3></div><p class="kennzahl">'
+        r'<span class="kennzahl-wert">([^<]+)</span> <span class="kennzahl-satz">'
+        r"([^<]*)</span>",
+        karten,
+    )
+    assert zahlen == [
+        ("Offene Posten", "1", "111,00\xa0€"),
+        ("Buchungen zur Prüfung", "0", ""),
+        ("Belege zur Prüfung", "0", ""),
+        ("Zahlungsläufe im Entwurf", "0", ""),
+    ], zahlen
+    assert '<table class="tabelle" role="table">' in html
+    assert '<caption class="unsichtbar">Fällige offene Posten</caption>' in html
+    assert "A-RE-1" in html and "Alpha Papier GmbH" in html
+    assert '<span class="betrag-wert">111,00\xa0€</span>' in html
+    _leere_posten(welt)
+    leer = client.get("/").text
+    assert "<table" not in leer and 'class="leer"' in leer
+    assert 'href="/hilfe/uebersicht#offene-posten"' in leer

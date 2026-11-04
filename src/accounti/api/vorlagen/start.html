@@ -1,22 +1,30 @@
+{#- Übersicht (Plan P1, Schritt 12, Optik von „Main“): die vier Zahlen aus 10a/10b als
+    Kennzahl-Karten, darunter die fälligen offenen Posten. Die Karten „Heute zu tun“
+    baut P2. -#}
 {% extends "basis.html" %}
 {% block titel %}{{ _("Übersicht") }}{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Übersicht") }}</h1>
-<dl class="kennzahlen">
-  <div><dt>{{ _("Offene Posten") }}</dt><dd data-wert="offene_posten">{{ offene_posten }} · {{ offene_summe | euro }}</dd></div>
-  <div><dt>{{ _("Buchungen zur Prüfung") }}</dt><dd data-wert="buchungen_pruefung">{{ ngettext("%(num)s Buchung", "%(num)s Buchungen", buchungen_pruefung) }}</dd></div>
-  <div><dt>{{ _("Belege zur Prüfung") }}</dt><dd data-wert="belege_pruefung">{{ belege_pruefung }}</dd></div>
-  <div><dt>{{ _("Zahlungsläufe im Entwurf") }}</dt><dd data-wert="zahlungslaeufe">{{ zahlungslaeufe }}</dd></div>
-</dl>
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Übersicht") }}</h1></div>
+<section class="abschnitt" aria-labelledby="kennzahlen-titel">
+<h2 class="etikett" id="kennzahlen-titel">{{ _("Kennzahlen") }}</h2>
+<div class="layout-karten">
+{% call k.karte(_("Offene Posten"), kennzahl=(offene_posten, offene_summe | betrag_anzeige), ebene=3) %}{% endcall %}
+{% call k.karte(_("Buchungen zur Prüfung"), kennzahl=(buchungen_pruefung, ""), ebene=3) %}{% endcall %}
+{% call k.karte(_("Belege zur Prüfung"), kennzahl=(belege_pruefung, ""), ebene=3) %}{% endcall %}
+{% call k.karte(_("Zahlungsläufe im Entwurf"), kennzahl=(zahlungslaeufe, ""), ebene=3) %}{% endcall %}
+</div>
+</section>
+<section class="abschnitt" aria-labelledby="posten-titel">
+<h2 class="etikett" id="posten-titel">{{ _("Fällige offene Posten") }}</h2>
 {% if posten %}
-<table class="liste">
-  <caption>{{ _("Fällige offene Posten") }}</caption>
-  <thead><tr><th>{{ _("Fällig") }}</th><th>{{ _("Kontakt") }}</th><th>{{ _("Beleg") }}</th><th class="zahl">{{ _("Rest") }} (EUR)</th></tr></thead>
-  <tbody>
-  {% for p in posten %}
-    <tr><td>{{ p.faellig_am | datum }}</td><td>{{ p.kontakt }}</td><td>{{ p.belegnummer or "—" }}</td><td class="zahl">{{ p.restbetrag | betrag }}</td></tr>
-  {% endfor %}
-  </tbody>
-</table>
+{% call k.tabelle(_("Fällige offene Posten"), [Spalte(_("Fällig")), Spalte(_("Kontakt")), Spalte(_("Beleg")), Spalte(_("Rest"), zahl=true)], sichtbar=false) %}
+{% for p in posten %}{% call k.zeile() %}{% call k.zelle(_("Fällig")) %}{{ p.faellig_am | datum }}{% endcall %}{% call k.zelle(_("Kontakt")) %}{{ p.kontakt }}{% endcall %}{% call k.zelle(_("Beleg")) %}{{ p.belegnummer or "—" }}{% endcall %}{% call k.zelle(_("Rest"), zahl=true) %}{{ k.betrag(p.restbetrag) }}{% endcall %}{% endcall %}{% endfor %}
+{% endcall %}
+{% else %}
+{{ k.leer(_("Keine offenen Posten sind fällig."), aktion_text=_("Woher die offenen Posten kommen"), aktion_href="/hilfe/uebersicht#offene-posten") }}
 {% endif %}
+</section>
+</div>
 {% endblock %}

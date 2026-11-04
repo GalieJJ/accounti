@@ -115,10 +115,6 @@ html{scroll-padding-block-end:calc(var(--leistenhoehe) + env(safe-area-inset-bot
 .freigabe{display:grid;gap:0.5rem}
 .freigabe{grid-auto-flow:column;justify-content:start;align-items:center}
 input, select, button{padding:0.4rem 0.5rem}
-.kennzahlen{display:grid;grid-template-columns:repeat(auto-fit, minmax(12rem, 1fr));gap:0.8rem}
-.kennzahlen div{background:var(--flaeche);border:1px solid var(--linie);padding:0.8rem}
-.kennzahlen dt{color:var(--text-2);font-size:var(--gr-3)}
-.kennzahlen dd{margin:0.3rem 0 0;font-size:var(--gr-5)}
 .liste{width:100%;border-collapse:collapse;background:var(--flaeche);margin-top:1rem}
 .liste th, .liste td{padding:0.4rem 0.6rem;border-bottom:1px solid var(--linie);text-align:left}
 .liste .zahl{text-align:right}
@@ -385,9 +381,10 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .gruppenliste-aktiv .gruppenliste-text{font-weight:600}
 .gruppenliste-neben{font-size:var(--gr-3);color:var(--text-2)}
 .gruppenliste .gruppenliste-abmelden{font-weight:600;color:var(--akzent)}
-.menue{display:flex;flex-direction:column;gap:var(--a-5)}
-.menue h1, .menue p{margin:0}
-.menue .etikett{margin-bottom:var(--a-2)}
+.seite{display:flex;flex-direction:column;gap:var(--a-5)}
+.seite h1, .seite p{margin:0}
+.seite .etikett{margin-bottom:var(--a-2)}
+.abschnitt{display:flex;flex-direction:column;gap:var(--a-2);min-width:0}
 .fehlerseite{display:flex;flex-direction:column;align-items:flex-start;gap:var(--a-4)}
 .unternavigation{display:flex;flex-direction:column;gap:var(--a-1);margin:0;padding:0;list-style:none}
 .unternavigation a{display:flex;align-items:center;gap:var(--a-2);min-height:2.5rem;padding:0 var(--a-3);color:var(--text);text-decoration:none;border:1px solid transparent;border-radius:var(--radius)}
