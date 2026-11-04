@@ -435,6 +435,18 @@ body.geruest{padding-bottom:0}
 .neben{font-size:var(--gr-3);color:var(--text-2)}
 .hauptzeile{font-weight:600}
 .liste-kopf{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--a-3)}
+.quelle{font-weight:600}
+/* Arbeitsfläche: Positionszeile, Beleg | Vorschlag und Aktionen */
+.arbeitsflaeche, .arbeitsflaeche .layout-zweispaltig > section, .aktionen{display:flex;flex-direction:column;gap:var(--a-4)}
+.arbeitsflaeche h2, .vorschau p{margin:0}
+.queue-kopf{display:flex;flex-wrap:wrap;align-items:center;gap:var(--a-2) var(--a-3);padding-bottom:var(--a-3);border-bottom:1px solid var(--linie)}
+.position{font-weight:600}
+.queue-journal{margin-left:auto}
+.vorschlag-kopf{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--a-3);margin:0}
+.vorschlag-name{font-size:var(--gr-7);font-weight:600}
+.begruendung{display:block;white-space:pre-wrap}
+.konten{display:grid;grid-template-columns:repeat(auto-fit, minmax(min(9rem, 100%), 1fr));gap:var(--a-3)}
+.vorschau{display:flex;flex-direction:column;gap:var(--a-2);padding-top:var(--a-2);border-top:1px solid var(--linie)}
 /* Musterseite /muster (L9) */
 .muster{display:flex;flex-direction:column;gap:var(--a-5)}
 .muster-kopf{display:flex;flex-direction:column;gap:var(--a-1);max-width:56.25rem}

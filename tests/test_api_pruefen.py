@@ -74,7 +74,8 @@ def test_arbeitsflaeche_beleg_links_vorschlag_rechts(qw):
     links = seite.index('class="links"')
     rechts = seite.index('class="rechts"')
     iframe = seite.index(f'<iframe class="beleg" src="/belege/{beleg.id}/datei"')
-    vorschlag = seite.index("<h2>Vorschlag</h2>")
+    # umgestellt (Plan P1, Schritt 12): der Vorschlag ist eine Karte
+    vorschlag = seite.index('<h2 class="karte-titel">Vorschlag</h2>')
     assert links < iframe < rechts < vorschlag
 
 
@@ -103,8 +104,10 @@ def test_umsatzdaten_auch_mit_beleg(qw):
     seite = qw.web.angemeldet("jan").get(f"/pruefen/{b.id}").text
     rechts = seite[seite.index('class="rechts"') :]
     assert "<h2>Umsatz</h2>" in rechts and "EMPFAENGERMARKER RE 4711" in rechts
+    # umgestellt (Plan P1, Schritt 12): der Vorschlag ist eine Karte
+    vorschlag = '<h2 class="karte-titel">Vorschlag</h2>'
     assert "Bürobedarf Müller GmbH" in rechts and "DE89 3704 0044" in rechts
-    assert rechts.index("<h2>Umsatz</h2>") < rechts.index("<h2>Vorschlag</h2>")
+    assert rechts.index("<h2>Umsatz</h2>") < rechts.index(vorschlag)
 
 
 def test_korrektur_verlaesst_das_finanzkonto_422(qw):
@@ -591,7 +594,8 @@ def test_htmx_fragment_mit_push_url(qw):
     assert f"/pruefen/{zweite.id}/freigeben" in r.text
     # GET mit HX-Request: Fragment; Verlaufsabruf: ganze Seite
     teil = client.get(f"/pruefen/{zweite.id}", headers=HX).text
-    assert "<html" not in teil and 'class="flaeche"' in teil
+    # umgestellt (Plan P1, Schritt 12): zwei Spalten über das Layout
+    assert "<html" not in teil and 'class="layout-zweispaltig"' in teil
     ganz = client.get(
         f"/pruefen/{zweite.id}", headers={**HX, "HX-History-Restore-Request": "true"}
     ).text
@@ -851,3 +855,48 @@ def test_erloesschmaelerung_im_haben_im_browser_bleibt_ausgewiesen(qw):
         i=str(beleg.id),
     )
     assert [tuple(z) for z in wirksam] == [("8700", 3)]
+
+
+def _status_oob(html: str) -> str:
+    treffer = re.search(r'<div hx-swap-oob="innerHTML:#status">(.*?)</div>', html, re.S)
+    assert treffer, "kein hx-swap-oob für #status"
+    return treffer.group(1)
+
+
+def test_ergebnis_im_statusbereich(qw):
+    """A110, AK54 (Plan P1, Schritt 12): Die Fragmente nach Freigeben, Korrigieren,
+    Zurückstellen und nach einem 409 sagen ihr Ergebnis im globalen Bereich #status an
+    (hx-swap-oob); die sichtbare Meldung trägt dann kein role."""
+    eintraege = [
+        qw.unsicher(tag=date(2026, 10, n), name=f"Firma {n}") for n in range(1, 5)
+    ]
+    client = qw.web.angemeldet("jan")
+    r = aktion(client, eintraege[0].id, "freigeben", kopf=HX)
+    assert "Buchung freigegeben." in _status_oob(r.text)
+    assert '<div class="hinweis hinweis-ok">' in r.text  # ohne role
+    r = aktion(
+        client,
+        eintraege[1].id,
+        "korrigieren",
+        kopf=HX,
+        soll="4930",
+        haben="1200",
+        steuer="9",
+    )
+    assert r.status_code == 200 and _status_oob(r.text).strip()
+    r = aktion(client, eintraege[2].id, "zurueckstellen", kopf=HX, text="Wofür?")
+    assert r.status_code == 200 and _status_oob(r.text).strip()
+    alt = stand_aus(client.get(f"/pruefen/{eintraege[3].id}").text)
+    qw.sql("UPDATE buchungssaetze SET buchungstext = 'anders'")
+    r = client.post(
+        f"/pruefen/{eintraege[3].id}/freigeben",
+        data={"csrf": csrf(client), "stand": alt},
+        headers=HX,
+    )
+    assert r.status_code == 409 and "inzwischen geändert" in _status_oob(r.text)
+    # ohne htmx (ganze Seite) kein hx-swap-oob, die Meldung selbst ist die Ansage
+    seite = client.get(f"/pruefen/{eintraege[3].id}?erledigt=freigegeben").text
+    assert (
+        "hx-swap-oob" not in seite
+        and 'class="hinweis hinweis-ok" role="status"' in seite
+    )

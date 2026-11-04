@@ -1,10 +1,13 @@
 {#- Tastenhilfe der Arbeitsfläche: Tasten aus hilfe_inhalt.TASTEN_PRUEFEN; abschalten
     über die Vorlieben am Benutzer (gilt auf jedem Gerät, kein Speicher im Browser). -#}
-<details id="tastenhilfe" class="tastenhilfe">
+{% import "_komponenten.html" as k with context %}
+<details id="tastenhilfe" class="aufklapper aufklapper-linie tastenhilfe">
   <summary>{{ _("Tastenkürzel") }} <kbd>?</kbd></summary>
-  <dl>
-    {% for taste, text in tasten_pruefen %}<div><dt><kbd>{{ taste }}</kbd></dt><dd>{{ _(text) }}</dd></div>{% endfor %}
-    <div><dt><kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd> / <kbd>Esc</kbd></dt><dd>{{ _("im Eingabefeld: absenden / Feld verlassen") }}</dd></div>
-  </dl>
-  <form method="post" action="/konto/vorlieben" class="tasten-schalter"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}">{% if geruest.tastenkuerzel %}<input type="hidden" name="tastenkuerzel" value="aus"><button type="submit">{{ _("Tastenkürzel ausschalten") }}</button>{% else %}<input type="hidden" name="tastenkuerzel" value="an"><button type="submit">{{ _("Tastenkürzel einschalten") }}</button>{% endif %}</form>
+  <div class="aufklapper-inhalt">
+  {% call k.angaben(klein=true) %}
+    {% for taste, text in tasten_pruefen %}{% set kbd %}<kbd>{{ taste }}</kbd>{% endset %}{% call k.angabe(kbd) %}{{ _(text) }}{% endcall %}{% endfor %}
+    {% set kbd %}<kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd> / <kbd>Esc</kbd>{% endset %}{% call k.angabe(kbd) %}{{ _("im Eingabefeld: absenden / Feld verlassen") }}{% endcall %}
+  {% endcall %}
+  <form method="post" action="/konto/vorlieben" class="tasten-schalter"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}">{% if geruest.tastenkuerzel %}<input type="hidden" name="tastenkuerzel" value="aus">{{ k.knopf(_("Tastenkürzel ausschalten"), art="sekundaer", groesse="klein") }}{% else %}<input type="hidden" name="tastenkuerzel" value="an">{{ k.knopf(_("Tastenkürzel einschalten"), art="sekundaer", groesse="klein") }}{% endif %}</form>
+  </div>
 </details>

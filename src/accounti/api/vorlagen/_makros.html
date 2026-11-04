@@ -3,5 +3,5 @@
 {% macro schluessel(nr, namen) %}{% if nr is none %}{{ _("ohne Steuer") }}{% else %}{{ nr }}{% if namen.get(nr) %} <span lang="de">({{ namen[nr] }})</span>{% endif %}{% endif %}{% endmacro %}
 {% macro meldung_text(text) %}{% if text is text %}{{ text | uebersetzt }}{% else %}<span class="fachmeldung" lang="de">{{ text }}</span>{% endif %}{% endmacro %}
 {% macro fehlerkasten(fehler) %}{% if fehler %}<div class="fehler" role="alert"><p>{{ _("Die Aktion wurde nicht ausgeführt:") }}</p>{{ meldung_text(fehler.meldung) }}</div>{% endif %}{% endmacro %}
-{% macro konfigurationsfehler(text) %}<div class="fehler" role="alert"><p>{{ _("Die Konfiguration der Gesellschaft ist fehlerhaft — Freigeben, Korrigieren und Stornieren sind erst nach ihrer Berichtigung möglich:") }}</p><p lang="de">{{ text }}</p></div>{% endmacro %}
+{% macro konfigurationsfehler(text) %}{% import "_komponenten.html" as k with context %}{% call k.hinweis("fehler", neu=true) %}<p>{{ _("Die Konfiguration der Gesellschaft ist fehlerhaft — Freigeben, Korrigieren und Stornieren sind erst nach ihrer Berichtigung möglich:") }}</p><p lang="de">{{ text }}</p>{% endcall %}{% endmacro %}
 {% macro feldfehler(fehler, name) %}{% if fehler and fehler.feld == name %} aria-invalid="true" class="markiert"{% endif %}{% endmacro %}

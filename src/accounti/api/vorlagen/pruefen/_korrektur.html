@@ -1,19 +1,22 @@
 {% import "_makros.html" as m with context %}
+{% import "_komponenten.html" as k with context %}
 {% set steuer_pflicht = aktion_fehler and aktion_fehler.feld == "steuer" %}
+{%- set ff = aktion_fehler.feld if aktion_fehler else none -%}
+{%- set fm = m.meldung_text(aktion_fehler.meldung) if aktion_fehler else none -%}
+{%- set soll_label %}{{ _("Soll") }} <kbd>e</kbd>{% endset -%}
+{%- set konto = {"required": true, "pattern": "[0-9]{4,9}"} -%}
 <form method="post" action="/pruefen/{{ b.id }}/korrigieren" hx-post="/pruefen/{{ b.id }}/korrigieren" hx-target="#arbeitsflaeche" hx-disabled-elt="find button" class="korrektur">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="stand" value="{{ e.stand }}">
   <input type="hidden" name="ansicht" value="{{ ansicht }}">
-  <fieldset>
-    <legend>{{ _("Korrigieren") }}</legend>
+  {% call k.feldgruppe(_("Korrigieren")) %}
     <div class="konten">
-      <label for="soll">{{ _("Soll") }} <kbd>e</kbd></label>
-      <input id="soll" name="soll" value="{{ eingaben.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required data-taste="e"{{ m.feldfehler(aktion_fehler, "soll") }}>
-      <label for="haben">{{ _("Haben") }}</label>
-      <input id="haben" name="haben" value="{{ eingaben.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(aktion_fehler, "haben") }}>
+      {{ k.feld("soll", soll_label, wert=eingaben.get("soll", b.soll_konto), inputmode="numeric", fehler=fm if ff == "soll" else none, attribute=dict(konto, **{"data-taste": "e"})) }}
+      {{ k.feld("haben", _("Haben"), wert=eingaben.get("haben", b.haben_konto), inputmode="numeric", fehler=fm if ff == "haben" else none, attribute=konto) }}
     </div>
-    <label for="steuer">{{ _("Steuerschlüssel") }}</label>
-    <select id="steuer" name="steuer"{% if steuer_pflicht %} required aria-invalid="true" class="markiert"{% endif %}>
+    {%- set beschrieben = ((["steuer-hilfe"] if e.steuer.hinweis else []) + (["steuer-fehler"] if steuer_pflicht else [])) | join(" ") %}
+    <div class="feld{% if steuer_pflicht %} feld-fehler{% endif %}"><label for="steuer">{{ _("Steuerschlüssel") }}</label>
+    <select id="steuer" class="eingabe" name="steuer"{% if steuer_pflicht %} required aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}>
       {% if steuer_pflicht %}
       <option value="" disabled{% if not eingaben.get('steuer') %} selected{% endif %}>{{ _("bitte wählen") }}</option>
       {% else %}
@@ -24,34 +27,27 @@
       {% endfor %}
       {% if e.steuer.ohne_steuer %}<option value="ohne"{% if eingaben.get('steuer') == "ohne" %} selected{% endif %}>{{ _("ohne Steuer") }}</option>{% endif %}
     </select>
-    {% if e.steuer.hinweis %}<p class="klein" lang="de">{{ e.steuer.hinweis }}</p>{% endif %}
-    <label for="grund">{{ _("Grund (steht im Journal)") }}</label>
-    <input id="grund" name="grund" value="{{ eingaben.get('grund', '') }}" maxlength="500"{{ m.feldfehler(aktion_fehler, "grund") }}>
-    {% if e.steuer.ohne_nur_mit_grund %}<p class="klein">{{ _("„Ohne Steuer“ nur mit Grund.") }}</p>{% endif %}
+    {% if e.steuer.hinweis %}<p class="feld-hilfe" id="steuer-hilfe" lang="de">{{ e.steuer.hinweis }}</p>{% endif %}
+    {% if steuer_pflicht %}<p class="feld-meldung feld-meldung-fehler" id="steuer-fehler">{{ k.symbol("circle-x", groesse=14, kraeftig=true) }}<strong>{{ _("Fehler:") }}</strong> {{ fm }}</p>{% endif %}</div>
+    {{ k.feld("grund", _("Grund (steht im Journal)"), wert=eingaben.get("grund", ""), hilfe=_("„Ohne Steuer“ nur mit Grund.") if e.steuer.ohne_nur_mit_grund else none, fehler=fm if ff == "grund" else none, attribute={"maxlength": 500}) }}
     {% if darf_lernen and e.regel_moeglich %}
-    <fieldset class="regel">
-      <legend>{{ _("Regel daraus machen") }}</legend>
-      <label class="haken"><input type="checkbox" name="regel" value="1" data-taste="r"{% if eingaben.get('regel') == '1' %} checked{% endif %}> {{ _("Künftige Umsätze in dieser Zahlungsrichtung so kontieren") }} <kbd>r</kbd></label>
-      <label for="muster">{{ _("Muster (Text, nur ganze Wörter)") }}</label>
-      <input id="muster" name="muster" value="{{ eingaben.get('muster', muster_vorschlag) }}" minlength="3" maxlength="100"{{ m.feldfehler(aktion_fehler, "muster") }}>
-      <label for="feld">{{ _("Suchen in") }}</label>
-      <select id="feld" name="feld">
-        {% for wert, name in (("beide", _("Gegenpartei und Verwendungszweck")), ("gegenkonto_name", _("Gegenpartei")), ("verwendungszweck", _("Verwendungszweck"))) %}
-        <option value="{{ wert }}"{% if eingaben.get('feld', 'beide') == wert %} selected{% endif %}>{{ name }}</option>
-        {% endfor %}
-      </select>
+    {% call k.feldgruppe(_("Regel daraus machen")) %}
+      <label class="haken haken-ziel" for="regel"><input type="checkbox" id="regel" name="regel" value="1" data-taste="r"{% if eingaben.get('regel') == '1' %} checked{% endif %}> {{ _("Künftige Umsätze in dieser Zahlungsrichtung so kontieren") }} <kbd>r</kbd></label>
+      {{ k.feld("muster", _("Muster (Text, nur ganze Wörter)"), wert=eingaben.get("muster", muster_vorschlag), fehler=fm if ff == "muster" else none, attribute={"minlength": 3, "maxlength": 100}) }}
+      {{ k.auswahl("feld", _("Suchen in"), [("beide", _("Gegenpartei und Verwendungszweck")), ("gegenkonto_name", _("Gegenpartei")), ("verwendungszweck", _("Verwendungszweck"))], gewaehlt=eingaben.get("feld", "beide")) }}
       <div id="regelvorschau" aria-live="polite">{% if vorschau %}{% include "pruefen/_regelvorschau.html" %}{% endif %}</div>
-    </fieldset>
+    {% endcall %}
     {% elif darf_lernen and e.sachkonto_lernbar %}
-    <label class="haken"><input type="checkbox" name="regel" value="1" data-taste="r"{% if eingaben.get('regel') == '1' %} checked{% endif %}> {{ _("Sachkonto am Kontakt lernen") }} <kbd>r</kbd></label>
+    <label class="haken haken-ziel" for="regel"><input type="checkbox" id="regel" name="regel" value="1" data-taste="r"{% if eingaben.get('regel') == '1' %} checked{% endif %}> {{ _("Sachkonto am Kontakt lernen") }} <kbd>r</kbd></label>
     {% endif %}
     {# Korrigieren steht als erster Absendeknopf im Formular: Enter in einem Feld löst
-       auch ohne Skript die Korrektur aus, nie die Regelvorschau. #}
-    <div class="knopfzeile">
-      <button type="submit" class="hauptknopf" data-hauptknopf>{{ _("Korrigieren") }}</button> <span class="klein"><kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd></span>
+       auch ohne Skript die Korrektur aus, nie die Regelvorschau. Primär ist es nur,
+       wenn Freigeben fehlt (Prüfregel). #}
+    <div class="knopfreihe">
+      {{ k.knopf(_("Korrigieren"), art="primaer" if e.freigabe_gesperrt or not darf_freigeben else "sekundaer", attribute={"data-hauptknopf": "ja"}) }} <span class="neben"><kbd>{{ _("Strg") }}</kbd>+<kbd>Enter</kbd></span>
       {% if darf_lernen and e.regel_moeglich %}
-      <button type="submit" formaction="/pruefen/{{ b.id }}/regelvorschau" hx-post="/pruefen/{{ b.id }}/regelvorschau" hx-target="#regelvorschau" hx-disabled-elt="this" class="nebenknopf">{{ _("Regelvorschau") }}</button>
+      {{ k.knopf(_("Regelvorschau"), art="still", attribute={"formaction": "/pruefen/" ~ b.id ~ "/regelvorschau", "hx-post": "/pruefen/" ~ b.id ~ "/regelvorschau", "hx-target": "#regelvorschau", "hx-disabled-elt": "this"}) }}
       {% endif %}
     </div>
-  </fieldset>
+  {% endcall %}
 </form>

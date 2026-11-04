@@ -1,27 +1,23 @@
+{% import "_komponenten.html" as k with context %}
 {% if vorschau_fehler is defined and vorschau_fehler %}
-<p class="fehler" role="alert">{{ vorschau_fehler.meldung | uebersetzt }}</p>
+{% call k.hinweis("fehler", neu=true) %}{{ vorschau_fehler.meldung | uebersetzt }}{% endcall %}
 {% elif vorschau %}
 {% set richtung = vorschau.entwurf.richtung.value if vorschau.entwurf.richtung else "" %}
 <div class="vorschau" role="status">
   <p class="treffer">{% if richtung == "einnahme" %}{{ ngettext("Trifft %(num)s Einnahme in den letzten 24 Monaten", "Trifft %(num)s Einnahmen in den letzten 24 Monaten", vorschau.treffer) }}{% else %}{{ ngettext("Trifft %(num)s Ausgabe in den letzten 24 Monaten", "Trifft %(num)s Ausgaben in den letzten 24 Monaten", vorschau.treffer) }}{% endif %}
   · {% if vorschau.greift_fuer_umsatz %}{{ _("greift für diesen Umsatz") }}{% else %}{{ _("greift für diesen Umsatz nicht") }}{% endif %}</p>
-  <p class="klein">{{ _("Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s", muster=vorschau.entwurf.muster, anzahl=vorschau.gegenrichtung, anders=vorschau.gegenrichtung_anders) }}</p>
-  {% if vorschau.verdraengt %}<p class="hinweis">{{ _("Verdrängt Regel %(name)s für diesen Umsatz.", name=vorschau.verdraengt) }}</p>{% endif %}
+  <p class="neben">{{ _("Muster „%(muster)s“, Gegenrichtung (höchstens als Gegenbuchung zur Prüfung): %(anzahl)s, davon heute anders gebucht: %(anders)s", muster=vorschau.entwurf.muster, anzahl=vorschau.gegenrichtung, anders=vorschau.gegenrichtung_anders) }}</p>
+  {% if vorschau.verdraengt %}{% call k.hinweis("info") %}{{ _("Verdrängt Regel %(name)s für diesen Umsatz.", name=vorschau.verdraengt) }}{% endcall %}{% endif %}
   {% if vorschau.beispiele %}
-  <table class="liste klein">
-    <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Gegenpartei") }}</th><th class="zahl">{{ _("Betrag") }} (EUR)</th><th>{{ _("Bisher") }}</th></tr></thead>
-    <tbody>
-    {% for x in vorschau.beispiele %}
-      <tr><td>{{ x.datum | datum }}</td><td>{{ x.gegenkonto or "—" }}</td><td class="zahl">{{ x.betrag | betrag }}</td><td>{{ x.kontierung or _("offen") }}</td></tr>
-    {% endfor %}
-    </tbody>
-  </table>
+  {% call k.tabelle(_("Beispiele"), [Spalte(_("Datum")), Spalte(_("Gegenpartei")), Spalte(_("Betrag"), zahl=true), Spalte(_("Bisher"))], in_karte=true) %}
+  {% for x in vorschau.beispiele %}{% call k.zeile() %}{% call k.zelle(_("Datum")) %}{{ x.datum | datum }}{% endcall %}{% call k.zelle(_("Gegenpartei")) %}{{ x.gegenkonto or "—" }}{% endcall %}{% call k.zelle(_("Betrag"), zahl=true) %}{{ k.betrag(x.betrag) }}{% endcall %}{% call k.zelle(_("Bisher")) %}{{ x.kontierung or _("offen") }}{% endcall %}{% endcall %}{% endfor %}
+  {% endcall %}
   {% endif %}
-  {% if vorschau.fremde %}<p class="hinweis">{% if vorschau.ohne_namen %}{{ _("Weitere Treffer, Gegenpartei nicht erkennbar:") }}{% else %}{{ _("Auch andere Gegenparteien:") }}{% endif %} <span lang="de">{{ vorschau.fremde | join(", ") }}</span></p>{% endif %}
-  {% if vorschau.warnungen %}<ul class="warnungen" lang="de">{% for w in vorschau.warnungen %}<li>{{ w }}</li>{% endfor %}</ul>{% endif %}
+  {% if vorschau.fremde %}{% call k.hinweis("info") %}{% if vorschau.ohne_namen %}{{ _("Weitere Treffer, Gegenpartei nicht erkennbar:") }}{% else %}{{ _("Auch andere Gegenparteien:") }}{% endif %} <span lang="de">{{ vorschau.fremde | join(", ") }}</span>{% endcall %}{% endif %}
+  {% if vorschau.warnungen %}{% call k.hinweis("warn") %}<ul class="warnungen" lang="de">{% for w in vorschau.warnungen %}<li>{{ w }}</li>{% endfor %}</ul>{% endcall %}{% endif %}
   {% if vorschau.bestaetigung_noetig %}
-  <label class="haken bestaetigen"><input type="checkbox" name="regel_bestaetigt" value="{{ vorschau.entwurf.muster }}"> {{ _("Regel trotzdem mit diesem Muster speichern") }}</label>
+  <label class="haken haken-ziel bestaetigen" for="regel_bestaetigt"><input type="checkbox" id="regel_bestaetigt" name="regel_bestaetigt" value="{{ vorschau.entwurf.muster }}"> {{ _("Regel trotzdem mit diesem Muster speichern") }}</label>
   {% endif %}
-  <p class="klein" lang="de">{{ vorschau.hinweis }}</p>
+  <p class="neben" lang="de">{{ vorschau.hinweis }}</p>
 </div>
 {% endif %}

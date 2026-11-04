@@ -30,6 +30,7 @@ UMGESTELLT: list[str] = [
     "/",
     "/freigaben",
     "/pruefen",
+    "/pruefen/{buchung_id:uuid}",
 ]
 
 # Seiten mit Codefeld (A109) und der Hauptaktion je Seite (AK49 I12): Text des Knopfs
@@ -189,7 +190,7 @@ def test_hauptaktion_ist_primaerknopf(probe, alle, vorlage):
     baum = Baum(html_von(probe, alle, vorlage))
     knoepfe = baum.alle("button")
     for name in HAUPTAKTION[vorlage]:
-        treffer = [k for k in knoepfe if text(k) in (name, f"{name} f")]
+        treffer = [k for k in knoepfe if text(k) in (name, f"{name}f", f"{name} f")]
         assert treffer, (vorlage, name, [text(k) for k in knoepfe])
         for knopf in treffer:
             assert "knopf-primaer" in knopf.klassen, (vorlage, name)
