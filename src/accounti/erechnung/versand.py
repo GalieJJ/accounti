@@ -24,8 +24,14 @@ from sqlalchemy.orm import Session
 from accounti.anzeige import betrag_de
 from accounti.belege.archiv import BelegArchiv
 from accounti.db.repository import lade_ausgangsrechnung, speichere_versandprotokoll
+from accounti.einstellungen.leser import (
+    datei_vorhanden,
+    im_pruefmodus,
+    lies_abschnitt,
+    quelle_vorhanden,
+)
 from accounti.erechnung import lies
-from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError, lies_yaml
+from accounti.konfiguration import STANDARD_PFAD, Firma, KonfigurationError
 from accounti.models import Ausgangsrechnung, AusgangsrechnungStatus, Versandprotokoll
 
 Format = Literal["zugferd", "xrechnung"]
@@ -89,6 +95,8 @@ def _ersetze_variablen(wert: Any) -> Any:
         def ersetze(m: re.Match[str]) -> str:
             name = m.group(1)
             if name not in os.environ:
+                if im_pruefmodus():  # Validierung ohne die Variable (Plan D16)
+                    return m.group(0)
                 msg = f"Umgebungsvariable {name} ist nicht gesetzt"
                 raise KonfigurationError(msg)
             return os.environ[name]
@@ -99,14 +107,16 @@ def _ersetze_variablen(wert: Any) -> Any:
 
 def lade_versand(pfad: str | Path = STANDARD_PFAD) -> VersandKonfiguration:
     pfad = Path(pfad)
-    if not pfad.is_file():
-        msg = f"{pfad} fehlt — Vorlage: config/accounti.example.yaml"
+    if not quelle_vorhanden(pfad, "versand"):
+        if not datei_vorhanden(pfad):
+            msg = f"{pfad} fehlt — Vorlage: config/accounti.example.yaml"
+        else:
+            msg = (
+                f"{pfad}: Abschnitt 'versand' fehlt (SMTP-Zugang für den "
+                "E-Mail-Versand)"
+            )
         raise KonfigurationError(msg)
-    daten = lies_yaml(pfad)
-    versand = daten.get("versand") if isinstance(daten, dict) else None
-    if not isinstance(versand, dict):
-        msg = f"{pfad}: Abschnitt 'versand' fehlt (SMTP-Zugang für den E-Mail-Versand)"
-        raise KonfigurationError(msg)
+    versand = lies_abschnitt(pfad, "versand")
     try:
         return VersandKonfiguration.model_validate(_ersetze_variablen(versand))
     except ValidationError as fehler:

@@ -518,3 +518,85 @@ def test_saldenvortrag_ist_kein_umsatz(db):
         v = vorbereiten(s, einstellungen)
     assert not [b for b in v.befunde if "1576" in b.text]
     assert v.voranmeldung.formularwerte() == vorher
+
+
+def test_dezember_2026_monat_trotz_quartal_2027():
+    """AK31 (dritter Punkt): ``voranmeldungszeitraum: {2026: monat, 2027: quartal}`` —
+    die Voranmeldung Dezember 2026 ist monatlich und bleibt es, 2027 vierteljährlich;
+    die Sondervorauszahlung gehört zum Dezember 2026, solange 2026 Dauerfrist gilt."""
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.ustva import _zeitraum_befunde
+
+    einst = ElsterEinstellungen(
+        voranmeldungszeitraum={2026: "monat", 2027: "quartal"},
+        dauerfristverlaengerung={2026: True, 2027: False},
+    )
+    heute = date(2028, 1, 1)
+
+    def fehler(text: str) -> list[str]:
+        return [b.text for b in _zeitraum_befunde(Zeitraum.lies(text), einst, heute)]
+
+    assert fehler("2026-12") == []
+    assert fehler("2027-Q1") == []
+    assert any("kein Voranmeldungszeitraum" in t for t in fehler("2027-01"))
+    assert any("kein Voranmeldungszeitraum" in t for t in fehler("2026-Q4"))
+    assert einst.dauerfrist_fuer(2026) and not einst.dauerfrist_fuer(2027)
+
+
+AK31_EINST = {
+    "voranmeldungszeitraum": {2026: "monat", 2027: "quartal"},
+    "dauerfristverlaengerung": {2026: True, 2027: False},
+}
+
+
+def _ak31_uebermittlung(art, zeitraum):
+    from accounti.models.elster import Uebermittlung
+
+    return Uebermittlung(
+        art=art, zeitraum=zeitraum, modus=Modus.ECHT, weg="eric", datensatz="<x/>",
+        datensatz_hash="h", erfolgreich=True, ergebnis="", pruefbericht="{}",
+        aufbewahren_bis=date(2037, 12, 31),
+    )  # fmt: skip
+
+
+def test_dezember_2026_kz39_und_faelligkeit_trotz_quartal_2027(tmp_path):
+    """AK31 bei den Verbrauchern: Die Voranmeldung Dezember 2026 (erstellt im Januar
+    2027) rechnet die angemeldete Sondervorauszahlung 2026 an (Kz 39), ihre Zahllast
+    ist mit der Dauerfrist 2026 am 10.02.2027 fällig; 2027-Q1 ohne Dauerfrist am
+    10.04.2027 (ein Samstag, also Montag, 12.04.2027 — § 108 Abs. 3 AO); für 2027
+    (Quartal) gibt es keine Sondervorauszahlung."""
+    from decimal import Decimal
+
+    from accounti.db import init_db
+    from accounti.elster.dauerfrist import berechne_svz
+    from accounti.elster.konfiguration import ElsterEinstellungen
+    from accounti.elster.protokoll import neuer_eintrag, protokolliere
+    from accounti.elster.zahllast import _faellig
+
+    einst = ElsterEinstellungen(**AK31_EINST)
+    engine, make_session = session_factory(f"sqlite:///{tmp_path / 'ak31.db'}")
+    init_db(engine)
+    with make_session() as s:
+        protokolliere(
+            s,
+            neuer_eintrag(
+                None, art=Meldeart.DAUERFRIST, zeitraum="2026", modus=Modus.ECHT,
+                weg="eric", datensatz="<x/>", erfolgreich=True,
+                ergebnis="übermittelt", pruefbericht="{}", betrag=Decimal("4000.00"),
+            ),
+        )  # fmt: skip
+        s.commit()
+        dezember = bereite_vor(
+            s, Zeitraum.lies("2026-12"), buchhaltung=Buchhaltung(), einstellungen=einst
+        )
+        svz_2027 = berechne_svz(
+            s, 2027, einst, summe_vorjahr=Decimal("12000"), svz_vorjahr=Decimal("0")
+        )
+    engine.dispose()
+    assert dezember.voranmeldung.formularwerte()[39] == Decimal("4000.00")
+    assert dezember.voranmeldung.kz83 == Decimal("-4000.00")
+    assert "sondervorauszahlung" not in [b.regel for b in dezember.befunde]
+    assert svz_2027.betrag is None
+    ustva = Meldeart.USTVA
+    assert _faellig(_ak31_uebermittlung(ustva, "2026-12"), einst) == date(2027, 2, 10)
+    assert _faellig(_ak31_uebermittlung(ustva, "2027-Q1"), einst) == date(2027, 4, 12)

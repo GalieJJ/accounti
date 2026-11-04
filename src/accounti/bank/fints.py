@@ -319,6 +319,9 @@ class FinTSProvider(BankProvider):
     @property
     def einstellungen(self) -> FinTSEinstellungen:
         if self._einstellungen is None:
+            # ohne mitgegebene Einstellungen (Werkzeuge, Tests ohne Stand) die
+            # Standarddatei — rufe_ab und richte_fints_ein bekommen sie in CLI und Web
+            # immer mit (tests/test_bindung_struktur.py)
             self._einstellungen = lade_bank_einstellungen().fints
         return self._einstellungen
 

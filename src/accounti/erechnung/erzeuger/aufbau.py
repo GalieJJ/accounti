@@ -168,11 +168,33 @@ def _verkaeufer(firma: Firma) -> Partei:
     )
 
 
-def _berechner(firma: Firma) -> UStBerechner:
+def _leistungstag(
+    entwurf: Ausgangsrechnung, rechnungsdatum: date, vorgaenger_datum: date | None
+) -> date:
+    """Tag der Leistung — er entscheidet über OSS, Leistungsort und Steuersatz (§ 3c,
+    § 13 Abs. 1 Nr. 1 Buchst. a UStG), nicht das Rechnungsdatum.
+
+    Ohne Leistungsdatum gilt das Rechnungsdatum (§ 14 Abs. 4 Satz 1 Nr. 6 UStG). Eine
+    Gutschrift oder Korrektur berichtigt die ursprüngliche Leistung (§ 17 UStG): ohne
+    eigenes Leistungsdatum zählt das der ursprünglichen Rechnung — `rechnung neu
+    --korrektur-zu` übernimmt es —, und nannte diese keins, ihr Rechnungsdatum
+    (``vorgaenger_datum``).
+    """
+    if entwurf.leistungsdatum is not None:
+        return entwurf.leistungsdatum
+    if entwurf.korrektur_zu and vorgaenger_datum is not None:
+        return vorgaenger_datum
+    return rechnungsdatum
+
+
+def _berechner(firma: Firma, tag: date) -> UStBerechner:
+    """``mandant.oss`` im Quartal von ``tag`` (Periodenwert, Baustein 10c P4) — dem
+    Tag der Leistung (`_leistungstag`)."""
+    oss = firma.oss_am(tag)
     return UStBerechner(
         firmen_land=firma.anschrift.land,
-        oss_registriert=firma.oss,
-        oss_schwelle_ueberschritten=firma.oss,
+        oss_registriert=oss,
+        oss_schwelle_ueberschritten=oss,
     )
 
 
@@ -182,7 +204,8 @@ def ustid_pflichtig(entwurf: Ausgangsrechnung, firma: Firma) -> bool:
     k = entwurf.kunde
     if k.privat or not k.ust_id:
         return False
-    berechner = _berechner(firma)
+    # OSS betrifft nur Privatkunden — hier zählt der Tag nur der Form halber
+    berechner = _berechner(firma, entwurf.leistungsdatum or date.today())
     return any(
         berechner.bestimme_vorfall(
             k.land.upper(),
@@ -235,7 +258,8 @@ def baue_rechnung(
     _pruefe_entwurf(entwurf)
     k = entwurf.kunde
     land = k.land.upper()
-    berechner = _berechner(firma)
+    tag = _leistungstag(entwurf, rechnungsdatum, vorgaenger_datum)
+    berechner = _berechner(firma, tag)
     ist_b2b = not k.privat
     hat_ust_id = bool(k.ust_id)
 
@@ -249,7 +273,7 @@ def baue_rechnung(
             ist_sonstige_leistung=p.sonstige_leistung,
             ist_elektronisch=p.elektronisch,
             # Satz am Tag der Leistung (OSS: Satz des Bestimmungslands an diesem Tag)
-            stichtag=entwurf.leistungsdatum or rechnungsdatum,
+            stichtag=tag,
         )
 
     # Eine Gutschrift weist die Minderung positiv aus: als negative Menge erfasst,
@@ -351,7 +375,7 @@ def baue_rechnung(
         vorgaenger_nummer=entwurf.korrektur_zu,
         vorgaenger_datum=vorgaenger_datum if entwurf.korrektur_zu else None,
         notizen=notizen,
-        leistungsdatum=entwurf.leistungsdatum or rechnungsdatum,
+        leistungsdatum=tag,
         # Innergemeinschaftliche Lieferung: Lieferanschrift ist Pflicht (BR-IC-12).
         lieferanschrift=(
             Anschrift(strasse=k.strasse, plz=k.plz, ort=k.ort, land=land)

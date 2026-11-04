@@ -108,9 +108,10 @@ def _faellig(u: Uebermittlung, einstellungen: ElsterEinstellungen) -> date:
         return sondervorauszahlung_frist(
             int(u.zeitraum), einstellungen.bundesland
         ).faellig_am
+    zeitraum = Zeitraum.lies(u.zeitraum)
     return ustva_frist(
-        Zeitraum.lies(u.zeitraum),
-        einstellungen.dauerfristverlaengerung,
+        zeitraum,
+        einstellungen.dauerfrist_fuer(zeitraum.jahr),
         einstellungen.bundesland,
     ).faellig_am
 

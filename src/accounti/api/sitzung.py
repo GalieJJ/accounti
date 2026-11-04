@@ -35,6 +35,7 @@ from accounti.auth.dienst import (
     wechsle_gesellschaft,
 )
 from accounti.betrieb.gesellschaften import Gesellschaft
+from accounti.einstellungen.leser import Stand, aktueller_stand, binde_gesellschaft
 from accounti.i18n import Text
 from accounti.models.auth import ROLLEN_RECHTE, Benutzer, Recht, Rolle, Sitzung
 
@@ -107,6 +108,20 @@ def _lade(dienste: Dienste, token: str) -> Angemeldet | None:
     )
 
 
+def _lade_gebunden(
+    dienste: Dienste, token: str, stand: Stand | None
+) -> Angemeldet | None:
+    """Wie ``_lade``, dazu den Stand der Anfrage an die aktive Gesellschaft binden
+    (Baustein 10c P4, D4) — der gemeinsame Kern von ``angemeldet`` und
+    ``vielleicht_angemeldet``. Die Bindung legt keine Datenbank an und scheitert nicht
+    an ihr (``Dienste.quelle``): Ist sie nicht lesbar, steht das im Schnappschuss, und
+    nur das Lesen eines Datenbank-Abschnitts scheitert — Wechsel und Abmelden nicht."""
+    a = _lade(dienste, token)
+    if a is not None and stand is not None:
+        binde_gesellschaft(stand, dienste, a.gesellschaft)
+    return a
+
+
 async def pruefe_csrf(request: Request, erwartet: str) -> None:
     gesendet = request.headers.get(CSRF_KOPF) or (await formular(request)).get(
         CSRF_FELD, ""
@@ -128,7 +143,7 @@ async def angemeldet(request: Request) -> Angemeldet:
     token = request.cookies.get(cookie_name(dienste))
     if not token:
         raise NichtAngemeldetError
-    a = await run_in_threadpool(_lade, dienste, token)
+    a = await run_in_threadpool(_lade_gebunden, dienste, token, aktueller_stand())
     if a is None:
         raise NichtAngemeldetError
     # die Fehlerseiten der CSRF- und Formularprüfung (403, 413, 400) in seiner Sprache
@@ -155,7 +170,7 @@ async def vielleicht_angemeldet(request: Request) -> Angemeldet | None:
     if not token:
         return None
     try:
-        a = await run_in_threadpool(_lade, dienste, token)
+        a = await run_in_threadpool(_lade_gebunden, dienste, token, aktueller_stand())
     except SQLAlchemyError as fehler:
         FEHLER.warning("Sitzung nicht lesbar (%s)", type(fehler).__name__)
         return None

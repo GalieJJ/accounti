@@ -96,13 +96,13 @@ class Abschlusskontext:
             self.session,
             self.jahr,
             self.kontenrahmen,
-            self.einstellungen.gewinnermittlung,
+            self.einstellungen.gewinnermittlung_fuer(self.jahr),
             wj=self.wirtschaftsjahr,
         )
 
     @property
     def euer(self) -> bool:
-        return self.einstellungen.gewinnermittlung == "euer"
+        return self.einstellungen.gewinnermittlung_fuer(self.jahr) == "euer"
 
 
 def kontext(session: Session, jahr: int, config: str | Path) -> Abschlusskontext:
@@ -360,6 +360,44 @@ def _vortragskonten(k: Abschlusskontext) -> list[Befund]:
     return [Befund("vortragskonten", Schwere.FEHLER, text)]
 
 
+_ANZEIGE_GEWINNERMITTLUNG = {"euer": "EÜR", "bilanz": "Bilanz"}
+
+
+def wechsel_gewinnermittlung(einst: AbschlussEinstellungen, jahr: int) -> str | None:
+    """Wechselt die Gewinnermittlung vom Wirtschaftsjahr ``jahr`` zum folgenden
+    (Periodenwert ``abschluss.gewinnermittlung``)? Dann der Text für den Befund und
+    für die Ablehnung des Saldovortrags (``vortrag.trage_vor``), sonst ``None``.
+
+    Den Vortrag über den Wechsel rechnet accounti nicht: Die Schlusssalden folgen den
+    Kontenarten des alten Jahres — unter EÜR gehen etwa die Umsatzsteuerkonten ins
+    Kapital, der Eröffnungsbilanz fehlte die USt-Schuld.
+    """
+    alt = einst.gewinnermittlung_fuer(jahr)
+    neu = einst.gewinnermittlung_fuer(jahr + 1)
+    if alt == neu:
+        return None
+    folgejahr = einst.wirtschaftsjahr(jahr + 1)
+    return (
+        f"Wechsel der Gewinnermittlung {_ANZEIGE_GEWINNERMITTLUNG[alt]} → "
+        f"{_ANZEIGE_GEWINNERMITTLUNG[neu]} zum {folgejahr.von:%d.%m.%Y} "
+        "(abschluss.gewinnermittlung): Übergangsbilanz und Übergangsgewinn (R 4.6 "
+        "EStR) bitte mit dem Steuerberater — einen Saldovortrag über den Wechsel "
+        "rechnet accounti nicht, die Kontenarten unterscheiden sich (unter EÜR etwa "
+        "die Umsatzsteuerkonten). Die Eröffnungssalden des Folgejahres je "
+        f"Bestandskonto: accounti abschluss eroeffnung --jahr {jahr + 1} --konto … "
+        "--saldo …"
+    )
+
+
+def _wechsel_gewinnermittlung(k: Abschlusskontext) -> list[Befund]:
+    """Vorab, damit der Wechsel nicht erst beim Saldovortrag auffällt — eine Warnung:
+    Prüfen, Saldenliste und EÜR bleiben möglich, nur den Vortrag lehnt accounti ab."""
+    text = wechsel_gewinnermittlung(k.einstellungen, k.jahr)
+    if text is None:
+        return []
+    return [Befund("wechsel_gewinnermittlung", Schwere.WARNUNG, text)]
+
+
 def _euer_personenkonten(k: Abschlusskontext) -> list[Befund]:
     if not k.euer:
         return []
@@ -454,6 +492,7 @@ PRUEFUNGEN: dict[str, Callable[[Abschlusskontext], list[Befund]]] = {
     "abgrenzungen": _abgrenzungen,
     "verrechnungskonten": _verrechnungskonten,
     "vortragskonten": _vortragskonten,
+    "wechsel_gewinnermittlung": _wechsel_gewinnermittlung,
     "euer_personenkonten": _euer_personenkonten,
     "euer_zuordnung": _euer_zuordnung,
     "personenkonten": _personenkonten,

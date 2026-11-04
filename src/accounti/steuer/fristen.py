@@ -15,7 +15,7 @@ Werktag (§ 108 Abs. 3 AO); maßgeblich ist das Land des Finanzamts.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
@@ -90,10 +90,13 @@ def fristenkalender(
     voranmeldungszeitraum: Literal["monat", "quartal"] = "monat",
     dauerfrist: bool = False,
     zm: Literal["monat", "quartal"] | None = None,
-    oss: bool = False,
+    oss: bool | Collection[int] = False,
     bundesland: str | None = None,
 ) -> list[Frist]:
-    """Alle Fristen für die Meldezeiträume eines Jahres, nach Fälligkeit sortiert."""
+    """Alle Fristen für die Meldezeiträume eines Jahres, nach Fälligkeit sortiert.
+
+    ``oss``: alle Quartale bzw. nur die genannten (``mandant.oss`` ab einem Quartal,
+    Baustein 10c P4)."""
     fristen = [
         ustva_frist(z, dauerfrist, bundesland)
         for z in _perioden(jahr, voranmeldungszeitraum)
@@ -103,7 +106,10 @@ def fristenkalender(
     if zm is not None:
         fristen += [zm_frist(z) for z in _perioden(jahr, zm)]
     if oss:
-        fristen += [oss_frist(z) for z in _perioden(jahr, "quartal")]
+        quartale: Collection[int] = range(1, 5) if isinstance(oss, bool) else oss
+        fristen += [
+            oss_frist(z) for z in _perioden(jahr, "quartal") if z.quartal in quartale
+        ]
     return sorted(fristen, key=lambda f: (f.faellig_am, f.art))
 
 

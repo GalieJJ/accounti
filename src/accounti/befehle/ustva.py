@@ -101,13 +101,14 @@ def sitzung(period: str | None, db: str, config: str) -> Iterator[tuple[Session,
     if period is None:
         ende("Zeitraum fehlt — z.B. --period 2026-08")
     try:
+        zeitraum = Zeitraum.lies(period)
         lauf = Lauf(
-            zeitraum=Zeitraum.lies(period),
+            zeitraum=zeitraum,
             config=config,
             buchhaltung=lade_buchhaltung(config),
             einstellungen=lade_elster(config),
             ustid_max_alter_tage=lade_ustid_pruefung(config).max_alter_tage,
-            oss=lade_oss(config),
+            oss=lade_oss(config, zeitraum.von),  # OSS im Quartal des Zeitraums
         )
     except (ZeitraumError, KonfigurationError) as fehler:
         ende(fehler)

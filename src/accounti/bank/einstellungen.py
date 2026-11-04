@@ -21,14 +21,16 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 
 UMGEBUNG_PRODUKT_ID = "ACCOUNTI_FINTS_PRODUKT_ID"
 _VARIABLE = re.compile(r"\$\{([A-Za-z0-9_]+)\}")
 
 
 class FinTSEinstellungen(BaseModel):
-    produkt_id: str | None = Field(
+    produkt_id: Betriebsfeld[str | None] = Field(
         default=None, description="Registrierungsnummer der DK (HKVVB, an..25)"
     )
     produkt_version: str = Field(default="0.1", min_length=1, max_length=5)
@@ -126,14 +128,7 @@ def _fehlertext(fehler: ValidationError) -> str:
 
 def lade_bank_einstellungen(pfad: str | Path = STANDARD_PFAD) -> BankEinstellungen:
     pfad = Path(pfad)
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("bank") if isinstance(daten, dict) else None
-    if abschnitt is not None and not isinstance(abschnitt, dict):
-        msg = f"{pfad}: Abschnitt 'bank' muss eine Zuordnung sein"
-        raise KonfigurationError(msg)
-    werte: dict[str, Any] = _ersetze(abschnitt or {})
+    werte: dict[str, Any] = _ersetze(lies_abschnitt(pfad, "bank"))
     if os.environ.get(UMGEBUNG_PRODUKT_ID):
         fints = werte.get("fints")
         werte["fints"] = {

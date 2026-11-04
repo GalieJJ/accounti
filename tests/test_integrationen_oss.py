@@ -54,7 +54,7 @@ def amazon(laender=None):
 def buche(a, tmp_path, oss=True, **kw):
     einstellungen = kw.pop("einstellungen", lade_integrationen(tmp_path / "x.yaml"))
     return buche_abrechnung(
-        a, Buchungskontext(einstellungen=einstellungen, oss_registriert=oss, **kw)
+        a, Buchungskontext(einstellungen=einstellungen, oss_am=lambda _tag: oss, **kw)
     )
 
 
@@ -66,7 +66,7 @@ def test_akzeptanz_3_drei_eu_laender_auf_oss_konten_und_in_der_meldung(tmp_path)
     engine, make = session_factory(f"sqlite:///{tmp_path / 'o.db'}")
     init_db(engine)
     kontext = Kontext(
-        einstellungen=lade_integrationen(tmp_path / "x.yaml"), oss_registriert=True
+        einstellungen=lade_integrationen(tmp_path / "x.yaml"), oss_roh=True
     )
     roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
     angaben = lies_laenderdatei((FIXTURES / "amazon_bestellungen.txt").read_bytes())
@@ -449,7 +449,7 @@ def oss_import(tmp_path, konfig=""):
     einstellungen = lade_integrationen(pfad)
     engine, make = session_factory(f"sqlite:///{tmp_path / 'e.db'}")
     init_db(engine)
-    kontext = Kontext(einstellungen=einstellungen, oss_registriert=True)
+    kontext = Kontext(einstellungen=einstellungen, oss_roh=True)
     roh = (FIXTURES / "amazon_abrechnung_v2.txt").read_bytes()
     angaben = lies_laenderdatei((FIXTURES / "amazon_bestellungen.txt").read_bytes())
     with make() as s:
@@ -835,3 +835,63 @@ def test_oss_konten_ohne_fremdes_laenderkonto_gueltig(tmp_path, rahmen, abschnit
     pfad.write_text(text, encoding="utf-8")
     e = lade_integrationen(pfad)
     assert e.oss_erloes_konten["AT"] == ("4326" if rahmen == "SKR04" else "8326")
+
+
+# --- OSS ab Quartal (Periodenwert, Baustein 10c P4, D14) --------------------------
+
+OSS_AB_Q4 = {"2026-Q1": False, "2026-Q4": True}
+
+
+def test_oss_ab_quartal_je_posten_in_der_buchung(tmp_path):
+    """``mandant.oss: {2026-Q1: false, 2026-Q4: true}`` — die Amazon-Abrechnung aus
+    dem August (Q3) bleibt Inland: 8400 mit deutscher Steuer, kein OSS-Konto."""
+    einst = lade_integrationen(tmp_path / "x.yaml")
+    k = Kontext(einstellungen=einst, oss_roh=OSS_AB_Q4)
+    e = buche_abrechnung(
+        amazon(), Buchungskontext(einstellungen=k.einstellungen, oss_am=k.oss_am)
+    )
+    konten = {b.haben_konto for b in e.buchungen} | {b.soll_konto for b in e.buchungen}
+    assert not konten & {"8320", "8321", "8326", "1767"}
+    (fr,) = mit_beleg(e, "302-1000002-0000002")[:1]
+    assert (fr.haben_konto, fr.steuer_schluessel) == ("8400", 3)
+    assert fr.betrag_netto == D("50.42")  # 60,00 / 1,19
+
+
+def test_oss_ab_quartal_abrechnung_ueber_die_quartalsgrenze(tmp_path):
+    """Eine eBay-Auszahlung mit Verkäufen nach Frankreich am 28.09. (Q3, ohne OSS) und
+    am 02.10.2026 (Q4, mit OSS): Es zählt das Quartal des Postens, nicht das der
+    Abrechnung oder des Imports."""
+    from tests.marktplatz_hilfe import ebay_bericht
+
+    engine, make = session_factory(f"sqlite:///{tmp_path / 'q.db'}")
+    init_db(engine)
+    kontext = Kontext(
+        einstellungen=lade_integrationen(tmp_path / "x.yaml"), oss_roh=OSS_AB_Q4
+    )
+    bericht = ebay_bericht(
+        ("28.09.2026", "Bestellung", "26-Q3", "Frankreich", "120,00", "PQ", ""),
+        ("02.10.2026", "Bestellung", "26-Q4", "Frankreich", "120,00", "PQ", ""),
+        ("05.10.2026", "Auszahlung", "", "", "-240,00", "PQ", "05.10.2026"),
+    )
+    with make() as s:
+        (ergebnis,) = importiere(
+            s, BelegArchiv(tmp_path / "a"), kontext, "ebay", bericht, "q.csv"
+        )
+        buchungen = lade_buchungen(s)
+    engine.dispose()
+    assert ergebnis.abrechnung.von.month == 9 and ergebnis.abrechnung.bis.month == 10
+
+    def erloes(nummer):
+        return {
+            (b.haben_konto, b.betrag_netto, b.steuer_betrag)
+            for b in buchungen
+            if b.beleg_nummer == nummer and b.haben_konto in ("8400", "8320", "1767")
+        }
+
+    # Q3: Inland, 19 % deutsche Steuer (120,00 / 1,19)
+    assert erloes("26-Q3") == {("8400", D("100.84"), D("19.16"))}
+    # Q4: OSS — Erlös FR 100,00 und 20 % französische Steuer auf 1767
+    q4 = erloes("26-Q4")
+    assert ("8320", D("100.00")) in {(k, n) for k, n, _ in q4}
+    assert ("1767", D("20.00")) in {(k, n) for k, n, _ in q4}
+    assert not any(k == "8400" for k, _, _ in q4)

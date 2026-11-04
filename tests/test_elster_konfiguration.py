@@ -7,16 +7,26 @@ from accounti.elster.konfiguration import (
     KonfigurationError,
     bereiche,
     lade_elster,
+    lade_oss,
 )
 
 
 def test_ohne_datei_und_ohne_abschnitt_gelten_standards(tmp_path):
-    assert lade_elster(tmp_path / "fehlt.yaml") == ElsterEinstellungen()
+    # Baustein 10c P4 (D25): eine fehlende Datei ist ein leerer Startwert — wie eine
+    # leere Datei, also mit den OSS-Konten aus den Standards von integrationen
+    leer = tmp_path / "leer.yaml"
+    leer.write_text("", encoding="utf-8")
+    ohne = lade_elster(tmp_path / "fehlt.yaml")
+    assert ohne == lade_elster(leer)
+    standard = ElsterEinstellungen()
+    weg = {"kennziffern_konten", "konten_ohne_kennziffer"}
+    assert ohne.model_dump(exclude=weg) == standard.model_dump(exclude=weg)
     datei = tmp_path / "a.yaml"
     datei.write_text("mandant:\n  name: X\n", encoding="utf-8")
     e = lade_elster(datei)
-    assert e.voranmeldungszeitraum == "monat"
-    assert e.dauerfristverlaengerung is False
+    # Periodenwerte (Baustein 10c P4): gefragt wird mit dem Jahr
+    assert e.voranmeldungszeitraum_fuer(2026) == "monat"
+    assert e.dauerfrist_fuer(2026) is False
     assert e.uebermittler == "eric"
     assert e.eric.bibliothek is None
     assert e.abweichung_prozent == Decimal("50")
@@ -41,8 +51,8 @@ elster:
         encoding="utf-8",
     )
     e = lade_elster(datei)
-    assert e.voranmeldungszeitraum == "quartal"
-    assert e.dauerfristverlaengerung is True
+    assert e.voranmeldungszeitraum_fuer(2026) == "quartal"
+    assert e.dauerfrist_fuer(2026) is True
     assert e.bundesland == "BY"
     assert e.finanzamt.name == "Finanzamt München"
     assert e.finanzamt.iban == "DE89370400440532013000"
@@ -92,3 +102,62 @@ def test_sondervorauszahlung_ohne_jahr_wird_erklaert(tmp_path):
     datei.write_text("elster:\n  sondervorauszahlung: 4000\n", encoding="utf-8")
     with pytest.raises(KonfigurationError, match="je Jahr"):
         lade_elster(datei)
+
+
+def test_lade_oss_mit_zuordnung_je_zeitraum(tmp_path):
+    """M6: ``{2026-Q1: false, 2027-Q1: true}`` → 2026 nein, 2027 ja (bisher ``True``
+    für jede Zuordnung)."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text("mandant:\n  oss: {2026-Q1: false, 2027-Q1: true}\n", "utf-8")
+    assert lade_oss(datei, date(2026, 12, 31)) is False
+    assert lade_oss(datei, date(2027, 1, 1)) is True
+    assert lade_oss(datei, date(2025, 6, 1)) is False  # frühester Eintrag gilt davor
+    assert lade_steuerangaben(datei, date(2027, 4, 1)) == (True, "DE")
+    kontext = lade_kontext(datei)
+    assert kontext.oss_am(date(2026, 3, 1)) is False
+    assert kontext.oss_am(date(2027, 3, 1)) is True
+    assert lade_oss(tmp_path / "fehlt.yaml", date(2027, 1, 1)) is False
+
+
+@pytest.mark.parametrize(
+    ("wert", "erwartet"),
+    [('"false"', False), ('"true"', True), ('{"2026-Q1": "false"}', False)],
+)
+def test_oss_als_text_ist_ein_schalter(tmp_path, wert, erwartet):
+    """Prüfung verhalten-4 (CHANGELOG): ``mandant.oss`` wird überall wie ein Schalter
+    geprüft — ``"false"`` in Anführungszeichen ist aus (vor P4a galt jeder nicht leere
+    Text als OSS-registriert), für jeden Leser gleich."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text(f"mandant:\n  oss: {wert}\n", "utf-8")
+    tag = date(2026, 5, 1)
+    assert lade_oss(datei, tag) is erwartet
+    assert lade_steuerangaben(datei, tag) == (erwartet, "DE")
+    assert lade_kontext(datei).oss_am(tag) is erwartet
+
+
+@pytest.mark.parametrize("wert", ['"ja"', '"nein"', '{"2026-Q1": "ja"}'])
+def test_oss_ja_nein_ist_ein_fehler(tmp_path, wert):
+    """``"ja"``/``"nein"`` sind kein Schalter: eine Meldung mit Feldpfad, statt dass
+    accounti still OSS annimmt (verhalten-4)."""
+    from datetime import date
+
+    from accounti.integrationen.einstellungen import lade_kontext, lade_steuerangaben
+
+    datei = tmp_path / "a.yaml"
+    datei.write_text(f"mandant:\n  oss: {wert}\n", "utf-8")
+    tag = date(2026, 5, 1)
+    for lies in (
+        lambda: lade_oss(datei, tag),
+        lambda: lade_steuerangaben(datei, tag),
+        lambda: lade_kontext(datei),
+    ):
+        with pytest.raises(KonfigurationError, match="mandant.oss"):
+            lies()

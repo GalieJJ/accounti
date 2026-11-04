@@ -42,6 +42,10 @@ GESCHUETZT = frozenset(
         # Baustein 10b: Herkunft je Buchung (nur anfügen), gelernte Regeln (Journal)
         "kontierungsgruende",
         "kontierungsregeln",
+        # Baustein 10c P4: Einstellungsversionen (nur anfügen), Anträge (nur
+        # entscheiden) — beide sonst per Massenweg an der ORM-Sperre vorbei
+        "einstellungen",
+        "einstellungsantraege",
     }
 )
 
@@ -134,7 +138,7 @@ def registriere_ereignisse() -> None:
 # Alembic-Revision, deren Schema ``init_db`` anlegt — der Kopf der Migrationen
 # (tests/test_db_upgrade.py hält beides gleich; beim Zusammenführen neuer Migrationen
 # hier nachziehen)
-SCHEMA_STAND = "1dd2f6b7c6c8"
+SCHEMA_STAND = "83dfa5750c7f"
 ALEMBIC_VERSION = "alembic_version"
 
 

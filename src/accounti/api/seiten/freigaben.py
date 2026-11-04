@@ -263,7 +263,7 @@ def _ustva_freigeben(
             buchhaltung=lade_buchhaltung(pfad),
             einstellungen=lade_elster(pfad),
             ustid_max_alter_tage=lade_ustid_pruefung(pfad).max_alter_tage,
-            oss_aktiv=lade_oss(pfad),
+            oss_aktiv=lade_oss(pfad, zeitraum.von),  # OSS im Quartal des Zeitraums
         )
         if probe:
             try:

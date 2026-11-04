@@ -99,7 +99,11 @@ Wirtschaftsjahr (`datev.wirtschaftsjahr_beginn`, nur Tag und Monat) gilt für de
 Jahresabschluss: `abschluss … --jahr` ist das Kalenderjahr des WJ-Endes (2026 = 01.07.2025–
 30.06.2026); `abschluss vortrag` lehnt ein abweichendes Wirtschaftsjahr noch ab (die
 Jahressperre gilt je Kalenderjahr) — die Eröffnungssalden jedes folgenden Wirtschaftsjahres
-erfasst man je Bestandskonto mit `abschluss eroeffnung --jahr <Folgejahr>`. Die EÜR nimmt den
+erfasst man je Bestandskonto mit `abschluss eroeffnung --jahr <Folgejahr>`. Ebenso beim
+Wechsel der Gewinnermittlung (`abschluss.gewinnermittlung: {2026: euer, 2027: bilanz}` oder
+umgekehrt): Über den Wechsel trägt `abschluss vortrag` nicht vor, `abschluss pruefen` warnt
+vorab, die Eröffnungssalden des ersten Jahres der neuen Gewinnermittlung kommen über
+`abschluss eroeffnung` (Übergangsbilanz mit dem Steuerberater). Die EÜR nimmt den
 Vordruck des Jahres des WJ-Beginns. Die Registry steht in der globalen Konfiguration:
 
 ```yaml
@@ -874,3 +878,93 @@ Bestehende Benutzer bekommen „automatisch“, Fachansicht aus, Beträge sichtb
 Wer die Tastenkürzel im Browser abgeschaltet hatte, schaltet sie einmal unter „Mein Konto“ ab.
 Der Reverse-Proxy braucht keine Änderung; alle Dateien (Stile, Symbole, Skripte) liefert
 accounti selbst unter `/statisch` aus, nichts kommt von fremden Servern.
+
+**Update auf Baustein 10c, Paket P4a** (Migration `83dfa5750c7f_add_einstellungen` auf
+`1dd2f6b7c6c8`: Tabellen `einstellungen`, `einstellungsantraege`, `geheimnisse`; Trigger gegen
+Ändern und Löschen der Versionen unter SQLite (auch gegen das Ersetzen per `REPLACE INTO`) und
+PostgreSQL): `db upgrade` wie oben — die Systemdatenbank und jede Gesellschaftsdatenbank —,
+sonst nichts. Die Tabellen bleiben leer, bis Einstellungen in der Datenbank gepflegt werden
+(`accounti einstellungen`, mit Paket P4b); bis dahin gelten die Werte der Datei wie bisher.
+Jeder Befehl liest die Einstellungen aus der Datenbank, mit der er arbeitet (`--db`,
+Gesellschaft bzw. `ACCOUNTI_DB`, sonst `sqlite:///accounti.db`); `fristen`, `pruefen regeln`,
+`kanaele connectoren` und `elster pin` haben dafür jetzt `--db`. Ist diese Datenbank nicht erreichbar, bricht ein Befehl ab, statt
+still die Datei zu nehmen. Das Downgrade geht nur, solange die drei Tabellen leer sind.
+
+Mit einer Registry lesen `bank lauf`, `bank abrufen`, `fints freigeben` und `aufgaben
+lauf|pruefen` die Abschnitte `bank` (Kreditkarten, FinTS) und `pruefung` jetzt aus der
+Konfiguration der gewählten Gesellschaft; `bank abrufen` und `fints freigeben` haben dafür
+`--config`. Bisher lasen sie still `config/accounti.yaml` des Arbeitsordners. Wer für eine
+Gesellschaft mit eigener `konfiguration:` Werte in `bank.kreditkarte`, `bank.fints` oder
+`pruefung` erwartet, die nur in der globalen Datei stehen, übernimmt sie vor dem Update in die
+Datei der Gesellschaft. Im Web gehen `/gesellschaft` (Wechsel), „Mein Konto“ und das Abmelden
+auch, wenn die Datenbank der aktiven Gesellschaft nicht erreichbar ist; eine Seite, die
+Einstellungen aus ihr braucht, zeigt dann den internen Fehler, statt still die Datei zu nehmen,
+und wartet höchstens 3 s auf eine gesperrte SQLite-Datei.
+
+Neu bzw. anders wirken ab diesem Stand — vor dem Update prüfen:
+
+- `llm.auto_buchen_schwelle`, `llm.provider` und `llm.model` (bisher ohne Wirkung, immer
+  0,95 und das Standardmodell) — wer in der Datei einen anderen Wert stehen hat, bekommt ihn
+  jetzt. Die Schwelle gilt für jede Kontierung durch eine Regel, auch für das Sachkonto einer
+  Buchung aus dem Beleg und für `opos verbuchen`. Der Abschnitt wird jetzt geprüft: Werte von
+  0 bis 1, `pruefung_schwelle` höchstens `auto_buchen_schwelle` (etwa
+  `auto_buchen_schwelle: 0.6` bei der Vorgabe `pruefung_schwelle: 0.70` ist ein Fehler). Ist
+  er ungültig, halten `classify`, `bank lauf`, `opos verbuchen` (Exit 1, auch im geplanten
+  Lauf) und `POST /api/v1/laeufe/bank` (409) an, die Prüfen-Seite zeigt den Fehler.
+  `llm.api_key: "${ANTHROPIC_API_KEY}"` ohne gesetzte Variable stört nicht: `bank lauf
+  --no-llm`, `classify --no-llm` und `verfahrensdoku` laufen wie bisher. Die Schwelle des
+  Prüflaufs `kontierung_pruefen` bleibt eigen (`aufgaben.pruefung.kontierung_schwelle`,
+  Standard 0,95): Wer `llm.auto_buchen_schwelle` senkt, setzt sie passend, sonst wird jede
+  automatisch gebuchte Buchung darunter zur Aufgabe.
+- `datev.wirtschaftsjahr_beginn` zählt nur nach Tag und Monat und darf so geschrieben werden
+  (`"07-01"` oder `"01.07."`); ein Datum mit Jahr bleibt gültig.
+- `mandant.oss` wird überall wie ein Schalter geprüft: `"false"` in Anführungszeichen ist aus
+  (bisher galt jeder nicht leere Text als OSS-registriert, Marktplatz-Abrechnungen rechneten
+  dann mit dem Satz des Bestimmungslands), `"ja"`/`"nein"` sind ein Fehler.
+- Werte, die vom Zeitraum abhängen, können ein „ab“ tragen — ein Einzelwert gilt wie bisher
+  für alle Zeiträume:
+
+  ```yaml
+  elster:
+    voranmeldungszeitraum: { 2026: monat, 2027: quartal }   # 2026 bleibt monatlich
+    dauerfristverlaengerung: { 2026: true, 2027: false }
+  mandant:
+    oss: { 2026-Q1: false, 2027-Q1: true }                  # ab einem Quartal
+  abschluss:
+    gewinnermittlung: { 2026: euer, 2027: bilanz }          # je Wirtschaftsjahr (Jahr des Endes)
+  ```
+
+  Es gilt der Eintrag mit dem größten Zeitraum, der nicht nach dem gefragten liegt; der
+  früheste gilt auch für alle Zeiträume davor. Ein Schlüssel in falscher Form (`2027` bei
+  `oss`, `2027-Q5`) ist ein Fehler mit Feldpfad, auch in Anführungszeichen: Jahre nur von 1900
+  bis 2999 (`"0207"` ist ein Fehler), auch in `"2027-Q1"`; ein doppelter Schlüssel wie `2026`
+  und `"2026"` ebenso.
+
+  `mandant.oss` gilt ab **Quartalsbeginn**. Eine E-Rechnung fragt am Tag der Leistung
+  (Leistungsdatum, sonst Rechnungsdatum; eine Gutschrift oder Korrektur ohne eigenes
+  Leistungsdatum: die Leistung der ursprünglichen Rechnung), eine Marktplatz-Abrechnung je
+  Posten mit dessen Datum. Den Beginn mitten im Quartal durch Überschreiten der Lieferschwelle
+  von 10.000 € (§ 3c Abs. 4 UStG, Art. 57d MwSt-DVO: OSS ab dieser Lieferung) bildet accounti
+  nicht ab: Mit `2026-Q4: true` rechnet es die Lieferungen bis Quartalsende mit deutscher
+  Steuer, mit `2026-Q3: true` schon die vor der Überschreitung mit OSS. Die Rechnungen dieses
+  Quartals mit dem Steuerberater prüfen. Im ersten Fall (`2026-Q4: true`) meldet accounti
+  Marktplatzposten als „lieferschwelle“ zur Prüfung, im zweiten (`2026-Q3: true`) bucht es
+  sie ohne Befund mit OSS; E-Rechnungen meldet es in keinem Fall.
+
+  Beim **Wechsel der Gewinnermittlung** lehnt `abschluss vortrag` den Saldovortrag über den
+  Wechsel ab (unter EÜR gingen sonst die Umsatzsteuerkonten ins Kapital), `abschluss pruefen`
+  warnt vorab (`wechsel_gewinnermittlung`). Übergangsbilanz und Übergangsgewinn (R 4.6 EStR)
+  mit dem Steuerberater; die Eröffnungssalden des ersten Jahres der neuen Gewinnermittlung je
+  Bestandskonto über `accounti abschluss eroeffnung --jahr 2027 --konto … --saldo …`, bei der
+  Bilanz einschließlich der Umsatzsteuerkonten und des Kapitals. Das alte Jahr sperrt accounti
+  dann nicht, wie beim abweichenden Wirtschaftsjahr.
+
+Fehlt die Konfigurationsdatei, ist sie ein leerer Startwert: Es gelten die Einstellungen der
+Datenbank, sonst die Standards (bzw. die bisherige Meldung „… fehlt — Vorlage …“).
+Optional legt die Datei Abschnitte fest — sie werden dann nie aus der Datenbank gelesen:
+
+```yaml
+einstellungen:
+  quelle: datei                   # alle Abschnitte aus der Datei
+  # festgelegt: [elster, zahlung]  # oder nur diese
+```

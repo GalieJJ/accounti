@@ -287,6 +287,16 @@ erstellt wird, muss noch „Monat“ sehen.
 **Empfehlung: B.** Der Versionsverlauf dient der Nachvollziehbarkeit, die Periodenwerte der
 Fachlogik. Gesperrt wird nach Fachzustand (A46).
 
+**Grenze OSS** (ergänzt mit P4a, gegnerische Prüfung steuer-3): „Ab Quartalsbeginn“ trifft die
+freiwillige Teilnahme. Den Beginn mitten im Quartal durch Überschreiten der Lieferschwelle
+(§ 3c Abs. 4 UStG, Art. 57d Abs. 1 UAbs. 2 MwSt-DVO: OSS ab der Lieferung, mit der die
+Schwelle überschritten wird) bildet B nicht ab. Mit Quartalsschlüsseln gibt es dafür keine
+richtige Einstellung: `2026-Q3: true` besteuert die Lieferungen davor mit OSS, `2026-Q4: true`
+die danach bis Quartalsende mit deutscher Steuer. Marktplatzposten meldet accounti im zweiten
+Fall als „lieferschwelle“ zur Prüfung, E-Rechnungen an EU-Privatkunden prüfen die
+Lieferschwelle nicht. Gefragt wird am Tag der Leistung (E-Rechnung) bzw. am Datum des Postens
+(Marktplatz). Mögliche spätere Arbeit: Tagesschlüssel für `mandant.oss`.
+
 ### E4 — Geheimnisse
 
 Gemeint sind IMAP- und SMTP-Passwort, LLM-API-Schlüssel, FinTS-PIN und ELSTER-PIN.

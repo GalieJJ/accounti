@@ -447,25 +447,37 @@ def _pruefausgabe(ergebnisse: list[Laufergebnis]) -> None:
 
 def _pruefen(
     db: str,
+    config: str,
     einstellungen: AufgabenEinstellungen,
     stichtag: date,
     laeufe: list[str] | None,
     zeitraum: str | None,
 ) -> list[Laufergebnis]:
     from accounti.aufgaben.prueflaeufe import fuehre_prueflaeufe_aus
+    from accounti.konfiguration import KonfigurationError
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.nachforderung import mit_pruefeinstellungen
 
+    try:
+        # Abschnitt pruefung der Gesellschaft für den Prüflauf beleg_fehlt (wie die
+        # REST-Route) — sonst läse er config/accounti.yaml des Arbeitsordners, unter
+        # einer Registry womöglich die Datei einer anderen Gesellschaft (D5)
+        pruefung = lade_pruefung(config)
+    except KonfigurationError as fehler:
+        raise _fehler(str(fehler)) from fehler
     jetzt = datetime.combine(stichtag, datetime.now().time())
-    return _ausfuehren(
-        db,
-        lambda s: fuehre_prueflaeufe_aus(
-            s,
-            einstellungen,
-            stichtag=stichtag,
-            namen=laeufe or None,
-            zeitraum=zeitraum,
-            jetzt=jetzt,
-        ),
-    )
+    with mit_pruefeinstellungen(pruefung):
+        return _ausfuehren(
+            db,
+            lambda s: fuehre_prueflaeufe_aus(
+                s,
+                einstellungen,
+                stichtag=stichtag,
+                namen=laeufe or None,
+                zeitraum=zeitraum,
+                jetzt=jetzt,
+            ),
+        )
 
 
 @befehl.command("pruefen")
@@ -478,7 +490,9 @@ def pruefen(
 ) -> None:
     """Prüfläufe: aus vorhandenen Daten Aufgaben erzeugen, Entfallenes schließen."""
     einstellungen = _einstellungen(config)
-    _pruefausgabe(_pruefen(db, einstellungen, _stichtag(stichtag), lauf, zeitraum))
+    _pruefausgabe(
+        _pruefen(db, config, einstellungen, _stichtag(stichtag), lauf, zeitraum)
+    )
 
 
 def _erinnern(
@@ -571,7 +585,7 @@ def lauf(
     try:
         # je Datenbank höchstens ein aufgaben lauf — auch gegen Dienst lauf und REST
         with laufsperre(db, "aufgaben"):
-            _pruefausgabe(_pruefen(db, einstellungen, tag, None, None))
+            _pruefausgabe(_pruefen(db, config, einstellungen, tag, None, None))
             erinnert = _erinnern(db, config, einstellungen, tag)
     except LaufLaeuftError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)

@@ -1089,14 +1089,12 @@ class _Abgleich:
 def gleiche_sammelbelastungen_ab(
     session: Session,
     einstellungen: Buchhaltung,
-    einst: KreditkartenEinstellungen | None = None,
+    einst: KreditkartenEinstellungen,
 ) -> Kartenabgleich:
     """PDF-Abrechnungen übernehmen (bei einer PDF-Karte), Sammelbelastungen gegen
-    die Abrechnungen prüfen und buchen, Ausgleichszeilen über Geldtransit buchen."""
-    if einst is None:
-        from accounti.bank.einstellungen import lade_bank_einstellungen
-
-        einst = lade_bank_einstellungen().kreditkarte
+    die Abrechnungen prüfen und buchen, Ausgleichszeilen über Geldtransit buchen.
+    ``einst``: ``bank.kreditkarte`` der Gesellschaft — ohne Rückfall auf
+    ``config/accounti.yaml`` (unter einer Registry die Datei einer anderen, D5)."""
     return _Abgleich(session, einstellungen, einst).lauf()
 
 
@@ -1120,14 +1118,10 @@ def loese_zuordnung(
     session: Session,
     schluessel: str,
     einstellungen: Buchhaltung,
-    einst: KreditkartenEinstellungen | None = None,
+    einst: KreditkartenEinstellungen,
 ) -> tuple[Kreditkartenabrechnung, Transaktion]:
     """Zuordnung von Hand lösen: die vorläufige Buchung der Belastung entfällt, und
     der Abgleich ordnet diese Belastung der Abrechnung nicht wieder zu."""
-    if einst is None:
-        from accounti.bank.einstellungen import lade_bank_einstellungen
-
-        einst = lade_bank_einstellungen().kreditkarte
     a = _finde_abrechnung(session, schluessel)
     abgleich = _Abgleich(session, einstellungen, einst)
     k = abgleich.karte_von.get(a.kreditkarte_id)
@@ -1162,7 +1156,7 @@ def trenne_belastung(
     abrechnung: str,
     umsatz: str,
     einstellungen: Buchhaltung,
-    einst: KreditkartenEinstellungen | None = None,
+    einst: KreditkartenEinstellungen,
 ) -> tuple[Kreditkartenabrechnung, Transaktion, bool]:
     """Von Hand entscheiden: Dieser Umsatz ist nicht die Sammelbelastung dieser
     Abrechnung — vor allem bei „mehrdeutig“, wo es keine Zuordnung zum Lösen gibt.
@@ -1170,10 +1164,6 @@ def trenne_belastung(
     nächste Lauf zu (centgenau → abgeglichen, sonst Befund). Ist der Umsatz der
     Abrechnung vorläufig zugeordnet, wird die Zuordnung gelöst wie mit
     ``loese_zuordnung``. Liefert (Abrechnung, Umsatz, war zugeordnet)."""
-    if einst is None:
-        from accounti.bank.einstellungen import lade_bank_einstellungen
-
-        einst = lade_bank_einstellungen().kreditkarte
     a = _finde_abrechnung(session, abrechnung)
     k = _Abgleich(session, einstellungen, einst).karte_von.get(a.kreditkarte_id)
     if k is None:

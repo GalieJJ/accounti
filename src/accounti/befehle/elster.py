@@ -131,7 +131,10 @@ def zahllast(db: str = DB_OPTION, config: str = KONFIG_OPTION) -> None:
 
 
 @befehl.command("pin")
-def pin(config: str = KONFIG_OPTION) -> None:
+def pin(
+    db: str = DB_OPTION,  # bindet den Stand der Einstellungen (Baustein 10c P4)
+    config: str = KONFIG_OPTION,
+) -> None:
     """PIN des ELSTER-Zertifikats verschlüsselt ablegen (elster.eric.pin_datei)."""
     from accounti.bank.tresor import TresorError, lade_schluessel
     from accounti.elster.konfiguration import KonfigurationError, lade_elster

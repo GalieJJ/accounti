@@ -207,6 +207,7 @@ Beispiele: Examples
 "Brutto": "Gross"
 "Buchungstext": "Booking text"
 "automatisch gebucht ab %(schwelle)s": "booked automatically from %(schwelle)s"
+"Der Abschnitt llm der Konfiguration ist fehlerhaft — automatisch kontiert und verbucht wird erst nach seiner Berichtigung:": "The llm section of the configuration is faulty — automatic posting and booking resume only once it has been fixed:"
 "Weitere Buchungen zu Umsatz bzw. Beleg": "Other bookings for the transaction or document"
 "Rückfragen": "Queries"
 "Aufgaben": "Tasks"

@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from accounti.konfiguration import (
@@ -207,3 +209,165 @@ def test_vorlage_fuehrt_den_kontenrahmen_unter_buchhaltung():
     assert daten["buchhaltung"]["kontenrahmen"] == "SKR03"
     assert "kontenrahmen" not in daten["mandant"]
     assert lade_buchhaltung(vorlage).kontenrahmen == "SKR03"
+
+
+# --- Baustein 10c P4, Schritt 5: neue und geänderte Felder (A44, A124) -------------
+
+
+@pytest.mark.parametrize(
+    "wert",
+    ["'2026-07-01'", "'07-01'", "'01.07.'", "2025-07-01"],
+    ids=["2026-07-01", "MM-TT", "TT.MM.", "date"],
+)
+def test_wirtschaftsjahr_tag_monat(tmp_path, wert):
+    """``datev.wirtschaftsjahr_beginn`` als Tag und Monat: „MM-TT“, „TT.MM.“, ein Datum
+    mit Jahr (das Jahr zählt nicht, N2) und das YAML-Datum; geschrieben „MM-TT“."""
+    from accounti.abschluss.konfiguration import (
+        TagMonat,
+        lade_datev,
+        lade_wirtschaftsjahr_beginn,
+    )
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(f"datev:\n  wirtschaftsjahr_beginn: {wert}\n", encoding="utf-8")
+    datev = lade_datev(pfad)
+    assert datev.wirtschaftsjahr_beginn == TagMonat(7, 1)
+    assert datev.wirtschaftsjahr_beginn.als_datum() == date(2000, 7, 1)
+    assert datev.model_dump(mode="json")["wirtschaftsjahr_beginn"] == "07-01"
+    assert lade_wirtschaftsjahr_beginn(pfad) == date(2000, 7, 1)
+    assert TagMonat(2, 29).als_datum() == date(2000, 2, 29)  # Schaltjahr
+
+
+@pytest.mark.parametrize("wert", ["'13-01'", "'31.02.'", "'Juli'", "7"])
+def test_wirtschaftsjahr_ungueltig_nennt_pfad(tmp_path, wert):
+    from accounti.abschluss.konfiguration import lade_datev, lade_wirtschaftsjahr_beginn
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(f"datev:\n  wirtschaftsjahr_beginn: {wert}\n", encoding="utf-8")
+    for lader in (lade_datev, lade_wirtschaftsjahr_beginn):
+        with pytest.raises(KonfigurationError) as fehler:
+            lader(pfad)
+        text = str(fehler.value)
+        assert text.startswith(f"{pfad}: datev.wirtschaftsjahr_beginn"), text
+        assert "MM-TT" in text, text
+
+
+def test_datev_nummern_als_zahl_und_text(tmp_path):
+    """N9: Eine Zahl aus der YAML wird wie bisher Text (führende Nullen gehen dabei
+    verloren, die Vorlage schreibt Text); nur Ziffern."""
+    from accounti.abschluss.konfiguration import lade_datev
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        "datev:\n  berater_nummer: 12345\n  mandanten_nummer: '00042'\n",
+        encoding="utf-8",
+    )
+    datev = lade_datev(pfad)
+    assert (datev.berater_nummer, datev.mandanten_nummer) == ("12345", "00042")
+    assert datev.wirtschaftsjahr_beginn is None
+    pfad.write_text("datev:\n  berater_nummer: '12a45'\n", encoding="utf-8")
+    with pytest.raises(KonfigurationError, match=r"datev\.berater_nummer.*Ziffern"):
+        lade_datev(pfad)
+    assert lade_datev(tmp_path / "fehlt.yaml").berater_nummer is None
+
+
+def test_rechtsform_und_kennfarbe(tmp_path):
+    from accounti.konfiguration import lade_eigene_firma
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(VOLL, encoding="utf-8")
+    firma = lade_firma(pfad)
+    assert (firma.rechtsform, firma.kennfarbe, firma.sachkonten_laenge) == (
+        None,
+        None,
+        4,
+    )
+    pfad.write_text(
+        VOLL.replace(
+            "  kuerzel: GM\n",
+            "  kuerzel: GM\n  rechtsform: gmbh\n  kennfarbe: 3\n"
+            "  sachkonten_laenge: 6\n",
+        ),
+        encoding="utf-8",
+    )
+    firma = lade_firma(pfad)
+    assert (firma.rechtsform, firma.kennfarbe, firma.sachkonten_laenge) == (
+        "gmbh",
+        3,
+        6,
+    )
+    pfad.write_text(VOLL.replace("  kuerzel: GM\n", "  rechtsform: kgaa\n"), "utf-8")
+    with pytest.raises(KonfigurationError, match=r"mandant\.rechtsform"):
+        lade_firma(pfad)
+    # nachsichtig: die eigene Firma wird trotzdem erkannt
+    eigene = lade_eigene_firma(pfad)
+    assert eigene is not None and eigene.name == "Galerie Muster GmbH"
+
+
+@pytest.mark.parametrize("farbe", [0, 7, "rot"])
+def test_kennfarbe_ausserhalb_1_bis_6(tmp_path, farbe):
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        VOLL.replace("  kuerzel: GM\n", f"  kuerzel: GM\n  kennfarbe: {farbe}\n"),
+        encoding="utf-8",
+    )
+    with pytest.raises(KonfigurationError, match=r"mandant\.kennfarbe"):
+        lade_firma(pfad)
+
+
+@pytest.mark.parametrize("laenge", [3, 9, 4.5, "true"])
+def test_sachkonten_laenge_wie_der_datev_export(tmp_path, laenge):
+    """``mandant.sachkonten_laenge`` ist Modellfeld (D16, M4) — mit derselben Grenze
+    wie der DATEV-Export (4 bis 8, ``4.0`` gilt)."""
+    from accounti.export.datev_stammdaten import sachkontenlaenge
+
+    pfad = tmp_path / "accounti.yaml"
+    zeile = f"  sachkonten_laenge: {laenge}\n"
+    pfad.write_text(VOLL.replace("  kuerzel: GM\n", "  kuerzel: GM\n" + zeile), "utf-8")
+    with pytest.raises(KonfigurationError, match=r"mandant\.sachkonten_laenge"):
+        lade_firma(pfad)
+    with pytest.raises(KonfigurationError, match=r"mandant\.sachkonten_laenge"):
+        sachkontenlaenge(pfad)
+    pfad.write_text(
+        VOLL.replace("  kuerzel: GM\n", "  kuerzel: GM\n  sachkonten_laenge: 6.0\n"),
+        encoding="utf-8",
+    )
+    assert lade_firma(pfad).sachkonten_laenge == 6 == sachkontenlaenge(pfad)
+
+
+def test_pflichten_fehlerart_pflicht_fehlt_text_gleich(tmp_path):
+    """M5: Ohne USt-IdNr. und Steuernummer ist die Fehlerart ``pflicht_fehlt`` (für
+    „fehlt noch“, P4b) — der Text bleibt derselbe."""
+    from pydantic import ValidationError
+
+    from accounti.konfiguration import Firma
+
+    pfad = tmp_path / "accounti.yaml"
+    pfad.write_text(
+        VOLL.replace("  ust_id: DE999999999\n", "").replace(
+            '  steuernummer: "19/123/45678"\n', ""
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(KonfigurationError) as fehler:
+        lade_firma(pfad)
+    assert "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)" in str(
+        fehler.value
+    )
+    assert "Value error" not in str(fehler.value)
+    with pytest.raises(ValidationError) as roh:
+        Firma.model_validate(
+            {
+                "name": "X",
+                "anschrift": {"strasse": "a", "plz": "1", "ort": "b"},
+                "email": "x@x.example",
+                "kontakt": {"name": "a", "telefon": "1", "email": "a@x.example"},
+                "bank": {"iban": "DE89370400440532013000"},
+            }
+        )
+    (eintrag,) = roh.value.errors()
+    assert eintrag["type"] == "pflicht_fehlt"
+    assert (
+        eintrag["msg"] == "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)"
+    )
+    assert eintrag["ctx"] == {"felder": ["ust_id", "steuernummer"]}

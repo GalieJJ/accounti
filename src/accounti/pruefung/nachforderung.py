@@ -73,6 +73,9 @@ def _pruefeinstellungen() -> PruefEinstellungen:
     if e is not None:
         return e
     try:
+        # ohne mit_pruefeinstellungen (Werkzeuge, Tests ohne Stand) die Standarddatei —
+        # aufgaben pruefen|lauf, nachfordern und POST /laeufe/aufgaben setzen den
+        # Abschnitt der Gesellschaft (tests/test_bindung_struktur.py)
         return lade_pruefung()
     except KonfigurationError as fehler:
         raise AufgabenError(str(fehler)) from fehler

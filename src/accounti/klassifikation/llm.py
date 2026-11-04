@@ -35,9 +35,13 @@ class LLMEngine:
         self,
         model: str = "anthropic/claude-sonnet-4-20250514",
         confidence_schwelle: float = 0.85,
+        api_key: str | None = None,
     ) -> None:
+        """``model`` und ``api_key`` aus ``llm`` (``klassifikation.einstellungen``);
+        ohne Schlüssel liest litellm ihn aus der Umgebung."""
         self.model = model
         self.confidence_schwelle = confidence_schwelle
+        self._api_key = api_key
 
     def klassifiziere(self, transaktion: Transaktion) -> Klassifikationsergebnis | None:
         prompt = _PROMPT.format(
@@ -46,9 +50,11 @@ class LLMEngine:
             empfaenger=maskiere_pii(transaktion.gegenkonto_name or ""),
         )
         try:
+            zusatz = {"api_key": self._api_key} if self._api_key else {}
             antwort = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
+                **zusatz,
             )
             inhalt = antwort["choices"][0]["message"]["content"]
             daten = json.loads(inhalt)

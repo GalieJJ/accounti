@@ -1,0 +1,111 @@
+# Golden-Test der Lader (Plan 10c P4, D20): Einzelwerte statt der Standards — für die
+# späteren Periodenwerte (voranmeldungszeitraum, dauerfristverlaengerung, oss,
+# gewinnermittlung) je ein einzelner Wert, der Kontenrahmen noch an der alten Stelle
+# (mandant.kontenrahmen, Rückfall in lade_buchhaltung), das Wirtschaftsjahr als
+# YAML-Datum und die DATEV-Nummern als Zahl.
+mandant:
+  name: "Einzel & Werte KG"
+  kontenrahmen: skr04
+  anschrift:
+    strasse: "Ring 1"
+    plz: "80331"
+    ort: "München"
+  ust_id: "DE987654321"
+  email: "rechnung@einzel.example"
+  kontakt:
+    name: "Eva Einzel"
+    telefon: "089 1234"
+    email: "eva@einzel.example"
+  bank:
+    iban: "DE89 3704 0044 0532 0130 00"
+  oss: true
+  rechnung:
+    nummernformat: "{nummer:06d}"
+    zahlungsziel_tage: 21
+
+datev:
+  berater_nummer: 1234567
+  mandanten_nummer: 99
+  wirtschaftsjahr_beginn: 2025-04-01
+
+buchhaltung:
+  debitoren_von: 20000
+  standard_zahlungsziel_tage: 21
+  skonto_karenz_tage: 5
+
+abschluss:
+  gewinnermittlung: euer
+  rap_verzicht_bis_gwg: true
+
+kasse:
+  konto: "1610"
+
+elster:
+  voranmeldungszeitraum: quartal
+  dauerfristverlaengerung: true
+  sondervorauszahlung: {2026: 1200.00}
+  bundesland: NW
+  uebermittler: attrappe
+  abweichung_prozent: 25
+  eric:
+    bibliothek: /opt/eric/lib/libericapi.so
+    pin_datei: /etc/accounti/elster-pin.enc
+
+ustid_pruefung:
+  max_alter_tage: 10
+
+zahlung:
+  skonto_ziehen: false
+  mindestbetrag: 5.00
+
+mahnwesen:
+  hinweis_30_tage: true
+  stufen:
+    - name: Erinnerung
+      ab_tagen: 7
+      gebuehr: 0.00
+      verzugszinsen: false
+
+aufgaben:
+  ich: "eva"
+  fristen:
+    standard: 5
+
+pruefung:
+  archiv: archiv/einzel
+  eigene_namen: ["Einzel und Werte"]
+
+versand:
+  absender: "Einzel & Werte KG <rechnung@einzel.example>"
+  smtp:
+    host: "smtp.einzel.example"
+    port: 465
+    benutzer: "rechnung@einzel.example"
+    passwort: "${ACCOUNTI_SMTP_PASSWORT}"
+    verschluesselung: ssl
+  betreff: "Ihre Rechnung {nummer}"
+
+bank:
+  kreditkarte:
+    geldtransit_konto: "1460"
+    belastung_fenster_tage: 20
+
+belegkanaele:
+  max_groesse_mb: 10
+  dateitypen: [pdf, xml]
+
+server:
+  port: 8500
+  sprache: en
+
+auth:
+  passwort_mindestlaenge: 14
+  sitzung_leerlauf_minuten: 20
+
+gesellschaften:
+  standard: einzel
+  eintraege:
+    einzel:
+      name: "Einzel & Werte KG"
+      datenbank: "sqlite:///einzel.db"
+      archiv: archiv/einzel

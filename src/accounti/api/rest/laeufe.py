@@ -30,6 +30,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
     from accounti.bank.einstellungen import lade_bank_einstellungen
     from accounti.bank.lauf import bank_lauf
     from accounti.integrationen.einstellungen import lade_kontext
+    from accounti.klassifikation.einstellungen import lade_llm
     from accounti.klassifikation.engine import KlassifikationsEngine
     from accounti.klassifikation.lernen import lade_regelwerk
     from accounti.konfiguration import lade_buchhaltung
@@ -43,6 +44,7 @@ def _bank(zugang: Zugang, s: Session) -> dict[str, Any]:
             s, g.regeln, buchhaltung.gelernte_regeln, buchhaltung=buchhaltung
         ),
         llm=None,
+        auto_buchen_schwelle=lade_llm(g.konfiguration).auto_buchen_schwelle,
     )
     ergebnis = bank_lauf(
         s,
@@ -92,12 +94,20 @@ def _aufgaben(zugang: Zugang, s: Session) -> dict[str, Any]:
     )
     from accounti.aufgaben.einstellungen import lade_aufgaben_einstellungen
     from accounti.aufgaben.prueflaeufe import fuehre_prueflaeufe_aus
+    from accounti.pruefung.einstellungen import lade_pruefung
+    from accounti.pruefung.nachforderung import mit_pruefeinstellungen
 
     pfad = zugang.gesellschaft.konfiguration
     einstellungen = lade_aufgaben_einstellungen(pfad)
     stichtag = date.today()
     jetzt = datetime.now()
-    laeufe = fuehre_prueflaeufe_aus(s, einstellungen, stichtag=stichtag, jetzt=jetzt)
+    # Abschnitt pruefung der Gesellschaft für den Prüflauf beleg_fehlt — sonst läse er
+    # config/accounti.yaml des Arbeitsordners (im Web seit Baustein 10c P4 abgewiesen,
+    # D5: nicht die Konfiguration der gebundenen Gesellschaft)
+    with mit_pruefeinstellungen(lade_pruefung(pfad)):
+        laeufe = fuehre_prueflaeufe_aus(
+            s, einstellungen, stichtag=stichtag, jetzt=jetzt
+        )
     s.commit()
     kanaele, kanalfehler = baue_kanaele(einstellungen, pfad)
     versand = versende_tagesuebersichten(

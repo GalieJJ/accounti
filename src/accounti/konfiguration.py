@@ -9,23 +9,42 @@ from __future__ import annotations
 import logging
 import os
 import string
+from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-import yaml
-from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import PydanticCustomError
 
 from accounti.belege.extraktion import iban_gueltig
+from accounti.einstellungen.inventar import Betriebsfeld
+
+# KonfigurationError lebt beim Abschnittsleser (der keine Fachmodule importiert);
+# hier bleibt er für alle Lader erreichbar
+from accounti.einstellungen.leser import KonfigurationError as KonfigurationError
+from accounti.einstellungen.leser import (
+    datei_vorhanden,
+    lies_abschnitt,
+    quelle_vorhanden,
+)
+from accounti.einstellungen.perioden import (
+    Periodenmodell,
+    QuartalsSchalter,
+    quartal_von,
+    wert_fuer,
+)
 from accounti.kontakte.ustid import EVATR_URL
 
 if TYPE_CHECKING:
     from accounti.kontakte.dienst import Partnerdaten
 
 STANDARD_PFAD = Path("config/accounti.yaml")
-
-
-class KonfigurationError(ValueError):
-    """Die Konfiguration fehlt oder ist unvollständig."""
 
 
 class Anschrift(BaseModel):
@@ -88,10 +107,59 @@ class Rechnungseinstellungen(BaseModel):
         return wert
 
 
-class Firma(BaseModel):
+# Rechtsformen (Baustein 10c, A124; mit P7 abgleichen — Werte kommen nur hinzu)
+Rechtsform = Literal[
+    "einzelunternehmen",
+    "ek",
+    "gbr",
+    "ohg",
+    "kg",
+    "gmbh",
+    "ug",
+    "gmbh_co_kg",
+    "ag",
+    "eg",
+    "partg",
+    "sonstige",
+]
+SACHKONTENLAENGE = range(4, 9)  # DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)
+
+
+def pruefe_sachkonten_laenge(laenge: object) -> int:
+    """``mandant.sachkonten_laenge``: eine ganze Zahl 4 bis 8, ohne Angabe 4. Eine ganze
+    Zahl als Float (``4.0``) gilt (Runde 7, g6w B-5), 4.5 und ``true`` nicht
+    (Runde 6, g5w-konten N2) — ``ValueError`` sonst."""
+    if laenge is None:
+        return 4
+    msg = f"{laenge!r}: eine ganze Zahl 4 bis 8 (DATEV)"
+    if isinstance(laenge, float) and laenge.is_integer():
+        laenge = int(laenge)
+    if isinstance(laenge, bool) or not isinstance(laenge, int | str):
+        raise ValueError(msg)
+    try:
+        zahl = int(laenge)
+    except ValueError as fehler:
+        raise ValueError(msg) from fehler
+    if zahl not in SACHKONTENLAENGE:
+        raise ValueError(msg)
+    return zahl
+
+
+class Firma(Periodenmodell):
     name: str
     kuerzel: str | None = Field(
         default=None, description="Schlüssel des Nummernkreises"
+    )
+    rechtsform: Rechtsform | None = None
+    kennfarbe: int | None = Field(
+        default=None,
+        ge=1,
+        le=6,
+        strict=True,
+        description="Farbe der Gesellschaft in der Oberfläche (sonst aus dem Kürzel)",
+    )
+    sachkonten_laenge: int = Field(
+        default=4, description="DATEV: 4 bis 8 Stellen (Personenkonten eine mehr)"
     )
     anschrift: Anschrift
     ust_id: str | None = None
@@ -100,19 +168,35 @@ class Firma(BaseModel):
     kontakt: Kontakt
     bank: Bank
     rechnung: Rechnungseinstellungen = Field(default_factory=Rechnungseinstellungen)
-    oss: bool = Field(
+    # Periodenwert ab Quartal (Baustein 10c P4, D14): gelesen nur über oss_am(datum)
+    oss_roh: QuartalsSchalter = Field(
         default=False,
+        alias="oss",
         description="OSS-registriert: EU-Privatkunden zahlen den Satz ihres Landes",
     )
+
+    @field_validator("sachkonten_laenge", mode="before")
+    @classmethod
+    def _sachkonten_laenge(cls, wert: object) -> int:
+        return pruefe_sachkonten_laenge(wert)
 
     @model_validator(mode="after")
     def _pflichten(self) -> Firma:
         if not (self.ust_id or self.steuernummer):
-            msg = "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)"
-            raise ValueError(msg)
+            # eigene Fehlerart: ein unvollständiger mandant lässt sich als „fehlt
+            # noch“ speichern (Baustein 10c P4, M5) — der Text bleibt derselbe
+            raise PydanticCustomError(
+                "pflicht_fehlt",
+                "USt-IdNr. oder Steuernummer fehlt (§ 14 Abs. 4 Nr. 2 UStG)",
+                {"felder": ["ust_id", "steuernummer"]},
+            )
         if self.kuerzel is None:
             self.kuerzel = self.name
         return self
+
+    def oss_am(self, datum: date) -> bool:
+        """OSS-registriert im Quartal von ``datum``?"""
+        return wert_fuer(self.oss_roh, quartal_von(datum))
 
     @property
     def iban(self) -> str:
@@ -157,37 +241,27 @@ def _fehlertext(
     return "; ".join(teile)
 
 
-def lies_yaml(pfad: str | Path) -> Any:
-    """Die Konfigurationsdatei lesen (leer: ``{}``) — kaputtes YAML wird zum
-    ``KonfigurationError`` mit derselben Meldung für jeden Abschnitt. Sonst endete
-    jeder Befehl, dessen Lader die Datei roh las, mit einem ParserError-Traceback
-    (Runde 6, g5w-konten N2; Runde 7, g6w B-3)."""
-    pfad = Path(pfad)
-    try:
-        return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as fehler:
-        raise KonfigurationError(f"{pfad}: kein gültiges YAML ({fehler})") from fehler
-    except UnicodeDecodeError as fehler:
-        raise KonfigurationError(f"{pfad}: keine UTF-8-Datei ({fehler})") from fehler
+# Wo der Abschnitt mandant später im Browser gepflegt wird (Spec 10c, AK77)
+SEITE_FIRMA = "Einstellungen › Firma & Steuern"
 
 
 def lade_firma(pfad: str | Path = STANDARD_PFAD) -> Firma:
+    """Abschnitt ``mandant`` über den Abschnittsleser (Datenbank vor Datei, D25: auch
+    ohne Datei)."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        msg = (
-            f"{pfad} fehlt — Vorlage: config/accounti.example.yaml kopieren und "
-            "den Abschnitt 'mandant' ausfüllen"
-        )
-        raise KonfigurationError(msg)
-    daten: Any = lies_yaml(pfad)
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    if not isinstance(mandant, dict):
-        msg = f"{pfad}: Abschnitt 'mandant' fehlt"
+    if not quelle_vorhanden(pfad, "mandant"):
+        if not datei_vorhanden(pfad):
+            msg = (
+                f"{pfad} fehlt — Vorlage: config/accounti.example.yaml kopieren und "
+                f"den Abschnitt 'mandant' ausfüllen ({SEITE_FIRMA})"
+            )
+        else:
+            msg = f"{pfad}: Abschnitt 'mandant' fehlt ({SEITE_FIRMA})"
         raise KonfigurationError(msg)
     try:
-        return Firma.model_validate(mandant)
+        return Firma.model_validate(lies_abschnitt(pfad, "mandant"))
     except ValidationError as fehler:
-        msg = f"{pfad}: {_fehlertext(fehler)}"
+        msg = f"{pfad}: {_fehlertext(fehler)} ({SEITE_FIRMA})"
         raise KonfigurationError(msg) from fehler
 
 
@@ -259,15 +333,11 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
     beide, ist das ein Fehler — sonst rechneten USt und Abschluss mit dem einen, der
     DATEV-Kopf mit dem anderen Kontenrahmen (Gesamttest Betrieb B4)."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return Buchhaltung()
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("buchhaltung") if isinstance(daten, dict) else None
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    werte: Any = abschnitt or {}
+    # über den Abschnittsleser (Baustein 10c P4): Datenbank vor Datei, ohne Datei {}
+    werte: dict[str, Any] = lies_abschnitt(pfad, "buchhaltung")
     herkunft: dict[str, str] = {}
-    alt = mandant.get("kontenrahmen") if isinstance(mandant, dict) else None
-    if alt is not None and isinstance(werte, dict):
+    alt = lies_abschnitt(pfad, "mandant").get("kontenrahmen")
+    if alt is not None:
         eigen = werte.get("kontenrahmen")
         if eigen is None:
             werte = {**werte, "kontenrahmen": alt}
@@ -278,8 +348,7 @@ def lade_buchhaltung(pfad: str | Path = STANDARD_PFAD) -> Buchhaltung:
                 f"({alt}) widersprechen sich — nur buchhaltung.kontenrahmen angeben"
             )
             raise KonfigurationError(msg)
-    if isinstance(werte, dict):
-        werte = _offene_obergrenzen(pfad, werte)
+    werte = _offene_obergrenzen(pfad, werte)
     try:
         return Buchhaltung.model_validate(werte)
     except ValidationError as fehler:
@@ -323,7 +392,7 @@ def _offene_obergrenzen(pfad: Path, werte: dict[str, Any]) -> dict[str, Any]:
 class UstIdEinstellungen(BaseModel):
     """Bestätigungsabfrage beim BZSt (Abschnitt ``ustid_pruefung``)."""
 
-    url: str = EVATR_URL
+    url: Betriebsfeld[str] = EVATR_URL
     timeout_sekunden: float = Field(default=60, gt=0)
     max_alter_tage: int = Field(
         default=30,
@@ -335,11 +404,7 @@ class UstIdEinstellungen(BaseModel):
 def lade_ustid_pruefung(pfad: str | Path = STANDARD_PFAD) -> UstIdEinstellungen:
     """Abschnitt ``ustid_pruefung``; ``ACCOUNTI_EVATR_URL`` ersetzt die URL."""
     pfad = Path(pfad)
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("ustid_pruefung") if isinstance(daten, dict) else None
-    werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    werte = lies_abschnitt(pfad, "ustid_pruefung")
     if os.environ.get("ACCOUNTI_EVATR_URL"):
         werte["url"] = os.environ["ACCOUNTI_EVATR_URL"]
     try:
@@ -358,12 +423,8 @@ def lade_eigene_firma(pfad: str | Path = STANDARD_PFAD) -> Partnerdaten | None:
     """
     from accounti.kontakte.dienst import Partnerdaten
 
-    pfad = Path(pfad)
-    if not pfad.is_file():
-        return None
-    daten: Any = yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    mandant = daten.get("mandant") if isinstance(daten, dict) else None
-    if not isinstance(mandant, dict) or not mandant.get("name"):
+    mandant = lies_abschnitt(Path(pfad), "mandant")
+    if not mandant.get("name"):
         return None
     bank_roh = mandant.get("bank")
     bank: dict[str, Any] = bank_roh if isinstance(bank_roh, dict) else {}

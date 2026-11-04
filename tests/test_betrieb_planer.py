@@ -182,9 +182,14 @@ def test_schritt_ohne_rich_traceback(monkeypatch):
 
 def test_echter_traceback_eines_schritts(tmp_path, monkeypatch, caplog):
     """planer_db_fehlt.py: Datenbankdatei in einem fehlenden Ordner — der Grund steht
-    in der WARNUNG, ohne Rahmen; DEBUG bleibt klein."""
+    in der WARNUNG, ohne Rahmen; DEBUG bleibt klein. Die Einstellungen kommen nur aus
+    der Datei: sonst meldet schon der Leser den fehlenden Ordner sauber (P4a), und es
+    gäbe keinen echten Traceback."""
     konfig = tmp_path / "accounti.yaml"
-    konfig.write_text('mandant:\n  name: "Galerie Muster GmbH"\n', encoding="utf-8")
+    konfig.write_text(
+        'mandant:\n  name: "Galerie Muster GmbH"\neinstellungen:\n  quelle: datei\n',
+        encoding="utf-8",
+    )
     monkeypatch.setenv("ACCOUNTI_KONFIG", str(konfig))
     monkeypatch.setenv("ACCOUNTI_DB", f"sqlite:///{tmp_path / 'fehlt' / 'a.db'}")
     monkeypatch.setenv("PYTHONPATH", str(Path(accounti.__file__).parents[1]))

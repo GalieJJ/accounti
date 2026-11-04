@@ -404,7 +404,7 @@ def test_bank_lauf_gleicht_marktplatz_auszahlung_vor_dem_kontieren_ab(
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=EINSTELLUNGEN,
-        oss_registriert=True,
+        oss_roh=True,
     )
     with make_session() as s:
         importiere(

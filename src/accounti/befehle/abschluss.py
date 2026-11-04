@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 from rich.markup import escape
@@ -15,6 +15,9 @@ from rich.table import Table
 import accounti.db.tabellen_abschluss  # noqa: F401
 from accounti.befehle import DB_OPTION, KONFIG_OPTION, console, handelnde_person
 from accounti.befehle._anlagen_abschluss import betrag, datum, ende, lade, sitzung
+
+if TYPE_CHECKING:
+    from accounti.abschluss.konfiguration import AbschlussEinstellungen
 
 NAME = "abschluss"
 befehl = typer.Typer(
@@ -37,10 +40,11 @@ _ENTSCHEIDET = (
 )
 
 
-def _einstellungen(config: str):  # type: ignore[no-untyped-def]
+def _einstellungen(config: str) -> AbschlussEinstellungen:
     from accounti.abschluss.konfiguration import lade_abschluss
 
-    return lade(lade_abschluss, config)
+    einst: AbschlussEinstellungen = lade(lade_abschluss, config)
+    return einst
 
 
 @befehl.command("saldo")
@@ -135,7 +139,7 @@ def susa(
             s,
             jahr,
             einst.lade_kontenrahmen(),
-            einst.gewinnermittlung,
+            einst.gewinnermittlung_fuer(jahr),
             datum(bis, "--bis") if bis else None,
             wj=wj,
         )
@@ -189,7 +193,8 @@ def eroeffnung(
     jahr: int = typer.Option(
         ...,
         help="erstes Geschäftsjahr in accounti (EB am Wirtschaftsjahresbeginn); bei "
-        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt",
+        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt; "
+        "ebenso das erste Jahr nach einem Wechsel der Gewinnermittlung",
     ),
     konto: str = typer.Option(..., "--konto", help="Bestandskonto, z.B. 1200"),
     saldo_text: str = typer.Option(
@@ -203,7 +208,8 @@ def eroeffnung(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Eröffnungssaldo eines Bestandskontos (nur im ersten Jahr; sonst Vortrag)."""
+    """Eröffnungssaldo eines Bestandskontos (nur im ersten Jahr bzw. dem ersten nach
+    einem Wechsel der Gewinnermittlung; sonst Vortrag)."""
     from accounti.abschluss.vortrag import AbschlussError, erfasse_eroeffnung
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError
@@ -429,7 +435,7 @@ def euer(
     kr = einst.lade_kontenrahmen()
     wj = einst.wirtschaftsjahr(jahr)
     with sitzung(db)() as s:
-        liste = summen_und_salden(s, jahr, kr, einst.gewinnermittlung, wj=wj)
+        liste = summen_und_salden(s, jahr, kr, einst.gewinnermittlung_fuer(jahr), wj=wj)
     try:
         e = erstelle_euer(liste, kr)
     except EuerError as fehler:

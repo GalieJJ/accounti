@@ -450,11 +450,13 @@ def test_langer_pfad_haelt_den_server_mit_keiner_methode_an(tmp_path, methode):
     welt.person("jan", Rolle.BUCHHALTER)
     for client in (welt.client(), welt.angemeldet("jan")):
         client.get("/anmelden")
-        beginn = time.perf_counter()
-        r = client.request(methode, "/x" * 20_000)
-        dauer = time.perf_counter() - beginn
-        assert r.status_code == 404, r.status_code
-        assert dauer < 0.5, dauer  # vorher mehrere Sekunden
+        dauern = []
+        for _ in range(3):  # die schnellste zählt: ein Ruckler der CI ist kein Befund
+            beginn = time.perf_counter()
+            r = client.request(methode, "/x" * 20_000)
+            dauern.append(time.perf_counter() - beginn)
+            assert r.status_code == 404, r.status_code
+        assert min(dauern) < 0.5, dauern  # vorher mehrere Sekunden, jedes Mal
 
 
 def test_lange_sprachangabe_haelt_den_server_nicht_an(tmp_path):

@@ -57,3 +57,43 @@ jobs:
 
       - name: Run tests
         run: pytest --cov=accounti --cov-report=term-missing
+
+  # PostgreSQL (Plan 10c P4, M11): die ganze Suite gegen einen PostgreSQL-Dienst, damit
+  # die @mit_postgresql-Tests (Trigger der Einstellungen, Migrationen, Sperren) nicht
+  # nur von Hand laufen. Ausdrücklich ohne Tesseract, Prüfwerkzeuge und
+  # ACCOUNTI_PRUEFWERKZEUGE_PFLICHT — diese Tests überspringen hier und laufen im Job
+  # „test“, ebenso ruff, mypy und Coverage.
+  postgresql:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16.15
+        env:
+          POSTGRES_PASSWORD: accounti-ci  # nur für diesen Wegwerf-Dienst
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      ACCOUNTI_TEST_PG: postgresql+psycopg://postgres:accounti-ci@127.0.0.1:5432/postgres
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,fints]"
+
+      - name: Run tests (mit PostgreSQL)
+        run: pytest

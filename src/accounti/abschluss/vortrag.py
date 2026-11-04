@@ -17,6 +17,10 @@ stehen am Wirtschaftsjahresbeginn. Saldovortrag und Jahressperre lehnt accounti 
 und Verbuchung), sie sperrte das falsche Halbjahr. Den Abschluss eines abweichenden
 Wirtschaftsjahres macht bis dahin der Steuerberater; Susa, Prüfungen, Abgrenzungen und
 EÜR rechnen das Wirtschaftsjahr schon richtig.
+
+Wechsel der Gewinnermittlung (``abschluss.gewinnermittlung`` je Wirtschaftsjahr, EÜR ↔
+Bilanz): ebenso kein Vortrag — Übergangsbilanz und Übergangsgewinn (R 4.6 EStR) macht
+der Steuerberater, die Eröffnungssalden kommen über ``abschluss eroeffnung``.
 """
 
 from __future__ import annotations
@@ -36,6 +40,7 @@ from accounti.abschluss.pruefungen import (
     Schwere,
     blockiert,
     pruefe_abschluss,
+    wechsel_gewinnermittlung,
 )
 from accounti.abschluss.salden import summen_und_salden
 from accounti.anzeige import betrag_de
@@ -94,7 +99,11 @@ def schlusssalden(
     """Bestandskonten zum Ende des Wirtschaftsjahres nach Abschluss der Erfolgs- und
     Privatkonten."""
     susa = summen_und_salden(
-        session, jahr, kr, einst.gewinnermittlung, wj=einst.wirtschaftsjahr(jahr)
+        session,
+        jahr,
+        kr,
+        einst.gewinnermittlung_fuer(jahr),
+        wj=einst.wirtschaftsjahr(jahr),
     )
     salden: dict[str, Decimal] = {}
     kapital = NULL
@@ -148,7 +157,8 @@ def erfasse_eroeffnung(
 ) -> Buchungssatz | None:
     """Eröffnungssaldo eines Bestandskontos im ersten Jahr (Soll positiv), gebucht
     am Beginn des Wirtschaftsjahres ``jahr`` — bei abweichendem Wirtschaftsjahr in
-    jedem Jahr, denn den Saldovortrag gibt es dort nicht (``trage_vor``).
+    jedem Jahr und nach einem Wechsel der Gewinnermittlung im ersten Jahr der neuen,
+    denn den Saldovortrag gibt es dort nicht (``trage_vor``).
 
     Setzt den EB-Wert: Ein zweiter Aufruf bucht nur den Unterschied.
     """
@@ -158,7 +168,7 @@ def erfasse_eroeffnung(
         msg = f"Die EB-Werte {jahr} kommen aus dem Saldovortrag {jahr - 1}"
         raise AbschlussError(msg)
     kr = einst.lade_kontenrahmen()
-    art = kr.art(konto, einst.gewinnermittlung)
+    art = kr.art(konto, einst.gewinnermittlung_fuer(jahr))
     if kr.ist_saldenvortrag(konto) or art in (Kontenart.ERFOLG, Kontenart.VORTRAG):
         raise AbschlussError(f"Konto {konto} ist kein Bestandskonto")
     differenz = saldo - eroeffnungssalden(session, jahr, kr, wj).get(konto, NULL)
@@ -166,7 +176,8 @@ def erfasse_eroeffnung(
         return None
     b = _eb_buchung(konto, differenz, wj, einst, kr, "Eröffnungssaldo", von)
     # auch in einen festgeschriebenen ersten Monat des WJ (Baustein 7)
-    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung, wj) as eb:
+    gewinnermittlung = einst.gewinnermittlung_fuer(jahr)
+    with eroeffnungsbuchungen(session, kr, gewinnermittlung, wj) as eb:
         eb.add(str(b.id))
         speichere_buchung(session, b)
         session.flush()
@@ -190,6 +201,9 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
             "Eröffnungssalden des folgenden Wirtschaftsjahres je Bestandskonto: "
             f"accounti abschluss eroeffnung --jahr {jahr + 1} --konto … --saldo …"
         )
+    # Wechsel EÜR ↔ Bilanz: ebenso fail-closed, bevor etwas gebucht oder gesperrt wird
+    if (wechsel := wechsel_gewinnermittlung(einst, jahr)) is not None:
+        raise AbschlussError(wechsel)
     if ist_gesperrt(session, jahr):
         raise AbschlussError(f"Geschäftsjahr {jahr} ist schon abgeschlossen")
     if ist_gesperrt(session, jahr + 1):
@@ -203,7 +217,10 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
     ergebnis = k.susa.ergebnis
     vortrag = Vortrag(jahr, ziel, ergebnis, befunde=befunde)
     # EB-Buchungen am 01.01. auch in einen schon festgeschriebenen Januar (Baustein 7)
-    with eroeffnungsbuchungen(session, kr, einst.gewinnermittlung, folgejahr) as eb:
+    # die Eröffnung gehört zum Folgejahr, der Abschluss zu diesem (Periodenwert)
+    gewinnermittlung = einst.gewinnermittlung_fuer(jahr)
+    eroeffnung = einst.gewinnermittlung_fuer(folgejahr.jahr)
+    with eroeffnungsbuchungen(session, kr, eroeffnung, folgejahr) as eb:
         for konto in sorted(set(ziel) | set(vorhanden), key=lambda x: (len(x), x)):
             differenz = ziel.get(konto, NULL) - vorhanden.get(konto, NULL)
             if differenz == 0:
@@ -226,7 +243,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
         Jahresabschluss(
             jahr=jahr,
             gesperrt=True,
-            gewinnermittlung=einst.gewinnermittlung,
+            gewinnermittlung=gewinnermittlung,
             ergebnis=ergebnis,
             abgeschlossen_am=datetime.now(),
             von=von,
@@ -240,7 +257,7 @@ def trage_vor(session: Session, k: Abschlusskontext, von: str) -> Vortrag:
         None,
         {
             "ergebnis": betrag_de(ergebnis),
-            "gewinnermittlung": einst.gewinnermittlung,
+            "gewinnermittlung": gewinnermittlung,
             "schlusssalden": hash_von({k: str(v) for k, v in ziel.items()}),
             "eb_buchungen": len(vortrag.buchungen),
             "korrektur": bool(vorhanden),

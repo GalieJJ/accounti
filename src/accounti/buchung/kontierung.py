@@ -115,7 +115,15 @@ def kontiere_umsaetze(
         mit_beleg = abgleich is not None and abgleich.beleg_id in belege
         if abgleich is not None and mit_beleg:
             beleg = belege[abgleich.beleg_id]
-            bk = kontiere_beleg(tx, beleg, einstellungen, engine.regelwerk, kontakte)
+            # dieselbe Schwelle wie ohne Beleg (llm.auto_buchen_schwelle, verhalten-2)
+            bk = kontiere_beleg(
+                tx,
+                beleg,
+                einstellungen,
+                engine.regelwerk,
+                kontakte,
+                auto_schwelle=engine.auto_buchen_schwelle,
+            )
             kandidaten = [
                 _Kandidat(b, bk.quelle, bk.begruendung, bk.regel) for b in bk.buchungen
             ]
@@ -131,7 +139,13 @@ def kontiere_umsaetze(
             if ergebnis is None:
                 lauf.offen += 1
                 continue
-            buchung = zu_buchungssatz(tx, ergebnis, bank_konto=einstellungen.bank_konto)
+            # llm.auto_buchen_schwelle (Baustein 10c P4, D18)
+            buchung = zu_buchungssatz(
+                tx,
+                ergebnis,
+                auto_schwelle=engine.auto_buchen_schwelle,
+                bank_konto=einstellungen.bank_konto,
+            )
             begruendung = ergebnis.begruendung
             seite = bankseite(
                 tx, ergebnis.soll_konto, ergebnis.haben_konto, einstellungen.bank_konto

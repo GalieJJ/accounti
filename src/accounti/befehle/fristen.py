@@ -7,7 +7,7 @@ from datetime import date
 import typer
 from rich.markup import escape
 
-from accounti.befehle import KONFIG_OPTION, console
+from accounti.befehle import DB_OPTION, KONFIG_OPTION, console
 
 NAME = "fristen"
 befehl = typer.Typer(help="Fristenkalender: UStVA, Sondervorauszahlung, ZM, OSS.")
@@ -29,6 +29,7 @@ def fristen(
     bundesland: str | None = typer.Option(
         None, "--bundesland", help="Feiertage des Landes, z.B. BY"
     ),
+    db: str = DB_OPTION,  # bindet den Stand der Einstellungen (Baustein 10c P4)
     config: str = KONFIG_OPTION,
 ) -> None:
     """Fristen eines Jahres — verschoben nach § 108 Abs. 3 AO."""
@@ -45,6 +46,10 @@ def fristen(
 
     try:
         einstellungen = lade_elster(config)
+        # mandant.oss je Quartal (Periodenwert, Baustein 10c P4)
+        oss_quartale = frozenset(
+            q for q in range(1, 5) if lade_oss(config, date(jahr, 3 * q - 2, 1))
+        )
     except KonfigurationError as fehler:
         console.print(f"[red]{escape(str(fehler))}[/red]")
         raise typer.Exit(2) from fehler
@@ -55,17 +60,18 @@ def fristen(
     if zm not in (None, "monat", "quartal"):
         console.print("[red]--zm erwartet monat oder quartal[/red]")
         raise typer.Exit(2)
-    art = einstellungen.voranmeldungszeitraum
+    # Periodenwerte (Baustein 10c P4): die Werte dieses Jahres
+    art = einstellungen.voranmeldungszeitraum_fuer(jahr)
     if quartal is not None:
         art = "quartal" if quartal else "monat"
     kalender = fristenkalender(
         jahr,
         voranmeldungszeitraum=art,
         dauerfrist=(
-            einstellungen.dauerfristverlaengerung if dauerfrist is None else dauerfrist
+            einstellungen.dauerfrist_fuer(jahr) if dauerfrist is None else dauerfrist
         ),
         zm="quartal" if zm == "quartal" else "monat" if zm == "monat" else None,
-        oss=oss or lade_oss(config),
+        oss=oss or oss_quartale,
         bundesland=land,
     )
     feiertage = BUNDESLAENDER[land] if land else "bundeseinheitliche Feiertage"

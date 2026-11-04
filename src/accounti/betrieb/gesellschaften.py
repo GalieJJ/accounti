@@ -36,11 +36,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import make_url
 from sqlalchemy.exc import ArgumentError
 
+from accounti.einstellungen.leser import lies_abschnitt
 from accounti.erechnung.versand import _ersetze_variablen
 from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.auth import pruefe_gesellschaft
@@ -223,38 +223,13 @@ def _fehlertext(fehler: ValidationError) -> str:
     return "; ".join(teile)
 
 
-def lies_yaml(pfad: Path) -> Any:
-    """YAML-Datei lesen — ein Syntaxfehler, eine Datei in anderer Kodierung als UTF-8
-    und eine unlesbare Datei werden zum ``KonfigurationError`` (Meldung mit Datei,
-    Exit 1). Sonst endete jeder Befehl, ``serve`` und der Planer mit einem Traceback
-    aus ``bestimme_kontext`` (Runde 8, g7w B7-5)."""
-    try:
-        return yaml.safe_load(pfad.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as fehler:
-        stelle = getattr(fehler, "problem_mark", None)
-        wo = f", Zeile {stelle.line + 1}" if stelle is not None else ""
-        msg = f"{pfad}: kein gültiges YAML{wo}"
-        raise KonfigurationError(msg) from fehler
-    except UnicodeDecodeError as fehler:
-        msg = f"{pfad}: keine UTF-8-Datei ({fehler.reason} an Stelle {fehler.start})"
-        raise KonfigurationError(msg) from fehler
-    except OSError as fehler:
-        msg = f"{pfad}: nicht lesbar ({fehler.strerror or fehler})"
-        raise KonfigurationError(msg) from fehler
-
-
 def lade_gesellschaften(pfad: str | Path = STANDARD_PFAD) -> Gesellschaften:
     """Abschnitt ``gesellschaften``; ohne ihn gibt es keine Einträge."""
     pfad = Path(pfad)
-    if not pfad.is_file():
-        return Gesellschaften(quelle=str(pfad))
-    daten: Any = lies_yaml(pfad)
-    abschnitt = daten.get("gesellschaften") if isinstance(daten, dict) else None
-    if abschnitt is None:
-        return Gesellschaften(quelle=str(pfad))
-    if not isinstance(abschnitt, dict):
-        msg = f"{pfad}: Abschnitt 'gesellschaften' muss eine Zuordnung sein"
-        raise KonfigurationError(msg)
+    # Betriebsabschnitt: immer aus der Datei (Baustein 10c P4) — ein Syntaxfehler,
+    # fremde Kodierung und eine unlesbare Datei sind ein KonfigurationError mit der
+    # Datei (Meldung, Exit 1), kein Traceback aus bestimme_kontext (Runde 8, g7w B7-5)
+    abschnitt = lies_abschnitt(pfad, "gesellschaften")
     try:
         return Gesellschaften.model_validate({**abschnitt, "quelle": str(pfad)})
     except ValidationError as fehler:

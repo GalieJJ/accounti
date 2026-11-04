@@ -26,6 +26,11 @@ from accounti.belege.pipeline import Erkenner
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.betrieb.kontext import Kontext
 from accounti.db import init_db, session_factory
+from accounti.einstellungen.leser import (
+    DatenbankQuelle,
+    EinstellungenNichtLesbar,
+    mit_quelle,
+)
 from accounti.i18n import Text
 from accounti.konfiguration import lade_eigene_firma
 from accounti.models.auth import STANDARD_GESELLSCHAFT
@@ -34,6 +39,11 @@ from accounti.models.auth import STANDARD_GESELLSCHAFT
 class SchemaError(RuntimeError):
     """Die Datenbank ist nicht auf dem Stand dieser Version (Migration fehlt)."""
 
+
+# Einstellungen je Anfrage: so lange wartet der Schnappschuss höchstens auf eine
+# gesperrte SQLite-Datei bzw. den Verbindungsaufbau zu PostgreSQL (Sekunden; wie die
+# Frist des Lesezugriffs, P1)
+QUELLE_WARTEN = 3
 
 # Spalten, die ``init_db`` (create_all) in einer bestehenden Tabelle nicht anlegt —
 # ohne sie scheitert jede Anmeldung mit einem SQL-Fehler
@@ -66,6 +76,7 @@ class Dienste:
     _sperre: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _anmeldeplaetze: threading.BoundedSemaphore | None = field(default=None, repr=False)
     _einlieferung: dict[str, threading.Lock] = field(default_factory=dict, repr=False)
+    _quellen: dict[str, DatenbankQuelle] = field(default_factory=dict, repr=False)
 
     def _fabrik(self, url: str) -> sessionmaker[Session]:
         with self._sperre:
@@ -84,6 +95,22 @@ class Dienste:
     def datenbank(self, kuerzel: str) -> Iterator[Session]:
         with self._fabrik(self.gesellschaften[kuerzel].datenbank)() as s:
             yield s
+
+    def quelle(self, kuerzel: str) -> DatenbankQuelle:
+        """Einstellungen der Gesellschaft (Baustein 10c P4, D4) — eine eigene Engine je
+        Datenbank, nie über ``_fabrik``: Die Bindung jeder angemeldeten Anfrage legt so
+        keine Datenbank an (``init_db``) und verbindet nie unter der globalen Sperre;
+        der Schnappschuss beim ersten Lesen eines Datenbank-Abschnitts wartet höchstens
+        ``QUELLE_WARTEN`` Sekunden. Ist die Datenbank nicht lesbar, steht das im
+        Schnappschuss; nur dieses Lesen scheitert, ``/gesellschaft``, Wechsel und
+        Abmelden gehen weiter (Prüfung sicher-3)."""
+        url = self.gesellschaften[kuerzel].datenbank
+        with self._sperre:  # DatenbankQuelle(…) verbindet noch nicht
+            if url not in self._quellen:
+                self._quellen[url] = DatenbankQuelle(
+                    url, wartezeit=QUELLE_WARTEN, behalten=True
+                )
+            return self._quellen[url]
 
     def pruefe_schema(self) -> None:
         """Systemdatenbank auf dem Stand dieser Version? Sonst ``SchemaError`` mit
@@ -142,6 +169,10 @@ class Dienste:
             for engine, _ in self._engines.values():
                 engine.dispose()
             self._engines.clear()
+            quellen = list(self._quellen.values())
+            self._quellen.clear()
+        for quelle in quellen:
+            quelle.schliesse()
 
 
 def ocr_erkenner(g: Gesellschaft) -> Erkenner | None:
@@ -158,7 +189,14 @@ def ocr_erkenner(g: Gesellschaft) -> Erkenner | None:
 
 
 def einzelne_gesellschaft(db: str, archiv: str, config: str) -> Gesellschaft:
-    firma = lade_eigene_firma(config)
+    """Die eine Gesellschaft ohne Registry — ihr Name aus ``mandant.name``, wie er in
+    ihrer Datenbank gilt (D21: ein im Browser geänderter Name folgt nach dem Neustart);
+    ohne Datei und Version bzw. mit unlesbarer Datenbank bleibt es beim Kürzel."""
+    try:
+        with mit_quelle(DatenbankQuelle(db), config):
+            firma = lade_eigene_firma(config)
+    except EinstellungenNichtLesbar:
+        firma = None
     return Gesellschaft(
         kuerzel=STANDARD_GESELLSCHAFT,
         name=firma.name if firma else STANDARD_GESELLSCHAFT,

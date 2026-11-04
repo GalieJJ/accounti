@@ -389,7 +389,7 @@ def marktplatz(tmp_path):
     kontext = Kontext(
         einstellungen=lade_integrationen(tmp_path / "keine.yaml"),
         buchhaltung=Buchhaltung(),
-        oss_registriert=True,
+        oss_roh=True,
     )
     with make() as s:
         yield s, BelegArchiv(tmp_path / "archiv"), kontext

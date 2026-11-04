@@ -20,7 +20,10 @@
 #                     immer zur Prüfung. Ohne richtung prüft accounti die Bankseite
 #                     gegen das Vorzeichen (ebenso bei gelernten Regeln und LLM).
 #   pruefen           true: Treffer immer zur Prüfung, nie automatisch gebucht
-#   confidence        0–1 (Standard 1 = automatisch, ab 0,95 gebucht)
+#   confidence        0–1 (Standard 1 = automatisch). Gebucht wird ab
+#                     llm.auto_buchen_schwelle der Konfiguration (Standard 0,95),
+#                     darunter zur Prüfung — mit und ohne Beleg, auch bei
+#                     opos verbuchen.
 #
 # Konvention:
 #   Ausgabe  -> Soll = Aufwandskonto, Haben = 1200 (Bank), richtung: ausgabe

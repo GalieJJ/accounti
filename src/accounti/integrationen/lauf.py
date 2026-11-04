@@ -249,11 +249,13 @@ def neue_posten(
 def _buchungskontext(session: Session, kontext: Kontext) -> Buchungskontext:
     return Buchungskontext(
         einstellungen=kontext.einstellungen,
-        oss_registriert=kontext.oss_registriert,
+        oss_am=kontext.oss_am,
         firmen_land=kontext.firmen_land,
+        # Lieferschwelle: wer erst ab einem Quartal OSS-registriert ist, zählt die
+        # Fernverkäufe davor (Periodenwert, Baustein 10c P4)
         eu_b2c_bisher=(
             {}
-            if kontext.oss_registriert
+            if kontext.oss_immer
             else eu_fernverkaeufe(
                 session,
                 kontext.firmen_land,

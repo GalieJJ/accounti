@@ -26,12 +26,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.einstellungen.perioden import pruefe, quartal_von, wert_fuer
 from accounti.konfiguration import (
     STANDARD_PFAD,
     Buchhaltung,
     KonfigurationError,
     lade_buchhaltung,
-    lies_yaml,
 )
 from accounti.steuer.eu_steuersaetze import ist_oss_land
 from accounti.steuer.umsatzsteuer import (
@@ -266,18 +267,10 @@ def _fehlertext(fehler: ValidationError) -> str:
     )
 
 
-def _abschnitt(pfad: Path, name: str) -> Any:
-    if not pfad.is_file():
-        return None
-    daten: Any = lies_yaml(pfad)
-    return daten.get(name) if isinstance(daten, dict) else None
-
-
 def lade_integrationen(pfad: str | Path = STANDARD_PFAD) -> Integrationen:
     """Liest den Abschnitt ``integrationen``; fehlende Werte bleiben Standard."""
     pfad = Path(pfad)
-    abschnitt = _abschnitt(pfad, "integrationen")
-    werte = dict(abschnitt) if isinstance(abschnitt, dict) else {}
+    werte = lies_abschnitt(pfad, "integrationen")
     eigene = werte.pop("marktplaetze", None) or {}
     rahmen = lade_buchhaltung(pfad).kontenrahmen.upper()
     standard = KONTEN_STANDARD.get(rahmen, KONTEN_STANDARD["SKR03"])
@@ -362,14 +355,28 @@ def _pruefe_laenderkonten(pfad: Path, rahmen: str, e: Integrationen) -> None:
     raise KonfigurationError(msg)
 
 
-def lade_steuerangaben(pfad: str | Path = STANDARD_PFAD) -> tuple[bool, str]:
-    """(OSS-registriert?, Land des Firmensitzes) aus ``mandant``, nachsichtig."""
-    mandant = _abschnitt(Path(pfad), "mandant")
-    if not isinstance(mandant, dict):
-        return False, "DE"
+_OSS = pruefe("quartal", bool)
+
+
+def _steuerangaben(pfad: Path) -> tuple[bool | dict[str, bool], str]:
+    """(``mandant.oss`` als Periodenwert, Land des Firmensitzes), nachsichtig — ein
+    ungültiger Periodenwert ist ein ``KonfigurationError`` mit Pfad."""
+    mandant = lies_abschnitt(pfad, "mandant")
     anschrift = mandant.get("anschrift")
     land = anschrift.get("land") if isinstance(anschrift, dict) else None
-    return bool(mandant.get("oss", False)), str(land or "DE").upper()
+    roh = mandant.get("oss")
+    try:
+        oss = _OSS(roh) if roh is not None else False
+    except ValueError as fehler:
+        raise KonfigurationError(f"{pfad}: mandant.oss: {fehler}") from fehler
+    return oss, str(land or "DE").upper()
+
+
+def lade_steuerangaben(pfad: str | Path, datum: date) -> tuple[bool, str]:
+    """(OSS-registriert im Quartal von ``datum``?, Land des Firmensitzes) aus
+    ``mandant``, nachsichtig."""
+    oss, land = _steuerangaben(Path(pfad))
+    return bool(wert_fuer(oss, quartal_von(datum))), land
 
 
 @dataclass
@@ -378,11 +385,27 @@ class Kontext:
 
     einstellungen: Integrationen = field(default_factory=Integrationen)
     buchhaltung: Buchhaltung = field(default_factory=Buchhaltung)
-    oss_registriert: bool = False
+    # mandant.oss als Periodenwert ab Quartal (Baustein 10c P4): gelesen nur über
+    # oss_am(datum); der Alias ist der frühere Feldname (Golden-Test)
+    oss_roh: bool | dict[str, bool] = field(
+        default=False, metadata={"alias": "oss_registriert"}
+    )
     firmen_land: str = "DE"
     # ``datev.wirtschaftsjahr_beginn`` (Tag und Monat; ohne: Kalenderjahr) — die
     # Kursdifferenz einer Auszahlung bleibt in ihrem Geschäftsjahr (Nachprüfung 7 E)
     wirtschaftsjahr_beginn: date | None = None
+
+    def oss_am(self, datum: date) -> bool:
+        """OSS-registriert im Quartal von ``datum``?"""
+        return bool(wert_fuer(self.oss_roh, quartal_von(datum)))
+
+    @property
+    def oss_immer(self) -> bool:
+        """In jedem Quartal OSS-registriert (dann zählt keine Lieferschwelle)?"""
+        werte = (
+            self.oss_roh.values() if isinstance(self.oss_roh, dict) else [self.oss_roh]
+        )
+        return all(werte)
 
 
 def lade_kontext(pfad: str | Path = STANDARD_PFAD) -> Kontext:
@@ -390,11 +413,11 @@ def lade_kontext(pfad: str | Path = STANDARD_PFAD) -> Kontext:
     das Wirtschaftsjahr aus ``datev``."""
     from accounti.abschluss.konfiguration import lade_wirtschaftsjahr_beginn
 
-    oss, land = lade_steuerangaben(pfad)
+    oss, land = _steuerangaben(Path(pfad))
     return Kontext(
         einstellungen=lade_integrationen(pfad),
         buchhaltung=lade_buchhaltung(pfad),
-        oss_registriert=oss,
+        oss_roh=oss,
         firmen_land=land,
         wirtschaftsjahr_beginn=lade_wirtschaftsjahr_beginn(pfad),
     )

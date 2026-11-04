@@ -158,7 +158,8 @@ def test_registry_ohne_utf8_ist_ein_konfigurationsfehler(tmp_path, lader):
 
 def test_registry_nicht_lesbar_ist_ein_konfigurationsfehler(tmp_path):
     """Ebenso eine Registry-Datei, die sich nicht lesen lässt (fehlendes Leserecht:
-    ``PermissionError``, hier vorgetäuscht — die Tests laufen oft als root)."""
+    ``PermissionError``, hier vorgetäuscht — die Tests laufen oft als root). Seit
+    Baustein 10c P4 liest der Abschnittsleser die Datei als Bytes."""
     from unittest import mock
 
     from accounti.betrieb.gesellschaften import lade_gesellschaften
@@ -166,7 +167,9 @@ def test_registry_nicht_lesbar_ist_ein_konfigurationsfehler(tmp_path):
     datei = tmp_path / "accounti.yaml"
     datei.write_text("gesellschaften: {}\n", encoding="utf-8")
     with (
-        mock.patch.object(Path, "read_text", side_effect=PermissionError("verweigert")),
+        mock.patch.object(
+            Path, "read_bytes", side_effect=PermissionError("verweigert")
+        ),
         pytest.raises(KonfigurationError, match="nicht lesbar"),
     ):
         lade_gesellschaften(datei)

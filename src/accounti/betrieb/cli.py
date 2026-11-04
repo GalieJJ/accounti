@@ -1,4 +1,11 @@
-"""Gesellschaftskontext für die CLI — aufgerufen vom Callback in ``cli.py``."""
+"""Gesellschaftskontext für die CLI — aufgerufen vom Callback in ``cli.py``.
+
+Dazu der Stand der Einstellungen (Baustein 10c P4, D3): je Befehl ein neuer Stand;
+jeder Parameter ``db`` im Befehlsbaum bindet ihn beim Parsen an seine Datenbank und
+nimmt sofort den Schnappschuss — vor dem Rumpf, also bevor der Befehl selbst die
+Datenbank sperrt. Ohne Bindung gilt beim ersten Lesen der Standard der Gesellschaft
+bzw. ``ACCOUNTI_DB``, sonst ``befehle.STANDARD_DB``.
+"""
 
 from __future__ import annotations
 
@@ -11,6 +18,7 @@ from typer.core import TyperGroup
 
 from accounti.betrieb.kontext import (
     OHNE_GESELLSCHAFT,
+    Kontext,
     bestimme_kontext,
     kontext_ohne_registry,
     ruecksetzen,
@@ -34,9 +42,18 @@ class Wurzelgruppe(TyperGroup):
     def invoke(self, ctx: Any) -> Any:
         from sqlalchemy.exc import OperationalError, ProgrammingError
 
+        from accounti.einstellungen.leser import (
+            EinstellungenNichtLesbar,
+            EinstellungsquelleFehlt,
+        )
+
         ctx.meta[ARGUMENTE] = _rest(ctx)
         try:
             return super().invoke(ctx)
+        except (EinstellungenNichtLesbar, EinstellungsquelleFehlt) as fehler:
+            # fail-closed (D5): Meldung statt Traceback, nie still die Datei
+            console.print(f"[red]{escape(str(fehler))}[/red]", soft_wrap=True)
+            raise typer.Exit(1) from fehler
         except (OperationalError, ProgrammingError) as fehler:
             # eine Tabelle oder Spalte dieses Codes fehlt: die Datenbank ist nicht
             # migriert — Hinweis statt Traceback, für jeden Befehl (gw-migration N-3)
@@ -151,3 +168,74 @@ def richte_kontext_ein(ctx: Any, gesellschaft: str | None) -> None:
         ctx.default_map = standardwerte_fuer(ctx.command, kontext.standardwerte)
     token = setze_kontext(kontext)
     ctx.call_on_close(lambda: ruecksetzen(token))
+    richte_stand_ein(ctx, kontext)
+
+
+def richte_stand_ein(ctx: Any, kontext: Kontext) -> None:
+    """Ein neuer Stand der Einstellungen für diesen Befehl (am Ende zurückgesetzt) und
+    die Bindung über die Parameter ``db`` (D3, D5)."""
+    from accounti.befehle import STANDARD_DB
+    from accounti.einstellungen.leser import DatenbankQuelle, neuer_stand
+
+    def ersatz() -> DatenbankQuelle:
+        return DatenbankQuelle(kontext.standardwerte.get("db") or STANDARD_DB)
+
+    stand = ctx.with_resource(
+        neuer_stand(ersatz=ersatz, fremde_pfade=_fremde_konfigurationen(kontext))
+    )
+    stand.kuerzel = kontext.kuerzel
+    binde_datenbank_parameter(ctx.command)
+
+
+def _fremde_konfigurationen(kontext: Kontext) -> frozenset[str]:
+    """Konfigurationen der anderen Gesellschaften der Registry (aufgelöst) — die liest
+    ein Befehl nur unter ``mit_quelle`` ihrer Datenbank (D5, M2)."""
+    from accounti.betrieb.gesellschaften import pfad_schluessel
+
+    eigene = kontext.gesellschaft.konfiguration if kontext.gesellschaft else None
+    eigene_schluessel = pfad_schluessel(eigene) if eigene else None
+    fremde = set()
+    for kuerzel in kontext.registry.eintraege:
+        try:
+            g = kontext.registry.finde(kuerzel)
+        except KonfigurationError:
+            continue  # fehlende Variable: die Gesellschaft scheitert erst beim Gebrauch
+        schluessel = pfad_schluessel(g.konfiguration)
+        if schluessel != eigene_schluessel:
+            fremde.add(schluessel)
+    return frozenset(fremde)
+
+
+_BINDET = "_accounti_bindet_einstellungen"
+
+
+def binde_datenbank_parameter(befehl: Any) -> None:
+    """An jeden Parameter ``db`` im Befehlsbaum (alle Ebenen) einen Callback hängen,
+    der den Stand an diese Datenbank bindet; ein vorhandener Callback läuft vorher. Je
+    Parameter einmal (markiert)."""
+    for parameter in getattr(befehl, "params", []) or []:
+        if parameter.name == "db" and not getattr(parameter, _BINDET, False):
+            parameter.callback = _bindend(parameter.callback)
+            setattr(parameter, _BINDET, True)
+    for kind in (getattr(befehl, "commands", {}) or {}).values():
+        binde_datenbank_parameter(kind)
+
+
+def _bindend(vorher: Any) -> Any:
+    def rueckruf(ctx: Any, parameter: Any, wert: Any) -> Any:
+        if vorher is not None:
+            wert = vorher(ctx, parameter, wert)
+        if isinstance(wert, str) and wert and not ctx.resilient_parsing:
+            binde_datenbank(wert)
+        return wert
+
+    return rueckruf
+
+
+def binde_datenbank(url: str) -> None:
+    """Den Stand des Befehls an ``url`` binden (sofort mit Schnappschuss)."""
+    from accounti.einstellungen.leser import DatenbankQuelle, aktueller_stand
+
+    stand = aktueller_stand()
+    if stand is not None:
+        stand.binde(DatenbankQuelle(url), kuerzel=stand.kuerzel)

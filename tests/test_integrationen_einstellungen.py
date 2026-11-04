@@ -1,5 +1,7 @@
 """Abschnitt ``integrationen`` der Konfiguration — mit Standardwerten."""
 
+from datetime import date
+
 import pytest
 
 from accounti.integrationen.einstellungen import (
@@ -61,9 +63,11 @@ def test_ungueltig(tmp_path):
 
 
 def test_steuerangaben(tmp_path):
+    # Periodenwert (Baustein 10c P4): gefragt wird mit einem Tag des Quartals
+    tag = date(2026, 5, 1)
     pfad = tmp_path / "a.yaml"
-    assert lade_steuerangaben(pfad) == (False, "DE")
+    assert lade_steuerangaben(pfad, tag) == (False, "DE")
     pfad.write_text(
         "mandant:\n  name: X\n  oss: true\n  anschrift:\n    land: DE\n", "utf-8"
     )
-    assert lade_steuerangaben(pfad) == (True, "DE")
+    assert lade_steuerangaben(pfad, tag) == (True, "DE")

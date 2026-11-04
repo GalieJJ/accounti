@@ -395,3 +395,24 @@ def test_hinweis_je_konto_skr04(make_session):
     [abzug] = [h for h in euer.hinweise if "6249" in h]
     assert abzug.startswith("Konto 6249: Abzug nach § 6c i. V. m. § 6b EStG")
     assert {z.kz: z.betrag for z in euer.ausgaben} == {"190": D("50")}
+
+
+def test_gewinnermittlung_je_wirtschaftsjahr(tmp_path):
+    """Periodenwert (D14): ``abschluss.gewinnermittlung: {2026: euer, 2027: bilanz}`` —
+    ``abschluss euer`` für 2026, für 2027 nicht (Bilanz)."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from tests.pruefung_hilfe import db_url
+
+    konfig = tmp_path / "accounti.yaml"
+    konfig.write_text(
+        "abschluss:\n  gewinnermittlung: {2026: euer, 2027: bilanz}\n", "utf-8"
+    )
+    url = db_url(tmp_path)
+    runner = CliRunner()
+    argumente = ["--db", url, "--config", str(konfig)]
+    r = runner.invoke(app, ["abschluss", "euer", "--jahr", "2026", *argumente])
+    assert r.exit_code == 0, r.output
+    r = runner.invoke(app, ["abschluss", "euer", "--jahr", "2027", *argumente])
+    assert r.exit_code != 0 and "keine EÜR" in r.output, r.output

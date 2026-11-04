@@ -809,6 +809,44 @@ def test_kaputte_konfiguration_zeigt_meldung_statt_standardwerten(qw, kaputt):
         assert f'action="/buchungen/{frei.id}/{was}"' not in seite.text, was
 
 
+def _llm(qw, abschnitt: str) -> None:  # noqa: ANN001
+    pfad = qw.web.umgebung.config["a"]
+    pfad.write_text(
+        pfad.read_text(encoding="utf-8") + "llm:\n" + abschnitt, encoding="utf-8"
+    )
+
+
+def test_schwelle_der_gesellschaft_am_vorschlag(qw):
+    """``llm.auto_buchen_schwelle`` der Gesellschaft steht am Vorschlag — in ganzen
+    Prozent wie die Confidence (0,57 · 100 ist 56,99…: angezeigt 57 %)."""
+    b = qw.unsicher()
+    _llm(qw, "  auto_buchen_schwelle: 0.57\n  pruefung_schwelle: 0.5\n")
+    seite = qw.web.angemeldet("jan").get(f"/pruefen/{b.id}").text
+    assert "automatisch gebucht ab 57 %" in seite
+
+
+def test_fehlerhafter_llm_abschnitt_zeigt_hinweis_statt_standard(qw):
+    """verhalten-3: Ist der Abschnitt ``llm`` ungültig, halten classify, bank lauf, der
+    REST-Lauf und opos verbuchen an — die Arbeitsfläche zeigt den Fehler, nicht still
+    „automatisch gebucht ab 95 %“. Entscheiden bleibt möglich (die Freigabe hängt
+    nicht an der Schwelle)."""
+    b = qw.unsicher()
+    _llm(qw, "  auto_buchen_schwelle: 0.6\n  pruefung_schwelle: 0.7\n")
+    seite = qw.web.angemeldet("jan").get(f"/pruefen/{b.id}")
+    assert seite.status_code == 200
+    assert "automatisch gebucht ab" not in seite.text
+    assert "Der Abschnitt llm der Konfiguration ist fehlerhaft" in seite.text
+    assert "pruefung_schwelle 0.7 liegt über auto_buchen_schwelle 0.6" in seite.text
+    assert f'action="/pruefen/{b.id}/freigeben"' in seite.text
+    # englische Oberfläche: derselbe Hinweis übersetzt, die Fachmeldung deutsch
+    from accounti.i18n import katalog
+
+    assert (
+        "Der Abschnitt llm der Konfiguration ist fehlerhaft — automatisch kontiert und "
+        "verbucht wird erst nach seiner Berichtigung:"
+    ) in katalog("en")
+
+
 def test_steuerauswahl_erloes_auf_quittung(qw):
     """R7-3 (g7w): Ein Erlös auf einer Quittung (eigener Kassenbon) bzw. einer
     Marktplatzabrechnung (SONSTIGES) ist keine Eingangsbuchung — kein Schlüssel 9,

@@ -27,7 +27,9 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.inventar import Betriebsfeld
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.pruefung import Schwere
 
 # § 33 UStDV: Kleinbetragsrechnung bis 250 Euro (seit 01.01.2017)
@@ -99,11 +101,13 @@ class PruefEinstellungen(BaseModel):
     belegfrei: list[BelegfreiRegel] = Field(default_factory=list)
     kleinbetrag_grenze: Decimal = Field(default=KLEINBETRAG, ge=0)
     eigene_namen: list[str] = Field(default_factory=list)
-    kontenrahmen_datei: str | None = Field(
+    kontenrahmen_datei: Betriebsfeld[str | None] = Field(
         default=None,
         description="Steuerautomatik der Konten (SKR03: mitgelieferte skr03.yaml)",
     )
-    archiv: str = Field(default="archiv/belege", description="Belegarchiv")
+    archiv: Betriebsfeld[str] = Field(
+        default="archiv/belege", description="Belegarchiv"
+    )
     nachforderung: NachforderungEinstellungen = Field(
         default_factory=NachforderungEinstellungen
     )
@@ -128,14 +132,8 @@ def _fehlertext(fehler: ValidationError) -> str:
 def lade_pruefung(pfad: str | Path = STANDARD_PFAD) -> PruefEinstellungen:
     """Abschnitt ``pruefung``; ohne Datei oder Abschnitt gelten die Standards."""
     pfad = Path(pfad)
-    abschnitt: Any = None
-    if pfad.is_file():
-        daten: Any = lies_yaml(pfad)
-        abschnitt = daten.get("pruefung") if isinstance(daten, dict) else None
-    if abschnitt is not None and not isinstance(abschnitt, dict):
-        raise KonfigurationError(f"{pfad}: Abschnitt 'pruefung' ist keine Zuordnung")
     try:
-        return PruefEinstellungen.model_validate(abschnitt or {})
+        return PruefEinstellungen.model_validate(lies_abschnitt(pfad, "pruefung"))
     except ValidationError as fehler:
         msg = f"{pfad}: Abschnitt 'pruefung': {_fehlertext(fehler)}"
         raise KonfigurationError(msg) from fehler

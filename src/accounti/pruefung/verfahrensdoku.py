@@ -33,7 +33,8 @@ from sqlalchemy.orm import Session
 from accounti import __version__
 from accounti.anzeige import datum_de
 from accounti.betrieb.protokoll import rechner_der_adresse
-from accounti.konfiguration import STANDARD_PFAD, KonfigurationError, lies_yaml
+from accounti.einstellungen.leser import lies_abschnitt
+from accounti.konfiguration import STANDARD_PFAD, KonfigurationError
 from accounti.models.pruefung import Journaleintrag
 
 VORGANG = "verfahrensdoku_erstellt"
@@ -96,6 +97,8 @@ class _Doku:
         self.system_db = system_db
         self.gesellschaft = gesellschaft
         self.zeilen: list[str] = []
+        # Stichtag: Periodenwerte gelten für seinen Zeitraum (Baustein 10c P4)
+        self.stand = date.today()
 
     def __call__(self, *zeilen: str) -> None:
         self.zeilen.extend(zeilen)
@@ -108,13 +111,11 @@ class _Doku:
             self(f"> **Konfiguration {name} fehlerhaft:** {_zelle(fehler)}", "")
             return None
 
-    def roh(self) -> dict[str, Any]:
-        """Die Konfiguration roh — kaputtes YAML ist ein ``KonfigurationError`` (die
-        CLI meldet ihn, statt mit ParserError abzubrechen; Runde 7, g6w B-3)."""
-        if not self.config.is_file():
-            return {}
-        daten: Any = lies_yaml(self.config)
-        return daten if isinstance(daten, dict) else {}
+    def abschnitt(self, name: str) -> dict[str, Any]:
+        """Ein Abschnitt, wie er wirkt (Datenbank vor Datei, Baustein 10c P4) — kaputtes
+        YAML ist ein ``KonfigurationError`` (die CLI meldet ihn, statt mit ParserError
+        abzubrechen; Runde 7, g6w B-3)."""
+        return lies_abschnitt(self.config, name)
 
     def anzahl(self, tabelle: Any) -> int:
         return int(
@@ -127,6 +128,7 @@ class _Doku:
 
 def _allgemein(d: _Doku) -> None:
     from accounti.abschluss.konfiguration import (
+        AbschlussEinstellungen,
         gewinnermittlung_angegeben,
         lade_abschluss,
     )
@@ -136,10 +138,10 @@ def _allgemein(d: _Doku) -> None:
         KontaktRow,
         TransaktionRow,
     )
-    from accounti.elster.konfiguration import lade_elster
+    from accounti.elster.konfiguration import ElsterEinstellungen, lade_elster
     from accounti.konfiguration import lade_buchhaltung
 
-    mandant = d.roh().get("mandant") or {}
+    mandant = d.abschnitt("mandant")
     anschrift = mandant.get("anschrift") or {}
     d("## 1 Allgemeine Beschreibung", "")
     d(
@@ -157,26 +159,28 @@ def _allgemein(d: _Doku) -> None:
             f"{buchhaltung.kreditoren_von}–{buchhaltung.kreditoren_bis}; Bank "
             f"{buchhaltung.bank_konto}, Standardaufwand {buchhaltung.standard_aufwand}",
         )
-    abschluss = d.lade(lade_abschluss, "abschluss")
+    abschluss: AbschlussEinstellungen | None = d.lade(lade_abschluss, "abschluss")
     if abschluss is not None:
+        wj = abschluss.wirtschaftsjahr_zum(d.stand).jahr  # WJ des Stichtags
         art = (
             "Einnahmenüberschussrechnung"
-            if abschluss.gewinnermittlung == "euer"
+            if abschluss.gewinnermittlung_fuer(wj) == "euer"
             else "Bilanz"
         )
-        if gewinnermittlung_angegeben(d.config) is None:
+        if gewinnermittlung_angegeben(d.config, wj) is None:
             # wie 2.6: ohne Angabe schützt accounti den Jahreswechsel wie bei Bilanz
             art += (
                 " (Standard, nicht ausdrücklich angegeben — ein Buchungsdatum im "
                 "Folgejahr lehnt accounti deshalb ab)"
             )
         d(f"- **Gewinnermittlung:** {art}")
-    elster = d.lade(lade_elster, "elster")
+    elster: ElsterEinstellungen | None = d.lade(lade_elster, "elster")
     if elster is not None:
+        jahr = d.stand.year
         d(
             "- **Umsatzsteuer-Voranmeldung:** "
-            f"{_ZEITRAUM[elster.voranmeldungszeitraum]}, "
-            f"Dauerfristverlängerung {_ja(elster.dauerfristverlaengerung)}",
+            f"{_ZEITRAUM[elster.voranmeldungszeitraum_fuer(jahr)]}, "
+            f"Dauerfristverlängerung {_ja(elster.dauerfrist_fuer(jahr))}",
         )
     dialekt = urlsplit(d.db_url).scheme.split("+")[0] if d.db_url else "unbekannt"
     zeitraum = d.s.execute(
@@ -219,7 +223,7 @@ def _belegeingang(d: _Doku) -> None:
                     f"{p.nach_abholen}",
                 ]
             )
-        if "webhook" in (d.roh().get("belegkanaele") or {}):
+        if "webhook" in d.abschnitt("belegkanaele"):
             w = kanaele.webhook
             zeilen.append(["webhook", "—", f"{w.host}:{w.port}, Bearer-Token"])
         fehlerhaft = []
@@ -311,8 +315,8 @@ def _bank(d: _Doku) -> None:
 
 def _kontierung(d: _Doku) -> None:
     from accounti.betrieb.kontext import regeln_datei as regeldatei_der_gesellschaft
-    from accounti.buchung.mapper import zu_buchungssatz
     from accounti.db.repo_kontierung import lade_kontierungsregeln
+    from accounti.klassifikation.einstellungen import LlmEinstellungen, lade_llm
     from accounti.klassifikation.engine import standard_regeln
     from accounti.klassifikation.llm import LLMEngine
     from accounti.klassifikation.regeln_loader import lade_regeln
@@ -332,7 +336,10 @@ def _kontierung(d: _Doku) -> None:
     except (KonfigurationError, ValueError):
         buchhaltung = Buchhaltung()  # der Fehler steht schon in Abschnitt 1
     standard = standard_regeln(buchhaltung.kontenrahmen, buchhaltung.bank_konto)
-    schwelle = inspect.signature(zu_buchungssatz).parameters["auto_schwelle"].default
+    # Schwelle und Modell, wie sie wirken (llm, Baustein 10c P4) — ein Fehler im
+    # Abschnitt steht im Dokument, dann gelten die Standards
+    ki = d.lade(lade_llm, "llm") or LlmEinstellungen()
+    schwelle = ki.auto_buchen_schwelle
     llm = inspect.signature(LLMEngine).parameters
     schalter = buchhaltung.gelernte_regeln
     verbindung = d.s.connection()
@@ -425,10 +432,12 @@ def _kontierung(d: _Doku) -> None:
             )
         )
     d(
-        f"LLM-Stufe: Modell {llm['model'].default}, Ergebnis nur ab Confidence "
+        f"LLM-Stufe: Modell {_zelle(ki.modell)}, Ergebnis nur ab Confidence "
         f"{llm['confidence_schwelle'].default}; Verwendungszweck und Name gehen "
         f"maskiert hinaus. **Automatisch gebucht** (Status auto) wird ab Confidence "
-        f"{schwelle}; darunter geht die Buchung zur Prüfung.",
+        f"{schwelle}; darunter geht die Buchung zur Prüfung. Dieselbe Schwelle gilt "
+        "für das Sachkonto aus einer Regel bei der Buchung aus dem Beleg (classify, "
+        "bank lauf) und bei accounti opos verbuchen (llm.auto_buchen_schwelle).",
         "",
         "Immer zur Prüfung, unabhängig von der Confidence: Treffer einer Regel mit "
         "`pruefen` (z. B. Miete, § 4 Nr. 12/§ 9 UStG; § 13b-Leistungen); ein Umsatz "
@@ -451,7 +460,7 @@ def _kontierung(d: _Doku) -> None:
         "auto; sie gelten wie jede Freigabe und sind nur per Storno korrigierbar):",
         "",
         "- Eingangs- und Ausgangsrechnungen über accounti opos verbuchen — Sachkonto "
-        "aus Kontakt oder Regel, sonst zur Prüfung;",
+        "aus Kontakt oder Regel (ab der Schwelle oben), sonst zur Prüfung;",
         "- Belegabgleich: Bankumsatz mit passendem Beleg, Konten aus dem Beleg "
         "(classify);",
         "- Zahlungsausgleich offener Posten (opos zuordnen, bank lauf), auch Skonto;",
@@ -669,11 +678,19 @@ def _pruefung(d: _Doku) -> None:
 
 
 def _perioden(d: _Doku) -> None:
-    from accounti.abschluss.konfiguration import gewinnermittlung_angegeben
+    from accounti.abschluss.konfiguration import (
+        gewinnermittlung_angegeben,
+        lade_wirtschaftsjahr_beginn,
+        wirtschaftsjahr_zum,
+    )
 
+    try:
+        wj = wirtschaftsjahr_zum(d.stand, lade_wirtschaftsjahr_beginn(d.config)).jahr
+    except KonfigurationError:  # der Fehler steht schon in Abschnitt 1
+        wj = d.stand.year
     ziel = (
         "— bei Einnahmenüberschussrechnung auch im Folgejahr, der Abfluss zählt —"
-        if gewinnermittlung_angegeben(d.config) == "euer"
+        if gewinnermittlung_angegeben(d.config, wj) == "euer"
         else "desselben Geschäftsjahres"
     )
     from accounti.db.repo_abschluss import lade_gesperrte_jahre
@@ -846,7 +863,8 @@ def erzeuge(
 
     d = _Doku(session, Path(config), db_url, system_db, gesellschaft)
     stand = stand or date.today()
-    name = (d.roh().get("mandant") or {}).get("name") or "nicht eingerichtet"
+    d.stand = stand
+    name = d.abschnitt("mandant").get("name") or "nicht eingerichtet"
     d(
         f"# Verfahrensdokumentation — {_zelle(name)}",
         "",
