@@ -188,9 +188,10 @@ def test_themenklassen_in_den_tokenbloecken():
     assert T.dunkel_auto  # der Block unter @media steht ohne Themenklasse
     koepfe = [" ".join(s.regel.kopf.split()) for s in stilregeln(css())]
     assert koepfe.count(HELL) == 1 and koepfe.count(DUNKEL) == 1
-    # sonst nur die Grundregel der Themenrahmen (Hintergrund und Text, /muster)
+    # sonst nur die Grundregel der Themenrahmen (Hintergrund und Text, /muster) und der
+    # Druck schwarz auf weiß (A97; erweitert in P1 Runde 2)
     andere = {k for k in koepfe if ".thema-" in k} - {HELL, DUNKEL}
-    assert andere <= {".thema-hell, .thema-dunkel"}
+    assert andere <= {".thema-hell, .thema-dunkel", ":root, .thema-dunkel"}
 
 
 def test_jedes_token_in_beiden_modi():
@@ -370,12 +371,14 @@ def test_fokusring_3px_mit_2px_abstand():
 def test_nur_drei_breakpoints():
     """Breiten nur 40, 64 und 90rem — schmaler als X als ``not all and (min-width:
     X)``, damit sich beide Seiten nie überschneiden (1024 px ist ein iPad quer); dazu
-    ``max-height: 30rem`` für wenig Höhe."""
+    ``max-height: 30rem`` für wenig Höhe. Erweitert (P1 Runde 2): ``forced-colors``."""
     erlaubt = re.compile(
         r"@media (not all and )?\(min-width: (40|64|90)rem\)"
         r"|@media \(max-height: 30rem\)"
         r"|@media \(prefers-(color-scheme: dark|reduced-motion: reduce)\)"
         r"|@media \(pointer: coarse\)|@media print"
+        # P1 Runde 2: Kontrastmodus (der transparente Reiterstrich)
+        r"|@media \(forced-colors: active\)"
     )
     for datei in (CSS,):
         for kopf in medienregeln(css(datei)):

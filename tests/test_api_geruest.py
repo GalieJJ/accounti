@@ -377,6 +377,38 @@ def test_seitentitel_schmal_ohne_informationsverlust(welt):
     assert _deklarationen(".kopf-titel", SCHMAL).get("display") != "block"
 
 
+def test_druck_schwarz_auf_weiss_mit_tabellenkopf():
+    """A97 (P1 Runde 2, gp1-design B3/B4): Im Hochformat (A4 ≤ 816 px) griff die
+    Kartenform unter 64rem auch im Druck — Tabellen ohne Kopf, das h1 versteckt, die
+    Reiter gedruckt; im Dunkelmodus blieben die dunklen Token (Karten #1a1d21). Der Druck
+    setzt jetzt die hellen Werte schwarz auf weiß, zeigt Tabellen als Tabelle mit
+    wiederholtem Kopf und das h1, und blendet jede Navigation aus."""
+    token = _deklarationen(":root", "print")
+    assert _deklarationen(".thema-dunkel", "print") == token
+    for name, wert in (("--text", "#000"), ("--text-2", "#000"), ("--grund", "#fff")):
+        assert token.get(name) == wert, (name, token.get(name))
+    assert token.get("--flaeche") == "#fff" and token.get("--akzent") == "#000"
+    assert _deklarationen("nav", "print").get("display") == "none"
+    kopf = _deklarationen(".tabelle thead", "print")
+    assert kopf.get("display") == "table-header-group"
+    assert kopf.get("position") == "static" and kopf.get("clip-path") == "none"
+    assert _deklarationen(".tabelle tr", "print").get("display") == "table-row"
+    assert _deklarationen(".tabelle td", "print").get("display") == "table-cell"
+    assert _deklarationen(".tabelle td::before", "print").get("content") == "none"
+    h1 = _deklarationen("#inhalt h1:not(.unsichtbar)", "print")
+    assert h1.get("position") == "static" and h1.get("clip-path") == "none"
+
+
+def test_forced_colors_nur_der_aktive_reiter_unterstrichen():
+    """P1 Runde 2 (gp1-design B5): Im Kontrastmodus wird der transparente Strich der
+    inaktiven Reiter sichtbar — jeder Reiter sah aktiv aus. Er bekommt dort die Farbe
+    der Fläche (``Canvas``)."""
+    inaktiv = _deklarationen(
+        '.reiter > a:not([aria-current="page"])', "(forced-colors: active)"
+    )
+    assert inaktiv.get("border-bottom-color") == "Canvas"
+
+
 def test_druckkopf(welt):
     html = welt.angemeldet("jan").get("/pruefen").text
     druck = re.search(r'<div class="druckkopf">(.*?)</div>', html, re.S)

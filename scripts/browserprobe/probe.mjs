@@ -557,18 +557,26 @@ async function ak7(browser, welt, name) {
   return { ok, vorher, nachher };
 }
 
-// AK8: Druckansicht einer Liste ohne Navigation und Knöpfe, mit Druckkopf
-async function ak8(browser, welt, name, pfad) {
-  const kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]) });
-  const seite = await neueSeite(kontext);
+// AK8: Druckansicht einer Liste ohne Navigation und Knöpfe, mit Druckkopf; Runde 2 (A97)
+// auch im Hochformat (794 px, sonst Kartenform) und im Dunkelmodus: keine nav (Reiter),
+// das h1 sichtbar, Tabellenkopf als table-header-group, Text schwarz auf weißen Flächen
+async function ak8(browser, welt, stand, pfad, breite = 1440, schema = 'light') {
+  const kontext = await browser.newContext({ storageState: stand, colorScheme: schema });
+  const seite = await neueSeite(kontext, breite);
   await seite.goto(welt.basis + pfad);
-  await seite.emulateMedia({ media: 'print' });
+  await seite.emulateMedia({ media: 'print', colorScheme: schema });
+  await seite.waitForTimeout(300); // Farbübergänge (120 ms) abwarten
   const w = await seite.evaluate(() => {
     const zu = (sel) => [...document.querySelectorAll(sel)].filter((e) => getComputedStyle(e).display !== 'none' && e.getBoundingClientRect().height > 0).length;
-    return { navigation: zu('.kopfleiste, .seitenleiste, .untere-leiste'), knoepfe: zu('button, .knopf'), druckkopf: getComputedStyle(document.querySelector('.druckkopf')).display };
+    const h1 = document.querySelector('main h1:not(.unsichtbar)');
+    const kopf = [...document.querySelectorAll('main table thead')].map((t) => `${getComputedStyle(t).display} ${Math.round(t.getBoundingClientRect().height)}`);
+    const farben = [...document.querySelectorAll('main .karte, main .tabelle-rahmen, main td, main a, main h1, main p')].map((e) => getComputedStyle(e)).flatMap((c) => [c.color, c.backgroundColor]);
+    const fremd = [...new Set(farben)].filter((f) => !['rgb(0, 0, 0)', 'rgb(255, 255, 255)', 'rgba(0, 0, 0, 0)'].includes(f));
+    return { navigation: zu('.kopfleiste, .seitenleiste, .untere-leiste, main nav'), knoepfe: zu('button, .knopf'), druckkopf: getComputedStyle(document.querySelector('.druckkopf')).display, h1: h1 ? Math.round(h1.getBoundingClientRect().height) : 0, kopf, fremd };
   });
   await kontext.close();
-  return { ok: w.navigation === 0 && w.knoepfe === 0 && w.druckkopf !== 'none', pfad, ...w };
+  const ok = w.navigation === 0 && w.knoepfe === 0 && w.druckkopf !== 'none' && w.h1 > 1 && w.kopf.every((k) => /^table-header-group [1-9]/.test(k)) && w.fremd.length === 0;
+  return { ok, pfad, breite, schema, ...w };
 }
 
 async function vorliebe(seite, basis, felder) {
@@ -705,7 +713,12 @@ async function ablaeufe(browser, welt) {
   const sicher = async (lauf) => { try { return await lauf(); } catch (f) { return { ok: false, fehler: String(f).slice(0, 300) }; } };
   const liste = [];
   liste.push(eintrag('ak7', await sicher(() => ak7(browser, welt, 'jan'))));
-  for (const pfad of ['/pruefen', '/freigaben']) liste.push(eintrag(`ak8 ${pfad}`, await sicher(() => ak8(browser, welt, 'alle', pfad))));
+  const stand = await anmelden(browser, welt.basis, 'alle', welt.benutzer.alle);
+  for (const pfad of ['/pruefen', '/freigaben', '/pruefen/regeln']) {
+    for (const [breite, schema] of [[1440, 'light'], [794, 'light'], [794, 'dark']]) {
+      liste.push(eintrag(`ak8 ${pfad} ${breite} ${schema}`, await sicher(() => ak8(browser, welt, stand, pfad, breite, schema))));
+    }
+  }
   liste.push(eintrag('ak45', await sicher(() => ak45(browser, welt, 'alle', flaeche))));
   liste.push(eintrag('ak53', await sicher(() => ak53(browser, welt, 'alle'))));
   liste.push(eintrag('ak54', await sicher(() => ak54(browser, welt, 'alle', flaeche))));

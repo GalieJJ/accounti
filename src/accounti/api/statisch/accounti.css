@@ -224,17 +224,17 @@ unter 64rem Karten */
 .codefeld-wechsel, .spalte-sortieren, .karte-aktion, .queue-journal, .leer-aktion, .tabelle td > a{display:inline-flex;align-items:center;min-height:1.5rem}
 @media (pointer: coarse) { .codefeld-wechsel, .spalte-sortieren, .karte-aktion, .queue-journal, .leer-aktion, .tabelle td > a, .brotkrumen li a, .wortmarke, a.marke { display: inline-flex; align-items: center; min-height: 2.75rem; } a.marke, .brotkrumen li a { min-width: 2.75rem; justify-content: center; } }
 @media not all and (min-width: 64rem) {
-.tabelle:not(.tabelle-kompakt) thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.tabelle:not(.tabelle-kompakt) thead, .tabelle-sortierbar:not(.tabelle-kompakt) th:not([aria-sort]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .tabelle:not(.tabelle-kompakt), .tabelle:not(.tabelle-kompakt) tbody, .tabelle:not(.tabelle-kompakt) tfoot,
 .tabelle:not(.tabelle-kompakt) tr{display:block}
 .tabelle:not(.tabelle-kompakt) tr{padding:var(--a-3) var(--a-4)}
 .tabelle:not(.tabelle-kompakt) td{display:grid;grid-template-columns:minmax(6rem, 40%) minmax(0, 1fr);gap:var(--a-3);padding:var(--a-1) 0;text-align:left;overflow-wrap:anywhere}
 .tabelle:not(.tabelle-kompakt) td::before{content:attr(data-label);content:attr(data-label) / "";color:var(--text-2)}
 .tabelle:not(.tabelle-kompakt) caption{display:block}
-/* Sortieren auch in der Kartenform: die Sortierlinks als Zeile über den Karten */
+/* Sortieren auch in der Kartenform: die Sortierlinks als Zeile über den Karten (Spalten
+ohne Sortierung nur für Screenreader, oben) */
 .tabelle-sortierbar:not(.tabelle-kompakt) thead{position:static;width:auto;height:auto;clip-path:none}
 .tabelle-sortierbar:not(.tabelle-kompakt) thead tr{display:flex;flex-wrap:wrap;gap:0 var(--a-4);padding:var(--a-1) var(--a-4)}
-.tabelle-sortierbar:not(.tabelle-kompakt) th:not([aria-sort]){position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 }
 /* Angaben */
 .angaben{display:grid;grid-template-columns:fit-content(14rem) minmax(0, 1fr);gap:var(--a-3) var(--a-45);margin:0}
@@ -310,6 +310,8 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .reiter > a:hover{color:var(--text);background-image:linear-gradient(var(--schleier), var(--schleier))}
 .reiter > a[aria-current="page"]{font-weight:600;color:var(--text);border-bottom-color:var(--akzent)}
 .reiter-anzahl{font-weight:400;color:var(--text-2)}
+/* Kontrastmodus: der transparente Strich inaktiver Reiter würde sichtbar */
+@media (forced-colors: active) { .reiter > a:not([aria-current="page"]) { border-bottom-color: Canvas; } }
 .reiter-geteilt{display:grid;grid-template-columns:1fr 1fr;gap:0;background-color:var(--flaeche)}
 .reiter-geteilt > a{justify-content:center}
 /* Schritte */
@@ -503,13 +505,24 @@ iframe.beleg{display:block;width:100%;height:75vh;border:0}
 }
 
 @layer druck {
+/* A97: schwarz auf weiß in jeder Darstellung; Tabellen auch im Hochformat (unter 64rem)
+als Tabelle mit wiederholtem Kopf, das h1 sichtbar, keine Navigation */
 @media print {
-:root{color-scheme:light}
+:root, .thema-dunkel{color-scheme:light;--grund:#fff;--flaeche:#fff;--flaeche-2:#fff;--text:#000;--text-2:#000;--linie:#999;--linie-stark:#666;--akzent:#000;--akzent-text:#fff;--akzent-flaeche:#fff;--ok:#000;--ok-flaeche:#fff;--warn:#000;--warn-flaeche:#fff;--fehler:#000;--fehler-flaeche:#fff;--info:#000;--info-flaeche:#fff;--schatten:none}
 body{color:#000;background:#fff}
-.kopfleiste, .seitenleiste, .untere-leiste, .sprunglink, .brotkrumen, form, .knopf, button{display:none}
+.kopfleiste, nav, .sprunglink, .tastenhilfe, form, .knopf, button{display:none}
 .druckkopf{display:block}
 #inhalt{max-width:none;padding:0}
+#inhalt h1:not(.unsichtbar), .tabelle thead, .tabelle th{position:static;width:auto;height:auto;overflow:visible;clip-path:none;white-space:normal}
+.marke{color:#000;background:none;border:1px solid}
 tr{break-inside:avoid}
-thead{display:table-header-group}
+.tabelle{display:table}
+.tabelle thead{display:table-header-group}
+.tabelle tbody{display:table-row-group}
+.tabelle tfoot{display:table-footer-group}
+.tabelle tr{display:table-row}
+.tabelle td{display:table-cell}
+.tabelle td::before{content:none}
+.tabelle caption{display:table-caption}
 }
 }
