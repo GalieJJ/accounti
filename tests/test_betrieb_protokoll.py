@@ -100,6 +100,23 @@ def test_filter_gilt_fuer_alle_logger_und_ausnahmen(ausgabe):
     assert "[IBAN]" in text and "ValueError" in text
 
 
+@pytest.mark.parametrize(
+    "name", ["httpx", "httpcore", "httpx2", "httpcore2", "urllib3"]
+)
+def test_http_bibliotheken_schreiben_keine_adressen(ausgabe, name):
+    """openai 2.x (über litellm) bringt ``httpx2``/``httpcore2`` mit, Starlette 1.10
+    nimmt es dann auch für den TestClient. Deren INFO-Zeile „HTTP Request: GET https://…“
+    trug ganze Adressen ins Protokoll — Namen im Pfad, Token in Webhook-URLs (CI auf
+    f760b40); gedämpft waren nur die alten Namen."""
+    logging.getLogger(name).info(
+        "HTTP Request: GET https://hooks.example.invalid/x7-geheim"
+    )
+    logging.getLogger(f"{name}._client").debug("Anfrage an /x7-geheim")
+    assert "x7-geheim" not in ausgabe.getvalue()
+    logging.getLogger(name).warning("Verbindung abgebrochen")
+    assert "Verbindung abgebrochen" in ausgabe.getvalue()
+
+
 def test_json_format():
     puffer = io.StringIO()
     wurzel = logging.getLogger()
