@@ -20,6 +20,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse
@@ -285,12 +286,18 @@ def _beantwortet_get(request: Request, pfad: str) -> bool:
 ABSCHNITTE = 16
 
 
+# Abfrageteile, die nur einmal gelten (Meldung nach einer Aktion) — nicht im Rückweg
+EINMALIG = frozenset({"erledigt"})
+
+
 def ansichtspfad(request: Request) -> str:
-    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst, nach
-    einem POST die nächste Seite darüber, die GET beantwortet
+    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst samt
+    Abfrage (``?ansicht=``; ohne ``EINMALIG``, P1 Runde 2), nach einem POST die nächste
+    Seite darüber, die GET beantwortet
     (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
     ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
-    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung.
+    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung;
+    Fragmente, die eine andere URL in den Verlauf schreiben, setzen ``pfad`` selbst.
 
     Hinauf nur von einem Pfad mit Route (``scope["route"]``) und höchstens
     ``ABSCHNITTE`` Abschnitte: Jeder Schritt prüft alle Routen — für einen Pfad ohne
@@ -298,7 +305,10 @@ def ansichtspfad(request: Request) -> str:
     (Folgepaket F, Runde 2: gf-betrieb F-B1)."""
     pfad = request.url.path
     if request.method in ("GET", "HEAD"):
-        return pfad
+        abfrage = [
+            (k, v) for k, v in request.query_params.multi_items() if k not in EINMALIG
+        ]
+        return f"{pfad}?{urlencode(abfrage)}" if abfrage else pfad
     if request.scope.get("route") is None:
         return "/"
     teile = pfad.rstrip("/").split("/", ABSCHNITTE + 1)

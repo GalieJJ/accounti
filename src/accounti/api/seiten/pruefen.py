@@ -29,7 +29,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.belegantwort import Art, BelegdateiError, lies, tiff_seiten
 from accounti.api.formular import formular
 from accounti.api.handeln import im_namen
-from accounti.api.htmx import ist_htmx
+from accounti.api.htmx import aktueller_pfad, ist_htmx
 from accounti.api.registry import Bereich, Navigationspunkt
 from accounti.api.sitzung import (
     Angemeldet,
@@ -337,6 +337,12 @@ async def _antwort(
     push: str | None = None,
 ) -> Response:
     if ist_htmx(request):
+        # Rückweg der Vorlieben (Tastenhilfe): die URL, die der Browser danach zeigt —
+        # nach einer Aktion die neue Buchung, nach 409/422 die bisherige (HX-Current-URL)
+        if push:
+            werte = {**werte, "pfad": push}
+        elif request.method == "POST" and request.headers.get("hx-current-url"):
+            werte = {**werte, "pfad": aktueller_pfad(request)}
         antwort = await seite(
             request, "pruefen/_arbeitsflaeche.html", werte, status=status
         )

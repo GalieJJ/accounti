@@ -6,6 +6,9 @@
  * - Fokus auf das erste Element mit data-fokus: nach dem Laden (Fehlerliste) und nach
  *   jedem Austausch im neuen Inhalt — außer in Beispielen ([data-beispiel], /muster).
  * - Benutzermenü (<details>) schließen mit Esc und mit einem Klick daneben.
+ * - Rückweg der Vorlieben (input[data-hier]: Benutzermenü, Tastenhilfe): beim Absenden
+ *   die Seite, die der Browser jetzt zeigt — nach einer htmx-Navigation nicht mehr die,
+ *   mit der das Formular kam (ohne ?erledigt=, die Meldung gilt einmal).
  *
  * Ohne Speicher im Browser, ohne Code-Auswertung, ohne HTML-Einsetzen (CSP).
  */
@@ -78,6 +81,21 @@
   document.addEventListener("DOMContentLoaded", function () {
     fokus(document);
   });
+
+  document.addEventListener(
+    "submit",
+    function (e) {
+      var form = e.target;
+      var feld = form && form.querySelector ? form.querySelector("input[data-hier]") : null;
+      if (feld) {
+        var abfrage = new URLSearchParams(window.location.search);
+        abfrage.delete("erledigt");
+        var rest = abfrage.toString();
+        feld.value = window.location.pathname + (rest ? "?" + rest : "");
+      }
+    },
+    true
+  );
 
   function offenesMenue() {
     return document.querySelector("details.benutzermenue[open]");

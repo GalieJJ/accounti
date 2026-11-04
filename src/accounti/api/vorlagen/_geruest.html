@@ -21,7 +21,7 @@
 <span class="kopf-titel" aria-hidden="true">{{ titel }}</span><div class="kopf-rechts"><a class="kopf-hilfe" href="{{ geruest.hilfe_pfad }}">{{ k.symbol("circle-help") }}<span class="kopf-hilfe-text">{{ _("Hilfe") }}</span></a>
 <details class="benutzermenue"><summary class="benutzermenue-ausloeser">{{ k.avatar(geruest.initialen) }}<span class="benutzermenue-name">{{ name }}</span>{{ k.symbol("chevron-down", groesse=16) }}</summary><div class="benutzermenue-feld">
 <a class="menue-eintrag" href="/konto">{{ k.symbol("settings") }}{{ _("Mein Konto") }}</a>
-<form method="post" action="/konto/vorlieben" class="benutzermenue-wahl"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}">
+<form method="post" action="/konto/vorlieben" class="benutzermenue-wahl"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}" data-hier>
 {%- set deutsch %}<span lang="de">Deutsch</span>{% endset -%}
 {%- set englisch %}<span lang="en">English</span>{% endset -%}
 {{ k.segment("sprache", _("Sprache"), [("auto", _("automatisch")), ("de", deutsch), ("en", englisch)], gewaehlt=benutzersprache or "auto", id="menue-sprache") }}{{ k.segment("darstellung", _("Darstellung"), [("auto", _("automatisch")), ("hell", _("hell")), ("dunkel", _("dunkel"))], gewaehlt=geruest.darstellung, id="menue-darstellung") }}{{ k.knopf(_("Übernehmen"), art="sekundaer", groesse="klein") }}</form>

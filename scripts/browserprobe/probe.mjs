@@ -645,6 +645,40 @@ async function ak53(browser, welt, name) {
   return { ok: befunde.every((b) => b.ok), befunde };
 }
 
+// Runde 2 (A104, gp1-bestand N1/N3): nach „Freigeben“ per htmx liegt der Fokus auf der
+// Überschrift des neuen Inhalts, nicht auf body; „Übernehmen“ im Benutzermenü und
+// „Tastenkürzel ausschalten“ führen auf die Buchung zurück, die der Browser jetzt zeigt
+// (mit ?ansicht=). Läuft nach AK54 und gibt den ersten offenen Vorschlag frei (es muss
+// danach noch einer offen sein); stellt die Kürzel wieder an.
+async function rueckweg(browser, welt, name) {
+  const befunde = [];
+  const kontext = await browser.newContext({ storageState: await anmelden(browser, welt.basis, name, welt.benutzer[name]) });
+  const seite = await neueSeite(kontext);
+  await seite.goto(`${welt.basis}/pruefen?ansicht=offen`);
+  const erster = await seite.locator('main a[href^="/pruefen/"][href*="ansicht=offen"]').first().getAttribute('href');
+  const ziel = welt.basis + erster;
+  await seite.goto(ziel);
+  const knopf = seite.locator('form.freigeben button[type=submit]');
+  await knopf.focus();
+  await knopf.press('Enter');
+  await seite.waitForURL((u) => u.href !== ziel, { timeout: 8000 }).catch(() => {});
+  await seite.waitForTimeout(400);
+  const nachher = seite.url();
+  const fokus = await seite.evaluate(() => ({ data: document.activeElement?.hasAttribute('data-fokus') ?? false, el: document.activeElement?.outerHTML.slice(0, 60) }));
+  befunde.push({ name: 'Fokus nach dem Austausch', ok: nachher !== ziel && fokus.data, wert: { url: nachher, ...fokus } });
+  await seite.locator('summary.benutzermenue-ausloeser').click();
+  await seite.locator('form.benutzermenue-wahl button[type=submit]').click();
+  await seite.waitForLoadState('load');
+  befunde.push({ name: 'Übernehmen bleibt auf der Buchung', ok: seite.url() === nachher, wert: { erwartet: nachher, ist: seite.url() } });
+  await seite.locator('#tastenhilfe > summary').click();
+  await seite.locator('form.tasten-schalter button[type=submit]').click();
+  await seite.waitForLoadState('load');
+  befunde.push({ name: 'Tastenkürzel-Schalter bleibt auf der Buchung', ok: seite.url() === nachher, wert: { erwartet: nachher, ist: seite.url() } });
+  await vorliebe(seite, welt.basis, { tastenkuerzel: 'an' });
+  await kontext.close();
+  return { ok: befunde.every((b) => b.ok), befunde };
+}
+
 // AK54: nach einer Freigabe per htmx steht das Ergebnis in #status; während der Anfrage
 // trägt das Ziel aria-busy="true" (Antwort verzögert über page.route)
 async function ak54(browser, welt, name, arbeitsflaeche) {
@@ -664,7 +698,7 @@ async function ak54(browser, welt, name, arbeitsflaeche) {
 const TASTATUR = new Set(['/pruefen', '/pruefen/{buchung_id:uuid}', '/konto']);
 
 // Abläufe einmal je Lauf (--ablaeufe): AK7 (jan: zwei Gesellschaften), AK8, AK45, AK53,
-// zuletzt AK54 (gibt den Vorschlag der Welt frei)
+// AK54 (gibt den Vorschlag der Welt frei), zuletzt der Rückweg (Runde 2)
 async function ablaeufe(browser, welt) {
   const flaeche = welt.seiten.find((s) => s.vorlage === '/pruefen/{buchung_id:uuid}').pfad;
   const eintrag = (name, messung) => ({ benutzer: 'ablauf', pfad: name, thema: 'hell', breite: 1440, status: 200, messungen: { [name]: messung }, ok: messung.ok });
@@ -675,6 +709,7 @@ async function ablaeufe(browser, welt) {
   liste.push(eintrag('ak45', await sicher(() => ak45(browser, welt, 'alle', flaeche))));
   liste.push(eintrag('ak53', await sicher(() => ak53(browser, welt, 'alle'))));
   liste.push(eintrag('ak54', await sicher(() => ak54(browser, welt, 'alle', flaeche))));
+  liste.push(eintrag('rueckweg', await sicher(() => rueckweg(browser, welt, 'alle'))));
   for (const e of liste) process.stdout.write(e.ok ? '.' : 'F');
   return liste;
 }

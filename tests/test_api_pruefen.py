@@ -605,6 +605,68 @@ def test_htmx_fragment_mit_push_url(qw):
     assert r.headers["hx-redirect"] == "/pruefen?ansicht=offen&erledigt=freigegeben"
 
 
+def _weiter(html: str, klasse: str) -> str:
+    form = re.search(rf'<form [^>]*class="{klasse}">(.*?)</form>', html, re.S)
+    assert form, klasse
+    # data-hier: accounti.js setzt beim Absenden die URL, die der Browser dann zeigt
+    treffer = re.search(r'name="weiter" value="([^"]*)" data-hier>', form.group(1))
+    assert treffer
+    return treffer.group(1).replace("&amp;", "&")
+
+
+def test_rueckkehrziel_der_vorlieben_folgt_der_angezeigten_seite(qw):
+    """P1 Runde 2 (gp1-bestand N1/N3): „Tastenkürzel ausschalten“ und „Übernehmen“
+    führen auf die Buchung und Ansicht zurück, die der Browser gerade zeigt — mit
+    ``?ansicht=``, und nach einer htmx-Aktion auf die neue Buchung (Push-URL), nicht
+    auf die eben freigegebene. ``?erledigt=`` (einmalige Meldung) fällt weg."""
+    erste = qw.unsicher(tag=date(2026, 10, 1))
+    zweite = qw.unsicher(tag=date(2026, 10, 2), name="Papier Paul")
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/pruefen/{erste.id}?ansicht=offen").text
+    assert _weiter(seite, "tasten-schalter") == f"/pruefen/{erste.id}?ansicht=offen"
+    assert _weiter(seite, "benutzermenue-wahl") == f"/pruefen/{erste.id}?ansicht=offen"
+    liste = client.get("/pruefen?ansicht=zurueckgestellt&erledigt=freigegeben").text
+    assert _weiter(liste, "benutzermenue-wahl") == "/pruefen?ansicht=zurueckgestellt"
+    r = aktion(client, erste.id, "freigeben", kopf=HX)
+    push = r.headers["hx-push-url"]
+    assert push == f"/pruefen/{zweite.id}?ansicht=offen"
+    assert _weiter(r.text, "tasten-schalter") == push
+    teil = client.get(
+        f"/pruefen/{zweite.id}?ansicht=offen",
+        headers={**HX, "HX-Current-URL": f"http://testserver/pruefen/{erste.id}"},
+    ).text
+    assert _weiter(teil, "tasten-schalter") == f"/pruefen/{zweite.id}?ansicht=offen"
+    zurueck = client.post(
+        "/konto/vorlieben",
+        data={"csrf": csrf(client), "weiter": push, "tastenkuerzel": "aus"},
+        follow_redirects=False,
+    )
+    assert zurueck.status_code == 303 and zurueck.headers["location"] == push
+
+
+def test_fokus_nach_dem_austausch_auf_die_ueberschrift(qw):
+    """A104 (P1 Runde 2, gp1-design B9): Nach jedem Austausch der Arbeitsfläche geht der
+    Fokus auf die Überschrift des neuen Inhalts (``tabindex="-1"`` und ``data-fokus``,
+    accounti.js setzt ihn) — bei einem Fehler auf die Fehlerliste, die vorn steht. Die
+    ganze Seite trägt kein ``data-fokus`` (der Sprunglink bleibt das erste Ziel)."""
+    erste = qw.unsicher(tag=date(2026, 10, 1))
+    zweite = qw.unsicher(tag=date(2026, 10, 2), name="Papier Paul")
+    client = qw.web.angemeldet("jan")
+    ganz = client.get(f"/pruefen/{erste.id}").text
+    assert "data-fokus" not in ganz
+    for teil in (
+        client.get(f"/pruefen/{zweite.id}?ansicht=offen", headers=HX).text,
+        aktion(client, erste.id, "freigeben", kopf=HX).text,
+    ):
+        fokus = re.findall(r"<[a-z0-9]+ [^>]*data-fokus[^>]*>", teil)
+        assert len(fokus) == 1, fokus
+        assert fokus[0].startswith("<h2 ") and 'tabindex="-1"' in fokus[0], fokus
+    fehler = aktion(client, zweite.id, "zurueckstellen", kopf=HX, text="")
+    assert fehler.status_code == 422
+    erstes = re.search(r"<[a-z0-9]+ [^>]*data-fokus[^>]*>", fehler.text)
+    assert erstes and "fehlerliste" in erstes.group(0)
+
+
 def test_htmx_409_fragment_mit_meldung_und_neuem_stand(qw):
     b = qw.unsicher()
     client = qw.web.angemeldet("jan")

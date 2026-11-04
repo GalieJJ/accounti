@@ -1,6 +1,8 @@
 {% import "_komponenten.html" as k with context %}
+{#- A104: nach einem htmx-Austausch geht der Fokus auf die erste Überschrift des neuen
+    Inhalts (accounti.js, data-fokus); auf der ganzen Seite bleibt der Sprunglink vorn. -#}
 {% if e.beleg %}
-<h2>{{ _("Beleg") }} {{ e.beleg.belegnummer or "" }}</h2>
+<h2{% if fragment %} tabindex="-1" data-fokus{% endif %}>{{ _("Beleg") }} {{ e.beleg.belegnummer or "" }}</h2>
 <p class="beleg-links">
   <a href="/belege/{{ e.beleg.id }}" target="_blank" rel="noopener" data-taste="b">{{ _("Beleg in neuem Tab öffnen") }} <kbd>b</kbd></a>
   · <a href="/belege/{{ e.beleg.id }}/download">{{ _("Herunterladen") }}</a>
@@ -8,7 +10,7 @@
 {% set bid = e.beleg.id %}{% set ansicht_beleg = beleg %}{% set belegdaten = e.beleg %}
 {% include "belege/_vorschau.html" %}
 {% elif e.umsatz %}
-<h2>{{ _("Umsatz ohne Beleg") }}</h2>
+<h2{% if fragment %} tabindex="-1" data-fokus{% endif %}>{{ _("Umsatz ohne Beleg") }}</h2>
 {% include "pruefen/_umsatz.html" %}
 {% if e.belegfrei %}
 {% call k.hinweis("info") %}{{ _("Belegfrei nach Regel %(name)s:", name=e.belegfrei.name) }} <span lang="de">{{ e.belegfrei.begruendung }}</span>{% endcall %}
@@ -21,7 +23,7 @@
 {{ k.leer(_("Kein Beleg zugeordnet."), symbol="file-text") }}
 {% endif %}
 {% else %}
-<h2>{{ _("Interne Buchung") }}</h2>
+<h2{% if fragment %} tabindex="-1" data-fokus{% endif %}>{{ _("Interne Buchung") }}</h2>
 {% call k.hinweis("info") %}{{ _("Weder Umsatz noch Beleg — belegfrei: interne Buchung.") }}{% endcall %}
 {% if e.herkunft.bekannt %}<p lang="de">{{ e.herkunft.text }}</p>{% endif %}
 {% endif %}
