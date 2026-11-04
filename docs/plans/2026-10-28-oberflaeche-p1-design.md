@@ -3217,3 +3217,58 @@ die Änderung; ein Commit je Befund(gruppe).
   Hilfe → nicht; Zähler wie oben (Laufzeit, Fristen, „nicht erreichbar“).
 - **CSS** 39 508 von 40 960 Bytes; Skripte 6 934 von 20 480 (jedes eigene Skript gezählt);
   Sprite unverändert.
+
+### Runde 3 — Nachprüfung von Runde 2 (6dd2a97..90ea29e, 04.11.2026)
+
+Zwei Prüfer (Design; Bestand mit Sicherheit) haben nur den Diff von Runde 2 geprüft. Beide
+halten ihn für mergefähig: Jeder frühere Befund ist behoben und belegt, neu ist nichts über
+Niedrig. Behoben sind die zwei Niedrig-Befunde, die Runde 2 selbst verursacht hat:
+
+- **„Übernehmen“ unter einem POST-Pfad → 405** (beide Prüfer; öffnete gw-web N4 aus #36
+  wieder): Der submit-Hörer in `accounti.js` setzte `weiter` immer auf `window.location`.
+  Eine ganze Seite als Antwort auf ein gewöhnliches POST steht aber unter dem Pfad des POST
+  (422/403 der Freigaben, von Storno und Korrektur und vom Deaktivieren einer Regel). Jetzt
+  ersetzt das Skript den Server-Wert (`ansichtspfad`) nur, wenn htmx die Adresse seit dem
+  Laden geändert hat. Die Browserprobe prüft den Fall im Ablauf „Rückweg“.
+- **Druck im Hochformat schnitt breite Tabellen ab:** Der scrollende Rahmen (Runde 2)
+  schnitt auf dem Papier ab; bei den gelernten Regeln fehlten „Stand“ und „Deaktivieren“.
+  Aus der Kartenform blieben Zellen ohne waagrechten Abstand, linksbündige Beträge und
+  `overflow-wrap: anywhere` (Datum „01.10.202 / 6“). Im Druck gilt jetzt:
+  - der Rahmen hat `overflow: visible`;
+  - Tabellen stehen in `--gr-1` (12 px), auch die Köpfe;
+  - Zellen haben `--a-1` Abstand und `overflow-wrap: break-word`;
+  - Beträge stehen rechtsbündig.
+
+  Die Regeltabelle ist bei 718 px Druckbreite 716 px breit. AK8 misst Rahmenbreite,
+  Zellabstand und Ausrichtung jetzt mit.
+
+Übrige Niedrig-Befunde (Nacharbeit, nicht in P1):
+- Kopftitel bei 320 px mit Textabständen dreizeilig (Zeichenregel 16/10);
+- Aktionsleiste auf `/muster` ab etwa 400 px nur teilweise gefüllt (optisch; mitnehmen in
+  P3);
+- ohne JavaScript geht `?ansicht=` nach einer 422 der Arbeitsfläche verloren (schon in
+  Runde 1).
+
+### Prüfungen am Ende von Runde 3
+
+- **Prüfskripte der Nachprüfer** auf der korrigierten Fassung (frische Welt):
+  - `m2_druck` bei 794 px: kein Rahmen schneidet, Zellen mit Abstand, Beträge rechts.
+    Bestehen bleiben zwei Funde, die es schon vor Runde 3 gab: der Trennstrich in
+    „Umsatzsteuer-Voranmeldung“ auf `/hilfe` und die farbige Themen-Vorschau auf `/muster`.
+  - `m2_pdf` (A4 hoch, hell und dunkel): alle zehn Spalten der gelernten Regeln im PDF, das
+    Datum der Prüfliste ganz.
+  - `m2_rueckweg`: USt-VA-422 → `/freigaben` 200, Korrektur-422 → `/buchungen/{id}` 200.
+  - `rueckweg2`: 14 von 15 richtig. Rot ist nur der bekannte Fall ohne JavaScript nach einer
+    422, wie auf 6dd2a97.
+  - `freigabe_uebernehmen`: zurück auf `/freigaben` 200.
+- **Browserprobe, Abschluss** (frische Welt, alle fünf Benutzer, alle Seiten und die 404,
+  1920/1440/1280/1024/390/320 px, hell und dunkel, `--fehlerseite --ablaeufe`): **974
+  Messungen, 0 mit Befund**. Darin AK8 ×9 mit der neuen Papiermessung und der Rückweg mit
+  dem POST-Fall (`/pruefen/regeln/{id}/deaktivieren` → `/pruefen/regeln` 200).
+- **Gegenprobe** mit derselben Probe gegen eine Welt aus 90ea29e: 7 Messungen mit Befund.
+  Rot sind AK8 im Hochformat auf `/pruefen`, `/freigaben` und `/pruefen/regeln`, hell und
+  dunkel (6), und der Rückweg: der POST-Fall endet auf 405.
+- `test_api_geruest.py`, `test_api_statisch.py`, `test_design_token.py`,
+  `test_komponenten.py`, `test_symbole.py`: 106 passed, darunter der neue
+  `test_druck_tabelle_ganz_auf_dem_papier`. ruff 0.16.2 sauber.
+- **CSS** 39 695 von 40 960 Bytes, eigene Skripte 7 251 von 20 480 (4 076 + 3 175).
