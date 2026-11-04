@@ -1,32 +1,48 @@
 """Jinja2-Vorlagen der Oberfläche (``accounti/api/vorlagen/``), Autoescape an.
 
-``seite(request, "name.html", {...})`` rendert mit dem Grundlayout-Kontext:
-``angemeldet`` (Benutzer, Gesellschaft, Rechte), ``csrf``, ``navigation`` (nur die
-Punkte, die die Rolle darf), ``gesellschaften`` (für den Wechsel), ``version`` und
-``sprache``. Die Sprache wählt ``i18n.waehle_sprache`` (Benutzer → Browser →
-``server.sprache``); sie gilt während des Renderns als ``i18n.aktive_sprache`` und wird
-danach zurückgesetzt. Übersetzt wird mit ``{{ _("…") }}`` (``jinja2.ext.i18n``,
-Newstyle: Platzhalter werden escaped); Filter ``betrag``, ``datum``, ``euro``,
-``prozent``, ``monat`` formatieren je Sprache, ``uebersetzt`` übersetzt eine
-``i18n.Text``-Meldung, ``bezeichnung`` zeigt einen Statuswert (Enum) lesbar.
+``await seite(request, "name.html", {...})`` rendert mit dem Grundlayout-Kontext:
+``angemeldet`` (Benutzer, Gesellschaft, Rechte), ``csrf``, ``geruest`` (Navigation mit
+Zählern, ``api.geruest``), ``navigation`` (nur die Punkte, die die Rolle darf),
+``version`` und ``sprache``. Die Sprache wählt ``i18n.waehle_sprache`` (Benutzer →
+Browser → ``server.sprache``); sie gilt während des Renderns als
+``i18n.aktive_sprache`` und wird danach zurückgesetzt. Übersetzt wird mit
+``{{ _("…") }}`` (``jinja2.ext.i18n``, Newstyle: Platzhalter werden escaped); Filter
+``betrag``, ``datum``, ``euro``, ``prozent``, ``monat`` formatieren je Sprache,
+``uebersetzt`` übersetzt eine ``i18n.Text``-Meldung, ``bezeichnung`` zeigt einen
+Statuswert (Enum) lesbar.
 """
 
 from __future__ import annotations
 
 import enum
 import json
+import re
+from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
-from jinja2 import Environment, PackageLoader, StrictUndefined, select_autoescape
+from jinja2 import (
+    Environment,
+    PackageLoader,
+    StrictUndefined,
+    nodes,
+    select_autoescape,
+)
 from jinja2.runtime import Context
 from jinja2.utils import pass_context
+from markupsafe import Markup, escape
 from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
+from accounti.api.geruest import Geruest, geruest
+from accounti.api.hilfe_inhalt import TASTEN_PRUEFEN
+from accounti.api.htmx import ist_htmx
 from accounti.api.registry import Navigationspunkt
+from accounti.api.symbole import symbol_klasse, symbol_url
 from accounti.i18n import N_
 
 UMGEBUNG = Environment(
@@ -120,12 +136,36 @@ def bezeichnung(wert: Any, sprache: str | None = None) -> str:
     return "" if wert is None else str(wert)
 
 
+def betrag_anzeige(
+    wert: Any, richtung: str | None = None, sprache: str | None = None
+) -> str:
+    """Betrag der Komponente ``betrag``: mit Richtung (``einnahme``, ``ausgabe``) mit
+    Vorzeichen „+“ bzw. „−“ (U+2212) und schmalem festem Leerzeichen davor, ohne
+    Richtung (Summen) ohne Vorzeichen; vor „€“ ein festes Leerzeichen."""
+    zeichen = {None: "", "einnahme": "+\u202f", "ausgabe": "\u2212\u202f"}
+    if richtung not in zeichen:
+        raise ValueError(f"Richtung {richtung!r} gibt es nicht (einnahme, ausgabe)")
+    zahl = i18n.euro(abs(wert) if richtung else wert, sprache).replace(" ", "\u00a0")
+    return zeichen[richtung] + zahl.replace("-", "\u2212", 1)
+
+
 UMGEBUNG.filters["betrag"] = _filter(i18n.betrag)
+UMGEBUNG.filters["betrag_anzeige"] = _filter(betrag_anzeige)
 UMGEBUNG.filters["euro"] = _filter(i18n.euro)
 UMGEBUNG.filters["datum"] = _filter(i18n.datum)
 UMGEBUNG.filters["prozent"] = _filter(i18n.prozent)
 UMGEBUNG.filters["monat"] = _filter(i18n.monat)
-UMGEBUNG.filters["uebersetzt"] = _filter(i18n.uebersetze)
+
+
+def _uebersetzt(wert: object, sprache: str | None = None) -> str:
+    """``Text`` übersetzen; schon gerendertes Markup (etwa eine Fachmeldung mit
+    ``lang="de"`` aus ``_makros.meldung_text``) bleibt, wie es ist."""
+    if isinstance(wert, Markup):
+        return wert
+    return i18n.uebersetze(wert, sprache)
+
+
+UMGEBUNG.filters["uebersetzt"] = _filter(_uebersetzt)
 UMGEBUNG.filters["bezeichnung"] = _filter(bezeichnung)
 UMGEBUNG.filters["prozent_ganz"] = _filter(
     lambda wert, sprache: i18n.prozent(wert, sprache, 0)
@@ -134,6 +174,77 @@ UMGEBUNG.tests["text"] = lambda wert: isinstance(wert, i18n.Text)
 UMGEBUNG.filters["iban"] = lambda wert: " ".join(
     str(wert)[i : i + 4] for i in range(0, len(str(wert)), 4)
 )
+# Attribute, die Seiten an Komponenten weitergeben (htmx, data-, aria-): nur Namen aus
+# dieser Positivliste, die Werte escaped — unabhängig von der Jinja-Fassung, deren
+# ``xmlattr`` Schlüssel erst ab 3.1.3/3.1.4 prüft (Plan P1, Entscheidung „Komponenten“)
+ERLAUBTE_ATTRIBUTE = re.compile(
+    r"hx-(get|post|target|swap|select|push-url|disabled-elt|indicator|vals|confirm)"
+    r"|data-[a-z][a-z-]*|aria-[a-z]+|form|formaction|formnovalidate|autofocus"
+    # Prüfungen des Browsers wie im Bestand (Plan P1, Schritt 12: dieselben Felder)
+    r"|required|pattern|minlength|maxlength"
+)
+
+
+def zusatzattribute(zuordnung: Mapping[str, object] | None) -> Markup:
+    """`` name="wert"`` je Eintrag; ``True`` schreibt nur den Namen, ``None`` und
+    ``False`` nichts. Ein Name außerhalb der Positivliste lässt das Rendern
+    scheitern."""
+    teile = []
+    for name, wert in (zuordnung or {}).items():
+        if not isinstance(name, str) or not ERLAUBTE_ATTRIBUTE.fullmatch(name):
+            raise ValueError(f"Attribut {name!r} ist für Komponenten nicht erlaubt")
+        if wert is None or wert is False:
+            continue
+        teile.append(f" {name}" if wert is True else f' {name}="{escape(str(wert))}"')
+    return Markup("".join(teile))
+
+
+@dataclass(frozen=True)
+class Spalte:
+    """Spaltenkopf der Komponente ``tabelle`` (in Vorlagen ``Spalte(…)``); sortierung
+    ``aufsteigend``, ``absteigend`` oder ``keine`` setzt ``aria-sort``, ``href`` den
+    Link zum Umsortieren."""
+
+    titel: str
+    zahl: bool = False
+    sortierung: str | None = None
+    href: str | None = None
+
+
+class Seitenfehler(HTTPException):
+    """``HTTPException`` mit eigener Überschrift der Fehlerseite (Spec 10c A9; P1
+    Runde 2, gp1-bestand N2): ohne sie folgt das ``h1`` dem Status
+    (``app.FEHLERTITEL``)."""
+
+    def __init__(self, status_code: int, detail: Any, titel: str) -> None:
+        super().__init__(status_code, detail)
+        self.titel = titel
+
+
+# Seitentitel im schmalen Kopf (P1 Runde 2, D-M1): nur, was in zwei Zeilen der 56 px
+# hohen Kopfleiste passt — bei 320 px bleiben ihm 132 px je Zeile, mit den Textabständen
+# aus WCAG 1.4.12 etwa zehn Zeichen. Längere Titel bleiben als h1 im Inhalt sichtbar.
+KOPFTITEL_ZEICHEN = 16
+KOPFTITEL_WORT = 10
+
+
+def passt_in_den_kopf(titel: str) -> bool:
+    """Steht der Titel unter 64rem im Kopf (statt als sichtbares ``h1``)? Höchstens
+    ``KOPFTITEL_ZEICHEN`` Zeichen, kein Wort länger als ``KOPFTITEL_WORT``."""
+    worte = str(titel).split()
+    return (
+        bool(worte)
+        and len(" ".join(worte)) <= KOPFTITEL_ZEICHEN
+        and max(len(w) for w in worte) <= KOPFTITEL_WORT
+    )
+
+
+UMGEBUNG.globals["zusatzattribute"] = zusatzattribute
+UMGEBUNG.globals["passt_in_den_kopf"] = passt_in_den_kopf
+UMGEBUNG.globals["Spalte"] = Spalte
+UMGEBUNG.globals["symbol_url"] = symbol_url
+UMGEBUNG.globals["symbol_klasse"] = symbol_klasse
+UMGEBUNG.globals["tasten_pruefen"] = TASTEN_PRUEFEN
 VORLAGEN = Jinja2Templates(env=UMGEBUNG)
 
 # htmx 2.0.11 ohne eval, ohne Skripte aus Antworten, ohne Indikatorstil (CSP), ohne
@@ -185,12 +296,21 @@ def _beantwortet_get(request: Request, pfad: str) -> bool:
 ABSCHNITTE = 16
 
 
+# Abfrageteile, die zur Ansicht gehören und in den Rückweg kommen (P1 Runde 2) — nur
+# schlichte Werte; anderes (etwa die einmalige Meldung ?erledigt=) spiegelt die Seite
+# nicht zurück
+RUECKWEG_ABFRAGE = frozenset({"ansicht", "seite"})
+_RUECKWEG_WERT = re.compile(r"[a-z0-9_-]{1,40}")
+
+
 def ansichtspfad(request: Request) -> str:
-    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst, nach
-    einem POST die nächste Seite darüber, die GET beantwortet
+    """Wohin die Sprachwahl zurückführt (``weiter``): bei GET die Seite selbst samt
+    Ansicht (``RUECKWEG_ABFRAGE``, P1 Runde 2), nach einem POST die nächste
+    Seite darüber, die GET beantwortet
     (``/pruefen/{id}/korrigieren`` → ``/pruefen/{id}``,
     ``/pruefen/regeln/{id}/deaktivieren`` → ``/pruefen/regeln``), sonst ``/`` — nie
-    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung.
+    der Pfad des POST (der GET darauf gäbe 405). Immer ein Pfad dieser Anwendung;
+    Fragmente, die eine andere URL in den Verlauf schreiben, setzen ``pfad`` selbst.
 
     Hinauf nur von einem Pfad mit Route (``scope["route"]``) und höchstens
     ``ABSCHNITTE`` Abschnitte: Jeder Schritt prüft alle Routen — für einen Pfad ohne
@@ -198,7 +318,12 @@ def ansichtspfad(request: Request) -> str:
     (Folgepaket F, Runde 2: gf-betrieb F-B1)."""
     pfad = request.url.path
     if request.method in ("GET", "HEAD"):
-        return pfad
+        abfrage = [
+            (k, v)
+            for k, v in request.query_params.multi_items()
+            if k in RUECKWEG_ABFRAGE and _RUECKWEG_WERT.fullmatch(v)
+        ]
+        return f"{pfad}?{urlencode(abfrage)}" if abfrage else pfad
     if request.scope.get("route") is None:
         return "/"
     teile = pfad.rstrip("/").split("/", ABSCHNITTE + 1)
@@ -212,20 +337,77 @@ def ansichtspfad(request: Request) -> str:
     return "/"
 
 
-def seite(
+# Vorlagen mit Fragment (``teil``), die schon geprüft sind: (Umgebung, Name, Block)
+_GEPRUEFT: set[tuple[int, str, str]] = set()
+
+
+def pruefe_teilvorlage(umgebung: Environment, name: str, teil: str) -> None:
+    """Eine Vorlage, deren Block ``teil`` allein gerendert wird (htmx-Fragment), darf
+    auf oberster Ebene nur ``extends`` und Blöcke haben, und im Block steht kein
+    ``super()``: Ein Block allein läuft ohne den Code oben — Importe und ``{% set %}``
+    fehlten dort (Plan P1, B19). Sonst ``RuntimeError``, schon beim Rendern der ganzen
+    Seite; geprüft wird einmal je Vorlage."""
+    schluessel = (id(umgebung), name, teil)
+    if schluessel in _GEPRUEFT:
+        return
+    if umgebung.loader is None:
+        raise RuntimeError(f"{name}: keine Vorlagen geladen")
+    quelle = umgebung.loader.get_source(umgebung, name)[0]
+    baum = umgebung.parse(quelle)
+    for knoten in baum.body:
+        if isinstance(knoten, nodes.Extends | nodes.Block):
+            continue
+        if isinstance(knoten, nodes.Output) and all(
+            isinstance(n, nodes.TemplateData) and not n.data.strip()
+            for n in knoten.nodes
+        ):
+            continue
+        raise RuntimeError(
+            f"{name}: mit teil={teil!r} stehen auf oberster Ebene nur extends und "
+            f"Blöcke — Importe und set gehören in den Block {teil!r}"
+        )
+    bloecke = {b.name: b for b in baum.find_all(nodes.Block)}
+    if teil not in bloecke:
+        raise RuntimeError(f"{name}: der Block {teil!r} fehlt")
+    for aufruf in bloecke[teil].find_all(nodes.Call):
+        if isinstance(aufruf.node, nodes.Name) and aufruf.node.name == "super":
+            raise RuntimeError(f"{name}: kein super() im Block {teil!r}")
+    _GEPRUEFT.add(schluessel)
+
+
+def rendere_teil(
+    umgebung: Environment, name: str, teil: str, kontext: dict[str, Any]
+) -> str:
+    """Nur den Block ``teil`` der Vorlage rendern (ohne Gerüst)."""
+    vorlage = umgebung.get_template(name)
+    return "".join(vorlage.blocks[teil](vorlage.new_context(kontext)))
+
+
+async def seite(
     request: Request,
     vorlage: str,
     werte: dict[str, Any] | None = None,
     status: int = 200,
+    *,
+    zaehler: bool = True,
+    teil: str | None = None,
 ) -> HTMLResponse:
+    """Seite mit dem Grundlayout-Kontext und dem Gerüst (``geruest``). Mit ``teil``
+    (neue Seiten ab Baustein 10c) liefert eine htmx-Anfrage ohne Verlaufsabruf nur
+    diesen Block als Fragment, sonst die ganze Seite (eine Route, zwei Formen; AK58).
+    Die Zähler der Navigation gibt es nur für ganze Seiten mit Status < 400 ohne
+    ``HX-Request`` und mit ``zaehler`` (die Fehlerwege setzen ``zaehler=False``)."""
     a = getattr(request.state, "angemeldet", None)
     punkte: list[Navigationspunkt] = getattr(request.app.state, "navigation", [])
     sprache = sprache_der_anfrage(request)
     csrf = a.csrf if a else ""
+    fragment = ist_htmx(request)
+    g = await geruest(request, a, zaehler=zaehler and status < 400 and not fragment)
     kontext: dict[str, Any] = {
         "angemeldet": a,
         "csrf": csrf,
-        "navigation": [p for p in punkte if a is not None and a.darf(p.recht)],
+        "geruest": g,
+        "navigation": [p for p in punkte if a is not None and p.erlaubt(a.rechte)],
         "version": __version__,
         "titel": "accounti",
         "meldung": None,
@@ -236,12 +418,58 @@ def seite(
         "pfad": ansichtspfad(request),
         "htmx_konfig": HTMX_KONFIG,
         "hx_kopf": json.dumps({"X-CSRF-Token": csrf}),
+        # Darstellung an <html> (data-theme, color-scheme) aus den Vorlieben; /muster
+        # überschreibt sie mit ?theme=
+        "darstellung": g.darstellung,
+        "color_scheme": g.color_scheme,
+        "brotkrumen": None,  # eigene Kette einer Seite: [(text, href), …]
+        # htmx-Anfrage ohne Verlaufsabruf: Ansagen per hx-swap-oob in #status
+        "fragment": fragment,
     }
     kontext.update(werte or {})
+    if teil is not None:
+        pruefe_teilvorlage(UMGEBUNG, vorlage, teil)
     # Starlette rendert im Konstruktor — die Sprache gilt genau so lange
     with i18n.sprache_aktiv(sprache):
-        antwort: HTMLResponse = VORLAGEN.TemplateResponse(
-            request, vorlage, kontext, status_code=status
-        )
+        if teil is not None and fragment:
+            antwort = HTMLResponse(
+                rendere_teil(UMGEBUNG, vorlage, teil, {**kontext, "request": request}),
+                status_code=status,
+            )
+        else:
+            antwort = VORLAGEN.TemplateResponse(
+                request, vorlage, kontext, status_code=status
+            )
+    antwort.headers["Vary"] = "Accept-Language"
+    return antwort
+
+
+def fehlerseite_500(accept_language: str | None) -> HTMLResponse:
+    """Die 500 als schlichte Designseite — direkt mit der Jinja-Umgebung: Sprache nur
+    aus ``Accept-Language``, keine Datenbank, kein Benutzer, keine Einzelheiten (wer bei
+    500 noch die Datenbank fragt, scheitert womöglich ein zweites Mal)."""
+    sprache = i18n.waehle_sprache(None, accept_language, i18n.STANDARD)
+    kontext: dict[str, Any] = {
+        "angemeldet": None,
+        "csrf": "",
+        "geruest": Geruest(),
+        "navigation": [],
+        "version": __version__,
+        "titel": N_("Interner Fehler"),
+        "meldung": None,
+        "fehler": None,
+        "sprache": sprache,
+        "sprachen": i18n.NAMEN,
+        "benutzersprache": None,
+        "pfad": "/",
+        "htmx_konfig": HTMX_KONFIG,
+        "hx_kopf": json.dumps({}),
+        "darstellung": "auto",
+        "color_scheme": "light dark",
+        "brotkrumen": None,
+    }
+    with i18n.sprache_aktiv(sprache):
+        html = UMGEBUNG.get_template("fehler_500.html").render(kontext)
+    antwort = HTMLResponse(html, status_code=500)
     antwort.headers["Vary"] = "Accept-Language"
     return antwort

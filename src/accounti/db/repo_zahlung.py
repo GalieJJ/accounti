@@ -159,6 +159,14 @@ def lade_laeufe(
     return [_lauf(session, r) for r in session.scalars(abfrage).all()]
 
 
+def anzahl_laeufe(session: Session, status: Iterable[LaufStatus] | None = None) -> int:
+    """Zahl der Läufe (je Status) — ein ``COUNT``, für den Zähler der Navigation."""
+    abfrage = select(func.count()).select_from(ZahlungslaufRow)
+    if status is not None:
+        abfrage = abfrage.where(ZahlungslaufRow.status.in_([s.value for s in status]))
+    return int(session.scalar(abfrage) or 0)
+
+
 def aktualisiere_lauf(session: Session, lauf: Zahlungslauf, von: LaufStatus) -> None:
     """Schreibt Status und Kopfdaten (Freigabe, Datei); Zahlungen bleiben unberührt.
 

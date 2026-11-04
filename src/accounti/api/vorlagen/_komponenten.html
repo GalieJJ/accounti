@@ -1,0 +1,288 @@
+{#- Komponenten der Oberfläche (Baustein 10c, Plan P1 L4): Makros, Stile in
+    statisch/accounti.css (@layer komponenten). Import mit Kontext — in Vorlagen mit
+    teil="inhalt" innerhalb des Blocks inhalt:
+    {% import "_komponenten.html" as k with context %}. Jede Komponente steht auf
+    /muster. -#}
+
+{#- Symbol aus statisch/symbole.svg; ohne Beschriftung dekorativ (aria-hidden), mit
+    Beschriftung role="img". Größe und Strich nur als Klasse. -#}
+{% macro symbol(name, beschriftung=none, groesse=18, kraeftig=false) -%}
+<svg class="{{ symbol_klasse(groesse, kraeftig) }}"{% if beschriftung %} role="img" aria-label="{{ beschriftung }}"{% else %} aria-hidden="true"{% endif %} focusable="false"><use href="{{ symbol_url(name) }}"></use></svg>
+{%- endmacro %}
+{#- Knopf und Linkknopf: Art primaer, sekundaer, still, gefaehrlich; Größe klein, normal,
+    gross; breit = volle Breite. Unbekannte Werte lassen das Rendern scheitern. -#}
+{%- macro _knopfklasse(art, groesse, breit) -%}
+knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still", "gefaehrlich": "gefaehrlich"}[art] }}{{ {"normal": "", "klein": " knopf-klein", "gross": " knopf-gross"}[groesse] }}{% if breit %} knopf-breit{% endif %}
+{%- endmacro -%}
+
+{%- macro _knopfinhalt(text, zeichen, taste, laedt) -%}
+{% if laedt %}{{ symbol("loader-circle", groesse=14) }}{% elif zeichen %}{{ symbol(zeichen) }}{% endif %}{{ text }}{% if taste %}<kbd>{{ taste }}</kbd>{% endif %}
+{%- endmacro -%}
+
+{% macro knopf(text, art="primaer", symbol=none, groesse="normal", breit=false, typ="submit", name=none, wert=none, taste=none, deaktiviert=false, laedt=false, attribute={}) -%}
+<button type="{{ {"submit": "submit", "button": "button", "reset": "reset"}[typ] }}" class="{{ _knopfklasse(art, groesse, breit) }}"{% if name %} name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% endif %}{% if deaktiviert %} disabled{% endif %}{% if laedt %} aria-busy="true"{% endif %}{{ zusatzattribute(attribute) }}>{{ _knopfinhalt(text, symbol, taste, laedt) }}</button>
+{%- endmacro %}
+
+{% macro linkknopf(text, href, art="sekundaer", symbol=none, groesse="normal", breit=false, taste=none, attribute={}) -%}
+<a class="{{ _knopfklasse(art, groesse, breit) }}" href="{{ href }}"{{ zusatzattribute(attribute) }}>{{ _knopfinhalt(text, symbol, taste, false) }}</a>
+{%- endmacro %}
+
+{#- Status-Pille: immer Symbol und Wort (Farbe trägt nie allein Bedeutung). -#}
+{% macro status(art, wort) -%}
+<span class="status status-{{ art }}">{{ symbol({"ok": "check", "info": "info", "warn": "triangle-alert", "fehler": "triangle-alert"}[art], groesse=14, kraeftig=true) }}{{ wort }}</span>
+{%- endmacro %}
+
+{#- Sicherheitsanzeige: drei Kästchen (aria-hidden), die Bedeutung trägt das Wort. -#}
+{% macro sicherheit(stufe, zusatz=none, klein=false) -%}
+{%- set worte = {"niedrig": _("niedrig"), "mittel": _("mittel"), "hoch": _("hoch")} -%}
+<span class="sicherheit sicherheit-{{ stufe }}{% if klein %} sicherheit-klein{% endif %}"><span class="sicherheit-kaestchen" aria-hidden="true"><span></span><span></span><span></span></span><span class="sicherheit-wort">{{ _("Sicherheit: %(stufe)s", stufe=worte[stufe]) }}{% if zusatz %} · {{ zusatz }}{% endif %}</span></span>
+{%- endmacro %}
+
+{#- Zähler in Navigation und Listen; die Beschriftung („offen“) nur für Screenreader. -#}
+{% macro zaehler(anzahl, beschriftung, betont=false) -%}
+<span class="zaehler{% if betont %} zaehler-betont{% endif %}">{{ anzahl }}<span class="unsichtbar"> {{ beschriftung }}</span></span>
+{%- endmacro %}
+
+{#- Marke einer Gesellschaft: Kennfarbe (marke-1 … marke-6) und Monogramm; der Name steht
+    als versteckter Text daneben, nie als aria-label auf einem span. Mit href ein Link;
+    mit_name=false, wenn der Name gleich daneben sichtbar steht (Listen). -#}
+{% macro marke(marke, klein=false, href=none, mit_name=true) -%}
+{%- set klasse = "marke marke-" ~ {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}[marke.farbe] ~ (" marke-klein" if klein else "") -%}
+<{{ "a" if href else "span" }} class="{{ klasse }}"{% if href %} href="{{ href }}"{% endif %} data-gesellschaft="{{ marke.kuerzel }}"><span class="marke-monogramm" aria-hidden="true">{{ marke.monogramm }}</span>{% if mit_name %}<span class="unsichtbar">{{ marke.name }}</span>{% endif %}</{{ "a" if href else "span" }}>
+{%- endmacro %}
+
+{#- Avatar mit Initialen (dekorativ; den Namen nennt der Auslöser daneben). -#}
+{% macro avatar(initialen) -%}
+<span class="avatar" aria-hidden="true">{{ initialen }}</span>
+{%- endmacro %}
+
+{#- Hinweis: Symbol, farbiges Wort und Text. role nur für neue Meldungen (neu=true). -#}
+{% macro hinweis(art, titel=none, neu=false) -%}
+{%- set worte = {"info": _("Hinweis:"), "ok": _("Erledigt:"), "warn": _("Achtung:"), "fehler": _("Fehler:")} -%}
+{%- set zeichen = {"info": "info", "ok": "check", "warn": "triangle-alert", "fehler": "circle-x"} -%}
+<div class="hinweis hinweis-{{ art }}"{% if neu %} role="{{ "alert" if art == "fehler" else "status" }}"{% endif %}>{{ symbol(zeichen[art]) }}<div class="hinweis-text"><strong class="hinweis-wort">{{ titel or worte[art] }}</strong> {{ caller() }}</div></div>
+{%- endmacro %}
+
+{#- Leerer Zustand: Satz, Nebensatz und ein Link zur nächsten Aktion; ohne role (kein
+    neues Ereignis). symbol="file-text" ist die Variante „fehlender Beleg“. -#}
+{% macro leer(satz, nebensatz=none, aktion_text=none, aktion_href=none, symbol="check") -%}
+{%- set beleg = symbol == "file-text" -%}
+<div class="leer{% if beleg %} leer-beleg{% endif %}">{{ _symbol_von_leer(symbol, 40 if beleg else 28) }}<p class="leer-satz">{{ satz }}</p>{% if nebensatz %}<p class="leer-neben">{{ nebensatz }}</p>{% endif %}{% if aktion_text and aktion_href %}<a class="leer-aktion" href="{{ aktion_href }}">{{ aktion_text }}</a>{% endif %}</div>
+{%- endmacro %}
+
+{%- macro _symbol_von_leer(name, groesse) -%}{{ symbol(name, groesse=groesse) }}{%- endmacro -%}
+
+{#- Karte (Aufruf): Titel mit Anzahl, rechts die Status-Pille oder eine Summe (Betrag
+    20 px, Handy-Freigaben), darunter Kennzahl und Inhalt, unten die Hauptaktion als
+    Link oder Knopf. status = (art, wort), hauptaktion = (text, href, art) mit art link,
+    primaer oder sekundaer; kennzahl = (zahl, satz). -#}
+{% macro karte(titel, anzahl=none, status=none, hauptaktion=none, kennzahl=none, ebene=2, summe=none) -%}
+{%- set h = {2: "h2", 3: "h3", 4: "h4"}[ebene] -%}
+<section class="karte"><div class="karte-kopf"><{{ h }} class="karte-titel">{{ titel }}{% if anzahl is not none %} <span class="karte-anzahl">{{ anzahl }}</span>{% endif %}</{{ h }}>{% if status %}{{ _status_von_karte(status) }}{% endif %}{% if summe is not none %}{{ _summe_von_karte(summe) }}{% endif %}</div>{% if kennzahl %}<p class="kennzahl"><span class="kennzahl-wert">{{ kennzahl[0] }}</span> <span class="kennzahl-satz">{{ kennzahl[1] }}</span></p>{% endif %}{{ caller() if caller else "" }}{% if hauptaktion %}<div class="karte-fuss">{% if hauptaktion[2] == "link" %}<a class="karte-aktion" href="{{ hauptaktion[1] }}">{{ hauptaktion[0] }}</a>{% else %}{{ linkknopf(hauptaktion[0], hauptaktion[1], art={"primaer": "primaer", "sekundaer": "sekundaer"}[hauptaktion[2]]) }}{% endif %}</div>{% endif %}</section>
+{%- endmacro %}
+
+{%- macro _status_von_karte(paar) -%}{{ status(paar[0], paar[1]) }}{%- endmacro -%}
+{%- macro _summe_von_karte(wert) -%}{{ betrag(wert, groesse="mittel") }}{%- endmacro -%}
+
+{#- Aufklapper (Aufruf) als details/summary: art "linie" (Linie oben, Markierung des
+    Browsers) oder "karte" (eigener Chevron, „aufklappen“/„zuklappen“ wechselt per CSS). -#}
+{% macro aufklapper(titel, art="linie", offen=false) -%}
+<details class="aufklapper aufklapper-{{ {"linie": "linie", "karte": "karte"}[art] }}"{% if offen %} open{% endif %}><summary>{{ titel }}{% if art == "karte" %}<span class="aufklapper-zustand" aria-hidden="true"><span class="aufklapper-zu">{{ _("aufklappen") }}</span><span class="aufklapper-auf">{{ _("zuklappen") }}</span>{{ symbol("chevron-down", groesse=16) }}</span>{% endif %}</summary><div class="aufklapper-inhalt">{{ caller() }}</div></details>
+{%- endmacro %}
+
+{#- Tabelle (Aufruf): caption Pflicht (sichtbar=false versteckt sie), Rollen ausdrücklich,
+    damit die Kartenform unter 64rem die Semantik behält. spalten: Spalte(…) (Jinja-Global);
+    summe: Werte der Summenzeile je Spalte (None leer). kompakt: dichte Zeilen, auch schmal
+    als Tabelle. Der Rahmen scrollt waagrecht, wenn die Tabelle breiter ist als ihr Platz
+    (P1 Runde 2) — darum immer mit tabindex, role=region und der Beschriftung als Namen.
+    Mit sortierbaren Spalten (tabelle-sortierbar) zeigt die Kartenform die Sortierlinks. -#}
+{% macro tabelle(beschriftung, spalten, kompakt=false, sichtbar=true, in_karte=false, summe=none) -%}
+<div class="tabelle-rahmen{% if in_karte %} tabelle-in-karte{% endif %}" tabindex="0" role="region" aria-label="{{ beschriftung }}"><table class="tabelle{% if kompakt %} tabelle-kompakt{% endif %}{% if spalten | selectattr("sortierung") | list %} tabelle-sortierbar{% endif %}" role="table"><caption{% if not sichtbar %} class="unsichtbar"{% endif %}>{{ beschriftung }}</caption><thead role="rowgroup"><tr role="row">{% for s in spalten %}{{ spaltenkopf(s) }}{% endfor %}</tr></thead><tbody role="rowgroup">{{ caller() }}</tbody>{% if summe %}<tfoot role="rowgroup"><tr role="row" class="summenzeile">{% for wert in summe %}<td role="cell"{% if spalten[loop.index0].zahl %} class="zahl"{% endif %} data-label="{{ spalten[loop.index0].titel }}">{{ wert if wert is not none else "" }}</td>{% endfor %}</tr></tfoot>{% endif %}</table></div>
+{%- endmacro %}
+
+{% macro zeile(gewaehlt=false) -%}
+<tr role="row"{% if gewaehlt %} class="zeile-gewaehlt"{% endif %}>{{ caller() }}</tr>
+{%- endmacro %}
+
+{#- Zelle (Aufruf): label wiederholt den Spaltenkopf für die Kartenform (data-label). -#}
+{% macro zelle(label, zahl=false) -%}
+<td role="cell" data-label="{{ label }}"{% if zahl %} class="zahl"{% endif %}>{{ caller() }}</td>
+{%- endmacro %}
+
+{#- Spaltenkopf; mit sortierung (aufsteigend, absteigend, keine) aria-sort und ein Link. -#}
+{% macro spaltenkopf(spalte) -%}
+{%- set sortierung = {"aufsteigend": "ascending", "absteigend": "descending", "keine": "none"} -%}
+<th role="columnheader" scope="col"{% if spalte.zahl %} class="zahl"{% endif %}{% if spalte.sortierung %} aria-sort="{{ sortierung[spalte.sortierung] }}"{% endif %}>{% if spalte.href %}<a class="spalte-sortieren" href="{{ spalte.href }}">{{ spalte.titel }}{{ symbol({"aufsteigend": "arrow-up", "absteigend": "arrow-down", "keine": "arrow-up-down"}[spalte.sortierung or "keine"], groesse=14) }}</a>{% else %}{{ spalte.titel }}{% endif %}</th>
+{%- endmacro %}
+
+{#- Angaben (Aufruf) als Beschreibungsliste; angabe(label) (Aufruf) je Zeile. -#}
+{% macro angaben(klein=false) -%}
+<dl class="angaben{% if klein %} angaben-klein{% endif %}">{{ caller() }}</dl>
+{%- endmacro %}
+
+{% macro angabe(label) -%}
+<div class="angabe"><dt>{{ label }}</dt><dd>{{ caller() }}</dd></div>
+{%- endmacro %}
+
+{#- Betrag: mit richtung (einnahme, ausgabe) Vorzeichen „+“/„−“ und die Richtung als Wort,
+    ohne richtung (Summen) ohne Vorzeichen; feste Leerzeichen, bricht nicht um.
+    groesse: none, "mittel" (20 px), "gross" (28 px). -#}
+{% macro betrag(wert, richtung=none, groesse=none) -%}
+{%- set worte = {"einnahme": _("Einnahme"), "ausgabe": _("Ausgabe")} -%}
+<span class="betrag{{ {none: "", "mittel": " betrag-mittel", "gross": " betrag-gross"}[groesse] }}"><span class="betrag-wert">{{ wert | betrag_anzeige(richtung) }}</span>{% if richtung %}<span class="betrag-richtung">{{ worte[richtung] }}</span>{% endif %}</span>
+{%- endmacro %}
+
+{#- Formularfeld: Label oben, Hilfe und Meldungen darunter, verknüpft über
+    aria-describedby; id (Standard: name) ergibt for, <id>-hilfe, <id>-fehler. Fehler mit
+    aria-invalid; Warnung („Achtung:“) und bestätigt ohne. -#}
+{%- macro _beschreibung(id, hilfe, fehler, warnung, bestaetigt) -%}
+{{ (([id ~ "-hilfe"] if hilfe else []) + ([id ~ "-fehler"] if fehler else []) + ([id ~ "-warnung"] if warnung else []) + ([id ~ "-bestaetigt"] if bestaetigt else [])) | join(" ") }}
+{%- endmacro -%}
+
+{%- macro _meldungen(id, hilfe, fehler, warnung=none, bestaetigt=none) -%}
+{% if hilfe %}<p class="feld-hilfe" id="{{ id }}-hilfe">{{ hilfe | uebersetzt }}</p>{% endif %}{% if fehler %}<p class="feld-meldung feld-meldung-fehler" id="{{ id }}-fehler">{{ symbol("circle-x", groesse=14, kraeftig=true) }}<strong>{{ _("Fehler:") }}</strong> {{ fehler | uebersetzt }}</p>{% endif %}{% if warnung %}<p class="feld-meldung feld-meldung-warn" id="{{ id }}-warnung">{{ symbol("triangle-alert", groesse=14, kraeftig=true) }}<strong>{{ _("Achtung:") }}</strong> {{ warnung | uebersetzt }}</p>{% endif %}{% if bestaetigt %}<p class="feld-meldung feld-meldung-ok" id="{{ id }}-bestaetigt">{{ symbol("check", groesse=16) }}{{ bestaetigt | uebersetzt }}</p>{% endif %}
+{%- endmacro -%}
+
+{%- macro _label(id, beschriftung, pflicht) -%}
+<label for="{{ id }}">{{ beschriftung }}{% if pflicht %} <span class="feld-pflicht">{{ _("(Pflicht)") }}</span>{% endif %}</label>
+{%- endmacro -%}
+
+{%- macro _feldklasse(fehler, warnung) -%}
+feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
+{%- endmacro -%}
+
+{%- macro _breite(breite) -%}
+{{ {none: "", "schmal": " breite-schmal", "mittel": " breite-mittel", "breit": " breite-breit"}[breite] }}
+{%- endmacro -%}
+
+{% macro feld(name, beschriftung, wert="", typ="text", hilfe=none, fehler=none, warnung=none, bestaetigt=none, pflicht=false, autocomplete=none, inputmode=none, breite=none, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, warnung, bestaetigt) -%}
+<div class="{{ _feldklasse(fehler, warnung) }}">{{ _label(id, beschriftung, pflicht) }}<input id="{{ id }}" class="eingabe{{ _breite(breite) }}" type="{{ {"text": "text", "email": "email", "tel": "tel", "url": "url", "password": "password", "date": "date", "number": "number", "search": "search"}[typ] }}" name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, hilfe, fehler, warnung, bestaetigt) }}</div>
+{%- endmacro %}
+
+{#- Auswahlliste; optionen: (wert, text). -#}
+{% macro auswahl(name, beschriftung, optionen, gewaehlt=none, hilfe=none, fehler=none, pflicht=false, breite=none, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<select id="{{ id }}" class="eingabe{{ _breite(breite) }}" name="{{ name }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{% for wert, text in optionen %}<option value="{{ wert }}"{% if wert == gewaehlt %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{{ _meldungen(id, hilfe, fehler) }}</div>
+{%- endmacro %}
+
+{#- Mehrzeiliges Textfeld. -#}
+{% macro textfeld(name, beschriftung, wert="", hilfe=none, fehler=none, pflicht=false, zeilen=3, attribute={}, id=none) -%}
+{%- set id = id or name -%}
+{%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<textarea id="{{ id }}" class="eingabe" name="{{ name }}" rows="{{ zeilen | int }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ wert if wert is not none else "" }}</textarea>{{ _meldungen(id, hilfe, fehler) }}</div>
+{%- endmacro %}
+
+{#- Feldgruppe (Aufruf) mit Legende als Etikett. -#}
+{% macro feldgruppe(legende) -%}
+<fieldset class="feldgruppe"><legend class="etikett">{{ legende }}</legend>{{ caller() }}</fieldset>
+{%- endmacro %}
+
+{#- Optionsfelder in einem fieldset; auch an/aus als zwei Optionen (ein fehlendes Feld
+    heißt dann „unverändert“). optionen: (wert, text); id ergibt <id>-<wert>. -#}
+{% macro optionen(name, legende, optionen, gewaehlt=none, fehler=none, id=none) -%}
+{%- set id = id or name -%}
+<fieldset class="optionen{% if fehler %} feld-fehler{% endif %}"{% if fehler %} aria-describedby="{{ id }}-fehler"{% endif %}><legend>{{ legende }}</legend>{% for wert, text in optionen %}<label class="haken haken-ziel" for="{{ id }}-{{ wert }}"><input type="radio" id="{{ id }}-{{ wert }}" name="{{ name }}" value="{{ wert }}"{% if wert == gewaehlt %} checked{% endif %}>{{ text }}</label>{% endfor %}{{ _meldungen(id, none, fehler) }}</fieldset>
+{%- endmacro %}
+
+{#- Kontrollkästchen im label (Klickfläche ≥ 24 × 24, mit grobem Zeiger 44 × 44). -#}
+{% macro haken(name, beschriftung, gewaehlt=false, id=none, wert="1") -%}
+{%- set id = id or name -%}
+<label class="haken haken-ziel" for="{{ id }}"><input type="checkbox" id="{{ id }}" name="{{ name }}" value="{{ wert }}"{% if gewaehlt %} checked{% endif %}>{{ beschriftung }}</label>
+{%- endmacro %}
+
+{#- Optionskarte: Optionsfeld im label, die Auswahl zeigt CSS über :has() — ohne Skript.
+    grund: warum die Option nicht wählbar ist (dann deaktiviert). -#}
+{% macro optionskarte(name, wert, titel, nebentext=none, grund=none, gewaehlt=false, taste=none, id=none) -%}
+{%- set id = id or name ~ "-" ~ wert -%}
+<label class="optionskarte" for="{{ id }}"><input type="radio" id="{{ id }}" name="{{ name }}" value="{{ wert }}"{% if gewaehlt %} checked{% endif %}{% if grund %} disabled{% endif %}><span class="optionskarte-text"><span class="optionskarte-titel">{{ titel }}</span>{% if nebentext or grund %}<span class="optionskarte-neben">{{ grund or nebentext }}</span>{% endif %}</span>{% if taste %}<kbd>{{ taste }}</kbd>{% endif %}</label>
+{%- endmacro %}
+
+{#- Segment (Wahlpillen): Optionsfelder als Pillen, mit Absendeknopf (kein Absenden bei
+    der Auswahl, WCAG 3.2.2). optionen: (wert, text). -#}
+{% macro segment(name, legende, optionen, gewaehlt=none, id=none) -%}
+{%- set id = id or name -%}
+<fieldset class="segment"><legend class="etikett">{{ legende }}</legend><div class="segment-wahl">{% for wert, text in optionen %}<label class="segment-pille" for="{{ id }}-{{ wert }}"><input type="radio" id="{{ id }}-{{ wert }}" name="{{ name }}" value="{{ wert }}"{% if wert == gewaehlt %} checked{% endif %}>{{ text }}</label>{% endfor %}</div></fieldset>
+{%- endmacro %}
+
+{#- Codefeld: ein Feld einmalcode; variante "app" (Ziffern) oder "wiederherstellung"
+    (Text). Der Wechsel steht beim Label, vor dem Feld (wechsel_href trägt weiter);
+    attribute wie bei feld (etwa required). -#}
+{% macro codefeld(variante="app", wechsel_href=none, fehler=none, id="einmalcode", attribute={}) -%}
+{%- set app = {"app": true, "wiederherstellung": false}[variante] -%}
+<div class="{{ _feldklasse(fehler, none) }} codefeld"><div class="codefeld-kopf">{{ _label(id, _("Code aus Ihrer Authenticator-App") if app else _("Wiederherstellungscode"), false) }}{% if wechsel_href %}<a class="codefeld-wechsel" href="{{ wechsel_href }}">{{ _("Wiederherstellungscode verwenden") if app else _("Code aus der App verwenden") }}</a>{% endif %}</div><input id="{{ id }}" class="eingabe eingabe-code breite-mittel" type="text" name="einmalcode" value=""{% if app %} autocomplete="one-time-code" inputmode="numeric"{% else %} autocomplete="off" inputmode="text" autocapitalize="off" spellcheck="false"{% endif %}{% if fehler %} aria-invalid="true" aria-describedby="{{ id }}-fehler"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, none, fehler) }}</div>
+{%- endmacro %}
+
+{#- Fehlerliste oben im Formular: role=alert, je Fehler ein Link auf das Feld. fehler:
+    (feldname, text); ids bildet den Feldnamen der Fachfunktion auf die id im Formular ab
+    (grund → grund-k). data-fokus: accounti.js setzt den Fokus darauf. -#}
+{% macro fehlerliste(fehler, ids={}) -%}
+<div class="hinweis hinweis-fehler fehlerliste" role="alert" tabindex="-1" data-fokus>{{ symbol("circle-x") }}<div class="hinweis-text"><p class="fehlerliste-titel"><strong class="hinweis-wort">{{ _("Bitte prüfen") }}</strong></p><ul>{% for feld, text in fehler %}<li>{% if feld %}<a href="#{{ ids.get(feld, feld) }}">{{ text | uebersetzt }}</a>{% else %}{{ text | uebersetzt }}{% endif %}</li>{% endfor %}</ul></div></div>
+{%- endmacro %}
+
+{#- Reiter als nav mit Links (keine ARIA-Reiter: die brauchten Pfeiltasten per Skript).
+    eintraege: (schluessel, text, href[, anzahl]); aktiv = schluessel. geteilt: zwei
+    gleich breite Spalten (Handy). -#}
+{% macro reiter(beschriftung, eintraege, aktiv, geteilt=false) -%}
+<nav class="reiter{% if geteilt %} reiter-geteilt{% endif %}" aria-label="{{ beschriftung }}">{% for e in eintraege %}<a href="{{ e[2] }}"{% if e[0] == aktiv %} aria-current="page"{% endif %}>{{ e[1] }}{% if e | length > 3 and e[3] is not none %} <span class="reiter-anzahl">{{ e[3] }}</span>{% endif %}</a>{% endfor %}</nav>
+{%- endmacro %}
+
+{#- Schritte eines Ablaufs mit Fortschritt (<progress>: die Breite kommt ohne Inline-Stil aus). schritte:
+    Titel; aktuell: Nummer ab 1. -#}
+{% macro schritte(schritte, aktuell) -%}
+<nav class="schritte" aria-label="{{ _("Schritte") }}"><p class="schritte-stand">{{ _("Schritt %(n)s von %(m)s", n=aktuell, m=schritte | length) }}</p><progress class="fortschritt" value="{{ aktuell }}" max="{{ schritte | length }}" aria-hidden="true"></progress><ol class="schritte-liste">{% for titel in schritte %}{% if loop.index < aktuell %}<li class="schritt schritt-erledigt">{{ symbol("check") }}{{ titel }}<span class="unsichtbar"> ({{ _("erledigt") }})</span></li>{% elif loop.index == aktuell %}<li class="schritt schritt-aktuell" aria-current="step"><span class="schritt-ring" aria-hidden="true"></span>{{ titel }}</li>{% else %}<li class="schritt schritt-offen"><span class="schritt-kreis" aria-hidden="true"></span>{{ titel }}</li>{% endif %}{% endfor %}</ol></nav>
+{%- endmacro %}
+
+{#- Bestätigung (Aufruf) vor einer folgenreichen Aktion: Titel, Inhalt, Knopf und
+    Abbrechen; steht in einem Formular des Aufrufers. -#}
+{% macro bestaetigung(titel, knopf, abbrechen_href, art="primaer") -%}
+<div class="bestaetigung" role="group" aria-label="{{ titel }}"><p class="bestaetigung-titel"><strong>{{ titel }}</strong></p>{{ caller() }}<div class="knopfreihe">{{ _knopf_von_bestaetigung(knopf, art) }}{{ linkknopf(_("Abbrechen"), abbrechen_href, art="still") }}</div></div>
+{%- endmacro %}
+
+{%- macro _knopf_von_bestaetigung(text, art) -%}{{ knopf(text, art=art) }}{%- endmacro -%}
+
+{#- Ladeanzeige: Text mit stehendem Symbol, sichtbar während einer htmx-Anfrage
+    (htmx-request am Ziel oder Vorfahren), eingeblendet über die Deckkraft. -#}
+{% macro ladeanzeige(text=none) -%}
+<p class="ladeanzeige">{{ symbol("loader-circle", groesse=16) }}{{ text or _("Wird geladen …") }}</p>
+{%- endmacro %}
+
+{#- Brotkrumen: teile = (text, href); der letzte Eintrag ohne href mit aria-current. -#}
+{% macro brotkrumen(teile) -%}
+<nav class="brotkrumen" aria-label="{{ _("Brotkrumen") }}"><ol>{% for text, href in teile %}<li>{% if loop.last %}<span aria-current="page">{{ text }}</span>{% else %}<a href="{{ href }}">{{ text }}</a><span class="brotkrumen-trenner" aria-hidden="true">›</span>{% endif %}</li>{% endfor %}</ol></nav>
+{%- endmacro %}
+
+{#- Seitenblättern: url ist der Anfang des Verweises, die Seitennummer wird angehängt
+    (/pruefen?ansicht=offen&seite=). Fenster um die aktuelle Seite, dazu erste und letzte. -#}
+{% macro seitenblaettern(seite, seiten, url) -%}
+{%- if seiten > 1 -%}
+<nav class="seitenblaettern" aria-label="{{ _("Seiten") }}">{% if seite > 1 %}{{ linkknopf(_("Zurück"), url ~ (seite - 1), groesse="klein", symbol="chevron-left") }}{% endif %}<ol>{% for n in range(1, seiten + 1) %}{% if n == 1 or n == seiten or (n - seite) | abs <= 2 %}<li>{% if n == seite %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}" aria-current="page">{{ n }}</a>{% else %}<a class="knopf knopf-sekundaer knopf-klein" href="{{ url ~ n }}">{{ n }}</a>{% endif %}</li>{% elif (n - seite) | abs == 3 %}<li aria-hidden="true">…</li>{% endif %}{% endfor %}</ol>{% if seite < seiten %}{{ linkknopf(_("Weiter"), url ~ (seite + 1), groesse="klein") }}{% endif %}</nav>
+{%- endif -%}
+{%- endmacro %}
+
+{#- Seitenleiste (breit): ein Eintrag je Bereich mit Symbol, Titel und Zähler; abgesetzt
+    „Einstellungen“. Arbeitet nur mit geruest.NavEintrag. -#}
+{%- macro _naveintrag(e) -%}
+<a class="nav-eintrag" href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ symbol(e.symbol) }}<span class="nav-titel">{{ _(e.titel) }}</span>{% if e.zaehler is not none %}{{ zaehler(e.zaehler, _("offen"), betont=e.betont) }}{% endif %}</a>
+{%- endmacro -%}
+
+{% macro seitenleiste(geruest) -%}
+<nav class="seitenleiste" aria-label="{{ _("Bereiche") }}"><ul class="nav-liste">{% for e in geruest.bereiche %}<li>{{ _naveintrag(e) }}</li>{% endfor %}</ul>{% if geruest.einstellungen %}<hr class="nav-trenner"><ul class="nav-liste"><li>{{ _naveintrag(geruest.einstellungen) }}</li></ul>{% endif %}</nav>
+{%- endmacro %}
+
+{#- Untere Leiste (schmal): höchstens fünf Ziele, der Zähler steht in der Beschriftung. -#}
+{% macro untere_leiste(geruest) -%}
+<nav class="untere-leiste" aria-label="{{ _("Bereiche") }}">{% for e in geruest.unten %}<a class="leisten-ziel" href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ symbol(e.symbol, groesse=22) }}<span class="leisten-titel">{{ _(e.kurz) }}{% if e.zaehler is not none %} <span class="leisten-zahl">{{ e.zaehler }}</span><span class="unsichtbar"> {{ _("offen") }}</span>{% endif %}</span></a>{% endfor %}</nav>
+{%- endmacro %}
+
+{#- Aktionsleiste (Aufruf): ersetzt unter 64rem die untere Leiste (P3, P7). -#}
+{% macro aktionsleiste(beschriftung=none) -%}
+<div class="aktionsleiste" role="region" aria-label="{{ beschriftung or _("Aktionen") }}">{{ caller() }}</div>
+{%- endmacro %}
+
+{#- Sammelleiste (Aufruf): klebt unten im Inhalt, über der unteren Leiste (P3). -#}
+{% macro sammelleiste(beschriftung=none) -%}
+<div class="sammelleiste" role="region" aria-label="{{ beschriftung or _("Auswahl") }}">{{ caller() }}</div>
+{%- endmacro %}

@@ -37,7 +37,15 @@ class SchemaError(RuntimeError):
 
 # Spalten, die ``init_db`` (create_all) in einer bestehenden Tabelle nicht anlegt —
 # ohne sie scheitert jede Anmeldung mit einem SQL-Fehler
-PFLICHTSPALTEN = {"auth_benutzer": ("sprache",)}
+PFLICHTSPALTEN = {
+    "auth_benutzer": (
+        "sprache",  # Baustein 10b
+        "darstellung",  # Baustein 10c P1: Anzeige-Vorlieben
+        "fachansicht",
+        "betraege_verbergen",
+        "tastenkuerzel",
+    )
+}
 
 
 @dataclass
@@ -85,22 +93,26 @@ class Dienste:
 
         with self.system() as s:
             pruefer = inspect(s.connection())
-            for tabelle, spalten in PFLICHTSPALTEN.items():
-                vorhanden = {c["name"] for c in pruefer.get_columns(tabelle)}
-                fehlt = [sp for sp in spalten if sp not in vorhanden]
-                if fehlt:
-                    raise SchemaError(
-                        str(
-                            Text(
-                                "Die Systemdatenbank ist nicht auf dem Stand dieser "
-                                "Version (Spalte %(spalte)s fehlt) — vorher accounti "
-                                "db upgrade für die Systemdatenbank und jede "
-                                "Gesellschaftsdatenbank ausführen (siehe "
-                                "docs/betrieb.md, Upgrades)",
-                                spalte=f"{tabelle}.{fehlt[0]}",
-                            )
-                        )
+            fehlt = [
+                f"{tabelle}.{spalte}"
+                for tabelle, spalten in PFLICHTSPALTEN.items()
+                for vorhanden in [{c["name"] for c in pruefer.get_columns(tabelle)}]
+                for spalte in spalten
+                if spalte not in vorhanden
+            ]
+        if fehlt:
+            raise SchemaError(
+                str(
+                    Text(
+                        "Die Systemdatenbank ist nicht auf dem Stand dieser Version "
+                        "(es fehlen: %(spalten)s) — vorher accounti db upgrade für die "
+                        "Systemdatenbank und jede Gesellschaftsdatenbank ausführen; "
+                        "bei Datenbanken mit Versionsvermerk geht gleichwertig alembic "
+                        "upgrade head (siehe docs/betrieb.md, Upgrades)",
+                        spalten=", ".join(fehlt),
                     )
+                )
+            )
 
     def einlieferung(self, kuerzel: str) -> threading.Lock:
         """Belege einer Gesellschaft nacheinander aufnehmen (Dublettenprüfung) —

@@ -1,0 +1,16 @@
+{#- Hilfe (/hilfe): Themen und Begriffe (Anhang B der Spec 10c); ohne Anmeldung lesbar,
+    ohne Daten einer Gesellschaft, ohne Links auf fremde Server. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _("Hilfe") }}{% endblock %}
+{% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<h1>{{ _("Hilfe") }}</h1>
+<p>{{ _("Kurzanleitungen je Bereich und die Begriffe, die accounti verwendet.") }}</p>
+<section aria-labelledby="hilfe-themen"><h2 class="etikett" id="hilfe-themen">{{ _("Themen") }}</h2>
+<ul class="gruppenliste">{% for thema, hilfe in themen %}<li><a href="/hilfe/{{ thema.value }}"><span class="gruppenliste-text">{{ _(hilfe.titel) }}</span>{{ k.symbol("chevron-right") }}</a></li>{% endfor %}</ul></section>
+<section aria-labelledby="hilfe-begriffe"><h2 class="etikett" id="hilfe-begriffe">{{ _("Begriffe") }}</h2>
+{% call k.tabelle(_("Klare Sprache und Fachbegriffe"), [Spalte(_("In accounti")), Spalte(_("Fachbegriff")), Spalte(_("Bedeutung"))], sichtbar=false) %}{% for b in begriffe %}{% call k.zeile() %}{% call k.zelle(_("In accounti")) %}{{ _(b.klar) }}{% endcall %}{% call k.zelle(_("Fachbegriff")) %}{{ _(b.fach) }}{% endcall %}{% call k.zelle(_("Bedeutung")) %}{{ _(b.erklaerung) }}{% endcall %}{% endcall %}{% endfor %}{% endcall %}
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,8 @@
+{#- 500 (Spec 10c A9): schlicht, ohne Datenbank, ohne Benutzer, ohne Einzelheiten. -#}
+{% extends "schlicht.html" %}
+{% block titel %}{{ _("Interner Fehler") }}{% endblock %}
+{% block inhalt %}
+<h1>{{ _("Interner Fehler") }}</h1>
+<p>{{ _("Das hat nicht geklappt. Bitte die Seite neu laden oder später noch einmal versuchen.") }}</p>
+<p><a href="/">{{ _("Zur Startseite") }}</a></p>
+{% endblock %}

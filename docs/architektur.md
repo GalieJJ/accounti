@@ -588,8 +588,19 @@ Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Per
 - `rest/` — REST-Registry unter `/api/v1`, nur mit API-Token (`erfordert_recht`, `TokenDb`):
   `ich`, `offene-posten`, `buchungen`, `belege` (über `belege.pipeline`, Kanal `api`),
   `laeufe/bank`, `laeufe/aufgaben`.
-- `vorlagen/` + `vorlagen.py` (Jinja2, Autoescape, `basis.html`), `statisch/` (CSS), `formular.py`
-  (urlencoded ohne `python-multipart`), `registry.py`, `einstellungen.py` (Abschnitt `server`).
+- `formular.py` (urlencoded ohne `python-multipart`), `einstellungen.py` (Abschnitt `server`).
+- `registry.py` — Router-Registry; `Navigationspunkt(titel, pfad, bereich, symbol, recht,
+  reihenfolge, zaehler, kurztitel)`. Die Bereiche (`Bereich`) stehen in fester Reihenfolge; ein
+  Bereich erscheint nur mit registrierter Seite und Recht (`recht` als `frozenset`: eines
+  genügt). `geruest.py` baut daraus Seitenleiste, untere Leiste, aktiven Bereich, Brotkrumen,
+  Hilfe-Link und Kennfarbe der Gesellschaft (`kennfarben` über alle Gesellschaften der
+  Registry, stabil je Kürzel, für alle Benutzer gleich).
+- `vorlagen.py` — `async seite()` rendert mit dem Gerüst-Kontext; Zähler der Navigation laufen im
+  eigenen Threadpool von `lesezugriff.py` (eigene Engines ohne `init_db`, nur lesend, kurze Fristen),
+  nur für ganze Seiten ohne Fehlerstatus. Neue Seiten liefern mit `HX-Request` nur ihren Block
+  `inhalt` (`seite(…, teil="inhalt")`). `vorlagen/basis.html` (Gerüst), `schlicht.html`
+  (Anmeldung, 500), `_komponenten.html` (alle Bausteine des Design-Systems als Makros, jede auf
+  `/muster`), `_makros.html` (fachliche Bausteine: Konto, Steuerschlüssel).
 
 - `seiten/pruefen.py` — Supervisions-Queue: Liste, Arbeitsfläche (Beleg | Vorschlag mit
   Confidence, Herkunft und Begründung | Aktionen), freigeben, korrigieren (mit Regel),
@@ -601,14 +612,27 @@ Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Per
 - `seiten/belege.py`, `belegantwort.py` — Belegvorschau nur aus dem Archiv der aktiven
   Gesellschaft: Typ aus dem Inhalt, inline nur PDF/PNG/JPEG, TIFF als PNG-Seiten, E-Rechnung als
   eigene Ansicht, alles andere nur als Download.
-- `seiten/sprache.py` — Sprache am Benutzer.
+- `seiten/konto.py` (Mein Konto, Vorlieben am Benutzer über `auth.dienst.setze_vorlieben`),
+  `menue.py` („Mehr“), `gesellschaft.py` (Liste mit Zählern, Wechsel), `hilfe.py` (Hilfe je
+  Bereich aus `hilfe_inhalt.py`, ohne Anmeldung), `muster.py` (Musterseite mit erfundenen Daten).
+- Fehlerseiten: `fehler.html` im Gerüst (403 nennt Recht und Rollen über `sitzung.verweigert`;
+  Überschrift je Status, eine eigene über `vorlagen.Seitenfehler`),
+  mit htmx das Fragment `_fehler.html`; 500 rendert die Middleware schlicht ohne Datenbank und
+  ohne Einzelheiten.
 - `handeln.py` — `im_namen(a)`: der angemeldete Benutzer als Person im Journal
   (`pruefung.person.journal_kontext`).
 - `htmx.py` — HTMX-Erkennung; 409/422 als Fragment, ohne Sitzung `HX-Redirect`, CSRF-Fehler
   `HX-Refresh`, Datenbank beschäftigt 503 (htmx tauscht andere Fehlerantworten nicht ein).
-- `statisch/` — `accounti.css` und je Bereich ein Stylesheet, `htmx-2.0.11.min.js` (ohne `eval`,
-  ohne Verlaufscache, Prüfsumme im Test), `pruefen.js` (Tasten, Fehlerhinweis). Keine
-  Inline-Skripte und -Stile; eigene Dateien mit Versionsanhang.
+- `statisch/` — **eine** Stildatei `accounti.css` (Ebenen `token`, `basis`, `layout`,
+  `komponenten`, `seiten`, `hilfen`, `druck`; Token hell/dunkel, ein Test rechnet die Kontraste
+  aus der Datei; ein zweiter Test hält die Farben an der Design-Leinwand in
+  `docs/design/2026-10-26-leinwand/` fest; die Klassen `.thema-hell`/`.thema-dunkel` zeigen beide
+  Modi nebeneinander auf `/muster`), `symbole.svg` (Lucide-Teilmenge, Lizenz daneben), `htmx-2.0.11.min.js` (ohne
+  `eval`, Prüfsumme im Test), `accounti.js` (Fehlerhinweis, `aria-busy`, Fokus nach Austausch,
+  Rückweg der Vorlieben über `input[data-hier]`),
+  `pruefen.js` (Tasten, abschaltbar über `<body data-tastenkuerzel>`). Keine Inline-Skripte und
+  -Stile, eigene Dateien mit Versionsanhang, Budgets im Test (CSS 40 KB, Skripte 20 KB, Symbole
+  15 KB).
 
 Die Oberfläche ruft dieselben Funktionen wie die CLI; jede Seite liest Daten nur über
 `gesellschaft_db` und `a.gesellschaft`, Personen im Journal sind angemeldete Benutzer. Geplant
@@ -820,6 +844,24 @@ haben; wer die Regeln eines eingebauten Laufs ändern will, registriert einen La
 Namens. Eigene Objekttypen (`registriere_objekttyp`) und Benachrichtigungskanäle
 (`adresse()` und `sende()`, eingetragen in `KANAELE`, in der Konfiguration unter
 `benachrichtigung.kanaele` genannt) gehören in dasselbe Modul.
+
+### Neue Seite anschließen
+
+Ein Modul in `accounti/api/seiten/` mit `router` und, wenn die Seite ein Bereich ist, einem
+`Navigationspunkt` (Bereich, Symbol aus `symbole.svg`, Recht, optional Zähler; Zähler lesen nur
+und laufen über den Lesezugriff). Die Seite rendert mit `await seite(..., teil="inhalt")`
+(mit `HX-Request` nur der Inhalt, ohne die ganze Seite). Weil dann nur der Block `inhalt` läuft,
+steht in ihrer Vorlage auf oberster Ebene nur `{% extends %}` und Blöcke: `{% import
+"_komponenten.html" as k with context %}` und `{% set %}` gehören **in** den Block, `super()` nicht
+hinein – `seite()` prüft das und bricht sonst ab. Sie nutzt die Komponenten aus `_komponenten.html` und schreibt Stile nur als
+Token-Verweise in `accounti.css` (Budget). Pflicht für jede neue Route: Eintrag in der
+Rechte-Matrix (`tests/test_api_rechte_matrix.py`), in `GLEICHLAUF` (POST: Test von CLI und Browser
+oder benannte Ausnahme) und `HTMX_FORMEN` (`tests/test_api_vollstaendigkeit.py`), alle Texte in
+`i18n/en.yaml`, für einen neuen Bereich eine Hilfeseite in `api/hilfe_inhalt.py`, eine neue
+Komponente auch auf `/muster` – jeweils im selben Commit wie die Route bzw. der Text, damit die
+Suite grün bleibt. Neue Seiten stehen außerdem im Querschnitt
+(`tests/test_api_bestand_design.py`, `UMGESTELLT`). Vor dem PR die Browserprobe
+(`scripts/browserprobe/`) über die neuen Seiten laufen lassen.
 
 ### Neue Kontierungsregel hinzufügen
 

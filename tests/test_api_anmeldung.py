@@ -313,3 +313,95 @@ def test_anmeldeplatz_wartet_selbst_nie(tmp_path):
     w.dienste.anmeldeplatz_frei()
     assert w.dienste.anmeldeplatz()
     w.dienste.anmeldeplatz_frei()
+
+
+# --- Baustein 10c P1, Schritt 12: Anmeldung im neuen Design (A109, AK53) -------------
+
+
+def _code_eingabe(html: str) -> str:
+    import re
+
+    treffer = re.findall(r'<input id="einmalcode"[^>]*>', html)
+    assert len(treffer) == 1, treffer
+    return treffer[0]
+
+
+def test_codefeld_numerisch_mit_wiederherstellungsweg(welt):
+    html = welt.client().get("/anmelden?weiter=/pruefen").text
+    eingabe = _code_eingabe(html)
+    assert (
+        'inputmode="numeric"' in eingabe and 'autocomplete="one-time-code"' in eingabe
+    )
+    assert 'name="einmalcode"' in eingabe and "placeholder" not in eingabe
+    label = html.index('<label for="einmalcode">Code aus Ihrer Authenticator-App')
+    link = html.index(
+        '<a class="codefeld-wechsel" href="/anmelden?weiter=%2Fpruefen&amp;code='
+        'wiederherstellung">Wiederherstellungscode verwenden</a>'
+    )
+    assert label < link < html.index('<input id="einmalcode"')
+    assert 'class="knopf knopf-primaer knopf-breit">Anmelden</button>' in html
+    # Benutzer und Passwort für den Passwortmanager (A109)
+    assert 'autocomplete="username"' in html
+    assert 'autocomplete="current-password"' in html
+
+
+def test_anmeldung_mit_wiederherstellungscode_ohne_js(welt):
+    client = welt.client()
+    html = client.get("/anmelden?code=wiederherstellung").text
+    eingabe = _code_eingabe(html)
+    assert 'inputmode="text"' in eingabe and 'autocapitalize="off"' in eingabe
+    assert '<label for="einmalcode">Wiederherstellungscode</label>' in html
+    assert ">Code aus der App verwenden</a>" in html
+    assert 'name="code" value="wiederherstellung"' in html
+    from tests.api_hilfe import formularwert
+
+    r = client.post(
+        "/anmelden",
+        data={
+            "anmeldung": formularwert(html, "anmeldung"),
+            "weiter": "/",
+            "code": "wiederherstellung",
+            "benutzer": "jan",
+            "passwort": PASSWORT,
+            "einmalcode": welt.personen["jan"].codes[0],
+        },
+        follow_redirects=False,
+    )
+    assert r.status_code == 303 and sitzungscookie(client)
+
+
+def test_wiederherstellungsweg_behaelt_weiter(welt):
+    client = welt.client()
+    html = client.get("/anmelden?weiter=/pruefen").text
+    assert "weiter=%2Fpruefen&amp;code=wiederherstellung" in html
+    variante = client.get("/anmelden?weiter=/pruefen&code=wiederherstellung").text
+    assert 'name="weiter" value="/pruefen"' in variante
+    assert 'href="/anmelden?weiter=%2Fpruefen">Code aus der App verwenden' in variante
+    r = melde_an(client, "jan", PASSWORT, welt.personen["jan"].codes[1], "/pruefen")
+    assert r.status_code == 303 and r.headers["location"] == "/pruefen"
+    # ein fremdes Ziel wird über sicheres_ziel zu „/“
+    fremd = client.get("/anmelden?weiter=https://boese.test/&code=wiederherstellung")
+    assert "boese" not in fremd.text and 'name="weiter" value="/"' in fremd.text
+
+
+def test_code_parameter_unbekannt_ignoriert(welt):
+    r = welt.client().get("/anmelden?code=xyzzy")
+    assert r.status_code == 200 and "xyzzy" not in r.text
+    assert 'inputmode="numeric"' in _code_eingabe(r.text)
+    # eine fehlgeschlagene Anmeldung in der Variante bleibt in der Variante
+    client = welt.client()
+    from tests.api_hilfe import formularwert
+
+    html = client.get("/anmelden?code=wiederherstellung").text
+    r = client.post(
+        "/anmelden",
+        data={
+            "anmeldung": formularwert(html, "anmeldung"),
+            "code": "wiederherstellung",
+            "benutzer": "jan",
+            "passwort": "falsch",
+            "einmalcode": "x",
+        },
+    )
+    assert r.status_code == 401 and 'inputmode="text"' in _code_eingabe(r.text)
+    assert 'role="alert"' in r.text and "Anmeldung fehlgeschlagen." in r.text

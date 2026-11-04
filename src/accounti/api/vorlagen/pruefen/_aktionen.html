@@ -1,17 +1,17 @@
 {% import "_makros.html" as m with context %}
+{% import "_komponenten.html" as k with context %}
 {% if konfig_fehler %}
 {{ m.konfigurationsfehler(konfig_fehler) }}
 {% elif not e.ist_vorschlag %}
-<p class="hinweis">{{ _("Diese Buchung ist nicht mehr in der Prüfung — Korrektur nur per Storno.") }} <a href="/buchungen/{{ b.id }}">{{ _("Zur Buchung") }}</a></p>
+{% call k.hinweis("info") %}{{ _("Diese Buchung ist nicht mehr in der Prüfung — Korrektur nur per Storno.") }} <a href="/buchungen/{{ b.id }}">{{ _("Zur Buchung") }}</a>{% endcall %}
 {% elif e.sperre %}
-<p class="hinweis sperre">{% if e.sperre.art == "jahr" %}{{ _("Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.", jahr=e.sperre.zeitraum) }}{% else %}{{ _("Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.", monat=e.sperre.zeitraum) }}{% endif %}</p>
+{% call k.hinweis("fehler") %}{% if e.sperre.art == "jahr" %}{{ _("Geschäftsjahr %(jahr)s ist abgeschlossen — hier ist keine Entscheidung möglich.", jahr=e.sperre.zeitraum) }}{% else %}{{ _("Monat %(monat)s ist festgeschrieben — hier ist keine Entscheidung möglich.", monat=e.sperre.zeitraum) }}{% endif %}{% endcall %}
 {% else %}
 {% if e.steuer_befunde %}
-<div class="hinweis pruefregel">
-  <p>{{ _("Prüfregel Steuerschlüssel und Konto:") }}</p>
+{% call k.hinweis("fehler" if e.freigabe_gesperrt else "warn", titel=_("Prüfregel Steuerschlüssel und Konto:")) %}
   <ul lang="de">{% for schwere, text in e.steuer_befunde %}<li>{% if schwere.value == "fehler" %}<strong>{{ _("Fehler") }}:</strong> {% endif %}{{ text }}</li>{% endfor %}</ul>
   {% if e.freigabe_gesperrt %}<p>{{ _("Freigeben erst nach einer Korrektur von Steuerschlüssel oder Konto.") }}</p>{% endif %}
-</div>
+{% endcall %}
 {% endif %}
 <div class="aktionen">
   {% if darf_freigeben and not e.freigabe_gesperrt %}
@@ -19,25 +19,25 @@
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="stand" value="{{ e.stand }}">
     <input type="hidden" name="ansicht" value="{{ ansicht }}">
-    <button type="submit" data-taste="f">{{ _("Freigeben") }} <kbd>f</kbd></button>
+    {{ k.knopf(_("Freigeben"), groesse="gross", breit=true, taste="f", attribute={"data-taste": "f"}) }}
   </form>
   {% endif %}
   {% if darf_buchen %}{% include "pruefen/_korrektur.html" %}{% endif %}
   {% if e.zurueckgestellt %}
-  <p class="hinweis">{{ _("Zurückgestellt — eine Rückfrage ist offen.") }}</p>
+  {% call k.hinweis("info") %}{{ _("Zurückgestellt — eine Rückfrage ist offen.") }}{% endcall %}
   {% elif darf_zurueckstellen %}
+  {%- set ff = aktion_fehler.feld if aktion_fehler else none -%}
+  {%- set fm = m.meldung_text(aktion_fehler.meldung) if aktion_fehler else none -%}
+  {%- set rueckfrage_label %}{{ _("Rückfrage") }} <kbd>z</kbd>{% endset -%}
   <form method="post" action="/pruefen/{{ b.id }}/zurueckstellen" hx-post="/pruefen/{{ b.id }}/zurueckstellen" hx-target="#arbeitsflaeche" hx-disabled-elt="find button" class="zurueckstellen">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="stand" value="{{ e.stand }}">
     <input type="hidden" name="ansicht" value="{{ ansicht }}">
-    <fieldset>
-      <legend>{{ _("Zurückstellen mit Rückfrage") }}</legend>
-      <label for="rueckfrage">{{ _("Rückfrage") }} <kbd>z</kbd></label>
-      <textarea id="rueckfrage" name="text" rows="2" required data-taste="z"{{ m.feldfehler(aktion_fehler, "text") }}>{{ eingaben.get("text", "") }}</textarea>
-      <label for="an">{{ _("an (Benutzer, optional)") }}</label>
-      <input id="an" name="an" value="{{ eingaben.get('an', '') }}"{{ m.feldfehler(aktion_fehler, "an") }}>
-      <button type="submit">{{ _("Zurückstellen") }}</button>
-    </fieldset>
+    {% call k.feldgruppe(_("Zurückstellen mit Rückfrage")) %}
+      {{ k.textfeld("text", rueckfrage_label, wert=eingaben.get("text", ""), fehler=fm if ff == "text" else none, zeilen=2, id="rueckfrage", attribute={"required": true, "data-taste": "z"}) }}
+      {{ k.feld("an", _("an (Benutzer, optional)"), wert=eingaben.get("an", ""), fehler=fm if ff == "an" else none) }}
+      <div class="knopfreihe">{{ k.knopf(_("Zurückstellen"), art="sekundaer") }}</div>
+    {% endcall %}
   </form>
   {% endif %}
 </div>

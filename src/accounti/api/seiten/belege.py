@@ -107,7 +107,7 @@ async def beleg_seite(
             ],
         }
 
-    return seite(request, "belege/beleg.html", await run_in_threadpool(laden))
+    return await seite(request, "belege/beleg.html", await run_in_threadpool(laden))
 
 
 @router.get("/belege/{beleg_id:uuid}/datei")

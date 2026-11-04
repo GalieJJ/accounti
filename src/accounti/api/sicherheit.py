@@ -8,8 +8,10 @@ Das Protokoll schreibt Methode, die **Vorlage** der Route (etwa
 keine IP-Adresse, keinen Benutzer. Pfade ohne Route (404) erscheinen als
 ``(unbekannt)``: ein Name oder ein ``%0A`` im Pfad schreibt so nichts ins Protokoll.
 
-Unbehandelte Ausnahmen fängt die Middleware: Antwort 500, im Protokoll nur die
-Art der Ausnahme — keine Meldung, kein Traceback (dort stünden SQL und Werte).
+Unbehandelte Ausnahmen fängt die Middleware: Antwort 500 als schlichte Designseite
+(``fehler_500.html``, ohne Datenbank; ``/api/`` JSON), im Protokoll nur die Art der
+Ausnahme — keine Meldung, kein Traceback (dort stünden SQL und Werte). Sie bleibt die
+äußerste Middleware (Test), damit auch Fehler innerer Middlewares diese Seite bekommen.
 """
 
 from __future__ import annotations
@@ -59,6 +61,19 @@ KOPFZEILEN = [
 ]
 
 
+def _seite_500(scope: Scope) -> Response:
+    """Schlichte Designseite (ohne Datenbank, ohne Einzelheiten); scheitert selbst das,
+    bleibt der Klartext."""
+    try:
+        from accounti.api.vorlagen import fehlerseite_500  # spät: vorlagen braucht uns
+
+        sprache = dict(scope.get("headers") or []).get(b"accept-language", b"")
+        return fehlerseite_500(sprache.decode("latin-1")[:200] or None)
+    except Exception as fehler:  # noqa: BLE001 - die 500 kommt immer
+        FEHLER.error("500-Seite nicht darstellbar (%s)", type(fehler).__name__)
+        return PlainTextResponse("Interner Fehler", 500)
+
+
 class Sicherheit:
     """Reine ASGI-Middleware: Kopfzeilen setzen, Zugriff protokollieren."""
 
@@ -105,7 +120,7 @@ class Sicherheit:
                 if pfad.startswith("/api/"):
                     antwort = JSONResponse({"fehler": "Interner Fehler"}, 500)
                 else:
-                    antwort = PlainTextResponse("Interner Fehler", 500)
+                    antwort = _seite_500(scope)
                 await antwort(scope, receive, senden)
         finally:
             ZUGRIFF.info(

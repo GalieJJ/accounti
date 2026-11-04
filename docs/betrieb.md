@@ -275,6 +275,10 @@ Zusatz „(ungeprüft)“, sobald die Datenbank zu einer Benutzerverwaltung geh�
   Supervisions-Queue (`/pruefen`) entscheidet die angemeldete Sitzung ohne weiteren Code —
   sie ist mit Passwort und zweitem Faktor entstanden und läuft nach 30 Minuten Leerlauf ab;
   in der CLI verlangen dieselben Befehle den Einmalcode, weil sie keine Sitzung hat.
+- **Mein Konto:** Jeder Benutzer wählt unter `/konto` Sprache, Darstellung (automatisch, hell,
+  dunkel), Fachansicht, ob die Übersicht Beträge verbirgt und ob Tastenkürzel gelten. Die Werte
+  liegen in der Systemdatenbank am Benutzer und gelten auf jedem Gerät; ohne Anmeldung gilt
+  „automatisch“. Die Hilfe (`/hilfe`) ist ohne Anmeldung erreichbar und enthält keine Daten.
 - **CLI:** Ohne eingerichtete Benutzer prüft accounti nichts. Mit Benutzern verlangen
   `zahlung freigeben`, `ustva freigeben`, `ustva dauerfrist --freigeben` (Rolle
   `freigeber`), `zahlung anlegen` (`buchhalter`) und `anlagen freigeben`
@@ -848,3 +852,25 @@ Protokoll des geplanten Laufs); die Zeile in der Konfiguration berichtigen. `exp
 warnt je Personenkonto, dessen Länge nicht Sachkontenlänge + 1 ist. Die Konfiguration vor dem
 Update durchsehen. Kaputtes YAML in der Konfiguration meldet jeder Befehl mit Datei und Stelle
 („… kein gültiges YAML (…)“, rc 1) statt mit einem Traceback.
+
+**Update auf Baustein 10c, Paket 1** (Migration `1dd2f6b7c6c8_add_benutzer_vorlieben` auf
+`e7153706b43a`: `auth_benutzer.darstellung`, `fachansicht`, `betraege_verbergen`,
+`tastenkuerzel`): Vorher wie oben stoppen und sichern. Wie bei 10b liegt `auth_benutzer` in
+**jeder** Datenbank – die Systemdatenbank zuerst migrieren (ohne die Spalten startet `serve`
+nicht), danach jede Gesellschaftsdatenbank. Die URLs stehen in `.env` und werden auf dem Host
+eingesetzt, deshalb zuerst die `.env` in die Shell laden:
+
+```bash
+set -a; . ./.env; set +a
+docker compose run --rm app -g muster db upgrade --db "$ACCOUNTI_SYSTEM_DB"   # Systemdatenbank zuerst
+docker compose run --rm app -g muster db upgrade
+docker compose run --rm app -g tochter db upgrade
+```
+
+`db upgrade` leitet bei Datenbanken ohne Versionsvermerk den Stand aus dem Schema ab (siehe
+oben); mit Vermerk ist es gleich `alembic upgrade head`.
+
+Bestehende Benutzer bekommen „automatisch“, Fachansicht aus, Beträge sichtbar, Tastenkürzel an.
+Wer die Tastenkürzel im Browser abgeschaltet hatte, schaltet sie einmal unter „Mein Konto“ ab.
+Der Reverse-Proxy braucht keine Änderung; alle Dateien (Stile, Symbole, Skripte) liefert
+accounti selbst unter `/statisch` aus, nichts kommt von fremden Servern.

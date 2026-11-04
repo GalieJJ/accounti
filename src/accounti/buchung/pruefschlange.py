@@ -22,7 +22,7 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from accounti.aufgaben import (
@@ -51,6 +51,7 @@ from accounti.db.repository import (
     lade_transaktion,
 )
 from accounti.db.tabellen import BuchungssatzRow
+from accounti.db.tabellen_aufgaben import AufgabeRow
 from accounti.konfiguration import Buchhaltung
 from accounti.models import (
     Beleg,
@@ -301,6 +302,27 @@ def _zurueckgestellte(session: Session) -> set[str]:
         for a in lade_aufgaben(session, art=RUECKFRAGE, status=AKTIVE_STATUS)
         if a.objekt.typ == "buchung"
     }
+
+
+def anzahl_offen(session: Session) -> int:
+    """Offene Vorschläge ohne die zurückgestellten — dieselbe Zahl wie die Ansicht
+    „Offen“, aber als **ein** ``COUNT`` mit Unterabfrage auf die offenen Rückfragen
+    (dieselben Bedingungen wie ``_zurueckgestellte``), ohne sie zu laden (Zähler der
+    Navigation, Baustein 10c P1; Runde 2: vorher wuchs die Zeit mit den Rückfragen)."""
+    zurueck = select(AufgabeRow.objekt_id).where(
+        AufgabeRow.art == RUECKFRAGE,
+        AufgabeRow.status.in_([s.value for s in AKTIVE_STATUS]),
+        AufgabeRow.objekt_typ == "buchung",
+    )
+    anzahl = session.scalar(
+        select(func.count())
+        .select_from(BuchungssatzRow)
+        .where(
+            BuchungssatzRow.status == BuchungStatus.ZUR_PRUEFUNG.value,
+            BuchungssatzRow.id.not_in(zurueck),
+        )
+    )
+    return int(anzahl or 0)
 
 
 def _reihe(session: Session) -> tuple[list[Buchungssatz], set[str]]:

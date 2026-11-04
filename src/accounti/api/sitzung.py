@@ -27,6 +27,7 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.dienste import Dienste
 from accounti.api.formular import formular
 from accounti.api.htmx import ist_htmx
+from accounti.api.sicherheit import FEHLER
 from accounti.auth.dienst import (
     gesellschaften_von,
     pruefe_sitzung,
@@ -35,7 +36,7 @@ from accounti.auth.dienst import (
 )
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.i18n import Text
-from accounti.models.auth import Benutzer, Recht, Sitzung
+from accounti.models.auth import ROLLEN_RECHTE, Benutzer, Recht, Rolle, Sitzung
 
 SICHERE_METHODEN = frozenset({"GET", "HEAD", "OPTIONS"})
 CSRF_FELD = "csrf"
@@ -141,6 +142,29 @@ async def angemeldet(request: Request) -> Angemeldet:
 AngemeldetDep = Annotated[Angemeldet, Depends(angemeldet)]
 
 
+async def vielleicht_angemeldet(request: Request) -> Angemeldet | None:
+    """Für Seiten, die auch ohne Anmeldung gehen (Hilfe, 404): mit gültiger Sitzung
+    das Gerüst mit Navigation — derselbe Kern wie ``angemeldet`` (``_lade``), aber ohne
+    Weiterleitung. Scheitert das Lesen an der Systemdatenbank (etwa „database is
+    locked“), gilt die Anfrage als nicht angemeldet; das Protokoll nennt nur die Art
+    (Plan P1, B23)."""
+    from sqlalchemy.exc import SQLAlchemyError
+
+    dienste = dienste_von(request)
+    token = request.cookies.get(cookie_name(dienste))
+    if not token:
+        return None
+    try:
+        a = await run_in_threadpool(_lade, dienste, token)
+    except SQLAlchemyError as fehler:
+        FEHLER.warning("Sitzung nicht lesbar (%s)", type(fehler).__name__)
+        return None
+    if a is not None:
+        request.state.benutzersprache = a.benutzer.sprache
+        request.state.angemeldet = a
+    return a
+
+
 async def merke_benutzersprache(request: Request) -> None:
     """Für Fehlerseiten, vor denen keine Abhängigkeit lief (404, 405 ohne passende
     Route): die Sprache des angemeldeten Benutzers — er wird dabei nicht angemeldet."""
@@ -158,18 +182,36 @@ async def merke_benutzersprache(request: Request) -> None:
         request.state.benutzersprache = a.benutzer.sprache
 
 
+@dataclass(frozen=True)
+class Verweigerung:
+    """``detail`` einer 403 der Rolle (Spec 10c A9, AK48): der bisherige Satz als eigene
+    msgid, dazu die fehlenden Rechte (eines genügt) und die Rollen, die eines davon
+    enthalten. ``str()`` ist der Satz (JSON der API, Protokoll)."""
+
+    text: Text
+    rechte: tuple[Recht, ...]
+    rollen: tuple[Rolle, ...]
+
+    def __str__(self) -> str:
+        return str(self.text)
+
+
+def verweigert(a: Angemeldet, *rechte: Recht) -> HTTPException:
+    """403 mit Recht und Rollen; ``rechte``: eines davon hätte genügt."""
+    rollen = tuple(r for r in Rolle if any(x in ROLLEN_RECHTE[r] for x in rechte))
+    satz = Text(
+        "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
+        gesellschaft=a.gesellschaft.name,
+    )
+    return HTTPException(403, Verweigerung(satz, tuple(rechte), rollen))
+
+
 def erfordert(recht: Recht) -> Callable[..., Awaitable[Angemeldet]]:
     """Dependency: angemeldet **und** das Recht in der aktiven Gesellschaft."""
 
     async def abhaengigkeit(a: AngemeldetDep) -> Angemeldet:
         if not a.darf(recht):
-            raise HTTPException(
-                403,
-                Text(
-                    "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                    gesellschaft=a.gesellschaft.name,
-                ),
-            )
+            raise verweigert(a, recht)
         return a
 
     abhaengigkeit.__name__ = f"erfordert_{recht.value}"

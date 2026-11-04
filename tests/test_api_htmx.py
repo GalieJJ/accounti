@@ -127,10 +127,12 @@ def test_datenbank_beschaeftigt_503_mit_retry_after(welt, monkeypatch, caplog):
     assert "UPDATE" not in caplog.text and "database is locked" not in caplog.text
 
 
-def test_andere_operationalerror_bleiben_500(welt, monkeypatch):
+def test_andere_operationalerror_bleiben_500(welt, monkeypatch, caplog):
+    """Umgestellt (Plan P1, Schritt 11): 500 als Designseite, nicht als Klartext."""
     from accounti.api.seiten import start
 
     client = welt.angemeldet("jan")
     monkeypatch.setattr(start, "kennzahlen", _beschaeftigt("no such table: x"))
     r = client.get("/")
-    assert r.status_code == 500 and r.text == "Interner Fehler"
+    assert r.status_code == 500 and "<h1>Interner Fehler</h1>" in r.text
+    assert "no such table" not in r.text and "no such table" not in caplog.text

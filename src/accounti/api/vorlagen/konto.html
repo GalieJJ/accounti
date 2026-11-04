@@ -1,0 +1,23 @@
+{#- Mein Konto (/konto): Anzeige-Vorlieben als Optionsfelder, ein Knopf „Speichern“
+    (kein Absenden bei der Auswahl). Ein fehlendes Feld heißt „unverändert“. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _("Mein Konto") }}{% endblock %}
+{% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+{%- set deutsch %}<span lang="de">Deutsch</span>{% endset -%}
+{%- set englisch %}<span lang="en">English</span>{% endset -%}
+{%- set an_aus = [("an", _("eingeschaltet")), ("aus", _("ausgeschaltet"))] -%}
+<div class="layout-formular">
+<div class="seitenkopf"><h1>{{ _("Mein Konto") }}</h1><p>{{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }} · {{ _("Diese Einstellungen gelten für Sie auf jedem Gerät.") }}</p></div>
+{% if fehlerliste %}{{ k.fehlerliste(fehlerliste, ids={"sprache": "sprache-auto", "darstellung": "darstellung-auto", "fachansicht": "fachansicht-an", "betraege_verbergen": "betraege_verbergen-an", "tastenkuerzel": "tastenkuerzel-an"}) }}{% endif %}
+<form method="post" action="/konto/vorlieben" class="layout-formular">
+<input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="/konto">
+{{ k.optionen("sprache", _("Sprache"), [("auto", _("automatisch (wie der Browser)")), ("de", deutsch), ("en", englisch)], gewaehlt=gewaehlt.sprache, fehler=feldfehler.get("sprache")) }}
+{{ k.optionen("darstellung", _("Darstellung"), [("auto", _("automatisch (wie das Gerät)")), ("hell", _("hell")), ("dunkel", _("dunkel"))], gewaehlt=gewaehlt.darstellung, fehler=feldfehler.get("darstellung")) }}
+{{ k.optionen("fachansicht", _("Fachansicht: Konten, Soll und Haben und Steuerschlüssel zeigen"), an_aus, gewaehlt=gewaehlt.fachansicht, fehler=feldfehler.get("fachansicht")) }}
+{{ k.optionen("betraege_verbergen", _("Beträge auf der Übersicht verbergen"), an_aus, gewaehlt=gewaehlt.betraege_verbergen, fehler=feldfehler.get("betraege_verbergen")) }}
+{{ k.optionen("tastenkuerzel", _("Tastenkürzel auf der Prüfseite"), an_aus, gewaehlt=gewaehlt.tastenkuerzel, fehler=feldfehler.get("tastenkuerzel")) }}
+<div class="knopfreihe">{{ k.knopf(_("Speichern")) }}</div>
+</form>
+</div>
+{% endblock %}

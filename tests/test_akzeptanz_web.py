@@ -335,7 +335,8 @@ def test_akzeptanz_1_skr04_gesellschaft(qw):
     jan = qw.web.angemeldet("jan")
     jan.post("/gesellschaft", data={"csrf": csrf(jan), "kuerzel": "b"})
     seite = jan.get(f"/pruefen/{b.id}").text
-    assert "Gesellschaft: <strong>Beta Rahmen KG</strong>" in seite
+    # umgestellt (Plan P1, Schritt 7): die aktive Gesellschaft steht im Kopf und Titel
+    assert 'data-gesellschaft="b"' in seite and " · Beta Rahmen KG · accounti<" in seite
     r = jan.post(
         f"/pruefen/{b.id}/korrigieren",
         data={

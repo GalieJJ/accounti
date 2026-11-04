@@ -1,42 +1,35 @@
+{#- Prüfen, Liste (Plan P1, Schritt 12, Optik von „Pruefen-Liste“): Reiter mit Anzahl,
+    „Durcharbeiten“ rechts neben dem Etikett, Tabelle mit den Spalten aus 10b-1 (unter
+    40rem Karten), Seitenblättern, leerer Zustand ohne role. Gruppen, Auswahl und
+    Sicherheit statt Prozent bringt P3. -#}
 {% extends "basis.html" %}
-{% import "_makros.html" as m with context %}
 {% block titel %}{{ _("Prüfen") }}{% endblock %}
-{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Prüfen") }}</h1>
-<nav class="reiter" aria-label="{{ _('Ansichten') }}">
-  <a href="/pruefen?ansicht=offen"{% if ansicht == "offen" %} aria-current="page"{% endif %}>{{ _("Offen") }} ({{ liste.offen }})</a>
-  <a href="/pruefen?ansicht=zurueckgestellt"{% if ansicht == "zurueckgestellt" %} aria-current="page"{% endif %}>{{ _("Zurückgestellt") }} ({{ liste.zurueckgestellt }})</a>
-  <a href="/pruefen/regeln">{{ _("Gelernte Regeln") }}</a>
-</nav>
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Prüfen") }}</h1></div>
+<div>
+{{ k.reiter(_("Ansichten"), [("offen", _("Offen"), "/pruefen?ansicht=offen", liste.offen), ("zurueckgestellt", _("Zurückgestellt"), "/pruefen?ansicht=zurueckgestellt", liste.zurueckgestellt), ("regeln", _("Gelernte Regeln"), "/pruefen/regeln")], ansicht) }}
 {% if liste.eintraege %}
-<p class="aktionen-kopf">
-  <a class="knopf" href="/pruefen/{{ liste.eintraege[0].buchung.id }}?ansicht={{ ansicht }}" data-taste="j">{{ _("Durcharbeiten") }} <kbd>j</kbd></a>
-  <span>{{ ngettext("%(num)s Buchung", "%(num)s Buchungen", liste.gesamt) }}</span>
-</p>
-<table class="liste queue">
-  <thead><tr><th>{{ _("Datum") }}</th><th>{{ _("Gegenpartei") }}</th><th class="zahl">{{ _("Betrag") }} (EUR)</th><th>{{ _("Vorschlag") }}</th><th class="zahl">{{ _("Confidence") }}</th><th>{{ _("Begründung") }}</th></tr></thead>
-  <tbody>
-  {% for e in liste.eintraege %}
-    <tr>
-      <td><a href="/pruefen/{{ e.buchung.id }}?ansicht={{ ansicht }}">{{ e.buchung.datum | datum }}</a></td>
-      <td>{% if e.umsatz %}{{ e.umsatz.gegenkonto_name or "—" }}<br><span class="klein">{{ e.umsatz.verwendungszweck }}</span>{% else %}{{ e.buchung.buchungstext }}{% endif %}</td>
-      <td class="zahl">{{ (e.umsatz.betrag if e.umsatz else e.buchung.betrag_netto + (e.buchung.steuer_betrag or 0)) | betrag }}</td>
-      <td>{{ e.buchung.soll_konto }} {{ _("an") }} {{ e.buchung.haben_konto }}{% if e.buchung.steuer_schluessel is not none %} · {{ _("Steuerschlüssel") }} {{ e.buchung.steuer_schluessel }}{% endif %}</td>
-      <td class="zahl">{{ confidence_prozent(e.buchung.confidence) | prozent_ganz }}</td>
-      <td>{% if e.herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ e.herkunft.text | truncate(90) }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
-{% if liste.seiten > 1 %}
-<nav class="seiten" aria-label="{{ _('Seiten') }}">
-  {% for n in range(1, liste.seiten + 1) %}
-  <a href="/pruefen?ansicht={{ ansicht }}&amp;seite={{ n }}"{% if n == liste.seite %} aria-current="page"{% endif %}>{{ n }}</a>
-  {% endfor %}
-</nav>
-{% endif %}
+<section class="abschnitt" aria-labelledby="liste-titel">
+<div class="liste-kopf"><h2 class="etikett" id="liste-titel">{{ ngettext("%(num)s Buchung", "%(num)s Buchungen", liste.gesamt) }}</h2>{{ k.linkknopf(_("Durcharbeiten"), "/pruefen/" ~ liste.eintraege[0].buchung.id ~ "?ansicht=" ~ ansicht, taste="j", attribute={"data-taste": "j"}) }}</div>
+{% call k.tabelle(_("Buchungen zur Prüfung"), [Spalte(_("Datum")), Spalte(_("Gegenpartei")), Spalte(_("Betrag"), zahl=true), Spalte(_("Vorschlag")), Spalte(_("Confidence"), zahl=true), Spalte(_("Begründung"))], sichtbar=false) %}
+{% for e in liste.eintraege %}{% call k.zeile() %}
+{% call k.zelle(_("Datum")) %}<a href="/pruefen/{{ e.buchung.id }}?ansicht={{ ansicht }}">{{ e.buchung.datum | datum }}</a>{% endcall %}
+{% call k.zelle(_("Gegenpartei")) %}{% if e.umsatz %}<span class="hauptzeile">{{ e.umsatz.gegenkonto_name or "—" }}</span><br><span class="neben">{{ e.umsatz.verwendungszweck }}</span>{% else %}{{ e.buchung.buchungstext }}{% endif %}{% endcall %}
+{% call k.zelle(_("Betrag"), zahl=true) %}{{ k.betrag(e.umsatz.betrag if e.umsatz else e.buchung.betrag_netto + (e.buchung.steuer_betrag or 0)) }}{% endcall %}
+{% call k.zelle(_("Vorschlag")) %}{{ e.buchung.soll_konto }} {{ _("an") }} {{ e.buchung.haben_konto }}{% if e.buchung.steuer_schluessel is not none %} · {{ _("Steuerschlüssel") }} {{ e.buchung.steuer_schluessel }}{% endif %}{% endcall %}
+{% call k.zelle(_("Confidence"), zahl=true) %}{{ confidence_prozent(e.buchung.confidence) | prozent_ganz }}{% endcall %}
+{% call k.zelle(_("Begründung")) %}{% if e.herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(e.herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ e.herkunft.text | truncate(90) }}</span>{% else %}<span class="neben">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}{% endcall %}
+{% endcall %}{% endfor %}
+{% endcall %}
+{{ k.seitenblaettern(liste.seite, liste.seiten, "/pruefen?ansicht=" ~ ansicht ~ "&seite=") }}
+</section>
+{% elif ansicht == "offen" %}
+{{ k.leer(_("Nichts zu prüfen — alles entschieden."), aktion_text=_("Woher die Vorschläge kommen"), aktion_href="/hilfe/pruefen#vorschlaege") }}
 {% else %}
-<p class="meldung" role="status">{% if ansicht == "offen" %}{{ _("Nichts zu prüfen — alles entschieden.") }}{% else %}{{ _("Nichts zurückgestellt.") }}{% endif %}</p>
+{{ k.leer(_("Nichts zurückgestellt."), aktion_text=_("Zur Prüfung"), aktion_href="/pruefen?ansicht=offen") }}
 {% endif %}
+</div>
+</div>
 {% endblock %}

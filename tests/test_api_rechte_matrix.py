@@ -54,6 +54,18 @@ SEITEN: dict[tuple[str, str], object] = {
     ("GET", "/belege/{beleg_id:uuid}/datei"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/seite/{n}.png"): Recht.LESEN,
     ("GET", "/belege/{beleg_id:uuid}/download"): Recht.LESEN,
+    # Baustein 10c P1: Musterseite
+    ("GET", "/muster"): Recht.LESEN,
+    ("GET", "/muster/beispiel"): Recht.LESEN,
+    # Schritt 8: „Mehr“ und Gesellschaft wechseln
+    ("GET", "/menue"): ANGEMELDET,
+    ("GET", "/gesellschaft"): ANGEMELDET,
+    # Schritt 9: Mein Konto (der alte Sprachpfad antwortet mit 308)
+    ("GET", "/konto"): ANGEMELDET,
+    ("POST", "/konto/vorlieben"): ANGEMELDET,
+    # Schritt 10: Hilfe (ohne Anmeldung, ohne Daten der Gesellschaft)
+    ("GET", "/hilfe"): OFFEN,
+    ("GET", "/hilfe/{thema}"): OFFEN,
 }
 # Endpunkte mit frischem Einmalcode — nur für sie zieht ``anfrage()`` einen der zehn
 # Wiederherstellungscodes der Person (sonst gingen sie bei vielen Endpunkten aus)
@@ -144,8 +156,9 @@ def test_jeder_endpunkt_steht_in_der_matrix(welt):
     assert vorhanden == set(SEITEN) | set(REST)
 
 
-def anfrage(welt, client, rolle, methode, pfad):
-    """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode."""
+def anfrage(welt, client, rolle, methode, pfad, kopf=None):
+    """Anfrage mit gültigem CSRF-Token und frischem Wiederherstellungscode (``kopf``:
+    zusätzliche Kopfzeilen, etwa ``HX-Request``)."""
     person = welt.personen[rolle.value]
     daten = {"csrf": csrf(client)}
     if pfad in MIT_EINMALCODE:
@@ -181,10 +194,12 @@ def anfrage(welt, client, rolle, methode, pfad):
         .replace("{beleg_id:uuid}", beleg)
         .replace("{regel_id:uuid}", d["regel"])
         .replace("{n:int}", "1")
+        .replace("{n}", "1")
+        .replace("{thema}", "pruefen")
     )
     if methode == "GET":
-        return client.get(pfad, follow_redirects=False)
-    return client.post(pfad, data=daten, follow_redirects=False)
+        return client.get(pfad, headers=kopf, follow_redirects=False)
+    return client.post(pfad, data=daten, headers=kopf, follow_redirects=False)
 
 
 @pytest.mark.parametrize("rolle", list(Rolle))

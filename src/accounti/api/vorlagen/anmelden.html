@@ -1,18 +1,19 @@
-{% extends "basis.html" %}
+{#- Anmeldung (Plan P1, Schritt 12): schlichtes Layout, Karte höchstens 26rem, ein
+    Codefeld (Ziffern) mit Wechsel auf den Wiederherstellungscode ohne Skript
+    (?code=wiederherstellung, weiter bleibt). -#}
+{% extends "schlicht.html" %}
 {% block titel %}{{ _("Anmelden") }}{% endblock %}
 {% block inhalt %}
-<section class="anmeldung">
-  <h1>{{ _("Anmelden") }}</h1>
-  <form method="post" action="/anmelden" autocomplete="on">
-    <input type="hidden" name="anmeldung" value="{{ anmeldung }}">
-    <input type="hidden" name="weiter" value="{{ weiter }}">
-    <label for="benutzer">{{ _("Benutzer") }}</label>
-    <input id="benutzer" name="benutzer" autocomplete="username" required autofocus>
-    <label for="passwort">{{ _("Passwort") }}</label>
-    <input id="passwort" name="passwort" type="password" autocomplete="current-password" required>
-    <label for="einmalcode">{{ _("Einmalcode aus der App oder Wiederherstellungscode") }}</label>
-    <input id="einmalcode" name="einmalcode" autocomplete="one-time-code" inputmode="text" required>
-    <button type="submit">{{ _("Anmelden") }}</button>
-  </form>
-</section>
+{% import "_komponenten.html" as k with context %}
+<h1>{{ _("Anmelden") }}</h1>
+{% if anmeldefehler %}{% call k.hinweis("fehler", neu=true) %}{{ anmeldefehler | uebersetzt }}{% endcall %}{% endif %}
+<form method="post" action="/anmelden" autocomplete="on" class="formular">
+  <input type="hidden" name="anmeldung" value="{{ anmeldung }}">
+  <input type="hidden" name="weiter" value="{{ weiter }}">
+  {% if code_variante == "wiederherstellung" %}<input type="hidden" name="code" value="wiederherstellung">{% endif %}
+  {{ k.feld("benutzer", _("Benutzer"), autocomplete="username", attribute={"required": true, "autofocus": true}) }}
+  {{ k.feld("passwort", _("Passwort"), typ="password", autocomplete="current-password", attribute={"required": true}) }}
+  {{ k.codefeld(code_variante, wechsel_href=code_wechsel, attribute={"required": true}) }}
+  {{ k.knopf(_("Anmelden"), breit=true) }}
+</form>
 {% endblock %}

@@ -1,9 +1,10 @@
 {# Umsatzdaten: daraus stammt der Mustervorschlag einer Regel — deshalb immer sichtbar,
    auch wenn links der Beleg steht. #}
-<dl class="daten umsatz">
-  <div><dt>{{ _("Datum") }}</dt><dd>{{ e.umsatz.datum | datum }}</dd></div>
-  <div><dt>{{ _("Betrag") }}</dt><dd>{{ e.umsatz.betrag | euro }}</dd></div>
-  <div><dt>{{ _("Gegenpartei") }}</dt><dd>{{ e.umsatz.gegenkonto_name or "—" }}</dd></div>
-  {% if e.umsatz.gegenkonto_iban %}<div><dt>IBAN</dt><dd class="iban">{{ e.umsatz.gegenkonto_iban | iban }}</dd></div>{% endif %}
-  <div><dt>{{ _("Verwendungszweck") }}</dt><dd>{{ e.umsatz.verwendungszweck }}</dd></div>
-</dl>
+{% import "_komponenten.html" as k with context %}
+{% call k.angaben(klein=true) %}
+{% call k.angabe(_("Datum")) %}{{ e.umsatz.datum | datum }}{% endcall %}
+{% call k.angabe(_("Betrag")) %}{{ e.umsatz.betrag | euro }}{% endcall %}
+{% call k.angabe(_("Gegenpartei")) %}{{ e.umsatz.gegenkonto_name or "—" }}{% endcall %}
+{% if e.umsatz.gegenkonto_iban %}{% call k.angabe("IBAN") %}<span class="iban">{{ e.umsatz.gegenkonto_iban | iban }}</span>{% endcall %}{% endif %}
+{% call k.angabe(_("Verwendungszweck")) %}{{ e.umsatz.verwendungszweck }}{% endcall %}
+{% endcall %}

@@ -1,36 +1,19 @@
-/* accounti — Tastaturbedienung der Prüfseite und Fehlerhinweis für htmx.
+/* accounti — Tastaturbedienung der Prüfseite.
  *
- * Ohne Code-Auswertung, ohne HTML-Einsetzen, ohne Inline-Code (CSP). Die Texte
- * rendert der Server (versteckt im Markup); das Skript schaltet nur `hidden` um.
- * Tasten gelten nur, wo die Seite Elemente mit `data-taste` trägt, und nie bei
- * Modifikatoren (Strg+F, Alt+…), Tastenwiederholung, Eingabekomposition oder mit
- * dem Fokus in einem Eingabefeld (dort nur Strg+Enter = absenden, Esc = verlassen).
- * Abschaltbar in der Tastenhilfe (gemerkt in localStorage, nur dieser Wahrheitswert).
+ * Ohne Code-Auswertung, ohne HTML-Einsetzen, ohne Inline-Code (CSP). Tasten gelten nur,
+ * wo die Seite Elemente mit `data-taste` trägt, und nie bei Modifikatoren (Strg+F,
+ * Alt+…), Tastenwiederholung, Eingabekomposition oder mit dem Fokus in einem
+ * Eingabefeld (dort nur Strg+Enter = absenden, Esc = verlassen). Abschaltbar am Benutzer
+ * („Mein Konto“, Tastenhilfe): <body data-tastenkuerzel="aus"> — kein Speicher im
+ * Browser. Den Fehlerhinweis für htmx gibt accounti.js.
  */
 (function () {
   "use strict";
 
   var TASTEN = ["j", "k", "f", "e", "r", "z", "b", "?"];
-  var AUS = "accounti.tasten.aus";
 
   function abgeschaltet() {
-    try {
-      return window.localStorage.getItem(AUS) === "1";
-    } catch (fehler) {
-      return false;
-    }
-  }
-
-  function schalte(aus) {
-    try {
-      if (aus) {
-        window.localStorage.setItem(AUS, "1");
-      } else {
-        window.localStorage.removeItem(AUS);
-      }
-    } catch (fehler) {
-      /* ohne Speicher gilt die Wahl nur für diese Seite */
-    }
+    return document.body !== null && document.body.dataset.tastenkuerzel === "aus";
   }
 
   function imEingabefeld(ziel) {
@@ -95,7 +78,7 @@
         var formular = e.target.form;
         if (formular) {
           var knopf =
-            formular.querySelector("button.hauptknopf") ||
+            formular.querySelector("button[data-hauptknopf]") ||
             formular.querySelector('button[type="submit"]');
           if (knopf && !knopf.disabled) {
             e.preventDefault();
@@ -114,55 +97,11 @@
     if (TASTEN.indexOf(taste) < 0) {
       return;
     }
-    if (taste !== "?" && abgeschaltet()) {
-      return;
+    if (abgeschaltet()) {
+      return; /* auch „?“: jedes Einzeichen-Kürzel ist abschaltbar (WCAG 2.1.4) */
     }
     if (ausloesen(taste)) {
       e.preventDefault();
     }
   });
-
-  document.addEventListener("change", function (e) {
-    if (e.target && e.target.id === "tasten-aus") {
-      schalte(e.target.checked);
-    }
-  });
-
-  function zeigeSchalter() {
-    var schalter = document.getElementById("tasten-aus");
-    if (schalter) {
-      schalter.checked = abgeschaltet();
-    }
-  }
-
-  /* Fehlerhinweis: htmx tauscht 4xx/5xx außer 409/422 nicht ein */
-  function hinweis(status) {
-    var box = document.getElementById("netzhinweis");
-    if (!box) {
-      return;
-    }
-    var allgemein = box.querySelector('[data-hinweis="allgemein"]');
-    var beschaeftigt = box.querySelector('[data-hinweis="503"]');
-    if (allgemein && beschaeftigt) {
-      beschaeftigt.hidden = status !== 503;
-      allgemein.hidden = status === 503;
-    }
-    box.hidden = false;
-  }
-
-  document.addEventListener("htmx:responseError", function (e) {
-    var xhr = e.detail && e.detail.xhr;
-    hinweis(xhr ? xhr.status : 0);
-  });
-  document.addEventListener("htmx:sendError", function () {
-    hinweis(0);
-  });
-  document.addEventListener("htmx:beforeRequest", function () {
-    var box = document.getElementById("netzhinweis");
-    if (box) {
-      box.hidden = true;
-    }
-  });
-  document.addEventListener("htmx:afterSettle", zeigeSchalter);
-  document.addEventListener("DOMContentLoaded", zeigeSchalter);
 })();

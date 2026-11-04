@@ -1,41 +1,32 @@
+{#- Gelernte Regeln (Plan P1, Schritt 12): Tabelle (unter 40rem Karten), Grund zum
+    Deaktivieren mit sichtbarem Label, leerer Zustand mit Link auf die Hilfe. -#}
 {% extends "basis.html" %}
-{% import "_makros.html" as m with context %}
 {% block titel %}{{ _("Gelernte Regeln") }}{% endblock %}
-{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Gelernte Regeln") }}</h1>
+{% import "_makros.html" as m with context %}
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Gelernte Regeln") }}</h1></div>
 <p><a href="/pruefen">{{ _("Zurück zur Prüfung") }}</a></p>
-{{ m.fehlerkasten(aktion_fehler | default(none)) }}
-<p class="klein">{{ _("Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.") }}</p>
+{% if aktion_fehler | default(none) %}{{ k.fehlerliste([(none, m.meldung_text(aktion_fehler.meldung))]) }}{% endif %}
+<p class="neben">{{ _("Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.") }}</p>
 {% if regeln %}
-<table class="liste">
-  <thead><tr><th>{{ _("Name") }}</th><th>{{ _("Muster") }}</th><th>{{ _("Richtung") }}</th><th>{{ _("Soll") }}</th><th>{{ _("Haben") }}</th><th>{{ _("Steuerschlüssel") }}</th><th class="zahl">{{ _("Treffer") }}</th><th>{{ _("Angelegt") }}</th><th>{{ _("Stand") }}</th><th></th></tr></thead>
-  <tbody>
-  {% for g in regeln %}{% set r = g.regel %}
-    <tr>
-      <td>{{ r.name }}</td>
-      <td>{% if r.ist_text %}{{ r.muster }}{% else %}<code>/{{ r.muster }}/</code>{% endif %}</td>
-      <td>{% if r.richtung %}{{ _("Ausgabe") if r.richtung.value == "ausgabe" else _("Einnahme") }}{% else %}{{ _("beide") }}{% endif %}</td>
-      <td>{{ r.soll_konto }}</td><td>{{ r.haben_konto }}</td>
-      <td>{{ r.steuer_schluessel if r.steuer_schluessel is not none else "—" }}</td>
-      <td class="zahl">{{ g.treffer }}</td>
-      <td>{{ r.angelegt_am.date() | datum }} · {{ r.angelegt_von }}{% if r.quelle_buchung_id %} · <a href="/buchungen/{{ r.quelle_buchung_id }}">{{ _("Quelle") }}</a>{% endif %}</td>
-      <td>{% if r.aktiv %}{{ _("aktiv") }}{% else %}{{ _("deaktiviert") }} ({{ r.deaktiviert_von }}: <span lang="de">{{ r.deaktiviert_grund or "—" }}</span>){% endif %}</td>
-      <td>
-        {% if darf_lernen and r.aktiv %}
-        <form method="post" action="/pruefen/regeln/{{ r.id }}/deaktivieren" class="inline">
-          <input type="hidden" name="csrf" value="{{ csrf }}">
-          <label for="grund-{{ r.id }}" class="unsichtbar">{{ _("Grund") }}</label>
-          <input id="grund-{{ r.id }}" name="grund" placeholder="{{ _('Grund') }}" required maxlength="500">
-          <button type="submit">{{ _("Deaktivieren") }}</button>
-        </form>
-        {% endif %}
-      </td>
-    </tr>
-  {% endfor %}
-  </tbody>
-</table>
+{% call k.tabelle(_("Gelernte Regeln"), [Spalte(_("Name")), Spalte(_("Muster")), Spalte(_("Richtung")), Spalte(_("Soll")), Spalte(_("Haben")), Spalte(_("Steuerschlüssel")), Spalte(_("Treffer"), zahl=true), Spalte(_("Angelegt")), Spalte(_("Stand")), Spalte(_("Deaktivieren"))], sichtbar=false) %}
+{% for g in regeln %}{% set r = g.regel %}{% call k.zeile() %}
+{% call k.zelle(_("Name")) %}{{ r.name }}{% endcall %}
+{% call k.zelle(_("Muster")) %}{% if r.ist_text %}{{ r.muster }}{% else %}<code>/{{ r.muster }}/</code>{% endif %}{% endcall %}
+{% call k.zelle(_("Richtung")) %}{% if r.richtung %}{{ _("Ausgabe") if r.richtung.value == "ausgabe" else _("Einnahme") }}{% else %}{{ _("beide") }}{% endif %}{% endcall %}
+{% call k.zelle(_("Soll")) %}{{ r.soll_konto }}{% endcall %}
+{% call k.zelle(_("Haben")) %}{{ r.haben_konto }}{% endcall %}
+{% call k.zelle(_("Steuerschlüssel")) %}{{ r.steuer_schluessel if r.steuer_schluessel is not none else "—" }}{% endcall %}
+{% call k.zelle(_("Treffer"), zahl=true) %}{{ g.treffer }}{% endcall %}
+{% call k.zelle(_("Angelegt")) %}{{ r.angelegt_am.date() | datum }} · {{ r.angelegt_von }}{% if r.quelle_buchung_id %} · <a href="/buchungen/{{ r.quelle_buchung_id }}">{{ _("Quelle") }}</a>{% endif %}{% endcall %}
+{% call k.zelle(_("Stand")) %}{% if r.aktiv %}{{ _("aktiv") }}{% else %}{{ _("deaktiviert") }} ({{ r.deaktiviert_von }}: <span lang="de">{{ r.deaktiviert_grund or "—" }}</span>){% endif %}{% endcall %}
+{% call k.zelle(_("Deaktivieren")) %}{% if darf_lernen and r.aktiv %}<form method="post" action="/pruefen/regeln/{{ r.id }}/deaktivieren" class="zeilenformular"><input type="hidden" name="csrf" value="{{ csrf }}">{{ k.feld("grund", _("Grund"), id="grund-" ~ r.id, attribute={"required": true, "maxlength": 500}) }}{{ k.knopf(_("Deaktivieren"), art="sekundaer", groesse="klein") }}</form>{% endif %}{% endcall %}
+{% endcall %}{% endfor %}
+{% endcall %}
 {% else %}
-<p>{{ _("Noch keine gelernten Regeln.") }}</p>
+{{ k.leer(_("Noch keine gelernten Regeln."), aktion_text=_("Wie accounti Regeln lernt"), aktion_href="/hilfe/pruefen#regeln") }}
 {% endif %}
+</div>
 {% endblock %}

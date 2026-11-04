@@ -29,14 +29,15 @@ from starlette.concurrency import run_in_threadpool
 from accounti.api.belegantwort import Art, BelegdateiError, lies, tiff_seiten
 from accounti.api.formular import formular
 from accounti.api.handeln import im_namen
-from accounti.api.htmx import ist_htmx
-from accounti.api.registry import Navigationspunkt
+from accounti.api.htmx import aktueller_pfad, ist_htmx
+from accounti.api.registry import Bereich, Navigationspunkt
 from accounti.api.sitzung import (
     Angemeldet,
     AngemeldetDep,
     dienste_von,
     erfordert,
     gesellschaft_db,
+    verweigert,
 )
 from accounti.api.vorlagen import seite
 from accounti.buchung.konten import KONTO_ZIFFERN
@@ -48,6 +49,7 @@ from accounti.buchung.pruefschlange import (
     LernWunsch,
     PruefschlangeError,
     RegelBestaetigenError,
+    anzahl_offen,
     eingerichtete_bankkonten,
     freigeben,
     korrigieren,
@@ -63,7 +65,18 @@ from accounti.models.auth import Recht
 from accounti.steuer.kennziffern import STEUERSCHLUESSEL
 
 router = APIRouter()
-NAVIGATION = [Navigationspunkt(N_("Prüfen"), "/pruefen", Recht.LESEN, 10)]
+NAVIGATION = [
+    Navigationspunkt(
+        N_("Prüfen"),
+        "/pruefen",
+        Bereich.PRUEFEN,
+        "square-check-big",
+        Recht.LESEN,
+        10,
+        zaehler=anzahl_offen,  # offene Vorschläge ohne zurückgestellte
+        zaehler_betont=True,
+    )
+]
 
 QUELLEN = {
     "regelwerk": N_("Regelwerk"),
@@ -317,18 +330,27 @@ def flaechenwerte(
     return werte
 
 
-def _antwort(
+async def _antwort(
     request: Request,
     werte: dict[str, Any],
     status: int = 200,
     push: str | None = None,
 ) -> Response:
     if ist_htmx(request):
-        antwort = seite(request, "pruefen/_arbeitsflaeche.html", werte, status=status)
+        # Rückweg der Vorlieben (Tastenhilfe): die URL, die der Browser danach zeigt —
+        # nach einer Aktion die neue Buchung, nach 409/422 die bisherige
+        # (HX-Current-URL)
+        if push:
+            werte = {**werte, "pfad": push}
+        elif request.method == "POST" and request.headers.get("hx-current-url"):
+            werte = {**werte, "pfad": aktueller_pfad(request)}
+        antwort = await seite(
+            request, "pruefen/_arbeitsflaeche.html", werte, status=status
+        )
         if push:
             antwort.headers["HX-Push-Url"] = push
         return antwort
-    return seite(request, "pruefen/arbeitsflaeche.html", werte, status=status)
+    return await seite(request, "pruefen/arbeitsflaeche.html", werte, status=status)
 
 
 def _max_bytes(request: Request) -> int:
@@ -349,7 +371,7 @@ async def liste(
     seite_wert = ascii_zahl(request.query_params.get("seite")) or 1
     gewaehlt = _ansicht(ansicht)
     daten = await run_in_threadpool(lade_pruefschlange, s, gewaehlt, seite_wert)
-    return seite(
+    return await seite(
         request,
         "pruefen/liste.html",
         {
@@ -377,7 +399,7 @@ async def regeln(
 
     gelernt = await run_in_threadpool(lade_gelernte_regeln, s)
     meldung = Text("Regel deaktiviert.") if erledigt == "deaktiviert" else None
-    return seite(
+    return await seite(
         request,
         "pruefen/regeln.html",
         {
@@ -423,7 +445,7 @@ async def regel_deaktivieren(
     from accounti.klassifikation.lernen import lade_gelernte_regeln
 
     gelernt = await run_in_threadpool(lade_gelernte_regeln, s)
-    return seite(
+    return await seite(
         request,
         "pruefen/regeln.html",
         {
@@ -458,7 +480,7 @@ async def arbeitsflaeche(
         _max_bytes(request),
         meldungen=[meldung] if meldung else None,
     )
-    return _antwort(request, werte)
+    return await _antwort(request, werte)
 
 
 def _fehlerbild(fehler: Exception) -> Fehlerbild:
@@ -549,7 +571,7 @@ async def _aktion(
             fehler=fehler,
             vorschau=fehler.vorschau,
         )
-        return _antwort(request, werte, status=fehler.status)
+        return await _antwort(request, werte, status=fehler.status)
     meldungen = [ERLEDIGT[erledigt], *(ergebnis or [])]
 
     def weiter() -> tuple[UUID | None, dict[str, Any] | None]:
@@ -571,7 +593,7 @@ async def _aktion(
             status_code=200,
             headers={"HX-Redirect": _ziel(None, ansicht, erledigt)},
         )
-    return _antwort(request, naechste, push=_ziel(nach, ansicht))
+    return await _antwort(request, naechste, push=_ziel(nach, ansicht))
 
 
 def _bestaetigt(felder: dict[str, str]) -> bool:
@@ -631,13 +653,7 @@ async def korrigieren_seite(
     felder = await formular(request)
     mit_regel = felder.get("regel") == "1"
     if mit_regel and not a.darf(Recht.REGELN_LERNEN):
-        raise HTTPException(
-            403,
-            Text(
-                "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                gesellschaft=a.gesellschaft.name,
-            ),
-        )
+        raise verweigert(a, Recht.REGELN_LERNEN)
     g = a.gesellschaft
 
     def ausfuehren(s: Session, person: str) -> list[Any]:
@@ -688,13 +704,7 @@ async def zurueckstellen_seite(
     from accounti.aufgaben import lade_aufgaben_einstellungen
 
     if not (a.darf(Recht.BUCHEN) or a.darf(Recht.BUCHUNG_FREIGEBEN)):
-        raise HTTPException(
-            403,
-            Text(
-                "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                gesellschaft=a.gesellschaft.name,
-            ),
-        )
+        raise verweigert(a, Recht.BUCHEN, Recht.BUCHUNG_FREIGEBEN)
     felder = await formular(request)
     g = a.gesellschaft
 
@@ -799,7 +809,7 @@ async def regelvorschau(
     except BuchungFehltError as f:
         raise HTTPException(404, Text("Buchung nicht gefunden")) from f
     if ist_htmx(request):
-        return seite(
+        return await seite(
             request,
             "pruefen/_regelvorschau.html",
             {"vorschau": vorschau, "vorschau_fehler": fehler},
@@ -816,7 +826,7 @@ async def regelvorschau(
         fehler=fehler,
         vorschau=vorschau,
     )
-    return seite(
+    return await seite(
         request,
         "pruefen/arbeitsflaeche.html",
         werte,

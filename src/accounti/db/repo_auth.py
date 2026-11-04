@@ -56,6 +56,15 @@ _BENUTZER_FELDER = (
     "passwort_geaendert_am",
     "letzte_anmeldung_am",
     "sprache",
+    "darstellung",
+    "fachansicht",
+    "betraege_verbergen",
+    "tastenkuerzel",
+)
+# Sprache und Anzeige-Vorlieben ändert nur ``auth.dienst.setze_vorlieben`` (gezieltes
+# UPDATE); ein vorher geladener Benutzer überschriebe sonst frisch gesetzte Werte
+_NUR_BEIM_ANLEGEN = frozenset(
+    {"sprache", "darstellung", "fachansicht", "betraege_verbergen", "tastenkuerzel"}
 )
 
 
@@ -69,7 +78,8 @@ def anzahl_benutzer(session: Session) -> int:
 
 
 def speichere_benutzer(session: Session, b: Benutzer) -> None:
-    """Legt an oder schreibt alle Felder zurück."""
+    """Legt an oder schreibt die Felder zurück — Sprache und Vorlieben nur beim
+    Anlegen (sonst ``auth.dienst.setze_vorlieben``)."""
     zeile = session.get(BenutzerRow, str(b.id))
     werte = {f: getattr(b, f) for f in _BENUTZER_FELDER}
     if zeile is None:
@@ -84,7 +94,8 @@ def speichere_benutzer(session: Session, b: Benutzer) -> None:
             raise ValueError(msg) from fehler
         return
     for feld, wert in werte.items():
-        setattr(zeile, feld, wert)
+        if feld not in _NUR_BEIM_ANLEGEN:
+            setattr(zeile, feld, wert)
     session.flush()
 
 

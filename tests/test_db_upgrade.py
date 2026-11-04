@@ -27,7 +27,8 @@ ANLAGEN_BUCHUNG = "2f7c7043043e"  # der Stand vor a14acef69fae (Verrechnungen)
 VERRECHNUNGEN = "a14acef69fae"  # Gesamttest Debitoren
 STEUERKENNZEICHEN = "46371a6681c2"  # Gesamttest Belege, nach a14acef69fae
 KONTIERUNG = "d5a849692843"  # Baustein 10b: Kontierungsgründe, gelernte Regeln
-SPRACHE = "e7153706b43a"  # Baustein 10b: auth_benutzer.sprache (Kopf)
+SPRACHE = "e7153706b43a"  # Baustein 10b: auth_benutzer.sprache
+VORLIEBEN = "1dd2f6b7c6c8"  # Baustein 10c P1: Anzeige-Vorlieben an auth_benutzer
 runner = CliRunner()
 
 
@@ -204,7 +205,7 @@ def test_db_upgrade_ohne_vermerk_vor_den_verrechnungen(tmp_path):
     offen = _nach(ANLAGEN_BUCHUNG)
     assert offen[0] == VERRECHNUNGEN
     assert f"({len(offen)} Migration(en))" in r.output
-    assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
+    assert _version(db) == [SCHEMA_STAND]
     assert {"rechnungstyp", "korrektur_zu"} <= _spalten(db, "ausgangsrechnungen")
     assert "elektronisch" in _spalten(db, "ausgangspositionen")
     assert _trigger(db, "verrechnungen") == {
@@ -239,7 +240,7 @@ def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
     """Stand a14acef69fae ohne Vermerk (noch kein Befehl von Baustein 10b und Paket C):
     ``db upgrade`` erkennt ihn an der fehlenden Spalte ``belege.steuerkennzeichen`` und
     den fehlenden Tabellen ``kontierungsgruende``/``kontierungsregeln`` und holt
-    46371a6681c2, d5a849692843 und e7153706b43a nach."""
+    46371a6681c2, d5a849692843, e7153706b43a und die Migrationen danach nach."""
     db = tmp_path / "alt.db"
     _ohne_vermerk(db, VERRECHNUNGEN)
     assert not {"kontierungsgruende", "kontierungsregeln"} & _tabellen(db)
@@ -248,9 +249,10 @@ def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
     )
     assert r.exit_code == 0, r.output
     assert f"abgeleitet: {VERRECHNUNGEN}" in r.output
-    assert _nach(VERRECHNUNGEN) == [STEUERKENNZEICHEN, KONTIERUNG, SPRACHE]
-    assert "(3 Migration(en))" in r.output
-    assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
+    offen = _nach(VERRECHNUNGEN)
+    assert offen[:3] == [STEUERKENNZEICHEN, KONTIERUNG, SPRACHE]
+    assert f"({len(offen)} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
     assert {"kontierungsgruende", "kontierungsregeln"} <= _tabellen(db)
     assert "sprache" in _spalten(db, "auth_benutzer")
     assert "steuerkennzeichen" in _spalten(db, "belege")
@@ -264,11 +266,12 @@ def test_db_upgrade_ohne_vermerk_vor_der_kontierung(tmp_path):
 
 @pytest.mark.parametrize("init", [False, True], ids=["ohne_init_db", "mit_init_db"])
 def test_db_upgrade_ohne_vermerk_vor_der_benutzersprache(tmp_path, init):
-    """Stand d5a849692843 ohne Vermerk: nur die Spalte ``auth_benutzer.sprache`` fehlt
-    — ``db upgrade`` holt nur e7153706b43a nach. Mit a14acef69fae und ``init_db`` des
-    neuen Codes gibt es die Tabellen der Kontierung (samt Triggern) schon, aber
-    ``init_db`` ergänzt keine Spalten: ``belege.steuerkennzeichen`` fehlt, der Stand
-    ist a14acef69fae, und die drei Migrationen danach übernehmen das Vorhandene."""
+    """Stand d5a849692843 ohne Vermerk: die Spalte ``auth_benutzer.sprache`` fehlt
+    — ``db upgrade`` holt e7153706b43a und die Migrationen danach nach. Mit
+    a14acef69fae und ``init_db`` des neuen Codes gibt es die Tabellen der Kontierung
+    (samt Triggern) schon, aber ``init_db`` ergänzt keine Spalten:
+    ``belege.steuerkennzeichen`` fehlt, der Stand ist a14acef69fae, und die
+    Migrationen danach übernehmen das Vorhandene."""
     db = tmp_path / "alt.db"
     _ohne_vermerk(db, VERRECHNUNGEN if init else KONTIERUNG)
     if init:
@@ -284,8 +287,36 @@ def test_db_upgrade_ohne_vermerk_vor_der_benutzersprache(tmp_path, init):
     stand = VERRECHNUNGEN if init else KONTIERUNG
     assert f"abgeleitet: {stand}" in r.output
     assert f"({len(_nach(stand))} Migration(en))" in r.output
-    assert _version(db) == [SCHEMA_STAND] == [SPRACHE]
+    assert _version(db) == [SCHEMA_STAND]
     assert "sprache" in _spalten(db, "auth_benutzer")
+    assert "No new upgrade operations detected" in _alembic(db, "check")
+
+
+def test_stand_ohne_vermerk_mit_sprache_ohne_vorlieben(tmp_path):
+    """Stand vor den Vorlieben (Baustein 10c P1) ohne Vermerk: ``db upgrade`` leitet
+    ihn aus dem Schema ab, stempelt, ergänzt die vier Spalten und vermerkt
+    ``SCHEMA_STAND``. Der Vorgänger kommt aus dem ``ScriptDirectory`` (keine
+    Kopfannahme)."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    skripte = ScriptDirectory.from_config(Config(str(WURZEL / "alembic.ini")))
+    vor = skripte.get_revision(VORLIEBEN).down_revision
+    assert isinstance(vor, str)
+    db = tmp_path / "alt.db"
+    _ohne_vermerk(db, vor)
+    assert "sprache" in _spalten(db, "auth_benutzer")
+    assert "darstellung" not in _spalten(db, "auth_benutzer")
+    r = runner.invoke(
+        app, ["db", "upgrade", "--db", f"sqlite:///{db}"], env={"COLUMNS": "250"}
+    )
+    assert r.exit_code == 0, r.output
+    assert f"abgeleitet: {vor}" in r.output
+    assert f"({len(_nach(vor))} Migration(en))" in r.output
+    assert _version(db) == [SCHEMA_STAND]
+    assert {"darstellung", "fachansicht", "betraege_verbergen", "tastenkuerzel"} <= (
+        _spalten(db, "auth_benutzer")
+    )
     assert "No new upgrade operations detected" in _alembic(db, "check")
 
 
@@ -545,7 +576,15 @@ def test_db_upgrade_erkennt_den_vorabstand_und_bricht_mit_weg_ab(tmp_path):
     assert r.exit_code == 1, r.output
     assert "verrechnungen" in r.output and "anlagegueter.buchung_id" in r.output
     assert VOR_TOKEN in r.output and "--aus-schema" in r.output
-    assert _version(db) == [SPRACHE] and "verrechnungen" not in _tabellen(db)
+    # Liegen Migrationen über dem Vermerk (seit Baustein 10c P1 die Vorlieben), laufen
+    # sie vor der Schemaprüfung; die Meldung nennt dann den neuen Stand. Ohne sie
+    # bliebe der Vermerk — beides ohne Annahme, welche Revision der Kopf ist.
+    if _nach(SPRACHE):
+        assert _version(db) == [SCHEMA_STAND]
+        assert f"nach den Migrationen jetzt {SCHEMA_STAND}" in r.output
+    else:
+        assert _version(db) == [SPRACHE] and "Nichts geändert" in r.output
+    assert "verrechnungen" not in _tabellen(db)
 
 
 def test_db_upgrade_aus_schema_holt_die_migrationen_verlustfrei_nach(tmp_path):

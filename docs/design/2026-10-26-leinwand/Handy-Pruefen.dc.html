@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Vorschlag prüfen auf dem Handy – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--warn:#8a5a00;--warn-flaeche:#fbf0d9}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--warn:#f0c46a;--warn-flaeche:#2e2614}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a summary{cursor:pointer}
+</style>
+</helmet>
+<div class="a {{theme}}" style="width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden">
+
+<nav aria-label="Prüfschlange" style="flex: none; display: flex; align-items: center; gap: 4px; height: 56px; padding: 0 8px; background: var(--flaeche); border-bottom: 1px solid var(--linie)">
+<a href="Handy-Uebersicht.dc.html" style="display: inline-flex; align-items: center; gap: 4px; min-height: 44px; padding: 0 8px; font-weight: 600; text-decoration: none"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Liste</a>
+<span style="flex: 1 1 auto; text-align: center; color: var(--text-2)">4 von 12</span>
+<a href="#voriger" aria-label="Voriger" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: var(--text)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg></a>
+<a href="#naechster" aria-label="Nächster" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; color: var(--text)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg></a>
+</nav>
+
+<div role="tablist" aria-label="Ansicht" style="flex: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 8px 16px 0; background: var(--flaeche); border-bottom: 1px solid var(--linie)">
+<button type="button" role="tab" aria-selected="{{istVorschlag}}" onClick="{{zeigeVorschlag}}" style="min-height: 44px; border: 0; border-bottom: {{randVorschlag}}; background: transparent; color: var(--text); font-weight: 600">Vorschlag</button>
+<button type="button" role="tab" aria-selected="{{istBeleg}}" onClick="{{zeigeBeleg}}" style="min-height: 44px; border: 0; border-bottom: {{randBeleg}}; background: transparent; color: var(--text); font-weight: 600">Beleg</button>
+</div>
+
+<main style="flex: 1 1 auto; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<div>
+<div style="font-size: 18px; font-weight: 600">Hahnemühle FineArt GmbH</div>
+<div style="font-size: 28px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.2">− 1.204,90 €</div>
+<div style="font-size: 14px; color: var(--text-2)">Ausgabe · 12.04.2026 · Geschäftskonto</div>
+</div>
+
+<sc-if value="{{istVorschlag}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 14px">
+<div role="note" style="display: flex; gap: 10px; padding: 10px 12px; border-radius: 8px; background: var(--warn-flaeche)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+<div style="font-size: 15px"><strong style="font-weight: 600">Achtung:</strong> Betrag weicht vom Beleg ab (1.229,49 €). Die Differenz entspricht 2 % Skonto.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Vorschlag</div>
+<div style="font-size: 19px; font-weight: 600">→ Wareneingang 19 % (3400)</div>
+<div>mit 19 % Vorsteuer</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2)"><span aria-hidden="true" style="display: inline-flex; gap: 2px"><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--ok)"></span><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--ok)"></span><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--ok)"></span></span>Sicherheit: hoch · wie bisher bei Hahnemühle</div>
+</div>
+<details style="border-top: 1px solid var(--linie); padding-top: 8px">
+<summary style="min-height: 36px; font-weight: 600">Buchungsdetails</summary>
+<p style="margin: 4px 0 0; font-size: 14px; color: var(--text-2)">Soll Wareneingang (3400) an Bank (1200) · Netto 1.012,52 € · Vorsteuer 192,38 €</p>
+</details>
+</div>
+</sc-if>
+
+<sc-if value="{{istBeleg}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Rechnung (PDF)</div>
+<dl style="margin: 0; display: grid; grid-template-columns: 6.5rem 1fr; gap: 4px 12px">
+<dt style="color: var(--text-2)">Aussteller</dt><dd style="margin: 0">Hahnemühle FineArt GmbH</dd>
+<dt style="color: var(--text-2)">Nummer</dt><dd style="margin: 0">RE 2026-4471</dd>
+<dt style="color: var(--text-2)">Datum</dt><dd style="margin: 0">10.04.2026</dd>
+<dt style="color: var(--text-2)">Brutto</dt><dd style="margin: 0; font-weight: 600">1.229,49 €</dd>
+</dl>
+<a href="#pdf" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px; border: 1px solid var(--linie-stark); border-radius: 6px; color: var(--text); font-weight: 600; text-decoration: none">PDF öffnen<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Öffnet den PDF-Betrachter Ihres Geräts. Die Eckdaten sind aus dem Beleg erkannt; Fehler melden Sie über „Später klären“.</p>
+</div>
+</sc-if>
+</main>
+
+<div style="flex: none; display: flex; flex-direction: column; gap: 8px; padding: 12px 16px 16px; background: var(--flaeche); border-top: 1px solid var(--linie-stark)">
+<button type="button" style="min-height: 48px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Passt – freigeben</button>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<button type="button" style="min-height: 48px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600">Anderes Konto</button>
+<button type="button" style="min-height: 48px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600">Später klären</button>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { reiter: 'vorschlag' };
+  }
+  renderVals() {
+    const v = this.state.reiter === 'vorschlag';
+    return {
+      theme: this.props.dunkel ? 'dunkel' : '',
+      istVorschlag: v,
+      istBeleg: !v,
+      randVorschlag: v ? '3px solid var(--akzent)' : '3px solid transparent',
+      randBeleg: v ? '3px solid transparent' : '3px solid var(--akzent)',
+      zeigeVorschlag: () => this.setState({ reiter: 'vorschlag' }),
+      zeigeBeleg: () => this.setState({ reiter: 'beleg' })
+    };
+  }
+}
+</script>
+</body>
+</html>

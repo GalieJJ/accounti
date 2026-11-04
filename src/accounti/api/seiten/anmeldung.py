@@ -18,6 +18,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from accounti.api.dienste import Dienste
+from accounti.api.einmalcode import code_variante, code_wechsel
 from accounti.api.formular import formular
 from accounti.api.sitzung import AngemeldetDep, cookie_name, dienste_von
 from accounti.api.vorlagen import seite
@@ -54,19 +55,25 @@ def sicheres_ziel(weiter: str | None) -> str:
     return weiter
 
 
-def _formular(
-    request: Request, weiter: str, fehler: Text | None, status: int
+async def _formular(
+    request: Request,
+    weiter: str,
+    fehler: Text | None,
+    status: int,
+    variante: str = "app",
 ) -> Response:
     dienste = dienste_von(request)
     wert = secrets.token_urlsafe(32)
-    antwort = seite(
+    antwort = await seite(
         request,
         "anmelden.html",
         {
             "titel": N_("Anmelden"),
             "anmeldung": wert,
             "weiter": weiter,
-            "fehler": fehler,
+            "anmeldefehler": fehler,
+            "code_variante": variante,
+            "code_wechsel": code_wechsel("/anmelden", variante, weiter=weiter),
         },
         status=status,
     )
@@ -83,8 +90,12 @@ def _formular(
 
 
 @router.get("/anmelden", response_class=HTMLResponse)
-async def anmelden_formular(request: Request, weiter: str = "/") -> Response:
-    return _formular(request, sicheres_ziel(weiter), None, 200)
+async def anmelden_formular(
+    request: Request, weiter: str = "/", code: str | None = None
+) -> Response:
+    return await _formular(
+        request, sicheres_ziel(weiter), None, 200, code_variante(code)
+    )
 
 
 async def _anmeldeplatz(dienste: Dienste) -> bool:
@@ -130,21 +141,24 @@ async def anmelden(request: Request) -> Response:
     dienste = dienste_von(request)
     felder = await formular(request)
     weiter = sicheres_ziel(felder.get("weiter"))
+    variante = code_variante(felder.get("code"))
     cookie = request.cookies.get(anmelde_cookie(dienste), "")
     gesendet = felder.get("anmeldung", "")
     if not cookie or not hmac.compare_digest(cookie.encode(), gesendet.encode()):
-        return _formular(
+        return await _formular(
             request,
             weiter,
             Text("Das Formular ist abgelaufen — bitte erneut senden."),
             403,
+            variante,
         )
     if not await _anmeldeplatz(dienste):
-        antwort = _formular(
+        antwort = await _formular(
             request,
             weiter,
             Text("Gerade melden sich viele an — bitte gleich noch einmal versuchen."),
             503,
+            variante,
         )
         warten = max(1, math.ceil(dienste.server.anmeldung_warten_sekunden))
         antwort.headers["Retry-After"] = str(warten)
@@ -154,7 +168,9 @@ async def anmelden(request: Request) -> Response:
     finally:
         dienste.anmeldeplatz_frei()
     if token is None:
-        return _formular(request, weiter, Text("Anmeldung fehlgeschlagen."), 401)
+        return await _formular(
+            request, weiter, Text("Anmeldung fehlgeschlagen."), 401, variante
+        )
     antwort = RedirectResponse(weiter, status_code=303)
     antwort.set_cookie(
         cookie_name(dienste),

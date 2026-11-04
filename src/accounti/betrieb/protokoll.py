@@ -341,7 +341,8 @@ def richte_protokoll_ein(
         logger.handlers = []
         logger.propagate = True
     logging.getLogger("uvicorn.access").disabled = True
-    # HTTP-Bibliotheken schreiben ganze Adressen (Webhook-URLs tragen oft Token)
-    for name in ("httpx", "httpcore", "urllib3"):
+    # HTTP-Bibliotheken schreiben ganze Adressen (Webhook-URLs tragen oft Token);
+    # httpx2/httpcore2 kommen mit openai 2.x über litellm
+    for name in ("httpx", "httpcore", "httpx2", "httpcore2", "urllib3"):
         logging.getLogger(name).setLevel(logging.WARNING)
     return handler

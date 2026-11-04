@@ -1,4 +1,12 @@
+{#- Ergebnis einer Aktion ohne eigene Seite (Freigaben): h1, die Meldung als neuer
+    Hinweis, Weg zurück. -#}
 {% extends "basis.html" %}
+{% block titel %}{{ _(titel) }}{% endblock %}
 {% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+<h1>{{ _(titel) }}</h1>
+{% call k.hinweis("ok", neu=true) %}{{ ergebnis | uebersetzt }}{% endcall %}
 <p><a href="{{ zurueck | default('/') }}">{{ _("Zurück") }}</a></p>
+</div>
 {% endblock %}

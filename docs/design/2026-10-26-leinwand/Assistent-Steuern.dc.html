@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Einrichtung: Steuern und Buchführung – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--info:#1f5fa8;--info-flaeche:#e6eef9;--marke-gd:#7b3fa0;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--info:#8db8f0;--info-flaeche:#172436;--marke-gd:#c79ae6;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a input,.a select{font:inherit;color:var(--text)}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<header style="display: flex; align-items: center; gap: 14px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie); flex-wrap: wrap">
+<span style="font-size: 19px; font-weight: 600">accounti einrichten</span>
+<span style="display: inline-flex; align-items: center; gap: 8px; color: var(--text-2)"><span style="display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 5px; background: var(--marke-gd); color: var(--flaeche); font-size: 10px; font-weight: 700">GD</span>Galerie Demo GmbH</span>
+<div style="flex: 1 1 auto"></div>
+<a href="#hilfe" style="color: var(--text-2); text-decoration: none">Hilfe</a>
+</header>
+
+<div style="display: flex; flex-wrap: wrap; flex: 1 1 auto">
+
+<nav aria-label="Schritte" style="flex: 1 1 260px; padding: 28px 24px; border-right: 1px solid var(--linie); display: flex; flex-direction: column; gap: 4px">
+<p style="margin: 0 0 12px; font-size: 14px; color: var(--text-2)">Schritt 3 von 7</p>
+<div aria-hidden="true" style="height: 6px; margin-bottom: 16px; border-radius: 3px; background: var(--flaeche-2); overflow: hidden"><div style="width: 43%; height: 6px; background: var(--akzent)"></div></div>
+<ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px">
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px; color: var(--text-2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Willkommen</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px; color: var(--text-2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>1 Ihr Zugang</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px; color: var(--text-2)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>2 Ihre Firma</li>
+<li aria-current="step" style="display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 0 10px; margin: 0 -10px; border-radius: 8px; background: var(--akzent-flaeche); color: var(--akzent); font-weight: 600"><span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 5px solid currentColor; box-sizing: border-box"></span>3 Steuern &amp; Buchführung</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px"><span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--linie-stark); box-sizing: border-box"></span>4 Bankkonto</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px"><span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--linie-stark); box-sizing: border-box"></span>5 Belegeingang</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px"><span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--linie-stark); box-sizing: border-box"></span>6 Steuerberater &amp; DATEV</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px"><span style="display: inline-flex; width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--linie-stark); box-sizing: border-box"></span>7 Weitere Personen</li>
+<li style="display: flex; align-items: center; gap: 10px; min-height: 40px; color: var(--text-2)"><span style="display: inline-flex; width: 18px; height: 18px"></span>Fertig</li>
+</ol>
+</nav>
+
+<main style="flex: 999 1 560px; min-width: 0; padding: 32px 40px 48px">
+<form style="max-width: 760px; display: flex; flex-direction: column; gap: 28px">
+<h1 style="margin: 0; font-size: 28px; font-weight: 600; line-height: 1.25">Steuern &amp; Buchführung</h1>
+
+<div role="note" style="display: flex; gap: 12px; padding: 14px 16px; border-radius: 10px; background: var(--info-flaeche)">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--info)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"></circle><path d="M12 16v-4M12 8h.01"></path></svg>
+<div><strong style="font-weight: 600">Hinweis:</strong> Sie haben „GmbH“ gewählt. Eine GmbH muss Bücher führen und bilanzieren (§§ 238, 242 HGB). Stimmen Sie Kontenrahmen und Zeiträume mit Ihrem Steuerberater ab – accounti berät nicht.</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="font-weight: 600">Gewinnermittlung</div>
+<div>Bilanz <span style="color: var(--text-2)">– für die GmbH vorgeschrieben, keine Wahl</span></div>
+</div>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0; margin-bottom: 4px; font-weight: 600">Kontenrahmen <span style="font-weight: 400; color: var(--text-2)">(Pflicht, nach der ersten Buchung nicht mehr änderbar)</span></legend>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 10px">
+<label style="display: flex; gap: 12px; padding: 14px 16px; border: 2px solid var(--akzent); border-radius: 8px; background: var(--akzent-flaeche); cursor: pointer"><input type="radio" name="skr" checked style="width: 18px; height: 18px; margin-top: 3px; accent-color: var(--akzent)"><span style="display: flex; flex-direction: column"><span style="font-weight: 600">SKR03</span><span style="font-size: 14px; color: var(--text-2)">am weitesten verbreitet</span></span></label>
+<label style="display: flex; gap: 12px; padding: 14px 16px; border: 1px solid var(--linie-stark); border-radius: 8px; background: var(--flaeche); cursor: pointer"><input type="radio" name="skr" style="width: 18px; height: 18px; margin-top: 3px; accent-color: var(--akzent)"><span style="display: flex; flex-direction: column"><span style="font-weight: 600">SKR04</span><span style="font-size: 14px; color: var(--text-2)">gegliedert wie die Bilanz</span></span></label>
+</div>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Ihr Steuerberater nutzt einen bestimmten? Dann wählen Sie diesen.</p>
+</fieldset>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="padding: 0; margin-bottom: 4px; font-weight: 600">Wirtschaftsjahr beginnt am <span style="font-weight: 400; color: var(--text-2)">(Pflicht)</span></legend>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 28px; align-items: center">
+<label style="display: inline-flex; align-items: center; gap: 10px; min-height: 44px"><input type="radio" name="wj" checked style="width: 18px; height: 18px; accent-color: var(--akzent)">1. Januar (Kalenderjahr)</label>
+<label style="display: inline-flex; align-items: center; gap: 10px; min-height: 44px"><input type="radio" name="wj" style="width: 18px; height: 18px; accent-color: var(--akzent)">anderem Tag</label>
+</div>
+</fieldset>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="land" style="font-weight: 600">Bundesland</label>
+<select id="land" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)"><option>Bayern</option></select>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="stnr" style="font-weight: 600">Steuernummer</label>
+<input id="stnr" value="143/123/45678" aria-describedby="stnr-h" style="min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche)">
+<div id="stnr-h" style="display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ok)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>Format passt <span style="color: var(--text-2)">· ELSTER: 9143012345678</span></div>
+</div>
+</div>
+
+<div style="display: flex; flex-direction: column; gap: 6px; max-width: 22rem">
+<label for="ustid" style="font-weight: 600">USt-IdNr.</label>
+<input id="ustid" value="DE123456789" aria-invalid="true" aria-describedby="ustid-h" style="min-height: 44px; padding: 0 12px; border: 2px solid var(--warn); border-radius: 6px; background: var(--flaeche)">
+<div id="ustid-h" style="display: flex; align-items: flex-start; gap: 6px; font-size: 14px; color: var(--warn)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg><span><strong style="font-weight: 600">Achtung:</strong> Prüfziffer stimmt nicht – bitte prüfen.</span></div>
+<button type="button" style="align-self: flex-start; min-height: 36px; padding: 0; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Jetzt online prüfen (beim BZSt)</button>
+</div>
+
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 10px">
+<legend style="padding: 0; margin-bottom: 4px; font-weight: 600">Umsatzsteuer-Voranmeldung</legend>
+<div>Wie hoch war die Umsatzsteuer im Vorjahr ungefähr?</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px">
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 999px"><input type="radio" name="ust" style="accent-color: var(--akzent)">bis 2.000 €</label>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 999px"><input type="radio" name="ust" style="accent-color: var(--akzent)">bis 9.000 €</label>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 2px solid var(--akzent); border-radius: 999px; background: var(--akzent-flaeche); font-weight: 600"><input type="radio" name="ust" checked style="accent-color: var(--akzent)">über 9.000 €</label>
+<label style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 999px"><input type="radio" name="ust" style="accent-color: var(--akzent)">Gründung</label>
+</div>
+<div style="display: flex; gap: 8px; align-items: flex-start"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--akzent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M5 12h14M13 6l6 6-6 6"></path></svg><span><strong style="font-weight: 600">Vorschlag: monatlich</strong> (§ 18 Abs. 2 UStG). Ihr Bescheid vom Finanzamt geht vor.</span></div>
+<label style="display: flex; gap: 10px; align-items: flex-start; min-height: 44px"><input type="checkbox" checked style="width: 18px; height: 18px; margin-top: 3px; accent-color: var(--akzent)"><span>Dauerfristverlängerung beantragt <span style="color: var(--text-2)">– Frist plus 1 Monat, Sondervorauszahlung 1/11</span></span></label>
+<label style="display: flex; gap: 10px; align-items: flex-start; min-height: 44px"><input type="checkbox" style="width: 18px; height: 18px; margin-top: 3px; accent-color: var(--akzent)"><span>OSS-registriert <span style="color: var(--text-2)">– Fernverkäufe an EU-Privatkunden über 10.000 €. Ihre Marktplatzdaten 2026 bisher: 7.840 €</span></span></label>
+</fieldset>
+
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; padding-top: 8px; border-top: 1px solid var(--linie)">
+<button type="button" style="min-height: 48px; padding: 0 28px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Weiter</button>
+<button type="button" style="min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Später ergänzen</button>
+<button type="button" style="min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--text-2)">Zurück</button>
+</div>
+</form>
+</main>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>

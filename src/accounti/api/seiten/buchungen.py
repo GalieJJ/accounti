@@ -22,7 +22,12 @@ from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from accounti.api.einmalcode import bestaetige_einmalcode, freigabesperre
+from accounti.api.einmalcode import (
+    bestaetige_einmalcode,
+    code_variante,
+    code_wechsel,
+    freigabesperre,
+)
 from accounti.api.formular import formular
 from accounti.api.handeln import im_namen
 from accounti.api.seiten.pruefen import (
@@ -80,6 +85,7 @@ def buchungswerte(
     meldungen: list[Any] | None = None,
     mit_einmalcode: bool = True,
     formular: str | None = None,
+    variante: str = "app",
 ) -> dict[str, Any]:
     from accounti.api.seiten.pruefen import seitenkonfiguration
     from accounti.belege.zuordnung import beleg_zur_buchung
@@ -143,6 +149,8 @@ def buchungswerte(
         "korrigierbar": korrigierbar,
         "vorschlag": b.status in VORSCHLAG,
         "mit_einmalcode": mit_einmalcode,
+        "code_variante": variante,
+        "code_wechsel": code_wechsel(f"/buchungen/{b.id}", variante),
         "eingaben": eingaben or {},
         "aktion_fehler": fehler,
         "aktion_formular": formular,  # abgesendetes Formular (Fehler, Eingaben)
@@ -157,12 +165,16 @@ async def buchung_seite(
     request: Request,
     a: Annotated[Angemeldet, Depends(erfordert(Recht.LESEN))],
     s: Annotated[Session, Depends(gesellschaft_db)],
+    code: str | None = None,
 ) -> HTMLResponse:
-    code = dienste_von(request).auth.einmalcode_bestaetigung
+    mit_code = dienste_von(request).auth.einmalcode_bestaetigung
+    variante = code_variante(code)
     werte = await run_in_threadpool(
-        lambda: buchungswerte(s, a, buchung_id, mit_einmalcode=code)
+        lambda: buchungswerte(
+            s, a, buchung_id, mit_einmalcode=mit_code, variante=variante
+        )
     )
-    return seite(request, "buchungen/buchung.html", werte)
+    return await seite(request, "buchungen/buchung.html", werte)
 
 
 def _wieder_offen(s: Session, transaktion_id: UUID) -> bool:
@@ -221,6 +233,7 @@ async def _storno_aktion(
             meldungen=meldungen,
             mit_einmalcode=code,
             formular=formular,
+            variante=code_variante(felder.get("code")),
         )
 
     def pruefen() -> Fehlerbild | None:
@@ -252,7 +265,9 @@ async def _storno_aktion(
         fehler = await run_in_threadpool(probe)
     if fehler is not None:
         werte = await run_in_threadpool(anzeige, fehler)
-        return seite(request, "buchungen/buchung.html", werte, status=fehler.status)
+        return await seite(
+            request, "buchungen/buchung.html", werte, status=fehler.status
+        )
 
     def lauf() -> tuple[list[Any], Fehlerbild | None]:
         with im_namen(a) as person:
@@ -279,7 +294,7 @@ async def _storno_aktion(
 
     meldungen, fehler = await run_in_threadpool(abschliessen)
     werte = await run_in_threadpool(anzeige, fehler, meldungen)
-    return seite(
+    return await seite(
         request,
         "buchungen/buchung.html",
         werte,

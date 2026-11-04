@@ -1028,3 +1028,39 @@ def test_stand_und_aktionen_unter_postgresql(pg_datenbank):
         assert pruefe_journal(s).in_ordnung
         assert [x.buchung.id for x in lade_pruefschlange(s).eintraege] == []
     engine.dispose()
+
+
+def test_anzahl_offen_gleich_der_liste(make_session):
+    """Zähler der Navigation (Plan P1, Schritt 6): offene Vorschläge ohne die
+    zurückgestellten — dieselbe Zahl wie die Liste „Offen“."""
+    from accounti.buchung.pruefschlange import anzahl_offen
+
+    (a, c), b = _drei(make_session)
+    with make_session() as s:
+        assert anzahl_offen(s) == 3 == lade_pruefschlange(s).gesamt
+        zurueckstellen(s, a.id, "Wofür war das?", "jan")
+        s.commit()
+    with make_session() as s:
+        assert anzahl_offen(s) == 2 == lade_pruefschlange(s).gesamt
+
+
+def test_anzahl_offen_zaehlt_ohne_die_rueckfragen_zu_laden(make_session, monkeypatch):
+    """P1 Runde 2 (gp1-sicherheit N3): Der Zähler lud jede offene Rückfrage als Modell
+    (20 000 Rückfragen: 1,5 s auf jeder Seite). Jetzt ein ``COUNT`` mit einer
+    Unterabfrage — dieselbe Zahl wie die Liste „Offen“, ohne ``lade_aufgaben``."""
+    from accounti.buchung import pruefschlange
+    from accounti.buchung.pruefschlange import anzahl_offen
+
+    (a, c), b = _drei(make_session)
+    with make_session() as s:
+        zurueckstellen(s, a.id, "Wofür war das?", "jan")
+        s.commit()
+    with make_session() as s:
+        erwartet = lade_pruefschlange(s).gesamt
+
+    def verboten(*_a: object, **_k: object) -> None:
+        raise AssertionError("anzahl_offen lädt die Rückfragen")
+
+    monkeypatch.setattr(pruefschlange, "lade_aufgaben", verboten)
+    with make_session() as s:
+        assert anzahl_offen(s) == erwartet == 2

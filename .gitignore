@@ -46,3 +46,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Browserprobe (scripts/browserprobe/): Pakete und Ergebnisse; probe.json der Welt
+# enthält Testpasswörter und TOTP-Geheimnisse
+scripts/browserprobe/node_modules/
+scripts/browserprobe/ergebnisse/
+probe.json

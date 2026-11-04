@@ -1,0 +1,9 @@
+{#- Fehler- und Statusseite im Gerüst (Spec 10c A9): h1 je Status, Meldung, Weg zurück. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _(titel) }}{% endblock %}
+{% block inhalt %}
+<div class="seite">
+<h1>{{ _(titel) }}</h1>
+{% include "_fehler.html" %}
+</div>
+{% endblock %}

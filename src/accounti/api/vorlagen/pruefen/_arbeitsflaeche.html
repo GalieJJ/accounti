@@ -1,14 +1,21 @@
+{#- Arbeitsfläche (Plan P1, Schritt 12, Optik von „Pruefen-Arbeitsflaeche“, im Gerüst):
+    Positionszeile wie die Prüfschlangen-Leiste, links der Beleg, rechts der Vorschlag
+    als Karte und die Aktionen. Ergebnisse der htmx-Aktionen zusätzlich per
+    hx-swap-oob in #status (die sichtbare Meldung dann ohne role). -#}
 {% import "_makros.html" as m with context %}
-<div class="queue-kopf">
-  <a href="/pruefen?ansicht={{ ansicht }}">{{ _("Zur Liste") }}</a>
+{% import "_komponenten.html" as k with context %}
+{%- set zur_liste = "/pruefen?ansicht=" ~ ansicht -%}
+<nav class="queue-kopf" aria-label="{{ _('Position in der Prüfung') }}">
+  {{ k.linkknopf(_("Zur Liste"), zur_liste, art="still", symbol="chevron-left", groesse="klein") }}
   {% if pos.nr %}<span class="position">{{ _("%(nr)s von %(gesamt)s", nr=pos.nr, gesamt=pos.gesamt) }}</span>{% endif %}
-  {% if pos.vorher %}<a href="/pruefen/{{ pos.vorher }}?ansicht={{ ansicht }}" hx-get="/pruefen/{{ pos.vorher }}?ansicht={{ ansicht }}" hx-target="#arbeitsflaeche" hx-push-url="true" rel="prev" data-taste="k">{{ _("Voriger") }} <kbd>k</kbd></a>{% endif %}
-  {% if pos.nachher %}<a href="/pruefen/{{ pos.nachher }}?ansicht={{ ansicht }}" hx-get="/pruefen/{{ pos.nachher }}?ansicht={{ ansicht }}" hx-target="#arbeitsflaeche" hx-push-url="true" rel="next" data-taste="j">{{ _("Nächster") }} <kbd>j</kbd></a>{% endif %}
-  <a href="/buchungen/{{ b.id }}">{{ _("Buchung und Journal") }}</a>
-</div>
-{% for meldung in aktion_meldungen %}<p class="meldung" role="status">{{ m.meldung_text(meldung) }}</p>{% endfor %}
-{{ m.fehlerkasten(aktion_fehler) }}
-<div class="flaeche">
+  {% if pos.vorher %}{% set ziel = "/pruefen/" ~ pos.vorher ~ "?ansicht=" ~ ansicht %}{{ k.linkknopf(_("Voriger"), ziel, groesse="klein", taste="k", attribute={"hx-get": ziel, "hx-target": "#arbeitsflaeche", "hx-push-url": "true", "data-taste": "k"}) }}{% endif %}
+  {% if pos.nachher %}{% set ziel = "/pruefen/" ~ pos.nachher ~ "?ansicht=" ~ ansicht %}{{ k.linkknopf(_("Nächster"), ziel, groesse="klein", taste="j", attribute={"hx-get": ziel, "hx-target": "#arbeitsflaeche", "hx-push-url": "true", "data-taste": "j"}) }}{% endif %}
+  <a class="queue-journal" href="/buchungen/{{ b.id }}">{{ _("Buchung und Journal") }}</a>
+</nav>
+{% for meldung in aktion_meldungen %}{% call k.hinweis("ok", neu=not fragment) %}{{ m.meldung_text(meldung) }}{% endcall %}{% endfor %}
+{% if aktion_fehler %}{{ k.fehlerliste([(aktion_fehler.feld, m.meldung_text(aktion_fehler.meldung))], ids={"text": "rueckfrage"}) }}{% endif %}
+{% if fragment and (aktion_meldungen or aktion_fehler) %}<div hx-swap-oob="innerHTML:#status">{% for meldung in aktion_meldungen %}{{ m.meldung_text(meldung) }} {% endfor %}{% if aktion_fehler %}{{ m.meldung_text(aktion_fehler.meldung) }}{% endif %}</div>{% endif %}
+<div class="layout-zweispaltig">
   <section class="links" aria-label="{{ _('Beleg') }}">{% include "pruefen/_beleg_links.html" %}</section>
   <section class="rechts" aria-label="{{ _('Vorschlag') }}">
     {% include "pruefen/_vorschlag.html" %}

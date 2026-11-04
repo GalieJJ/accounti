@@ -7,6 +7,24 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ## [Unreleased]
 
 ### Hinzugefügt
+
+- **Oberfläche: Design-System und Seitengerüst** (Baustein 10c, Paket 1): eigene Token für hell
+  und dunkel mit nachgerechneten Kontrasten (Test), Systemschrift, CSS ohne Framework in einer
+  Datei (`accounti.css`, ≤ 40 KB), Symbole als lokales SVG-Sprite (Lucide 1.55.0, 36 Symbole,
+  ISC/MIT), Komponenten als Jinja-Makros mit Musterseite `/muster` (hell und dunkel
+  nebeneinander); Aussehen nach der freigegebenen Design-Leinwand (`docs/design/`). Neues Gerüst: ab 64rem Seitenleiste
+  mit Zählern, darunter eine feste untere Leiste mit höchstens fünf Zielen und die Seite „Mehr“
+  (`/menue`) – ohne Skript; Kopfleiste mit Kennfarbe und Kürzel der Gesellschaft, Hilfe und
+  Benutzermenü; Titel „Seite · Gesellschaft · accounti“; Brotkrumen; „Zum Inhalt springen“;
+  Druckansicht mit Kopf. `/gesellschaft` listet die eigenen Gesellschaften mit offenen
+  Prüfungen und Freigaben und wechselt per Formular. „Mein Konto“ (`/konto`): Sprache,
+  Darstellung (automatisch/hell/dunkel), Fachansicht, Beträge verbergen und Tastenkürzel am
+  Benutzer, ohne JavaScript speicherbar. Hilfe je Bereich (`/hilfe`, auch ohne Anmeldung) mit
+  Kurzanleitung, Begriffen und Tastenkürzeln. Fehlerseiten für 403 (nennt das fehlende Recht
+  und die Rollen), 404, 409, 422, 503 und 500 (ohne technische Einzelheiten) im Design; mit
+  htmx als Fragment. Browserprobe als Entwicklungswerkzeug (`scripts/browserprobe/`,
+  Playwright 1.59.1 und axe-core 4.14.0, nicht ausgeliefert). Migration
+  `1dd2f6b7c6c8_add_benutzer_vorlieben` (`auth_benutzer`).
 - **Web-Oberfläche: Supervisions-Queue, Korrektur → Regel, Deutsch/Englisch** (Baustein 10b,
   Teil 1): `/pruefen` zeigt unsichere Buchungen mit dem Beleg links (PDF im Browser, PNG/JPEG,
   TIFF als Seitenbilder, XRechnung und ZUGFeRD als lesbare Ansicht des strukturierten Teils;
@@ -339,6 +357,16 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   an der Abrechnung; die Befunde des Abgleichs nennen den Befehl mit der Umsatz-ID
 
 ### Geändert
+
+- **Oberfläche:** Alle Seiten aus 10a und 10b (Anmeldung, Übersicht, Freigaben, Prüfen,
+  Buchung, Beleg) im neuen Design, fachlich unverändert. Die Sprachwahl zieht von der
+  Kopfleiste nach „Mein Konto“ (`POST /konto/vorlieben`); `POST /einstellungen/sprache`
+  antwortet ein Release lang mit 308. „Freigaben“ steht in der Navigation nur noch mit dem
+  Recht, Zahlungsläufe oder Steuermeldungen freizugeben (die Seite bleibt für alle lesbar). Das
+  Codefeld bei Anmeldung, Freigaben und Storno öffnet auf dem Handy die Zifferntastatur;
+  „Wiederherstellungscode verwenden“ schaltet auf ein Textfeld um (ohne JavaScript). Die
+  Abschaltung der Tastenkürzel liegt am Benutzer statt im Browser (`localStorage`) – wer sie
+  abgeschaltet hatte, schaltet sie einmal unter „Mein Konto“ wieder ab. `pruefen.css` entfällt.
 - **Die Regeldatei wird streng geprüft** (Baustein 10b, Teil 1): Ein Eintrag mit einem Feld,
   das der Lader nicht kennt (auch ein Zusatzfeld wie `kommentar:` oder `aktiv:`), einem
   unbekannten Steuerschlüssel, einer Kontonummer außerhalb von 4–9 Ziffern oder einer
@@ -532,6 +560,15 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   Belegbezug erweitert, Datenmodell und Erweiterungspunkte ergänzt.
 
 ### Behoben
+
+- **Protokoll:** `httpx2` und `httpcore2` (kommen mit openai 2.x über litellm) schreiben keine
+  Adressen mehr auf INFO ins Protokoll; gedämpft waren nur `httpx`, `httpcore` und `urllib3`.
+- **Oberfläche:** Die Prüfliste scrollt auf dem Handy nicht mehr waagrecht (Tabellen werden
+  unter 64rem zu Karten, darüber scrollt eine zu breite Tabelle in ihrem Rahmen statt
+  abgeschnitten zu werden); im Dunkelmodus bleiben Felder und Knöpfe nicht mehr weiß
+  (`color-scheme`), `<kbd>` ist lesbar; das Einmalcode-Feld hat ein sichtbares Label; Label und
+  Wert in Angabenlisten überlappen nicht mehr; die Hauptaktion ist als primärer Knopf
+  erkennbar; die Kopfleiste ist auf dem Handy höchstens 56 px hoch.
 - **OSS und Marktplatz: Nachprüfung 9 E** (Runde 10, N1–N4, N9-1, N9-2): Ein Länderkonto des
   Kontenrahmens (im SKR04 auch 8320–8327) lässt sich in `integrationen.oss_erloes_konten`
   keinem anderen Land und in `oss_erloes_ermaessigt` gar nicht mehr geben — OPOS bucht eigene

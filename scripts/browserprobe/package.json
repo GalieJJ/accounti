@@ -1,0 +1,15 @@
+{
+  "name": "accounti-browserprobe",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browserprobe der Oberfläche (Baustein 10c, Plan P1): axe-core, Maße, Bilder — nur Entwicklung, nicht ausgeliefert",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "axe-core": "4.14.0",
+    "playwright": "1.59.1"
+  }
+}

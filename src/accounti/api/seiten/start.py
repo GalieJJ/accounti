@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
 
-from accounti.api.registry import Navigationspunkt
+from accounti.api.registry import Bereich, Navigationspunkt
 from accounti.api.sitzung import Angemeldet, erfordert, gesellschaft_db
 from accounti.api.vorlagen import seite
 from accounti.db.repo_zahlung import lade_laeufe
@@ -23,7 +23,9 @@ from accounti.models.zahlung import LaufStatus
 from accounti.opos.auswertung import offene_posten
 
 router = APIRouter()
-NAVIGATION = [Navigationspunkt(N_("Übersicht"), "/", Recht.LESEN, 0)]
+NAVIGATION = [
+    Navigationspunkt(N_("Übersicht"), "/", Bereich.UEBERSICHT, "house", Recht.LESEN, 0)
+]
 
 
 def kennzahlen(s: Session, heute: date) -> dict[str, Any]:
@@ -64,4 +66,4 @@ async def start(
     s: Annotated[Session, Depends(gesellschaft_db)],
 ) -> HTMLResponse:
     werte = await run_in_threadpool(kennzahlen, s, date.today())
-    return seite(request, "start.html", {"titel": N_("Übersicht"), **werte})
+    return await seite(request, "start.html", {"titel": N_("Übersicht"), **werte})

@@ -167,7 +167,14 @@ def test_gesperrter_zeitraum_verlangt_datum_ohne_vorbelegung(qw):
         s.commit()
     client = qw.web.angemeldet("jan")
     seite = client.get(f"/buchungen/{b.id}").text
-    assert 'name="datum" type="date" value="" required' in seite
+    # umgestellt (Plan P1, Schritt 12): Felder als Komponente — beide Datumsfelder leer
+    # und Pflicht
+    import re
+
+    for ident in ("datum-k", "datum-s"):
+        feld = re.search(rf'<input id="{ident}"[^>]*>', seite)
+        assert feld and 'type="date"' in feld.group(0), ident
+        assert 'value=""' in feld.group(0) and " required" in feld.group(0), ident
     r = senden(qw, client, b, "stornieren", grund="doppelt")
     assert r.status_code == 422 and "--datum" not in r.text
     assert "offenen Zeitraum" in r.text
@@ -281,3 +288,37 @@ def test_stornieren_braucht_buchen(qw):
             f"/buchungen/{b.id}/stornieren", data={"csrf": csrf(client), "grund": "x"}
         )
         assert r.status_code == 403, wer
+
+
+def test_buchung_im_design(qw):
+    """Plan P1, Schritt 12: Journal als Tabelle mit caption; zwei Codefelder mit eigenem
+    Label; „Stornieren“ als gefährlicher Knopf; die Fehlerliste eines Stornos verlinkt
+    #grund-s; ?code=wiederherstellung schaltet beide Codefelder um."""
+    import re
+
+    b = qw.buchung(status=BuchungStatus.GEPRUEFT, datum=date(2026, 10, 1))
+    client = qw.web.angemeldet("jan")
+    html = client.get(f"/buchungen/{b.id}").text
+    assert '<caption class="unsichtbar">Journal</caption>' in html
+    assert '<table class="tabelle" role="table">' in html
+    for ident in ("einmalcode-k", "einmalcode-s"):
+        assert f'<label for="{ident}">Code aus Ihrer Authenticator-App</label>' in html
+        assert re.search(rf'<input id="{ident}"[^>]*inputmode="numeric"', html)
+    assert 'class="knopf knopf-gefaehrlich">Stornieren</button>' in html
+    assert 'class="knopf knopf-primaer">Korrigieren</button>' in html
+    assert '<dl class="angaben">' in html
+    variante = client.get(f"/buchungen/{b.id}?code=wiederherstellung").text
+    assert variante.count('<label for="einmalcode-') == 2
+    assert variante.count(">Wiederherstellungscode</label>") == 2
+    seite = client.get(f"/buchungen/{b.id}").text
+    r = client.post(
+        f"/buchungen/{b.id}/stornieren",
+        data={
+            "csrf": csrf(client),
+            "stand": formularwert(seite, "stand"),
+            "einmalcode": qw.web.personen["jan"].codes[-1],
+            "grund": " ",
+        },
+    )
+    assert r.status_code == 422
+    assert '<a href="#grund-s">' in r.text and 'role="alert"' in r.text

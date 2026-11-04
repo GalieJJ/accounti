@@ -321,3 +321,25 @@ def test_sha256_wie_archiv(qw, jan):
     assert hashlib.sha256(jan.get(f"/belege/{b.id}/datei").content).hexdigest() == (
         b.datei_hash
     )
+
+
+def test_beleg_im_design(qw):
+    """Plan P1, Schritt 12: Angaben als ``dl.angaben``, der Rahmen der Vorschau mit der
+    Klasse für ``--beleg-hintergrund`` (weiß auch im Dunkelmodus)."""
+    import re
+
+    beleg = qw.beleg(pdf())
+    html = qw.web.angemeldet("jan").get(f"/belege/{beleg.id}").text
+    assert '<dl class="angaben">' in html and "<dt>Belegart</dt>" in html
+    rahmen = f'<div class="belegrahmen"><iframe class="beleg" src="/belege/{beleg.id}/'
+    assert rahmen in html
+    css = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "accounti"
+        / "api"
+        / "statisch"
+        / "accounti.css"
+    ).read_text(encoding="utf-8")
+    regel = re.search(r"\.belegrahmen\{([^}]*)\}", css)
+    assert regel and "background-color:var(--beleg-hintergrund)" in regel.group(1)

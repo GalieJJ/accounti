@@ -26,13 +26,21 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from accounti.api import rest, seiten
 from accounti.api.dienste import Dienste
-from accounti.api.htmx import aktueller_pfad
+from accounti.api.geruest import zurueck_pfad
+from accounti.api.htmx import aktueller_pfad, ist_htmx
+from accounti.api.lesezugriff import Lesezugriff
 from accounti.api.registry import endpunkte, navigation, routermodule
 from accounti.api.seiten.anmeldung import sicheres_ziel
 from accounti.api.sicherheit import FEHLER, Sicherheit, protokollpfad
-from accounti.api.sitzung import NichtAngemeldetError, merke_benutzersprache
+from accounti.api.sitzung import (
+    NichtAngemeldetError,
+    Verweigerung,
+    merke_benutzersprache,
+    vielleicht_angemeldet,
+)
 from accounti.api.vorlagen import seite
 from accounti.i18n import N_, Text
+from accounti.models.auth import RECHT_TEXT
 
 BESCHAEFTIGT = Text("Ein Lauf schreibt gerade — bitte gleich noch einmal")
 # Starlette meldet Routing-Fehler mit der englischen Statusphrase („Not Found“) —
@@ -59,6 +67,44 @@ def fehlertext(fehler: StarletteHTTPException) -> object:
     )
 
 
+# h1 je Status (Spec 10c A9; Plan P1, Entscheidung „Fehlerseiten“). P1 Runde 2: 403
+# und 409 neutral — „Keine Berechtigung“ nur bei fehlender Rolle (Verweigerung) oder
+# Gesellschaft, „Inzwischen geändert“ nur bei geänderten Daten (Seitenfehler mit titel);
+# falscher Einmalcode, fehlendes CSRF-Token, Fachfehler der Freigabe: „Nicht ausgeführt“
+FEHLERTITEL = {
+    403: N_("Nicht ausgeführt"),
+    404: N_("Nicht gefunden"),
+    409: N_("Nicht ausgeführt"),
+    413: N_("Zu groß"),
+    422: N_("Angaben prüfen"),
+    503: N_("Gerade beschäftigt"),
+}
+
+
+async def fehlerseite(
+    request: Request,
+    status: int,
+    meldung: object,
+    verweigerung: Verweigerung | None = None,
+    titel: str | None = None,
+) -> Response:
+    """Fehlerseite im Gerüst ohne Zähler; mit ``HX-Request`` als Fragment (Hinweis mit
+    ``role="alert"``, AK58). ``titel`` (msgid) vor dem Titel des Status."""
+    fragment = ist_htmx(request) and status in FEHLERTITEL
+    if titel is None and verweigerung is not None:
+        titel = N_("Keine Berechtigung")
+    werte = {
+        "titel": titel or FEHLERTITEL.get(status, N_("Fehler")),
+        "fehlermeldung": meldung,
+        "verweigerung": verweigerung,
+        "recht_text": RECHT_TEXT,
+        "zurueck": zurueck_pfad(request, getattr(request.state, "angemeldet", None)),
+        "fragment": fragment,
+    }
+    vorlage = "_fehler.html" if fragment else "fehler.html"
+    return await seite(request, vorlage, werte, status=status, zaehler=False)
+
+
 def datenbank_beschaeftigt(fehler: OperationalError) -> bool:
     """SQLite „database is locked“/„busy“, PostgreSQL Sperr-Zeitüberschreitung."""
     text_ = str(getattr(fehler, "orig", fehler)).lower()
@@ -79,6 +125,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
     @asynccontextmanager
     async def lebenszeit(_: FastAPI) -> AsyncIterator[None]:
         yield
+        lesezugriff.schliesse()
         dienste.schliesse()
 
     app = FastAPI(
@@ -89,6 +136,9 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         lifespan=lebenszeit,
     )
     app.state.dienste = dienste
+    # Zähler der Navigation: nur lesend, eigene Fristen und eigener Pool (Plan P1, B14)
+    lesezugriff = Lesezugriff()
+    app.state.lesezugriff = lesezugriff
     seitenmodule = routermodule(seiten)
     app.state.navigation = navigation(seitenmodule)
     app.add_middleware(Sicherheit)
@@ -132,13 +182,21 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
                 status_code=fehler.status_code,
                 headers=kopf,
             )
-        await merke_benutzersprache(request)
-        antwort = seite(
-            request,
-            "meldung.html",
-            {"titel": N_("Fehler"), "fehler": fehlertext(fehler)},
-            status=fehler.status_code,
-        )
+        if fehler.status_code == 404 and not hasattr(request.state, "angemeldet"):
+            # ohne Route: mit gültiger Sitzung im Gerüst (Datenbankfehler → schlicht)
+            await vielleicht_angemeldet(request)
+        else:
+            await merke_benutzersprache(request)
+        detail = fehler.detail
+        if isinstance(detail, Verweigerung):
+            antwort = await fehlerseite(request, 403, detail.text, detail)
+        else:
+            antwort = await fehlerseite(
+                request,
+                fehler.status_code,
+                fehlertext(fehler),
+                titel=getattr(fehler, "titel", None),
+            )
         antwort.headers.update(kopf)
         return antwort
 
@@ -151,7 +209,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         meldung = Text("Ungültige Angaben: %(felder)s", felder=felder)
         if _ist_api(request):
             return JSONResponse({"fehler": str(meldung)}, status_code=422)
-        return seite(request, "meldung.html", {"fehler": meldung}, status=422)
+        return await fehlerseite(request, 422, meldung)
 
     @app.exception_handler(OperationalError)
     async def beschaeftigt(request: Request, fehler: OperationalError) -> Response:
@@ -170,12 +228,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
             return JSONResponse(
                 {"fehler": str(BESCHAEFTIGT)}, status_code=503, headers=kopf
             )
-        antwort = seite(
-            request,
-            "meldung.html",
-            {"titel": N_("Fehler"), "fehler": BESCHAEFTIGT},
-            status=503,
-        )
+        antwort = await fehlerseite(request, 503, BESCHAEFTIGT)
         antwort.headers.update(kopf)
         return antwort
 

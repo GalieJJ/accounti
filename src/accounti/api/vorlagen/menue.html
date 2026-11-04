@@ -1,0 +1,17 @@
+{#- „Mehr“ (/menue, Leinwand „Handy-Mehr“): Bereiche, Gesellschaften, Mein Konto — ohne
+    Skript, jeder Eintrag mindestens 44 px hoch. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _("Mehr") }}{% endblock %}
+{% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+{% set bereiche = geruest.bereiche + ((geruest.einstellungen,) if geruest.einstellungen else ()) %}
+<div class="seite">
+<h1>{{ _("Mehr") }}</h1>
+<section aria-labelledby="menue-bereiche"><h2 class="etikett" id="menue-bereiche">{{ _("Bereiche") }}</h2>
+<ul class="gruppenliste">{% for e in bereiche %}<li><a href="{{ e.pfad }}"{% if e.aktiv %} aria-current="page"{% endif %}>{{ k.symbol(e.symbol) }}<span class="gruppenliste-text">{{ _(e.titel) }}</span>{% if e.zaehler is not none %}<span class="gruppenliste-neben">{{ e.zaehler }}<span class="unsichtbar"> {{ _("offen") }}</span></span>{% endif %}{{ k.symbol("chevron-right") }}</a></li>{% endfor %}</ul></section>
+<section aria-labelledby="menue-gesellschaft"><h2 class="etikett" id="menue-gesellschaft">{{ _("Gesellschaft") }}</h2>
+{% include "_gesellschaften_liste.html" %}</section>
+<section id="konto" aria-labelledby="menue-konto"><h2 class="etikett" id="menue-konto">{{ _("Mein Konto") }} · {{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }}</h2>
+<ul class="gruppenliste"><li><a href="/konto">{{ k.symbol("settings") }}<span class="gruppenliste-text">{{ _("Mein Konto") }}</span>{{ k.symbol("chevron-right") }}</a></li><li><a href="{{ geruest.hilfe_pfad }}">{{ k.symbol("circle-help") }}<span class="gruppenliste-text">{{ _("Hilfe") }}</span>{{ k.symbol("chevron-right") }}</a></li><li><form method="post" action="/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="gruppenliste-abmelden">{{ k.symbol("log-out") }}<span class="gruppenliste-text">{{ _("Abmelden") }}</span></button></form></li></ul></section>
+</div>
+{% endblock %}

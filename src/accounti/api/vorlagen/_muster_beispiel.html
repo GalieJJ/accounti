@@ -1,0 +1,4 @@
+{#- Fragment für /muster/beispiel (Abschnitt „Austausch“): Fokus nach dem Austausch auf
+    dem Element mit data-fokus. -#}
+{% import "_komponenten.html" as k with context %}
+<div class="muster-beispiel" tabindex="-1" data-fokus>{% call k.hinweis("ok") %}{{ _("Neuer Inhalt, per htmx geladen.") }}{% endcall %}</div>

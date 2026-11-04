@@ -29,12 +29,18 @@ def welt(tmp_path):
 def test_html_lang_und_navigation_englisch(welt):
     client = welt.angemeldet("jan")
     seite = client.get("/", headers=EN).text
-    assert '<html lang="en">' in seite
-    assert "Company: <strong>Alpha Papier GmbH</strong>" in seite
-    assert ">Overview<" in seite and ">Approvals<" in seite and "Sign out" in seite
+    assert '<html lang="en" ' in seite
+    # umgestellt (Plan P1, Schritt 7): Titel statt der Zeile „Gesellschaft: …“
+    assert "<title>Overview · Alpha Papier GmbH · accounti</title>" in seite
+    # umgestellt (Plan P1, B9): jan ist buchhalter — Freigaben sieht nur, wer freigeben
+    # darf; „Navigation englisch“ prüft Übersicht und Prüfen bzw. Freigaben für fritz
+    assert ">Overview<" in seite and ">Review<" in seite and "Sign out" in seite
+    assert ">Approvals<" not in seite
+    welt.person("fritz", Rolle.FREIGEBER)
+    assert ">Approvals<" in welt.angemeldet("fritz").get("/", headers=EN).text
     seite = client.get("/", headers=DE).text
-    assert '<html lang="de">' in seite
-    assert "Gesellschaft: <strong>Alpha Papier GmbH</strong>" in seite
+    assert '<html lang="de" ' in seite
+    assert "<title>Übersicht · Alpha Papier GmbH · accounti</title>" in seite
 
 
 def test_anmeldeseite_nach_accept_language(welt):
@@ -62,27 +68,28 @@ def test_vary_accept_language(welt):
 
 def test_sprache_leckt_nicht_in_die_naechste_anfrage(welt):
     client = welt.angemeldet("jan")
-    assert '<html lang="en">' in client.get("/", headers=EN).text
+    assert '<html lang="en" ' in client.get("/", headers=EN).text
     assert i18n.aktive_sprache.get() == "de"
-    assert '<html lang="de">' in client.get("/", headers=DE).text
-    assert '<html lang="de">' in client.get("/").text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
+    assert '<html lang="de" ' in client.get("/").text
 
 
 def _waehle(client, sprache: str, mit_csrf: bool = True):  # noqa: ANN001, ANN202
     daten = {"sprache": sprache, "weiter": "/freigaben"}
     if mit_csrf:
         daten["csrf"] = csrf(client)
-    return client.post("/einstellungen/sprache", data=daten, follow_redirects=False)
+    # umgestellt (Plan P1, Schritt 9): die Sprachwahl liegt bei den Vorlieben
+    return client.post("/konto/vorlieben", data=daten, follow_redirects=False)
 
 
 def test_sprache_wechseln_braucht_csrf(welt):
     client = welt.angemeldet("jan")
     r = _waehle(client, "en", mit_csrf=False)
     assert r.status_code == 403
-    assert '<html lang="de">' in client.get("/", headers=DE).text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
     r = _waehle(client, "en")
     assert r.status_code == 303 and r.headers["location"] == "/freigaben"
-    assert '<html lang="en">' in client.get("/", headers=DE).text
+    assert '<html lang="en" ' in client.get("/", headers=DE).text
     assert _waehle(client, "fr").status_code == 422
 
 
@@ -92,16 +99,17 @@ def test_sprache_bleibt_nach_neuer_anmeldung(welt):
     client.post("/abmelden", data={"csrf": csrf(client)})
     neu = welt.angemeldet("jan")
     seite = neu.get("/", headers=DE).text
-    assert '<html lang="en">' in seite
-    assert '<option value="en" lang="en" selected>' in seite
+    assert '<html lang="en" ' in seite
+    # umgestellt (Plan P1, Schritt 7): die Wahl steht im Benutzermenü als Wahlpille
+    assert 'id="menue-sprache-en" name="sprache" value="en" checked' in seite
 
 
 def test_automatisch_folgt_wieder_dem_browser(welt):
     client = welt.angemeldet("jan")
     _waehle(client, "en")
     _waehle(client, "")
-    assert '<html lang="de">' in client.get("/", headers=DE).text
-    assert '<html lang="en">' in client.get("/", headers=EN).text
+    assert '<html lang="de" ' in client.get("/", headers=DE).text
+    assert '<html lang="en" ' in client.get("/", headers=EN).text
 
 
 def test_jede_seite_in_beiden_sprachen(welt):
@@ -118,10 +126,9 @@ def test_jede_seite_in_beiden_sprachen(welt):
     )
     client = welt.angemeldet("jan")
     for pfad in pfade:
-        for kopf, lang, firma in (
-            (DE, "de", "Gesellschaft: <strong>Alpha Papier GmbH</strong>"),
-            (EN, "en", "Company: <strong>Alpha Papier GmbH</strong>"),
-        ):
+        # umgestellt (Plan P1, Schritt 7): die Gesellschaft im Titel statt in der Zeile
+        firma = " · Alpha Papier GmbH · accounti</title>"
+        for kopf, lang in ((DE, "de"), (EN, "en")):
             r = client.get(pfad, headers=kopf)
             assert r.status_code == 200, (pfad, lang)
-            assert f'<html lang="{lang}">' in r.text and firma in r.text, (pfad, lang)
+            assert f'<html lang="{lang}" ' in r.text and firma in r.text, (pfad, lang)

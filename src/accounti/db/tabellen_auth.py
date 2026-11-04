@@ -22,7 +22,9 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     event,
+    false,
     text,
+    true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -56,6 +58,20 @@ class BenutzerRow(Base):
     # Sprache der Oberfläche (Baustein 10b, Migration …_add_benutzer_sprache);
     # NULL = automatisch nach dem Browser
     sprache: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    # Anzeige-Vorlieben (Baustein 10c P1, Migration …_add_benutzer_vorlieben): NOT NULL
+    # mit Server-Standard, damit bestehende Zeilen gültig sind
+    darstellung: Mapped[str] = mapped_column(
+        String(6), default="auto", server_default="auto"
+    )
+    fachansicht: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
+    betraege_verbergen: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
+    tastenkuerzel: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default=true()
+    )
 
 
 class RollenzuordnungRow(Base):

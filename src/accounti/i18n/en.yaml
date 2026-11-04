@@ -19,13 +19,38 @@ Anmelden: Sign in
 Anmeldung fehlgeschlagen.: Sign-in failed.
 Benutzer: User
 Passwort: Password
-Einmalcode aus der App oder Wiederherstellungscode: One-time code from the app or recovery code
 Das Formular ist abgelaufen — bitte erneut senden.: The form has expired — please submit it again.
 Gerade melden sich viele an — bitte gleich noch einmal versuchen.: Many people are signing in right now — please try again in a moment.
-Gesellschaft: Company
 "Gesellschaft: <strong>%(name)s</strong>": "Company: <strong>%(name)s</strong>"
-Hauptmenü: Main menu
-Wechseln: Switch
+"Gesellschaft wechseln:": "Switch company:"
+Gesellschaft: Company
+Gesellschaft wechseln: Switch company
+"Die aktive Gesellschaft gilt für alle Seiten. Die Zahlen zeigen offene Vorschläge und Freigaben, soweit Ihre Rolle dort sie sieht.": "The active company applies to every page. The numbers show open proposals and approvals, as far as your role there can see them."
+Wechseln zu: Switch to
+aktiv: active
+nicht erreichbar: not reachable
+"%(anzahl)s zu prüfen": "%(anzahl)s to review"
+"%(num)s Freigabe":
+  one: "%(num)s approval"
+  other: "%(num)s approvals"
+Zum Inhalt springen: Skip to content
+Hilfe: Help
+Mein Konto: My account
+Mein Konto und Menü: My account and menu
+Diese Einstellungen gelten für Sie auf jedem Gerät.: These settings apply to you on every device.
+"automatisch (wie der Browser)": "automatic (like the browser)"
+"automatisch (wie das Gerät)": "automatic (like the device)"
+"Fachansicht: Konten, Soll und Haben und Steuerschlüssel zeigen": "Expert view: show accounts, debit and credit and Steuerschlüssel"
+Beträge auf der Übersicht verbergen: Hide amounts on the overview
+Tastenkürzel auf der Prüfseite: Keyboard shortcuts on the review page
+eingeschaltet: "on"
+ausgeschaltet: "off"
+Speichern: Save
+Diese Wahl gibt es nicht: This choice is not available
+Tastenkürzel ausschalten: Turn keyboard shortcuts off
+Tastenkürzel einschalten: Turn keyboard shortcuts on
+nächster Eintrag: next entry
+voriger Eintrag: previous entry
 Sprache: Language
 automatisch: automatic
 Übernehmen: Apply
@@ -48,7 +73,7 @@ Ihre Rolle in %(gesellschaft)s erlaubt das nicht: Your role in %(gesellschaft)s 
 Kein Zugriff auf diese Gesellschaft: No access to this company
 Benutzer unbekannt: Unknown user
 Einmalcode falsch oder schon benutzt: One-time code wrong or already used
-Die Systemdatenbank ist nicht auf dem Stand dieser Version (Spalte %(spalte)s fehlt) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen (siehe docs/betrieb.md, Upgrades): The system database is not up to date for this version (column %(spalte)s is missing) — first run accounti db upgrade for the system database and every company database (see docs/betrieb.md, Upgrades)
+"Die Systemdatenbank ist nicht auf dem Stand dieser Version (es fehlen: %(spalten)s) — vorher accounti db upgrade für die Systemdatenbank und jede Gesellschaftsdatenbank ausführen; bei Datenbanken mit Versionsvermerk geht gleichwertig alembic upgrade head (siehe docs/betrieb.md, Upgrades)": "The system database is not up to date for this version (missing: %(spalten)s) — first run accounti db upgrade for the system database and every company database; for databases with a version stamp, alembic upgrade head is equivalent (see docs/betrieb.md, Upgrades)"
 
 # --- Übersicht -------------------------------------------------------------------------
 Offene Posten: Open items
@@ -59,6 +84,16 @@ Buchungen zur Prüfung: Bookings to review
 Belege zur Prüfung: Documents to review
 Zahlungsläufe im Entwurf: Payment runs in draft
 Fällige offene Posten: Open items due
+Kennzahlen: Key figures
+Woher die Vorschläge kommen: Where the suggestions come from
+"accounti kontiert neue Umsätze und Belege selbst. Wo es nicht sicher genug ist, bucht es nicht, sondern legt hier einen Vorschlag ab.": "accounti assigns accounts to new transactions and documents itself. Where it is not certain enough, it does not book but leaves a suggestion here."
+Neue Umsätze holt accounti bank abrufen von der Bank.: accounti bank abrufen fetches new transactions from the bank.
+Wie accounti Regeln lernt: How accounti learns rules
+"Beim Korrigieren eines Vorschlags „Regel daraus machen“ wählen: accounti kontiert künftige Umsätze mit diesem Muster dann selbst so.": "When correcting a suggestion, choose “Make a rule from this”: accounti then assigns future transactions with this pattern the same way itself."
+Gelernte Regeln lassen sich nicht bearbeiten, nur deaktivieren und neu lernen.: Learned rules cannot be edited, only deactivated and learned again.
+Keine offenen Posten sind fällig.: No open items are due.
+Woher die offenen Posten kommen: Where open items come from
+"Offene Posten sind gebuchte Rechnungen, die noch nicht ganz bezahlt sind. In der Kommandozeile zeigt sie accounti opos liste; in der Übersicht stehen die fälligen.": "Open items are booked invoices that are not yet fully paid. On the command line, accounti opos liste shows them; the overview lists those that are due."
 Fällig: Due
 Kontakt: Contact
 Beleg: Document
@@ -69,6 +104,9 @@ Freigaben: Approvals
 Freigeben: Approve
 Nr.: No.
 Ausführung: Execution
+Zahlungslauf %(nr)s: Payment run %(nr)s
+Monat (2026-09) oder Quartal (2026-Q3): Month (2026-09) or quarter (2026-Q3)
+Ergebnis der Freigabe: Approval result
 Zahlungen: Payments
 Summe: Total
 Angelegt von: Created by
@@ -121,11 +159,12 @@ Dezember: December
 "Nichts zurückgestellt.": "Nothing on hold."
 "Keine Begründung gespeichert": "No reasoning stored"
 "Zur Liste": "Back to list"
+Position in der Prüfung: Position in the review
+Beispiele: Examples
 "%(nr)s von %(gesamt)s": "%(nr)s of %(gesamt)s"
 "Voriger": "Previous"
 "Nächster": "Next"
 "Buchung und Journal": "Booking and journal"
-"Die Aktion wurde nicht ausgeführt:": "The action was not carried out:"
 "Die Konfiguration der Gesellschaft ist fehlerhaft — Freigeben, Korrigieren und Stornieren sind erst nach ihrer Berichtigung möglich:": "The company's configuration is faulty — approving, correcting and reversing are only possible once it has been fixed:"
 "Buchung freigegeben.": "Booking approved."
 "Buchung korrigiert.": "Booking corrected."
@@ -216,7 +255,6 @@ Dezember: December
 "offen": "open"
 # Tastenhilfe
 "Tastenkürzel": "Keyboard shortcuts"
-"nächster / voriger Eintrag": "next / previous entry"
 "freigeben": "approve"
 "korrigieren (Fokus auf Soll)": "correct (focus on debit)"
 "Regel daraus machen (an/aus)": "make a rule (on/off)"
@@ -225,7 +263,6 @@ Dezember: December
 "diese Hilfe": "this help"
 "im Eingabefeld: absenden / Feld verlassen": "in an input field: submit / leave the field"
 "Strg": "Ctrl"
-"Tastenkürzel aus (nur in diesem Browser)": "Keyboard shortcuts off (this browser only)"
 # Gelernte Regeln
 "Zurück zur Prüfung": "Back to review"
 "Gelernte Regeln greifen vor der Regeldatei der Gesellschaft in der Richtung der Spalte „Richtung“ — aus einer Korrektur die Zahlungsrichtung des Quellumsatzes; „beide“ gilt für Ein- und Ausgänge. Einen Umsatz der Gegenrichtung (etwa eine Erstattung zu einer Ausgaberegel) schlagen sie höchstens als Gegenbuchung zur Prüfung vor, nie als automatische Buchung. Sie werden nicht bearbeitet, nur deaktiviert und neu gelernt.": "Learned rules take precedence over the company's rule file and apply in the direction shown in the “Direction” column — for a rule from a correction, the payment direction of its source transaction; “both” applies to payments in and out. A transaction in the opposite direction (such as a refund for a rule on payments out) is at most proposed as a counter-entry for review, never booked automatically. They are not edited, only deactivated and learned again."
@@ -340,3 +377,248 @@ Dezember: December
 "Storniert durch Storno %(storno)s, Neubuchung %(neu)s — Original, Storno und Neubuchung bleiben sichtbar.": "Reversed by reversal %(storno)s, new booking %(neu)s — original, reversal and new booking remain visible."
 "Storniert durch Storno %(storno)s — beide Buchungen bleiben sichtbar.": "Reversed by reversal %(storno)s — both bookings remain visible."
 "Der Umsatz ist wieder offen und wird beim nächsten Lauf neu kontiert (gegebenenfalls über eine gelernte Regel).": "The transaction is open again and will be booked anew in the next run (possibly by a learned rule)."
+
+# --- Komponenten (Baustein 10c P1) --------------------------------------------
+niedrig: low
+mittel: medium
+hoch: high
+'Sicherheit: %(stufe)s': 'Confidence: %(stufe)s'
+'Hinweis:': 'Note:'
+'Erledigt:': 'Done:'
+'Achtung:': 'Caution:'
+'Fehler:': 'Error:'
+aufklappen: expand
+zuklappen: collapse
+(Pflicht): (required)
+Code aus Ihrer Authenticator-App: Code from your authenticator app
+Wiederherstellungscode: Recovery code
+Wiederherstellungscode verwenden: Use a recovery code
+Code aus der App verwenden: Use a code from the app
+Bitte prüfen: Please check
+Schritte: Steps
+Schritt %(n)s von %(m)s: Step %(n)s of %(m)s
+Abbrechen: Cancel
+Wird geladen …: Loading …
+Brotkrumen: Breadcrumbs
+Weiter: Next
+Bereiche: Areas
+Aktionen: Actions
+Auswahl: Selection
+
+# --- Musterseite /muster (Baustein 10c P1) ----------------------------------------
+2 ausgewählt: 2 selected
+3 unsicher: 3 uncertain
+6 Buchungen freigegeben.: 6 bookings approved.
+Abschnitt 22: Section 22
+Abschnitte: Sections
+Aktionen der Prüfung: Review actions
+Akzent (Petrol): Accent (petrol)
+Alle ansehen: View all
+Anderes Konto: Other account
+Ansicht: View
+Ansicht auf dem Handy: View on the phone
+Anzeige: Display
+Austausch: Swap
+Auswahl aufheben: Clear selection
+Automatisch: Automatic
+Bank: Bank
+Bausteine: Building blocks
+Beispiel laden: Load example
+Belege: Documents
+Beschriftung 12: Label 12
+Betriebsbedarf: Operating supplies
+Bürobedarf: Office supplies
+Code falsch oder schon benutzt.: Code wrong or already used.
+Darstellung: Appearance
+Darstellung der Musterseite: Appearance of the pattern page
+Deaktiviert: Disabled
+Die Buchung wird gegengebucht; beide bleiben im Journal.: The booking is reversed; both stay in the journal.
+Die PLZ hat 5 Ziffern.: The postcode has 5 digits.
+Die USt-IdNr. hat 9 Ziffern nach DE.: The USt-IdNr. has 9 digits after DE.
+Dunkel: Dark
+Einstellungen: Settings
+Einzelunternehmen: Sole proprietorship
+Erfolg: Success
+Etikett 13: Label 13
+Farben: Colours
+Felder: Fields
+Fertig: Done
+Firma: Company
+Fließtext 16 — Kontobezeichnung vor Nummer, „19 %% Vorsteuer“ vor „Schlüssel 9“.: Body text 16 — account name before number, “19 %% input VAT” before “key 9”.
+Fläche: Surface
+Fläche 2: Surface 2
+Fokus (Bernstein): Focus (amber)
+Format passt: Format is valid
+Formular, eine Spalte: Form, one column
+Groß: Large
+Hell: Light
+Hinweis: Note
+Hinweise: Notices
+Kartentitel 18: Card title 18
+Kennzahl in einer Karte: Key figure in a card
+Kennzahlen Oktober: Key figures October
+Klein: Small
+Knöpfe: Buttons
+Konten: Accounts
+Konto: Account
+Kosten im Oktober: Costs in October
+Künftig immer so buchen: Always book like this from now on
+Letzte Sicherung vor 9 Tagen.: Last backup 9 days ago.
+Linie: Line
+Lädt ein Fragment per htmx; danach liegt der Fokus auf dem neuen Inhalt.: Loads a fragment via htmx; focus then moves to the new content.
+Mehr: More
+Mit Fokus: With focus
+Nebentext: Secondary text
+Nebentext 14: Secondary text 14
+Nichts zu prüfen.: Nothing to review.
+Notiz: Note
+'Nächster Bankabruf: heute 14:00.': 'Next bank fetch: today 14:00.'
+PLZ: Postcode
+Passt – freigeben: Correct – approve
+Primär: Primary
+Rechnungen offen: invoices open
+Rechtsform: Legal form
+? 'Ruhig, hell und dunkel, Systemschrift, Beträge in gleich breiten Ziffern. Farbe trägt nie allein Bedeutung: Status hat immer Wort und Symbol. Der Fokusring ist bernsteinfarben und unterscheidet sich von Akzent und Fehler.'
+: 'Calm, light and dark, system font, amounts in equal-width digits. Colour never carries meaning alone: status always has a word and a symbol. The focus ring is amber and differs from accent and error.'
+Schrift: Type
+Seitentitel 28: Page title 28
+Sekundär: Secondary
+Sonstige Kosten: Other costs
+Speichert …: Saving …
+Später klären: Clarify later
+Status und Sicherheit: Status and confidence
+Steht im Journal neben der Buchung.: Shown in the journal next to the booking.
+Steuern: Taxes
+Still: Quiet
+Tabelle und leerer Zustand: Table and empty state
+Text: Text
+Titel 20: Title 20
+Umsatz, Kosten und Ergebnis des Monats.: Revenue, costs and result of the month.
+Unternavigation: Sub-navigation
+Vier Zahlungen, zusammen 3.212,40 €.: Four payments, together €3,212.40.
+Volle Breite: Full width
+Warnung: Warning
+Weitere Bausteine: More building blocks
+Welches Konto passt?: Which account fits?
+Wird geprüft, sobald Sie das Feld verlassen.: Checked as soon as you leave the field.
+Wirklich stornieren?: Really reverse?
+Zahlungen ansehen (4): View payments (4)
+Zur Hilfe für Prüfen: To the help for reviewing
+accounti berät nicht steuerlich.: accounti does not give tax advice.
+dunkel: dark
+freigegeben: approved
+gelernte Regel: learned rule
+hell: light
+jährlich: yearly
+monatlich: monthly
+nur mit Beleg: only with a document
+vierteljährlich: quarterly
+vorbereitet: prepared
+zusammen 652,31 €: together €652.31
+überfällig: overdue
+Neuer Inhalt, per htmx geladen.: New content, loaded via htmx.
+"Spaltenköpfe mit Sortierung": "Column headers with sorting"
+"gesperrt": "locked"
+
+# --- Hilfe (Baustein 10c P1, Schritt 10) ---------------------------------------------
+"Alle Hilfethemen": "All help topics"
+"Anderes Konto …": "Other account …"
+"Anmeldung": "Sign-in"
+"Aus einer Korrektur eine Regel für künftige Umsätze lernen.": "Learn a rule for future transactions from a correction."
+"Ausgaben / Einnahmen": "Payments out / payments in"
+"Bedeutung": "Meaning"
+"Begriffe": "Terms"
+"Benutzername und Passwort eingeben — ein Passwortmanager darf beides einfügen.": "Enter user name and password — a password manager may fill in both."
+"Buchung berichtigen (Storno)": "Correct booking (reversal)"
+"Confidence 62 %%": "Confidence 62 %%"
+"Danach steht der Lauf hier zur Freigabe.": "The run then appears here for approval."
+"Darstellung: automatisch folgt dem Gerät, sonst hell oder dunkel.": "Appearance: automatic follows the device, otherwise light or dark."
+"Das Konto, auf das ein Betrag gebucht wird; die Bankseite zeigt die Fachansicht.": "The account an amount is booked to; the expert view shows the bank side."
+"Den Code aus der Authenticator-App eingeben und freigeben. Hat sich der Lauf inzwischen geändert, zeigt accounti ihn neu an.": "Enter the code from the authenticator app and approve. If the run has changed in the meantime, accounti shows it again."
+"Den Eintrag mit einer Frage beiseitelegen.": "Set the entry aside with a question."
+"Den Lauf prüfen: Empfänger, Beträge und Summe.": "Check the run: payees, amounts and total."
+"Den sechsstelligen Code aus der Authenticator-App eingeben. Ohne die App geht einer der Wiederherstellungscodes; jeder gilt nur einmal.": "Enter the six-digit code from the authenticator app. Without the app, one of the recovery codes works; each is valid only once."
+"Der Vorschlag stimmt und wird gebucht.": "The proposal is right and is booked."
+"Der sechsstellige Code für die Anmeldung und für Freigaben.": "The six-digit code for signing in and for approvals."
+"Die Fachansicht zeigt Konten, Soll und Haben und Steuerschlüssel; „Beträge verbergen“ blendet Beträge auf der Übersicht aus.": "The expert view shows accounts, debit and credit and Steuerschlüssel; “Hide amounts” hides amounts on the overview."
+"Die Zahlen in der Navigation zählen offene Vorschläge (Prüfen) und Zahlungsläufe im Entwurf (Freigaben).": "The numbers in the navigation count open proposals (Review) and payment runs in draft (Approvals)."
+"Die regelmäßige Meldung der Umsatzsteuer an das Finanzamt.": "The regular VAT return to the tax office."
+"Die Übersicht zeigt, was in der aktiven Gesellschaft ansteht: offene Rechnungen, Buchungen und Belege zur Prüfung und Zahlungsläufe, die auf eine Freigabe warten.": "The overview shows what is due in the active company: open invoices, bookings and documents to review and payment runs waiting for approval."
+"Ein Sprachmodell hat das Konto vorgeschlagen.": "A language model proposed the account."
+"Eine freigegebene Buchung wird nicht geändert, sondern mit einer Gegenbuchung berichtigt.": "An approved booking is not changed but corrected with a reversing entry."
+"Eine gelernte oder eingetragene Regel hat das Konto bestimmt.": "A learned or configured rule chose the account."
+"Einen Eintrag öffnen: links der Beleg, rechts der Vorschlag.": "Open an entry: the document on the left, the proposal on the right."
+"Empfänger / Absender": "Payee / sender"
+"Fachbegriff": "Technical term"
+"Fällige offene Rechnungen stehen in der Liste darunter.": "Open invoices that are due are listed below."
+"Gelernte Regeln stehen unter „Gelernte Regeln“ und lassen sich abschalten.": "Learned rules are listed under “Learned rules” and can be switched off."
+"Hier gibt eine berechtigte Person Zahlungsläufe und die Umsatzsteuer-Voranmeldung frei — immer mit einem frischen Code aus der Authenticator-App.": "Here an authorised person approves payment runs and the USt-VA — always with a fresh code from the authenticator app."
+"Hilfe: %(thema)s": "Help: %(thema)s"
+"In accounti": "In accounti"
+"Ist etwas unklar, den Eintrag mit einer Rückfrage zurückstellen; er steht dann unter „Zurückgestellt“.": "If something is unclear, set the entry aside with a query; it is then listed under “Set aside”."
+"Jede Änderung an einer Buchung, unveränderbar aufgezeichnet.": "Every change to a booking, recorded unalterably."
+"KI-Vorschlag (LLM) · Modell …": "AI proposal (LLM) · model …"
+"Klare Sprache und Fachbegriffe": "Plain language and technical terms"
+"Konto oder Steuer ändern, bevor gebucht wird.": "Change account or tax before booking."
+"Kurzanleitungen je Bereich und die Begriffe, die accounti verwendet.": "Short guides for each area and the terms accounti uses."
+"Künftig immer so?": "Always like this from now on?"
+"Nach mehreren Fehlversuchen sperrt accounti die Anmeldung für kurze Zeit. Die Meldung sagt nie, was falsch war.": "After several failed attempts accounti blocks signing in for a short time. The message never says what was wrong."
+"OPOS / offene Posten": "OPOS / open items"
+"Ob Geld abgeht oder eingeht.": "Whether money goes out or comes in."
+"Oben steht die aktive Gesellschaft mit Kennfarbe und Kürzel. Gewechselt wird über ihren Namen oder unter „Mehr“.": "The active company is shown at the top with its colour and initials. Switch via its name or under “More”."
+"Ohne Freigaberecht ist die Seite nur zum Lesen da.": "Without the right to approve, the page is read-only."
+"Passt der Vorschlag, freigeben. Sonst Konto und Steuer korrigieren — auf Wunsch lernt accounti daraus eine Regel.": "If the proposal fits, approve it. Otherwise correct account and tax — if you wish, accounti learns a rule from it."
+"Rechnungen, die noch nicht bezahlt sind: Forderungen und Verbindlichkeiten.": "Invoices not yet paid: receivables and payables."
+"Regel daraus machen · Muster (Text, nur ganze Wörter) · Suchen in": "Make a rule from this · pattern (text, whole words only) · search in"
+"Regelwerk · Regel X": "Rules · rule X"
+"Sicherheit: mittel": "Confidence: medium"
+"So entsteht ein Zahlungslauf": "How a payment run is created"
+"So geht’s": "How it works"
+"Soll 4980 / Haben 1200": "Debit 4980 / credit 1200"
+"Sprache: automatisch folgt dem Browser, sonst Deutsch oder Englisch.": "Language: automatic follows the browser, otherwise German or English."
+"Später klären …": "Clarify later …"
+"Steuerschlüssel 9": "Steuerschlüssel 9"
+"Tastenkürzel gelten auf der Prüfseite; abschalten lassen sie sich hier oder in der Tastenhilfe.": "Keyboard shortcuts apply on the review page; switch them off here or in the shortcut help."
+"Themen": "Topics"
+"USt-VA": "USt-VA"
+"Unter „Mein Konto“ stellen Sie ein, wie accounti für Sie aussieht. Die Einstellungen gelten auf jedem Gerät.": "Under “My account” you set how accounti looks for you. The settings apply on every device."
+"Unter „Prüfen“ stehen Buchungsvorschläge, die accounti nicht sicher genug selbst buchen wollte.": "“Review” lists booking proposals that accounti was not sure enough to book by itself."
+"Verlauf": "History"
+"Vorschlag der KI": "AI proposal"
+"Welche Steuer in einem Betrag steckt.": "Which tax an amount contains."
+"Wer Geld bekommt (Ausgabe) oder schickt (Einnahme).": "Who receives money (payment out) or sends it (payment in)."
+"Wie sicher accounti bei einem Vorschlag ist: niedrig, mittel oder hoch.": "How sure accounti is about a proposal: low, medium or high."
+"Zahlungsläufe legt die Buchhaltung in der Kommandozeile an: accounti zahlung vorschlag zeigt die fälligen Rechnungen, accounti zahlung anlegen macht daraus einen Lauf im Entwurf.": "Bookkeeping creates payment runs on the command line: accounti zahlung vorschlag shows the invoices due, accounti zahlung anlegen turns them into a draft run."
+"Zahlungsrichtung": "Payment direction"
+"Zur Anmeldung gehören Benutzername, Passwort und ein Code aus der Authenticator-App.": "Signing in takes a user name, a password and a code from the authenticator app."
+"accounti bucht wie bei früheren Rechnungen desselben Kontakts.": "accounti books as for earlier invoices from the same contact."
+"mit 19 %% Vorsteuer": "with 19 %% input VAT"
+"nach Ihrer Regel „X“": "by your rule “X”"
+"offene Rechnungen": "open invoices"
+"wie bisher bei diesem Lieferanten/Kunden": "as before for this supplier/customer"
+"→ Betriebsbedarf (4980)": "→ Operating supplies (4980)"
+"Passt – freigeben": "Looks right – approve"
+
+# --- Fehler- und Statusseiten, Rechte (Baustein 10c P1, Schritt 11) --------------------
+"Keine Berechtigung": "No permission"
+"Nicht gefunden": "Not found"
+"Inzwischen geändert": "Changed in the meantime"
+"Nicht ausgeführt": "Not carried out"
+"Zu groß": "Too large"
+"Angaben prüfen": "Check your input"
+"Gerade beschäftigt": "Busy right now"
+"Interner Fehler": "Internal error"
+"Das hat nicht geklappt. Bitte die Seite neu laden oder später noch einmal versuchen.": "That did not work. Please reload the page or try again later."
+"Zur Startseite": "To the start page"
+"Nötig:": "Required:"
+"oder": "or"
+"Enthalten in den Rollen:": "Included in the roles:"
+"lesen": "read"
+"buchen und korrigieren": "book and correct"
+"Belege einliefern": "submit documents"
+"Läufe starten": "start runs"
+"Buchungen freigeben": "approve bookings"
+"Zahlungsläufe freigeben": "approve payment runs"
+"Steuermeldungen freigeben": "approve tax returns"
+"Benutzer und Einstellungen verwalten": "manage users and settings"
+"Kontierungsregeln lernen": "learn posting rules"

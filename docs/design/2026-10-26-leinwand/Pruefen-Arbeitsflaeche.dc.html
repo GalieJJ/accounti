@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Vorschlag prüfen – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--warn:#8a5a00;--warn-flaeche:#fbf0d9;--fehler:#a8241f;--fehler-flaeche:#fbe7e5;--info:#1f5fa8;--info-flaeche:#e6eef9;--schatten:0 1px 2px rgba(27,31,36,.05),0 4px 12px rgba(27,31,36,.04)}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--warn:#f0c46a;--warn-flaeche:#2e2614;--fehler:#ff9a92;--fehler-flaeche:#341a19;--info:#8db8f0;--info-flaeche:#172436;--schatten:none}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a a:hover{text-decoration-thickness:2px}
+.a button{font:inherit;cursor:pointer}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a summary{cursor:pointer}
+.a kbd{font:inherit;font-size:12px;padding:0 6px;border:1px solid currentColor;border-radius:4px;opacity:.75}
+</style>
+</helmet>
+<div class="a {{theme}}" style="min-height: 100vh; display: flex; flex-direction: column">
+
+<nav aria-label="Prüfschlange" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; min-height: 56px; padding: 0 24px; background: var(--flaeche); border-bottom: 1px solid var(--linie)">
+<a href="Pruefen-Liste.dc.html" style="display: inline-flex; align-items: center; gap: 6px; min-height: 44px; font-weight: 600; text-decoration: none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>Zur Liste</a>
+<span style="color: var(--text-2)">3 von 12</span>
+<div style="flex: 1 1 auto"></div>
+<a href="#voriger" style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--text); text-decoration: none">Voriger <kbd>k</kbd></a>
+<a href="#naechster" style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; color: var(--text); text-decoration: none">Nächster <kbd>j</kbd></a>
+<a href="#verlauf" style="display: inline-flex; align-items: center; min-height: 44px; color: var(--text-2)">Verlauf</a>
+</nav>
+
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 24px; padding: 24px; align-items: flex-start">
+
+<section aria-label="Beleg" style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Beleg</h2>
+<a href="#zuordnen" style="font-size: 14px; font-weight: 600">Beleg zuordnen</a>
+</div>
+<div style="min-height: 680px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 32px; background: var(--flaeche); border: 1px dashed var(--linie-stark); border-radius: 10px; text-align: center">
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-2)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>
+<div style="font-weight: 600">Kein Beleg zugeordnet</div>
+<dl style="margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px 16px; text-align: left; font-size: 14px">
+<dt style="color: var(--text-2)">Datum</dt><dd style="margin: 0">05.04.2026</dd>
+<dt style="color: var(--text-2)">Betrag</dt><dd style="margin: 0">780,25 €</dd>
+<dt style="color: var(--text-2)">Absender</dt><dd style="margin: 0">eBay Sarl · LU11 2233 44 …</dd>
+</dl>
+</div>
+</section>
+
+<section aria-label="Vorschlag" style="flex: 1 1 440px; min-width: 0; max-width: 620px; display: flex; flex-direction: column; gap: 20px; padding: 24px 26px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px; box-shadow: var(--schatten)">
+
+<div style="display: flex; flex-direction: column; gap: 2px">
+<h1 style="margin: 0; font-size: 22px; font-weight: 600; line-height: 1.25">eBay Sarl</h1>
+<div style="display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap"><span style="font-size: 28px; font-weight: 600; letter-spacing: -0.01em">+ 780,25 €</span><span style="color: var(--text-2)">Einnahme · 05.04.2026</span></div>
+<div style="font-size: 14px; color: var(--text-2)">Geschäftskonto · EBAY MANAGED PAYMENTS AUSZAHLUNG</div>
+</div>
+
+<sc-if value="{{istStart}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 20px">
+<div role="note" style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--warn-flaeche); color: var(--text)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path><path d="M12 9v4M12 17h.01"></path></svg>
+<div><strong style="font-weight: 600">Achtung:</strong> Kein Beleg zugeordnet. Bei Auszahlungen ist die Marktplatz-Abrechnung der Beleg.</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h2 style="margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Vorschlag</h2>
+<div style="font-size: 20px; font-weight: 600">→ Erlöse 19 % USt (8400)</div>
+<div>mit 19 % Umsatzsteuer</div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-2)"><span aria-hidden="true" style="display: inline-flex; gap: 2px"><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--warn)"></span><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--warn)"></span><span style="width: 10px; height: 10px; border-radius: 2px; background: var(--linie)"></span></span>Sicherheit: mittel · Vorschlag der KI</div>
+<div style="font-size: 14px; color: var(--text-2)">„Betrag und Text deuten auf einen Verkauf.“</div>
+</div>
+<details style="border-top: 1px solid var(--linie); padding-top: 10px">
+<summary style="min-height: 32px; font-weight: 600">Buchungsdetails</summary>
+<dl style="margin: 8px 0 0; display: grid; grid-template-columns: 9rem 1fr; gap: 4px 16px; font-size: 14px">
+<dt style="color: var(--text-2)">Soll</dt><dd style="margin: 0">Bank (1200)</dd>
+<dt style="color: var(--text-2)">Haben</dt><dd style="margin: 0">Erlöse 19 % USt (8400)</dd>
+<dt style="color: var(--text-2)">Netto / Steuer</dt><dd style="margin: 0">655,67 € / 124,58 €</dd>
+<dt style="color: var(--text-2)">Steuerschlüssel</dt><dd style="margin: 0">3 (Automatikkonto)</dd>
+</dl>
+</details>
+<div style="display: flex; flex-direction: column; gap: 10px">
+<button type="button" onClick="{{freigeben}}" style="display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Passt – freigeben <kbd>f</kbd></button>
+<button type="button" onClick="{{zuKonto}}" style="display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 48px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600">Anderes Konto … <kbd>e</kbd></button>
+<button type="button" onClick="{{spaeter}}" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Später klären … <kbd>z</kbd></button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{istKonto}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Welches Konto passt?</h2>
+<fieldset style="margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: 8px">
+<legend style="margin-bottom: 8px; font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-2)">Vorschläge</legend>
+<sc-for list="{{optionen}}" as="opt" hint-placeholder-count="3">
+<label style="display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: {{opt.rahmen}}; border-radius: 8px; background: {{opt.grund}}; cursor: pointer">
+<input type="radio" name="konto" checked="{{opt.gewaehlt}}" onChange="{{opt.waehlen}}" style="width: 18px; height: 18px; margin-top: 3px; accent-color: var(--akzent)">
+<span style="flex: 1 1 auto; display: flex; flex-direction: column"><span style="font-weight: 600">{{opt.titel}}</span><span style="font-size: 14px; color: var(--text-2)">{{opt.hinweis}}</span></span>
+<kbd style="margin-top: 3px">{{opt.taste}}</kbd>
+</label>
+</sc-for>
+</fieldset>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="suche" style="font-weight: 600">Anderes Konto suchen</label>
+<div style="display: flex; gap: 8px">
+<input id="suche" type="search" placeholder="z. B. Porto, 4910, Telefon" style="flex: 1 1 auto; min-width: 0; min-height: 44px; padding: 0 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font: inherit">
+<button type="button" style="min-height: 44px; padding: 0 16px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font-weight: 600">Suchen</button>
+</div>
+</div>
+<p style="margin: 0; color: var(--text-2)">Steuer: {{steuertext}}</p>
+<details>
+<summary style="min-height: 32px; font-weight: 600">Grund für den Verlauf (optional)</summary>
+<textarea aria-label="Grund" rows="2" style="margin-top: 8px; width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font: inherit"></textarea>
+</details>
+<div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+<button type="button" onClick="{{speichern}}" style="display: inline-flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Speichern <kbd>Strg+Enter</kbd></button>
+<button type="button" onClick="{{abbrechen}}" style="min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Abbrechen</button>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{istRegel}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div role="status" style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--ok-flaeche)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M20 6 9 17l-5-5"></path></svg>
+<div><strong style="font-weight: 600">Gespeichert:</strong> eBay Sarl → {{gewaehltTitel}}. <a href="#verlauf">Verlauf</a></div>
+</div>
+<h2 style="margin: 0; font-size: 20px; font-weight: 600">Künftig immer so?</h2>
+<div style="display: flex; flex-direction: column; gap: 6px; padding: 16px 18px; border: 1px solid var(--linie-stark); border-radius: 8px">
+<div>Wenn Absender „eBay“ <span style="color: var(--text-2)">(Einnahmen)</span></div>
+<div style="font-weight: 600">→ {{gewaehltTitel}}</div>
+<div style="font-size: 14px; color: var(--text-2)">Hätte 14 frühere Umsätze getroffen, 11 davon sind schon so gebucht.</div>
+<details>
+<summary style="min-height: 32px; font-size: 14px; font-weight: 600; color: var(--akzent)">Bedingung anpassen</summary>
+<p style="margin: 6px 0 0; font-size: 14px; color: var(--text-2)">Absender, Textmuster und Richtung lassen sich hier eingrenzen.</p>
+</details>
+</div>
+<div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+<button type="button" onClick="{{regelJa}}" style="display: inline-flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Ja, Regel anlegen <kbd>r</kbd></button>
+<button type="button" onClick="{{regelNein}}" style="display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 8px; border: 0; background: transparent; color: var(--akzent); font-weight: 600">Nein, nur dieses Mal <kbd>n</kbd></button>
+</div>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Danach: nächster Eintrag (Staples, 156,78 €)</p>
+</div>
+</sc-if>
+
+<sc-if value="{{istFertig}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div role="status" style="display: flex; gap: 10px; padding: 12px 14px; border-radius: 8px; background: var(--ok-flaeche)">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 3px"><path d="M20 6 9 17l-5-5"></path></svg>
+<div><strong style="font-weight: 600">Erledigt:</strong> {{fertigText}}</div>
+</div>
+<button type="button" onClick="{{naechster}}" style="align-self: flex-start; display: inline-flex; align-items: center; gap: 12px; min-height: 48px; padding: 0 22px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Weiter: Staples, 156,78 € <kbd>j</kbd></button>
+</div>
+</sc-if>
+
+</section>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":1440,"height":940}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { schritt: 'start', wahl: '1362', fertig: '' };
+  }
+  renderVals() {
+    const s = this.state;
+    const liste = [
+      { id: '1362', titel: 'Verrechnung eBay (1362)', hinweis: 'bisher 11 × bei eBay', taste: '1', steuer: 'keine (Verrechnungskonto)' },
+      { id: '1360', titel: 'Geldtransit (1360)', hinweis: 'passt zum Text „AUSZAHLUNG“', taste: '2', steuer: 'keine (Geldtransit)' },
+      { id: '8400', titel: 'Erlöse 19 % USt (8400)', hinweis: 'bisheriger Vorschlag', taste: '3', steuer: '19 % Umsatzsteuer (Automatikkonto)' }
+    ];
+    const gewaehlt = liste.find((o) => o.id === s.wahl) || liste[0];
+    return {
+      theme: this.props.dunkel ? 'dunkel' : '',
+      istStart: s.schritt === 'start',
+      istKonto: s.schritt === 'konto',
+      istRegel: s.schritt === 'regel',
+      istFertig: s.schritt === 'fertig',
+      fertigText: s.fertig,
+      gewaehltTitel: gewaehlt.titel,
+      steuertext: gewaehlt.steuer,
+      optionen: liste.map((o) => ({
+        ...o,
+        gewaehlt: o.id === s.wahl,
+        rahmen: o.id === s.wahl ? '2px solid var(--akzent)' : '1px solid var(--linie-stark)',
+        grund: o.id === s.wahl ? 'var(--akzent-flaeche)' : 'var(--flaeche)',
+        waehlen: () => this.setState({ wahl: o.id })
+      })),
+      freigeben: () => this.setState({ schritt: 'fertig', fertig: 'Freigegeben als Erlöse 19 % USt (8400).' }),
+      zuKonto: () => this.setState({ schritt: 'konto' }),
+      spaeter: () => this.setState({ schritt: 'fertig', fertig: 'Zurückgestellt unter „Später klären“.' }),
+      speichern: () => this.setState({ schritt: 'regel' }),
+      abbrechen: () => this.setState({ schritt: 'start' }),
+      regelJa: () => this.setState({ schritt: 'fertig', fertig: 'Gebucht und Regel „eBay“ angelegt.' }),
+      regelNein: () => this.setState({ schritt: 'fertig', fertig: 'Gebucht, ohne Regel.' }),
+      naechster: () => this.setState({ schritt: 'start', wahl: '1362', fertig: '' })
+    };
+  }
+}
+</script>
+</body>
+</html>

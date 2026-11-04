@@ -100,6 +100,23 @@ def test_filter_gilt_fuer_alle_logger_und_ausnahmen(ausgabe):
     assert "[IBAN]" in text and "ValueError" in text
 
 
+@pytest.mark.parametrize(
+    "name", ["httpx", "httpcore", "httpx2", "httpcore2", "urllib3"]
+)
+def test_http_bibliotheken_schreiben_keine_adressen(ausgabe, name):
+    """openai 2.x (über litellm) bringt ``httpx2``/``httpcore2`` mit, Starlette 1.10
+    nimmt es dann auch für den TestClient. Deren INFO-Zeile „HTTP Request: GET https://…“
+    trug ganze Adressen ins Protokoll — Namen im Pfad, Token in Webhook-URLs (CI auf
+    f760b40); gedämpft waren nur die alten Namen."""
+    logging.getLogger(name).info(
+        "HTTP Request: GET https://hooks.example.invalid/x7-geheim"
+    )
+    logging.getLogger(f"{name}._client").debug("Anfrage an /x7-geheim")
+    assert "x7-geheim" not in ausgabe.getvalue()
+    logging.getLogger(name).warning("Verbindung abgebrochen")
+    assert "Verbindung abgebrochen" in ausgabe.getvalue()
+
+
 def test_json_format():
     puffer = io.StringIO()
     wurzel = logging.getLogger()
@@ -455,7 +472,7 @@ def test_lange_sprachangabe_haelt_den_server_nicht_an(tmp_path):
             r = client.get(pfad, headers={"Accept-Language": kopf})
             dauer = time.perf_counter() - beginn
             assert r.status_code in (200, 404), r.status_code
-            assert '<html lang="de">' in r.text
+            assert '<html lang="de" ' in r.text
             assert dauer < 0.5, (pfad, dauer)  # vorher mehrere Sekunden
 
 
@@ -739,3 +756,49 @@ def test_schwaerzung_mit_schraegstrich_im_passwort(roh, darf_nicht):
 )
 def test_schwaerzung_laesst_at_im_pfad(roh):
     assert schwaerze(roh) == roh
+
+
+def test_geruest_ohne_personenbezug(tmp_path, ausgabe, monkeypatch):
+    """AK59 (Plan P1, Schritt 13): Marker im Anzeigenamen, im Namen der Gesellschaft, in
+    einem 404-Pfad und in einer 500-Ausnahme — nach Vorlieben, /gesellschaft, /menue,
+    /hilfe, /muster, 404 und 500 steht keiner in der Protokollausgabe."""
+    from sqlalchemy import text as sql
+
+    from accounti.api.seiten import start
+    from tests.api_hilfe import csrf
+
+    welt = webwelt(tmp_path)
+    welt.person("erika.muster", Rolle.FREIGEBER)
+    with welt.system() as s:
+        s.execute(sql("UPDATE auth_benutzer SET anzeigename = 'Anzeige-Marke'"))
+        s.commit()
+    client = welt.angemeldet("erika.muster")
+    r = client.post(
+        "/konto/vorlieben",
+        data={"csrf": csrf(client, "/konto"), "darstellung": "dunkel"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    for pfad in ("/gesellschaft", "/menue", "/hilfe", "/hilfe/pruefen", "/muster"):
+        assert client.get(pfad).status_code == 200, pfad
+    assert "Anzeige-Marke" in client.get("/konto").text  # die Seite zeigt ihn …
+    assert client.get("/Pfad-Marke/404").status_code == 404
+
+    def wirft(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+        raise RuntimeError("Ausnahme-Marke Alpha Papier GmbH")
+
+    monkeypatch.setattr(start, "kennzahlen", wirft)
+    assert client.get("/").status_code == 500
+    text = ausgabe.getvalue()
+    assert "GET /gesellschaft 200" in text and "GET (unbekannt) 404" in text
+    assert "GET / 500" in text  # … das Protokoll nennt nur Route und Status
+    for geheim in (
+        "Anzeige-Marke",
+        "erika",
+        "Alpha Papier",
+        "Beta Rahmen",
+        "Pfad-Marke",
+        "Ausnahme-Marke",
+        "dunkel",
+    ):
+        assert geheim not in text, geheim

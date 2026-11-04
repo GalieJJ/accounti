@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<title>Freigaben auf dem Handy – accounti</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+.a{--grund:#f5f4f1;--flaeche:#ffffff;--flaeche-2:#efede8;--text:#1b1f24;--text-2:#555d66;--linie:#d6d3cc;--linie-stark:#7a8088;--akzent:#1a5a73;--akzent-text:#ffffff;--akzent-flaeche:#e3eef2;--fokus:#b35c00;--ok:#1d6b3a;--ok-flaeche:#e5f2e9;--marke-gd:#7b3fa0}
+.a.dunkel{--grund:#121417;--flaeche:#1a1d21;--flaeche-2:#22262b;--text:#e8eaed;--text-2:#a7aeb6;--linie:#33383f;--linie-stark:#6f7781;--akzent:#7dc3db;--akzent-text:#0e1a1f;--akzent-flaeche:#183039;--fokus:#ffb366;--ok:#7fd19b;--ok-flaeche:#16291d;--marke-gd:#c79ae6}
+.a{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif;font-size:16px;line-height:1.5;color:var(--text);background:var(--grund);font-variant-numeric:tabular-nums}
+.a a{color:var(--akzent);text-underline-offset:3px}
+.a button{font:inherit;cursor:pointer}
+.a :focus-visible{outline:3px solid var(--fokus);outline-offset:2px}
+.a summary{cursor:pointer}
+</style>
+</helmet>
+<div class="a {{theme}}" style="width: 390px; height: 844px; display: flex; flex-direction: column; overflow: hidden">
+
+<header style="flex: none; display: flex; align-items: center; gap: 10px; height: 56px; padding: 0 16px; background: var(--flaeche); border-bottom: 1px solid var(--linie)">
+<span style="display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; background: var(--marke-gd); color: var(--flaeche); font-size: 11px; font-weight: 700" aria-label="Galerie Demo GmbH">GD</span>
+<h1 style="margin: 0; flex: 1 1 auto; font-size: 18px; font-weight: 600">Freigaben <span style="color: var(--text-2); font-weight: 400">2</span></h1>
+<a href="Handy-Mehr.dc.html" aria-label="Mein Konto" style="display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; text-decoration: none"><span style="display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; background: var(--akzent-flaeche); color: var(--akzent); font-size: 13px; font-weight: 600">JH</span></a>
+</header>
+
+<main style="flex: 1 1 auto; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+
+<section style="display: flex; flex-direction: column; gap: 12px; padding: 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<div>
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Zahlungslauf 2026-14</h2>
+<div style="display: flex; justify-content: space-between; gap: 8px; align-items: baseline"><span style="color: var(--text-2)">4 Zahlungen · Ausführung 28.10.</span><span style="font-size: 20px; font-weight: 600">3.212,40 €</span></div>
+<div style="font-size: 14px; color: var(--text-2)">angelegt von Erika Muster</div>
+</div>
+<details style="border-top: 1px solid var(--linie); padding-top: 6px">
+<summary style="min-height: 40px; font-weight: 600; display: flex; align-items: center">Zahlungen ansehen (4)</summary>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Empfänger, IBAN und Betrag jeder Zahlung.</p>
+</details>
+<div style="display: flex; flex-direction: column; gap: 6px">
+<label for="code1" style="font-weight: 600">Code aus Ihrer Authenticator-App</label>
+<input id="code1" inputmode="numeric" autocomplete="one-time-code" placeholder="" style="min-height: 48px; padding: 0 14px; border: 1px solid var(--linie-stark); border-radius: 6px; background: var(--flaeche); color: var(--text); font: inherit; font-size: 20px; letter-spacing: 0.2em">
+</div>
+<button type="button" style="min-height: 48px; border: 0; border-radius: 6px; background: var(--akzent); color: var(--akzent-text); font-weight: 600">Zahlungslauf freigeben</button>
+</section>
+
+<section style="display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--flaeche); border: 1px solid var(--linie); border-radius: 10px">
+<h2 style="margin: 0; font-size: 18px; font-weight: 600">Umsatzsteuer-Voranmeldung</h2>
+<div style="display: flex; justify-content: space-between; gap: 8px; align-items: baseline"><span style="color: var(--text-2)">September 2026 · Zahllast</span><span style="font-size: 20px; font-weight: 600">1.284,10 €</span></div>
+<div style="display: flex; align-items: center; gap: 8px; font-size: 14px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ok)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg><span>Prüfung: keine Befunde · Frist 10.11. (15 Tage)</span></div>
+<details style="border-top: 1px solid var(--linie); padding-top: 6px">
+<summary style="min-height: 40px; font-weight: 600; display: flex; align-items: center">Kennziffern ansehen</summary>
+<p style="margin: 0; font-size: 14px; color: var(--text-2)">Kz 81, 66, 83 mit Beträgen.</p>
+</details>
+</section>
+</main>
+
+<nav aria-label="Bereiche" style="flex: none; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 64px; background: var(--flaeche); border-top: 1px solid var(--linie)">
+<a href="Handy-Uebersicht.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"></path><path d="M5 9.5V21h14V9.5"></path></svg>Übersicht</a>
+<a href="Handy-Pruefen.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 11 3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>Prüfen 12</a>
+<a href="#belege" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><path d="M14 2v6h6"></path></svg>Belege 3</a>
+<a href="Handy-Freigaben.dc.html" aria-current="page" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--akzent); font-size: 12px; font-weight: 600; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>Freigaben 2</a>
+<a href="Handy-Mehr.dc.html" style="display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text-2); font-size: 12px; text-decoration: none"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"></path></svg>Mehr</a>
+</nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"dunkel":{"editor":"boolean","default":false,"section":"Darstellung"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { theme: this.props.dunkel ? 'dunkel' : '' };
+  }
+}
+</script>
+</body>
+</html>

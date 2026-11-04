@@ -64,7 +64,15 @@ def texte_aus_python() -> set[str]:
 
 
 def alle_texte() -> set[str]:
-    return texte_aus_vorlagen() | texte_aus_python() | set(MONATE)
+    # RECHT_TEXT: die Namen der Rechte stehen auf der 403-Seite (Plan P1, Schritt 11)
+    from accounti.models.auth import RECHT_TEXT
+
+    return (
+        texte_aus_vorlagen()
+        | texte_aus_python()
+        | set(MONATE)
+        | set(RECHT_TEXT.values())
+    )
 
 
 def test_jeder_text_hat_eine_uebersetzung():
@@ -119,3 +127,45 @@ def test_fachbegriffe_bleiben_deutsch():
 )
 def test_glossar(deutsch, englisch):
     assert katalog("en").get(deutsch) == englisch
+
+
+# Spalte „Standardansicht 10c“ aus Anhang B der Spec (AK57; Plan P1, Schritt 13) — so
+# stehen die Begriffe als msgid in hilfe_inhalt.BEGRIFFE („%“ als „%%“)
+STANDARDANSICHT = (
+    "→ Betriebsbedarf (4980)",
+    "mit 19 %% Vorsteuer",
+    "Sicherheit: mittel",
+    "Vorschlag der KI",
+    "nach Ihrer Regel „X“",
+    "wie bisher bei diesem Lieferanten/Kunden",
+    "Passt – freigeben",
+    "Anderes Konto …",
+    "Später klären …",
+    "Künftig immer so?",
+    "Ausgaben / Einnahmen",
+    "Empfänger / Absender",
+    "Verlauf",
+    "Code aus Ihrer Authenticator-App",
+    "Umsatzsteuer-Voranmeldung",
+    "offene Rechnungen",
+    "Buchung berichtigen (Storno)",
+)
+
+
+def test_begriffe_aus_anhang_b_im_katalog():
+    """AK57: jeder Begriff der Standardansicht aus Anhang B hat eine Übersetzung — und
+    die feste Liste stimmt mit der abgelegten Spec überein."""
+    spec = (
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "specs"
+        / "2026-10-26-oberflaeche-einrichtung.md"
+    ).read_text(encoding="utf-8")
+    teil = spec[spec.index("## Anhang B") : spec.index("## Anhang C")]
+    zeilen = [z for z in teil.splitlines() if z.startswith("| ")][1:]
+    spalte = [z.split("|")[2] for z in zeilen]
+    assert len(spalte) == len(STANDARDANSICHT)
+    for begriff, zelle in zip(STANDARDANSICHT, spalte, strict=True):
+        for teilbegriff in begriff.replace("%%", "%").split(" / "):
+            assert teilbegriff in zelle, (begriff, zelle)
+        assert katalog("en").get(begriff), begriff

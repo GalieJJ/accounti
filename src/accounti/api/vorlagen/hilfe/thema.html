@@ -1,0 +1,15 @@
+{#- Hilfe zu einem Thema (/hilfe/<thema>): Kurzanleitung, Abschnitte, Tastenkürzel. -#}
+{% extends "basis.html" %}
+{% block titel %}{{ _("Hilfe: %(thema)s", thema=_(hilfe.titel)) }}{% endblock %}
+{% block inhalt %}
+{% import "_komponenten.html" as k with context %}
+<div class="seite">
+{{ k.brotkrumen([(_("Hilfe"), "/hilfe"), (_(hilfe.titel), none)]) }}
+<h1>{{ _("Hilfe: %(thema)s", thema=_(hilfe.titel)) }}</h1>
+<p>{{ _(hilfe.einleitung) }}</p>
+<section aria-labelledby="hilfe-anleitung"><h2 class="etikett" id="hilfe-anleitung">{{ _("So geht’s") }}</h2><ol>{% for schritt in hilfe.anleitung %}<li>{{ _(schritt) }}</li>{% endfor %}</ol></section>
+{% for a in hilfe.abschnitte %}<section id="{{ a.id }}" aria-labelledby="{{ a.id }}-titel"><h2 class="etikett" id="{{ a.id }}-titel">{{ _(a.titel) }}</h2>{% for absatz in a.absaetze %}<p>{{ _(absatz) }}</p>{% endfor %}</section>{% endfor %}
+{% if hilfe.tasten %}<section aria-labelledby="hilfe-tasten"><h2 class="etikett" id="hilfe-tasten">{{ _("Tastenkürzel") }}</h2>{% call k.angaben() %}{% for taste, text in hilfe.tasten %}{% set kbd %}<kbd>{{ taste }}</kbd>{% endset %}{% call k.angabe(kbd) %}{{ _(text) }}{% endcall %}{% endfor %}{% endcall %}</section>{% endif %}
+<p><a href="/hilfe">{{ _("Alle Hilfethemen") }}</a></p>
+</div>
+{% endblock %}

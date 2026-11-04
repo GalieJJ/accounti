@@ -74,7 +74,8 @@ def test_arbeitsflaeche_beleg_links_vorschlag_rechts(qw):
     links = seite.index('class="links"')
     rechts = seite.index('class="rechts"')
     iframe = seite.index(f'<iframe class="beleg" src="/belege/{beleg.id}/datei"')
-    vorschlag = seite.index("<h2>Vorschlag</h2>")
+    # umgestellt (Plan P1, Schritt 12): der Vorschlag ist eine Karte
+    vorschlag = seite.index('<h2 class="karte-titel">Vorschlag</h2>')
     assert links < iframe < rechts < vorschlag
 
 
@@ -103,8 +104,10 @@ def test_umsatzdaten_auch_mit_beleg(qw):
     seite = qw.web.angemeldet("jan").get(f"/pruefen/{b.id}").text
     rechts = seite[seite.index('class="rechts"') :]
     assert "<h2>Umsatz</h2>" in rechts and "EMPFAENGERMARKER RE 4711" in rechts
+    # umgestellt (Plan P1, Schritt 12): der Vorschlag ist eine Karte
+    vorschlag = '<h2 class="karte-titel">Vorschlag</h2>'
     assert "Bürobedarf Müller GmbH" in rechts and "DE89 3704 0044" in rechts
-    assert rechts.index("<h2>Umsatz</h2>") < rechts.index("<h2>Vorschlag</h2>")
+    assert rechts.index("<h2>Umsatz</h2>") < rechts.index(vorschlag)
 
 
 def test_korrektur_verlaesst_das_finanzkonto_422(qw):
@@ -323,7 +326,8 @@ def test_tastenbelegung_im_markup(qw):
     seite = qw.web.angemeldet("jan").get(f"/pruefen/{zweite.id}").text
     tasten = set(re.findall(r'data-taste="([^"]+)"', seite))
     assert tasten == {"j", "k", "f", "e", "r", "z"}
-    assert 'id="tastenhilfe"' in seite and 'id="tasten-aus"' in seite
+    # umgestellt (Plan P1, Schritt 9): statt des Hakens ein Formular am Benutzer
+    assert 'id="tastenhilfe"' in seite and 'name="tastenkuerzel" value="aus"' in seite
     dritte = qw.web.angemeldet("jan").get("/pruefen").text
     assert 'data-taste="j"' in dritte
     del erste
@@ -338,7 +342,8 @@ def test_korrigieren_ist_der_standardknopf(qw):
     assert formular is not None
     knoepfe = re.findall(r'<button type="submit"[^>]*>', formular.group(0))
     assert len(knoepfe) == 2, knoepfe
-    assert 'class="hauptknopf"' in knoepfe[0] and "formaction" not in knoepfe[0]
+    # umgestellt (Plan P1, B21): Kennzeichen data-hauptknopf statt der Klasse
+    assert "data-hauptknopf" in knoepfe[0] and "formaction" not in knoepfe[0]
     neben = knoepfe[1]
     assert f'formaction="/pruefen/{b.id}/regelvorschau"' in neben
     # eigenes hx-disabled-elt: das geerbte „find button“ des Formulars fände unter dem
@@ -569,7 +574,9 @@ def test_zurueckstellen_und_ansicht_zurueckgestellt(qw):
         == f"/pruefen/{zweite.id}?ansicht=offen&erledigt=zurueckgestellt"
     )
     offen = client.get("/pruefen").text
-    assert "Zurückgestellt (1)" in offen and f"/pruefen/{erste.id}" not in offen
+    # umgestellt (Plan P1, Schritt 12): die Anzahl steht im Reiter als eigene Zahl
+    assert 'Zurückgestellt <span class="reiter-anzahl">1</span>' in offen
+    assert f"/pruefen/{erste.id}" not in offen
     zurueck = client.get("/pruefen?ansicht=zurueckgestellt").text
     assert f"/pruefen/{erste.id}?ansicht=zurueckgestellt" in zurueck
     seite = client.get(f"/pruefen/{erste.id}?ansicht=zurueckgestellt").text
@@ -587,7 +594,8 @@ def test_htmx_fragment_mit_push_url(qw):
     assert f"/pruefen/{zweite.id}/freigeben" in r.text
     # GET mit HX-Request: Fragment; Verlaufsabruf: ganze Seite
     teil = client.get(f"/pruefen/{zweite.id}", headers=HX).text
-    assert "<html" not in teil and 'class="flaeche"' in teil
+    # umgestellt (Plan P1, Schritt 12): zwei Spalten über das Layout
+    assert "<html" not in teil and 'class="layout-zweispaltig"' in teil
     ganz = client.get(
         f"/pruefen/{zweite.id}", headers={**HX, "HX-History-Restore-Request": "true"}
     ).text
@@ -595,6 +603,72 @@ def test_htmx_fragment_mit_push_url(qw):
     # letzte Entscheidung: zurück zur Liste (ganze Seite)
     r = aktion(client, zweite.id, "freigeben", kopf=HX)
     assert r.headers["hx-redirect"] == "/pruefen?ansicht=offen&erledigt=freigegeben"
+
+
+def _weiter(html: str, klasse: str) -> str:
+    form = re.search(rf'<form [^>]*class="{klasse}">(.*?)</form>', html, re.S)
+    assert form, klasse
+    # data-hier: accounti.js setzt beim Absenden die URL, die der Browser dann zeigt
+    treffer = re.search(r'name="weiter" value="([^"]*)" data-hier>', form.group(1))
+    assert treffer
+    return treffer.group(1).replace("&amp;", "&")
+
+
+def test_rueckkehrziel_der_vorlieben_folgt_der_angezeigten_seite(qw):
+    """P1 Runde 2 (gp1-bestand N1/N3): „Tastenkürzel ausschalten“ und „Übernehmen“
+    führen auf die Buchung und Ansicht zurück, die der Browser gerade zeigt — mit
+    ``?ansicht=``, und nach einer htmx-Aktion auf die neue Buchung (Push-URL), nicht
+    auf die eben freigegebene. ``?erledigt=`` (einmalige Meldung) und Fremdes fallen
+    weg."""
+    erste = qw.unsicher(tag=date(2026, 10, 1))
+    zweite = qw.unsicher(tag=date(2026, 10, 2), name="Papier Paul")
+    client = qw.web.angemeldet("jan")
+    seite = client.get(f"/pruefen/{erste.id}?ansicht=offen").text
+    assert _weiter(seite, "tasten-schalter") == f"/pruefen/{erste.id}?ansicht=offen"
+    assert _weiter(seite, "benutzermenue-wahl") == f"/pruefen/{erste.id}?ansicht=offen"
+    liste = client.get(
+        "/pruefen?ansicht=zurueckgestellt&erledigt=freigegeben&x=%3Cy%3E"
+    ).text
+    assert _weiter(liste, "benutzermenue-wahl") == "/pruefen?ansicht=zurueckgestellt"
+    assert "%3Cy%3E" not in liste and "&lt;y" not in liste  # nichts Fremdes gespiegelt
+    r = aktion(client, erste.id, "freigeben", kopf=HX)
+    push = r.headers["hx-push-url"]
+    assert push == f"/pruefen/{zweite.id}?ansicht=offen"
+    assert _weiter(r.text, "tasten-schalter") == push
+    teil = client.get(
+        f"/pruefen/{zweite.id}?ansicht=offen",
+        headers={**HX, "HX-Current-URL": f"http://testserver/pruefen/{erste.id}"},
+    ).text
+    assert _weiter(teil, "tasten-schalter") == f"/pruefen/{zweite.id}?ansicht=offen"
+    zurueck = client.post(
+        "/konto/vorlieben",
+        data={"csrf": csrf(client), "weiter": push, "tastenkuerzel": "aus"},
+        follow_redirects=False,
+    )
+    assert zurueck.status_code == 303 and zurueck.headers["location"] == push
+
+
+def test_fokus_nach_dem_austausch_auf_die_ueberschrift(qw):
+    """A104 (P1 Runde 2, gp1-design B9): Nach jedem Austausch der Arbeitsfläche geht der
+    Fokus auf die Überschrift des neuen Inhalts (``tabindex="-1"`` und ``data-fokus``,
+    accounti.js setzt ihn) — bei einem Fehler auf die Fehlerliste, die vorn steht. Die
+    ganze Seite trägt kein ``data-fokus`` (der Sprunglink bleibt das erste Ziel)."""
+    erste = qw.unsicher(tag=date(2026, 10, 1))
+    zweite = qw.unsicher(tag=date(2026, 10, 2), name="Papier Paul")
+    client = qw.web.angemeldet("jan")
+    ganz = client.get(f"/pruefen/{erste.id}").text
+    assert "data-fokus" not in ganz
+    for teil in (
+        client.get(f"/pruefen/{zweite.id}?ansicht=offen", headers=HX).text,
+        aktion(client, erste.id, "freigeben", kopf=HX).text,
+    ):
+        fokus = re.findall(r"<[a-z0-9]+ [^>]*data-fokus[^>]*>", teil)
+        assert len(fokus) == 1, fokus
+        assert fokus[0].startswith("<h2 ") and 'tabindex="-1"' in fokus[0], fokus
+    fehler = aktion(client, zweite.id, "zurueckstellen", kopf=HX, text="")
+    assert fehler.status_code == 422
+    erstes = re.search(r"<[a-z0-9]+ [^>]*data-fokus[^>]*>", fehler.text)
+    assert erstes and "fehlerliste" in erstes.group(0)
 
 
 def test_htmx_409_fragment_mit_meldung_und_neuem_stand(qw):
@@ -847,3 +921,48 @@ def test_erloesschmaelerung_im_haben_im_browser_bleibt_ausgewiesen(qw):
         i=str(beleg.id),
     )
     assert [tuple(z) for z in wirksam] == [("8700", 3)]
+
+
+def _status_oob(html: str) -> str:
+    treffer = re.search(r'<div hx-swap-oob="innerHTML:#status">(.*?)</div>', html, re.S)
+    assert treffer, "kein hx-swap-oob für #status"
+    return treffer.group(1)
+
+
+def test_ergebnis_im_statusbereich(qw):
+    """A110, AK54 (Plan P1, Schritt 12): Die Fragmente nach Freigeben, Korrigieren,
+    Zurückstellen und nach einem 409 sagen ihr Ergebnis im globalen Bereich #status an
+    (hx-swap-oob); die sichtbare Meldung trägt dann kein role."""
+    eintraege = [
+        qw.unsicher(tag=date(2026, 10, n), name=f"Firma {n}") for n in range(1, 5)
+    ]
+    client = qw.web.angemeldet("jan")
+    r = aktion(client, eintraege[0].id, "freigeben", kopf=HX)
+    assert "Buchung freigegeben." in _status_oob(r.text)
+    assert '<div class="hinweis hinweis-ok">' in r.text  # ohne role
+    r = aktion(
+        client,
+        eintraege[1].id,
+        "korrigieren",
+        kopf=HX,
+        soll="4930",
+        haben="1200",
+        steuer="9",
+    )
+    assert r.status_code == 200 and _status_oob(r.text).strip()
+    r = aktion(client, eintraege[2].id, "zurueckstellen", kopf=HX, text="Wofür?")
+    assert r.status_code == 200 and _status_oob(r.text).strip()
+    alt = stand_aus(client.get(f"/pruefen/{eintraege[3].id}").text)
+    qw.sql("UPDATE buchungssaetze SET buchungstext = 'anders'")
+    r = client.post(
+        f"/pruefen/{eintraege[3].id}/freigeben",
+        data={"csrf": csrf(client), "stand": alt},
+        headers=HX,
+    )
+    assert r.status_code == 409 and "inzwischen geändert" in _status_oob(r.text)
+    # ohne htmx (ganze Seite) kein hx-swap-oob, die Meldung selbst ist die Ansage
+    seite = client.get(f"/pruefen/{eintraege[3].id}?erledigt=freigegeben").text
+    assert (
+        "hx-swap-oob" not in seite
+        and 'class="hinweis hinweis-ok" role="status"' in seite
+    )

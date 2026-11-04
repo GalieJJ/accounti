@@ -1,70 +1,37 @@
 <!doctype html>
-<html lang="{{ sprache }}">
+{% import "_komponenten.html" as k with context %}
+{% import "_geruest.html" as gr with context %}
+<html lang="{{ sprache }}" data-theme="{{ darstellung }}">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="{{ color_scheme }}">
   <meta name="robots" content="noindex, nofollow">
   <meta name="htmx-config" content="{{ htmx_konfig }}">
-  <title>{% block titel %}{{ _(titel) }}{% endblock %} · accounti</title>
+  <title>{% block titel %}{{ _(titel) }}{% endblock %}{% if angemeldet %} · {{ angemeldet.gesellschaft.name }}{% endif %} · accounti</title>
   <link rel="stylesheet" href="/statisch/accounti.css?v={{ version }}">
   <script src="/statisch/htmx-2.0.11.min.js?v={{ version }}" defer></script>
+  <script src="/statisch/accounti.js?v={{ version }}" defer></script>
   <script src="/statisch/pruefen.js?v={{ version }}" defer></script>
   {% block kopf %}{% endblock %}
 </head>
-<body hx-history="false" hx-headers="{{ hx_kopf }}">
-  <header class="kopfleiste">
-    <a class="marke" href="/">accounti</a>
-    {% if angemeldet %}
-    <nav class="navigation" aria-label="{{ _('Hauptmenü') }}">
-      {% for punkt in navigation %}
-      <a href="{{ punkt.pfad }}">{{ _(punkt.titel) }}</a>
-      {% endfor %}
-    </nav>
-    <div class="sitzung">
-      {% if angemeldet.gesellschaften | length > 1 %}
-      <form method="post" action="/gesellschaft" class="gesellschaft-wahl">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <label for="gesellschaft">{{ _("Gesellschaft") }}</label>
-        <select id="gesellschaft" name="kuerzel">
-          {% for g in angemeldet.gesellschaften %}
-          <option value="{{ g.kuerzel }}"{% if g.kuerzel == angemeldet.gesellschaft.kuerzel %} selected{% endif %}>{{ g.name }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit">{{ _("Wechseln") }}</button>
-      </form>
-      {% else %}
-      <span class="gesellschaft" data-gesellschaft="{{ angemeldet.gesellschaft.kuerzel }}">{{ angemeldet.gesellschaft.name }}</span>
-      {% endif %}
-      <form method="post" action="/einstellungen/sprache" class="sprachwahl">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <input type="hidden" name="weiter" value="{{ pfad }}">
-        <label for="sprachwahl">{{ _("Sprache") }}</label>
-        <select id="sprachwahl" name="sprache">
-          <option value=""{% if not benutzersprache %} selected{% endif %}>{{ _("automatisch") }}</option>
-          {% for code, name in sprachen.items() %}
-          <option value="{{ code }}" lang="{{ code }}"{% if benutzersprache == code %} selected{% endif %}>{{ name }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit">{{ _("Übernehmen") }}</button>
-      </form>
-      <span class="benutzer">{{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }}</span>
-      <form method="post" action="/abmelden" class="abmelden">
-        <input type="hidden" name="csrf" value="{{ csrf }}">
-        <button type="submit">{{ _("Abmelden") }}</button>
-      </form>
-    </div>
-    {% endif %}
-  </header>
-  <main id="inhalt">
-    {% if angemeldet %}<p class="aktive-gesellschaft">{{ _("Gesellschaft: <strong>%(name)s</strong>", name=angemeldet.gesellschaft.name) }}</p>{% endif %}
-    <p id="netzhinweis" class="netzhinweis" role="alert" hidden>
-      <span data-hinweis="allgemein">{{ _("Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.") }}</span>
-      <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span>
-    </p>
-    {% if meldung %}<p class="meldung" role="status">{{ meldung | uebersetzt }}</p>{% endif %}
-    {% if fehler %}<p class="fehler" role="alert">{{ fehler | uebersetzt }}</p>{% endif %}
-    {% block inhalt %}{% endblock %}
-  </main>
-  <footer class="fuss">accounti {{ version }}</footer>
+<body class="{% block koerperklasse %}{% if angemeldet %}geruest{% if passt_in_den_kopf(self.titel() | striptags) %} mit-kopftitel{% endif %}{% else %}schlicht{% endif %}{% endblock %}" data-tastenkuerzel="{{ 'an' if geruest.tastenkuerzel else 'aus' }}" hx-history="false" hx-headers="{{ hx_kopf }}">
+  {% block kopfleiste %}{% if angemeldet %}{{ gr.druckkopf(geruest, self.titel()) }}{{ gr.kopfleiste(geruest, self.titel()) }}{% else %}{{ gr.kopf_schlicht(geruest.hilfe_pfad) }}{% endif %}{% endblock %}
+  <div class="geruest-rumpf">
+    {% block seitenleiste %}{% if angemeldet %}{{ k.seitenleiste(geruest) }}{% endif %}{% endblock %}
+    <main id="inhalt" tabindex="-1">
+      {%- if brotkrumen %}{{ k.brotkrumen(brotkrumen) }}
+      {%- elif geruest.brotkrumen %}{% set kette = [] %}{% for text, href in geruest.brotkrumen %}{% set _n = kette.append((_(text), href)) %}{% endfor %}{% set _n = kette.append((self.titel(), none)) %}{{ k.brotkrumen(kette) }}{% endif %}
+      <div id="status" role="status" aria-live="polite" class="unsichtbar"></div>
+      <div id="netzhinweis" class="hinweis hinweis-fehler" role="alert" hidden>{{ k.symbol("circle-x") }}<p class="hinweis-text"><strong class="hinweis-wort">{{ _("Fehler:") }}</strong>
+        <span data-hinweis="allgemein">{{ _("Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.") }}</span>
+        <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span></p>
+      </div>
+      {% if meldung %}{% call k.hinweis("ok", neu=true) %}{{ meldung | uebersetzt }}{% endcall %}{% endif %}
+      {% if fehler %}{% call k.hinweis("fehler", neu=true) %}{{ fehler | uebersetzt }}{% endcall %}{% endif %}
+      {% block inhalt %}{% endblock %}
+    </main>
+  </div>
+  {% block untere_leiste %}{% if angemeldet %}{{ k.untere_leiste(geruest) }}{% endif %}{% endblock %}
 </body>
 </html>

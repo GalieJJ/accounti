@@ -8,6 +8,11 @@ was ``init_db`` schon anlegte, und laufen gegen jede Datenbank (System- und
 Gesellschaftsdatenbank — ``auth_benutzer`` liegt wegen der gemeinsamen Metadaten in
 jeder). Zurück geht es immer auf feste Revisionen, nie
 „-1“ — sonst hinge der Test daran, welche Migration gerade der Kopf ist.
+
+Baustein 10c P1: ``VORLIEBEN`` (Anzeige-Vorlieben an ``auth_benutzer``) hängt an
+``SPRACHE``. Die Tests führen nur die eigene Revision fest und lesen den Vorgänger
+(``VOR``) aus dem ``ScriptDirectory`` — kein Test nimmt an, welche Revision der Kopf
+ist (Wächter ``tests/test_migration_regeln.py``).
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ SIEBEN = "ddc9a184ddb4"  # Baustein 7
 VOR_10B = "46371a6681c2"  # Steuerkennzeichen (main) — der Stand vor Baustein 10b
 KONTIERUNG = "d5a849692843"
 SPRACHE = "e7153706b43a"
+VORLIEBEN = "1dd2f6b7c6c8"  # Baustein 10c P1: Darstellung, Fachansicht, … (P1)
 BUCHUNG = "00000000-0000-0000-0000-000000000001"
 
 
@@ -49,6 +55,27 @@ def alembic(db: Path | str, *args: str) -> subprocess.CompletedProcess[str]:
         text=True,
         check=False,
     )
+
+
+def _vorher(revision: str) -> str:
+    """Vorgänger einer Revision laut ``ScriptDirectory`` — ändert sich beim Neuketten
+    mit, ohne dass der Test einen Kopf annimmt."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    skripte = ScriptDirectory.from_config(Config(str(WURZEL / "alembic.ini")))
+    vorher = skripte.get_revision(revision).down_revision
+    assert isinstance(vorher, str)
+    return vorher
+
+
+VOR = _vorher(VORLIEBEN)
+VORLIEBEN_SPALTEN = {
+    "darstellung",
+    "fachansicht",
+    "betraege_verbergen",
+    "tastenkuerzel",
+}
 
 
 def ok(ergebnis: subprocess.CompletedProcess[str]) -> str:
@@ -88,12 +115,25 @@ TRIGGER = {"kontierungsgruende_kein_update", "kontierungsgruende_kein_delete"}
 
 
 def test_ein_kopf_nach_den_verrechnungen(tmp_path):
+    """Ohne Kopfannahme: Baustein 7, Kontierung, Sprache und die Vorlieben stehen in
+    dieser Reihenfolge unter den Vorfahren von ``VORLIEBEN``; wie viele Köpfe es gibt,
+    zählt nur ``alembic heads`` (Paket A prüft den Kopf gegen ``SCHEMA_STAND``)."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
     db = tmp_path / "x.db"
-    kopf = ok(alembic(db, "heads"))
-    assert kopf.count("(head)") == 1 and SPRACHE in kopf
-    verlauf = ok(alembic(db, "history", "-r", "a684d10751de:head"))
+    assert ok(alembic(db, "heads")).count("(head)") == 1
+    skripte = ScriptDirectory.from_config(Config(str(WURZEL / "alembic.ini")))
+    vorfahren = [r.revision for r in skripte.iterate_revisions(VORLIEBEN, "base")]
+    assert vorfahren[0] == VORLIEBEN
+    reihe = [
+        vorfahren.index(r) for r in (VORLIEBEN, SPRACHE, KONTIERUNG, VOR_10B, SIEBEN)
+    ]
+    assert reihe == sorted(reihe)
+    verlauf = ok(alembic(db, "history", "-r", f"a684d10751de:{VORLIEBEN}"))
     assert f"{VOR_10B} -> {KONTIERUNG}" in verlauf
-    assert f"{KONTIERUNG} -> {SPRACHE} (head)" in verlauf
+    assert f"{KONTIERUNG} -> {SPRACHE}" in verlauf
+    assert f"{VOR} -> {VORLIEBEN}" in verlauf
     assert f"{SIEBEN} -> {KONTIERUNG}" not in verlauf
     assert f"a684d10751de -> {SIEBEN}" in verlauf
 
@@ -136,10 +176,13 @@ def test_downgrade_und_wieder_hinauf(tmp_path):
     db = tmp_path / "alt.db"
     bestand(db)
     ok(alembic(db, "upgrade", "head"))
-    ok(alembic(db, "downgrade", KONTIERUNG))
+    ok(alembic(db, "downgrade", VOR))
+    spalten = schema(db)[2]
+    assert "sprache" in spalten and not spalten & VORLIEBEN_SPALTEN
+    ok(alembic(db, "downgrade", _vorher(SPRACHE)))
     tabellen, trigger, spalten = schema(db)
     assert tabellen >= NEU and "sprache" not in spalten
-    ok(alembic(db, "downgrade", VOR_10B))
+    ok(alembic(db, "downgrade", _vorher(KONTIERUNG)))
     tabellen, trigger, spalten = schema(db)
     assert not tabellen & NEU and not trigger & TRIGGER
     with sqlite3.connect(db) as v:  # der Bestand bleibt
@@ -198,13 +241,59 @@ def test_upgrade_ergaenzt_sprache_in_bestehender_tabelle(tmp_path):
         assert "No new upgrade operations detected" in ok(alembic(db, "check"))
 
 
+def test_upgrade_ergaenzt_vorlieben_in_bestehender_tabelle(tmp_path):
+    """System- und Gesellschaftsdatenbank: ``auth_benutzer`` mit Benutzer, ohne die
+    Vorlieben → nach dem Upgrade da, Benutzer bleibt, Standardwerte (automatisch, aus,
+    aus, an)."""
+    for name in ("system.db", "a.db"):
+        db = tmp_path / name
+        ok(alembic(db, "upgrade", VOR))
+        with sqlite3.connect(db) as v:
+            v.execute(
+                "INSERT INTO auth_benutzer (id, name, passwort_hash, totp_aktiv, "
+                "fehlversuche, cli_fehlversuche, aktiv, angelegt_am, sprache) VALUES "
+                "('u1', 'jan', 'h', 0, 0, 0, 1, '2026-10-01 09:00:00', 'en')"
+            )
+        assert not schema(db)[2] & VORLIEBEN_SPALTEN
+        ok(alembic(db, "upgrade", "head"))
+        assert schema(db)[2] >= VORLIEBEN_SPALTEN
+        with sqlite3.connect(db) as v:
+            assert v.execute(
+                "SELECT name, sprache, darstellung, fachansicht, betraege_verbergen, "
+                "tastenkuerzel FROM auth_benutzer"
+            ).fetchall() == [("jan", "en", "auto", 0, 0, 1)]
+        assert "No new upgrade operations detected" in ok(alembic(db, "check"))
+
+
+def test_migration_ist_wiederholbar(tmp_path):
+    """Spalten schon da (etwa von einem Vorabstand): die Migration übernimmt sie."""
+    db = tmp_path / "x.db"
+    ok(alembic(db, "upgrade", VOR))
+    with sqlite3.connect(db) as v:
+        v.execute(
+            "ALTER TABLE auth_benutzer ADD COLUMN darstellung VARCHAR(6) "
+            "NOT NULL DEFAULT 'auto'"
+        )
+        v.execute(
+            "ALTER TABLE auth_benutzer ADD COLUMN tastenkuerzel BOOLEAN "
+            "NOT NULL DEFAULT 1"
+        )
+    ok(alembic(db, "upgrade", VORLIEBEN))
+    assert schema(db)[2] >= VORLIEBEN_SPALTEN
+    ok(alembic(db, "upgrade", "head"))
+    assert "No new upgrade operations detected" in ok(alembic(db, "check"))
+
+
 @mit_postgresql
 def test_postgresql_rundlauf(pg_datenbank):  # noqa: F811
     """Gegen frische PostgreSQL-Datenbanken (System und Gesellschaft): hinauf, check,
-    zurück auf den Stand vor Baustein 10b, wieder hinauf."""
+    zurück auf den Stand vor den Vorlieben und vor Baustein 10b, wieder hinauf."""
     for _ in ("system", "gesellschaft"):
         url = pg_datenbank()
         ok(alembic(url, "upgrade", VOR_10B))
+        ok(alembic(url, "upgrade", "head"))
+        assert "No new upgrade operations detected" in ok(alembic(url, "check"))
+        ok(alembic(url, "downgrade", VOR))
         ok(alembic(url, "upgrade", "head"))
         assert "No new upgrade operations detected" in ok(alembic(url, "check"))
         ok(alembic(url, "downgrade", VOR_10B))

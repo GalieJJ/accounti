@@ -1,0 +1,36 @@
+{#- Teile des Gerüsts (Baustein 10c, Plan P1 Schritt 7, L4/L5) für basis.html und
+    schlicht.html — keine Komponenten (die stehen in _komponenten.html und auf /muster).
+    Import mit Kontext. Feste Reihenfolge im Kopf (Fokus = Lesen = Sicht): Sprunglink →
+    „accounti“ → Gesellschaft → Hilfe → Benutzermenü bzw. -symbol. -#}
+{% import "_komponenten.html" as k with context %}
+
+{#- Schlichter Kopf (Anmeldung, 500, später der Assistent): „accounti“ und Hilfe. -#}
+{% macro kopf_schlicht(hilfe_pfad) -%}
+<header class="kopfleiste kopf-schlicht"><a class="sprunglink" href="#inhalt">{{ _("Zum Inhalt springen") }}</a><a class="wortmarke" href="/">accounti</a><div class="kopf-rechts"><a class="kopf-hilfe" href="{{ hilfe_pfad }}">{{ k.symbol("circle-help") }}<span class="kopf-hilfe-text">{{ _("Hilfe") }}</span></a></div></header>
+{%- endmacro %}
+
+{#- Kopf im Gerüst: breit Wortmarke, Gesellschafts-Chip, Hilfe, Benutzermenü; schmal
+    (unter 64rem, nur CSS) Marke, Seitentitel (aria-hidden, das h1 bleibt), Hilfe-Symbol
+    und Avatar mit Link auf /menue#konto. -#}
+{% macro kopfleiste(geruest, titel) -%}
+{%- set m = geruest.marke -%}
+{%- set mehrere = angemeldet.gesellschaften | length > 1 -%}
+{%- set name = angemeldet.benutzer.anzeigename or angemeldet.benutzer.name -%}
+<header class="kopfleiste"><a class="sprunglink" href="#inhalt">{{ _("Zum Inhalt springen") }}</a><a class="wortmarke" href="/">accounti</a>
+{%- if m %}<{{ "a" if mehrere else "span" }} class="kopf-gesellschaft"{% if mehrere %} href="/gesellschaft"{% endif %} data-gesellschaft="{{ m.kuerzel }}"><span class="marke marke-{{ {1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6}[m.farbe] }}" aria-hidden="true">{{ m.monogramm }}</span><span class="kopf-gesellschaft-name">{% if mehrere %}<span class="unsichtbar">{{ _("Gesellschaft wechseln:") }} </span>{% endif %}{{ m.name }}</span>{% if mehrere %}{{ k.symbol("chevron-down", groesse=16) }}{% endif %}</{{ "a" if mehrere else "span" }}>{% endif -%}
+<span class="kopf-titel" aria-hidden="true">{{ titel }}</span><div class="kopf-rechts"><a class="kopf-hilfe" href="{{ geruest.hilfe_pfad }}">{{ k.symbol("circle-help") }}<span class="kopf-hilfe-text">{{ _("Hilfe") }}</span></a>
+<details class="benutzermenue"><summary class="benutzermenue-ausloeser">{{ k.avatar(geruest.initialen) }}<span class="benutzermenue-name">{{ name }}</span>{{ k.symbol("chevron-down", groesse=16) }}</summary><div class="benutzermenue-feld">
+<a class="menue-eintrag" href="/konto">{{ k.symbol("settings") }}{{ _("Mein Konto") }}</a>
+<form method="post" action="/konto/vorlieben" class="benutzermenue-wahl"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="weiter" value="{{ pfad }}" data-hier>
+{%- set deutsch %}<span lang="de">Deutsch</span>{% endset -%}
+{%- set englisch %}<span lang="en">English</span>{% endset -%}
+{{ k.segment("sprache", _("Sprache"), [("auto", _("automatisch")), ("de", deutsch), ("en", englisch)], gewaehlt=benutzersprache or "auto", id="menue-sprache") }}{{ k.segment("darstellung", _("Darstellung"), [("auto", _("automatisch")), ("hell", _("hell")), ("dunkel", _("dunkel"))], gewaehlt=geruest.darstellung, id="menue-darstellung") }}{{ k.knopf(_("Übernehmen"), art="sekundaer", groesse="klein") }}</form>
+<a class="menue-eintrag" href="{{ geruest.hilfe_pfad }}">{{ k.symbol("circle-help") }}{{ _("Hilfe") }}</a>
+<form method="post" action="/abmelden"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="menue-eintrag">{{ k.symbol("log-out") }}{{ _("Abmelden") }}</button></form></div></details>
+<a class="kopf-konto" href="/menue#konto">{{ k.avatar(geruest.initialen) }}<span class="unsichtbar">{{ _("Mein Konto und Menü") }}</span></a></div></header>
+{%- endmacro %}
+
+{#- Druckkopf (A97): nur im Druck sichtbar — Gesellschaft, Seite, Datum, Benutzer. -#}
+{% macro druckkopf(geruest, titel) -%}
+<div class="druckkopf"><p>{{ _("Gesellschaft: <strong>%(name)s</strong>", name=angemeldet.gesellschaft.name) }} · {{ titel }} · {{ geruest.druck_datum | datum }} · {{ angemeldet.benutzer.anzeigename or angemeldet.benutzer.name }}</p></div>
+{%- endmacro %}
