@@ -91,11 +91,12 @@ knopf knopf-{{ {"primaer": "primaer", "sekundaer": "sekundaer", "still": "still"
 {%- endmacro %}
 
 {#- Tabelle (Aufruf): caption Pflicht (sichtbar=false versteckt sie), Rollen ausdrücklich,
-    damit die Kartenform unter 40rem die Semantik behält. spalten: Spalte(…) (Jinja-Global);
-    summe: Werte der Summenzeile je Spalte (None leer). kompakt: breite Tabelle im
-    scrollbaren Rahmen mit tabindex und role=region. -#}
+    damit die Kartenform unter 64rem die Semantik behält. spalten: Spalte(…) (Jinja-Global);
+    summe: Werte der Summenzeile je Spalte (None leer). kompakt: dichte Zeilen, auch schmal
+    als Tabelle. Der Rahmen scrollt waagrecht, wenn die Tabelle breiter ist als ihr Platz
+    (P1 Runde 2) — darum immer mit tabindex, role=region und der Beschriftung als Namen. -#}
 {% macro tabelle(beschriftung, spalten, kompakt=false, sichtbar=true, in_karte=false, summe=none) -%}
-<div class="tabelle-rahmen{% if in_karte %} tabelle-in-karte{% endif %}{% if kompakt %} tabelle-breit{% endif %}"{% if kompakt %} tabindex="0" role="region" aria-label="{{ beschriftung }}"{% endif %}><table class="tabelle{% if kompakt %} tabelle-kompakt{% endif %}" role="table"><caption{% if not sichtbar %} class="unsichtbar"{% endif %}>{{ beschriftung }}</caption><thead role="rowgroup"><tr role="row">{% for s in spalten %}{{ spaltenkopf(s) }}{% endfor %}</tr></thead><tbody role="rowgroup">{{ caller() }}</tbody>{% if summe %}<tfoot role="rowgroup"><tr role="row" class="summenzeile">{% for wert in summe %}<td role="cell"{% if spalten[loop.index0].zahl %} class="zahl"{% endif %} data-label="{{ spalten[loop.index0].titel }}">{{ wert if wert is not none else "" }}</td>{% endfor %}</tr></tfoot>{% endif %}</table></div>
+<div class="tabelle-rahmen{% if in_karte %} tabelle-in-karte{% endif %}" tabindex="0" role="region" aria-label="{{ beschriftung }}"><table class="tabelle{% if kompakt %} tabelle-kompakt{% endif %}" role="table"><caption{% if not sichtbar %} class="unsichtbar"{% endif %}>{{ beschriftung }}</caption><thead role="rowgroup"><tr role="row">{% for s in spalten %}{{ spaltenkopf(s) }}{% endfor %}</tr></thead><tbody role="rowgroup">{{ caller() }}</tbody>{% if summe %}<tfoot role="rowgroup"><tr role="row" class="summenzeile">{% for wert in summe %}<td role="cell"{% if spalten[loop.index0].zahl %} class="zahl"{% endif %} data-label="{{ spalten[loop.index0].titel }}">{{ wert if wert is not none else "" }}</td>{% endfor %}</tr></tfoot>{% endif %}</table></div>
 {%- endmacro %}
 
 {% macro zeile(gewaehlt=false) -%}

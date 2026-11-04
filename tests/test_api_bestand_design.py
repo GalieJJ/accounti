@@ -258,6 +258,22 @@ def test_jede_tabelle_mit_caption_und_rollen(probe, alle, vorlage):
 
 
 @pytest.mark.parametrize("vorlage", UMGESTELLT)
+def test_jede_tabelle_im_benannten_scrollrahmen(probe, alle, vorlage):
+    """A93/A107 (P1 Runde 2, D-H1): eine Tabelle, die breiter ist als ihr Platz, wird
+    nie abgeschnitten — sie scrollt in ihrem Rahmen, und der Rahmen ist per Tastatur
+    erreichbar und benannt (``role="region"``, ``aria-label`` = Beschriftung,
+    ``tabindex="0"``; axe ``scrollable-region-focusable``)."""
+    baum = Baum(html_von(probe, alle, vorlage))
+    captions = {id(c.in_tag("table")): text(c) for c in baum.alle("caption")}
+    for t in baum.alle("table"):
+        rahmen = t.eltern[-1]
+        assert "tabelle-rahmen" in rahmen.klassen, (vorlage, rahmen.attrs)
+        assert rahmen.attrs.get("role") == "region", (vorlage, rahmen.attrs)
+        assert rahmen.attrs.get("tabindex") == "0", (vorlage, rahmen.attrs)
+        assert rahmen.attrs.get("aria-label") == captions[id(t)], (vorlage, rahmen.attrs)
+
+
+@pytest.mark.parametrize("vorlage", UMGESTELLT)
 def test_beschreibungslisten_sind_komponente(probe, alle, vorlage):
     """I11: jede Beschreibungsliste ist die Komponente ``angaben``."""
     baum = Baum(html_von(probe, alle, vorlage))

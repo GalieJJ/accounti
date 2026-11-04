@@ -204,14 +204,14 @@ a.marke:hover{background-image:linear-gradient(var(--schleier), var(--schleier))
 .aufklapper[open] > summary .aufklapper-auf{display:inline}
 .aufklapper[open] > summary .aufklapper-zustand .symbol{transform:rotate(180deg)}
 @media (pointer: coarse) { .aufklapper-linie > summary { min-height: 2.75rem; } }
-/* Tabelle: overflow clip, damit der Kopf klebt; unter 40rem Karten */
-.tabelle-rahmen{background-color:var(--flaeche);border:1px solid var(--linie);border-radius:var(--radius-karte);box-shadow:var(--schatten);overflow:hidden;overflow:clip}
+/* Tabelle: der Rahmen scrollt waagrecht (Leinwand), statt breite Tabellen abzuschneiden;
+unter 64rem Karten */
+.tabelle-rahmen{background-color:var(--flaeche);border:1px solid var(--linie);border-radius:var(--radius-karte);box-shadow:var(--schatten);overflow-x:auto}
 .tabelle-in-karte{border-radius:var(--radius-m);box-shadow:none}
-.tabelle-breit{overflow-x:auto}
 .tabelle{width:100%;border-collapse:collapse}
 .tabelle caption{padding:var(--a-3) var(--a-45);font-weight:600;text-align:left}
 .tabelle th, .tabelle td{padding:var(--a-3) var(--a-4);text-align:left;vertical-align:top}
-.tabelle thead th{position:sticky;top:var(--kopfhoehe);padding:var(--a-2) var(--a-4);font-size:var(--gr-3);font-weight:600;color:var(--text-2);background-color:var(--flaeche-2)}
+.tabelle thead th{padding:var(--a-2) var(--a-4);font-size:var(--gr-3);font-weight:600;color:var(--text-2);background-color:var(--flaeche-2)}
 .tabelle th:first-child, .tabelle td:first-child{padding-left:var(--a-45)}
 .tabelle th:last-child, .tabelle td:last-child{padding-right:var(--a-45)}
 .tabelle tbody tr{border-top:1px solid var(--linie)}
@@ -228,8 +228,8 @@ a.marke:hover{background-image:linear-gradient(var(--schleier), var(--schleier))
 .tabelle:not(.tabelle-kompakt), .tabelle:not(.tabelle-kompakt) tbody, .tabelle:not(.tabelle-kompakt) tfoot,
 .tabelle:not(.tabelle-kompakt) tr{display:block}
 .tabelle:not(.tabelle-kompakt) tr{padding:var(--a-3) var(--a-4)}
-.tabelle:not(.tabelle-kompakt) td{display:grid;grid-template-columns:minmax(6rem, 40%) minmax(0, 1fr);gap:var(--a-3);padding:var(--a-1) 0;text-align:left}
-.tabelle:not(.tabelle-kompakt) td::before{content:attr(data-label);content:attr(data-label) / "";color:var(--text-2);overflow-wrap:anywhere}
+.tabelle:not(.tabelle-kompakt) td{display:grid;grid-template-columns:minmax(6rem, 40%) minmax(0, 1fr);gap:var(--a-3);padding:var(--a-1) 0;text-align:left;overflow-wrap:anywhere}
+.tabelle:not(.tabelle-kompakt) td::before{content:attr(data-label);content:attr(data-label) / "";color:var(--text-2)}
 .tabelle:not(.tabelle-kompakt) caption{display:block}
 }
 /* Angaben */

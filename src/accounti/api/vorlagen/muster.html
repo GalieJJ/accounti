@@ -82,7 +82,8 @@
 {% call k.tabelle(_("Kosten im Oktober"), [Spalte(_("Konto")), Spalte(_("Betrag"), zahl=true)], summe=[_("Summe"), "652,31 €"]) %}
 {% for konto, betrag in beispiel.konten %}{% call k.zeile(gewaehlt=loop.first) %}{% call k.zelle(_("Konto")) %}{{ konto }}{% endcall %}{% call k.zelle(_("Betrag"), zahl=true) %}{{ betrag }}{% endcall %}{% endcall %}{% endfor %}
 {% endcall %}
-<div class="tabelle-rahmen"><table class="tabelle" role="table"><caption>{{ _("Spaltenköpfe mit Sortierung") }}</caption><thead role="rowgroup"><tr role="row">{{ k.spaltenkopf(Spalte(_("Datum"), sortierung="absteigend", href="/muster?sortierung=datum")) }}{{ k.spaltenkopf(Spalte(_("Betrag"), zahl=true, sortierung="keine", href="/muster?sortierung=betrag")) }}</tr></thead><tbody role="rowgroup"><tr role="row"><td role="cell" data-label="{{ _("Datum") }}">{{ beispiel.datum | datum }}</td><td role="cell" data-label="{{ _("Betrag") }}" class="zahl">239,94 €</td></tr></tbody></table></div>
+{%- set sortiert = _("Spaltenköpfe mit Sortierung") -%}
+<div class="tabelle-rahmen" tabindex="0" role="region" aria-label="{{ sortiert }}"><table class="tabelle" role="table"><caption>{{ sortiert }}</caption><thead role="rowgroup"><tr role="row">{{ k.spaltenkopf(Spalte(_("Datum"), sortierung="absteigend", href="/muster?sortierung=datum")) }}{{ k.spaltenkopf(Spalte(_("Betrag"), zahl=true, sortierung="keine", href="/muster?sortierung=betrag")) }}</tr></thead><tbody role="rowgroup"><tr role="row"><td role="cell" data-label="{{ _("Datum") }}">{{ beispiel.datum | datum }}</td><td role="cell" data-label="{{ _("Betrag") }}" class="zahl">239,94 €</td></tr></tbody></table></div>
 {{ k.leer(_("Nichts zu prüfen."), _("Nächster Bankabruf: heute 14:00."), _("Zur Hilfe für Prüfen"), "/hilfe") }}
 </section>
 

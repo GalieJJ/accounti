@@ -280,6 +280,31 @@ def test_tabelle_caption_pflicht_und_rollen():
         render("{% call k.tabelle(spalten=[]) %}{% endcall %}")
 
 
+def test_tabellenrahmen_scrollt_statt_abzuschneiden():
+    """P1 Runde 2 (D-H1, A93/A107): jeder Tabellenrahmen scrollt waagrecht, wenn die
+    Tabelle breiter ist als ihr Platz (wie in der Leinwand: ``overflow-x: auto``), und ist
+    dann per Tastatur erreichbar und benannt — kein ``overflow: hidden/clip`` mehr, das
+    breite Tabellen ab 64rem abschnitt."""
+    from tests.design_hilfe import css, selektoren, stilregeln
+
+    html = render('{% call k.tabelle("Journal", [Spalte("Nr.")]) %}{% endcall %}')
+    rahmen = nur(html, "div")[0]
+    assert 'class="tabelle-rahmen"' in rahmen
+    assert 'tabindex="0"' in rahmen and 'role="region"' in rahmen
+    assert 'aria-label="Journal"' in rahmen
+    regeln = [
+        s.regel
+        for s in stilregeln(css())
+        if any(".tabelle-rahmen" in x for x in selektoren(s.regel.kopf))
+    ]
+    (grund,) = (r for r in regeln if r.kopf == ".tabelle-rahmen")
+    assert grund.wert("overflow-x") == "auto"
+    for r in regeln:
+        for name, wert in r.deklarationen:
+            if name.startswith("overflow"):
+                assert wert not in ("hidden", "clip"), (r.kopf, name, wert)
+
+
 def test_spaltenkopf_aria_sort():
     for sortierung, aria, symbol in (
         ("aufsteigend", "ascending", "arrow-up"),
