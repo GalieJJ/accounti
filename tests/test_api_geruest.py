@@ -401,6 +401,22 @@ def test_druck_schwarz_auf_weiss_mit_tabellenkopf():
     assert h1.get("position") == "static" and h1.get("clip-path") == "none"
 
 
+def test_druck_tabelle_ganz_auf_dem_papier():
+    """P1 Runde 3 (gp1-2-design N-2): Der scrollende Tabellenrahmen schnitt im
+    Hochformat ab (Gelernte Regeln: „Stand“ und „Deaktivieren“ fehlten), die Zellen
+    hatten aus der Kartenform keinen waagrechten Abstand, Beträge standen links und
+    ``overflow-wrap: anywhere`` trennte das Datum mitten. Auf dem Papier scrollt der
+    Rahmen nicht, Tabellen stehen in 12 px (``--gr-1``) mit Abstand, Beträge
+    rechtsbündig."""
+    assert _deklarationen(".tabelle-rahmen", "print").get("overflow") == "visible"
+    assert _deklarationen(".tabelle", "print").get("font-size") == "var(--gr-1)"
+    zelle = _deklarationen(".tabelle td", "print")
+    assert zelle.get("padding") == "var(--a-1)"
+    assert zelle.get("overflow-wrap") == "break-word"
+    assert _deklarationen(".tabelle th", "print").get("font-size") == "inherit"
+    assert _deklarationen(".tabelle .zahl", "print").get("text-align") == "right"
+
+
 def test_forced_colors_nur_der_aktive_reiter_unterstrichen():
     """P1 Runde 2 (gp1-design B5): Im Kontrastmodus wird der transparente Strich der
     inaktiven Reiter sichtbar — jeder Reiter sah aktiv aus. Er bekommt dort die Farbe

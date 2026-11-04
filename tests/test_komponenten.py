@@ -293,13 +293,20 @@ def test_tabellenrahmen_scrollt_statt_abzuschneiden():
     assert 'class="tabelle-rahmen"' in rahmen
     assert 'tabindex="0"' in rahmen and 'role="region"' in rahmen
     assert 'aria-label="Journal"' in rahmen
-    regeln = [
-        s.regel
+    stellen = [
+        s
         for s in stilregeln(css())
         if any(".tabelle-rahmen" in x for x in selektoren(s.regel.kopf))
     ]
-    (grund,) = (r for r in regeln if r.kopf == ".tabelle-rahmen")
+    # Bildschirm; im Druck scrollt nichts (overflow: visible, P1 Runde 3)
+    (grund,) = (
+        s.regel
+        for s in stellen
+        if s.regel.kopf == ".tabelle-rahmen"
+        and not any(k.startswith("@media") for k in s.kontext)
+    )
     assert grund.wert("overflow-x") == "auto"
+    regeln = [s.regel for s in stellen]
     for r in regeln:
         for name, wert in r.deklarationen:
             if name.startswith("overflow"):

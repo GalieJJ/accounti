@@ -524,5 +524,9 @@ tr{break-inside:avoid}
 .tabelle td{display:table-cell}
 .tabelle td::before{content:none}
 .tabelle caption{display:table-caption}
+.tabelle-rahmen{overflow:visible}
+.tabelle{font-size:var(--gr-1)}
+.tabelle th, .tabelle td{padding:var(--a-1);font-size:inherit;overflow-wrap:break-word}
+.tabelle .zahl{text-align:right}
 }
 }
