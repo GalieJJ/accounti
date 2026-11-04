@@ -186,6 +186,26 @@ def test_gesellschaftsseite_nur_mit_rolle(welt):
     assert welt.client().get("/gesellschaft", follow_redirects=False).status_code == 303
 
 
+def test_zeile_schmal_name_vor_den_zaehlern(welt):
+    """P1 Runde 2 („Mehr“ bei 390 px): „aktiv“ und die Zähler stehen in einer Gruppe,
+    die unter den Namen rückt, wenn die Breite nicht reicht — der Name bricht nicht
+    mehr dreizeilig um und überlagert nichts."""
+    from tests.design_hilfe import css, selektoren, stilregeln
+
+    zeilen = _zeilen(welt.angemeldet("jan").get("/gesellschaft").text)
+    for kuerzel, vorne in (("a", "aktiv"), ("b", "0 zu prüfen")):
+        gruppe = zeilen[kuerzel].split('<span class="gruppenliste-zahlen">', 1)[1]
+        assert gruppe.startswith(f'<span class="gruppenliste-neben">{vorne}<'), gruppe
+    werte: dict[str, dict[str, str]] = {}
+    for s in stilregeln(css()):
+        for sel in selektoren(s.regel.kopf):
+            werte.setdefault(sel, {}).update(dict(s.regel.deklarationen))
+    assert werte[".gesellschaften .gruppenliste-aktiv"]["flex-wrap"] == "wrap"
+    assert werte[".gesellschaften button"]["flex-wrap"] == "wrap"
+    assert werte[".gesellschaften .gruppenliste-text"]["flex"] == "1 1 10rem"
+    assert werte[".gruppenliste-zahlen"]["margin-left"] == "auto"
+
+
 def test_zaehler_je_gesellschaft(welt):
     _vorschlaege(welt, "a", 2)
     _vorschlaege(welt, "b", 3)

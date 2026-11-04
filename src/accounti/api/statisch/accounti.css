@@ -361,6 +361,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .seitenkopf h1{margin:0}
 .seitenkopf p{margin:var(--a-1) 0 0;color:var(--text-2)}
 .gruppenliste{margin:0;padding:0;list-style:none;background-color:var(--flaeche);border:1px solid var(--linie);border-radius:var(--radius-karte)}
+.gruppenliste > li{max-width:none}
 .gruppenliste > li + li{border-top:1px solid var(--linie)}
 .gruppenliste a, .gruppenliste button{display:flex;align-items:center;gap:var(--a-3);width:100%;min-height:3rem;padding:0 var(--a-4);color:var(--text);text-align:left;text-decoration:none;background:transparent;border:0;border-radius:var(--radius-karte)}
 .gruppenliste a:hover, .gruppenliste button:hover{background-image:linear-gradient(var(--schleier), var(--schleier))}
@@ -370,6 +371,9 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .gruppenliste-aktiv .gruppenliste-text{font-weight:600}
 .gruppenliste-neben{font-size:var(--gr-3);color:var(--text-2)}
 .gruppenliste .gruppenliste-abmelden{font-weight:600;color:var(--akzent)}
+.gesellschaften .gruppenliste-aktiv, .gesellschaften button{flex-wrap:wrap;row-gap:0;padding-block:var(--a-2)}
+.gesellschaften .gruppenliste-text{flex:1 1 10rem;overflow-wrap:anywhere}
+.gruppenliste-zahlen{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:0 var(--a-3);margin-left:auto}
 .seite{display:flex;flex-direction:column;gap:var(--a-5)}
 .seite h1, .seite p{margin:0}
 .seite .etikett{margin-bottom:var(--a-2)}

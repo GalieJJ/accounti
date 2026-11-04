@@ -1,10 +1,12 @@
 {#- Liste der Gesellschaften des Benutzers (/gesellschaft, /menue): Marke, Name, Zähler;
-    die aktive mit „aktiv“, die anderen als POST-Formular zum Wechseln (CSRF). -#}
+    die aktive mit „aktiv“, die anderen als POST-Formular zum Wechseln (CSRF). Reicht die
+    Breite nicht, rücken die Zähler unter den Namen (P1 Runde 2). -#}
 {% import "_komponenten.html" as k with context %}
-{%- macro zahlen(z) -%}
+{%- macro zahlen(z, aktiv=false) -%}
+<span class="gruppenliste-zahlen">{% if aktiv %}<span class="gruppenliste-neben">{{ _("aktiv") }}</span>{% endif %}
 {%- if not z.erreichbar %}<span class="gruppenliste-neben">{{ _("nicht erreichbar") }}</span>
-{%- else %}{% if z.pruefen is not none %}<span class="gruppenliste-neben">{{ _("%(anzahl)s zu prüfen", anzahl=z.pruefen) }}</span>{% endif %}{% if z.freigaben is not none %}<span class="gruppenliste-neben">{{ ngettext("%(num)s Freigabe", "%(num)s Freigaben", z.freigaben) }}</span>{% endif %}{% endif -%}
+{%- else %}{% if z.pruefen is not none %}<span class="gruppenliste-neben">{{ _("%(anzahl)s zu prüfen", anzahl=z.pruefen) }}</span>{% endif %}{% if z.freigaben is not none %}<span class="gruppenliste-neben">{{ ngettext("%(num)s Freigabe", "%(num)s Freigaben", z.freigaben) }}</span>{% endif %}{% endif %}</span>
 {%- endmacro -%}
 <ul class="gruppenliste gesellschaften">{% for z in zeilen %}<li data-gesellschaft="{{ z.gesellschaft.kuerzel }}">
-{%- if z.aktiv %}<span class="gruppenliste-aktiv">{{ k.marke(z.marke, klein=true, mit_name=false) }}<span class="gruppenliste-text">{{ z.gesellschaft.name }}</span><span class="gruppenliste-neben">{{ _("aktiv") }}</span>{{ zahlen(z) }}</span>
+{%- if z.aktiv %}<span class="gruppenliste-aktiv">{{ k.marke(z.marke, klein=true, mit_name=false) }}<span class="gruppenliste-text">{{ z.gesellschaft.name }}</span>{{ zahlen(z, aktiv=true) }}</span>
 {%- else %}<form method="post" action="/gesellschaft"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" name="kuerzel" value="{{ z.gesellschaft.kuerzel }}">{{ k.marke(z.marke, klein=true, mit_name=false) }}<span class="gruppenliste-text"><span class="unsichtbar">{{ _("Wechseln zu") }} </span>{{ z.gesellschaft.name }}</span>{{ zahlen(z) }}{{ k.symbol("chevron-right") }}</button></form>{% endif %}</li>{% endfor %}</ul>
