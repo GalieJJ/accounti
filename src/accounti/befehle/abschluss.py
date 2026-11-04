@@ -193,7 +193,8 @@ def eroeffnung(
     jahr: int = typer.Option(
         ...,
         help="erstes Geschäftsjahr in accounti (EB am Wirtschaftsjahresbeginn); bei "
-        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt",
+        "abweichendem Wirtschaftsjahr jedes, solange es keinen Saldovortrag gibt; "
+        "ebenso das erste Jahr nach einem Wechsel der Gewinnermittlung",
     ),
     konto: str = typer.Option(..., "--konto", help="Bestandskonto, z.B. 1200"),
     saldo_text: str = typer.Option(
@@ -207,7 +208,8 @@ def eroeffnung(
     db: str = DB_OPTION,
     config: str = KONFIG_OPTION,
 ) -> None:
-    """Eröffnungssaldo eines Bestandskontos (nur im ersten Jahr; sonst Vortrag)."""
+    """Eröffnungssaldo eines Bestandskontos (nur im ersten Jahr bzw. dem ersten nach
+    einem Wechsel der Gewinnermittlung; sonst Vortrag)."""
     from accounti.abschluss.vortrag import AbschlussError, erfasse_eroeffnung
     from accounti.anzeige import betrag_de
     from accounti.db.tabellen_abschluss import JahrGesperrtError

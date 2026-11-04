@@ -12,6 +12,7 @@ from accounti.abschluss.konfiguration import KassenEinstellungen
 from accounti.abschluss.kontenrahmen import lade_kontenrahmen
 from accounti.abschluss.protokoll import pruefe_protokoll
 from accounti.abschluss.pruefungen import (
+    Schwere,
     erfasse_kontoauszugssaldo,
     kontext,
     pruefe_abschluss,
@@ -27,7 +28,11 @@ from accounti.abschluss.vortrag import (
 )
 from accounti.anlagen.konfiguration import lade_anlagen
 from accounti.anlagen.lauf import afa_lauf
-from accounti.db.repo_abschluss import ist_gesperrt, lade_protokoll
+from accounti.db.repo_abschluss import (
+    ist_gesperrt,
+    lade_jahresabschluss,
+    lade_protokoll,
+)
 from accounti.db.repository import (
     lade_buchungen,
     setze_status,
@@ -730,3 +735,155 @@ def test_eb_rahmen_mit_gleichem_inhalt_verschachtelt(make_session):
             speichere_buchung(s, eb)
             s.flush()
         s.commit()
+
+
+# --- Wechsel der Gewinnermittlung (Periodenwert, Baustein 10c P4) -----------------
+
+
+_EUER_PK = "euer_personenkonten"
+
+
+def _wechsel(tmp_path, alt, neu):
+    datei = tmp_path / "wechsel.yaml"
+    datei.write_text(
+        f"abschluss:\n  gewinnermittlung: {{2026: {alt}, 2027: {neu}}}\n", "utf-8"
+    )
+    return datei
+
+
+def _forderung_mit_ust(make_session, config):
+    """EB 2026, abgestimmte Bank und eine offene Forderung im Dezember: 5.000 €
+    netto, 950 € USt."""
+    with make_session() as s:
+        speichere_bankkonto(s, Bankkonto(iban=IBAN, bezeichnung="Giro"))
+        einst = _k(s, config).einstellungen
+        erfasse_eroeffnung(s, 2026, "1200", D("10000"), "test", einst)
+        erfasse_eroeffnung(s, 2026, "0880", D("-10000"), "test", einst)
+        erfasse_kontoauszugssaldo(s, IBAN, date(2026, 12, 31), D("10000"))
+        s.commit()
+    buche(
+        make_session,
+        date(2026, 12, 1),
+        "10001",
+        "8400",
+        "5000",
+        steuer_schluessel=3,
+        steuer_betrag=D("950"),
+    )
+
+
+@pytest.mark.parametrize(
+    ("alt", "neu", "anzeige"),
+    [("euer", "bilanz", "EÜR → Bilanz"), ("bilanz", "euer", "Bilanz → EÜR")],
+    ids=["euer_zu_bilanz", "bilanz_zu_euer"],
+)
+def test_wechsel_der_gewinnermittlung_lehnt_den_vortrag_ab(
+    make_session, tmp_path, alt, neu, anzeige
+):
+    """Beim Wechsel EÜR ↔ Bilanz rechnete der Vortrag die Schlusssalden mit den
+    Kontenarten des alten Jahres — unter EÜR gehen die Umsatzsteuerkonten ins
+    Kapital, der Eröffnungsbilanz fehlte die USt-Schuld. accounti trägt darum nicht
+    vor (wie beim abweichenden Wirtschaftsjahr), bucht nichts und sperrt nichts."""
+    config = _wechsel(tmp_path, alt, neu)
+    _forderung_mit_ust(make_session, config)
+    with make_session() as s, pytest.raises(AbschlussError) as fehler:
+        trage_vor(s, _k(s, config), "E. Muster")
+    text = str(fehler.value)
+    assert f"Wechsel der Gewinnermittlung {anzeige}" in text
+    assert "R 4.6 EStR" in text and "Steuerberater" in text
+    assert "accounti abschluss eroeffnung --jahr 2027 --konto … --saldo …" in text
+    with make_session() as s:
+        assert not ist_gesperrt(s, 2026)
+        assert lade_jahresabschluss(s, 2026) is None
+        assert [e.aktion for e in lade_protokoll(s)] == ["eroeffnung", "eroeffnung"]
+    assert _eb_2027(make_session, config) == {}
+
+
+def test_wechsel_eroeffnung_von_hand_und_befund_vorab(make_session, tmp_path):
+    """Der Weg aus der Meldung geht: ohne Jahresabschluss nimmt ``abschluss
+    eroeffnung`` die EB-Werte des ersten Bilanzjahres an, auch die USt-Schuld; und
+    ``abschluss pruefen`` zeigt den Wechsel vorab als Warnung (blockiert nicht)."""
+    config = _wechsel(tmp_path, "euer", "bilanz")
+    _forderung_mit_ust(make_session, config)
+    with make_session() as s:
+        befunde = pruefe_abschluss(_k(s, config))
+        (w,) = [b for b in befunde if b.pruefung == "wechsel_gewinnermittlung"]
+        assert w.schwere is Schwere.WARNUNG
+        assert "EÜR → Bilanz" in w.text and "R 4.6 EStR" in w.text
+        assert "abschluss eroeffnung --jahr 2027" in w.text
+        # im Folgejahr wechselt nichts mehr
+        assert pruefe_abschluss(_k(s, config, 2027), nur=[w.pruefung]) == []
+    eb = {"1200": "10000", "10001": "5950", "1776": "-950", "0880": "-15000"}
+    with make_session() as s:
+        einst = _k(s, config).einstellungen
+        for konto, saldo in eb.items():
+            assert erfasse_eroeffnung(s, 2027, konto, D(saldo), "t", einst)
+        s.commit()
+    assert _eb_2027(make_session, config) == {k: D(v) for k, v in eb.items()}
+    with make_session() as s:
+        k27 = _k(s, config, 2027)
+        assert pruefe_abschluss(k27, nur=["vortragskonten"]) == []
+        # die Prüfungen 2027 fragen das WJ 2027 (Bilanz): die offene Forderung ist
+        # kein EÜR-Befund, 1776 ist Bestand und kein Erfolg
+        assert pruefe_abschluss(k27, nur=["euer_personenkonten"]) == []
+        assert k27.susa.ergebnis == 0
+        k26 = _k(s, config)
+        assert [b.pruefung for b in pruefe_abschluss(k26, nur=[_EUER_PK])] == [_EUER_PK]
+
+
+def test_wechsel_ueber_die_cli(tmp_path):
+    """``abschluss pruefen`` warnt, ``abschluss vortrag`` endet mit der Meldung,
+    ``abschluss eroeffnung --jahr 2027`` bucht die EB-Werte."""
+    from typer.testing import CliRunner
+
+    from accounti.cli import app
+    from tests.pruefung_hilfe import db_url
+
+    config = _wechsel(tmp_path, "bilanz", "euer")
+    url = db_url(tmp_path)
+    runner = CliRunner()
+    argumente = ["--db", url, "--config", str(config)]
+    r = runner.invoke(app, ["abschluss", "pruefen", "--jahr", "2026", *argumente])
+    assert r.exit_code == 0, r.output
+    assert "wechsel_gewinnermittlung" in r.output and "Bilanz → EÜR" in r.output
+    r = runner.invoke(
+        app, ["abschluss", "vortrag", "--jahr", "2026", "--von", "E", *argumente]
+    )
+    assert r.exit_code == 1 and "Wechsel der Gewinnermittlung" in r.output, r.output
+    r = runner.invoke(
+        app,
+        [
+            "abschluss",
+            "eroeffnung",
+            "--jahr",
+            "2027",
+            "--konto",
+            "1200",
+            "--saldo",
+            "500",
+            "--von",
+            "E",
+            *argumente,
+        ],
+    )
+    assert r.exit_code == 0 and "Eröffnungssaldo 1200 2027" in r.output, r.output
+
+
+def test_ohne_wechsel_bleibt_der_vortrag_wie_bisher(make_session, tmp_path):
+    """Eine Zuordnung ohne Wechsel (2026 und 2027 Bilanz): Vortrag mit USt-Saldo,
+    kein Befund zum Wechsel."""
+    config = _wechsel(tmp_path, "bilanz", "bilanz")
+    _forderung_mit_ust(make_session, config)
+    with make_session() as s:
+        k = _k(s, config)
+        assert pruefe_abschluss(k, nur=["wechsel_gewinnermittlung"]) == []
+        trage_vor(s, k, "E. Muster")
+        s.commit()
+    with make_session() as s:
+        assert ist_gesperrt(s, 2026)
+    assert _eb_2027(make_session, config) == {
+        "1200": D("10000"),
+        "10001": D("5950"),
+        "1776": D("-950"),
+        "0880": D("-15000"),
+    }
