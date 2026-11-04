@@ -154,7 +154,17 @@ UMGEBUNG.filters["euro"] = _filter(i18n.euro)
 UMGEBUNG.filters["datum"] = _filter(i18n.datum)
 UMGEBUNG.filters["prozent"] = _filter(i18n.prozent)
 UMGEBUNG.filters["monat"] = _filter(i18n.monat)
-UMGEBUNG.filters["uebersetzt"] = _filter(i18n.uebersetze)
+
+
+def _uebersetzt(wert: object, sprache: str | None = None) -> str:
+    """``Text`` übersetzen; schon gerendertes Markup (etwa eine Fachmeldung mit
+    ``lang="de"`` aus ``_makros.meldung_text``) bleibt, wie es ist."""
+    if isinstance(wert, Markup):
+        return wert
+    return i18n.uebersetze(wert, sprache)
+
+
+UMGEBUNG.filters["uebersetzt"] = _filter(_uebersetzt)
 UMGEBUNG.filters["bezeichnung"] = _filter(bezeichnung)
 UMGEBUNG.filters["prozent_ganz"] = _filter(
     lambda wert, sprache: i18n.prozent(wert, sprache, 0)
@@ -169,6 +179,8 @@ UMGEBUNG.filters["iban"] = lambda wert: " ".join(
 ERLAUBTE_ATTRIBUTE = re.compile(
     r"hx-(get|post|target|swap|select|push-url|disabled-elt|indicator|vals|confirm)"
     r"|data-[a-z][a-z-]*|aria-[a-z]+|form|formaction|formnovalidate|autofocus"
+    # Prüfungen des Browsers wie im Bestand (Plan P1, Schritt 12: dieselben Felder)
+    r"|required|pattern|minlength|maxlength"
 )
 
 
@@ -367,6 +379,8 @@ async def seite(
         "darstellung": g.darstellung,
         "color_scheme": g.color_scheme,
         "brotkrumen": None,  # eigene Kette einer Seite: [(text, href), …]
+        # htmx-Anfrage ohne Verlaufsabruf: Ansagen per hx-swap-oob in #status
+        "fragment": fragment,
     }
     kontext.update(werte or {})
     if teil is not None:

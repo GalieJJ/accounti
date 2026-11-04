@@ -23,12 +23,12 @@
       {%- if brotkrumen %}{{ k.brotkrumen(brotkrumen) }}
       {%- elif geruest.brotkrumen %}{% set kette = [] %}{% for text, href in geruest.brotkrumen %}{% set _n = kette.append((_(text), href)) %}{% endfor %}{% set _n = kette.append((self.titel(), none)) %}{{ k.brotkrumen(kette) }}{% endif %}
       <div id="status" role="status" aria-live="polite" class="unsichtbar"></div>
-      <p id="netzhinweis" class="netzhinweis" role="alert" hidden>
+      <div id="netzhinweis" class="hinweis hinweis-fehler" role="alert" hidden>{{ k.symbol("circle-x") }}<p class="hinweis-text"><strong class="hinweis-wort">{{ _("Fehler:") }}</strong>
         <span data-hinweis="allgemein">{{ _("Die Aktion ist fehlgeschlagen — bitte die Seite neu laden und erneut versuchen.") }}</span>
-        <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span>
-      </p>
-      {% if meldung %}<p class="meldung" role="status">{{ meldung | uebersetzt }}</p>{% endif %}
-      {% if fehler %}<p class="fehler" role="alert">{{ fehler | uebersetzt }}</p>{% endif %}
+        <span data-hinweis="503" hidden>{{ _("Ein Lauf schreibt gerade — bitte gleich noch einmal") }}</span></p>
+      </div>
+      {% if meldung %}{% call k.hinweis("ok", neu=true) %}{{ meldung | uebersetzt }}{% endcall %}{% endif %}
+      {% if fehler %}{% call k.hinweis("fehler", neu=true) %}{{ fehler | uebersetzt }}{% endcall %}{% endif %}
       {% block inhalt %}{% endblock %}
     </main>
   </div>

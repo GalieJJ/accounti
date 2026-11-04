@@ -63,6 +63,14 @@ def test_attribute_nur_aus_positivliste():
     assert 'hx-post="/a?b=1&amp;c=&#34;2&#34;"' in html
     assert 'data-taste="f"' in html and 'aria-controls="liste"' in html
     assert " formnovalidate" in html and "hx-vals" not in html
+    # Prüfungen des Browsers wie im Bestand (Schritt 12): dieselben Felder
+    feld = render(
+        '{{ k.feld("soll", "Soll", attribute={"required": true, "pattern": "[0-9]{4,9}",'
+        ' "maxlength": 9, "minlength": 4}) }}'
+    )
+    assert ' required pattern="[0-9]{4,9}" maxlength="9" minlength="4">' in feld
+    code = render('{{ k.codefeld(attribute={"required": true}) }}')
+    assert 'inputmode="numeric" required>' in code
     for name in ("onclick", "style", "href", "class", "hx-on:click", "data-x y", "a>b"):
         with pytest.raises((ValueError, TemplateError)):
             render("{{ k.knopf('x', attribute={name: 'y'}) }}", name=name)
@@ -355,7 +363,9 @@ def test_feld_label_hilfe_fehler_aria():
         '{{ k.auswahl("art", "Rechtsform", [("gmbh", "GmbH"), ("ug", "UG")],'
         ' gewaehlt="ug", fehler="x", id="art-1") }}'
     )
-    assert '<select class="eingabe" id="art-1" name="art"' in auswahl
+    # umgestellt (Plan P1, Schritt 12): id zuerst — die Bestandstests suchen
+    # ``<select id="…"`` bzw. ``<input id="…"``
+    assert '<select id="art-1" class="eingabe" name="art"' in auswahl
     assert '<option value="ug" selected>UG</option>' in auswahl
     assert 'aria-describedby="art-1-fehler"' in auswahl
     text = render('{{ k.textfeld("notiz", "Notiz", wert="<b>", hilfe="kurz") }}')

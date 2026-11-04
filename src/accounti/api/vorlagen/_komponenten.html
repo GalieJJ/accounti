@@ -154,21 +154,21 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {% macro feld(name, beschriftung, wert="", typ="text", hilfe=none, fehler=none, warnung=none, bestaetigt=none, pflicht=false, autocomplete=none, inputmode=none, breite=none, attribute={}, id=none) -%}
 {%- set id = id or name -%}
 {%- set beschrieben = _beschreibung(id, hilfe, fehler, warnung, bestaetigt) -%}
-<div class="{{ _feldklasse(fehler, warnung) }}">{{ _label(id, beschriftung, pflicht) }}<input class="eingabe{{ _breite(breite) }}" id="{{ id }}" type="{{ {"text": "text", "email": "email", "tel": "tel", "url": "url", "password": "password", "date": "date", "number": "number", "search": "search"}[typ] }}" name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, hilfe, fehler, warnung, bestaetigt) }}</div>
+<div class="{{ _feldklasse(fehler, warnung) }}">{{ _label(id, beschriftung, pflicht) }}<input id="{{ id }}" class="eingabe{{ _breite(breite) }}" type="{{ {"text": "text", "email": "email", "tel": "tel", "url": "url", "password": "password", "date": "date", "number": "number", "search": "search"}[typ] }}" name="{{ name }}" value="{{ wert if wert is not none else "" }}"{% if autocomplete %} autocomplete="{{ autocomplete }}"{% endif %}{% if inputmode %} inputmode="{{ inputmode }}"{% endif %}{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, hilfe, fehler, warnung, bestaetigt) }}</div>
 {%- endmacro %}
 
 {#- Auswahlliste; optionen: (wert, text). -#}
 {% macro auswahl(name, beschriftung, optionen, gewaehlt=none, hilfe=none, fehler=none, pflicht=false, breite=none, attribute={}, id=none) -%}
 {%- set id = id or name -%}
 {%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
-<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<select class="eingabe{{ _breite(breite) }}" id="{{ id }}" name="{{ name }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{% for wert, text in optionen %}<option value="{{ wert }}"{% if wert == gewaehlt %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{{ _meldungen(id, hilfe, fehler) }}</div>
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<select id="{{ id }}" class="eingabe{{ _breite(breite) }}" name="{{ name }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{% for wert, text in optionen %}<option value="{{ wert }}"{% if wert == gewaehlt %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>{{ _meldungen(id, hilfe, fehler) }}</div>
 {%- endmacro %}
 
 {#- Mehrzeiliges Textfeld. -#}
 {% macro textfeld(name, beschriftung, wert="", hilfe=none, fehler=none, pflicht=false, zeilen=3, attribute={}, id=none) -%}
 {%- set id = id or name -%}
 {%- set beschrieben = _beschreibung(id, hilfe, fehler, none, none) -%}
-<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<textarea class="eingabe" id="{{ id }}" name="{{ name }}" rows="{{ zeilen | int }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ wert if wert is not none else "" }}</textarea>{{ _meldungen(id, hilfe, fehler) }}</div>
+<div class="{{ _feldklasse(fehler, none) }}">{{ _label(id, beschriftung, pflicht) }}<textarea id="{{ id }}" class="eingabe" name="{{ name }}" rows="{{ zeilen | int }}"{% if pflicht %} aria-required="true"{% endif %}{% if fehler %} aria-invalid="true"{% endif %}{% if beschrieben %} aria-describedby="{{ beschrieben }}"{% endif %}{{ zusatzattribute(attribute) }}>{{ wert if wert is not none else "" }}</textarea>{{ _meldungen(id, hilfe, fehler) }}</div>
 {%- endmacro %}
 
 {#- Feldgruppe (Aufruf) mit Legende als Etikett. -#}
@@ -204,10 +204,11 @@ feld{% if fehler %} feld-fehler{% elif warnung %} feld-warnung{% endif %}
 {%- endmacro %}
 
 {#- Codefeld: ein Feld einmalcode; variante "app" (Ziffern) oder "wiederherstellung"
-    (Text). Der Wechsel steht beim Label, vor dem Feld (wechsel_href trägt weiter). -#}
-{% macro codefeld(variante="app", wechsel_href=none, fehler=none, id="einmalcode") -%}
+    (Text). Der Wechsel steht beim Label, vor dem Feld (wechsel_href trägt weiter);
+    attribute wie bei feld (etwa required). -#}
+{% macro codefeld(variante="app", wechsel_href=none, fehler=none, id="einmalcode", attribute={}) -%}
 {%- set app = {"app": true, "wiederherstellung": false}[variante] -%}
-<div class="{{ _feldklasse(fehler, none) }} codefeld"><div class="codefeld-kopf">{{ _label(id, _("Code aus Ihrer Authenticator-App") if app else _("Wiederherstellungscode"), false) }}{% if wechsel_href %}<a class="codefeld-wechsel" href="{{ wechsel_href }}">{{ _("Wiederherstellungscode verwenden") if app else _("Code aus der App verwenden") }}</a>{% endif %}</div><input class="eingabe eingabe-code breite-mittel" id="{{ id }}" type="text" name="einmalcode" value=""{% if app %} autocomplete="one-time-code" inputmode="numeric"{% else %} autocomplete="off" inputmode="text" autocapitalize="off" spellcheck="false"{% endif %}{% if fehler %} aria-invalid="true" aria-describedby="{{ id }}-fehler"{% endif %}>{{ _meldungen(id, none, fehler) }}</div>
+<div class="{{ _feldklasse(fehler, none) }} codefeld"><div class="codefeld-kopf">{{ _label(id, _("Code aus Ihrer Authenticator-App") if app else _("Wiederherstellungscode"), false) }}{% if wechsel_href %}<a class="codefeld-wechsel" href="{{ wechsel_href }}">{{ _("Wiederherstellungscode verwenden") if app else _("Code aus der App verwenden") }}</a>{% endif %}</div><input id="{{ id }}" class="eingabe eingabe-code breite-mittel" type="text" name="einmalcode" value=""{% if app %} autocomplete="one-time-code" inputmode="numeric"{% else %} autocomplete="off" inputmode="text" autocapitalize="off" spellcheck="false"{% endif %}{% if fehler %} aria-invalid="true" aria-describedby="{{ id }}-fehler"{% endif %}{{ zusatzattribute(attribute) }}>{{ _meldungen(id, none, fehler) }}</div>
 {%- endmacro %}
 
 {#- Fehlerliste oben im Formular: role=alert, je Fehler ein Link auf das Feld. fehler:
