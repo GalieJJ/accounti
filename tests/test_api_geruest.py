@@ -347,9 +347,10 @@ def test_masse_des_geruests():
 
 
 def test_seitentitel_schmal_ohne_informationsverlust(welt):
-    """P1 Runde 2 (D-M1, WCAG 1.4.10): unter 64rem steht der Seitentitel nur dann im Kopf
-    (und das ``h1`` ist nur für Screenreader da), wenn er in zwei Zeilen der Kopfleiste
-    passt; er bricht dort um, statt mit Ellipse abgeschnitten zu werden. Ein längerer
+    """P1 Runde 2 (D-M1, WCAG 1.4.10): unter 64rem steht der Seitentitel nur dann im
+    Kopf (und das ``h1`` ist nur für Screenreader da), wenn er in zwei Zeilen der
+    Kopfleiste passt; er bricht dort um, statt mit Ellipse abgeschnitten zu werden. Ein
+    längerer
     Titel (Gesellschaft wechseln, Belegnummer, Fehlerseiten) bleibt als ``h1`` im
     Inhalt sichtbar."""
     from accounti.api.vorlagen import passt_in_den_kopf
@@ -380,7 +381,8 @@ def test_seitentitel_schmal_ohne_informationsverlust(welt):
 def test_druck_schwarz_auf_weiss_mit_tabellenkopf():
     """A97 (P1 Runde 2, gp1-design B3/B4): Im Hochformat (A4 ≤ 816 px) griff die
     Kartenform unter 64rem auch im Druck — Tabellen ohne Kopf, das h1 versteckt, die
-    Reiter gedruckt; im Dunkelmodus blieben die dunklen Token (Karten #1a1d21). Der Druck
+    Reiter gedruckt; im Dunkelmodus blieben die dunklen Token (Karten #1a1d21). Der
+    Druck
     setzt jetzt die hellen Werte schwarz auf weiß, zeigt Tabellen als Tabelle mit
     wiederholtem Kopf und das h1, und blendet jede Navigation aus."""
     token = _deklarationen(":root", "print")

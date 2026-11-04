@@ -338,7 +338,8 @@ async def _antwort(
 ) -> Response:
     if ist_htmx(request):
         # Rückweg der Vorlieben (Tastenhilfe): die URL, die der Browser danach zeigt —
-        # nach einer Aktion die neue Buchung, nach 409/422 die bisherige (HX-Current-URL)
+        # nach einer Aktion die neue Buchung, nach 409/422 die bisherige
+        # (HX-Current-URL)
         if push:
             werte = {**werte, "pfad": push}
         elif request.method == "POST" and request.headers.get("hx-current-url"):

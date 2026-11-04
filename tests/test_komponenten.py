@@ -282,7 +282,8 @@ def test_tabelle_caption_pflicht_und_rollen():
 
 def test_tabellenrahmen_scrollt_statt_abzuschneiden():
     """P1 Runde 2 (D-H1, A93/A107): jeder Tabellenrahmen scrollt waagrecht, wenn die
-    Tabelle breiter ist als ihr Platz (wie in der Leinwand: ``overflow-x: auto``), und ist
+    Tabelle breiter ist als ihr Platz (wie in der Leinwand: ``overflow-x: auto``), und
+    ist
     dann per Tastatur erreichbar und benannt — kein ``overflow: hidden/clip`` mehr, das
     breite Tabellen ab 64rem abschnitt."""
     from tests.design_hilfe import css, selektoren, stilregeln

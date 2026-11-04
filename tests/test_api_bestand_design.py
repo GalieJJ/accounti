@@ -270,7 +270,8 @@ def test_jede_tabelle_im_benannten_scrollrahmen(probe, alle, vorlage):
         assert "tabelle-rahmen" in rahmen.klassen, (vorlage, rahmen.attrs)
         assert rahmen.attrs.get("role") == "region", (vorlage, rahmen.attrs)
         assert rahmen.attrs.get("tabindex") == "0", (vorlage, rahmen.attrs)
-        assert rahmen.attrs.get("aria-label") == captions[id(t)], (vorlage, rahmen.attrs)
+        name = rahmen.attrs.get("aria-label")
+        assert name == captions[id(t)], (vorlage, rahmen.attrs)
 
 
 @pytest.mark.parametrize("vorlage", UMGESTELLT)

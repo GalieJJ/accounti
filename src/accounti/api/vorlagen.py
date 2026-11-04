@@ -212,8 +212,9 @@ class Spalte:
 
 
 class Seitenfehler(HTTPException):
-    """``HTTPException`` mit eigener Überschrift der Fehlerseite (Spec 10c A9; P1 Runde 2,
-    gp1-bestand N2): ohne sie folgt das ``h1`` dem Status (``app.FEHLERTITEL``)."""
+    """``HTTPException`` mit eigener Überschrift der Fehlerseite (Spec 10c A9; P1
+    Runde 2, gp1-bestand N2): ohne sie folgt das ``h1`` dem Status
+    (``app.FEHLERTITEL``)."""
 
     def __init__(self, status_code: int, detail: Any, titel: str) -> None:
         super().__init__(status_code, detail)
