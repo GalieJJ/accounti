@@ -1,30 +1,35 @@
+{#- Buchung (Plan P1, Schritt 12): Angaben, Journal als Tabelle; Korrektur und Storno
+    mit eigenem Codefeld (einmalcode-k, einmalcode-s), Korrigieren primär, Stornieren
+    gefährlich; die Fehlerliste verlinkt die Felder des abgesendeten Formulars. -#}
 {% extends "basis.html" %}
-{% import "_makros.html" as m with context %}
 {% block titel %}{{ _("Buchung") }} {{ b.id | string | truncate(8, True, "") }}{% endblock %}
-{% block kopf %}<link rel="stylesheet" href="/statisch/pruefen.css?v={{ version }}">{% endblock %}
 {% block inhalt %}
-<h1>{{ _("Buchung") }} <code>{{ b.id | string | truncate(8, True, "") }}</code></h1>
-{% for meldung in aktion_meldungen %}<p class="meldung" role="status">{{ m.meldung_text(meldung) }}</p>{% endfor %}
-{{ m.fehlerkasten(aktion_fehler) }}
+{% import "_makros.html" as m with context %}
+{% import "_komponenten.html" as k with context %}
+{%- set ids = {"korrektur": {"grund": "grund-k", "datum": "datum-k", "einmalcode": "einmalcode-k"}, "storno": {"grund": "grund-s", "datum": "datum-s", "einmalcode": "einmalcode-s"}}.get(aktion_formular, {}) -%}
+<div class="seite">
+<div class="seitenkopf"><h1>{{ _("Buchung") }} <code>{{ b.id | string | truncate(8, True, "") }}</code></h1></div>
+{% for meldung in aktion_meldungen %}{% call k.hinweis("ok", neu=true) %}{{ m.meldung_text(meldung) }}{% endcall %}{% endfor %}
+{% if aktion_fehler %}{{ k.fehlerliste([(aktion_fehler.feld, m.meldung_text(aktion_fehler.meldung))], ids=ids) }}{% endif %}
 {% if konfig_fehler %}{{ m.konfigurationsfehler(konfig_fehler) }}{% endif %}
-<div class="flaeche">
-  <section class="links">
-    <dl class="daten">
-      <div><dt>{{ _("Datum") }}</dt><dd>{{ b.datum | datum }}</dd></div>
-      <div><dt>{{ _("Soll") }}</dt><dd>{{ m.konto(b.soll_konto, kontonamen) }}</dd></div>
-      <div><dt>{{ _("Haben") }}</dt><dd>{{ m.konto(b.haben_konto, kontonamen) }}</dd></div>
-      <div><dt>{{ _("Steuerschlüssel") }}</dt><dd>{{ m.schluessel(b.steuer_schluessel, steuernamen) }}</dd></div>
-      <div><dt>{{ _("Netto") }}</dt><dd>{{ b.betrag_netto | euro }}</dd></div>
-      <div><dt>{{ _("Steuer") }}</dt><dd>{{ b.steuer_betrag | euro }}</dd></div>
-      <div><dt>{{ _("Brutto") }}</dt><dd>{{ brutto | euro }}</dd></div>
-      <div><dt>{{ _("Buchungstext") }}</dt><dd>{{ b.buchungstext }}</dd></div>
-      <div><dt>{{ _("Status") }}</dt><dd>{{ b.status | bezeichnung }}{% if b.geprueft_von %} · {{ b.geprueft_von }}{% endif %}</dd></div>
-      {% if umsatz %}<div><dt>{{ _("Umsatz") }}</dt><dd>{{ umsatz.datum | datum }} · {{ umsatz.betrag | euro }} · {{ umsatz.gegenkonto_name or "—" }} · {{ umsatz.verwendungszweck }}</dd></div>{% endif %}
-      {% if beleg %}<div><dt>{{ _("Beleg") }}</dt><dd><a href="/belege/{{ beleg.id }}">{{ beleg.belegnummer or beleg.id }}</a></dd></div>{% endif %}
-      <div><dt>{{ _("Herkunft") }}</dt><dd>{% if herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ herkunft.text }}</span>{% else %}<span class="gedaempft">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}</dd></div>
-    </dl>
-    {% if b.storniert_durch %}<p class="hinweis">{{ _("Storniert durch") }} <a href="/buchungen/{{ b.storniert_durch }}">{{ b.storniert_durch | string | truncate(8, True, "") }}</a></p>{% endif %}
-    {% if b.storno_von %}<p class="hinweis">{{ _("Storno von") }} <a href="/buchungen/{{ b.storno_von }}">{{ b.storno_von | string | truncate(8, True, "") }}</a></p>{% endif %}
+<div class="layout-zweispaltig buchung">
+  <section class="links" aria-label="{{ _('Angaben') }}">
+    {% call k.angaben() %}
+      {% call k.angabe(_("Datum")) %}{{ b.datum | datum }}{% endcall %}
+      {% call k.angabe(_("Soll")) %}{{ m.konto(b.soll_konto, kontonamen) }}{% endcall %}
+      {% call k.angabe(_("Haben")) %}{{ m.konto(b.haben_konto, kontonamen) }}{% endcall %}
+      {% call k.angabe(_("Steuerschlüssel")) %}{{ m.schluessel(b.steuer_schluessel, steuernamen) }}{% endcall %}
+      {% call k.angabe(_("Netto")) %}{{ b.betrag_netto | euro }}{% endcall %}
+      {% call k.angabe(_("Steuer")) %}{{ b.steuer_betrag | euro }}{% endcall %}
+      {% call k.angabe(_("Brutto")) %}{{ brutto | euro }}{% endcall %}
+      {% call k.angabe(_("Buchungstext")) %}{{ b.buchungstext }}{% endcall %}
+      {% call k.angabe(_("Status")) %}{{ b.status | bezeichnung }}{% if b.geprueft_von %} · {{ b.geprueft_von }}{% endif %}{% endcall %}
+      {% if umsatz %}{% call k.angabe(_("Umsatz")) %}{{ umsatz.datum | datum }} · {{ umsatz.betrag | euro }} · {{ umsatz.gegenkonto_name or "—" }} · {{ umsatz.verwendungszweck }}{% endcall %}{% endif %}
+      {% if beleg %}{% call k.angabe(_("Beleg")) %}<a href="/belege/{{ beleg.id }}">{{ beleg.belegnummer or beleg.id }}</a>{% endcall %}{% endif %}
+      {% call k.angabe(_("Herkunft")) %}{% if herkunft.bekannt %}<span class="quelle">{{ _(quellen.get(herkunft.quelle) or "Herkunft") }}</span> <span lang="de">{{ herkunft.text }}</span>{% else %}<span class="neben">{{ _("Keine Begründung gespeichert") }}</span>{% endif %}{% endcall %}
+    {% endcall %}
+    {% if b.storniert_durch %}{% call k.hinweis("info") %}{{ _("Storniert durch") }} <a href="/buchungen/{{ b.storniert_durch }}">{{ b.storniert_durch | string | truncate(8, True, "") }}</a>{% endcall %}{% endif %}
+    {% if b.storno_von %}{% call k.hinweis("info") %}{{ _("Storno von") }} <a href="/buchungen/{{ b.storno_von }}">{{ b.storno_von | string | truncate(8, True, "") }}</a>{% endcall %}{% endif %}
     {% if korrektur %}
     <h2>{{ _("Korrektur") }}</h2>
     <ul class="kette">
@@ -34,17 +39,16 @@
     </ul>
     <p>{{ korrektur.person }}: <span lang="de">{{ korrektur.grund }}</span></p>
     {% endif %}
-    <h2>{{ _("Journal") }}</h2>
+    <h2 id="journal-titel">{{ _("Journal") }}</h2>
     {% if journal %}
-    <table class="liste klein">
-      <thead><tr><th>{{ _("Nr.") }}</th><th>{{ _("Zeitpunkt") }}</th><th>{{ _("Vorgang") }}</th><th>{{ _("Person") }}</th><th>{{ _("Grund") }}</th></tr></thead>
-      <tbody>{% for j in journal %}<tr><td>{{ j.nr }}</td><td>{{ j.zeitpunkt.date() | datum }} {{ j.zeitpunkt.strftime("%H:%M") }}</td><td><code>{{ j.vorgang }}</code></td><td>{{ j.person }}</td><td lang="de">{{ j.grund or "" }}</td></tr>{% endfor %}</tbody>
-    </table>
+    {% call k.tabelle(_("Journal"), [Spalte(_("Nr.")), Spalte(_("Zeitpunkt")), Spalte(_("Vorgang")), Spalte(_("Person")), Spalte(_("Grund"))], sichtbar=false) %}
+    {% for j in journal %}{% call k.zeile() %}{% call k.zelle(_("Nr.")) %}{{ j.nr }}{% endcall %}{% call k.zelle(_("Zeitpunkt")) %}{{ j.zeitpunkt.date() | datum }} {{ j.zeitpunkt.strftime("%H:%M") }}{% endcall %}{% call k.zelle(_("Vorgang")) %}<code>{{ j.vorgang }}</code>{% endcall %}{% call k.zelle(_("Person")) %}{{ j.person }}{% endcall %}{% call k.zelle(_("Grund")) %}<span lang="de">{{ j.grund or "" }}</span>{% endcall %}{% endcall %}{% endfor %}
+    {% endcall %}
     {% else %}<p>{{ _("Keine Journaleinträge.") }}</p>{% endif %}
   </section>
-  <section class="rechts">
+  <section class="rechts" aria-label="{{ _('Korrektur') }}">
     {% if vorschlag %}
-    <p class="hinweis">{{ _("Diese Buchung ist ein Vorschlag — entscheiden in der Prüfung.") }} <a href="/pruefen/{{ b.id }}">{{ _("Zur Prüfung") }}</a></p>
+    {% call k.hinweis("info") %}{{ _("Diese Buchung ist ein Vorschlag — entscheiden in der Prüfung.") }} <a href="/pruefen/{{ b.id }}">{{ _("Zur Prüfung") }}</a>{% endcall %}
     {% elif korrigierbar %}
     {% set datum_pflicht = sperre is not none %}
     {# Fehler und Eingaben gehören zu dem Formular, das abgesendet wurde #}
@@ -52,45 +56,40 @@
     {% set ek = eingaben if aktion_formular == "korrektur" else {} %}
     {% set fs = aktion_fehler if aktion_formular == "storno" else none %}
     {% set es = eingaben if aktion_formular == "storno" else {} %}
+    {%- set mk = m.meldung_text(fk.meldung) if fk else none -%}
+    {%- set ms = m.meldung_text(fs.meldung) if fs else none -%}
+    {%- set gesperrt = _("Pflicht — der Zeitraum der Buchung ist gesperrt") -%}
+    {%- set konto = {"required": true, "pattern": "[0-9]{4,9}"} -%}
     <form method="post" action="/buchungen/{{ b.id }}/korrigieren" class="korrektur">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="stand" value="{{ stand }}">
-      <fieldset>
-        <legend>{{ _("Korrigieren (Storno und Neubuchung)") }}</legend>
-        <label for="soll">{{ _("Soll") }}</label>
-        <input id="soll" name="soll" value="{{ ek.get('soll', b.soll_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(fk, "soll") }}>
-        <label for="haben">{{ _("Haben") }}</label>
-        <input id="haben" name="haben" value="{{ ek.get('haben', b.haben_konto) }}" inputmode="numeric" pattern="[0-9]{4,9}" required{{ m.feldfehler(fk, "haben") }}>
-        <label for="steuer">{{ _("Steuerschlüssel") }}</label>
-        <select id="steuer" name="steuer"{{ m.feldfehler(fk, "steuer") }}>
-          <option value="">{{ _("unverändert") }}</option>
-          {% for nr in steuer.schluessel %}<option value="{{ nr }}"{% if ek.get('steuer') == nr | string %} selected{% endif %}>{{ nr }}: {{ steuernamen.get(nr, "") }}</option>{% endfor %}
-          {% if steuer.ohne_steuer %}<option value="ohne"{% if ek.get('steuer') == "ohne" %} selected{% endif %}>{{ _("ohne Steuer") }}</option>{% endif %}
-        </select>
-        <label for="grund-k">{{ _("Grund (steht im Journal)") }}</label>
-        <input id="grund-k" name="grund" value="{{ ek.get('grund', '') }}" maxlength="500"{{ m.feldfehler(fk, "grund") }}>
-        <label for="datum-k">{{ _("Datum für Storno und Neubuchung") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
-        <input id="datum-k" name="datum" type="date" value="{{ ek.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(fk, "datum") }}>
-        {% if mit_einmalcode %}<label for="code-k">{{ _("Einmalcode") }}</label>
-        <input id="code-k" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
-        <button type="submit">{{ _("Korrigieren") }}</button>
-      </fieldset>
+      {% if code_variante == "wiederherstellung" %}<input type="hidden" name="code" value="wiederherstellung">{% endif %}
+      {% call k.feldgruppe(_("Korrigieren (Storno und Neubuchung)")) %}
+        <div class="konten">
+        {{ k.feld("soll", _("Soll"), wert=ek.get("soll", b.soll_konto), inputmode="numeric", fehler=mk if fk and fk.feld == "soll" else none, attribute=konto) }}
+        {{ k.feld("haben", _("Haben"), wert=ek.get("haben", b.haben_konto), inputmode="numeric", fehler=mk if fk and fk.feld == "haben" else none, attribute=konto) }}
+        </div>
+        {%- set optionen = [("", _("unverändert"))] %}{% for nr in steuer.schluessel %}{% set _n = optionen.append((nr | string, nr ~ ": " ~ steuernamen.get(nr, ""))) %}{% endfor %}{% if steuer.ohne_steuer %}{% set _n = optionen.append(("ohne", _("ohne Steuer"))) %}{% endif %}
+        {{ k.auswahl("steuer", _("Steuerschlüssel"), optionen, gewaehlt=ek.get("steuer", ""), fehler=mk if fk and fk.feld == "steuer" else none) }}
+        {{ k.feld("grund", _("Grund (steht im Journal)"), wert=ek.get("grund", ""), fehler=mk if fk and fk.feld == "grund" else none, id="grund-k", attribute={"maxlength": 500}) }}
+        {{ k.feld("datum", _("Datum für Storno und Neubuchung"), wert=ek.get("datum", ""), typ="date", hilfe=gesperrt if datum_pflicht else none, fehler=mk if fk and fk.feld == "datum" else none, id="datum-k", attribute={"required": datum_pflicht}) }}
+        {% if mit_einmalcode %}{{ k.codefeld(code_variante, wechsel_href=code_wechsel, fehler=mk if fk and fk.feld == "einmalcode" else none, id="einmalcode-k", attribute={"required": true}) }}{% endif %}
+        <div class="knopfreihe">{{ k.knopf(_("Korrigieren")) }}</div>
+      {% endcall %}
     </form>
     <form method="post" action="/buchungen/{{ b.id }}/stornieren" class="storno">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <input type="hidden" name="stand" value="{{ stand }}">
-      <fieldset>
-        <legend>{{ _("Stornieren") }}</legend>
-        <label for="grund-s">{{ _("Grund (Pflicht, steht im Journal)") }}</label>
-        <input id="grund-s" name="grund" required maxlength="500" value="{{ es.get('grund', '') }}"{{ m.feldfehler(fs, "grund") }}>
-        <label for="datum-s">{{ _("Datum des Stornos") }}{% if datum_pflicht %} ({{ _("Pflicht — der Zeitraum der Buchung ist gesperrt") }}){% endif %}</label>
-        <input id="datum-s" name="datum" type="date" value="{{ es.get('datum', '') }}"{% if datum_pflicht %} required{% endif %}{{ m.feldfehler(fs, "datum") }}>
-        {% if mit_einmalcode %}<label for="code-s">{{ _("Einmalcode") }}</label>
-        <input id="code-s" name="einmalcode" autocomplete="one-time-code" required>{% endif %}
-        <button type="submit">{{ _("Stornieren") }}</button>
-      </fieldset>
+      {% if code_variante == "wiederherstellung" %}<input type="hidden" name="code" value="wiederherstellung">{% endif %}
+      {% call k.feldgruppe(_("Stornieren")) %}
+        {{ k.feld("grund", _("Grund (Pflicht, steht im Journal)"), wert=es.get("grund", ""), fehler=ms if fs and fs.feld == "grund" else none, id="grund-s", attribute={"required": true, "maxlength": 500}) }}
+        {{ k.feld("datum", _("Datum des Stornos"), wert=es.get("datum", ""), typ="date", hilfe=gesperrt if datum_pflicht else none, fehler=ms if fs and fs.feld == "datum" else none, id="datum-s", attribute={"required": datum_pflicht}) }}
+        {% if mit_einmalcode %}{{ k.codefeld(code_variante, wechsel_href=code_wechsel, fehler=ms if fs and fs.feld == "einmalcode" else none, id="einmalcode-s", attribute={"required": true}) }}{% endif %}
+        <div class="knopfreihe">{{ k.knopf(_("Stornieren"), art="gefaehrlich") }}</div>
+      {% endcall %}
     </form>
     {% endif %}
   </section>
+</div>
 </div>
 {% endblock %}
