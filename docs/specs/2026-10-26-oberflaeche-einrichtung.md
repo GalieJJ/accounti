@@ -2194,6 +2194,19 @@ Folgen der Leinwand-Freigabe und der Umsetzung von Paket 1 (Plan
   „Warnung“ und „bestätigt“; `karte` mit Summe rechts im Kopf.
 - **A93/A111:** Tabellen werden unter **64rem** (statt 40rem) zu Karten — bei 200 % Zoom mit
   Textabständen (AK56) schnitt der Tabellenrahmen sonst breite Tabellen ab.
+- **A93 (Runde 2):** Ist eine Tabelle breiter als ihr Platz, **scrollt ihr Rahmen
+  waagrecht** (wie die Tabellenrahmen der Leinwand); der Rahmen ist darum immer ein benannter,
+  fokussierbarer Bereich (`role="region"`, `aria-label`, `tabindex="0"`). Der Tabellenkopf
+  klebt beim Scrollen der Seite **nicht** mehr — in einem waagrecht scrollenden Rahmen geht
+  `position: sticky` zur Seite nicht. In der Kartenform stehen die Sortierlinks einer
+  sortierbaren Tabelle als Zeile über den Karten.
+- **A4/A107 (Runde 2):** Der Seitentitel steht unter 64rem nur im Kopf (und das `h1` nur für
+  Screenreader), wenn er in zwei Zeilen der Kopfleiste passt (höchstens 16 Zeichen, kein Wort
+  über 10); er bricht dort um. Ein längerer Titel bleibt als `h1` im Inhalt sichtbar.
+- **A9 (Runde 2):** Die Überschrift der Fehlerseite heißt bei 403 und 409 „Nicht
+  ausgeführt“; „Keine Berechtigung“ steht bei fehlender Rolle oder Gesellschaft, „Inzwischen
+  geändert“ bei geänderten Daten (falscher Einmalcode, fehlendes CSRF-Token und Fachfehler der
+  Freigabe sind keins von beiden).
 - **A96:** 36 statt „etwa 25“ Symbole (Auswahl nach der Leinwand), Budget eingehalten.
 - **A99/A92:** alle Stile in einer Datei `accounti.css`; je Bereich eigene Dateien gibt es nicht
   mehr (`pruefen.css` entfällt).

@@ -562,7 +562,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 ### Behoben
 
 - **Oberfläche:** Die Prüfliste scrollt auf dem Handy nicht mehr waagrecht (Tabellen werden
-  unter 64rem zu Karten); im Dunkelmodus bleiben Felder und Knöpfe nicht mehr weiß
+  unter 64rem zu Karten, darüber scrollt eine zu breite Tabelle in ihrem Rahmen statt
+  abgeschnitten zu werden); im Dunkelmodus bleiben Felder und Knöpfe nicht mehr weiß
   (`color-scheme`), `<kbd>` ist lesbar; das Einmalcode-Feld hat ein sichtbares Label; Label und
   Wert in Angabenlisten überlappen nicht mehr; die Hauptaktion ist als primärer Knopf
   erkennbar; die Kopfleiste ist auf dem Handy höchstens 56 px hoch.

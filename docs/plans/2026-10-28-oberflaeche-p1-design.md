@@ -2017,8 +2017,19 @@ der Welt und steht in `.gitignore`.
 **Design und Barrierefreiheit**
 - Hover, Fokus und Aktiv-Zustände zeigt `/muster` statisch nicht; die Browserprobe prüft sie
   mit `hover()`/`focus()` und Bildschirmfotos.
-- Die Tabellen der bestehenden Seiten werden unter 40rem zu Karten; breite Tabellen späterer
-  Auswertungen scrollen in ihrem Rahmen (erlaubt nach WCAG 1.4.10 für Datentabellen).
+- Die Tabellen der bestehenden Seiten werden unter 64rem zu Karten (Umsetzung, Schritt 12);
+  darüber scrollt jede Tabelle, die breiter ist als ihr Platz, waagrecht in ihrem Rahmen
+  (erlaubt nach WCAG 1.4.10 für Datentabellen; Runde 2). Der Tabellenkopf klebt deshalb beim
+  Scrollen der Seite nicht (A93, Abweichung in der Spec, Abschnitt 12), und jeder
+  Tabellenrahmen ist ein Tab-Stopp, auch wenn er gerade nicht scrollt.
+- Das Journal der Buchung steht in der linken Spalte (460–512 px ab 1280 px); lange
+  Vorgangscodes (`buchung_angelegt`) brechen nicht, darum liegt die Spalte „Grund“ dort oft
+  erst nach waagrechtem Scrollen im Blick (erreichbar, nicht abgeschnitten; Runde 2). Das
+  Journal unter beide Spalten zu stellen wäre ein Umbau der Seite (P3/P4).
+- Ob der Seitentitel unter 64rem im Kopf steht, entscheidet eine Zeichenregel (höchstens 16
+  Zeichen, kein Wort über 10; Runde 2), nicht die gemessene Breite: Ein Titel aus breiten
+  Buchstaben kann bei 320 px mit Textabständen im Kopf mitten im Wort umbrechen (nichts
+  fehlt); ein längerer Titel steht als `h1` im Inhalt, der Kopf zeigt dann keinen.
 - Ältere Browser lesen das `data-label` der Kartenansicht doppelt vor (Alternativtext für
   erzeugten Inhalt fehlt dort).
 - Automatisch geprüft sind axe-Regeln, Messungen der Probe und die Servertests; NVDA, VoiceOver
@@ -2042,8 +2053,8 @@ der Welt und steht in `.gitignore`.
   auf Buchstabe + Ziffer aus und kann dann fremd wirken; eine Wahl kann P5 bringen. Kommt eine
   Gesellschaft hinzu, kann sich das Monogramm einer anderen ändern (wie bei der Kennfarbe).
 - `:has()` fehlt in Firefox vor 121: Optionskarte und Wahlpille zeigen die Auswahl dort nur am
-  Optionsfeld, nicht am Rahmen. `overflow: clip` fehlt in Safari vor 16: Dort klebt der
-  Tabellenkopf nicht.
+  Optionsfeld, nicht am Rahmen. `overflow: clip` (Belegrahmen) fehlt in Safari vor 16: Dort
+  gilt `hidden`.
 - Die Referenzbilder der Leinwand zeigen bei `sc-if` alle Zustände untereinander (Arbeitsfläche,
   Handy-Prüfen); verglichen wird der jeweils passende Abschnitt.
 - Die Leinwand zeichnet das aufgeklappte Benutzermenü, Brotkrumen außerhalb der Einstellungen,
@@ -3052,3 +3063,157 @@ Tastatur (60), 200 % Zoom mit Textabständen (160), Maßprobe und Fokus nach dem
   Befund (329 Dateien).
 - **CSS** 37 533 von 40 960 Bytes (eine Datei); Skripte 6 176 von 20 480; Sprite 6 508 von
   15 360.
+
+### Runde 2 — Befunde der Prüfung von 6dd2a97 (05.11.2026)
+
+Prüfung von 6dd2a97 (`.claude/arbeit/s2/wf5/gp1.md` mit den Berichten gp1-sicherheit,
+gp1-bestand, gp1-design): ein Befund Hoch (D-H1), einer Mittel (D-M1), dazu Niedrig-Befunde zur
+Bedienung, zum Druck und zu den Tests. Testgetrieben: je Befund zuerst ein Test bzw. eine
+Messung der Browserprobe, die gegen 6dd2a97 rot ist (Abzug per `git archive` im Scratch), dann
+die Änderung; ein Commit je Befund(gruppe).
+
+- **Browserprobe misst Abgeschnittenes bei allen Breiten** (af963e0): neue Messung
+  `abschnitt` je Seite und Breite, ohne und mit den Textabständen aus WCAG 1.4.12 — kein Inhalt
+  breiter oder höher als ein Rahmen mit `overflow: hidden/clip`; ein Rahmen, der scrollt, ist
+  fokussierbar und benannt; jedes Bedienelement in Kopf und Inhalt trifft `elementFromPoint`
+  in seiner Mitte (nach `scrollIntoView`); der Seitentitel im schmalen Kopf liegt ganz in der
+  Kopfleiste; die Seite scrollt nicht waagrecht. Die Ausnahme `.kopf-titel` in AK56 entfällt.
+  Gegen 6dd2a97 (alle, hell, 1920/1440/1280/1024/390/320): 24 von 96 Messungen rot.
+- **D-H1 (Hoch) — Tabellen scrollen in ihrem Rahmen** (c9bf118). `.tabelle-rahmen` hatte
+  `overflow: clip`, damit der Tabellenkopf klebt; ab 64rem schnitt das breite Tabellen ab.
+  **Entschieden:** der Rahmen scrollt waagrecht (`overflow-x: auto`) und ist immer ein
+  benannter, fokussierbarer Bereich (`role="region"`, `aria-label` = Beschriftung,
+  `tabindex="0"`). Gründe: (1) Die Leinwand zeichnet jede Tabelle (Prüfliste, Buchungen,
+  Rechnungen, Anlagen, Bank) in einem Rahmen mit `overflow-x: auto`, auf `main` scrollten die
+  Abschnitte; der Plan nannte waagrechtes Scrollen schon als Grenze für breite Tabellen
+  (WCAG 1.4.10 nimmt Datentabellen aus). (2) **Umbrechen allein** reicht nicht: Die
+  gemessenen Breiten (gelernte Regeln 1 091 px, Prüfliste 784 px bei 1024 px) sind die
+  Mindestbreiten aus ganzen Wörtern — Kopfwörter wie „Steuerschlüssel“, „Confidence“, das Datum,
+  Feld und Knopf „Deaktivieren“; kleiner ginge es nur, wenn Wörter mitten im Wort brächen.
+  (3) **Frühere Kartenform** je Spaltenzahl reicht nicht: Regeln (10 Spalten) und das Journal
+  (5 Spalten in der linken Spalte der Buchung) sind bis 1920 px breiter als ihr Platz; sie
+  wären bei jeder Breite Karten. Ob eine Tabelle passt, hängt vom Inhalt und von den
+  Textabständen ab, darum trägt jeder Rahmen die Bedienung. **Folge:** Der klebende Kopf
+  (A93 „beim Scrollen fixiert“) entfällt — `position: sticky` klebt in einem Rahmen, der
+  waagrecht scrollt, nur am Rahmen; beides zugleich geht in CSS nicht (Spec, Abschnitt 12).
+  In der Kartenform bricht ein langer Wert jetzt um (`overflow-wrap: anywhere` in der Zelle).
+  Tests `test_komponenten.py::test_tabellenrahmen_scrollt_statt_abzuschneiden`,
+  `test_api_bestand_design.py::test_jede_tabelle_im_benannten_scrollrahmen`.
+- **D-M1 (Mittel) — Seitentitel schmal ohne Verlust** (ec843a5). Der Titel stand unter 64rem
+  einzeilig mit Ellipse im Kopf, das `h1` nur für Screenreader. Jetzt steht er nur dann im
+  Kopf, wenn er in zwei Zeilen der 56 px hohen Kopfleiste passt (`passt_in_den_kopf`:
+  höchstens 16 Zeichen, kein Wort über 10 — bei 320 px bleiben 132 px je Zeile, mit
+  Textabständen etwa zehn Zeichen), und bricht dort um (`overflow-wrap: anywhere`, keine
+  Ellipse). Ein längerer Titel („Gesellschaft wechseln“, lange Belegnummern, „Keine
+  Berechtigung“, „Ergebnis der Freigabe“) bleibt als `h1` im Inhalt sichtbar, der Kopf zeigt
+  dann keinen Titel (`body` ohne `mit-kopftitel`). So bleibt die Leinwand (Titel im Kopf) für
+  die Bereichsseiten, und nichts fehlt. Test
+  `test_api_geruest.py::test_seitentitel_schmal_ohne_informationsverlust`.
+- **„Mehr“ bei 390 px** (288bead): „aktiv“ und die Zähler stehen in einer Gruppe, die unter
+  den einzeiligen Namen rückt (Zeile bricht um, Name mit Basis 10rem); bei 320 px überlagerte
+  der Name vorher „aktiv“. Die Trennlinie der Gruppenliste reicht über die volle Breite.
+  Test `test_api_gesellschaften.py::test_zeile_schmal_name_vor_den_zaehlern`.
+- **„?“ bei abgeschalteten Kürzeln** (1c3b633): `pruefen.js` prüft die Abschaltung vor jeder
+  Taste (WCAG 2.1.4); Messung AK45 „Taste ? ohne Wirkung“.
+- **Rückweg der Vorlieben und Fokus nach htmx** (69417b9, 304ffd1): `ansichtspfad` behält bei
+  GET die Ansicht (`ansicht`, `seite` mit schlichten Werten, nichts sonst wird gespiegelt);
+  das Fragment der Arbeitsfläche trägt die Push-URL bzw. nach 409/422 die `HX-Current-URL`;
+  `accounti.js` setzt beim Absenden jedes Formulars mit `input[data-hier]` (Benutzermenü,
+  Tastenhilfe) die URL, die der Browser gerade zeigt (der Kopf lädt bei htmx nicht neu).
+  A104 auf der Arbeitsfläche wie auf `/muster`: die erste Überschrift des neuen Inhalts trägt
+  im Fragment `tabindex="-1"` und `data-fokus`; eine Fehlerliste steht davor. Die
+  Regelvorschau tauscht nur ihren Bereich, aber htmx sperrt den Knopf während der Anfrage, und
+  ein gesperrter Knopf verliert in Chromium den Fokus an `body` — ihr Ergebnis (auch die
+  Fehlermeldung) trägt deshalb ebenfalls `data-fokus` (Commit „Fokus nach der
+  Regelvorschau“). Tests
+  `test_api_pruefen.py::test_rueckkehrziel_der_vorlieben_folgt_der_angezeigten_seite`,
+  `::test_fokus_nach_dem_austausch_auf_die_ueberschrift`,
+  `test_api_regeln.py::test_fokus_nach_der_vorschau`; Messung `--ablaeufe` „rueckweg“ (die
+  Regelvorschau erreicht die Probe-Welt nicht: kein Vorschlag mit möglicher Regel).
+- **Sortieren in der Kartenform** (fa40422): Tabellen mit sortierbaren Spalten tragen
+  `tabelle-sortierbar`; in der Kartenform steht ihr Kopf als Zeile mit den Sortierlinks über den
+  Karten, Spalten ohne Sortierung bleiben nur für Screenreader. Test
+  `test_komponenten.py::test_sortieren_auch_in_der_kartenform`.
+- **`/muster` bei 320 px** (7687956): Aktionsleiste mit Spalten von mindestens 8rem
+  (`auto-fit`), die sonst untereinander rücken; das `fieldset` der Optionskarten ist wie die
+  übrigen Feldgruppen zurückgesetzt (vorher Rahmen des Browsers und `min-width: min-content` —
+  mit Textabständen scrollte die Seite). Tests `test_aktionsleiste_bricht_schmal_um`,
+  `test_optionskarten_ohne_rahmen_des_browsers`.
+- **Überschrift der Fehlerseite** (8f7497d): 403 und 409 heißen „Nicht ausgeführt“ (en „Not
+  carried out“); „Keine Berechtigung“ bei fehlender Rolle (`Verweigerung`) und fremder
+  Gesellschaft, „Inzwischen geändert“ beim geänderten Zahlungslauf — über `Seitenfehler`
+  (`HTTPException` mit `titel`). Abweichung von der Entscheidung „Fehlerseiten“ (h1 nur je
+  Status). Test `test_api_fehlerseiten.py::test_ueberschrift_passt_zum_fehler`.
+- **Zähler** (72f99a9, 5c5b52d): `anzahl_offen` ist ein `COUNT` mit Unterabfrage auf die
+  offenen Rückfragen (20 000 Rückfragen 1,111 → 0,040 s, gleiche Zahl); `/gesellschaft` und
+  `/menue` übernehmen die Zahlen der aktiven Gesellschaft aus der Liste in die Navigation
+  (`request.state`) — höchstens eine Frist je Seite (gesperrt: 4,03 → 2,03 s, als Freigeber
+  6,04 → 3,03 s); scheitern alle Zähler einer Datenbank (keine SQLite-Datei, Tabellen
+  fehlen), ist sie „nicht erreichbar“. Tests
+  `test_pruefschlange.py::test_anzahl_offen_zaehlt_ohne_die_rueckfragen_zu_laden`,
+  `test_api_gesellschaften.py::test_kaputte_datenbank_ist_nicht_erreichbar`,
+  `::test_aktive_gesellschaft_nur_einmal_gezaehlt`.
+- **Skript-Budget** (5cf0235): Budget (AK50) und Speicherverbot (AK45) zählen jedes `*.js`
+  unter `statisch` außer htmx (`eigene_skripte`); Test `test_jedes_eigene_skript_zaehlt`.
+- **Druck und Kontrastmodus** (340e9df): Die Druckebene setzt die Farb-Token für `:root` und
+  den dunklen Themenrahmen schwarz/weiß, zeigt Tabellen auch im Hochformat als Tabelle mit
+  wiederholtem Kopf, das `h1` und keine `nav` (Reiter, Position, Seitenblättern) und keine
+  Tastenhilfe. `@media (forced-colors: active)`: inaktive Reiter mit `Canvas` statt
+  transparentem Strich (`test_nur_drei_breakpoints` lässt die Abfrage zu). AK8 der Probe misst
+  zusätzlich 794 px hell und dunkel und `/pruefen/regeln`. Tests
+  `test_api_geruest.py::test_druck_schwarz_auf_weiss_mit_tabellenkopf`,
+  `::test_forced_colors_nur_der_aktive_reiter_unterstrichen`.
+- **Umgestellt** (P1-eigene Tests): `test_api_statisch.py::test_skripte_ohne_speicher`,
+  `::test_skripte_budget` (jedes eigene Skript), `test_design_token.py::test_nur_drei_breakpoints`
+  (forced-colors), `::test_themenklassen_in_den_tokenbloecken` (Druckregel). Kein Test aus
+  `main` geändert.
+- **CSS:** 39 508 von 40 960 Bytes (vorher 37 533; Druckregeln zusammengelegt, Versteckregeln
+  der Kartenform zusammengelegt, `.tabelle-breit` und der klebende Kopf gestrichen). Für 10b-2
+  und P2–P7 bleiben knapp 1,4 KB: vor dem nächsten Paket Muster- und Seitenregeln
+  zusammenlegen (R-P1-3).
+- **Grenzen der Messung:** `abschnitt` findet Abgeschnittenes, nicht bedienbare Rahmen und
+  verdeckte Bedienelemente, aber keine Texte, die sich überlagern (die Überlagerung in der
+  Gesellschaftsliste bei 320 px fiel im Bild auf). Druck über `emulateMedia('print')` (ohne
+  Seitenumbruch); `page.pdf` der Prüfskripte ergänzt. forced-colors misst die Probe nicht,
+  das Prüfskript `zusatz.mjs` (Teil forced) emuliert es.
+
+### Prüfungen am Ende von Runde 2
+
+- **Gesamtlauf** aller Testdateien in vier Gruppen nacheinander (je höchstens 1 450 Tests,
+  über `arbeit/schwer`): **5 649 passed, 20 skipped, 1 failed** von 5 670 (Gruppe 1: 1 420/1,
+  2: 1 444/5 und 1 rot, 3: 1 444/4, 4: 1 341/10). Rot war nur die Zeitgrenze
+  `test_betrieb_protokoll.py::test_langer_pfad_haelt_den_server_mit_keiner_methode_an[OPTIONS]`
+  (0,82 s statt < 0,5 s, parallel zur Browserprobe); allein wiederholt 8 von 8 grün, mit
+  denselben Laufzeiten wie 6dd2a97. Vorher gezielt (alle `test_api_*`, `test_i18n*`,
+  `test_akzeptanz_web.py` und jede Testdatei, die die geänderten Module berührt; 41 Dateien):
+  875 passed, 2 skipped.
+- **Tests von `main` gegen die Quellen des Branches** (AK49, 26 Dateien, 535 Tests): rot sind
+  genau die 30 umgestellten Testfunktionen der Liste im PR, darunter drei bisher nicht
+  genannte (`test_api_app.py::test_registry_findet_router_module`,
+  `test_api_rechte_matrix.py::test_jeder_endpunkt_steht_in_der_matrix`,
+  `test_i18n_katalog.py::test_keine_verwaisten_eintraege` — Fixture bzw. Hilfsfunktion). Jede
+  Test-ID von `main` (5 322) gibt es noch; der Branch hat 5 670 (348 neu).
+- `ruff` 0.16.2 und 0.17.1 (`check`, `format --check`, ohne Cache) sauber; `mypy src/` ohne
+  Befund (329 Dateien).
+- **Browserprobe, Abschluss** (Chromium 1217, frische Welt, alle fünf Benutzer, jede erlaubte
+  HTML-Seite und die 404, **1920/1440/1280/1024/390/320 px**, hell und dunkel, `--fehlerseite
+  --ablaeufe`): **974 Messungen, 0 mit Befund** — `abschnitt` 960 ohne und 510 mit
+  Textabständen, axe 800 Läufe (alle Breiten außer 320 px) ohne Verstoß, CSP 960, AK1 320,
+  Seitenmessungen 8 058 Einzelprüfungen, Zielgrößen 800/160, AK56 160, Tastatur 150; Abläufe
+  14 (AK7, AK8 ×9, AK45 mit „?“, AK53, AK54, Rückweg). Gelaufen vor dem Commit „Fokus nach
+  der Regelvorschau“; die Regelvorschau erreicht die Probe-Welt nicht (Servertest).
+- **Prüfskripte der Befunde** gegen 6dd2a97 und gegen das Ende von Runde 2 (je frische Welt,
+  Ergebnisse im Scratch `rp1-2/pruefer-vorher|nachher`): gelernte Regeln „Deaktivieren“ bei
+  1024 px nicht klickbar → klickbar (der Rahmen scrollt; die statische Messung zählt den
+  Teil hinter dem Scrollrand weiter als „nicht sichtbar“); Elemente mit `overflow:
+  hidden/clip` und abgeschnittenem Inhalt (1024–1920 px, mit/ohne Textabstände) 20 → 0;
+  Kopftitel mit Ellipse 3 → 0 (lange Titel als `h1`); Druck 794/718 px h1 und Tabellenkopf
+  fehlten → da, Dunkelmodus schwarz auf weiß (Linkfarbe direkt nach dem Umschalten noch im
+  Übergang, nach 300 ms schwarz); forced-colors: inaktiver Reiterstrich `LinkText` → `Canvas`;
+  Textabstände bei 320×568/320×256/390 px: Kopftitel, Tabellenrahmen, `/muster` 336 px → nur
+  noch der absichtlich verschobene Sprunglink; Sortierlink in versteckter Kopfzeile → sichtbar;
+  Aktionsleiste 259/228 → 228/228; Fokus nach „Nächster“/„Freigeben“ `body` → `h2`;
+  „Übernehmen“ nach htmx auf die freigegebene Buchung → auf die neue; „?“ bei „aus“ öffnet die
+  Hilfe → nicht; Zähler wie oben (Laufzeit, Fristen, „nicht erreichbar“).
+- **CSS** 39 508 von 40 960 Bytes; Skripte 6 934 von 20 480 (jedes eigene Skript gezählt);
+  Sprite unverändert.

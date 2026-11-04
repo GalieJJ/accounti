@@ -615,7 +615,8 @@ Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Per
 - `seiten/konto.py` (Mein Konto, Vorlieben am Benutzer über `auth.dienst.setze_vorlieben`),
   `menue.py` („Mehr“), `gesellschaft.py` (Liste mit Zählern, Wechsel), `hilfe.py` (Hilfe je
   Bereich aus `hilfe_inhalt.py`, ohne Anmeldung), `muster.py` (Musterseite mit erfundenen Daten).
-- Fehlerseiten: `fehler.html` im Gerüst (403 nennt Recht und Rollen über `sitzung.verweigert`),
+- Fehlerseiten: `fehler.html` im Gerüst (403 nennt Recht und Rollen über `sitzung.verweigert`;
+  Überschrift je Status, eine eigene über `vorlagen.Seitenfehler`),
   mit htmx das Fragment `_fehler.html`; 500 rendert die Middleware schlicht ohne Datenbank und
   ohne Einzelheiten.
 - `handeln.py` — `im_namen(a)`: der angemeldete Benutzer als Person im Journal
@@ -627,7 +628,8 @@ Datenbanken (`dienste.py`), Sicherheitskopfzeilen und Zugriffsprotokoll ohne Per
   aus der Datei; ein zweiter Test hält die Farben an der Design-Leinwand in
   `docs/design/2026-10-26-leinwand/` fest; die Klassen `.thema-hell`/`.thema-dunkel` zeigen beide
   Modi nebeneinander auf `/muster`), `symbole.svg` (Lucide-Teilmenge, Lizenz daneben), `htmx-2.0.11.min.js` (ohne
-  `eval`, Prüfsumme im Test), `accounti.js` (Fehlerhinweis, `aria-busy`, Fokus nach Austausch),
+  `eval`, Prüfsumme im Test), `accounti.js` (Fehlerhinweis, `aria-busy`, Fokus nach Austausch,
+  Rückweg der Vorlieben über `input[data-hier]`),
   `pruefen.js` (Tasten, abschaltbar über `<body data-tastenkuerzel>`). Keine Inline-Skripte und
   -Stile, eigene Dateien mit Versionsanhang, Budgets im Test (CSS 40 KB, Skripte 20 KB, Symbole
   15 KB).
