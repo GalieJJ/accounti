@@ -561,6 +561,8 @@ Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
 ### Behoben
 
+- **Protokoll:** `httpx2` und `httpcore2` (kommen mit openai 2.x über litellm) schreiben keine
+  Adressen mehr auf INFO ins Protokoll; gedämpft waren nur `httpx`, `httpcore` und `urllib3`.
 - **Oberfläche:** Die Prüfliste scrollt auf dem Handy nicht mehr waagrecht (Tabellen werden
   unter 64rem zu Karten, darüber scrollt eine zu breite Tabelle in ihrem Rahmen statt
   abgeschnitten zu werden); im Dunkelmodus bleiben Felder und Knöpfe nicht mehr weiß
