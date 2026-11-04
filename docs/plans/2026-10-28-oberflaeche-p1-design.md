@@ -1558,7 +1558,7 @@ Anhang B, die Gruppen, die Auswahl und die drei Schritte der Arbeitsfläche brin
 Hat eine Seite eine Zeichenfläche (Übersicht, Prüfen, Arbeitsfläche, Freigaben), kommt ihr Bild aus
 der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
 
-- [ ] **Querschnittstests zuerst** (`tests/test_api_bestand_design.py`, parametrisiert über die
+- [x] **Querschnittstests zuerst** (`tests/test_api_bestand_design.py`, parametrisiert über die
   Liste `UMGESTELLT` der schon umgestellten Seiten, anfangs leer; jede Seite kommt mit ihrem
   Commit hinein und macht die Tests für sich erst rot, dann grün):
   `::test_codefelder_mit_sichtbarem_label_und_ein_feld` (AK49 I10, AK53),
@@ -1578,7 +1578,7 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   Anmeldung, `/freigaben`, `/buchungen/{id}`: `?code=wiederherstellung` schaltet **alle**
   Codefelder der Seite auf die Textvariante mit Label „Wiederherstellungscode“ und Rückweg;
   `?code=xyz` → 200 mit Standardfeldern, Wert nicht gespiegelt, kein 422).
-- [ ] **Anmeldung** (`schlicht.html` mit dem Kopf aus L5, Karte höchstens 26rem zentriert, `feld`
+- [x] **Anmeldung** (`schlicht.html` mit dem Kopf aus L5, Karte höchstens 26rem zentriert, `feld`
   für Benutzer/Passwort, `codefeld` mit Variante `?code=wiederherstellung` und durchgereichtem
   `weiter`, Knopf primär, `breit`): *Tests*
   `tests/test_api_anmeldung.py::test_codefeld_numerisch_mit_wiederherstellungsweg`,
@@ -1588,14 +1588,14 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   `weiter` wird über `sicheres_ziel` zu `/`), `::test_code_parameter_unbekannt_ignoriert`
   (`?code=xyz` → 200 mit Standardfeld, kein 422; für `/freigaben` und `/buchungen/{id}` prüft das
   `test_code_parameter_je_seite`), alle Anmeldetests aus 10a (Schutz).
-- [ ] **Übersicht** (`start.html` in der Optik von „Main“: `.seitenkopf` mit `h1` „Übersicht“,
+- [x] **Übersicht** (`start.html` in der Optik von „Main“: `.seitenkopf` mit `h1` „Übersicht“,
   darunter das Etikett und die vier Zahlen als **Kennzahl-Karten** (`karte(kennzahl=…)`, Zahl in
   `--gr-9`, Satz in `--text-2`, wie die Karte „Prüfen“ der Leinwand) im Layout `karten`; Tabelle
   der fälligen Posten als `tabelle` mit `betrag`; leerer Zustand. Keine neue Zahl – P2 baut die
   Übersicht mit den sechs Karten der Leinwand neu): *Test* `tests/test_api_app.py::test_uebersicht_im_design`
   (vier Karten mit Klasse `kennzahl`, Zahl und Beschriftung in `.layout-karten`, dieselben Zahlen
   wie bisher; Tabelle mit `caption`; mit leerer Datenbank Leerzustand mit Link).
-- [ ] **Freigaben** (in der Optik von „Handy-Freigaben“: je Lauf eine `karte` mit Titel, rechts der
+- [x] **Freigaben** (in der Optik von „Handy-Freigaben“: je Lauf eine `karte` mit Titel, rechts der
   Betrag in `--gr-6`, `angaben`, Zahlungstabelle als `tabelle(in_karte=True)` (Karten unter
   40rem), Formular mit `codefeld(id="einmalcode-lauf-<nr>")` und primärem Knopf (unter 40rem
   `breit`); die Texte bleiben die von 10b-1, `aufklapper` und Werte der USt-VA bringt P2;
@@ -1605,7 +1605,7 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   `/hilfe/freigaben#zahlungslauf`): `tests/test_api_rechte_matrix.py::test_ustva_freigabe_im_browser`
   und `::test_vier_augen_im_browser` (Schutz; `freigabe_hash` findet `name="freigabe_hash"
   value="…"` weiter).
-- [ ] **Prüfen** (Liste in der Optik von „Pruefen-Liste“: `reiter` mit 3-px-Strich und Anzahl,
+- [x] **Prüfen** (Liste in der Optik von „Pruefen-Liste“: `reiter` mit 3-px-Strich und Anzahl,
   „Durcharbeiten“ als `linkknopf(art="sekundaer", taste="j")` rechts neben dem Etikett, `tabelle`
   mit Kopf auf `--flaeche-2`, Betrag rechtsbündig über `betrag()`, Karten unter 40rem,
   `seitenblaettern`, `leer` ohne das dauerhafte `role="status"` aus `liste.html:40`; die Spalten
@@ -1625,7 +1625,7 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   Korrigieren, Zurückstellen und nach einem 409 enthält ein `hx-swap-oob`-Element für `#status`
   mit dem Ergebnistext). Die Tests aus 10b-1 bleiben grün; Markup-Tests werden auf Rollen und
   Texte umgestellt (Liste im PR).
-- [ ] **Buchung und Beleg** (`angaben`, Journal als `tabelle`, Korrektur mit
+- [x] **Buchung und Beleg** (`angaben`, Journal als `tabelle`, Korrektur mit
   `codefeld(id="einmalcode-k")` und primärem Knopf, Storno mit `codefeld(id="einmalcode-s")` und
   `knopf("gefaehrlich")` für „Stornieren“, `fehlerliste(…, ids={"grund": "grund-k", …})` je
   Formular; `?code=` wie bei `/freigaben`; Belegvorschau-Rahmen mit `--beleg-hintergrund`): *Tests*
@@ -1633,29 +1633,29 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   mit eigenem Label; „Stornieren“ als gefährlicher Knopf; Fehlerliste eines Stornos verlinkt
   `#grund-s`), `tests/test_api_belege.py::test_beleg_im_design` (`angaben` als `dl`, Rahmen der
   Vorschau mit der Klasse für `--beleg-hintergrund`).
-- [ ] **`pruefen.css` entfernen**, alle `{% block kopf %}`-Verweise darauf löschen, die leere
+- [x] **`pruefen.css` entfernen**, alle `{% block kopf %}`-Verweise darauf löschen, die leere
   Ebene `bestand` aus der Ebenenfolge streichen: *Tests*
   `tests/test_api_statisch.py::test_nur_eine_css_datei`,
   `tests/test_design_token.py::test_ebenenfolge_wie_entschieden` (genau `token, basis, layout,
   komponenten, seiten, hilfen, druck`, kein `bestand`).
-- [ ] **Querschnitt vollständig**: *Test* `tests/test_api_bestand_design.py::test_alle_seiten_im_querschnitt`
+- [x] **Querschnitt vollständig**: *Test* `tests/test_api_bestand_design.py::test_alle_seiten_im_querschnitt`
   (`UMGESTELLT` = alle GET-Seiten der Registry plus die Fachseiten aus `fachseiten_html`).
 
 ### Schritt 13 — Querschnittstests (gelten ab hier für jedes Paket)
 
-- [ ] **Rechte-Matrix** (die neuen Zeilen sind seit den Schritten 4, 8, 9, 10 drin):
+- [x] **Rechte-Matrix** (die neuen Zeilen sind seit den Schritten 4, 8, 9, 10 drin):
   `::test_jede_rolle_gegen_jeden_endpunkt`, `::test_jeder_endpunkt_steht_in_der_matrix` (Schutz);
   `tests/test_api_csrf.py::test_jeder_post_ohne_csrf_403_und_nichts_geaendert` (Schutz, nimmt
   `/konto/vorlieben` von selbst mit).
-- [ ] **Vollständigkeit** (die Listen stehen seit Schritt 0 und sind in jedem Schritt nachgetragen):
+- [x] **Vollständigkeit** (die Listen stehen seit Schritt 0 und sind in jedem Schritt nachgetragen):
   *Test* `tests/test_api_vollstaendigkeit.py::test_htmx_formen_wirken` (je Route mit und ohne
   `HX-Request` aufgerufen: Fragment ohne `<html`, `HX-Refresh`, 303 bzw. ganze Seite; jede neue
   GET-Route liefert mit `HX-Request` ein Fragment, AK58).
-- [ ] **Protokoll** (`tests/test_betrieb_protokoll.py::test_geruest_ohne_personenbezug`): Marker im
+- [x] **Protokoll** (`tests/test_betrieb_protokoll.py::test_geruest_ohne_personenbezug`): Marker im
   Anzeigenamen, im Namen der Gesellschaft, in einem 404-Pfad und in einer 500-Ausnahme; nach
   Vorlieben, `/gesellschaft`, `/menue`, `/hilfe`, `/muster`, 404 und 500 steht keiner in der
   Protokollausgabe (AK59).
-- [ ] **Abhängigkeiten und Fremdhosts** (`tests/test_abhaengigkeiten.py`):
+- [x] **Abhängigkeiten und Fremdhosts** (`tests/test_abhaengigkeiten.py`):
   `::test_pyproject_ohne_neue_abhaengigkeit` (die **Paketnamen** in `dependencies` und
   `optional-dependencies` wie auf `main`; geänderte Versionsgrenzen bestehender Pakete sind
   erlaubt und stehen im PR; P6 trägt dort `segno` nach, AK60),
@@ -1663,17 +1663,17 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   SVG-Namensraum im Sprite, AK50), `::test_lizenzen_beigelegt` (htmx, Lucide),
   `::test_browserprobe_versionen_fest` (`package.json` mit genauen Versionen, Lockdatei mit
   Integrität, `ignore-scripts`).
-- [ ] **Zweisprachigkeit** (`tests/test_i18n_katalog.py`): sammelt zusätzlich die Werte von
+- [x] **Zweisprachigkeit** (`tests/test_i18n_katalog.py`): sammelt zusätzlich die Werte von
   `RECHT_TEXT` und die `N_()`-Texte aus `api/hilfe_inhalt.py` (liegt unter `api/`, also schon
   erfasst); `::test_begriffe_aus_anhang_b_im_katalog` (feste Liste der Spalte „Standardansicht“
   aus Anhang B, AK57); `tests/test_api_geruest.py::test_lang_je_sprache_auf_jeder_seite` (AK57).
-- [ ] **Vorlagen-Scan** (`tests/test_api_statisch.py::test_keine_inline_skripte_stile_oder_ereignisattribute`):
+- [x] **Vorlagen-Scan** (`tests/test_api_statisch.py::test_keine_inline_skripte_stile_oder_ereignisattribute`):
   nimmt die neuen Seiten und `fehler_500.html` mit (Schutz, erweitert; AK5). Der
   Versionsanhang-Test ist seit Schritt 2 umgestellt.
 
 ### Schritt 14 — Browserprobe aller Seiten, Handprüfung
 
-- [ ] **Probe in Chromium** auf dem Server (Browser aus Schritt 5; Firefox beim Nutzer) über jede
+- [x] **Probe in Chromium** auf dem Server (Browser aus Schritt 5; Firefox beim Nutzer) über jede
   Seite aus `probe.json`, je Rolle, hell und dunkel, bei 1440, 390 und 320 px. Messungen:
   - AK1: `document.documentElement.scrollWidth` ≤ Fensterbreite bei 320 und 390 px.
   - AK2: axe-core 0 Verstöße (A und AA) bei 1440 und 390 px, hell und dunkel.
@@ -1718,7 +1718,7 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
     verzögerter Antwort über `page.route`).
   - A104: nach dem Austausch über `/muster/beispiel` ist `document.activeElement` das
     `data-fokus`-Element.
-- [ ] **Bildvergleich und Maßprobe gegen die Leinwand** (Fassung 4, L10;
+- [x] **Bildvergleich und Maßprobe gegen die Leinwand** (Fassung 4, L10;
   `node scripts/browserprobe/probe.mjs --welt /tmp/accounti-probe/probe.json --browser chromium
   --vergleich scripts/browserprobe/ergebnisse/leinwand`):
   - Bilder von `/muster` (ohne Parameter bei 1440 px, `?theme=hell` und `?theme=dunkel` bei
@@ -1762,14 +1762,14 @@ der Probe nach jedem Seiten-Commit in die Gegenüberstellung aus L10.
   für Systemdatenbank und jede Gesellschaft nach `docs/betrieb.md` (dabei eine Datenbank ohne
   Versionsvermerk), `docker compose up -d`, Anmeldung, Darstellung wechseln, Neustart, Wahl
   bleibt; `config/:ro` unverändert.
-- [ ] **Testliste abgleichen (AK49):** `pytest --collect-only -q` des Branches gegen die Liste von
+- [x] **Testliste abgleichen (AK49):** `pytest --collect-only -q` des Branches gegen die Liste von
   `main` aus Schritt 0: jede Test-ID von `main` gibt es noch, oder sie steht mit neuem Namen in
   der Liste der umgestellten Tests im PR.
 - [ ] **Gegnerische Prüfung** (zweite Person bzw. Prüfagent gegen diesen Plan und die Spec),
   `pytest`, `ruff` (ohne Cache), `mypy --strict` grün; Checkboxen abgehakt; Liste der
   umgestellten Tests und das Handprotokoll im PR; Abweichungen und Auslegungen im PR und als
   Nachtrag in der Spec (Abschnitt 12, „Nachträge aus P1“).
-- [ ] **Doku-Bausteine** eingearbeitet (README, CHANGELOG, Bauplan, Architektur, Betrieb,
+- [x] **Doku-Bausteine** eingearbeitet (README, CHANGELOG, Bauplan, Architektur, Betrieb,
   THIRD-PARTY, CONTRIBUTING).
 
 ---
@@ -2917,3 +2917,138 @@ Chromium 1217, alle fünf Benutzer der Welt, jede erlaubte HTML-Seite und die 40
   (`.links`, nicht fokussierbarer Scrollbereich).
 - Gegenüberstellung mit der Leinwand (`--vergleich`): `…/p1b/probeB/2026-11-04-vergleich/`
   (lokal, nicht eingecheckt).
+
+### Abschnitt C — Schritte 12–15 (04.11.2026)
+
+Branch wie oben, Start **8c43c87**; geprüft ohne volle lokale Suite je Schritt (Gruppen über
+`arbeit/schwer`), am Ende einmal alle Testdateien in Gruppen; `ruff` 0.16.2 und 0.17.1,
+`mypy src/`. Kein Push, kein PR (die CI rechnet die ganze Suite im Entwurfs-PR).
+
+### Schritt 12 — Bestehende Seiten ins neue Design
+
+- **Reihenfolge und Commits** wie geplant, je Seite ein Commit: Querschnittstests mit den
+  gemeinsamen Bausteinen (ea2f31c), Anmeldung, Übersicht, Freigaben, Prüfliste,
+  Arbeitsfläche, Gelernte Regeln, Buchung, Beleg, dann `pruefen.css`/`bestand` weg und der
+  Querschnitt über alle Seiten. Jede Seite: zuerst ihr Eintrag in `UMGESTELLT` und ihre
+  Seitentests rot gegen die alte Vorlage (die alte Datei aus `HEAD` zurückgeschrieben,
+  nicht per `git stash`), dann grün.
+- **`test_alle_seiten_im_querschnitt`** stand anfangs mit in der Datei und war rot; damit die
+  Suite je Commit grün bleibt, kam er erst mit dem letzten Commit von Schritt 12 wieder hinein.
+  `UMGESTELLT` umfasst am Ende auch die neuen Seiten aus P1 (`/menue`, `/gesellschaft`,
+  `/konto`, `/hilfe`, `/hilfe/{thema}`, `/muster`); auf `/muster` dürfen Codefeld-Beispiele
+  ohne Formular und in beiden Varianten stehen.
+- **Gemeinsame Bausteine** (nicht im Plan einzeln genannt): Felder schreiben die `id` zuerst
+  (`<input id=… class=…>`; die Bestandstests suchen `<input id="…"`/`<select id="…"` — so
+  blieben sie unverändert, umgestellt ist nur eine Zeile in `test_komponenten.py`);
+  `codefeld(…, attribute=…)`; die Positivliste kennt `required`, `pattern`, `minlength`,
+  `maxlength` (dieselben Prüfungen des Browsers wie im Bestand); der Filter `uebersetzt` lässt
+  Markup stehen (Fachmeldungen mit `lang="de"` in der Fehlerliste); `karte(…, summe=…)` für den
+  Betrag rechts im Kopf der Freigaben-Karte (auf `/muster`). Meldung, Fehler und Netzhinweis
+  im Gerüst sind Hinweis-Komponenten. `.menue` heißt allgemein `.seite` (+ `.abschnitt`).
+- **Codefelder:** `code_variante`/`code_wechsel` in `api/einmalcode.py`; die Variante bleibt
+  nach einem Fehler erhalten (verstecktes Feld `code`) — auf der Anmeldung und auf
+  `/buchungen/{id}`.
+- **Leere Zustände** verlinken neue Hilfeabschnitte: `/hilfe/uebersicht#offene-posten`,
+  `/hilfe/pruefen#vorschlaege`, `/hilfe/pruefen#regeln` (Texte im Katalog); zurückgestellt
+  leer → „Zur Prüfung“.
+- **Arbeitsfläche:** Ergebnisse per `hx-swap-oob="innerHTML:#status"` nur in Fragmenten; die
+  ganze Seite (nach `?erledigt=`) trägt die Meldung mit `role="status"`. „Korrigieren“ ist
+  primär, wenn „Freigeben“ fehlt (Prüfregel oder ohne Freigaberecht). Die Sperre ist ein
+  Fehler-Hinweis (der rote Balken aus Abschnitt A ist damit zurück).
+- **`meldung.html`** hat ein `h1` („Ergebnis der Freigabe“, neue msgid) und die Meldung als
+  neuen Hinweis (`role="status"`).
+- **`HTMX_FORMEN` korrigiert** (gefunden mit `test_htmx_formen_wirken`, Schritt 13): die POSTs
+  der Freigaben und der Buchung liefern ihr Ergebnis als Seite (200), nicht 303 —
+  `ganze_seite` statt `weiterleitung`.
+- **Abweichung Tabellen:** Kartenform **unter 64rem** statt unter 40rem. Grund: die
+  Browserprobe fand bei 640 × 400 (200 % Zoom) mit den Textabständen aus WCAG 1.4.12 die
+  Prüftabelle 904 px breit in einem 606 px breiten Rahmen mit `overflow: clip` — abgeschnitten
+  (AK56). Mit den Karten bis 64rem gibt es keinen Tabellenüberlauf mehr zwischen 640 und
+  1024 px; die Leinwand (1440/390 px) ist nicht berührt.
+- **Zielgrößen:** Links außerhalb des Fließtexts (Codefeld-Wechsel, Spalten-Sortierung,
+  Karten-Aktion, Journal-Link, Leer-Aktion, Links in Tabellenzellen) mindestens 24 px, mit
+  grobem Zeiger 44 px; dort auch Brotkrumen, Wortmarke und verlinkte Marke (Funde der Probe).
+- **Umgestellt** (Schritt 12): `test_komponenten.py::test_feld_label_hilfe_fehler_aria` (id
+  zuerst), `test_api_pruefen.py::test_zurueckstellen_und_ansicht_zurueckgestellt`,
+  `::test_arbeitsflaeche_beleg_links_vorschlag_rechts`, `::test_umsatzdaten_auch_mit_beleg`,
+  `::test_htmx_fragment_mit_push_url`,
+  `test_api_buchungen.py::test_gesperrter_zeitraum_verlangt_datum_ohne_vorbelegung`, in
+  `test_design_token.py` `test_css_budget`, `test_ebenenfolge_wie_entschieden`,
+  `test_jede_regel_in_einer_ebene` (die drei sind P1-eigen).
+- **CSS:** `accounti.css` am Ende von Schritt 12 36 900 Bytes, nach den Funden der Probe
+  37 478 Bytes (Grenze 40 960; Ziel ≤ 30 KB aus R-P1-3 verfehlt, siehe Abschnitt B).
+
+### Schritt 13 — Querschnittstests
+
+- **`test_htmx_formen_wirken`** ruft jede Route mit und ohne `HX-Request` über die Welt der
+  Rechte-Matrix (`anfrage()` nimmt jetzt Kopfzeilen und ersetzt auch `{n}` und `{thema}` — die
+  Matrix traf vorher bei `…/seite/{n}.png` und `/hilfe/{thema}` nur eine 404). Rot war er an
+  vier Einträgen von `HTMX_FORMEN` aus Schritt 0: die POSTs der Freigaben und der Buchung
+  liefern ihr Ergebnis als Seite (200), nicht 303 — jetzt `ganze_seite`.
+- **Schutztests** (grün ohne Codeänderung): `test_betrieb_protokoll.py::test_geruest_ohne_personenbezug`,
+  `test_api_geruest.py::test_lang_je_sprache_auf_jeder_seite`,
+  `test_i18n_katalog.py::test_begriffe_aus_anhang_b_im_katalog` (feste Liste der Spalte
+  „Standardansicht“, mit der Spec abgeglichen), drei der vier Tests in
+  `test_abhaengigkeiten.py`. Rot war `::test_lizenzen_beigelegt`, bis `THIRD-PARTY.md` die
+  Werkzeuge der Browserprobe nannte (Playwright **1.59.1**, axe-core 4.14.0).
+- **Vorlagen-Scan** erweitert um `/hilfe/pruefen`, die 404 im Gerüst und die gerenderte 500.
+- **Abweichung:** `test_pyproject_ohne_neue_abhaengigkeit` führt die Paketnamen von `main`
+  fest im Test (statt sie aus `git` zu lesen — die CI hat ggf. keinen Verlauf).
+
+### Schritt 14 — Browserprobe aller Seiten
+
+- **`probe.mjs`** misst jetzt je Seite AK4, AK6/AK44 (dazu „Titel der unteren Leiste nicht
+  abgeschnitten“ bei 320 px), AK49, AK50 (mit reduzierter Bewegung), AK52 (ARIA-Schnappschuss
+  bei 390 px), AK55 (Zielgrößen 24 px; mit `hasTouch`/`isMobile` 44 px; Tastatur durch
+  `/pruefen`, Arbeitsfläche, `/konto` bei 1440/390 px) und AK56 (640 × 400 mit dem
+  Textabstands-Stylesheet, im Kontext mit `bypassCSP`); `--ablaeufe` misst AK7, AK8 (`/pruefen`,
+  `/freigaben`), AK45, AK53, AK54 (zuletzt, gibt den Vorschlag frei); `--vergleich` nimmt die
+  Arbeitsfläche bei 1440 und 390 px dazu.
+- **Funde und Behebung:** AK56 — Prüftabelle bei 640 px abgeschnitten → Karten unter 64rem
+  (Abweichung, s. Schritt 12); AK55 — Links außerhalb des Fließtexts unter 24 px bzw. 44 px
+  → Mindesthöhen; Kartenform: Caption schmal, langer Spaltenname über dem Wert → Caption als
+  Block, Umbruch im Spaltennamen. Messfehler der Probe (versteckte Texte, Eingabefelder in
+  AK56, heller Rahmen auf `/muster` in AK4, der PDF-`iframe` beim Fokusring) sind in der Probe
+  ausgenommen.
+- **Kurztitel:** keiner gesetzt. Bei 320 px bricht „Freigaben 1“ in zwei Zeilen um, ganz
+  innerhalb des Ziels (die Messung erlaubt den Umbruch, nicht das Abschneiden).
+- **Firefox** gibt es auf dem Server nicht — Probe mit `--browser firefox` und der
+  Handdurchlauf AK43 (NVDA, VoiceOver) beim Nutzer, im PR als offen genannt.
+- **Lücke:** AK45 prüft „Taste f ohne Anfrage“ nur bei ausgeschalteten Kürzeln; die
+  Gegenprobe (an → Anfrage) deckt der Servertest der Tastenhilfe nicht ab.
+
+### Schritt 15 — Abschluss
+
+- **Migration** SQLite von Hand (ini-Kopie, Wegwerf-DB unter `.claude/arbeit/s/gesamttest/p1c/mig/`):
+  `heads` = `1dd2f6b7c6c8`, `upgrade head` → `check` leer → `downgrade -1` (→ `e7153706b43a`) →
+  `upgrade head` → `check` leer. PostgreSQL, Sicherung gegen PostgreSQL und die Docker-Probe
+  nicht lokal (kein Dienst, kein Docker) — offen im PR.
+- **Testliste (AK49):** `main` 8765dd7 (aus einem `git archive` gesammelt) 5 322 Tests,
+  3fa8463 5 125 — jede Test-ID gibt es auf dem Branch noch; Branch 5 638 Tests (316 neu).
+  Umgestellt bzw. erweitert sind 32 Testfunktionen aus `main` (AST-Vergleich), Liste im
+  PR-Text.
+- **Doku-Bausteine** eingearbeitet (README, CHANGELOG, Bauplan, Architektur, Betrieb,
+  THIRD-PARTY, CONTRIBUTING) mit Playwright 1.59.1 statt 1.64.0, Migration `1dd2f6b7c6c8` auf
+  `e7153706b43a`, Karten unter 64rem; Spec Abschnitt 12 „Nachträge aus P1“.
+- **Gegnerische Prüfung** steht aus (keine Unteragenten in diesem Lauf).
+
+### Abschlusslauf der Browserprobe (Abschnitt C)
+
+Chromium 1217, frische Welt, alle fünf Benutzer, jede erlaubte HTML-Seite und die 404 im
+Gerüst, 1440/390/320 px, hell und dunkel: **480 Messungen, 0 mit Befund** — axe 0 Verstöße
+(320 Läufe bei 1440/390 px), keine CSP-Meldung (480), kein waagrechtes Scrollen bei 320/390 px
+(320), Seitenmessungen AK4/AK6/AK44/AK49/AK50/AK52 (4 434 Einzelprüfungen), Zielgrößen 24 px
+(320) und 44 px mit grobem Zeiger (160), reduzierte Bewegung (80), ARIA-Schnappschuss (160),
+Tastatur (60), 200 % Zoom mit Textabständen (160), Maßprobe und Fokus nach dem Austausch auf
+`/muster`. Abläufe (`--ablaeufe`): AK7, AK8 (`/pruefen`, `/freigaben`), AK45, AK53, AK54 —
+**6 Messungen, 0 mit Befund**. Gegenüberstellung mit der Leinwand neu erzeugt (lokal unter
+`.claude/arbeit/s/gesamttest/p1c/probe14/vergleich/`, nicht eingecheckt).
+
+### Prüfungen am Ende von Abschnitt C
+
+- **Gesamtlauf** aller Testdateien in fünf Gruppen nacheinander (je höchstens 1 400 Tests,
+  über `arbeit/schwer`): **5 605 passed, 33 skipped, 0 failed** (Gruppe 1: 1 393 passed/1 skipped, 2: 1 383/6, 3: 1 354/12, 4: 1 383/14, 5: 92/0; zusammen 5 638 = alle gesammelten Tests; übersprungen nach ihren eigenen Bedingungen, u. a. PostgreSQL ohne `ACCOUNTI_TEST_PG`)
+- `ruff` 0.16.2 und 0.17.1 (`check`, `format --check`, ohne Cache) sauber; `mypy src/` ohne
+  Befund (329 Dateien).
+- **CSS** 37 533 von 40 960 Bytes (eine Datei); Skripte 6 176 von 20 480; Sprite 6 508 von
+  15 360.
