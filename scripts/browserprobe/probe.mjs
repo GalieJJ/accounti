@@ -15,7 +15,10 @@
 // Kurztitel bei 320 px), AK49 (Angaben überlappen nicht, Codefeld-Label), AK50
 // (tabular-nums, Symbole, Gewichte, reduzierte Bewegung), AK52 (Rollen, ARIA-Schnappschuss),
 // AK55 (Zielgrößen 24/44, Tastatur auf /pruefen, Arbeitsfläche, /konto), AK56 (640 × 400
-// mit Textabständen); --ablaeufe dazu AK7, AK8, AK45, AK53 und AK54. --vergleich legt Bilder der
+// mit Textabständen); Runde 2 je Breite (z. B. --breiten 1920,1440,1280,1024,390,320) ohne
+// und mit Textabständen „abschnitt“ (nichts abgeschnitten, scrollende Rahmen bedienbar,
+// jedes Bedienelement anklickbar, Seitentitel im Kopf ganz); --ablaeufe dazu AK7, AK8,
+// AK45, AK53 und AK54. --vergleich legt Bilder der
 // Anwendung neben die Referenzbilder aus leinwand.mjs (ergebnisse/<datum>-vergleich.html).
 // Ergebnis: ergebnisse/<datum>-<browser>.json; Rückgabewert 1 bei einem Befund.
 import { chromium, firefox } from 'playwright';
@@ -29,7 +32,7 @@ const HIER = path.dirname(fileURLToPath(import.meta.url));
 const AXE_DATEI = path.join(HIER, 'node_modules', 'axe-core', 'axe.min.js');
 const AXE_SHA256 = '20c09fe157a8a34a30e241aaa1fcdade657734f08ab379ecfbeb7d45cc46e878';
 const AXE_REGELN = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
-const HOEHEN = { 1440: 900, 390: 844, 320: 568 };
+const HOEHEN = { 1920: 1080, 1440: 900, 1280: 800, 1024: 768, 390: 844, 320: 568 };
 
 // Token nach Plan P1, L1 (hell, dunkel) — die Maßprobe vergleicht die berechneten Werte
 const TOKEN = {
@@ -445,7 +448,7 @@ async function zoom(seite) {
   return seite.evaluate(() => {
     const abgeschnitten = [];
     for (const e of document.querySelectorAll('main *, header *')) {
-      if (e.closest('.unsichtbar, svg, [hidden], .sprunglink, .kopf-titel') || e.matches('input, select, textarea')) continue;
+      if (e.closest('.unsichtbar, svg, [hidden], .sprunglink') || e.matches('input, select, textarea')) continue;
       const cs = getComputedStyle(e);
       // visuell versteckt (Screenreader-Text, etwa der Name der Gesellschaft im schmalen Kopf)
       if (cs.clipPath === 'inset(50%)' || (e.getBoundingClientRect().width <= 1 && e.getBoundingClientRect().height <= 1)) continue;
@@ -455,6 +458,75 @@ async function zoom(seite) {
     const scroll = document.documentElement.scrollWidth;
     return { ok: scroll <= window.innerWidth && abgeschnitten.length === 0, scroll, fenster: window.innerWidth, abgeschnitten: abgeschnitten.slice(0, 8) };
   });
+}
+
+// A107/AK56 bei jeder Breite (Runde 2, D-H1/D-M1): nichts abgeschnitten — kein Inhalt
+// breiter oder höher als ein Rahmen mit overflow hidden/clip; ein Rahmen, der scrollt, ist
+// fokussierbar und benannt (role=region, aria-label; axe scrollable-region-focusable);
+// jedes Bedienelement in Kopf und Inhalt trifft elementFromPoint in seiner Mitte (nach
+// scrollIntoView); der Seitentitel im schmalen Kopf liegt ganz in der Kopfleiste; die
+// Seite scrollt nicht waagrecht. Läuft in der Seite.
+function abschnittInSeite() {
+  const befunde = [];
+  const name = (e) => `${e.tagName.toLowerCase()}.${String(e.className?.baseVal ?? e.className).trim().replace(/\s+/g, '.')} "${(e.textContent || e.getAttribute('aria-label') || '').replace(/\s+/g, ' ').trim().slice(0, 30)}"`;
+  const versteckt = (e) => e.closest('.unsichtbar, [hidden], .sprunglink, .druckkopf, details:not([open]) > :not(summary)');
+  const klemmt = (w) => w === 'hidden' || w === 'clip';
+  const scrollt = (w) => w === 'auto' || w === 'scroll';
+  for (const e of document.querySelectorAll('main *, header *')) {
+    if (versteckt(e) || e.closest('svg') || e.matches('input, select, textarea, iframe')) continue;
+    const cs = getComputedStyle(e);
+    const r = e.getBoundingClientRect();
+    if (cs.display === 'none' || cs.clipPath === 'inset(50%)' || (r.width <= 1 && r.height <= 1)) continue;
+    const breiter = e.scrollWidth > e.clientWidth + 1;
+    const hoeher = e.scrollHeight > e.clientHeight + 1;
+    if ((breiter && klemmt(cs.overflowX)) || (hoeher && klemmt(cs.overflowY))) {
+      befunde.push(`abgeschnitten: ${name(e)} ${e.scrollWidth}/${e.clientWidth} ${e.scrollHeight}/${e.clientHeight}`);
+    } else if ((breiter && scrollt(cs.overflowX)) || (hoeher && scrollt(cs.overflowY))) {
+      const fokus = e.tabIndex >= 0;
+      const benannt = e.getAttribute('role') === 'region' && (e.getAttribute('aria-label') || e.getAttribute('aria-labelledby'));
+      if (!fokus || !benannt) befunde.push(`scrollt ohne Fokus/Namen: ${name(e)}`);
+    }
+  }
+  const kopf = document.querySelector('body > header.kopfleiste');
+  const titel = document.querySelector('.kopf-titel');
+  if (kopf && titel && getComputedStyle(titel).display !== 'none') {
+    const k = kopf.getBoundingClientRect();
+    const t = titel.getBoundingClientRect();
+    const passt = titel.scrollWidth <= titel.clientWidth + 1 && titel.scrollHeight <= titel.clientHeight + 1 && t.top >= k.top - 1 && t.bottom <= k.bottom + 1;
+    if (!passt) befunde.push(`Kopftitel passt nicht: "${titel.textContent.trim()}" ${titel.scrollWidth}/${titel.clientWidth} ${Math.round(t.top)}–${Math.round(t.bottom)} in ${Math.round(k.top)}–${Math.round(k.bottom)}`);
+  }
+  const ziele = document.querySelectorAll('main a[href], main button, main input:not([type=hidden]), main select, main textarea, main summary, header a[href], header button, header summary');
+  for (const e of ziele) {
+    if (versteckt(e)) continue;
+    const cs = getComputedStyle(e);
+    if (cs.display === 'none' || cs.visibility === 'hidden' || cs.clipPath === 'inset(50%)') continue;
+    const vorab = e.getBoundingClientRect();
+    if (vorab.width <= 1 || vorab.height <= 1) continue;
+    e.scrollIntoView({ block: 'center', inline: 'center' });
+    // ein Link über zwei Zeilen: die Mitte seines ersten Stücks (die Mitte des Rechtecks
+    // läge zwischen den Zeilen)
+    const r = cs.display === 'inline' ? e.getClientRects()[0] : e.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+    const treffer = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight ? document.elementFromPoint(x, y) : null;
+    const label = treffer?.closest('label');
+    const ok = treffer && (treffer === e || e.contains(treffer) || (label && (label.control === e || label.contains(e))));
+    if (!ok) befunde.push(`nicht anklickbar: ${name(e)} trifft ${treffer ? name(treffer) : 'nichts'}`);
+  }
+  window.scrollTo(0, 0);
+  for (const e of document.querySelectorAll('main *')) if (e.scrollLeft) e.scrollLeft = 0;
+  const seite = document.documentElement.scrollWidth;
+  if (seite > innerWidth) befunde.push(`Seite scrollt waagrecht: ${seite}/${innerWidth}`);
+  return befunde;
+}
+
+async function abschnitt(seite, abstand = false) {
+  if (abstand) {
+    await seite.addStyleTag({ content: TEXTABSTAND });
+    await seite.waitForTimeout(100);
+  }
+  const befunde = await seite.evaluate(abschnittInSeite);
+  return { ok: befunde.length === 0, abstand, fehler: befunde.slice(0, 12), anzahl: befunde.length };
 }
 
 // --- Schritt 14: Abläufe über mehrere Seiten (AK7, AK8, AK45, AK53, AK54) --------------
@@ -690,6 +762,18 @@ async function main() {
               if (breite !== 320) eintrag.messungen.ziele = await zielgroessen(seite, 24);
               if (breite === 390) eintrag.messungen.ak52 = await ariaTabelle(seite);
               if (breite === 1440 && thema === 'hell') eintrag.messungen.bewegung = await bewegung(seite);
+            }
+            // Abgeschnittenes bei jeder Breite (Runde 2); mit Textabständen einmal je Breite
+            if (!auslassen.has('abschnitt')) {
+              eintrag.messungen.abschnitt = await abschnitt(seite);
+              if (thema === (s.thema ?? themen[0])) {
+                const z = await umgangen.newPage();
+                await z.setViewportSize(viewport);
+                await z.emulateMedia({ colorScheme });
+                await z.goto(welt.basis + s.pfad, { waitUntil: 'load' });
+                eintrag.messungen.abschnitt_abstand = await abschnitt(z, true);
+                await z.close();
+              }
             }
             if (s.vorlage === '/muster' && !s.thema && breite === 1440 && !auslassen.has('fokus')) {
               eintrag.messungen.fokus = await MESSUNGEN.fokus(seite);
