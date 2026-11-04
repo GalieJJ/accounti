@@ -795,7 +795,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
 ### Schritt 1 — Tabellen, Schutz, Migration · P4a
 
-- [ ] **Tabellen und Modelle** (`db/tabellen_einstellungen.py`, `models/einstellungen.py`,
+- [x] **Tabellen und Modelle** (`db/tabellen_einstellungen.py`, `models/einstellungen.py`,
   `db/repo_einstellungen.py`):
   - **`einstellungen`:** `id` Integer PK, `abschnitt` String(40) indiziert, `version` Integer,
     `UniqueConstraint(abschnitt, version)`, `daten` Text (kanonisches JSON), `schema_version`
@@ -830,13 +830,13 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   - `::test_geheimnis_name_eindeutig`
 
   Rot; Umsetzung; grün.
-- [ ] **Schutz für SQLite und PostgreSQL** (`db/schutz.py`: `nur_anfuegen_sql(tabelle, text,
+- [x] **Schutz für SQLite und PostgreSQL** (`db/schutz.py`: `nur_anfuegen_sql(tabelle, text,
   dialekt) -> list[str]`, PG-Funktion `accounti_nur_anfuegen()`; `after_create` an
   `einstellungen`). *Tests* `tests/test_einstellungen_tabellen.py::test_trigger_postgresql`
   (`@mit_postgresql`: `UPDATE`, `DELETE`, `TRUNCATE` scheitern mit „ist unveränderbar“, `INSERT`
   geht) und `::test_trigger_nach_init_db_postgresql` (Weg über `create_all`). Lokal mit
   `ACCOUNTI_TEST_PG` (postgres:16 im Wegwerf-Container).
-- [ ] **PostgreSQL in der CI** (Prüfbefund M11; AK25 sonst nur von Hand belegt):
+- [x] **PostgreSQL in der CI** (Prüfbefund M11; AK25 sonst nur von Hand belegt):
   `.github/workflows/ci.yaml` bekommt einen Job `postgresql` (Python 3.12) mit
   `services: postgres` (Abbild `postgres:16.<n>`, genau gepinnt; beim Abzweigen die neueste
   Unterversion nehmen, die mindestens zwei Wochen alt ist), `POSTGRES_PASSWORD` nur für die CI,
@@ -850,7 +850,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   ist schon Abhängigkeit, eine Python-Abhängigkeit kommt nicht hinzu. Scheitert ein bestehender PostgreSQL-Test, wird er in einem eigenen Commit
   behoben oder mit Befund im PR genannt, nicht still übersprungen. Ohne den Dienst (lokal)
   überspringen die Tests wie bisher.
-- [ ] **Migration** `alembic/versions/<rev>_add_einstellungen.py` mit `down_revision = "<kopf>"`
+- [x] **Migration** `alembic/versions/<rev>_add_einstellungen.py` mit `down_revision = "<kopf>"`
   nach dem Muster `ddc9a184ddb4`:
   - vorhandene Tabellen übernehmen (`init_db` kann sie schon angelegt haben)
   - Trigger je Dialekt mit `IF NOT EXISTS` bzw. `CREATE OR REPLACE`
@@ -874,7 +874,7 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
 
   Dazu `tests/test_db_upgrade.py` (Paket A) mit `SCHEMA_STAND` grün. Alembic als Unterprozess mit
   `ACCOUNTI_DB` wie `tests/test_migration_belegvollstaendigkeit.py`.
-- [ ] **Kopfabhängige Migrationstests umstellen** (G-M1, **Pflicht vor dem Migrations-Commit**).
+- [x] **Kopfabhängige Migrationstests umstellen** (G-M1, **Pflicht vor dem Migrations-Commit**).
   Auf dem Abzweigpunkt `git grep -n -E '"downgrade", *"-1"|get_current_head|\(head\)' tests/`
   ausführen. Jeden Treffer, der eine bestimmte Migration meint, auf feste Revisionen umstellen:
   Upgrade bis zur eigenen Revision des Tests, Downgrade auf deren `down_revision`. Prüfungen wie
@@ -890,6 +890,29 @@ def stand_der_freigaben(session, art, zeitraum, daten) -> FreigabeStand   # pers
   Was ein Branch bis zum Abzweigen schon umgestellt hat, entfällt. Die Liste steht im PR. Ist P1
   vorher gemergt, gehören dessen Tests dazu (`KOPF = get_current_head()` im P1-Plan, Schritt 3
   „Vorlieben am Benutzer“; Offener Punkt 8).
+
+  *Umgesetzt (Schritt 1):*
+  - Revision `83dfa5750c7f` (`REV`) an `1dd2f6b7c6c8` (P1), `SCHEMA_STAND = "83dfa5750c7f"`.
+  - Kopf-Tests: Auf dem Abzweigpunkt findet der `git grep` nur erlaubte Zählungen
+    (`count("(head)") == 1`) und den Wächter `tests/test_migration_regeln.py`, den P1
+    mitgebracht hat. Alle oben genannten Stellen sind auf `main` schon umgestellt, auch die
+    P1-Tests (`VORLIEBEN` fest, `VOR` aus dem `ScriptDirectory`). Umzustellen war nichts;
+    mit `REV` als Kopf grün: `test_db_upgrade.py`, `test_migration_web.py`,
+    `test_api_schema.py`, `test_migration_{belegvollstaendigkeit,steuerkennzeichen,
+    verrechnungen,anlagen_buchung,regeln}.py` (SQLite und PostgreSQL).
+  - **Abweichung:** Auch `einstellungsantraege` steht in `db.GESCHUETZT`. Sonst ginge ein
+    Massen-`UPDATE` über die Sitzung an der ORM-Sperre „nur aus offen“ vorbei.
+  - Trigger-Text „Die Einstellungsversion ist unveränderbar“ (SQLite `RAISE(ABORT)`,
+    PostgreSQL `RAISE EXCEPTION '% ist unveränderbar', TG_ARGV[0]`). Trigger unter
+    PostgreSQL: `einstellungen_nur_anfuegen` (UPDATE/DELETE je Zeile),
+    `einstellungen_nicht_leeren` (TRUNCATE). Die Migration nimmt die Anweisungen aus
+    `db/schutz.py`; das Downgrade entfernt die Funktion nur, wenn kein Trigger sie mehr
+    nutzt.
+  - Zusätzlich im Repository: `pruefe_kette(s)` (Lücke, falscher Vorgänger, veränderte
+    Zeile je Abschnitt) und `zeilenhash`/`versionshash`; `normalform` liegt in
+    `einstellungen/leser.py` (ohne Fachimporte), `einstellungen.normalform` reicht sie weiter.
+  - CI-Job `postgresql` mit `postgres:16.15` (veröffentlicht am 13.08.2026; 16.16 gibt es
+    am 04.11.2026 noch nicht), `ACCOUNTI_TEST_PG` auf den Dienst, `pytest` ganz.
 
 ### Schritt 2 — Abschnittsleser und Inventar · P4a
 
