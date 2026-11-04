@@ -1,0 +1,6 @@
+{#- Fehler als Hinweis mit Weg zurück — im Gerüst (fehler.html) und mit HX-Request als
+    Fragment (dann role="alert"). 403 der Rolle nennt Rechte und Rollen (Rollenkennungen
+    deutsch, auch in der englischen Oberfläche). -#}
+{% import "_komponenten.html" as k with context %}
+<div class="fehlerseite">{% call k.hinweis("fehler", neu=fragment) %}{{ fehlermeldung | uebersetzt }}{% if verweigerung %}<br>{{ _("Nötig:") }} {% for r in verweigerung.rechte %}{% if not loop.first %} {{ _("oder") }} {% endif %}{{ _(recht_text[r]) }}{% endfor %}.<br>{{ _("Enthalten in den Rollen:") }} {% for rolle in verweigerung.rollen %}{% if not loop.first %}, {% endif %}<span lang="de">{{ rolle.value }}</span>{% endfor %}.{% endif %}{% endcall %}
+<p><a href="{{ zurueck }}">{{ _("Zurück") }}</a></p></div>

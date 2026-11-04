@@ -37,6 +37,7 @@ from accounti.api.sitzung import (
     dienste_von,
     erfordert,
     gesellschaft_db,
+    verweigert,
 )
 from accounti.api.vorlagen import seite
 from accounti.buchung.konten import KONTO_ZIFFERN
@@ -645,13 +646,7 @@ async def korrigieren_seite(
     felder = await formular(request)
     mit_regel = felder.get("regel") == "1"
     if mit_regel and not a.darf(Recht.REGELN_LERNEN):
-        raise HTTPException(
-            403,
-            Text(
-                "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                gesellschaft=a.gesellschaft.name,
-            ),
-        )
+        raise verweigert(a, Recht.REGELN_LERNEN)
     g = a.gesellschaft
 
     def ausfuehren(s: Session, person: str) -> list[Any]:
@@ -702,13 +697,7 @@ async def zurueckstellen_seite(
     from accounti.aufgaben import lade_aufgaben_einstellungen
 
     if not (a.darf(Recht.BUCHEN) or a.darf(Recht.BUCHUNG_FREIGEBEN)):
-        raise HTTPException(
-            403,
-            Text(
-                "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                gesellschaft=a.gesellschaft.name,
-            ),
-        )
+        raise verweigert(a, Recht.BUCHEN, Recht.BUCHUNG_FREIGEBEN)
     felder = await formular(request)
     g = a.gesellschaft
 

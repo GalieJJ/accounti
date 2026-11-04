@@ -66,6 +66,7 @@ const { values: opt } = parseArgs({
     auslassen: { type: 'string', default: '' },
     bilder: { type: 'boolean', default: false },
     vergleich: { type: 'string' },
+    fehlerseite: { type: 'boolean', default: false },
     ziel: { type: 'string', default: path.join(HIER, 'ergebnisse') },
   },
 });
@@ -272,6 +273,12 @@ async function main() {
     }
   }
 
+  if (opt.fehlerseite) {
+    // die 404 im Gerüst (angemeldet) — axe, CSP und Breite auch für Fehlerseiten
+    const erwartet = Object.fromEntries(Object.keys(welt.benutzer).map((n) => [n, 404]));
+    seiten.push({ vorlage: '(404)', pfad: '/browserprobe-gibt-es-nicht', art: 'html', erwartet, status: 404 });
+  }
+
   const browser = await browserTyp.launch();
   const ergebnisse = [];
   try {
@@ -280,7 +287,7 @@ async function main() {
       const normal = await browser.newContext({ storageState: stand });
       const umgangen = await browser.newContext({ storageState: stand, bypassCSP: true });
       for (const s of seiten) {
-        if (s.erwartet[name] !== 200) continue;
+        if (s.erwartet[name] !== (s.status ?? 200)) continue;
         for (const thema of s.thema ? [s.thema] : themen) {
           for (const breite of breiten) {
             const eintrag = { benutzer: name, pfad: s.pfad, thema, breite, messungen: {} };
@@ -330,7 +337,7 @@ async function main() {
               eintrag.messungen.ak2 = await MESSUNGEN.ak2(p, { axe });
               await p.close();
             }
-            eintrag.ok = Object.values(eintrag.messungen).every((m) => m.ok) && eintrag.status === 200;
+            eintrag.ok = Object.values(eintrag.messungen).every((m) => m.ok) && eintrag.status === (s.status ?? 200);
             ergebnisse.push(eintrag);
             process.stdout.write(eintrag.ok ? '.' : 'F');
           }

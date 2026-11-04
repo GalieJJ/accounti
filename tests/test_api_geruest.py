@@ -127,6 +127,23 @@ def test_genau_ein_h1(probe, alle):
     for pfad in [*_html_seiten(probe), "/muster?theme=dunkel"]:
         assert alle.get(pfad).text.count("<h1") == 1, pfad
     assert probe.web.client().get("/anmelden").text.count("<h1") == 1
+    # Fehlerseiten (Schritt 11): 404 mit und ohne Anmeldung, 403, 409, 422
+    assert alle.get("/gibt/es/nicht").text.count("<h1") == 1
+    assert probe.web.client().get("/gibt/es/nicht").text.count("<h1") == 1
+    leo = probe.web.angemeldet("leo")
+    daten = {"csrf": _csrf(leo), "zeitraum": "2026-09"}
+    assert leo.post("/freigaben/ustva", data=daten).text.count("<h1") == 1
+    falsch = {"csrf": _csrf(alle), "einmalcode": "0", "freigabe_hash": "0" * 64}
+    r = alle.post("/freigaben/zahlungslauf/1", data=falsch)
+    assert r.status_code == 409 and r.text.count("<h1") == 1
+    r = alle.post("/freigaben/ustva", data={"csrf": _csrf(alle), "zeitraum": "x"})
+    assert r.status_code == 422 and r.text.count("<h1") == 1
+
+
+def _csrf(client) -> str:  # noqa: ANN001
+    from tests.api_hilfe import csrf
+
+    return csrf(client)
 
 
 def test_brotkrumen_unterhalb_eines_bereichs(probe, alle):
@@ -186,8 +203,24 @@ def test_hilfe_link_gleiche_stelle(welt):
     for name in ("jan", "fritz"):
         client = welt.angemeldet(name)
         stellen = set()
-        for pfad in ("/", "/pruefen", "/pruefen/regeln", "/freigaben", "/muster"):
-            stelle, namen = _hilfe_stelle(client.get(pfad).text)
+        seiten = [client.get(p).text for p in ("/", "/pruefen", "/pruefen/regeln")]
+        seiten += [client.get(p).text for p in ("/freigaben", "/muster", "/menue")]
+        # Fehlerseiten im Gerüst (Schritt 11): 404, 403 bzw. 422, 503
+        seiten.append(client.get("/gibt/es/nicht").text)
+        daten = {"csrf": _csrf(client), "zeitraum": "quatsch"}
+        r = client.post("/freigaben/ustva", data=daten)
+        assert r.status_code == (422 if name == "fritz" else 403)
+        seiten.append(r.text)
+        with pytest.MonkeyPatch.context() as mp:
+            from accounti.api.seiten import start
+
+            mp.setattr(start, "kennzahlen", _beschaeftigt)
+            r = client.get("/")
+            assert r.status_code == 503
+            seiten.append(r.text)
+        for html in seiten:
+            pfad = re.search(r"<title>([^<]*)</title>", html).group(1)
+            stelle, namen = _hilfe_stelle(html)
             stellen.add(stelle)
             vorn = [n for n in namen if n in reihenfolge]
             erwartet = [n for n in reihenfolge if n in vorn]
@@ -196,6 +229,12 @@ def test_hilfe_link_gleiche_stelle(welt):
         assert len(stellen) == 1, (name, stellen)
     _, namen = _hilfe_stelle(welt.client().get("/anmelden").text)
     assert namen[:3] == ["sprunglink", "wortmarke", "kopf-hilfe"]
+
+
+def _beschaeftigt(*_a, **_k):  # noqa: ANN002, ANN003, ANN202
+    from sqlalchemy.exc import OperationalError
+
+    raise OperationalError("SELECT …", {}, Exception("database is locked"))
 
 
 def test_benutzermenue_breit_und_symbol_schmal(welt):

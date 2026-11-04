@@ -37,7 +37,7 @@ from starlette.routing import Match
 from starlette.templating import Jinja2Templates
 
 from accounti import __version__, i18n
-from accounti.api.geruest import geruest
+from accounti.api.geruest import Geruest, geruest
 from accounti.api.hilfe_inhalt import TASTEN_PRUEFEN
 from accounti.api.htmx import ist_htmx
 from accounti.api.registry import Navigationspunkt
@@ -382,5 +382,36 @@ async def seite(
             antwort = VORLAGEN.TemplateResponse(
                 request, vorlage, kontext, status_code=status
             )
+    antwort.headers["Vary"] = "Accept-Language"
+    return antwort
+
+
+def fehlerseite_500(accept_language: str | None) -> HTMLResponse:
+    """Die 500 als schlichte Designseite — direkt mit der Jinja-Umgebung: Sprache nur
+    aus ``Accept-Language``, keine Datenbank, kein Benutzer, keine Einzelheiten (wer bei
+    500 noch die Datenbank fragt, scheitert womöglich ein zweites Mal)."""
+    sprache = i18n.waehle_sprache(None, accept_language, i18n.STANDARD)
+    kontext: dict[str, Any] = {
+        "angemeldet": None,
+        "csrf": "",
+        "geruest": Geruest(),
+        "navigation": [],
+        "version": __version__,
+        "titel": N_("Interner Fehler"),
+        "meldung": None,
+        "fehler": None,
+        "sprache": sprache,
+        "sprachen": i18n.NAMEN,
+        "benutzersprache": None,
+        "pfad": "/",
+        "htmx_konfig": HTMX_KONFIG,
+        "hx_kopf": json.dumps({}),
+        "darstellung": "auto",
+        "color_scheme": "light dark",
+        "brotkrumen": None,
+    }
+    with i18n.sprache_aktiv(sprache):
+        html = UMGEBUNG.get_template("fehler_500.html").render(kontext)
+    antwort = HTMLResponse(html, status_code=500)
     antwort.headers["Vary"] = "Accept-Language"
     return antwort

@@ -26,14 +26,21 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from accounti.api import rest, seiten
 from accounti.api.dienste import Dienste
-from accounti.api.htmx import aktueller_pfad
+from accounti.api.geruest import zurueck_pfad
+from accounti.api.htmx import aktueller_pfad, ist_htmx
 from accounti.api.lesezugriff import Lesezugriff
 from accounti.api.registry import endpunkte, navigation, routermodule
 from accounti.api.seiten.anmeldung import sicheres_ziel
 from accounti.api.sicherheit import FEHLER, Sicherheit, protokollpfad
-from accounti.api.sitzung import NichtAngemeldetError, merke_benutzersprache
+from accounti.api.sitzung import (
+    NichtAngemeldetError,
+    Verweigerung,
+    merke_benutzersprache,
+    vielleicht_angemeldet,
+)
 from accounti.api.vorlagen import seite
 from accounti.i18n import N_, Text
+from accounti.models.auth import RECHT_TEXT
 
 BESCHAEFTIGT = Text("Ein Lauf schreibt gerade — bitte gleich noch einmal")
 # Starlette meldet Routing-Fehler mit der englischen Statusphrase („Not Found“) —
@@ -58,6 +65,38 @@ def fehlertext(fehler: StarletteHTTPException) -> object:
     return Text(
         "Die Anfrage ist fehlgeschlagen (HTTP %(status)s)", status=fehler.status_code
     )
+
+
+# h1 je Status (Spec 10c A9; Plan P1, Entscheidung „Fehlerseiten“)
+FEHLERTITEL = {
+    403: N_("Keine Berechtigung"),
+    404: N_("Nicht gefunden"),
+    409: N_("Inzwischen geändert"),
+    413: N_("Zu groß"),
+    422: N_("Angaben prüfen"),
+    503: N_("Gerade beschäftigt"),
+}
+
+
+async def fehlerseite(
+    request: Request,
+    status: int,
+    meldung: object,
+    verweigerung: Verweigerung | None = None,
+) -> Response:
+    """Fehlerseite im Gerüst ohne Zähler; mit ``HX-Request`` als Fragment (Hinweis mit
+    ``role="alert"``, AK58)."""
+    fragment = ist_htmx(request) and status in FEHLERTITEL
+    werte = {
+        "titel": FEHLERTITEL.get(status, N_("Fehler")),
+        "fehlermeldung": meldung,
+        "verweigerung": verweigerung,
+        "recht_text": RECHT_TEXT,
+        "zurueck": zurueck_pfad(request, getattr(request.state, "angemeldet", None)),
+        "fragment": fragment,
+    }
+    vorlage = "_fehler.html" if fragment else "fehler.html"
+    return await seite(request, vorlage, werte, status=status, zaehler=False)
 
 
 def datenbank_beschaeftigt(fehler: OperationalError) -> bool:
@@ -137,14 +176,16 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
                 status_code=fehler.status_code,
                 headers=kopf,
             )
-        await merke_benutzersprache(request)
-        antwort = await seite(
-            request,
-            "meldung.html",
-            {"titel": N_("Fehler"), "fehler": fehlertext(fehler)},
-            status=fehler.status_code,
-            zaehler=False,
-        )
+        if fehler.status_code == 404 and not hasattr(request.state, "angemeldet"):
+            # ohne Route: mit gültiger Sitzung im Gerüst (Datenbankfehler → schlicht)
+            await vielleicht_angemeldet(request)
+        else:
+            await merke_benutzersprache(request)
+        detail = fehler.detail
+        if isinstance(detail, Verweigerung):
+            antwort = await fehlerseite(request, 403, detail.text, detail)
+        else:
+            antwort = await fehlerseite(request, fehler.status_code, fehlertext(fehler))
         antwort.headers.update(kopf)
         return antwort
 
@@ -157,9 +198,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
         meldung = Text("Ungültige Angaben: %(felder)s", felder=felder)
         if _ist_api(request):
             return JSONResponse({"fehler": str(meldung)}, status_code=422)
-        return await seite(
-            request, "meldung.html", {"fehler": meldung}, status=422, zaehler=False
-        )
+        return await fehlerseite(request, 422, meldung)
 
     @app.exception_handler(OperationalError)
     async def beschaeftigt(request: Request, fehler: OperationalError) -> Response:
@@ -178,13 +217,7 @@ def erstelle_app(dienste: Dienste) -> FastAPI:
             return JSONResponse(
                 {"fehler": str(BESCHAEFTIGT)}, status_code=503, headers=kopf
             )
-        antwort = await seite(
-            request,
-            "meldung.html",
-            {"titel": N_("Fehler"), "fehler": BESCHAEFTIGT},
-            status=503,
-            zaehler=False,
-        )
+        antwort = await fehlerseite(request, 503, BESCHAEFTIGT)
         antwort.headers.update(kopf)
         return antwort
 

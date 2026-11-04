@@ -390,6 +390,7 @@ textarea.eingabe{padding:var(--a-2) var(--a-3)}
 .menue{display:flex;flex-direction:column;gap:var(--a-5)}
 .menue h1, .menue p{margin:0}
 .menue .etikett{margin-bottom:var(--a-2)}
+.fehlerseite{display:flex;flex-direction:column;align-items:flex-start;gap:var(--a-4)}
 .unternavigation{display:flex;flex-direction:column;gap:var(--a-1);margin:0;padding:0;list-style:none}
 .unternavigation a{display:flex;align-items:center;gap:var(--a-2);min-height:2.5rem;padding:0 var(--a-3);color:var(--text);text-decoration:none;border:1px solid transparent;border-radius:var(--radius)}
 .unternavigation a[aria-current="true"]{font-weight:600;background-color:var(--flaeche);border-color:var(--linie)}

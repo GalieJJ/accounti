@@ -36,7 +36,7 @@ from accounti.auth.dienst import (
 )
 from accounti.betrieb.gesellschaften import Gesellschaft
 from accounti.i18n import Text
-from accounti.models.auth import Benutzer, Recht, Sitzung
+from accounti.models.auth import ROLLEN_RECHTE, Benutzer, Recht, Rolle, Sitzung
 
 SICHERE_METHODEN = frozenset({"GET", "HEAD", "OPTIONS"})
 CSRF_FELD = "csrf"
@@ -182,18 +182,36 @@ async def merke_benutzersprache(request: Request) -> None:
         request.state.benutzersprache = a.benutzer.sprache
 
 
+@dataclass(frozen=True)
+class Verweigerung:
+    """``detail`` einer 403 der Rolle (Spec 10c A9, AK48): der bisherige Satz als eigene
+    msgid, dazu die fehlenden Rechte (eines genügt) und die Rollen, die eines davon
+    enthalten. ``str()`` ist der Satz (JSON der API, Protokoll)."""
+
+    text: Text
+    rechte: tuple[Recht, ...]
+    rollen: tuple[Rolle, ...]
+
+    def __str__(self) -> str:
+        return str(self.text)
+
+
+def verweigert(a: Angemeldet, *rechte: Recht) -> HTTPException:
+    """403 mit Recht und Rollen; ``rechte``: eines davon hätte genügt."""
+    rollen = tuple(r for r in Rolle if any(x in ROLLEN_RECHTE[r] for x in rechte))
+    satz = Text(
+        "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
+        gesellschaft=a.gesellschaft.name,
+    )
+    return HTTPException(403, Verweigerung(satz, tuple(rechte), rollen))
+
+
 def erfordert(recht: Recht) -> Callable[..., Awaitable[Angemeldet]]:
     """Dependency: angemeldet **und** das Recht in der aktiven Gesellschaft."""
 
     async def abhaengigkeit(a: AngemeldetDep) -> Angemeldet:
         if not a.darf(recht):
-            raise HTTPException(
-                403,
-                Text(
-                    "Ihre Rolle in %(gesellschaft)s erlaubt das nicht",
-                    gesellschaft=a.gesellschaft.name,
-                ),
-            )
+            raise verweigert(a, recht)
         return a
 
     abhaengigkeit.__name__ = f"erfordert_{recht.value}"

@@ -255,6 +255,16 @@ def brotkrumen(
     return ((bereich.titel, bereich.pfad),)
 
 
+def zurueck_pfad(request: Request, a: Angemeldet | None) -> str:
+    """Weg zurück von einer Fehlerseite: der Start des aktiven Bereichs, sonst ``/``."""
+    if a is None:
+        return "/"
+    punkte: Sequence[Navigationspunkt] = getattr(request.app.state, "navigation", [])
+    aktiv = _aktiver_bereich(punkte, a.rechte, request.url.path)
+    gewaehlt = bereichspunkte(punkte, a.rechte)
+    return gewaehlt[aktiv].pfad if aktiv in gewaehlt else "/"
+
+
 def _aktiver_bereich(
     punkte: Sequence[Navigationspunkt], rechte: Collection[Recht], pfad: str
 ) -> Bereich | None:

@@ -64,7 +64,15 @@ def texte_aus_python() -> set[str]:
 
 
 def alle_texte() -> set[str]:
-    return texte_aus_vorlagen() | texte_aus_python() | set(MONATE)
+    # RECHT_TEXT: die Namen der Rechte stehen auf der 403-Seite (Plan P1, Schritt 11)
+    from accounti.models.auth import RECHT_TEXT
+
+    return (
+        texte_aus_vorlagen()
+        | texte_aus_python()
+        | set(MONATE)
+        | set(RECHT_TEXT.values())
+    )
 
 
 def test_jeder_text_hat_eine_uebersetzung():
